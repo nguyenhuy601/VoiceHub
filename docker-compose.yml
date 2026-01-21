@@ -1,0 +1,168 @@
+version: '3.8'
+
+services:
+  # Databases
+  mongodb:
+    image: mongo:6
+    container_name: voice-chat-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    networks:
+      - voice-chat-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: voice-chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - voice-chat-network
+
+  # API Gateway
+  api-gateway:
+    build: ./services/api-gateway
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=development
+      - PORT=8000
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3004
+      - ORGANIZATION_SERVICE_URL=http://organization-service:3013
+      - CHAT_SYSTEM_SERVICE_URL=http://chat-system-service:3006
+      - TASK_SERVICE_URL=http://task-service:3009
+      - FRIEND_SERVICE_URL=http://friend-service:3002
+    depends_on:
+      - auth-service
+      - user-service
+      - organization-service
+      - chat-system-service
+      - task-service
+      - friend-service
+    networks:
+      - voice-chat-network
+
+  # Microservices
+  auth-service:
+    build: ./services/auth-service
+    container_name: auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-auth?authSource=admin
+      - JWT_SECRET=your-super-secret-jwt-key
+      - JWT_REFRESH_SECRET=your-refresh-secret
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - voice-chat-network
+
+  user-service:
+    build: ./services/user-service
+    container_name: user-service
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-users?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      - mongodb
+    networks:
+      - voice-chat-network
+
+  organization-service:
+    build: ./services/organization-service
+    container_name: organization-service
+    ports:
+      - "3013:3013"
+    environment:
+      - NODE_ENV=development
+      - PORT=3013
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-organization?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      - mongodb
+    networks:
+      - voice-chat-network
+
+  chat-system-service:
+    build: ./services/chat-system-service
+    container_name: chat-system-service
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=development
+      - PORT=3006
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-messages?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - voice-chat-network
+
+  task-service:
+    build: ./services/task-service
+    container_name: task-service
+    ports:
+      - "3009:3009"
+    environment:
+      - NODE_ENV=development
+      - PORT=3009
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-tasks?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      - mongodb
+    networks:
+      - voice-chat-network
+
+  friend-service:
+    build: ./services/friend-service
+    container_name: friend-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-friends?authSource=admin
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      - mongodb
+    networks:
+      - voice-chat-network
+
+  # Client (Frontend)
+  client:
+    build: ./client
+    container_name: voice-chat-client
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+      - VITE_SOCKET_URL=http://localhost:3006
+    depends_on:
+      - api-gateway
+    networks:
+      - voice-chat-network
+
+networks:
+  voice-chat-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:

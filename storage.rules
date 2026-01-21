@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidSize() {
+      // Max 5MB
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+    
+    // Discord server avatars and banners
+    match /discord/{serverId}/{imageType} {
+      // Anyone can read
+      allow read: if true;
+      
+      // Only authenticated users can upload
+      // imageType should be 'avatar' or 'banner'
+      allow write: if isAuthenticated()
+        && isImage()
+        && isValidSize()
+        && (imageType == 'avatar' || imageType == 'banner');
+      
+      // Only authenticated users can delete
+      allow delete: if isAuthenticated();
+    }
+    
+    // Chat images
+    match /discordChat/{messageId}/{imageType} {
+      // Anyone authenticated can read
+      allow read: if isAuthenticated();
+      
+      // Only authenticated users can upload
+      allow write: if isAuthenticated()
+        && isImage()
+        && isValidSize()
+        && imageType == 'chat';
+      
+      // Only authenticated users can delete
+      allow delete: if isAuthenticated();
+    }
+  }
+}
