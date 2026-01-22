@@ -30,7 +30,7 @@ const SocketContext = createContext(null);
    Component nào cần realtime features → dùng hook này
    VD: ChatPage cần emit message và listen new messages
 ======================================== */
-export const useSocket = () => {
+function useSocket() {
   const context = useContext(SocketContext);
   
   if (!context) {
@@ -38,22 +38,25 @@ export const useSocket = () => {
   }
   
   return context;
-};
+}
+
+// Export useSocket để dùng trong components
+export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
    - Lấy từ .env file: VITE_SOCKET_URL
-   - Fallback: http://localhost:4002
+   - Fallback: http://localhost:3006 (Chat Service port 3006 theo docker-compose)
    - Production: https://your-api.com/socket
 ======================================== */
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:4002';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
 
 /* ========================================
    SOCKETPROVIDER COMPONENT
    Wrap trong main.jsx (bên trong AuthProvider)
    Tự động connect socket khi user login
 ======================================== */
-export const SocketProvider = ({ children }) => {
+function SocketProvider({ children }) {
   /* ----- GET USER INFO TỪ AUTHCONTEXT ----- */
   
   // Lấy user và isAuthenticated từ AuthContext
@@ -287,7 +290,10 @@ export const SocketProvider = ({ children }) => {
   };
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
-};
+}
+
+// Export SocketProvider để dùng trong main.jsx
+export { SocketProvider };
 
 /* ========================================
    CÁCH DÙNG TRONG COMPONENT:

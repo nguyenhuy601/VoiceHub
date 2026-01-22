@@ -1,50 +1,38 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
 require('dotenv').config();
+const app = require('./app');
+const { connectDB, disconnectDB } = require('./config/mongo');
+const { connectRedis } = require('/shared');
 
-const authRoutes = require('./routes/authRoutes');
-const errorHandler = require('./middleware/errorHandler');
-
-const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
+// Kết nối MongoDB
+connectDB()
+  .then(async () => {
+    // Log MongoDB connection state
+    const mongoose = require('mongoose');
+    console.log('[AuthService] MongoDB readyState:', mongoose.connection.readyState, '(1=connected, 2=connecting, 0=disconnected)');
+    console.log('[AuthService] MongoDB host:', mongoose.connection.host);
+    console.log('[AuthService] MongoDB name:', mongoose.connection.name);
+    
+    // Kết nối Redis
+    connectRedis();
 
-// Database connection
-mongoose
-  .connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/voice-chat-auth', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+    // Khởi động server
+    app.listen(PORT, () => {
+      console.log(`Auth Service đang chạy trên cổng ${PORT}`);
+      console.log('[AuthService] ✅ Server ready to accept requests');
+    });
   })
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch((err) => console.error('❌ MongoDB connection error:', err));
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    service: 'auth-service',
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  .catch((error) => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   });
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  await disconnectDB();
+  process.exit(0);
 });
 
-// Routes
-app.use('/api/auth', authRoutes);
 
-// Error handler
-app.use(errorHandler);
-
-app.listen(PORT, () => {
-  console.log(`🔐 Auth Service running on port ${PORT}`);
-});
-
-module.exports = app;

@@ -1,9 +1,26 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard, GradientButton } from '../../components/Shared';
+import { useAuth } from '../../context/AuthContext';
+import toast from 'react-hot-toast';
 
 function HomePage() {
   const [hoveredFeature, setHoveredFeature] = useState(null);
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  
+  // Xử lý click vào feature - kiểm tra quyền Guest
+  const handleFeatureClick = (e, feature) => {
+    // Các feature Guest KHÔNG được truy cập
+    const restrictedFeatures = ['/chat', '/voice', '/organizations'];
+    const isRestricted = restrictedFeatures.some(path => feature.link.startsWith(path));
+    
+    if (!isAuthenticated && isRestricted) {
+      e.preventDefault();
+      toast.error('Vui lòng đăng nhập để sử dụng tính năng này');
+      navigate('/login');
+    }
+  };
   
   const features = [
     {
@@ -28,7 +45,8 @@ function HomePage() {
       desc: "Trò chuyện có luồng cực nhanh",
       color: "from-green-500 to-emerald-500",
       link: "/chat",
-      stats: "<50ms độ trễ"
+      stats: "<50ms độ trễ",
+      requiresAuth: true // Guest không được truy cập
     },
     {
       icon: "🎤",
@@ -36,7 +54,8 @@ function HomePage() {
       desc: "Phòng voice và video nhập vai",
       color: "from-orange-500 to-red-500",
       link: "/voice/room1",
-      stats: "Hỗ trợ 4K"
+      stats: "Hỗ trợ 4K",
+      requiresAuth: true // Guest không được truy cập
     },
     {
       icon: "✅",
@@ -52,7 +71,8 @@ function HomePage() {
       desc: "Không gian làm việc cộng tác",
       color: "from-pink-500 to-rose-500",
       link: "/organizations",
-      stats: "Không giới hạn"
+      stats: "Không giới hạn",
+      requiresAuth: true // Guest không được truy cập
     },
     {
       icon: "👥",
@@ -158,19 +178,26 @@ function HomePage() {
 
         {/* Features Grid with Enhanced Hover */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {features.map((feature, idx) => (
-            <Link 
-              key={idx} 
-              to={feature.link}
-              className="group"
-              onMouseEnter={() => setHoveredFeature(idx)}
-              onMouseLeave={() => setHoveredFeature(null)}
-            >
-              <GlassCard 
-                hover 
-                className={`h-full animate-slideUp relative overflow-hidden ${hoveredFeature === idx ? 'ring-2 ring-purple-500' : ''}`}
-                style={{ animationDelay: `${idx * 0.1}s` }}
+          {features.map((feature, idx) => {
+            const isRestricted = feature.requiresAuth && !isAuthenticated;
+            const FeatureWrapper = isRestricted ? 'div' : Link;
+            
+            return (
+              <FeatureWrapper
+                key={idx}
+                to={isRestricted ? undefined : feature.link}
+                onClick={isRestricted ? (e) => handleFeatureClick(e, feature) : undefined}
+                className={`group ${isRestricted ? 'cursor-not-allowed' : ''}`}
+                onMouseEnter={() => setHoveredFeature(idx)}
+                onMouseLeave={() => setHoveredFeature(null)}
               >
+                <GlassCard 
+                  hover={!isRestricted}
+                  className={`h-full animate-slideUp relative overflow-hidden ${
+                    hoveredFeature === idx && !isRestricted ? 'ring-2 ring-purple-500' : ''
+                  } ${isRestricted ? 'opacity-60' : ''}`}
+                  style={{ animationDelay: `${idx * 0.1}s` }}
+                >
                 {/* Background Gradient on Hover */}
                 <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
                 
@@ -193,14 +220,32 @@ function HomePage() {
                     <span className={`text-xs px-3 py-1 rounded-full bg-gradient-to-r ${feature.color} text-white font-semibold`}>
                       {feature.stats}
                     </span>
-                    <div className="flex items-center text-purple-400 text-sm font-semibold group-hover:text-pink-400 transition-colors">
-                      Khám phá <span className="ml-1 group-hover:ml-2 transition-all">→</span>
-                    </div>
+                    {isRestricted ? (
+                      <div className="flex items-center text-gray-500 text-sm font-semibold">
+                        🔒 Cần đăng nhập
+                      </div>
+                    ) : (
+                      <div className="flex items-center text-purple-400 text-sm font-semibold group-hover:text-pink-400 transition-colors">
+                        Khám phá <span className="ml-1 group-hover:ml-2 transition-all">→</span>
+                      </div>
+                    )}
                   </div>
+                  
+                  {/* Overlay cho Guest khi hover vào restricted feature */}
+                  {isRestricted && hoveredFeature === idx && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl backdrop-blur-sm z-20">
+                      <div className="text-center px-4">
+                        <div className="text-3xl mb-2">🔒</div>
+                        <div className="text-white font-bold text-sm">Cần đăng nhập</div>
+                        <div className="text-gray-300 text-xs mt-1">Vui lòng đăng nhập để sử dụng tính năng này</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </GlassCard>
-            </Link>
-          ))}
+            </FeatureWrapper>
+            );
+          })}
         </div>
 
         {/* Quick Stats with Animation */}

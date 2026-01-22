@@ -22,17 +22,17 @@ import toast from 'react-hot-toast';
 /* ========================================
    API BASE URL
    - Production: lấy từ .env → VITE_API_URL
-   - Development: http://localhost:8000/api
+   - Development: http://localhost:3000/api (API Gateway port 3000)
    
    API Gateway sẽ route:
-   /api/auth/* → auth-service (port 4000)
-   /api/users/* → user-service (port 4001)
-   /api/chat/* → chat-system-service (port 4002)
-   /api/organizations/* → organization-service (port 4003)
-   /api/tasks/* → task-service (port 4004)
-   /api/friends/* → friend-service (port 4005)
+   /api/auth/* → auth-service (port 3001)
+   /api/users/* → user-service (port 3004)
+   /api/chat/* → chat-service (port 3006)
+   /api/organizations/* → organization-service (port 3013)
+   /api/tasks/* → task-service (port 3009)
+   /api/friends/* → friend-service (port 3014)
 ======================================== */
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 /* ========================================
    TẠO AXIOS INSTANCE
@@ -44,9 +44,10 @@ const api = axios.create({
   // VD: api.get('/auth/me') → GET http://localhost:8000/api/auth/me
   baseURL: API_URL,
   
-  // Timeout: 30 giây (30000ms)
-  // Request quá 30s → throw timeout error
-  timeout: 30000,
+  // Timeout: 60 giây (60000ms) - match với proxy timeout trong API Gateway
+  // Nếu request mất quá 60s → có thể backend đang gặp vấn đề
+  // Tránh request treo vô hạn như trước (timeout: 0)
+  timeout: 60000,
   
   // Default headers cho mọi request
   headers: {
@@ -76,8 +77,23 @@ api.interceptors.request.use(
     // Lấy token từ localStorage (được lưu khi login)
     const token = localStorage.getItem('token');
     
-    // Nếu có token → thêm vào Authorization header
-    if (token) {
+    // Danh sách public routes không cần JWT token
+    const publicRoutes = [
+      '/auth/register',
+      '/auth/login',
+      '/auth/refresh-token',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+      '/auth/verify-email', // Verify email chỉ dùng token trong query, KHÔNG dùng JWT
+    ];
+    
+    // Kiểm tra xem route có phải public route không
+    const isPublicRoute = publicRoutes.some(route => config.url?.includes(route));
+    
+    // Chỉ thêm JWT token nếu:
+    // 1. Token tồn tại và không rỗng
+    // 2. Route KHÔNG phải public route (đặc biệt là verify-email)
+    if (token && token.trim() !== '' && !isPublicRoute) {
       // Format: "Bearer <token>" (JWT standard)
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -124,6 +140,52 @@ api.interceptors.response.use(
   /* ----- ERROR HANDLER -----
      Response lỗi (status 400+, 500+, network error) */
   (error) => {
+    console.error('[API] Request error:', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+        baseURL: error.config?.baseURL,
+      },
+    });
+
+    // Xử lý ERR_EMPTY_RESPONSE - server không trả về response
+    // Thường xảy ra khi: backend crash, không chạy, hoặc connection bị đứt
+    if (error.code === 'ERR_EMPTY_RESPONSE' || error.message?.includes('EMPTY_RESPONSE')) {
+      const message = 'Server không phản hồi. Vui lòng kiểm tra:\n- Backend service có đang chạy không\n- API Gateway có hoạt động không\n- Kết nối mạng có ổn định không';
+      console.error('[API] ❌ Empty response error - server may be down or crashed');
+      console.error('[API] Request details:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        baseURL: error.config?.baseURL,
+        timeout: error.config?.timeout,
+      });
+      toast.error(message, { duration: 5000 });
+      return Promise.reject({
+        message,
+        status: null,
+        code: 'ERR_EMPTY_RESPONSE',
+        data: null,
+      });
+    }
+
+    // Xử lý network errors
+    if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+      const message = 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối và thử lại.';
+      console.error('[API] ❌ Network error');
+      toast.error(message);
+      return Promise.reject({
+        message,
+        status: null,
+        code: 'ERR_NETWORK',
+        data: null,
+      });
+    }
+
     // Lấy error message từ response hoặc dùng default
     // Priority: server message > axios message > default
     const message = error.response?.data?.message || error.message || 'Đã xảy ra lỗi';
@@ -150,6 +212,11 @@ api.interceptors.response.use(
     else if (error.response?.status === 404) {
       toast.error('Không tìm thấy dữ liệu');
     } 
+    // 504 Gateway Timeout: Backend không phản hồi trong thời gian cho phép
+    else if (error.response?.status === 504) {
+      toast.error('Backend đang xử lý quá lâu. Vui lòng thử lại sau hoặc kiểm tra logs backend.');
+      console.error('[API] ❌ Gateway Timeout (504) - Backend may be slow or unresponsive');
+    }
     // 500+ Server Error: Lỗi server
     else if (error.response?.status >= 500) {
       toast.error('Lỗi server. Vui lòng thử lại sau.');
@@ -162,6 +229,7 @@ api.interceptors.response.use(
       message,                        // Error message
       status: error.response?.status, // HTTP status code
       data: error.response?.data,     // Full error data từ server
+      code: error.code,              // Error code (ERR_NETWORK, etc.)
     });
   }
 );

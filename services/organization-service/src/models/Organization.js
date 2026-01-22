@@ -4,29 +4,32 @@ const organizationSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, 'Organization name is required'],
+      required: true,
       trim: true,
-      minlength: 2,
-      maxlength: 100,
     },
     description: {
       type: String,
-      trim: true,
-      maxlength: 500,
+      maxlength: 1000,
+      default: '',
+    },
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      ref: 'User',
     },
     logo: {
       type: String,
       default: null,
     },
-    owner: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
     settings: {
-      allowMemberInvite: { type: Boolean, default: false },
-      requireApproval: { type: Boolean, default: true },
-      maxMembers: { type: Number, default: 1000 },
+      allowPublicJoin: {
+        type: Boolean,
+        default: false,
+      },
+      requireApproval: {
+        type: Boolean,
+        default: true,
+      },
     },
     isActive: {
       type: Boolean,
@@ -38,6 +41,14 @@ const organizationSchema = new mongoose.Schema(
   }
 );
 
+// Indexes
+organizationSchema.index({ ownerId: 1 });
+organizationSchema.index({ name: 1 });
+organizationSchema.index({ isActive: 1 });
+
 const Organization = mongoose.model('Organization', organizationSchema);
 
 module.exports = Organization;
+
+
+

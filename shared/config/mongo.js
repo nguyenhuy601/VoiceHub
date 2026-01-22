@@ -1,0 +1,105 @@
+const mongoose = require('mongoose');
+const logger = require('../utils/logger');
+
+/**
+ * Kết nối MongoDB
+ * @param {string} mongoUri - MongoDB connection string
+ * @param {Object} options - Mongoose connection options
+ * @returns {Promise<mongoose.Connection>}
+ */
+const connectDB = async (mongoUri = null, options = {}) => {
+  try {
+    const uri = mongoUri || process.env.MONGODB_URI;
+
+    if (!uri) {
+      throw new Error('MONGODB_URI is not defined');
+    }
+
+    // Không disable buffering vì có thể gây disconnect
+    // mongoose.set('bufferCommands', false);
+
+    // Kiểm tra xem có phải Atlas connection string không
+    const isAtlas = uri.includes('mongodb+srv://') || uri.includes('mongodb.net');
+    
+    const defaultOptions = {
+      serverSelectionTimeoutMS: 60000, // 60 seconds (tăng cho Atlas)
+      socketTimeoutMS: 90000, // 90 seconds (tăng cho Atlas)
+      connectTimeoutMS: 60000, // 60 seconds (tăng cho Atlas)
+      maxPoolSize: 10, // Maintain up to 10 socket connections
+      minPoolSize: 2, // Maintain at least 2 socket connections
+      // Giữ connection sống
+      heartbeatFrequencyMS: 10000, // Ping server mỗi 10 giây
+      // Retry options cho Atlas
+      retryWrites: true,
+      retryReads: true,
+      ...options,
+    };
+    
+    if (isAtlas) {
+      logger.info('Connecting to MongoDB Atlas...');
+      console.log('[MongoDB] Using Atlas connection (mongodb+srv://)');
+      console.log('[MongoDB] SSL/TLS will be automatically enabled for Atlas');
+    } else {
+      logger.info('Connecting to local MongoDB...');
+      console.log('[MongoDB] Using local MongoDB connection');
+    }
+
+    const conn = await mongoose.connect(uri, defaultOptions);
+    
+    logger.info(`MongoDB Connected: ${conn.connection.host}`);
+    
+    // Verify connection is ready
+    try {
+      await mongoose.connection.db.admin().ping();
+      logger.info('MongoDB connection verified and ready');
+    } catch (error) {
+      logger.error('MongoDB ping failed:', error);
+      throw error;
+    }
+    
+    // Handle connection events
+    mongoose.connection.on('error', (err) => {
+      logger.error('MongoDB connection error:', err);
+      console.error('[MongoDB] Connection error:', err.message);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+      console.warn('[MongoDB] ⚠️ Disconnected from MongoDB');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      logger.info('MongoDB reconnected');
+      console.log('[MongoDB] ✅ Reconnected to MongoDB');
+    });
+    
+    mongoose.connection.on('connected', () => {
+      logger.info('MongoDB connected');
+      console.log('[MongoDB] ✅ Connected to MongoDB');
+    });
+
+    return conn;
+  } catch (error) {
+    logger.error(`MongoDB connection error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+/**
+ * Đóng kết nối MongoDB
+ */
+const disconnectDB = async () => {
+  try {
+    await mongoose.connection.close();
+    logger.info('MongoDB connection closed');
+  } catch (error) {
+    logger.error('Error closing MongoDB connection:', error);
+  }
+};
+
+module.exports = {
+  connectDB,
+  disconnectDB,
+  mongoose,
+};
+

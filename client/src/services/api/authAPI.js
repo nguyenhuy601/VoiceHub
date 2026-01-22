@@ -46,7 +46,8 @@ export const authAPI = {
 
   // Verify email
   verifyEmail: async (token) => {
-    const response = await apiClient.post('/auth/verify-email', { token });
+    // Dùng GET với token trong query string, KHÔNG dùng JWT
+    const response = await apiClient.get(`/auth/verify-email?token=${encodeURIComponent(token)}`);
     return response;
   },
 

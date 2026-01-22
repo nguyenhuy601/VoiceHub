@@ -1,6 +1,17 @@
 const AppError = require('../utils/appError');
 
 module.exports = (err, req, res, next) => {
+  // Bỏ qua lỗi nếu request đã bị abort hoặc response đã được gửi
+  if (req.aborted || res.headersSent) {
+    return;
+  }
+
+  // Xử lý lỗi request aborted
+  if (err.message && (err.message.includes('aborted') || err.message.includes('ECONNRESET'))) {
+    console.log('Request aborted or connection reset');
+    return;
+  }
+
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
 

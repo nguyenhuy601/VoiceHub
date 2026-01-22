@@ -1,168 +1,261 @@
-version: '3.8'
 
 services:
-  # Databases
+  # MongoDB Database
   mongodb:
-    image: mongo:6
-    container_name: voice-chat-mongodb
+    image: mongo:7
+    container_name: enterprise-mongodb
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db
+      - mongodb_data:/data/db
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_ROOT_PASSWORD: password
     networks:
-      - voice-chat-network
+      - enterprise-network
 
+  # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: voice-chat-redis
+    container_name: enterprise-redis
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - redis_data:/data
     networks:
-      - voice-chat-network
+      - enterprise-network
 
   # API Gateway
   api-gateway:
-    build: ./services/api-gateway
-    container_name: api-gateway
+    build: ./api-gateway
+    container_name: enterprise-api-gateway
     ports:
-      - "8000:8000"
-    environment:
-      - NODE_ENV=development
-      - PORT=8000
-      - AUTH_SERVICE_URL=http://auth-service:3001
-      - USER_SERVICE_URL=http://user-service:3004
-      - ORGANIZATION_SERVICE_URL=http://organization-service:3013
-      - CHAT_SYSTEM_SERVICE_URL=http://chat-system-service:3006
-      - TASK_SERVICE_URL=http://task-service:3009
-      - FRIEND_SERVICE_URL=http://friend-service:3002
+      - "3000:3000"
+    env_file:
+      - ./api-gateway/.env
     depends_on:
       - auth-service
       - user-service
-      - organization-service
-      - chat-system-service
-      - task-service
       - friend-service
+      - organization-service
+      - role-permission-service
+      - chat-service
+      - voice-service
+      - task-service
+      - document-service
+      - notification-service
+      - webhook-service
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./api-gateway:/app
+      - /app/node_modules
 
-  # Microservices
+  # Auth Service
   auth-service:
     build: ./services/auth-service
-    container_name: auth-service
+    container_name: enterprise-auth-service
     ports:
       - "3001:3001"
-    environment:
-      - NODE_ENV=development
-      - PORT=3001
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-auth?authSource=admin
-      - JWT_SECRET=your-super-secret-jwt-key
-      - JWT_REFRESH_SECRET=your-refresh-secret
+    env_file:
+      - ./services/auth-service/.env
     depends_on:
       - mongodb
       - redis
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./services/auth-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
+  # User Service
   user-service:
     build: ./services/user-service
-    container_name: user-service
+    container_name: enterprise-user-service
     ports:
       - "3004:3004"
-    environment:
-      - NODE_ENV=development
-      - PORT=3004
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-users?authSource=admin
-      - AUTH_SERVICE_URL=http://auth-service:3001
-    depends_on:
-      - mongodb
-    networks:
-      - voice-chat-network
-
-  organization-service:
-    build: ./services/organization-service
-    container_name: organization-service
-    ports:
-      - "3013:3013"
-    environment:
-      - NODE_ENV=development
-      - PORT=3013
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-organization?authSource=admin
-      - AUTH_SERVICE_URL=http://auth-service:3001
-    depends_on:
-      - mongodb
-    networks:
-      - voice-chat-network
-
-  chat-system-service:
-    build: ./services/chat-system-service
-    container_name: chat-system-service
-    ports:
-      - "3006:3006"
-    environment:
-      - NODE_ENV=development
-      - PORT=3006
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-messages?authSource=admin
-      - REDIS_URL=redis://redis:6379
-      - AUTH_SERVICE_URL=http://auth-service:3001
+    env_file:
+      - ./services/user-service/.env
     depends_on:
       - mongodb
       - redis
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./services/user-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
-  task-service:
-    build: ./services/task-service
-    container_name: task-service
+  # Organization Service
+  organization-service:
+    build: ./services/organization-service
+    container_name: enterprise-organization-service
     ports:
-      - "3009:3009"
-    environment:
-      - NODE_ENV=development
-      - PORT=3009
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-tasks?authSource=admin
-      - AUTH_SERVICE_URL=http://auth-service:3001
+      - "3013:3013"
+    env_file:
+      - ./services/organization-service/.env
     depends_on:
       - mongodb
+      - redis
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./services/organization-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
+  # Friend Service
   friend-service:
     build: ./services/friend-service
-    container_name: friend-service
+    container_name: enterprise-friend-service
     ports:
-      - "3002:3002"
-    environment:
-      - NODE_ENV=development
-      - PORT=3002
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/voice-chat-friends?authSource=admin
-      - AUTH_SERVICE_URL=http://auth-service:3001
+      - "3014:3014"
+    env_file:
+      - ./services/friend-service/.env
     depends_on:
       - mongodb
+      - redis
+      - user-service
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./services/friend-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
-  # Client (Frontend)
-  client:
-    build: ./client
-    container_name: voice-chat-client
+  # Role & Permission Service
+  role-permission-service:
+    build: ./services/role-permission-service
+    container_name: enterprise-role-permission-service
     ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8000/api
-      - VITE_SOCKET_URL=http://localhost:3006
+      - "3015:3015"
+    env_file:
+      - ./services/role-permission-service/.env
     depends_on:
-      - api-gateway
+      - mongodb
+      - redis
+      - organization-service
     networks:
-      - voice-chat-network
+      - enterprise-network
+    volumes:
+      - ./services/role-permission-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
-networks:
-  voice-chat-network:
-    driver: bridge
+  # Chat Service
+  chat-service:
+    build: ./services/chat-service
+    container_name: enterprise-chat-service
+    ports:
+      - "3006:3006"
+    env_file:
+      - ./services/chat-service/.env
+    depends_on:
+      - mongodb
+      - redis
+      - user-service
+      - organization-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/chat-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  # Task Service
+  task-service:
+    build: ./services/task-service
+    container_name: enterprise-task-service
+    ports:
+      - "3009:3009"
+    env_file:
+      - ./services/task-service/.env
+    depends_on:
+      - mongodb
+      - redis
+      - organization-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/task-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  # Document Service
+  document-service:
+    build: ./services/document-service
+    container_name: enterprise-document-service
+    ports:
+      - "3010:3010"
+    env_file:
+      - ./services/document-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/document-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  # Voice Service
+  voice-service:
+    build: ./services/voice-service
+    container_name: enterprise-voice-service
+    ports:
+      - "3005:3005"
+    env_file:
+      - ./services/voice-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/voice-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  # Notification Service
+  notification-service:
+    build: ./services/notification-service
+    container_name: enterprise-notification-service
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./services/notification-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/notification-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  # Webhook Service (FastAPI)
+  webhook-service:
+    build: ./services/webhook-service
+    container_name: enterprise-webhook-service
+    ports:
+      - "3016:3016"
+    env_file:
+      - ./services/webhook-service/.env
+    depends_on:
+      - notification-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/webhook-service:/app
 
 volumes:
-  mongo-data:
-  redis-data:
+  mongodb_data:
+  redis_data:
+
+networks:
+  enterprise-network:
+    driver: bridge
+

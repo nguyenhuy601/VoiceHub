@@ -35,7 +35,7 @@ const AuthContext = createContext(null);
    - Chỉ cần import useAuth() - ngắn gọn hơn
    - Có error handling: báo lỗi nếu dùng ngoài Provider
 ======================================== */
-export const useAuth = () => {
+function useAuth() {
   // Lấy context value từ AuthContext
   const context = useContext(AuthContext);
   
@@ -48,7 +48,10 @@ export const useAuth = () => {
   // Return context để component có thể dùng
   // VD: { user, login, logout, isAuthenticated, ... }
   return context;
-};
+}
+
+// Export useAuth để dùng trong components
+export { useAuth };
 
 /* ========================================
    AUTHPROVIDER COMPONENT
@@ -58,18 +61,13 @@ export const useAuth = () => {
    Props:
    - children: các component con (App, Toaster, etc.)
 ======================================== */
-export const AuthProvider = ({ children }) => {
+function AuthProvider({ children }) {
   /* ----- STATE MANAGEMENT ----- */
   
   // State lưu thông tin user hiện tại
-  // Default: Demo user (để test UI không cần login)
+  // Default: null (Guest role - chưa đăng nhập)
   // Khi login thành công → setUser(userData từ API)
-  const [user, setUser] = useState({
-    id: '1',                        // User ID
-    name: 'Demo User',              // Tên hiển thị
-    email: 'demo@example.com',      // Email
-    avatar: null                    // Avatar URL (null = dùng default)
-  });
+  const [user, setUser] = useState(null);
   
   // State loading: true khi đang check auth hoặc đang login
   // Dùng để hiển thị loading spinner
@@ -110,10 +108,8 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Hiện tại skip auth check để demo
-    // Comment lại để test UI không cần backend
-    setLoading(false);
-    // checkAuth(); // Uncomment khi có backend
+    // Chạy checkAuth khi app khởi động
+    checkAuth();
   }, []); // Empty deps → chỉ chạy 1 lần khi mount
 
   /* ========================================
@@ -136,9 +132,14 @@ export const AuthProvider = ({ children }) => {
       // Body: { email, password }
       const response = await authService.login(email, password);
       
-      // Destructure response để lấy token và user data
-      // VD response: { token: "jwt...", user: { id, name, email } }
-      const { token, user: userData } = response;
+      // Backend trả về: { success: true, data: { accessToken, refreshToken, user: {...} } }
+      // Hoặc sau interceptor: { accessToken, refreshToken, user: {...} }
+      const token = response.accessToken || response.token || response.data?.accessToken;
+      const userData = response.user || response.data?.user;
+      
+      if (!token || !userData) {
+        throw new Error('Invalid response from server');
+      }
       
       // Lưu token vào localStorage để persist login
       // Token này sẽ được gửi kèm mọi API request
@@ -176,28 +177,125 @@ export const AuthProvider = ({ children }) => {
      - userData: { name, email, password, ... }
   ======================================== */
   const register = useCallback(async (userData) => {
+    // Khai báo startTime ở ngoài try block để có thể dùng trong catch block
+    const startTime = Date.now();
+    
     try {
+      console.log('[AuthContext] Starting registration for:', userData.email);
+      console.log('[AuthContext] Registration data:', {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        email: userData.email,
+        hasPassword: !!userData.password,
+      });
+      
+      // Log API endpoint để debug
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+      console.log('[AuthContext] API Base URL:', API_URL);
+      console.log('[AuthContext] Register endpoint:', `${API_URL}/auth/register`);
+      
       // Gọi API register qua authService
       // authService.register() → POST /api/auth/register
-      // Body: { name, email, password }
+      // Body: { firstName, lastName, email, password }
       const response = await authService.register(userData);
       
-      // Destructure response giống login
-      const { token, user: newUser } = response;
+      const duration = Date.now() - startTime;
+      console.log(`[AuthContext] Registration API call completed in ${duration}ms`);
+      console.log('[AuthContext] Full response:', JSON.stringify(response, null, 2));
       
-      // Lưu token để auto login
-      localStorage.setItem('token', token);
+      // Backend trả về: { success: true, message: "...", data: { email, message, emailScheduled, ... } }
+      // Sau interceptor: { success: true, message: "...", data: { email, message, emailScheduled, ... } }
       
-      // Set user mới vào state
-      setUser(newUser);
+      // Kiểm tra response structure
+      if (!response) {
+        console.error('[AuthContext] ❌ Response is null or undefined');
+        toast.error('Không nhận được phản hồi từ server');
+        return false;
+      }
       
-      // Show success notification
-      toast.success('Đăng ký thành công!');
+      console.log('[AuthContext] Registration response:', {
+        success: response.success,
+        emailScheduled: response.data?.emailScheduled,
+        email: response.data?.email,
+        message: response.message,
+        hasData: !!response.data,
+      });
+      
+      // Kiểm tra success flag - hiển thị thông báo NGAY LẬP TỨC
+      if (response.success === false) {
+        const errorMessage = response.message || response.data?.message || 'Đăng ký thất bại';
+        console.error('[AuthContext] ❌ Registration failed:', errorMessage);
+        toast.error(errorMessage);
+        return false;
+      }
+      
+      // Hiển thị thông báo NGAY LẬP TỨC dựa trên response
+      // Nếu email được gửi thành công → báo thành công ngay
+      if (response.success === true) {
+        if (response.data?.emailScheduled === true) {
+          // Email đã được lên lịch gửi thành công
+          toast.success('✅ Đăng ký thành công! Email xác thực đã được gửi thành công. Vui lòng kiểm tra hộp thư của bạn.');
+          console.log('[AuthContext] ✅ Email verification scheduled successfully');
+        } else if (response.data?.emailScheduled === false) {
+          // Email service chưa được cấu hình
+          toast.success(response.message || '✅ Đăng ký thành công! Email service chưa được cấu hình.');
+          console.log('[AuthContext] Registration successful, email service not configured');
+        } else {
+          // Trường hợp khác - vẫn báo thành công
+          toast.success(response.message || '✅ Đăng ký thành công!');
+          console.log('[AuthContext] Registration successful');
+        }
+      }
       
       return true;
     } catch (error) {
-      // Handle errors: email đã tồn tại, password yếu, etc.
-      toast.error(error.message || 'Đăng ký thất bại');
+      // Handle errors: email đã tồn tại, password yếu, timeout, network error, etc.
+      console.error('[AuthContext] ❌ Registration error:', error);
+      console.error('[AuthContext] Error type:', error?.constructor?.name);
+      console.error('[AuthContext] Error details:', {
+        message: error?.message,
+        status: error?.status,
+        data: error?.data,
+        code: error?.code,
+        response: error?.response,
+      });
+      
+      // Xử lý timeout - request vượt quá 60 giây
+      if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+        const duration = Date.now() - startTime;
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+        const message = `Yêu cầu quá thời gian chờ (60s). Backend không phản hồi.\n\nVui lòng kiểm tra:\n1. API Gateway có đang chạy tại ${API_URL}?\n2. Auth Service có đang chạy không?\n3. Kiểm tra logs backend để xem có lỗi không`;
+        toast.error(message, { duration: 7000 });
+        console.error('[AuthContext] ❌ Request timeout - backend may be slow or unresponsive');
+        console.error('[AuthContext] Request took:', duration, 'ms before timeout');
+        console.error('[AuthContext] API URL:', API_URL);
+        console.error('[AuthContext] Endpoint:', `${API_URL}/auth/register`);
+        console.error('[AuthContext] 💡 Hướng dẫn debug:');
+        console.error('   1. Kiểm tra API Gateway có chạy: curl http://localhost:3000/health');
+        console.error('   2. Kiểm tra Auth Service có chạy: curl http://localhost:3001/health');
+        console.error('   3. Xem logs của API Gateway và Auth Service');
+        return false;
+      }
+      
+      // Xử lý empty response - server không trả về response
+      // Thường xảy ra khi backend crash hoặc không chạy
+      if (error?.code === 'ERR_EMPTY_RESPONSE' || error?.message?.includes('EMPTY_RESPONSE')) {
+        const message = 'Server không phản hồi. Vui lòng kiểm tra:\n- Backend service có đang chạy không\n- API Gateway có hoạt động không\n- Kết nối mạng có ổn định không';
+        toast.error(message, { duration: 5000 });
+        console.error('[AuthContext] ❌ Empty response - backend may be down or crashed');
+        console.error('[AuthContext] Error occurred after waiting:', Date.now() - startTime, 'ms');
+        return false;
+      }
+
+      // Xử lý network error
+      if (error?.code === 'ERR_NETWORK' || error?.message?.includes('Network Error')) {
+        toast.error('Lỗi kết nối mạng. Vui lòng kiểm tra kết nối và thử lại.');
+        return false;
+      }
+      
+      // Hiển thị error message từ server hoặc default
+      const errorMessage = error?.message || error?.data?.message || 'Đăng ký thất bại';
+      toast.error(errorMessage);
       return false;
     }
   }, []);
@@ -279,7 +377,10 @@ export const AuthProvider = ({ children }) => {
      Pass value object xuống mọi component con
   ======================================== */
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
+}
+
+// Export AuthProvider để dùng trong main.jsx
+export { AuthProvider };
 
 /* ========================================
    CÁCH DÙNG TRONG COMPONENT:

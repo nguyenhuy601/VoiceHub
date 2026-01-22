@@ -7,7 +7,29 @@ const taskSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    description: String,
+    description: {
+      type: String,
+      maxlength: 2000,
+      default: '',
+    },
+    assigneeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      ref: 'User',
+    },
+    serverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Server',
+    },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      ref: 'Organization',
+    },
     status: {
       type: String,
       enum: ['todo', 'in_progress', 'review', 'done', 'cancelled'],
@@ -18,43 +40,64 @@ const taskSchema = new mongoose.Schema(
       enum: ['low', 'medium', 'high', 'urgent'],
       default: 'medium',
     },
-    organization: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Organization',
-      required: true,
+    dueDate: {
+      type: Date,
+      default: null,
     },
-    department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
+    completedAt: {
+      type: Date,
+      default: null,
     },
-    team: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Team',
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    attachments: [
+      {
+        documentId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Document',
+        },
+        name: String,
+        url: String,
+      },
+    ],
+    comments: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        content: String,
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    isActive: {
+      type: Boolean,
+      default: true,
     },
-    assignedTo: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    }],
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    dueDate: Date,
-    startDate: Date,
-    completedAt: Date,
-    tags: [String],
-    attachments: [{
-      url: String,
-      filename: String,
-    }],
   },
   {
     timestamps: true,
   }
 );
 
-taskSchema.index({ organization: 1, status: 1 });
-taskSchema.index({ assignedTo: 1, status: 1 });
+// Indexes
+taskSchema.index({ assigneeId: 1, status: 1 });
+taskSchema.index({ organizationId: 1, status: 1 });
+taskSchema.index({ serverId: 1 });
+taskSchema.index({ createdBy: 1 });
+taskSchema.index({ dueDate: 1 });
+taskSchema.index({ priority: 1, status: 1 });
 
-module.exports = mongoose.model('Task', taskSchema);
+const Task = mongoose.model('Task', taskSchema);
+
+module.exports = Task;
+
+
+

@@ -111,11 +111,14 @@ Tạo file `.env` trong thư mục `client/`:
 
 ```env
 # API Configuration
-VITE_API_URL=http://localhost:8000/api
-VITE_SOCKET_URL=http://localhost:4002
+# API Gateway chạy trên port 3000 (theo docker-compose.yml)
+VITE_API_URL=http://localhost:3000/api
+
+# Socket Server (Chat Service) chạy trên port 3006 (theo docker-compose.yml)
+VITE_SOCKET_URL=http://localhost:3006
 
 # App Configuration
-VITE_APP_NAME=Voice Chat App
+VITE_APP_NAME=VoiceHub
 VITE_APP_VERSION=1.0.0
 ```
 
