@@ -8,6 +8,9 @@ import { lazy, Suspense } from 'react';
 // Route: định nghĩa từng đường dẫn và component tương ứng
 import { Route, Routes } from 'react-router-dom';
 
+// Import ProtectedRoute để bảo vệ routes cần đăng nhập
+import ProtectedRoute from './components/ProtectedRoute';
+
 /* ========================================
    LAZY LOADING CÁC PAGES
    Tại sao dùng lazy()?
@@ -25,6 +28,9 @@ const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
 
 // Lazy load trang đăng ký - tạo user mới qua auth-service
 const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage'));
+
+// Lazy load trang xác thực email
+const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
 
 // Lazy load dashboard - trang tổng quan sau khi đăng nhập
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage'));
@@ -121,58 +127,113 @@ function App() {
         {/* Route đăng ký - path "/register" */}
         {/* RegisterPage sẽ gọi authService.register() → auth-service */}
         <Route path="/register" element={<RegisterPage />} />
+        
+        {/* Route xác thực email - path "/verify-email?token=xxx" */}
+        {/* VerifyEmailPage sẽ gọi authService.verifyEmail() → auth-service */}
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         {/* ===== PROTECTED ROUTES =====
             Cần đăng nhập mới truy cập được
-            TODO: Thêm ProtectedRoute wrapper để check auth */}
+            Guest (chưa đăng nhập) sẽ bị redirect về trang chủ */}
         
         {/* Dashboard - trang chính sau khi login */}
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/dashboard" element={
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        } />
         
         {/* Chat - nhắn tin realtime qua Socket.IO */}
         {/* Kết nối đến SocketContext → chat-system-service */}
-        <Route path="/chat" element={<ChatPage />} />
+        {/* Guest KHÔNG được truy cập */}
+        <Route path="/chat" element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        } />
         
         {/* Voice chat room - :roomId là dynamic param */}
         {/* VD: /voice/room123 → roomId = "room123" */}
         {/* Sử dụng WebRTC peer-to-peer để gọi voice */}
-        <Route path="/voice/:roomId" element={<VoiceRoomPage />} />
+        {/* Guest KHÔNG được truy cập */}
+        <Route path="/voice/:roomId" element={
+          <ProtectedRoute>
+            <VoiceRoomPage />
+          </ProtectedRoute>
+        } />
         
         {/* Tasks - quản lý công việc */}
         {/* Kết nối task-service qua api-gateway */}
-        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/tasks" element={
+          <ProtectedRoute>
+            <TasksPage />
+          </ProtectedRoute>
+        } />
         
         {/* Profile - thông tin cá nhân */}
         {/* Hiển thị avatar, name, email từ AuthContext */}
-        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        } />
         
         {/* Organizations - quản lý tổ chức */}
         {/* CRUD operations với organization-service */}
-        <Route path="/organizations" element={<OrganizationsPage />} />
+        {/* Guest KHÔNG được truy cập */}
+        <Route path="/organizations" element={
+          <ProtectedRoute>
+            <OrganizationsPage />
+          </ProtectedRoute>
+        } />
         
         {/* Friends - danh sách bạn bè */}
         {/* Add/remove friends qua friend-service */}
-        <Route path="/friends" element={<FriendsPage />} />
+        <Route path="/friends" element={
+          <ProtectedRoute>
+            <FriendsPage />
+          </ProtectedRoute>
+        } />
         
         {/* Documents - quản lý tài liệu */}
         {/* Upload/download files, preview documents */}
-        <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/documents" element={
+          <ProtectedRoute>
+            <DocumentsPage />
+          </ProtectedRoute>
+        } />
         
         {/* Notifications - thông báo */}
         {/* Realtime notifications qua Socket.IO */}
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/notifications" element={
+          <ProtectedRoute>
+            <NotificationsPage />
+          </ProtectedRoute>
+        } />
         
         {/* Calendar - lịch làm việc */}
         {/* Hiển thị events, meetings, deadlines */}
-        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/calendar" element={
+          <ProtectedRoute>
+            <CalendarPage />
+          </ProtectedRoute>
+        } />
         
         {/* Analytics - thống kê */}
         {/* Charts, graphs, metrics */}
-        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/analytics" element={
+          <ProtectedRoute>
+            <AnalyticsPage />
+          </ProtectedRoute>
+        } />
         
         {/* Settings - cài đặt */}
         {/* Thay đổi theme, language, notifications preferences */}
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings" element={
+          <ProtectedRoute>
+            <SettingsPage />
+          </ProtectedRoute>
+        } />
 
         {/* ===== 404 NOT FOUND =====
             Catch-all route cho mọi path không match */}

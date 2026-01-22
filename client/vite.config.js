@@ -4,7 +4,12 @@ import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      // Bật Fast Refresh với cấu hình tối ưu
+      fastRefresh: true,
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -18,14 +23,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 5173, // Vite dev server port (tránh conflict với API Gateway port 3000)
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3000',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:4002',
+        target: process.env.VITE_SOCKET_URL || 'http://localhost:3006',
         changeOrigin: true,
         ws: true,
       },

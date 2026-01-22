@@ -1,12 +1,12 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 // Create axios instance
 const apiClient = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
+  timeout: 60000, // Tăng lên 60s để tránh timeout khi hash password hoặc database operations
   headers: {
     'Content-Type': 'application/json',
   },

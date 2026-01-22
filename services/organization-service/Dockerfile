@@ -1,7 +1,14 @@
-FROM node:18-alpine
+FROM node:18
+
 WORKDIR /app
+
 COPY package*.json ./
-RUN npm ci --production
+
+RUN npm install && npm install -g nodemon
+
 COPY . .
+
 EXPOSE 3013
-CMD ["npm", "start"]
+
+CMD ["node", "src/server.js"]
+

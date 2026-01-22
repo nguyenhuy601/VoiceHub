@@ -19,7 +19,7 @@ const ThemeContext = createContext();
    Component nào cần theme info → dùng hook này
    VD: Header component muốn show dark/light icon
 ======================================== */
-export const useTheme = () => {
+function useTheme() {
   const context = useContext(ThemeContext);
   
   // Check xem có wrap trong ThemeProvider không
@@ -28,14 +28,17 @@ export const useTheme = () => {
   }
   
   return context;
-};
+}
+
+// Export useTheme để dùng trong components
+export { useTheme };
 
 /* ========================================
    THEMEPROVIDER COMPONENT
    Wrap ở ngoài cùng trong main.jsx
    Cung cấp theme state cho toàn app
 ======================================== */
-export const ThemeProvider = ({ children }) => {
+function ThemeProvider({ children }) {
   /* ----- STATE: isDarkMode ----- */
   
   // State lưu dark mode preference
@@ -89,7 +92,10 @@ export const ThemeProvider = ({ children }) => {
       {children}
     </ThemeContext.Provider>
   );
-};
+}
+
+// Export ThemeProvider để dùng trong main.jsx
+export { ThemeProvider };
 
 /* ========================================
    CÁCH DÙNG TRONG COMPONENT:

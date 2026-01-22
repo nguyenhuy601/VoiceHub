@@ -1,0 +1,32 @@
+{
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "ioredis": "^5.9.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.1.4",
+    "socket.io": "^4.8.3"
+  },
+  "name": "chat-service",
+  "version": "1.0.0",
+  "description": "Chat Service - Quản lý tin nhắn và phòng chat",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "microservice",
+    "chat",
+    "socket.io",
+    "mongodb",
+    "enterprise"
+  ],
+  "author": "",
+  "license": "ISC"
+}

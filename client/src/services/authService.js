@@ -189,6 +189,20 @@ const authService = {
     // Cần update localStorage với token mới
     return response;
   },
+
+  /* ----- VERIFY EMAIL: Xác thực email -----
+     
+     Gọi: GET /auth/verify-email?token=${token}
+     Query: token (verification token từ email)
+     Return: { success: true, message: "...", data: { userId, email } }
+     
+     Lưu ý: KHÔNG dùng JWT token, chỉ dùng verification token trong query string
+     Được gọi từ: VerifyEmailPage khi user click link trong email */
+  verifyEmail: async (verificationToken) => {
+    // Dùng GET với token trong query string, KHÔNG dùng JWT
+    const response = await api.get(`/auth/verify-email?token=${encodeURIComponent(verificationToken)}`);
+    return response;
+  },
 };
 
 // Export authService để dùng trong AuthContext và components

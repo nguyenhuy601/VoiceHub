@@ -1,0 +1,32 @@
+{
+  "name": "voice-service",
+  "version": "1.0.0",
+  "description": "Voice Service - Quản lý voice/meeting",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "microservice",
+    "voice",
+    "meeting",
+    "webrtc",
+    "enterprise"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "ioredis": "^5.9.0",
+    "mongoose": "^9.1.4",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

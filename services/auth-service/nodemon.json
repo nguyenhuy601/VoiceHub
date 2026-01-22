@@ -1,0 +1,23 @@
+{
+  "watch": ["src"],
+  "ext": "js,json",
+  "ignore": [
+    "node_modules",
+    "test-email.js",
+    "*.test.js",
+    "*.spec.js",
+    ".git",
+    "logs",
+    "*.log",
+    ".env",
+    ".env.*"
+  ],
+  "delay": 3000,
+  "verbose": false,
+  "restartable": "rs",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "signal": "SIGTERM"
+}
+

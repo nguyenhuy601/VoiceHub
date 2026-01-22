@@ -1,16 +1,46 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { GlassCard, GradientButton } from '../../components/Shared';
+import { useAuth } from '../../context/AuthContext';
+import toast from 'react-hot-toast';
 
 function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  // Hiển thị thông báo từ state (khi redirect từ register hoặc verify email)
+  useEffect(() => {
+    if (location.state?.message) {
+      toast.success(location.state.message);
+      // Clear state để không hiển thị lại khi reload
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    navigate('/dashboard');
+    
+    // Validate
+    if (!formData.email || !formData.password) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const success = await login(formData.email, formData.password);
+      if (success) {
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -136,8 +166,14 @@ function LoginPage() {
             </div>
 
             {/* Login Button */}
-            <GradientButton variant="primary" className="w-full" icon="🚀">
-              Đăng Nhập
+            <GradientButton 
+              variant="primary" 
+              className="w-full" 
+              icon="🚀"
+              type="submit"
+              disabled={loading}
+            >
+              {loading ? 'Đang đăng nhập...' : 'Đăng Nhập'}
             </GradientButton>
 
             {/* Security Badge */}
