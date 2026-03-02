@@ -13,8 +13,12 @@ function VerifyEmailPage() {
 
   useEffect(() => {
     if (!token) {
-      toast.error('Token xác thực không hợp lệ');
-      navigate('/login');
+      toast.error('Xác thực email không thành công: Token xác thực không hợp lệ hoặc đã hết hạn.');
+      navigate('/register', {
+        state: {
+          error: 'Token xác thực không hợp lệ hoặc đã hết hạn. Vui lòng đăng ký lại hoặc yêu cầu email xác thực mới.',
+        },
+      });
       return;
     }
 
@@ -30,7 +34,7 @@ function VerifyEmailPage() {
       
       if (response.success) {
         setVerified(true);
-        toast.success('Xác thực email thành công! Bạn có thể đăng nhập ngay.');
+        toast.success('✅ Xác thực email thành công! Bạn có thể đăng nhập ngay.');
         
         // Sau 2 giây redirect về trang đăng nhập
         setTimeout(() => {
@@ -40,11 +44,27 @@ function VerifyEmailPage() {
             }
           });
         }, 2000);
+      } else {
+        // Trường hợp backend trả success = false
+        const errorMessage = response.message || 'Xác thực email không thành công.';
+        toast.error(`❌ Xác thực email không thành công: ${errorMessage}`);
+        setTimeout(() => {
+          navigate('/register', {
+            state: {
+              error: errorMessage,
+            },
+          });
+        }, 2000);
       }
     } catch (error) {
-      toast.error(error.message || 'Xác thực email thất bại');
+      const errorMessage = error?.message || 'Xác thực email không thành công.';
+      toast.error(`❌ Xác thực email không thành công: ${errorMessage}`);
       setTimeout(() => {
-        navigate('/login');
+        navigate('/register', {
+          state: {
+            error: errorMessage,
+          },
+        });
       }, 2000);
     } finally {
       setLoading(false);

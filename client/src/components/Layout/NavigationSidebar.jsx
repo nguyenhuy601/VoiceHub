@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import Avatar from '../ui/Avatar';
+import { getUserDisplayName } from '../../utils/helpers';
 
 const NavigationSidebar = () => {
   const [time, setTime] = useState(new Date());
@@ -9,6 +11,7 @@ const NavigationSidebar = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
+  const [profileOpen, setProfileOpen] = useState(false);
   
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -16,10 +19,11 @@ const NavigationSidebar = () => {
   }, []);
 
   const currentTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const displayName = getUserDisplayName(user);
 
   const getGreeting = () => {
     const hour = time.getHours();
-    const userName = user?.name || "Bạn";
+    const userName = displayName || 'Bạn';
     
     if (hour >= 5 && hour < 11) return `Chào buổi Sáng, ${userName}!`;
     if (hour >= 11 && hour < 13) return `Chào buổi Trưa, ${userName}!`;
@@ -36,7 +40,6 @@ const NavigationSidebar = () => {
   };
 
   const navItems = [
-    { icon: "🏠", label: "Trang Chủ", path: "/", badge: null },
     { icon: "📊", label: "Bảng Điều Khiển", path: "/dashboard", badge: "5" },
     { icon: "💬", label: "Tin Nhắn", path: "/chat", badge: "12" },
     { icon: "🎤", label: "Không Gian", path: "/voice/room1", badge: null },
@@ -61,6 +64,76 @@ const NavigationSidebar = () => {
       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl animate-glow mb-2 relative cursor-pointer group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3 transition-all duration-300">
         🚀
         <span className="hidden group-hover/sidebar:inline-block text-base font-bold text-white whitespace-nowrap">VoiceHub</span>
+      </div>
+
+      {/* User (avatar + name) - dưới logo */}
+      <div className="w-full relative">
+        <button
+          type="button"
+          onClick={() => setProfileOpen((prev) => !prev)}
+          className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center transition-all duration-300 group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3"
+          title={displayName || user?.email || 'Tài khoản'}
+        >
+          <Avatar user={user} size="sm" online className="shrink-0" />
+          <div className="hidden group-hover/sidebar:flex flex-col items-start min-w-0">
+            <span className="text-sm font-semibold text-white truncate max-w-[150px]">
+              {displayName}
+            </span>
+            <span className="text-xs text-white/50 truncate max-w-[150px]">
+              {user?.email || ''}
+            </span>
+          </div>
+          <span className="hidden group-hover/sidebar:inline-block ml-auto text-white/50">
+            ▾
+          </span>
+        </button>
+
+        {profileOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setProfileOpen(false)}
+            />
+            <div className="absolute left-0 right-0 top-14 z-20 animate-slideUp">
+              <div className="rounded-2xl p-3 border border-dark-700 shadow-xl bg-dark-800">
+                <div className="flex items-center gap-3 mb-3">
+                  <Avatar user={user} size="md" online />
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-white truncate">
+                      {displayName}
+                    </div>
+                    <div className="text-xs text-white/60 truncate">{user?.email || ''}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigate('/profile');
+                      setProfileOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-left text-sm text-white transition-colors"
+                  >
+                    ✏️ Sửa hồ sơ
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setProfileOpen(false);
+                      await logout();
+                      navigate('/login');
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-left text-sm text-red-300 transition-colors"
+                  >
+                    🚪 Đăng xuất
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
       
       {/* Time Display */}

@@ -51,6 +51,7 @@ const publicRoutes = [
   '/api/auth/reset-password',
   '/api/auth/verify-email',
   '/health',
+  '/favicon.ico',
 ];
 
 // Tìm service theo path

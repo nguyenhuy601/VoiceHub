@@ -94,7 +94,7 @@ function AuthProvider({ children }) {
           const userData = await authService.getCurrentUser();
           
           // Set user data vào state
-          setUser(userData);
+          setUser(userData?.data || userData);
         }
       } catch (error) {
         // Nếu có lỗi (token hết hạn, invalid, etc.)
@@ -144,9 +144,14 @@ function AuthProvider({ children }) {
       // Lưu token vào localStorage để persist login
       // Token này sẽ được gửi kèm mọi API request
       localStorage.setItem('token', token);
-      
-      // Cập nhật user state
-      setUser(userData);
+
+      // Cập nhật user state: ưu tiên profile từ user-service (displayName/avatar)
+      try {
+        const me = await authService.getCurrentUser();
+        setUser(me?.data || me);
+      } catch (e) {
+        setUser(userData);
+      }
       
       // Hiển thị toast notification thành công
       toast.success('Đăng nhập thành công!');

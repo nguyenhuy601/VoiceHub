@@ -84,10 +84,15 @@ const authService = {
      - Cần refresh user info
      - Sau khi update profile */
   getCurrentUser: async () => {
-    // GET /auth/me với token trong header
-    // Server decode token → lấy userId → return user data
-    const response = await api.get('/auth/me');
-    return response;
+    // Ưu tiên lấy profile từ user-service (có displayName, avatar, status)
+    // Fallback về auth-service (chỉ có id/email) nếu user-service chưa cấu hình
+    try {
+      const response = await api.get('/users/me');
+      return response;
+    } catch (error) {
+      const response = await api.get('/auth/me');
+      return response;
+    }
   },
 
   /* ----- UPDATE PROFILE: Cập nhật thông tin cá nhân -----
