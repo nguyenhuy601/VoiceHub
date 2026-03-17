@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 
 function TasksPage() {
@@ -157,10 +157,9 @@ function TasksPage() {
   const completionRate = Math.round((completedTasks / totalTasks) * 100);
 
   return (
-    <div className="min-h-screen flex">
-      <NavigationSidebar currentPage="Công Việc" />
-
-      <div className="flex-1 flex flex-col">
+    <ThreeFrameLayout
+      center={
+        <div className="flex flex-col h-full">
         {/* Header */}
         <div className="p-6 glass-strong border-b border-white/10">
           <div className="flex items-center justify-between mb-6">
@@ -246,7 +245,7 @@ function TasksPage() {
         </div>
 
         {/* Kanban Board or List View */}
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+        <div className="flex-1 p-6">
           {viewMode === 'kanban' ? (
           // KANBAN VIEW
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
@@ -842,7 +841,8 @@ function TasksPage() {
           />
         )}
       </div>
-    </div>
+      }
+    />
   );
 }
 

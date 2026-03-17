@@ -5,7 +5,7 @@ class UserController {
   // Tạo user profile mới
   async createUserProfile(req, res) {
     try {
-      const { userId, username, displayName, dateOfBirth } = req.body;
+      const { userId, username, email, displayName, dateOfBirth } = req.body;
 
       if (!userId || !username) {
         return res.status(400).json({
@@ -13,10 +13,17 @@ class UserController {
           message: 'userId and username are required',
         });
       }
+      if (!email || typeof email !== 'string' || !email.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'email is required',
+        });
+      }
 
       const userProfile = await userService.createUserProfile({
         userId,
         username,
+        email: email.trim().toLowerCase(),
         displayName,
         dateOfBirth,
       });
@@ -38,6 +45,12 @@ class UserController {
   async getUserProfileById(req, res) {
     try {
       const { userId } = req.params;
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId is required',
+        });
+      }
       const userProfile = await userService.getUserProfileById(userId);
 
       if (!userProfile) {
@@ -64,6 +77,12 @@ class UserController {
   async getUserProfileByUsername(req, res) {
     try {
       const { username } = req.params;
+      if (!username || !String(username).trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'username is required',
+        });
+      }
       const userProfile = await userService.getUserProfileByUsername(username);
 
       if (!userProfile) {
@@ -86,16 +105,58 @@ class UserController {
     }
   }
 
-  // Lấy thông tin user hiện tại
+  // Lấy user profile theo số điện thoại
+  async getUserProfileByPhone(req, res) {
+    try {
+      const { phone } = req.params;
+
+      if (!phone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone is required',
+        });
+      }
+
+      const userProfile = await userService.getUserProfileByPhone(phone);
+
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found',
+        });
+      }
+
+      res.json({
+        success: true,
+        data: userProfile,
+      });
+    } catch (error) {
+      logger.error('Get user profile by phone error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  // Lấy thông tin user hiện tại (userId từ gateway header x-user-id hoặc userContext)
   async getCurrentUser(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId;
+      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
 
       if (!userId) {
         return res.status(401).json({
           success: false,
           message: 'Unauthorized',
         });
+      }
+
+      // Update status to 'online' khi user active
+      try {
+        await userService.updateStatus(userId, 'online');
+      } catch (statusError) {
+        logger.warn('Failed to update user status:', statusError.message);
+        // Không throw error, vẫn lấy user profile
       }
 
       const userProfile = await userService.getUserProfileById(userId);
@@ -123,7 +184,7 @@ class UserController {
   // Cập nhật user profile
   async updateUserProfile(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.params.userId;
+      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'] || req.params.userId;
 
       if (!userId) {
         return res.status(401).json({
@@ -132,7 +193,8 @@ class UserController {
         });
       }
 
-      const userProfile = await userService.updateUserProfile(userId, req.body);
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const userProfile = await userService.updateUserProfile(userId, body);
 
       res.json({
         success: true,
@@ -150,7 +212,7 @@ class UserController {
   // Cập nhật status
   async updateStatus(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId;
+      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
       const { status } = req.body;
 
       if (!userId) {
@@ -187,7 +249,7 @@ class UserController {
     try {
       const { q, page, limit } = req.query;
 
-      if (!q) {
+      if (!q || String(q).trim() === '') {
         return res.status(400).json({
           success: false,
           message: 'Search query is required',
@@ -195,8 +257,8 @@ class UserController {
       }
 
       const result = await userService.searchUsers(q, {
-        page: parseInt(page) || 1,
-        limit: parseInt(limit) || 20,
+        page: page || 1,
+        limit: limit || 20,
       });
 
       res.json({
@@ -216,10 +278,18 @@ class UserController {
   async deleteUserProfile(req, res) {
     try {
       const { userId } = req.params;
-      const currentUserId = req.user?.id || req.userContext?.userId;
+      const currentUserId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
 
-      // Chỉ cho phép xóa chính mình hoặc admin
-      if (userId !== currentUserId) {
+      if (!currentUserId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const currentStr = String(currentUserId);
+      const targetStr = String(userId);
+      if (targetStr !== currentStr) {
         return res.status(403).json({
           success: false,
           message: 'Forbidden',

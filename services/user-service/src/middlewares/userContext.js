@@ -16,13 +16,14 @@ const userContext = async (req, res, next) => {
         const userProfile = await userService.getUserProfileById(userId);
         
         if (userProfile) {
+          const plain = typeof userProfile.toObject === 'function' ? userProfile.toObject() : userProfile;
           req.userContext = {
-            userId: userProfile.userId,
-            username: userProfile.username,
-            displayName: userProfile.displayName,
-            avatar: userProfile.avatar,
-            status: userProfile.status,
-            ...userProfile.toObject(),
+            userId: plain.userId,
+            username: plain.username,
+            displayName: plain.displayName,
+            avatar: plain.avatar,
+            status: plain.status,
+            ...plain,
           };
         }
       } catch (error) {

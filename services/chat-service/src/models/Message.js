@@ -1,15 +1,14 @@
-const mongoose = require('mongoose');
+const { mongo } = require('/shared');
+const { mongoose } = mongo;
 
 const messageSchema = new mongoose.Schema(
   {
     senderId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      ref: 'User',
     },
     receiverId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
     },
     roomId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -33,7 +32,6 @@ const messageSchema = new mongoose.Schema(
     },
     organizationId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Organization',
     },
   },
   {

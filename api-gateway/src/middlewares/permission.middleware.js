@@ -31,10 +31,37 @@ const permissionMiddleware = async (req, res, next) => {
       console.warn(`No action mapping for ${req.method} ${req.path}`);
       return next();
     }
-
+    
     // Extract serverId từ request
     const serverId = extractServerId(req);
 
+    // Phân biệt 2 loại chat:
+    // - Chat bạn bè (DM): dùng /api/messages (hoặc /messages) → KHÔNG cần serverId/organizationId
+    // - Chat doanh nghiệp: dùng /api/chat/... → cần serverId/organizationId để check role
+    // Dựa cả vào action mapping và path thực tế để tránh lệch config
+    const isMessagesPath =
+      req.path.startsWith('/api/messages') ||
+      req.path.startsWith('/messages');
+    const isChatRoute = action.startsWith('chat:') || isMessagesPath;
+    const hasOrgOrServer =
+      req.query?.organizationId ||
+      req.params?.organizationId ||
+      req.body?.organizationId ||
+      req.query?.serverId ||
+      req.params?.serverId ||
+      req.body?.serverId;
+    const hasReceiverId =
+      req.query?.receiverId ||
+      req.params?.receiverId ||
+      req.body?.receiverId;
+
+    // Chat bạn bè (DM) dùng /api/messages:
+    // Bất cứ request nào tới messages mà KHÔNG có serverId/organizationId
+    // → coi là DM, bỏ qua permission context để tránh chặn FE.
+    if (isMessagesPath && !hasOrgOrServer) {
+      return next();
+    }
+    
     // Nếu không có serverId, có thể là global action (như friend, user profile)
     // Cho phép trong trường hợp này
     if (!serverId) {
@@ -43,8 +70,8 @@ const permissionMiddleware = async (req, res, next) => {
       if (globalActions.some((prefix) => action.startsWith(prefix))) {
         return next();
       }
-
-      // Các actions khác cần serverId
+      
+      // Các actions khác cần serverId (bao gồm chat doanh nghiệp)
       return res.status(400).json({
         success: false,
         message: 'serverId or organizationId is required',

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { Dropdown, GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 
 function DocumentsPage() {
@@ -140,276 +140,294 @@ function DocumentsPage() {
 
   return (
     <>
-      <div className="min-h-screen flex">
-        <NavigationSidebar currentPage="Tài Liệu" />
-        <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="p-6 glass-strong border-b border-white/10">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-4xl font-black text-gradient mb-2">Tài Liệu và File</h1>
-              <p className="text-gray-400">Quản lý và chia sẻ tài liệu của bạn</p>
+      <ThreeFrameLayout
+        center={
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="p-6 glass-strong border-b border-white/10">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-4xl font-black text-gradient mb-2">Tài Liệu và File</h1>
+                  <p className="text-gray-400">Quản lý và chia sẻ tài liệu của bạn</p>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                    className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 font-semibold"
+                  >
+                    {viewMode === 'grid' ? '📋 Danh sách' : '📊 Lưới'}
+                  </button>
+                  <GradientButton variant="primary" onClick={handleUploadStart}>
+                    <span className="text-xl mr-2">⬆️</span> Tải Lên
+                  </GradientButton>
+                </div>
+              </div>
+              {/* Storage Bar */}
+              <GlassCard>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-400">Dung lượng sử dụng</span>
+                  <span className="text-sm font-bold text-white">{storageUsed} GB / {storageTotal} GB</span>
+                </div>
+                <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all"
+                    style={{ width: `${storagePercent}%` }}
+                  ></div>
+                </div>
+              </GlassCard>
             </div>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-                className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 font-semibold"
-              >
-                {viewMode === 'grid' ? '📋 Danh sách' : '📊 Lưới'}
-              </button>
-              <GradientButton variant="primary" onClick={handleUploadStart}>
-                <span className="text-xl mr-2">⬆️</span> Tải Lên
-              </GradientButton>
-            </div>
-          </div>
 
-          {/* Storage Bar */}
-          <GlassCard>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-400">Dung lượng sử dụng</span>
-              <span className="text-sm font-bold text-white">{storageUsed} GB / {storageTotal} GB</span>
-            </div>
-            <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all"
-                style={{width: `${storagePercent}%`}}
-              ></div>
-            </div>
-          </GlassCard>
-        </div>
+            <div className="flex-1 p-6">
+              {/* Quick Access Folders */}
+              <div className="mb-8">
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <span>📁</span> Thư Mục
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {folders.map((folder, idx) => (
+                    <GlassCard key={idx} hover className="cursor-pointer group animate-slideUp" style={{ animationDelay: `${idx * 0.05}s` }}>
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${folder.color} flex items-center justify-center text-2xl mb-3`}>
+                        {folder.icon}
+                      </div>
+                      <h3 className="font-bold text-white mb-1 group-hover:text-gradient transition-colors">{folder.name}</h3>
+                      <p className="text-gray-400 text-sm">{folder.count} file</p>
+                    </GlassCard>
+                  ))}
+                </div>
+              </div>
 
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
-          {/* Quick Access Folders */}
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              <span>📁</span> Thư Mục
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {folders.map((folder, idx) => (
-                <GlassCard key={idx} hover className="cursor-pointer group animate-slideUp" style={{animationDelay: `${idx * 0.05}s`}}>
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${folder.color} flex items-center justify-center text-2xl mb-3`}>
-                    {folder.icon}
+              {/* Recent Files */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span>🕒</span> File Gần Đây
+                  </h2>
+                  <div className="flex gap-2">
+                    <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
+                      ⭐ Đã gắn dấu sao
+                    </button>
+                    <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
+                      🔗 Đã chia sẻ
+                    </button>
                   </div>
-                  <h3 className="font-bold text-white mb-1 group-hover:text-gradient transition-colors">{folder.name}</h3>
-                  <p className="text-gray-400 text-sm">{folder.count} file</p>
-                </GlassCard>
-              ))}
-            </div>
-          </div>
+                </div>
 
-          {/* Recent Files */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <span>🕒</span> File Gần Đây
-              </h2>
-              <div className="flex gap-2">
-                <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
-                  ⭐ Đã gắn dấu sao
-                </button>
-                <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
-                  🔗 Đã chia sẻ
-                </button>
-              </div>
-            </div>
-
-            {viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-visible">
-                {docs.map((doc, idx) => (
-                  <GlassCard key={doc.id} hover className="animate-slideUp group cursor-pointer !overflow-visible relative z-0 hover:z-10" style={{animationDelay: `${idx * 0.05}s`}}>
-                    <div className="flex items-start justify-between mb-3">
-                      <div 
-                        onClick={() => setSelectedFile(doc)}
-                        className={`w-14 h-14 rounded-xl bg-gradient-to-br ${doc.color} flex items-center justify-center text-3xl shadow-lg hover:scale-110 transition-transform cursor-pointer`}
+                {viewMode === 'grid' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-visible">
+                    {docs.map((doc, idx) => (
+                      <GlassCard
+                        key={doc.id}
+                        hover
+                        className="animate-slideUp group cursor-pointer !overflow-visible relative z-0 hover:z-10"
+                        style={{ animationDelay: `${idx * 0.05}s` }}
                       >
-                        {doc.type}
-                      </div>
-                      <div className="flex gap-1">
-                        <button 
-                          onClick={() => handleStarFile(doc.id)}
-                          className={doc.starred ? "text-yellow-400 text-lg hover:scale-125 transition-transform" : "text-gray-600 text-lg hover:text-yellow-400 hover:scale-125 transition-all"}
-                        >
-                          ⭐
-                        </button>
-                        {doc.shared && <span className="text-blue-400 text-lg">🔗</span>}
-                      </div>
-                    </div>
-                    <h3 
-                      onClick={() => setSelectedFile(doc)}
-                      className="font-bold text-white mb-2 group-hover:text-gradient transition-colors line-clamp-2"
-                    >
-                      {doc.name}
-                    </h3>
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-                      <span>{doc.size}</span>
-                      <span className="px-2 py-0.5 rounded-full glass text-xs">{doc.category}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
-                      <span>👤 {doc.owner}</span>
-                      <span>•</span>
-                      <span>{doc.modified}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => setSelectedFile(doc)}
-                        className="flex-1 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
-                      >
-                        Xem
-                      </button>
-                      <button 
-                        onClick={() => handleDownloadFile(doc)}
-                        className="flex-1 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
-                      >
-                        ⬇️
-                      </button>
-                      <Dropdown 
-                        trigger={
-                          <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all">
-                            ⋯
-                          </button>
-                        }
-                        align="right"
-                      >
-                        <button 
-                          onClick={() => handleShareFile(doc)}
-                          className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                        >
-                          🔗 Chia sẻ
-                        </button>
-                        <button 
-                          onClick={() => showToast("Đã đổi tên", "success")}
-                          className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                        >
-                          ✏️ Đổi tên
-                        </button>
-                        <button 
-                          onClick={() => showToast("Đã di chuyển", "success")}
-                          className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                        >
-                          📁 Di chuyển
-                        </button>
-                        <button 
-                          onClick={() => showToast("Đã copy", "success")}
-                          className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                        >
-                          📋 Sao chép
-                        </button>
-                        <button 
-                          onClick={() => {
-                            if (confirm('Bạn có chắc muốn xóa file này?')) {
-                              handleDeleteFile(doc.id);
-                            }
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
-                        >
-                          🗑️ Xóa
-                        </button>
-                      </Dropdown>
-                    </div>
-                  </GlassCard>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {docs.map((doc, idx) => (
-                  <GlassCard key={doc.id} hover className="animate-slideUp group cursor-pointer" style={{animationDelay: `${idx * 0.05}s`}}>
-                    <div className="flex items-center gap-4">
-                      <div 
-                        onClick={() => setSelectedFile(doc)}
-                        className={`w-12 h-12 rounded-xl bg-gradient-to-br ${doc.color} flex items-center justify-center text-2xl flex-shrink-0 hover:scale-110 transition-transform cursor-pointer`}
-                      >
-                        {doc.type}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 
+                        <div className="flex items-start justify-between mb-3">
+                          <div
+                            onClick={() => setSelectedFile(doc)}
+                            className={`w-14 h-14 rounded-xl bg-gradient-to-br ${doc.color} flex items-center justify-center text-3xl shadow-lg hover:scale-110 transition-transform cursor-pointer`}
+                          >
+                            {doc.type}
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleStarFile(doc.id)}
+                              className={
+                                doc.starred
+                                  ? 'text-yellow-400 text-lg hover:scale-125 transition-transform'
+                                  : 'text-gray-600 text-lg hover:text-yellow-400 hover:scale-125 transition-all'
+                              }
+                            >
+                              ⭐
+                            </button>
+                            {doc.shared && <span className="text-blue-400 text-lg">🔗</span>}
+                          </div>
+                        </div>
+                        <h3
                           onClick={() => setSelectedFile(doc)}
-                          className="font-bold text-white mb-1 group-hover:text-gradient transition-colors truncate"
+                          className="font-bold text-white mb-2 group-hover:text-gradient transition-colors line-clamp-2"
                         >
                           {doc.name}
                         </h3>
-                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
                           <span>{doc.size}</span>
-                          <span>•</span>
-                          <span>{doc.category}</span>
-                          <span>•</span>
-                          <span>Bởi {doc.owner}</span>
+                          <span className="px-2 py-0.5 rounded-full glass text-xs">{doc.category}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+                          <span>👤 {doc.owner}</span>
                           <span>•</span>
                           <span>{doc.modified}</span>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => handleStarFile(doc.id)}
-                          className={doc.starred ? "text-yellow-400 hover:scale-125 transition-transform" : "text-gray-600 hover:text-yellow-400 hover:scale-125 transition-all"}
-                        >
-                          ⭐
-                        </button>
-                        {doc.shared && <span className="text-blue-400">🔗</span>}
-                        <button 
-                          onClick={() => setSelectedFile(doc)}
-                          className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
-                        >
-                          Xem
-                        </button>
-                        <button 
-                          onClick={() => handleDownloadFile(doc)}
-                          className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all"
-                        >
-                          ⬇️
-                        </button>
-                        <Dropdown 
-                          trigger={
-                            <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all">
-                              ⋯
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setSelectedFile(doc)}
+                            className="flex-1 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
+                          >
+                            Xem
+                          </button>
+                          <button
+                            onClick={() => handleDownloadFile(doc)}
+                            className="flex-1 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
+                          >
+                            ⬇️
+                          </button>
+                          <Dropdown
+                            trigger={
+                              <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all">
+                                ⋯
+                              </button>
+                            }
+                            align="right"
+                          >
+                            <button
+                              onClick={() => handleShareFile(doc)}
+                              className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                            >
+                              🔗 Chia sẻ
                             </button>
-                          }
-                          align="right"
-                        >
-                          <button 
-                            onClick={() => handleShareFile(doc)}
-                            className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                            <button
+                              onClick={() => showToast('Đã đổi tên', 'success')}
+                              className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                            >
+                              ✏️ Đổi tên
+                            </button>
+                            <button
+                              onClick={() => showToast('Đã di chuyển', 'success')}
+                              className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                            >
+                              📁 Di chuyển
+                            </button>
+                            <button
+                              onClick={() => showToast('Đã copy', 'success')}
+                              className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                            >
+                              📋 Sao chép
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm('Bạn có chắc muốn xóa file này?')) {
+                                  handleDeleteFile(doc.id);
+                                }
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
+                            >
+                              🗑️ Xóa
+                            </button>
+                          </Dropdown>
+                        </div>
+                      </GlassCard>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {docs.map((doc, idx) => (
+                      <GlassCard
+                        key={doc.id}
+                        hover
+                        className="animate-slideUp group cursor-pointer"
+                        style={{ animationDelay: `${idx * 0.05}s` }}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            onClick={() => setSelectedFile(doc)}
+                            className={`w-12 h-12 rounded-xl bg-gradient-to-br ${doc.color} flex items-center justify-center text-2xl flex-shrink-0 hover:scale-110 transition-transform cursor-pointer`}
                           >
-                            🔗 Chia sẻ
-                          </button>
-                          <button 
-                            onClick={() => showToast("Đã đổi tên", "success")}
-                            className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                          >
-                            ✏️ Đổi tên
-                          </button>
-                          <button 
-                            onClick={() => showToast("Đã di chuyển", "success")}
-                            className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                          >
-                            📁 Di chuyển
-                          </button>
-                          <button 
-                            onClick={() => showToast("Đã copy", "success")}
-                            className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
-                          >
-                            📋 Sao chép
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (confirm('Bạn có chắc muốn xóa file này?')) {
-                                handleDeleteFile(doc.id);
+                            {doc.type}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3
+                              onClick={() => setSelectedFile(doc)}
+                              className="font-bold text-white mb-1 group-hover:text-gradient transition-colors truncate"
+                            >
+                              {doc.name}
+                            </h3>
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span>{doc.size}</span>
+                              <span>•</span>
+                              <span>{doc.category}</span>
+                              <span>•</span>
+                              <span>Bởi {doc.owner}</span>
+                              <span>•</span>
+                              <span>{doc.modified}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleStarFile(doc.id)}
+                              className={
+                                doc.starred
+                                  ? 'text-yellow-400 hover:scale-125 transition-transform'
+                                  : 'text-gray-600 hover:text-yellow-400 hover:scale-125 transition-all'
                               }
-                            }}
-                            className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
-                          >
-                            🗑️ Xóa
-                          </button>
-                        </Dropdown>
-                      </div>
-                    </div>
-                  </GlassCard>
-                ))}
+                            >
+                              ⭐
+                            </button>
+                            {doc.shared && <span className="text-blue-400">🔗</span>}
+                            <button
+                              onClick={() => setSelectedFile(doc)}
+                              className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
+                            >
+                              Xem
+                            </button>
+                            <button
+                              onClick={() => handleDownloadFile(doc)}
+                              className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all"
+                            >
+                              ⬇️
+                            </button>
+                            <Dropdown
+                              trigger={
+                                <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all">
+                                  ⋯
+                                </button>
+                              }
+                              align="right"
+                            >
+                              <button
+                                onClick={() => handleShareFile(doc)}
+                                className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                              >
+                                🔗 Chia sẻ
+                              </button>
+                              <button
+                                onClick={() => showToast('Đã đổi tên', 'success')}
+                                className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                              >
+                                ✏️ Đổi tên
+                              </button>
+                              <button
+                                onClick={() => showToast('Đã di chuyển', 'success')}
+                                className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                              >
+                                📁 Di chuyển
+                              </button>
+                              <button
+                                onClick={() => showToast('Đã copy', 'success')}
+                                className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
+                              >
+                                📋 Sao chép
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm('Bạn có chắc muốn xóa file này?')) {
+                                    handleDeleteFile(doc.id);
+                                  }
+                                }}
+                                className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
+                              >
+                                🗑️ Xóa
+                              </button>
+                            </Dropdown>
+                          </div>
+                        </div>
+                      </GlassCard>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      </div>
-    </div>
+        }
+      />
 
     {/* File Preview Modal */}
     <Modal 
@@ -684,13 +702,13 @@ function DocumentsPage() {
     </Modal>
 
     {/* Toast */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </>
   );
 }

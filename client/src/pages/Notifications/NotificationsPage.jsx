@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, Toast } from '../../components/Shared';
 
 function NotificationsPage() {
@@ -48,9 +48,9 @@ function NotificationsPage() {
 
   return (
     <>
-      <div className="min-h-screen flex">
-        <NavigationSidebar currentPage="Thông Báo" />
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+      <ThreeFrameLayout
+        center={
+          <div className="p-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -212,17 +212,18 @@ function NotificationsPage() {
             <p className="text-xl text-gray-400">Không có thông báo nào!</p>
           </div>
         )}
-      </div>
-    </div>
+          </div>
+        }
+      />
 
     {/* Toast */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </>
   );
 }

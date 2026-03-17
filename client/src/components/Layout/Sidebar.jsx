@@ -14,11 +14,14 @@ import {
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import ProfileModal from '../Profile/ProfileModal';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Bảng điều khiển' },
   { to: '/organizations', icon: Building2, label: 'Tổ chức' },
-  { to: '/chat', icon: MessageSquare, label: 'Tin nhắn' },
+  // Chat được tách thành 2 trang riêng: bạn bè & doanh nghiệp
+  { to: '/chat/friends', icon: MessageSquare, label: 'Chat bạn bè' },
+  { to: '/chat/organization', icon: Building2, label: 'Chat doanh nghiệp' },
   { to: '/voice', icon: Phone, label: 'Cuộc gọi' },
   { to: '/tasks', icon: CheckSquare, label: 'Công việc' },
   { to: '/documents', icon: FileText, label: 'Tài liệu' },
@@ -29,6 +32,7 @@ const Sidebar = ({ onClose }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [openProfile, setOpenProfile] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const displayName = user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || 'Người dùng';
   const initials = (displayName || 'U')
@@ -44,13 +48,13 @@ const Sidebar = ({ onClose }) => {
   };
 
   const handleGoProfile = () => {
-    navigate('/profile');
+    setIsProfileModalOpen(true);
     setOpenProfile(false);
-    if (onClose) onClose();
   };
 
   return (
-    <aside className="w-64 bg-dark-800 border-r border-dark-700 flex flex-col h-full relative">
+    <>
+    <aside className="w-64 bg-dark-800 border-r border-dark-700 flex flex-col h-screen relative">
       {/* User header (thay cho logo VoiceHub) */}
       <div className="p-4 border-b border-dark-700 flex items-center justify-between">
         <button
@@ -124,17 +128,6 @@ const Sidebar = ({ onClose }) => {
                   <span>Sửa hồ sơ</span>
                 </span>
               </button>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <LogOut className="w-4 h-4" />
-                  <span>Đăng xuất</span>
-                </span>
-              </button>
             </div>
           </div>
         </div>
@@ -168,6 +161,9 @@ const Sidebar = ({ onClose }) => {
         </p>
       </div>
     </aside>
+
+    <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
+    </>
   );
 };
 

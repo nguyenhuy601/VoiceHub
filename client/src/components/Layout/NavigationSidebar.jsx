@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Avatar from '../ui/Avatar';
 import { getUserDisplayName } from '../../utils/helpers';
+import ProfileModal from '../Profile/ProfileModal';
 
 const NavigationSidebar = () => {
   const [time, setTime] = useState(new Date());
@@ -12,7 +14,8 @@ const NavigationSidebar = () => {
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
-  
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -24,7 +27,6 @@ const NavigationSidebar = () => {
   const getGreeting = () => {
     const hour = time.getHours();
     const userName = displayName || 'Bạn';
-    
     if (hour >= 5 && hour < 11) return `Chào buổi Sáng, ${userName}!`;
     if (hour >= 11 && hour < 13) return `Chào buổi Trưa, ${userName}!`;
     if (hour >= 13 && hour < 17) return `Chào buổi Chiều, ${userName}!`;
@@ -33,24 +35,40 @@ const NavigationSidebar = () => {
   };
 
   const handleLogout = async () => {
-    if (window.confirm('Bạn có chắc muốn đăng xuất?')) {
-      await logout();
+    if (!window.confirm('Bạn có chắc muốn đăng xuất?')) return;
+
+    // Gọi API logout nhưng giới hạn thời gian chờ để không bị cảm giác chậm
+    try {
+      await Promise.race([
+        logout(), // cần token còn trong storage/header để backend xử lý đúng
+        new Promise((resolve) => setTimeout(resolve, 1500)), // timeout nhẹ 1.5s
+      ]);
+    } catch (e) {
+      console.error('Logout background error:', e);
+    } finally {
+      // Sau khi gọi (hoặc timeout) mới xoá token và điều hướng
+      try {
+        localStorage.removeItem('token');
+      } catch (e) {
+        // ignore storage errors
+      }
       navigate('/login');
     }
   };
 
   const navItems = [
-    { icon: "📊", label: "Bảng Điều Khiển", path: "/dashboard", badge: "5" },
-    { icon: "💬", label: "Tin Nhắn", path: "/chat", badge: "12" },
-    { icon: "🎤", label: "Không Gian", path: "/voice/room1", badge: null },
-    { icon: "✅", label: "Công Việc", path: "/tasks", badge: "3" },
-    { icon: "🏢", label: "Tổ Chức", path: "/organizations", badge: null },
-    { icon: "👥", label: "Liên Hệ", path: "/friends", badge: "2" },
-    { icon: "📁", label: "Tài Liệu", path: "/documents", badge: null },
-    { icon: "🔔", label: "Thông Báo", path: "/notifications", badge: "8" },
-    { icon: "📅", label: "Lịch", path: "/calendar", badge: null },
-    { icon: "📈", label: "Phân Tích", path: "/analytics", badge: null },
-    { icon: "⚙️", label: "Cài Đặt", path: "/settings", badge: null },
+    { icon: '📊', label: 'Bảng Điều Khiển', tooltip: 'Bảng điều khiển', path: '/dashboard', badge: '5' },
+    { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
+    { icon: '🏢', label: 'Chat doanh nghiệp', tooltip: 'Chat doanh nghiệp', path: '/chat/organization', badge: null },
+    { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice/room1', badge: null },
+    { icon: '✅', label: 'Công Việc', tooltip: 'Công việc', path: '/tasks', badge: '3' },
+    { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
+    { icon: '👥', label: 'Liên Hệ', tooltip: 'Bạn bè', path: '/friends', badge: '2' },
+    { icon: '📁', label: 'Tài Liệu', tooltip: 'Tài liệu', path: '/documents', badge: null },
+    { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: '8' },
+    { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
+    { icon: '📈', label: 'Phân Tích', tooltip: 'Phân tích', path: '/analytics', badge: null },
+    { icon: '⚙️', label: 'Cài Đặt', tooltip: 'Cài đặt', path: '/settings', badge: null },
   ];
 
   const isActivePath = (path) => {
@@ -58,156 +76,185 @@ const NavigationSidebar = () => {
     return location.pathname.startsWith(path);
   };
 
+  /* Tooltip kiểu bong bóng: lưu thẳng toạ độ để không bị nhảy khi component re-render (vd: đồng hồ cập nhật mỗi 1s) */
+  const [tooltip, setTooltip] = useState({ show: false, label: '', x: 0, y: 0 });
+
+  const Tooltip = ({ label, children, className = '' }) => {
+    const handleEnter = (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setTooltip({
+        show: true,
+        label,
+        x: rect.right + 12,
+        y: rect.top + rect.height / 2,
+      });
+    };
+
+    const handleLeave = () => {
+      setTooltip((p) => ({ ...p, show: false }));
+    };
+
+    return (
+      <div className={className} onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
+        {children}
+      </div>
+    );
+  };
+
+  const tooltipPortal =
+    tooltip.show &&
+    createPortal(
+      <div
+        className="fixed z-[9999] px-3 py-2 rounded-lg bg-gray-700 border border-white/10 shadow-xl text-white text-sm font-medium whitespace-nowrap pointer-events-none"
+        style={{
+          left: tooltip.x,
+          top: tooltip.y,
+          transform: 'translateY(-50%)',
+        }}
+        role="tooltip"
+      >
+        <span className="relative z-10">{tooltip.label}</span>
+        {/* Mũi nhọn trỏ vào icon (bong bóng) */}
+        <span
+          className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-[6px] border-solid border-transparent border-r-gray-700"
+          aria-hidden
+        />
+      </div>,
+      document.body
+    );
+
   return (
-    <div className="w-20 hover:w-64 glass-strong flex flex-col items-center hover:items-start py-6 space-y-3 border-r border-white/10 overflow-visible transition-all duration-300 group/sidebar px-3">
-      {/* Logo */}
-      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl animate-glow mb-2 relative cursor-pointer group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3 transition-all duration-300">
-        🚀
-        <span className="hidden group-hover/sidebar:inline-block text-base font-bold text-white whitespace-nowrap">VoiceHub</span>
+    <>
+      {/* overflow-x-visible để tooltip bong bóng bên phải icon không bị cắt */}
+      <div className="w-[72px] shrink-0 glass-strong border-r border-white/10 h-screen overflow-y-hidden overflow-x-visible flex flex-col flex-shrink-0">
+        {/* Một khối cuộn duy nhất: từ icon WebHub (VoiceHub) tới nút Đăng xuất — thanh trượt chạy suốt chiều cao */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay flex flex-col items-center py-4 gap-1">
+          {/* Logo WebHub (không cần bong bóng tooltip) */}
+          <Link
+            to="/dashboard"
+            className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl shrink-0"
+          >
+            🚀
+          </Link>
+
+          {/* Giờ */}
+          <div className="text-[10px] text-white/50 font-mono py-1">{currentTime}</div>
+          <div className="h-px w-8 bg-white/10 my-1" />
+
+          {/* Danh sách nav - chỉ icon, tooltip bên phải khi hover */}
+          <nav className="w-full flex flex-col items-center gap-1 py-1">
+            {navItems.map((item, idx) => (
+              <Tooltip key={idx} label={item.tooltip ?? item.label}>
+                <Link
+                  to={item.path}
+                  className={`relative w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 transition-all duration-200 ${
+                    isActivePath(item.path)
+                      ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg'
+                      : 'hover:bg-white/10'
+                  }`}
+                >
+                  {item.icon}
+                  {item.badge && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              </Tooltip>
+            ))}
+          </nav>
+
+          {/* Theme - chỉ icon */}
+          <Tooltip label={isDarkMode ? 'Chế độ Sáng' : 'Chế độ Tối'}>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center text-xl shrink-0"
+            >
+              {isDarkMode ? '🌙' : '☀️'}
+            </button>
+          </Tooltip>
+
+          {/* Avatar xuống cuối (vị trí cũ của đăng xuất) */}
+          <div className="mt-2 relative w-full flex justify-center">
+            <button
+              type="button"
+              onClick={() => setProfileOpen((p) => !p)}
+              className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center shrink-0"
+              title={displayName || user?.email || 'Tài khoản'}
+            >
+              <Avatar user={user} size="sm" online className="shrink-0" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* User (avatar + name) - dưới logo */}
-      <div className="w-full relative">
-        <button
-          type="button"
-          onClick={() => setProfileOpen((prev) => !prev)}
-          className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center transition-all duration-300 group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3"
-          title={displayName || user?.email || 'Tài khoản'}
-        >
-          <Avatar user={user} size="sm" online className="shrink-0" />
-          <div className="hidden group-hover/sidebar:flex flex-col items-start min-w-0">
-            <span className="text-sm font-semibold text-white truncate max-w-[150px]">
-              {displayName}
-            </span>
-            <span className="text-xs text-white/50 truncate max-w-[150px]">
-              {user?.email || ''}
-            </span>
-          </div>
-          <span className="hidden group-hover/sidebar:inline-block ml-auto text-white/50">
-            ▾
-          </span>
-        </button>
+      <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
+      {tooltipPortal}
 
-        {profileOpen && (
+      {/* Dropdown hồ sơ dạng thẻ lớn (render qua portal để không bị cắt) */}
+      {profileOpen &&
+        createPortal(
           <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setProfileOpen(false)}
-            />
-            <div className="absolute left-0 right-0 top-14 z-20 animate-slideUp">
-              <div className="rounded-2xl p-3 border border-dark-700 shadow-xl bg-dark-800">
-                <div className="flex items-center gap-3 mb-3">
-                  <Avatar user={user} size="md" online />
+            <div className="fixed inset-0 z-[998]" onClick={() => setProfileOpen(false)} />
+            <div className="fixed left-20 bottom-6 z-[999] w-[320px] rounded-2xl bg-gray-900/95 border border-white/10 shadow-2xl animate-slideUp overflow-hidden">
+              {/* Header avatar + status */}
+              <div className="relative bg-gradient-to-br from-purple-700/80 to-pink-600/60 px-4 pt-6 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Avatar user={user} size="lg" online />
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-400 border-2 border-gray-900" />
+                  </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-bold text-white truncate">
-                      {displayName}
+                    <div className="font-bold text-white truncate text-sm">{displayName}</div>
+                    <div className="text-xs text-white/70 truncate">
+                      {user?.username || user?.email || ''}
                     </div>
-                    <div className="text-xs text-white/60 truncate">{user?.email || ''}</div>
                   </div>
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigate('/profile');
-                      setProfileOpen(false);
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-left text-sm text-white transition-colors"
-                  >
-                    ✏️ Sửa hồ sơ
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setProfileOpen(false);
-                      await logout();
-                      navigate('/login');
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-left text-sm text-red-300 transition-colors"
-                  >
-                    🚪 Đăng xuất
-                  </button>
-                </div>
+              {/* Body actions */}
+              <div className="bg-gray-900/95 px-4 py-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProfileModalOpen(true);
+                    setProfileOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-white transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>✏️</span>
+                    <span>Sửa hồ sơ</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-gray-200 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>👁️‍🗨️</span>
+                    <span>Chế độ vô hình</span>
+                  </span>
+                  <span className="text-xs text-yellow-400">Beta</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-red-600/20 text-sm text-red-400 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🚪</span>
+                    <span>Đăng xuất</span>
+                  </span>
+                </button>
               </div>
             </div>
-          </>
+          </>,
+          document.body
         )}
-      </div>
-      
-      {/* Time Display */}
-      <div className="text-center mb-2">
-        <div className="text-xs text-gray-400 font-bold">
-          {time.getHours().toString().padStart(2, '0')}:{time.getMinutes().toString().padStart(2, '0')}
-        </div>
-      </div>
-
-      <div className="h-px w-10 bg-white/10 my-2"></div>
-
-      {/* Navigation Items with Expandable Labels */}
-      <div className="flex flex-col space-y-3 flex-1 w-full items-center group-hover/sidebar:items-start overflow-y-auto overflow-x-visible scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-        {navItems.map((item, idx) => (
-          <Link 
-            key={idx}
-            to={item.path}
-            className={`relative w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-all duration-300 group/item ${
-              isActivePath(item.path)
-                ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg scale-110' 
-                : 'hover:bg-white/10 hover:scale-110'
-            } group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3`}
-          >
-            {item.icon}
-            <span className="hidden group-hover/sidebar:inline-block text-sm font-semibold text-white whitespace-nowrap">{item.label}</span>
-            {item.badge && (
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-xs font-bold text-white group-hover/sidebar:relative group-hover/sidebar:top-0 group-hover/sidebar:right-0 group-hover/sidebar:ml-auto">
-                {item.badge}
-              </div>
-            )}
-          </Link>
-        ))}
-      </div>
-
-      {/* Greeting Area - Always visible */}
-      <div className="w-full flex justify-center mb-2">
-        <div className="glass-strong rounded-xl p-2 border border-purple-500/30 transition-all group-hover/sidebar:w-full group-hover/sidebar:p-3">
-          <div className="text-center">
-            <div className="text-2xl group-hover/sidebar:mb-1">👋</div>
-            <div className={`text-xs font-semibold leading-tight hidden group-hover/sidebar:block ${isDarkMode ? 'text-white/90' : 'text-gray-900'}`}>{getGreeting()}</div>
-          </div>
-        </div>
-      </div>
-      
-      <div className="h-px w-10 bg-white/10 my-2"></div>
-      
-      {/* Theme Toggle with Expandable Label */}
-      <button 
-        onClick={toggleTheme}
-        className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center text-xl transition-all duration-300 relative group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3"
-      >
-        {isDarkMode ? '🌙' : '☀️'}
-        <span className="hidden group-hover/sidebar:inline-block text-sm font-semibold text-white whitespace-nowrap">
-          {isDarkMode ? "Chế độ Sáng" : "Chế độ Tối"}
-        </span>
-      </button>
-
-      {/* Logout Button */}
-      <button 
-        onClick={handleLogout}
-        className="w-12 h-12 rounded-xl hover:bg-red-500/20 flex items-center justify-center text-xl transition-all duration-300 relative group-hover/sidebar:w-full group-hover/sidebar:justify-start group-hover/sidebar:gap-3 group-hover/sidebar:px-3 text-red-400 hover:text-red-300"
-        title="Đăng xuất"
-      >
-        🚪
-        <span className="hidden group-hover/sidebar:inline-block text-sm font-semibold whitespace-nowrap">
-          Đăng Xuất
-        </span>
-      </button>
-      
-      {/* Time Display */}
-      <div className="text-xs text-white/50 font-mono hidden group-hover/sidebar:block">
-        {currentTime}
-      </div>
-    </div>
+    </>
   );
 };
 

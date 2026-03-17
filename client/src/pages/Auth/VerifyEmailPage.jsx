@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { GlassCard, GradientButton } from '../../components/Shared';
 import authService from '../../services/authService';
 import toast from 'react-hot-toast';
@@ -10,6 +10,7 @@ function VerifyEmailPage() {
   const [loading, setLoading] = useState(false);
   const [verified, setVerified] = useState(false);
   const token = searchParams.get('token');
+  const hasRunRef = useRef(false);
 
   useEffect(() => {
     if (!token) {
@@ -21,7 +22,8 @@ function VerifyEmailPage() {
       });
       return;
     }
-
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
     handleVerifyEmail();
   }, [token]);
 
@@ -84,9 +86,11 @@ function VerifyEmailPage() {
             <p className="text-gray-300 mb-6">
               Email của bạn đã được xác thực. Bạn có thể đăng nhập ngay bây giờ.
             </p>
-            <GradientButton variant="primary" onClick={() => navigate('/login')}>
-              Đăng Nhập Ngay
-            </GradientButton>
+            <div className="flex justify-center">
+              <GradientButton variant="primary" onClick={() => navigate('/login')}>
+                Đăng Nhập Ngay
+              </GradientButton>
+            </div>
           </GlassCard>
         </div>
       </div>

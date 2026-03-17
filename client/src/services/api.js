@@ -32,7 +32,8 @@ import toast from 'react-hot-toast';
    /api/tasks/* → task-service (port 3009)
    /api/friends/* → friend-service (port 3014)
 ======================================== */
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+// Dev: dùng '/api' để request cùng origin → Vite proxy forward tới API Gateway (port 3000)
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 /* ========================================
    TẠO AXIOS INSTANCE
@@ -189,29 +190,66 @@ api.interceptors.response.use(
     // Lấy error message từ response hoặc dùng default
     // Priority: server message > axios message > default
     const message = error.response?.data?.message || error.message || 'Đã xảy ra lỗi';
-    
+
+    // Thông tin URL request để phân biệt auth routes
+    const requestUrl = error.config?.url || '';
+    const isAuthLoginRoute = requestUrl.includes('/auth/login');
+    const isAuthRegisterRoute = requestUrl.includes('/auth/register');
+    const isAuthPublicRoute =
+      isAuthLoginRoute ||
+      isAuthRegisterRoute ||
+      requestUrl.includes('/auth/forgot-password') ||
+      requestUrl.includes('/auth/reset-password') ||
+      requestUrl.includes('/auth/verify-email');
+
     /* ===== XỬ LÝ THEO STATUS CODE ===== */
-    
+
     // 401 Unauthorized: Token invalid hoặc expired
     if (error.response?.status === 401) {
-      // Xóa token lỗi khỏi localStorage
-      localStorage.removeItem('token');
-      
-      // Redirect về trang login
-      // window.location.href: hard redirect (reload page)
-      window.location.href = '/login';
-      
-      // Show notification
-      toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-    } 
+      // Nếu là các auth public route (login/register/forgot/reset/verify)
+      // → KHÔNG auto redirect, để component tự xử lý (hiển thị lỗi đăng nhập, đăng ký, ...)
+      if (isAuthPublicRoute) {
+        return Promise.reject({
+          message,
+          status: error.response?.status,
+          data: error.response?.data,
+          code: error.code,
+        });
+      }
+
+      // Hiển thị lỗi chi tiết từ server để debug (trước khi redirect)
+      console.error('[API] 401 Unauthorized:', { message, url: error.config?.url, data: error.response?.data });
+      toast.error(message || 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', { duration: 4000 });
+
+      // Trì hoãn redirect 2s để user đọc được toast và có thể mở console xem chi tiết
+      setTimeout(() => {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }, 2000);
+
+      return Promise.reject({
+        message,
+        status: error.response?.status,
+        data: error.response?.data,
+        code: error.code,
+      });
+    }
     // 403 Forbidden: Không có quyền
     else if (error.response?.status === 403) {
       toast.error('Bạn không có quyền thực hiện hành động này');
     } 
     // 404 Not Found: Resource không tồn tại
+    // Với /friends/search: không hiển thị toast ở đây, để trang Bạn bè tự hiển thị "Không tìm thấy người dùng"
     else if (error.response?.status === 404) {
-      toast.error('Không tìm thấy dữ liệu');
+      const isFriendSearch = requestUrl.includes('/friends/search');
+      if (!isFriendSearch) {
+        toast.error(message || 'Không tìm thấy dữ liệu');
+      }
     } 
+    // 503 Service Unavailable: Auth/service tạm không dùng được (không thoát đăng nhập)
+    else if (error.response?.status === 503) {
+      toast.error(message || 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.');
+    }
     // 504 Gateway Timeout: Backend không phản hồi trong thời gian cho phép
     else if (error.response?.status === 504) {
       toast.error('Backend đang xử lý quá lâu. Vui lòng thử lại sau hoặc kiểm tra logs backend.');
@@ -219,7 +257,7 @@ api.interceptors.response.use(
     }
     // 500+ Server Error: Lỗi server
     else if (error.response?.status >= 500) {
-      toast.error('Lỗi server. Vui lòng thử lại sau.');
+      toast.error(message || 'Lỗi server. Vui lòng thử lại sau.');
     }
     // Các lỗi khác (400, 422, etc.) không show toast
     // Component tự handle (validation errors, etc.)

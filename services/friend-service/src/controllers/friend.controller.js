@@ -1,12 +1,23 @@
 const friendService = require('../services/friend.service');
 const { logger } = require('/shared');
 
+/** Chuẩn hóa lỗi từ service: 503 khi MongoDB/service unavailable, 404 khi User not found */
+function errorToStatus(error, defaultMessage = 'An error occurred', defaultStatus = 400) {
+  const msg = error?.message || defaultMessage;
+  if (msg.includes('User not found')) return { status: 404, message: 'Không tìm thấy người dùng' };
+  if (msg.includes('temporarily unavailable') || msg.includes('Service temporarily unavailable')) {
+    return { status: 503, message: 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.' };
+  }
+  return { status: defaultStatus, message: msg };
+}
+
 class FriendController {
   // Gửi lời mời kết bạn
   async sendFriendRequest(req, res) {
     try {
-      const { friendId } = req.body;
-      const userId = req.user?.id || req.userContext?.userId;
+      const friendId = req.body?.friendId ?? req.body?.userId;
+      const currentUserId = req.user?.id ?? req.user?._id ?? req.userContext?.userId;
+      const userId = currentUserId?.toString?.() ?? currentUserId;
 
       if (!friendId || !userId) {
         return res.status(400).json({
@@ -23,10 +34,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Send friend request error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, 'Lỗi khi gửi lời mời');
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -51,10 +60,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Accept friend request error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -79,10 +86,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Reject friend request error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -111,10 +116,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get friends error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message, 500);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -139,10 +142,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get friend requests error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message, 500);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -167,10 +168,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Remove friend error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -195,10 +194,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Block user error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -223,10 +220,8 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Unblock user error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      const { status, message } = errorToStatus(error, error.message);
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -251,9 +246,10 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get relationship error:', error);
-      res.status(500).json({
+      const { status, message } = errorToStatus(error, error.message, 500);
+      res.status(status).json({
         success: false,
-        message: error.message,
+        message,
       });
     }
   }

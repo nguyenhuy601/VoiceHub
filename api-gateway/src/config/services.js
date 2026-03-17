@@ -54,11 +54,15 @@ const publicRoutes = [
   '/favicon.ico',
 ];
 
+// Chuẩn hóa path: gateway có thể mount tại '/' hoặc '/api', route luôn có dạng /api/...
+const normalizePath = (path) => (path.startsWith('/api') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`);
+
 // Tìm service theo path
 const getServiceByPath = (path) => {
+  const normalized = normalizePath(path);
   for (const [serviceName, config] of Object.entries(services)) {
     for (const route of config.routes) {
-      if (path.startsWith(route)) {
+      if (normalized.startsWith(route)) {
         return {
           name: serviceName,
           url: config.url,
@@ -78,6 +82,7 @@ module.exports = {
   services,
   getServiceByPath,
   isPublicRoute,
+  normalizePath,
 };
 
 

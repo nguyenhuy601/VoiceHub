@@ -12,21 +12,26 @@ router.post('/', userController.createUserProfile.bind(userController));
 // Lấy thông tin user hiện tại
 router.get('/me', userController.getCurrentUser.bind(userController));
 
+// Cập nhật status (phải trước /:userId vì /me/status có thể bị :userId match)
+router.patch('/me/status', userController.updateStatus.bind(userController));
+
+// Cập nhật user profile
+router.patch('/me', userController.updateUserProfile.bind(userController));
+
 // Tìm kiếm users
 router.get('/search', userController.searchUsers.bind(userController));
 
-// Lấy user profile theo ID
-router.get('/:userId', userController.getUserProfileById.bind(userController));
+// Lấy user profile theo số điện thoại
+router.get('/phone/:phone', userController.getUserProfileByPhone.bind(userController));
 
 // Lấy user profile theo username
 router.get('/username/:username', userController.getUserProfileByUsername.bind(userController));
 
-// Cập nhật user profile
-router.patch('/me', userController.updateUserProfile.bind(userController));
-router.put('/:userId', userController.updateUserProfile.bind(userController));
+// Lấy user profile theo ID
+router.get('/:userId', userController.getUserProfileById.bind(userController));
 
-// Cập nhật status
-router.patch('/me/status', userController.updateStatus.bind(userController));
+// Cập nhật user profile
+router.put('/:userId', userController.updateUserProfile.bind(userController));
 
 // Xóa user profile
 router.delete('/:userId', userController.deleteUserProfile.bind(userController));

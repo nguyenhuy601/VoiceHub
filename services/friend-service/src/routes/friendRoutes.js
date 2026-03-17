@@ -7,6 +7,9 @@ router.use(protect);
 
 router.get('/', friendController.getFriends);
 router.get('/pending', friendController.getPendingRequests);
+
+// tìm bạn theo số điện thoại (qua user-service)
+router.get('/search', friendController.searchByPhone);
 router.post('/request', friendController.sendFriendRequest);
 router.post('/accept/:id', friendController.acceptRequest);
 router.delete('/reject/:id', friendController.rejectRequest);

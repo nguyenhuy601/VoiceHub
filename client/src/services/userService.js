@@ -41,10 +41,10 @@ const userService = {
     return await api.get(`/users/${userId}/status`);
   },
 
-  // Cập nhật status của mình - PUT /users/status
+  // Cập nhật status của mình - PATCH /users/me/status
   // status: 'online' | 'away' | 'busy' | 'offline'
   updateStatus: async (status) => {
-    return await api.put('/users/status', { status });
+    return await api.patch('/users/me/status', { status });
   },
 };
 

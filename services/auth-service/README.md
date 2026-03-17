@@ -17,8 +17,8 @@ Cập nhật các giá trị trong file `.env`:
 NODE_ENV=development
 PORT=3001
 
-# Database
-MONGODB_URI=mongodb://admin:password@mongodb:27017/enterprise_auth?authSource=admin
+# Database (Atlas)
+MONGODB_URI=mongodb+srv://user:password@cluster0.xxx.mongodb.net/auth_db
 
 # Redis
 REDIS_HOST=redis

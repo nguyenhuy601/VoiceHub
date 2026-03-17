@@ -59,7 +59,10 @@ const noPermissionRoutes = [
   '/api/auth/logout',
   '/api/auth/change-password',
   '/api/auth/me',
+  // User profile & avatar không phụ thuộc server/organization
   '/api/users/me',
+  '/api/users/avatar',
+  // Friend routes không cần server context
   '/api/friends',
   '/api/notifications',
 ];

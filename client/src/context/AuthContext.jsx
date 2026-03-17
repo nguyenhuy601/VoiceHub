@@ -18,6 +18,9 @@ import toast from 'react-hot-toast';
 // File: ../services/authService.js - chứa login(), register(), logout()
 import authService from '../services/authService';
 
+// Import userService để update user status
+import userService from '../services/userService';
+
 /* ========================================
    TẠO CONTEXT
    - createContext(null): tạo Context với giá trị mặc định null
@@ -310,13 +313,22 @@ function AuthProvider({ children }) {
      Đăng xuất user
      
      Luồng:
-     1. Call API logout (invalidate token trên server)
-     2. Xóa token khỏi localStorage
-     3. Set user = null
-     4. Socket sẽ disconnect (ở SocketContext)
+     1. Update status to offline
+     2. Call API logout (invalidate token trên server)
+     3. Xóa token khỏi localStorage
+     4. Set user = null
+     5. Socket sẽ disconnect (ở SocketContext)
   ======================================== */
   const logout = useCallback(async () => {
     try {
+      // Update status to 'offline' trước khi logout
+      try {
+        await userService.updateStatus('offline');
+      } catch (statusError) {
+        console.warn('Failed to update status to offline:', statusError);
+        // Vẫn tiếp tục logout dù status update fail
+      }
+
       // Gọi API logout (optional - để invalidate token server-side)
       // authService.logout() → POST /api/auth/logout
       await authService.logout();

@@ -108,6 +108,36 @@ html.light .text-gradient {
   .scrollbar-gradient::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
   }
+
+  /* Thanh trượt chỉ hiện khi cần (hover vùng cuộn hoặc khi trượt) */
+  .scrollbar-overlay::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-overlay::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-overlay::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+  }
+  .scrollbar-overlay:hover::-webkit-scrollbar-thumb,
+  .scrollbar-overlay:focus-within::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .scrollbar-overlay::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+  }
+  @supports (scrollbar-width: thin) {
+    .scrollbar-overlay {
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+    }
+    .scrollbar-overlay:hover,
+    .scrollbar-overlay:focus-within {
+      scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+    }
+  }
 }
 
 /* Glassmorphism utilities */

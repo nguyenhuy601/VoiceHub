@@ -195,7 +195,46 @@ class AuthService {
   // Đăng nhập
   async login(email, password) {
     try {
-      const userAuth = await UserAuth.findOne({ email });
+      // Kiểm tra MongoDB connection trước khi query (tránh lỗi buffering timeout)
+      const readyState = mongoose.connection.readyState;
+      console.log('[AuthService] [LOGIN] MongoDB readyState:', readyState, '(1=connected, 2=connecting, 0=disconnected)');
+      console.log('[AuthService] [LOGIN] MongoDB host:', mongoose.connection.host);
+      console.log('[AuthService] [LOGIN] MongoDB name:', mongoose.connection.name);
+
+      if (readyState !== 1) {
+        console.warn('[AuthService] [LOGIN] ⚠️ MongoDB readyState is not 1, attempting to reconnect...');
+
+        if (readyState === 0) {
+          console.warn('[AuthService] [LOGIN] ⚠️ MongoDB disconnected, attempting to reconnect...');
+          try {
+            if (!mongoose.connection.readyState) {
+              await mongoose.connect(process.env.MONGODB_URI, {
+                serverSelectionTimeoutMS: 10000,
+              });
+              console.log('[AuthService] [LOGIN] ✅ Reconnected to MongoDB');
+            }
+          } catch (reconnectError) {
+            console.error('[AuthService] [LOGIN] ❌ Reconnection failed:', reconnectError.message);
+            throw new Error('Database connection lost and reconnection failed. Please try again.');
+          }
+        }
+
+        if (mongoose.connection.db) {
+          try {
+            await mongoose.connection.db.admin().ping();
+            console.log('[AuthService] [LOGIN] ✅ MongoDB ping successful, connection is ready');
+          } catch (pingError) {
+            console.error('[AuthService] [LOGIN] ❌ MongoDB ping failed:', pingError.message);
+            throw new Error('Database connection not ready. Please try again.');
+          }
+        } else {
+          throw new Error('Database connection object not available. Please try again.');
+        }
+      }
+
+      const userAuth = await UserAuth.findOne({ email })
+        .maxTimeMS(15000)
+        .lean(false);
 
       if (!userAuth) {
         throw new Error('Invalid email or password');
@@ -299,7 +338,40 @@ class AuthService {
   // Đăng xuất
   async logout(userId) {
     try {
-      const userAuth = await UserAuth.findOne({ userId });
+      // Kiểm tra MongoDB connection trước khi query (tránh buffering timeout)
+      const readyState = mongoose.connection.readyState;
+      console.log('[AuthService] [LOGOUT] MongoDB readyState:', readyState, '(1=connected, 2=connecting, 0=disconnected)');
+
+      if (readyState !== 1) {
+        console.warn('[AuthService] [LOGOUT] ⚠️ MongoDB readyState is not 1, attempting to reconnect...');
+
+        if (readyState === 0) {
+          console.warn('[AuthService] [LOGOUT] ⚠️ MongoDB disconnected, attempting to reconnect...');
+          try {
+            if (!mongoose.connection.readyState) {
+              await mongoose.connect(process.env.MONGODB_URI, {
+                serverSelectionTimeoutMS: 10000,
+              });
+              console.log('[AuthService] [LOGOUT] ✅ Reconnected to MongoDB');
+            }
+          } catch (reconnectError) {
+            console.error('[AuthService] [LOGOUT] ❌ Reconnection failed:', reconnectError.message);
+            throw new Error('Database connection lost and reconnection failed. Please try again.');
+          }
+        }
+
+        if (mongoose.connection.db) {
+          try {
+            await mongoose.connection.db.admin().ping();
+            console.log('[AuthService] [LOGOUT] ✅ MongoDB ping successful, connection is ready');
+          } catch (pingError) {
+            console.error('[AuthService] [LOGOUT] ❌ MongoDB ping failed:', pingError.message);
+            throw new Error('Database is currently unavailable. Please try again later.');
+          }
+        }
+      }
+
+      const userAuth = await UserAuth.findOne({ userId }).maxTimeMS(5000);
       if (userAuth) {
         userAuth.refreshToken = null;
         userAuth.refreshTokenExpiresAt = null;
@@ -443,54 +515,31 @@ class AuthService {
       try {
         const userServiceUrl = process.env.USER_SERVICE_URL || 'http://user-service:3004';
         
-        // Tạo username từ email (phần trước @)
-        // Loại bỏ ký tự đặc biệt và chuyển thành lowercase
-        const usernameBase = userAuth.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-        let username = usernameBase;
-        let counter = 1;
+        // username & displayName dựa trên tên thật; email dùng để phân biệt
+        const rawName = `${userAuth.firstName || ''} ${userAuth.lastName || ''}`.trim();
+        const username = rawName || userAuth.email.split('@')[0];
+        const displayName = rawName || username;
 
-        // Tạo displayName từ firstName và lastName
-        const displayName = `${userAuth.firstName} ${userAuth.lastName}`.trim();
-
-        // Gọi user-service để tạo UserProfile
-        // Nếu username đã tồn tại, thử thêm số vào cuối
-        let response;
-        let maxAttempts = 10;
-        while (maxAttempts > 0) {
-          try {
-            response = await axios.post(`${userServiceUrl}/api/users`, {
-              userId: userId.toString(),
-              username: username,
-              displayName: displayName,
-              dateOfBirth: userAuth.dateOfBirth,
-            }, {
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              timeout: 5000,
-            });
-            break; // Thành công, thoát vòng lặp
-          } catch (error) {
-            if (error.response?.status === 400 && error.response?.data?.message?.includes('Username already exists')) {
-              // Username đã tồn tại, thử username khác
-              username = `${usernameBase}${counter}`;
-              counter++;
-              maxAttempts--;
-            } else {
-              throw error; // Lỗi khác, throw lại
-            }
+        const response = await axios.post(
+          `${userServiceUrl}/api/users`,
+          {
+            userId: userId.toString(),
+            username,
+            email: userAuth.email,
+            displayName,
+            dateOfBirth: userAuth.dateOfBirth,
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 5000,
           }
-        }
+        );
 
         if (response) {
           console.log('UserProfile created successfully:', response.data);
         }
-
-        // Xóa thông tin tạm thời sau khi đã tạo UserProfile
-        userAuth.firstName = null;
-        userAuth.lastName = null;
-        userAuth.dateOfBirth = null;
-        await userAuth.save();
       } catch (error) {
         // Log lỗi nhưng không throw - user đã verify email thành công
         // UserProfile có thể được tạo sau hoặc thủ công

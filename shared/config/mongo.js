@@ -66,6 +66,12 @@ const connectDB = async (mongoUri = null, options = {}) => {
     mongoose.connection.on('disconnected', () => {
       logger.warn('MongoDB disconnected');
       console.warn('[MongoDB] ⚠️ Disconnected from MongoDB');
+      const reconnectUri = uri || process.env.MONGODB_URI;
+      if (reconnectUri) {
+        mongoose.connect(reconnectUri, defaultOptions).catch((err) => {
+          logger.error('MongoDB auto-reconnect failed:', err.message);
+        });
+      }
     });
 
     mongoose.connection.on('reconnected', () => {
