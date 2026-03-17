@@ -117,6 +117,62 @@ function HomePage() {
         <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '2s'}}></div>
       </div>
 
+      {/* Top Header */}
+      <div className="relative z-20">
+        <header className="sticky top-0 backdrop-blur-xl bg-[#0a0118]/40 border-b border-white/10">
+          <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl animate-glow">
+                🚀
+              </div>
+              <div className="leading-tight">
+                <div className="text-lg font-black text-gradient">VoiceHub</div>
+                <div className="text-xs text-gray-400">Enterprise Communication</div>
+              </div>
+            </Link>
+
+            <div className="flex items-center gap-3">
+              {isAuthenticated ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-semibold transition-colors"
+                  >
+                    Vào Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast('Bạn đã đăng nhập rồi.');
+                      navigate('/dashboard');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold hover:opacity-90 transition-opacity"
+                  >
+                    Tiếp tục
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-semibold transition-colors"
+                  >
+                    Đăng nhập
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold hover:opacity-90 transition-opacity"
+                  >
+                    Đăng ký
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
+      </div>
+
       <div className="relative z-10 container mx-auto px-6 py-12">
         {/* Hero Section with Enhanced Details */}
         <div className="text-center mb-16 animate-slideUp">
@@ -152,10 +208,25 @@ function HomePage() {
           </div>
 
           <div className="flex gap-4 justify-center">
-            <GradientButton variant="primary" icon="🚀">
-              Bắt Đầu Miễn Phí
+            <GradientButton
+              variant="primary"
+              icon="🚀"
+              onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+            >
+              {isAuthenticated ? 'Vào Dashboard' : 'Bắt Đầu Miễn Phí'}
             </GradientButton>
-            <GradientButton variant="secondary" icon="▶️">
+            <GradientButton
+              variant="secondary"
+              icon="▶️"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  toast('Vui lòng đăng nhập để xem demo đầy đủ.');
+                  navigate('/login');
+                  return;
+                }
+                navigate('/dashboard');
+              }}
+            >
               Xem Demo
             </GradientButton>
           </div>

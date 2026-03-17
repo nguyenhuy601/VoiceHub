@@ -1,4 +1,8 @@
 const Friendship = require('../models/Friendship');
+const axios = require('axios');
+const friendService = require('../services/friend.service');
+
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
 
 exports.getFriends = async (req, res, next) => {
   try {
@@ -130,6 +134,58 @@ exports.unblockUser = async (req, res, next) => {
 
     res.json({ status: 'success', message: 'User unblocked' });
   } catch (error) {
+    next(error);
+  }
+};
+
+// Search for a user by phone number via user service
+// also include current relationship status if found
+exports.searchByPhone = async (req, res, next) => {
+  try {
+    const { phone } = req.query;
+    if (!phone) {
+      return res.status(400).json({ status: 'fail', message: 'Phone parameter is required' });
+    }
+
+    const response = await axios.get(`${USER_SERVICE_URL}/api/users/phone/${encodeURIComponent(phone)}`);
+    const userData = response.data?.data;
+    if (!userData) {
+      return res.status(404).json({ status: 'fail', message: 'Không tìm thấy người dùng' });
+    }
+
+    // Chuẩn hóa ID (user-service có thể trả userId/_id dạng string hoặc object)
+    const toId = (v) => (v == null ? null : (v && typeof v === 'object' && v.$oid ? v.$oid : String(v)));
+    const targetUserId = toId(userData.userId ?? userData._id) || null;
+    const currentUserId = toId(req.user._id ?? req.user.id) || null;
+
+    let relationship = { status: 'none' };
+    if (currentUserId && targetUserId) {
+      try {
+        relationship = await friendService.getRelationship(currentUserId, targetUserId);
+      } catch (relErr) {
+        console.error('[friendController.searchByPhone] getRelationship error:', relErr);
+        relationship = { status: 'none' };
+      }
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        ...userData,
+        relationship,
+      },
+    });
+  } catch (error) {
+    // propagate error from remote service or network issue
+    if (error.response) {
+      const status = error.response.status;
+      const data = error.response.data || {};
+      // 404 từ user-service: trả message tiếng Việt thống nhất
+      if (status === 404) {
+        return res.status(404).json({ status: 'fail', message: 'Không tìm thấy người dùng' });
+      }
+      return res.status(status).json(data);
+    }
     next(error);
   }
 };

@@ -37,12 +37,11 @@ friendSchema.index({ userId: 1, friendId: 1 }, { unique: true });
 friendSchema.index({ userId: 1, status: 1 });
 friendSchema.index({ friendId: 1, status: 1 });
 
-// Prevent self-friending
-friendSchema.pre('save', function (next) {
-  if (this.userId.toString() === this.friendId.toString()) {
-    return next(new Error('Cannot add yourself as a friend'));
+// Prevent self-friending (async style tương thích Mongoose 7+)
+friendSchema.pre('save', function () {
+  if (this.userId && this.friendId && this.userId.toString() === this.friendId.toString()) {
+    throw new Error('Cannot add yourself as a friend');
   }
-  next();
 });
 
 const Friend = mongoose.model('Friend', friendSchema);

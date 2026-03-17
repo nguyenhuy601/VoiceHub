@@ -1,22 +1,48 @@
+const mongoose = require('mongoose');
 const UserProfile = require('../models/UserProfile');
 const { getRedisClient, logger } = require('/shared');
 
 class UserService {
-  // Tạo user profile mới
+  // Tạo user profile mới (idempotent theo userId / email: gọi lại cùng user thì trả về profile có sẵn)
   async createUserProfile(userData) {
     try {
-      const { userId, username, displayName, dateOfBirth } = userData;
+      const { userId, username, email, displayName, dateOfBirth } = userData;
 
-      // Kiểm tra username đã tồn tại chưa
-      const existingUser = await UserProfile.findOne({ username });
-      if (existingUser) {
-        throw new Error('Username already exists');
+      if (!email || typeof email !== 'string' || !email.trim()) {
+        throw new Error('email is required');
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedUsername = username ? String(username).trim() : '';
+      if (!normalizedUsername || normalizedUsername.length < 3) {
+        throw new Error('username is required and must be at least 3 characters');
+      }
+      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
+
+      // Đã có profile cho userId này → coi như thành công, trả về luôn (idempotent)
+      const existingByUserId = await UserProfile.findOne({ userId: userIdObj });
+      if (existingByUserId) {
+        logger.info(`User profile already exists for userId: ${userId}, returning existing`);
+        return existingByUserId;
+      }
+
+      // Kiểm tra email chỉ khi có giá trị; nếu đã có profile cùng email cùng userId → trả về (idempotent)
+      const existingByEmail = await UserProfile.findOne({ email: normalizedEmail });
+      if (existingByEmail) {
+        const existingUserIdStr = existingByEmail.userId?.toString?.() || existingByEmail.userId;
+        if (existingUserIdStr === userId.toString()) {
+          logger.info(`User profile already exists for email (same userId): ${normalizedEmail}, returning existing`);
+          return existingByEmail;
+        }
+        logger.warn(`Email already exists: existing userId=${existingUserIdStr}, request userId=${userId}`);
+        throw new Error('Email already exists');
       }
 
       const userProfile = new UserProfile({
-        userId,
-        username,
-        displayName: displayName || username,
+        userId: userIdObj,
+        username: normalizedUsername,
+        email: normalizedEmail,
+        displayName: (displayName && String(displayName).trim()) || normalizedUsername,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
       });
 
@@ -40,22 +66,27 @@ class UserService {
   // Lấy user profile theo ID
   async getUserProfileById(userId) {
     try {
+      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
+
       // Kiểm tra cache trước
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${userIdObj.toString()}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
-          return JSON.parse(cached);
+          try {
+            return JSON.parse(cached);
+          } catch (e) {
+            await redis.del(cacheKey).catch(() => {});
+          }
         }
       }
 
-      const userProfile = await UserProfile.findOne({ userId })
-        .populate('userId', 'email');
+      const userProfile = await UserProfile.findOne({ userId: userIdObj });
 
       // Cache user profile
       if (redis && userProfile) {
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${userIdObj.toString()}`;
         await redis.setex(cacheKey, 3600, JSON.stringify(userProfile));
       }
 
@@ -69,8 +100,9 @@ class UserService {
   // Lấy user profile theo username
   async getUserProfileByUsername(username) {
     try {
-      const userProfile = await UserProfile.findOne({ username })
-        .populate('userId', 'email');
+      const normalized = username ? String(username).trim() : '';
+      if (!normalized) return null;
+      const userProfile = await UserProfile.findOne({ username: normalized });
 
       return userProfile;
     } catch (error) {
@@ -82,6 +114,7 @@ class UserService {
   // Cập nhật user profile
   async updateUserProfile(userId, updateData) {
     try {
+      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
       const allowedFields = [
         'displayName',
         'avatar',
@@ -100,7 +133,7 @@ class UserService {
       }
 
       const userProfile = await UserProfile.findOneAndUpdate(
-        { userId },
+        { userId: userIdObj },
         { $set: updateFields },
         { new: true, runValidators: true }
       );
@@ -112,7 +145,7 @@ class UserService {
       // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${userIdObj.toString()}`;
         await redis.del(cacheKey);
       }
 
@@ -127,7 +160,8 @@ class UserService {
   // Cập nhật status
   async updateStatus(userId, status) {
     try {
-      const userProfile = await UserProfile.findOne({ userId });
+      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
+      const userProfile = await UserProfile.findOne({ userId: userIdObj });
       if (!userProfile) {
         throw new Error('User profile not found');
       }
@@ -137,7 +171,7 @@ class UserService {
       // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${userIdObj.toString()}`;
         await redis.del(cacheKey);
       }
 
@@ -151,19 +185,25 @@ class UserService {
   // Tìm kiếm users
   async searchUsers(query, options = {}) {
     try {
-      const { page = 1, limit = 20 } = options;
-
-      const searchRegex = new RegExp(query, 'i');
+      const page = Math.max(1, parseInt(options.page, 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));
+      const sanitized = String(query || '').trim().slice(0, 100);
+      if (!sanitized) {
+        return { users: [], totalPages: 0, currentPage: page, total: 0 };
+      }
+      const escaped = sanitized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
       const filter = {
         $or: [
           { username: searchRegex },
           { displayName: searchRegex },
+          { phone: searchRegex },
         ],
         isActive: true,
       };
 
       const users = await UserProfile.find(filter)
-        .limit(limit * 1)
+        .limit(limit)
         .skip((page - 1) * limit)
         .select('userId username displayName avatar status')
         .sort({ username: 1 });
@@ -182,11 +222,25 @@ class UserService {
     }
   }
 
+  // Tìm user profile theo số điện thoại
+  async getUserProfileByPhone(phone) {
+    try {
+      const normalized = phone ? String(phone).trim() : '';
+      if (!normalized) return null;
+      const userProfile = await UserProfile.findOne({ phone: normalized, isActive: true });
+      return userProfile;
+    } catch (error) {
+      logger.error('Error getting user profile by phone:', error);
+      throw new Error(`Error getting user profile by phone: ${error.message}`);
+    }
+  }
+
   // Xóa user profile (soft delete)
   async deleteUserProfile(userId) {
     try {
+      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
       const userProfile = await UserProfile.findOneAndUpdate(
-        { userId },
+        { userId: userIdObj },
         { $set: { isActive: false } },
         { new: true }
       );
@@ -195,10 +249,9 @@ class UserService {
         throw new Error('User profile not found');
       }
 
-      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${userIdObj.toString()}`;
         await redis.del(cacheKey);
       }
 

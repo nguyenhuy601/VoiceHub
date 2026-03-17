@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 
 function OrganizationsPage() {
@@ -60,9 +60,10 @@ function OrganizationsPage() {
   ];
 
   return (
-    <div className="min-h-screen flex">
-      <NavigationSidebar currentPage="Tổ Chức" />
-      <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+    <>
+      <ThreeFrameLayout
+        center={
+          <div className="p-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -80,7 +81,7 @@ function OrganizationsPage() {
             >
               {viewMode === 'grid' ? '📋 Danh sách' : '📊 Lưới'}
             </button>
-            <GradientButton variant="primary" onClick={() => setShowNewDeptModal(true)}>
+            <GradientButton variant="secondary" onClick={() => setShowNewDeptModal(true)}>
               <span className="text-xl mr-2">➡️</span> Tạo Phòng Ban Mới
             </GradientButton>
           </div>
@@ -199,6 +200,8 @@ function OrganizationsPage() {
           </div>
         </GlassCard>
       </div>
+        }
+      />
 
       {/* Organization Detail Modal */}
       <Modal
@@ -380,15 +383,15 @@ function OrganizationsPage() {
       </Modal>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </div>
+    </>
   );
 }
 
 function OrganizationDetailPage() {
   return (
-    <div className="min-h-screen flex">
-      <NavigationSidebar currentPage="Teams" />
-      <div className="flex-1 p-6">
+    <ThreeFrameLayout
+      center={
+        <div className="p-6">
         <Link to="/organizations" className="text-purple-400 hover:text-pink-400 mb-4 inline-block">← Quay Lại</Link>
         <h1 className="text-4xl font-black text-gradient mb-6">Công Ty Mẫu</h1>
         <div className="grid gap-6">
@@ -409,7 +412,8 @@ function OrganizationDetailPage() {
           </GlassCard>
         </div>
       </div>
-    </div>
+      }
+    />
   );
 }
 

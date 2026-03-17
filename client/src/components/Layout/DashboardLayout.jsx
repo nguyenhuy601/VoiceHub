@@ -1,6 +1,6 @@
 import { Bell, LogOut, Menu, Settings, User } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Avatar from '../ui/Avatar';
 import Sidebar from './Sidebar';
@@ -40,13 +40,32 @@ const DashboardLayout = ({ children }) => {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-dark-800 border-b border-dark-700 px-4 py-3 flex items-center justify-between">
-          {/* Left: Menu Button (Mobile) */}
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-dark-700 rounded-lg transition-colors"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
+          {/* Left: Logo + User (bên dưới logo) */}
+          <div className="flex items-center gap-3 min-w-[220px]">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 hover:bg-dark-700 rounded-lg transition-colors"
+              aria-label="Mở menu"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+
+            <div className="flex flex-col leading-tight">
+              <Link to="/dashboard" className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-lg animate-glow">
+                  🚀
+                </div>
+                <span className="font-black text-lg text-gradient whitespace-nowrap">VoiceHub</span>
+              </Link>
+
+              <div className="mt-1 flex items-center gap-2 text-sm text-gray-300">
+                <Avatar user={user} size="sm" online />
+                <span className="font-semibold truncate max-w-[150px]">
+                  {user?.fullName || user?.name || user?.displayName || user?.email?.split('@')[0] || 'Người dùng'}
+                </span>
+              </div>
+            </div>
+          </div>
 
           {/* Center: Search */}
           <div className="flex-1 max-w-2xl mx-4">

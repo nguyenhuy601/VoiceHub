@@ -113,9 +113,12 @@ services:
       - "3014:3014"
     env_file:
       - ./services/friend-service/.env
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:3001
     depends_on:
       - mongodb
       - redis
+      - auth-service
       - user-service
     networks:
       - enterprise-network
@@ -250,6 +253,24 @@ services:
       - enterprise-network
     volumes:
       - ./services/webhook-service:/app
+
+  # Socket Service (Socket.IO server riêng)
+  socket-service:
+    build: ./services/socket-service
+    container_name: enterprise-socket-service
+    ports:
+      - "3017:3017"
+    env_file:
+      - ./services/socket-service/.env
+    depends_on:
+      - chat-service
+      - auth-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/socket-service:/app
+      - ./shared:/shared
+      - /app/node_modules
 
 volumes:
   mongodb_data:

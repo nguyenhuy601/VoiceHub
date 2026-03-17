@@ -19,20 +19,19 @@ const friendService = {
   },
 
   // Gửi lời mời kết bạn - POST /friends/request
-  // userId: ID của người muốn kết bạn
+  // userId: ID của người muốn kết bạn (backend nhận field friendId)
   sendRequest: async (userId) => {
-    return await api.post('/friends/request', { userId });
+    return await api.post('/friends/request', { friendId: userId });
   },
 
-  // Chấp nhận lời mời - POST /friends/accept/:requestId
-  // requestId: ID của friend request
-  acceptRequest: async (requestId) => {
-    return await api.post(`/friends/accept/${requestId}`);
+  // Chấp nhận lời mời - POST /friends/:friendId/accept (friendId = id người gửi lời mời)
+  acceptRequest: async (friendId) => {
+    return await api.post(`/friends/${friendId}/accept`);
   },
 
-  // Từ chối lời mời - DELETE /friends/reject/:requestId
-  rejectRequest: async (requestId) => {
-    return await api.delete(`/friends/reject/${requestId}`);
+  // Từ chối lời mời - POST /friends/:friendId/reject (friendId = id người gửi lời mời)
+  rejectRequest: async (friendId) => {
+    return await api.post(`/friends/${friendId}/reject`);
   },
 
   // Xóa bạn - DELETE /friends/:friendId
@@ -41,10 +40,10 @@ const friendService = {
     return await api.delete(`/friends/${friendId}`);
   },
 
-  // Lấy các lời mời chờ duyệt - GET /friends/pending
-  // Return: [{ id, from: {...}, createdAt, ... }]
+  // Lấy lời mời nhận được - GET /friends/requests?type=received
+  // Return: { data: [{ _id, userId: { _id, username, displayName, avatar }, createdAt }, ...] }
   getPendingRequests: async () => {
-    return await api.get('/friends/pending');
+    return await api.get('/friends/requests?type=received');
   },
 
   // Chặn user - POST /friends/block
@@ -56,6 +55,11 @@ const friendService = {
   // Bỏ chặn - DELETE /friends/unblock/:userId
   unblockUser: async (userId) => {
     return await api.delete(`/friends/unblock/${userId}`);
+  },
+
+  // Tìm bạn theo số điện thoại
+  searchByPhone: async (phone) => {
+    return await api.get(`/friends/search?phone=${encodeURIComponent(phone)}`);
   },
 };
 

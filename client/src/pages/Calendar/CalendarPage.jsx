@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 
 function CalendarPage() {
@@ -29,9 +29,9 @@ function CalendarPage() {
 
   return (
     <>
-      <div className="min-h-screen flex">
-        <NavigationSidebar currentPage="Lịch" />
-        <div className="flex-1 flex flex-col">
+      <ThreeFrameLayout
+        center={
+          <div className="flex flex-col h-full">
         {/* Header */}
         <div className="p-6 glass-strong border-b border-white/10">
           <div className="flex items-center justify-between mb-6">
@@ -105,7 +105,7 @@ function CalendarPage() {
           </div>
         </div>
 
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient grid grid-cols-3 gap-6">
+        <div className="flex-1 p-6 grid grid-cols-3 gap-6">
           {/* Calendar View */}
           <div className="col-span-2">
             <GlassCard>
@@ -267,7 +267,8 @@ function CalendarPage() {
           </div>
         </div>
       </div>
-    </div>
+        }
+      />
 
     {/* Event Detail Modal */}
     <Modal 

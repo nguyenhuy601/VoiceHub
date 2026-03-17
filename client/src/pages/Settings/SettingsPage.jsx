@@ -1,5 +1,5 @@
-﻿import { useState } from 'react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import { useState } from 'react';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Toast } from '../../components/Shared';
 
 function SettingsPage() {
@@ -34,9 +34,9 @@ function SettingsPage() {
 
   return (
     <>
-      <div className="min-h-screen flex">
-        <NavigationSidebar currentPage="Cài Đặt" />
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+      <ThreeFrameLayout
+        center={
+          <div className="p-6">
         {/* Role Switcher for demo */}
         <div className="mb-6 glass-strong p-4 rounded-xl">
           <div className="flex items-center justify-between">
@@ -456,7 +456,8 @@ function SettingsPage() {
         </>
         )}
       </div>
-    </div>
+        }
+      />
 
     {/* Toast */}
     {toast && (

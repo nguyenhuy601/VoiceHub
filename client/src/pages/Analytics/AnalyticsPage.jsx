@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, Toast } from '../../components/Shared';
 
 function AnalyticsPage() {
@@ -12,9 +12,10 @@ function AnalyticsPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      <NavigationSidebar currentPage="Phân Tích" />
-      <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+    <>
+      <ThreeFrameLayout
+        center={
+          <div className="p-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -243,7 +244,8 @@ function AnalyticsPage() {
             </div>
           </GlassCard>
         </div>
-      </div>
+        }
+      />
       
       {/* Toast */}
       {toast && (
@@ -253,7 +255,7 @@ function AnalyticsPage() {
           onClose={() => setToast(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { GlassCard, GradientButton } from '../../components/Shared';
 import authService from '../../services/authService';
 import toast from 'react-hot-toast';
@@ -10,14 +10,20 @@ function VerifyEmailPage() {
   const [loading, setLoading] = useState(false);
   const [verified, setVerified] = useState(false);
   const token = searchParams.get('token');
+  const hasRunRef = useRef(false);
 
   useEffect(() => {
     if (!token) {
-      toast.error('Token xác thực không hợp lệ');
-      navigate('/login');
+      toast.error('Xác thực email không thành công: Token xác thực không hợp lệ hoặc đã hết hạn.');
+      navigate('/register', {
+        state: {
+          error: 'Token xác thực không hợp lệ hoặc đã hết hạn. Vui lòng đăng ký lại hoặc yêu cầu email xác thực mới.',
+        },
+      });
       return;
     }
-
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
     handleVerifyEmail();
   }, [token]);
 
@@ -30,7 +36,7 @@ function VerifyEmailPage() {
       
       if (response.success) {
         setVerified(true);
-        toast.success('Xác thực email thành công! Bạn có thể đăng nhập ngay.');
+        toast.success('✅ Xác thực email thành công! Bạn có thể đăng nhập ngay.');
         
         // Sau 2 giây redirect về trang đăng nhập
         setTimeout(() => {
@@ -40,11 +46,27 @@ function VerifyEmailPage() {
             }
           });
         }, 2000);
+      } else {
+        // Trường hợp backend trả success = false
+        const errorMessage = response.message || 'Xác thực email không thành công.';
+        toast.error(`❌ Xác thực email không thành công: ${errorMessage}`);
+        setTimeout(() => {
+          navigate('/register', {
+            state: {
+              error: errorMessage,
+            },
+          });
+        }, 2000);
       }
     } catch (error) {
-      toast.error(error.message || 'Xác thực email thất bại');
+      const errorMessage = error?.message || 'Xác thực email không thành công.';
+      toast.error(`❌ Xác thực email không thành công: ${errorMessage}`);
       setTimeout(() => {
-        navigate('/login');
+        navigate('/register', {
+          state: {
+            error: errorMessage,
+          },
+        });
       }, 2000);
     } finally {
       setLoading(false);
@@ -64,9 +86,11 @@ function VerifyEmailPage() {
             <p className="text-gray-300 mb-6">
               Email của bạn đã được xác thực. Bạn có thể đăng nhập ngay bây giờ.
             </p>
-            <GradientButton variant="primary" onClick={() => navigate('/login')}>
-              Đăng Nhập Ngay
-            </GradientButton>
+            <div className="flex justify-center">
+              <GradientButton variant="primary" onClick={() => navigate('/login')}>
+                Đăng Nhập Ngay
+              </GradientButton>
+            </div>
           </GlassCard>
         </div>
       </div>

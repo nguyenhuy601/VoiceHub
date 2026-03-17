@@ -35,9 +35,14 @@ const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
 // Lazy load dashboard - trang tổng quan sau khi đăng nhập
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage'));
 
-// Lazy load trang chat - kết nối SocketContext để chat realtime
-// File này sẽ kết nối với chat-system-service qua Socket.IO
+// Lazy load trang chat cũ (sẽ dần thay thế bằng 2 trang mới)
 const ChatPage = lazy(() => import('./pages/Chat/ChatPage'));
+
+// Lazy load trang chat bạn bè
+const FriendChatPage = lazy(() => import('./pages/Chat/FriendChatPage'));
+
+// Lazy load trang chat doanh nghiệp
+const OrgChatPage = lazy(() => import('./pages/Chat/OrgChatPage'));
 
 // Lazy load phòng voice chat - :roomId là dynamic parameter
 // Kết nối với WebRTC để gọi voice, sử dụng simple-peer
@@ -143,12 +148,24 @@ function App() {
           </ProtectedRoute>
         } />
         
-        {/* Chat - nhắn tin realtime qua Socket.IO */}
-        {/* Kết nối đến SocketContext → chat-system-service */}
-        {/* Guest KHÔNG được truy cập */}
+        {/* Chat cũ - tạm thời giữ để tránh lỗi route cũ */}
         <Route path="/chat" element={
           <ProtectedRoute>
             <ChatPage />
+          </ProtectedRoute>
+        } />
+
+        {/* Chat bạn bè */}
+        <Route path="/chat/friends" element={
+          <ProtectedRoute>
+            <FriendChatPage />
+          </ProtectedRoute>
+        } />
+
+        {/* Chat doanh nghiệp */}
+        <Route path="/chat/organization" element={
+          <ProtectedRoute>
+            <OrgChatPage />
           </ProtectedRoute>
         } />
         

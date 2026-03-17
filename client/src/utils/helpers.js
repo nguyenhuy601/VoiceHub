@@ -59,6 +59,18 @@ export const getInitials = (name) => {
   return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
 };
 
+export const getUserDisplayName = (user) => {
+  if (!user) return 'Người dùng';
+  const fromParts = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  if (fromParts) return fromParts;
+  if (user.displayName) return user.displayName;
+  if (user.fullName) return user.fullName;
+  if (user.name) return user.name;
+  if (user.username) return user.username;
+  if (user.email) return user.email.split('@')[0];
+  return 'Người dùng';
+};
+
 export const validateEmail = (email) => {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(email);

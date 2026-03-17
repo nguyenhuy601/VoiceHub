@@ -45,11 +45,22 @@ export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
-   - Lấy từ .env file: VITE_SOCKET_URL
-   - Fallback: http://localhost:3006 (Chat Service port 3006 theo docker-compose)
-   - Production: https://your-api.com/socket
+   - Lấy từ .env file: VITE_SOCKET_URL (ví dụ: http://localhost:3017)
+   - Kết nối tới namespace /chat trên socket-service
+   - Production: https://your-socket-service.com/chat
 ======================================== */
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
+const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
+const SOCKET_URL = `${SOCKET_BASE_URL}/chat`;
+
+// Log URL khi app start (giúp debug)
+console.log('🔌 [Socket] Configuration:');
+console.log('   URL:', SOCKET_URL);
+console.log('   Base:', SOCKET_BASE_URL);
+console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set - using default)');
+if (!import.meta.env.VITE_SOCKET_URL) {
+  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3006');
+}
+console.log('');
 
 /* ========================================
    SOCKETPROVIDER COMPONENT
@@ -71,6 +82,9 @@ function SocketProvider({ children }) {
   
   // connected: trạng thái kết nối (true/false)
   const [connected, setConnected] = useState(false);
+  
+  // connectionError: lỗi kết nối (null hoặc error object)
+  const [connectionError, setConnectionError] = useState(null);
   
   // onlineUsers: danh sách user IDs đang online
   // Server emit 'users:online' → update list này
@@ -118,26 +132,62 @@ function SocketProvider({ children }) {
       
       // Event: 'connect' - khi kết nối thành công
       newSocket.on('connect', () => {
-        // In socket ID ra console để debug
-        console.log('Socket connected:', newSocket.id);
+        console.log('✅ [Socket] Connected successfully');
+        console.log('   Socket ID:', newSocket.id);
+        console.log('   URL:', SOCKET_URL);
+        console.log('   Transport:', newSocket.io.engine.transport.name);
         
-        // Set connected = true → components biết socket ready
         setConnected(true);
+        setConnectionError(null); // Clear error khi connect success
       });
 
       // Event: 'disconnect' - khi mất kết nối
-      newSocket.on('disconnect', () => {
-        console.log('Socket disconnected');
-        
-        // Set connected = false
-        // Socket sẽ tự động reconnect (vì reconnection: true)
+      newSocket.on('disconnect', (reason) => {
         setConnected(false);
+
+        // Chỉ log chi tiết trong môi trường dev để tránh spam console ở production
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ [Socket] Disconnected');
+          console.warn('   Reason:', reason);
+        }
+
+        // Phân loại nguyên nhân:
+        // - server disconnect: có thể là lỗi cấu hình → lưu vào connectionError
+        // - client disconnect / chuyển trang / reload: không coi là lỗi
+        // - các lý do khác (ping timeout, transport close...): chỉ log nhẹ, không set error
+        if (reason === 'io server disconnect') {
+          if (import.meta.env.DEV) {
+            console.error('   Server forced disconnect. Check server logs.');
+          }
+          setConnectionError(new Error('Server forced disconnect'));
+        } else if (reason === 'io client disconnect') {
+          setConnectionError(null);
+        }
       });
 
-      // Event: 'error' - khi có lỗi socket
+      // Event: 'connect_error' - lỗi khi kết nối
+      newSocket.on('connect_error', (error) => {
+        console.error('❌ [Socket] Connection Error');
+        console.error('   Message:', error.message);
+        console.error('   Data:', error.data);
+        console.error('   Trying to connect to:', SOCKET_URL);
+        console.error('');
+        console.error('   📋 Debugging checklist:');
+        console.error('   1. Is socket-service running? (Port 3017)');
+        console.error('   2. Check if VITE_SOCKET_URL is correctly set in client/.env');
+        console.error('   3. Try: curl http://localhost:3017/health');
+        console.error('   4. Check browser console for CORS errors');
+        console.error('   5. Check server logs for socket.io errors');
+        
+        setConnectionError(error);
+      });
+
+      // Event: 'error' - khi có lỗi socket (auth errors, etc.)
       newSocket.on('error', (error) => {
-        console.error('Socket error:', error);
-        // Có thể show toast notification ở đây
+        console.error('❌ [Socket] Socket Error');
+        console.error('   Error:', error);
+        
+        setConnectionError(error);
       });
 
       /* ===== ONLINE USERS TRACKING ===== */
@@ -174,6 +224,7 @@ function SocketProvider({ children }) {
         // Clear socket state
         setSocket(null);
         setConnected(false);
+        setConnectionError(null);
       };
     }
   }, [isAuthenticated, user]); // Re-run khi user login/logout
@@ -279,14 +330,15 @@ function SocketProvider({ children }) {
      Provide cho components con
   ======================================== */
   const value = {
-    socket,         // Socket instance (để custom operations)
-    connected,      // Connection status: true/false
-    onlineUsers,    // Array of online user IDs
-    emit,           // Function: emit(event, data)
-    on,             // Function: on(event, callback)
-    off,            // Function: off(event, callback)
-    joinRoom,       // Function: joinRoom(roomId)
-    leaveRoom,      // Function: leaveRoom(roomId)
+    socket,           // Socket instance (để custom operations)
+    connected,        // Connection status: true/false
+    connectionError,  // Connection error: null hoặc error object
+    onlineUsers,      // Array of online user IDs
+    emit,             // Function: emit(event, data)
+    on,               // Function: on(event, callback)
+    off,              // Function: off(event, callback)
+    joinRoom,         // Function: joinRoom(roomId)
+    leaveRoom,        // Function: leaveRoom(roomId)
   };
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;

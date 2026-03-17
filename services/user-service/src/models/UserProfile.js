@@ -1,4 +1,6 @@
-const mongoose = require('mongoose');
+// Sử dụng cùng instance mongoose với connectDB trong thư mục /shared
+const { mongo } = require('/shared');
+const { mongoose } = mongo;
 
 const userProfileSchema = new mongoose.Schema(
   {
@@ -11,10 +13,16 @@ const userProfileSchema = new mongoose.Schema(
     username: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       minlength: 3,
       maxlength: 30,
+    },
+    email: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      unique: true,
     },
     displayName: {
       type: String,
@@ -78,16 +86,12 @@ const userProfileSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
-userProfileSchema.index({ userId: 1 });
-userProfileSchema.index({ username: 1 });
-userProfileSchema.index({ status: 1 });
-
 // Virtual để lấy thông tin cơ bản
 userProfileSchema.virtual('publicInfo').get(function () {
   return {
     userId: this.userId,
     username: this.username,
+    email: this.email,
     displayName: this.displayName,
     avatar: this.avatar,
     status: this.status,

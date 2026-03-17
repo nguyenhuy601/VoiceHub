@@ -1,20 +1,14 @@
 require('dotenv').config();
 const app = require('./app');
-const { connectDB, disconnectDB } = require('./config/mongo');
-const { connectRedis } = require('/shared');
+// Sử dụng hàm connectDB / disconnectDB / connectRedis chung từ /shared
+const { connectDB, disconnectDB, connectRedis } = require('/shared');
 
 const PORT = process.env.PORT || 3001;
 
-// Kết nối MongoDB
+// Kết nối MongoDB (dùng shared connectDB)
 connectDB()
   .then(async () => {
-    // Log MongoDB connection state
-    const mongoose = require('mongoose');
-    console.log('[AuthService] MongoDB readyState:', mongoose.connection.readyState, '(1=connected, 2=connecting, 0=disconnected)');
-    console.log('[AuthService] MongoDB host:', mongoose.connection.host);
-    console.log('[AuthService] MongoDB name:', mongoose.connection.name);
-    
-    // Kết nối Redis
+    // Kết nối Redis (dùng shared connectRedis)
     connectRedis();
 
     // Khởi động server

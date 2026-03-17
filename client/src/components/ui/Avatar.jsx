@@ -1,4 +1,4 @@
-import { getAvatarColor, getInitials } from '../../utils/helpers';
+import { getAvatarColor, getInitials, getUserDisplayName } from '../../utils/helpers';
 
 const Avatar = ({ user, size = 'md', online = false, className = '' }) => {
   const sizeClasses = {
@@ -15,22 +15,24 @@ const Avatar = ({ user, size = 'md', online = false, className = '' }) => {
     xl: 'w-4 h-4',
   };
 
+  const displayName = getUserDisplayName(user);
+
   return (
     <div className={`relative ${className}`}>
       {user?.avatar ? (
         <img
           src={user.avatar}
-          alt={user.name || 'User'}
+          alt={displayName || 'User'}
           className={`${sizeClasses[size]} rounded-full object-cover`}
         />
       ) : (
         <div
           className={`
-            ${sizeClasses[size]} ${getAvatarColor(user?.name)}
+            ${sizeClasses[size]} ${getAvatarColor(displayName)}
             rounded-full flex items-center justify-center font-semibold text-white
           `}
         >
-          {getInitials(user?.name || 'U')}
+          {getInitials(displayName || 'U')}
         </div>
       )}
 

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
+import { useAuth } from '../../context/AuthContext';
 
 function DashboardPage() {
   const [activeFilter, setActiveFilter] = useState('all');
@@ -9,6 +10,34 @@ function DashboardPage() {
   const [showActivityDetail, setShowActivityDetail] = useState(null);
   const [toast, setToast] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const { user } = useAuth();
+
+  const displayName =
+    user?.fullName ||
+    user?.name ||
+    user?.displayName ||
+    user?.email?.split('@')[0] ||
+    'bạn';
+
+  const getGreeting = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    if (hour >= 5 && hour < 11) return `Chào buổi Sáng, ${displayName}!`;
+    if (hour >= 11 && hour < 13) return `Chào buổi Trưa, ${displayName}!`;
+    if (hour >= 13 && hour < 17) return `Chào buổi Chiều, ${displayName}!`;
+    if (hour >= 17 && hour < 22) return `Chào buổi Tối, ${displayName}!`;
+    return `Khuya rồi, ${displayName}!`;
+  };
+
+  useEffect(() => {
+    // Chỉ hiển thị modal chào khi vừa đăng nhập / lần đầu vào web trong phiên này
+    const seen = localStorage.getItem('vh_seen_welcome');
+    if (!seen) {
+      setShowWelcome(true);
+      localStorage.setItem('vh_seen_welcome', '1');
+    }
+  }, []);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -114,12 +143,14 @@ function DashboardPage() {
 
   return (
     <>
-    <div className="min-h-screen flex">
-      <NavigationSidebar currentPage="Bảng Điều Khiển" />
+    {/* Bố cục chuẩn 3 khung: cùng độ dài với sidebar, mỗi khung thanh trượt riêng */}
+    <div className="h-screen flex overflow-hidden">
+      {/* Khung 1: Sidebar nav (icon only) */}
+      <NavigationSidebar />
 
-      <div className="flex-1 flex">
-        {/* Main Content Area */}
-        <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
+      {/* Khung 2: Trung tâm điều khiển - cuộn riêng */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
           {/* Header with Search */}
           <div className="mb-8 flex items-center justify-between">
             <div>
@@ -297,10 +328,11 @@ function DashboardPage() {
             </div>
           </GlassCard>
         </div>
-      </div>
+        </div>
 
-      {/* Right Sidebar - Team & Events */}
-      <div className="w-80 glass-strong p-6 border-l border-white/10 overflow-auto scrollbar-gradient">
+      {/* Khung 3: Trạng thái nhóm - cùng độ cao, thanh trượt riêng */}
+      <div className="w-80 shrink-0 h-full flex flex-col overflow-hidden glass-strong border-l border-white/10">
+        <div className="flex-1 min-h-0 p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
         <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2">
           <span>👥</span> Trạng Thái Nhóm
         </h2>
@@ -389,8 +421,40 @@ function DashboardPage() {
             ))}
           </div>
         </div>
+        </div>
       </div>
     </div>
+
+    {/* Welcome Greeting Modal (hiển thị 1 lần sau khi đăng nhập / vào web) */}
+    <Modal
+      isOpen={showWelcome}
+      onClose={() => setShowWelcome(false)}
+      title="Xin chào 👋"
+      size="sm"
+    >
+      <div className="space-y-4">
+        <p className="text-lg font-semibold text-white">{getGreeting()}</p>
+        <p className="text-sm text-gray-400">
+          Chúc {displayName} có một ngày làm việc hiệu quả cùng <span className="font-semibold text-gradient">VoiceHub</span>.
+        </p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            className="glass px-4 py-2 rounded-xl text-sm hover:bg-white/10 transition-all"
+            onClick={() => setShowWelcome(false)}
+          >
+            Đóng
+          </button>
+          <GradientButton
+            variant="primary"
+            onClick={() => setShowWelcome(false)}
+            className="px-4 py-2"
+          >
+            Bắt đầu làm việc
+          </GradientButton>
+        </div>
+      </div>
+    </Modal>
 
     {/* Stat Detail Modal */}
     <Modal

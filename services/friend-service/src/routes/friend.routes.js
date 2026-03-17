@@ -1,6 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const { protect } = require('../middleware/auth');
 const friendController = require('../controllers/friend.controller');
+const friendControllerLegacy = require('../controllers/friendController');
+
+// Bảo vệ tất cả route: gắn req.user từ auth /me
+router.use(protect);
+
+// Tìm bạn theo số điện thoại (phải đặt trước /:friendId để không bị match nhầm)
+router.get('/search', friendControllerLegacy.searchByPhone);
 
 // Gửi lời mời kết bạn
 router.post('/request', friendController.sendFriendRequest.bind(friendController));
