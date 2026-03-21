@@ -31,12 +31,22 @@ const routeActionMap = {
   // Organization Service
   'GET /api/organizations': 'organization:read',
   'POST /api/organizations': 'organization:write',
+  'PUT /api/organizations': 'organization:write',
   'PATCH /api/organizations': 'organization:write',
   'DELETE /api/organizations': 'organization:delete',
-  'GET /api/servers': 'server:read',
-  'POST /api/servers': 'server:write',
-  'PATCH /api/servers': 'server:write',
-  'DELETE /api/servers': 'server:delete',
+  'GET /api/organizations/my': 'organization:read',
+  'GET /api/organizations/:orgId/departments': 'organization:read',
+  'POST /api/organizations/:orgId/departments': 'organization:write',
+  'PUT /api/organizations/:orgId/departments': 'organization:write',
+  'DELETE /api/organizations/:orgId/departments': 'organization:delete',
+  'GET /api/organizations/:orgId/members': 'organization:read',
+  'POST /api/organizations/:orgId/members': 'organization:write',
+  'PUT /api/organizations/:orgId/members': 'organization:write',
+  'DELETE /api/organizations/:orgId/members': 'organization:delete',
+  'GET /api/organizations/:orgId/departments/:deptId/channels': 'organization:read',
+  'POST /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
+  'PUT /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
+  'DELETE /api/organizations/:orgId/departments/:deptId/channels': 'organization:delete',
 
   // User Service (thường không cần server context)
   'GET /api/users': 'user:read',
@@ -65,6 +75,7 @@ const noPermissionRoutes = [
   // Friend routes không cần server context
   '/api/friends',
   '/api/notifications',
+  '/api/organizations/my',
 ];
 
 /**
@@ -74,23 +85,33 @@ const noPermissionRoutes = [
  * @returns {string|null} Action hoặc null nếu không cần check
  */
 const getAction = (method, path) => {
+  const pathWithoutQuery = path.split('?')[0];
+
   // Kiểm tra routes không cần permission
-  if (noPermissionRoutes.some((route) => path.startsWith(route))) {
+  if (noPermissionRoutes.some((route) => pathWithoutQuery.startsWith(route))) {
     return null;
   }
 
-  const key = `${method} ${path.split('?')[0]}`;
+  const key = `${method} ${pathWithoutQuery}`;
   
   // Tìm exact match trước
   if (routeActionMap[key]) {
     return routeActionMap[key];
   }
 
-  // Tìm pattern match
+  // Tìm pattern match (hỗ trợ dynamic params như :orgId, :deptId)
   for (const [pattern, action] of Object.entries(routeActionMap)) {
     const [patternMethod, patternPath] = pattern.split(' ');
     
-    if (patternMethod === method && path.startsWith(patternPath)) {
+    if (patternMethod !== method) {
+      continue;
+    }
+
+    const patternRegex = new RegExp(
+      `^${patternPath.replace(/:[^/]+/g, '[^/]+')}(?:/.*)?$`
+    );
+
+    if (patternRegex.test(pathWithoutQuery)) {
       return action;
     }
   }
@@ -105,15 +126,28 @@ const getAction = (method, path) => {
  * @returns {string|null} Server ID hoặc null
  */
 const extractServerId = (req) => {
+  const path = req.path || '';
+  const isOrganizationRoute = path.startsWith('/api/organizations');
+  const pathWithoutQuery = path.split('?')[0];
+  const organizationIdFromPath =
+    pathWithoutQuery.match(/^\/api\/organizations\/([^/]+)(?:\/|$)/)?.[1] || null;
+  const normalizedOrgId =
+    organizationIdFromPath && organizationIdFromPath !== 'my' ? organizationIdFromPath : null;
+
   // Ưu tiên: query > params > body > header
   // Sử dụng optional chaining để tránh lỗi khi req.body undefined
   return (
     req.query?.serverId ||
     req.query?.organizationId ||
+    (isOrganizationRoute ? req.query?.orgId : null) ||
     req.params?.serverId ||
     req.params?.organizationId ||
+    req.params?.orgId ||
+    req.params?.id ||
+    normalizedOrgId ||
     req.body?.serverId ||
     req.body?.organizationId ||
+    (isOrganizationRoute ? req.body?.orgId : null) ||
     req.headers['x-server-id'] ||
     req.headers['x-organization-id'] ||
     null

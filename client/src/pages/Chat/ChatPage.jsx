@@ -151,7 +151,7 @@ function ChatPage() {
 
   return (
 <>
-<div className="min-h-screen flex">
+<div className="h-screen flex overflow-hidden bg-[#020817] text-slate-100">
 
 <NavigationSidebar currentPage="Tin Nhắn"/>
 
@@ -159,9 +159,9 @@ function ChatPage() {
 
 {/* CHANNEL SIDEBAR */}
 
-<div className="w-72 glass-strong p-4 border-r border-white/10 overflow-y-auto">
+<div className="w-72 bg-slate-900/60 border-r border-slate-800 p-4 overflow-y-auto scrollbar-overlay">
 
-<h2 className="text-2xl font-black text-gradient mb-4">
+<h2 className="text-xl font-extrabold text-white mb-4">
 Tin Nhắn
 </h2>
 
@@ -178,12 +178,12 @@ CÁC KÊNH
 <div
 key={channel.id}
 onClick={() => setSelectedChannel(channel.id)}
-className="p-3 rounded-xl cursor-pointer glass hover:bg-white/10"
+className="p-3 rounded-xl cursor-pointer bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70"
 >
 
 <div className="flex items-center gap-3">
 
-<span className="text-2xl">
+<span className="text-xl">
 {channel.icon}
 </span>
 
@@ -205,7 +205,7 @@ className="p-3 rounded-xl cursor-pointer glass hover:bg-white/10"
 
 <button
 onClick={() => setShowCreateChannelModal(true)}
-className="w-full mt-3 py-2 glass rounded-lg text-sm"
+className="w-full mt-3 py-2 bg-[#040f2a] border border-slate-800 rounded-lg text-sm hover:bg-slate-800/70 transition-all"
 >
 + Tạo kênh
 </button>
@@ -223,12 +223,12 @@ TIN NHẮN RIÊNG
 <div
 key={dm.id}
 onClick={() => setSelectedChannel("dm-" + dm.id)}
-className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer"
+className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-pointer"
 >
 
 <div className="relative">
 
-<div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl">
+<div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-base">
 {dm.avatar}
 </div>
 
@@ -263,9 +263,9 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointe
 
 {/* HEADER */}
 
-<div className="p-4 glass-strong border-b border-white/10">
+<div className="p-3.5 bg-slate-900/60 border-b border-slate-800">
 
-<h2 className="text-xl font-bold text-white">
+<h2 className="text-lg font-bold text-white">
 {currentChat?.name || "Chọn kênh"}
 </h2>
 
@@ -274,23 +274,23 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointe
 
 {/* MESSAGES */}
 
-<div className="flex-1 p-6 overflow-y-auto space-y-4">
+<div className="flex-1 p-4 overflow-y-auto space-y-3 scrollbar-overlay">
 
 {messages.map(msg => (
 
-<div key={msg.id} className="flex gap-4">
+<div key={msg.id} className="flex gap-3">
 
-<div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-xl">
+<div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
 {msg.user?.avatar}
 </div>
 
 <div>
 
-<div className="text-white font-semibold text-sm">
+<div className="text-white font-semibold text-xs">
 {msg.user?.name}
 </div>
 
-<p className="text-gray-300">
+<p className="text-sm text-gray-300">
 {msg.content}
 </p>
 
@@ -305,7 +305,7 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointe
 
 {/* MESSAGE INPUT */}
 
-<div className="p-4 glass-strong border-t border-white/10">
+<div className="p-3.5 bg-slate-900/60 border-t border-slate-800">
 
 <div className="flex gap-2">
 
@@ -313,13 +313,13 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointe
 type="text"
 value={message}
 onChange={(e)=>setMessage(e.target.value)}
-className="flex-1 px-4 py-3 rounded-xl glass border border-white/20 text-white"
+className="flex-1 px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white"
 placeholder="Nhập tin nhắn..."
 />
 
 <button
 onClick={sendMessage}
-className="px-5 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600"
+className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 text-sm font-semibold hover:from-violet-400 hover:to-indigo-400 transition-all"
 >
 🚀
 </button>
@@ -350,7 +350,7 @@ size="sm"
 <button
 key={i}
 onClick={()=>handleReaction(selectedMessage,emoji)}
-className="text-2xl"
+className="text-xl"
 >
 {emoji}
 </button>

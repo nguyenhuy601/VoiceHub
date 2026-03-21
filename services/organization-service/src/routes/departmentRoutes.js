@@ -6,8 +6,8 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect);
 
 router.get('/', departmentController.getDepartments);
-router.post('/', authorize(['org_admin']), departmentController.createDepartment);
-router.put('/:id', authorize(['org_admin', 'department_head']), departmentController.updateDepartment);
-router.delete('/:id', authorize(['org_admin']), departmentController.deleteDepartment);
+router.post('/', authorize(['owner', 'admin']), departmentController.createDepartment);
+router.put('/:id', authorize(['owner', 'admin']), departmentController.updateDepartment);
+router.delete('/:id', authorize(['owner', 'admin']), departmentController.deleteDepartment);
 
 module.exports = router;

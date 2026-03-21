@@ -59,7 +59,6 @@ const NavigationSidebar = () => {
   const navItems = [
     { icon: '📊', label: 'Bảng Điều Khiển', tooltip: 'Bảng điều khiển', path: '/dashboard', badge: '5' },
     { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
-    { icon: '🏢', label: 'Chat doanh nghiệp', tooltip: 'Chat doanh nghiệp', path: '/chat/organization', badge: null },
     { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice/room1', badge: null },
     { icon: '✅', label: 'Công Việc', tooltip: 'Công việc', path: '/tasks', badge: '3' },
     { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },

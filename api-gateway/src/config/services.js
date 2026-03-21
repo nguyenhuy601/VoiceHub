@@ -14,7 +14,7 @@ const services = {
   },
   organization: {
     url: process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013',
-    routes: ['/api/organizations', '/api/servers'],
+    routes: ['/api/organizations', '/api/channels'],
   },
   rolePermission: {
     url: process.env.ROLE_PERMISSION_SERVICE_URL || 'http://role-permission-service:3015',
@@ -39,6 +39,10 @@ const services = {
   notification: {
     url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3003',
     routes: ['/api/notifications'],
+  },
+  socket: {
+    url: process.env.SOCKET_SERVICE_URL || 'http://socket-service:3017',
+    routes: [],
   },
 };
 

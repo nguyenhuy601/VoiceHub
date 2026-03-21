@@ -6,8 +6,11 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect);
 
 router.get('/', memberController.getMembers);
-router.post('/invite', authorize(['org_admin']), memberController.inviteMember);
-router.put('/:userId/role', authorize(['org_admin']), memberController.updateMemberRole);
-router.delete('/:userId', authorize(['org_admin']), memberController.removeMember);
+router.post('/', authorize(['owner', 'admin']), memberController.inviteMember);
+router.post('/invite', authorize(['owner', 'admin']), memberController.inviteMember);
+router.post('/invite-link', authorize(['owner', 'admin']), memberController.createInviteLink);
+router.post('/join-link', memberController.joinViaLink);
+router.put('/:userId/role', authorize(['owner', 'admin']), memberController.updateMemberRole);
+router.delete('/:userId', authorize(['owner', 'admin']), memberController.removeMember);
 
 module.exports = router;

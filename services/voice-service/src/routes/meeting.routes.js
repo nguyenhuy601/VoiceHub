@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const meetingController = require('../controllers/meeting.controller');
+const { authenticate } = require('/shared/middleware/auth');
+
+router.use(authenticate);
 
 // Tạo meeting mới
 router.post('/', meetingController.createMeeting.bind(meetingController));
@@ -8,8 +11,14 @@ router.post('/', meetingController.createMeeting.bind(meetingController));
 // Lấy danh sách meetings
 router.get('/', meetingController.getMeetings.bind(meetingController));
 
+// Bootstrap dữ liệu room cho WebRTC client (đặt trước dynamic route để tránh shadow route)
+router.get('/rooms/:roomId/bootstrap', meetingController.bootstrapRoom.bind(meetingController));
+
 // Lấy meeting theo ID
 router.get('/:meetingId', meetingController.getMeetingById.bind(meetingController));
+
+// Bootstrap dữ liệu room cho WebRTC client
+router.get('/:meetingId/bootstrap', meetingController.bootstrapMeetingRoom.bind(meetingController));
 
 // Bắt đầu meeting
 router.post('/:meetingId/start', meetingController.startMeeting.bind(meetingController));

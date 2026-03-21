@@ -15,23 +15,30 @@ app.get('/health', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3017;
+const corsOrigin = process.env.CORS_ORIGIN || '*';
+const parsedOrigins = corsOrigin
+  .split(',')
+  .map((origin) => origin.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
+  .filter(Boolean);
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: ['GET', 'POST']
-  }
+    origin: parsedOrigins.length === 1 ? parsedOrigins[0] : parsedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
 });
 
-// Xác thực socket bằng JWT dùng middleware dùng chung
-io.use(socketAuth);
-
 // Namespace chính cho chat (bạn bè + doanh nghiệp sau này)
-registerChatNamespace(io.of('/chat'));
+const chatNamespace = io.of('/chat');
+// Auth phải gắn trực tiếp vào namespace đang dùng.
+chatNamespace.use(socketAuth);
+registerChatNamespace(chatNamespace);
 
 server.listen(PORT, () => {
   console.log(`Socket Service đang chạy trên cổng ${PORT}`);
+  console.log(`[socket-service] Allowed origins: ${parsedOrigins.join(', ') || '*'}`);
 });
 

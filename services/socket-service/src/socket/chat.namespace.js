@@ -5,7 +5,8 @@ const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://chat-service:30
 
 module.exports = function registerChatNamespace(io) {
   io.on('connection', (socket) => {
-    const userId = socket.user?.id || socket.user?._id;
+    const authUser = socket.data?.user || socket.user || {};
+    const userId = authUser.id || authUser.userId || authUser._id;
     console.log('[socket-service] user connected:', userId);
 
     // Join room theo userId để hỗ trợ DM

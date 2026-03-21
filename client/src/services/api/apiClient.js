@@ -3,6 +3,21 @@ import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+const normalizeToken = (rawToken) => {
+  if (!rawToken) return null;
+  let token = String(rawToken).trim();
+  if (!token) return null;
+  if (token.startsWith('Bearer ')) token = token.slice(7).trim();
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+  if (!token || token === 'null' || token === 'undefined') return null;
+  return token;
+};
+
 // Create axios instance
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -15,7 +30,7 @@ const apiClient = axios.create({
 // Request interceptor - Add auth token
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = normalizeToken(localStorage.getItem('token'));
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

@@ -6,8 +6,8 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect);
 
 router.get('/', teamController.getTeams);
-router.post('/', authorize(['org_admin', 'department_head']), teamController.createTeam);
-router.put('/:id', authorize(['org_admin', 'department_head', 'team_leader']), teamController.updateTeam);
-router.delete('/:id', authorize(['org_admin', 'department_head']), teamController.deleteTeam);
+router.post('/', authorize(['owner', 'admin']), teamController.createTeam);
+router.put('/:id', authorize(['owner', 'admin']), teamController.updateTeam);
+router.delete('/:id', authorize(['owner', 'admin']), teamController.deleteTeam);
 
 module.exports = router;

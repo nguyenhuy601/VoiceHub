@@ -184,6 +184,66 @@ class MeetingController {
       });
     }
   }
+
+  async bootstrapMeetingRoom(req, res) {
+    try {
+      const { meetingId } = req.params;
+      const userId = req.user?.id || req.user?.userId || req.user?._id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const payload = await meetingService.bootstrapMeetingRoom(meetingId, userId);
+      res.json({
+        success: true,
+        data: payload,
+      });
+    } catch (error) {
+      logger.error('Bootstrap meeting room error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  async bootstrapRoom(req, res) {
+    try {
+      const userId = req.user?.id || req.user?.userId || req.user?._id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { roomId } = req.params;
+      if (!roomId) {
+        return res.status(400).json({
+          success: false,
+          message: 'roomId is required',
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          roomId,
+          role: 'participant',
+          status: 'active',
+        },
+      });
+    } catch (error) {
+      logger.error('Bootstrap room error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
 }
 
 module.exports = new MeetingController();

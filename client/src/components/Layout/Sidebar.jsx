@@ -21,7 +21,6 @@ const navItems = [
   { to: '/organizations', icon: Building2, label: 'Tổ chức' },
   // Chat được tách thành 2 trang riêng: bạn bè & doanh nghiệp
   { to: '/chat/friends', icon: MessageSquare, label: 'Chat bạn bè' },
-  { to: '/chat/organization', icon: Building2, label: 'Chat doanh nghiệp' },
   { to: '/voice', icon: Phone, label: 'Cuộc gọi' },
   { to: '/tasks', icon: CheckSquare, label: 'Công việc' },
   { to: '/documents', icon: FileText, label: 'Tài liệu' },

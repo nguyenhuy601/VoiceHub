@@ -244,6 +244,7 @@ function AnalyticsPage() {
             </div>
           </GlassCard>
         </div>
+      </div>
         }
       />
       

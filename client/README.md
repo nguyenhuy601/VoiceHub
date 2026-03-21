@@ -114,8 +114,8 @@ Tạo file `.env` trong thư mục `client/`:
 # API Gateway chạy trên port 3000 (theo docker-compose.yml)
 VITE_API_URL=http://localhost:3000/api
 
-# Socket Server (Chat Service) chạy trên port 3006 (theo docker-compose.yml)
-VITE_SOCKET_URL=http://localhost:3006
+# Socket Realtime đi qua API Gateway (proxy tới socket-service)
+VITE_SOCKET_URL=http://localhost:3000
 
 # App Configuration
 VITE_APP_NAME=VoiceHub
@@ -397,7 +397,7 @@ server: { port: 3001 }
 Đảm bảo API Gateway có cấu hình CORS đúng với URL client.
 
 ### Kết Nối Socket Thất Bại
-Kiểm tra `VITE_SOCKET_URL` trong file `.env`
+Kiểm tra `VITE_SOCKET_URL` trong file `.env` (nên trỏ về gateway `http://localhost:3000`)
 
 ---
 
