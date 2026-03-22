@@ -33,6 +33,29 @@ const messageSchema = new mongoose.Schema(
     organizationId: {
       type: mongoose.Schema.Types.ObjectId,
     },
+    // Soft delete - giữ message nhưng đánh dấu đã xóa
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
+    // Recall (thu hồi) - ẩn message nhưng giữ nó cho histories
+    isRecalled: {
+      type: Boolean,
+      default: false,
+    },
+    recalledAt: {
+      type: Date,
+    },
+    // Edit tracking - lưu lịch sử edit
+    editedAt: {
+      type: Date,
+    },
+    originalContent: {
+      type: String,
+    },
   },
   {
     timestamps: true,

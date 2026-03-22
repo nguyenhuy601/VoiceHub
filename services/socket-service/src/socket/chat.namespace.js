@@ -3,6 +3,21 @@ const axios = require('axios');
 // URL nội bộ tới chat-service trong docker-compose
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://chat-service:3006';
 
+const normalizeToken = (rawToken) => {
+  if (!rawToken) return null;
+  let token = String(rawToken).trim();
+  if (!token) return null;
+  if (token.startsWith('Bearer ')) token = token.slice(7).trim();
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+  if (!token || token === 'null' || token === 'undefined') return null;
+  return token;
+};
+
 module.exports = function registerChatNamespace(io) {
   io.on('connection', (socket) => {
     const authUser = socket.data?.user || socket.user || {};
@@ -22,7 +37,9 @@ module.exports = function registerChatNamespace(io) {
         }
 
         // Lấy token từ auth handshake để forward sang chat-service
-        const token = socket.handshake.auth?.token;
+        const token = normalizeToken(
+          socket.handshake.auth?.token || socket.handshake.headers?.authorization
+        );
 
         const resp = await axios.post(
           `${CHAT_SERVICE_URL}/api/messages`,

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { taskAPI } from '../../services/api/taskAPI';
 
 function TasksPage() {
   const [filterPriority, setFilterPriority] = useState('all');
@@ -9,10 +10,60 @@ function TasksPage() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
   const [toast, setToast] = useState(null);
+  const [createTaskLoading, setCreateTaskLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    priority: 'medium',
+    assignee: '',
+    dueDate: '',
+    description: ''
+  });
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleCreateTask = async () => {
+    // Validation
+    if (!formData.title.trim()) {
+      showToast('Vui lòng nhập tiêu đề công việc', 'error');
+      return;
+    }
+    if (!formData.assignee) {
+      showToast('Vui lòng chọn người phụ trách', 'error');
+      return;
+    }
+    if (!formData.dueDate) {
+      showToast('Vui lòng chọn hạn hoàn thành', 'error');
+      return;
+    }
+
+    try {
+      setCreateTaskLoading(true);
+      const newTask = {
+        title: formData.title.trim(),
+        priority: formData.priority,
+        assignee: formData.assignee,
+        dueDate: formData.dueDate,
+        description: formData.description.trim(),
+        tags: [],
+        subtasks: [],
+        progress: 0,
+        comments: 0,
+        attachments: 0
+      };
+
+      await taskAPI.createTask(newTask);
+      showToast('Tạo công việc thành công!', 'success');
+      setShowCreateTaskModal(false);
+      setFormData({ title: '', priority: 'medium', assignee: '', dueDate: '', description: '' });
+    } catch (error) {
+      console.error('Lỗi tạo công việc:', error);
+      showToast(error.response?.data?.message || 'Lỗi tạo công việc', 'error');
+    } finally {
+      setCreateTaskLoading(false);
+    }
   };
 
   const tasks = {
@@ -766,39 +817,56 @@ function TasksPage() {
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-400 mb-2">Tiêu đề công việc</label>
+              <label className="block text-sm font-semibold text-gray-400 mb-2">Tiêu đề công việc <span className="text-red-400">*</span></label>
               <input 
                 type="text"
                 placeholder="Nhập tiêu đề..."
-                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                disabled={createTaskLoading}
+                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all disabled:opacity-50"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-400 mb-2">Ưu tiên</label>
-                <select className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white">
+                <select 
+                  value={formData.priority}
+                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  disabled={createTaskLoading}
+                  className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white disabled:opacity-50"
+                >
                   <option value="high">🔴 Cao</option>
                   <option value="medium">🟡 Trung bình</option>
                   <option value="low">🟢 Thấp</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 mb-2">Người làm</label>
-                <select className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white">
-                  <option>Sarah Chen</option>
-                  <option>Mike Ross</option>
-                  <option>Emma Wilson</option>
-                  <option>David Kim</option>
+                <label className="block text-sm font-semibold text-gray-400 mb-2">Người làm <span className="text-red-400">*</span></label>
+                <select 
+                  value={formData.assignee}
+                  onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                  disabled={createTaskLoading}
+                  className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white disabled:opacity-50"
+                >
+                  <option value="">-- Chọn người --</option>
+                  <option value="sarah">👩‍🎨 Sarah Chen</option>
+                  <option value="mike">👨‍💻 Mike Ross</option>
+                  <option value="emma">👩‍🎨 Emma Wilson</option>
+                  <option value="david">👨‍🔬 David Kim</option>
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-400 mb-2">Hạn hoàn thành</label>
+              <label className="block text-sm font-semibold text-gray-400 mb-2">Hạn hoàn thành <span className="text-red-400">*</span></label>
               <input 
                 type="date"
-                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white transition-all"
+                value={formData.dueDate}
+                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                disabled={createTaskLoading}
+                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white transition-all disabled:opacity-50"
               />
             </div>
 
@@ -807,24 +875,29 @@ function TasksPage() {
               <textarea 
                 rows={4}
                 placeholder="Mô tả chi tiết công việc..."
-                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all resize-none"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                disabled={createTaskLoading}
+                className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all resize-none disabled:opacity-50"
               ></textarea>
             </div>
 
             <div className="flex gap-3">
               <GradientButton 
                 variant="primary" 
-                onClick={() => {
-                  showToast("Đã tạo công việc mới!", "success");
-                  setShowCreateTaskModal(false);
-                }}
-                className="flex-1"
+                onClick={handleCreateTask}
+                disabled={createTaskLoading}
+                className="flex-1 disabled:opacity-50"
               >
-                ✅ Tạo Công Việc
+                {createTaskLoading ? '⏳ Đang tạo...' : '✅ Tạo Công Việc'}
               </GradientButton>
               <button 
-                onClick={() => setShowCreateTaskModal(false)}
-                className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
+                onClick={() => {
+                  setShowCreateTaskModal(false);
+                  setFormData({ title: '', priority: 'medium', assignee: '', dueDate: '', description: '' });
+                }}
+                disabled={createTaskLoading}
+                className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold disabled:opacity-50"
               >
                 Hủy
               </button>

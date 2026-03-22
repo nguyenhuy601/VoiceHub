@@ -10,32 +10,33 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "axios": "^1.6.5",
+    "date-fns": "^3.0.6",
+    "framer-motion": "^10.18.0",
+    "lucide-react": "^0.303.0",
+    "mediasoup-client": "^3.9.2",
+    "moment": "^2.29.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.0",
-    "socket.io-client": "^4.6.1",
-    "axios": "^1.6.5",
-    "zustand": "^4.4.7",
     "react-hot-toast": "^2.4.1",
-    "lucide-react": "^0.303.0",
-    "framer-motion": "^10.18.0",
-    "mediasoup-client": "^3.9.2",
+    "react-icons": "^5.0.1",
+    "react-router-dom": "^6.21.0",
     "simple-peer": "^9.11.1",
-    "date-fns": "^3.0.6",
-    "moment": "^2.29.4",
-    "react-icons": "^5.0.1"
+    "socket.io-client": "^4.6.1",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8",
+    "autoprefixer": "^10.4.16",
+    "esbuild": "^0.27.4",
     "eslint": "^8.55.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32"
+    "vite": "^5.0.8"
   }
 }

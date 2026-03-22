@@ -153,6 +153,17 @@ const authService = {
     return response;
   },
 
+  /* ----- RESEND VERIFICATION: Gửi lại email xác thực -----
+
+     Gọi: POST /auth/resend-verification
+     Body: { email }
+
+     Được gọi khi user chưa verify email và cần nhận lại email xác thực */
+  resendVerification: async (email) => {
+    const response = await api.post('/auth/resend-verification', { email });
+    return response;
+  },
+
   /* ----- RESET PASSWORD: Đặt lại mật khẩu -----
      
      Gọi: POST /auth/reset-password

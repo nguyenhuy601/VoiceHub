@@ -194,7 +194,12 @@ class EmailService {
    */
   async sendPasswordResetEmail(email, resetToken) {
     try {
-      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+      if (!this.isAvailable()) {
+        console.warn('[EmailService] Password reset email skipped: service not configured');
+        return null;
+      }
+
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
 
       const mailOptions = {
         from: `"${process.env.EMAIL_FROM_NAME || 'VoiceChat App'}" <${process.env.EMAIL_USER}>`,
@@ -268,7 +273,7 @@ class EmailService {
       return info;
     } catch (error) {
       console.error('Error sending password reset email:', error);
-      throw new Error(`Failed to send password reset email: ${error.message}`);
+      return null;
     }
   }
 

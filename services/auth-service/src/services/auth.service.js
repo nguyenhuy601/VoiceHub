@@ -430,7 +430,10 @@ class AuthService {
       const userAuth = await UserAuth.findOne({ email });
       if (!userAuth) {
         // Không báo lỗi để tránh email enumeration
-        return { message: 'If email exists, password reset link has been sent' };
+        return {
+          message: 'If email exists, password reset link has been sent',
+          emailScheduled: false,
+        };
       }
 
       // Tạo reset token
@@ -441,12 +444,82 @@ class AuthService {
       userAuth.passwordResetExpiresAt = passwordResetExpiresAt;
       await userAuth.save();
 
-      return {
+      let emailScheduled = false;
+      if (emailService.isAvailable()) {
+        const emailResult = await emailService.sendPasswordResetEmail(email, passwordResetToken);
+        emailScheduled = !!emailResult;
+      }
+
+      const response = {
         message: 'If email exists, password reset link has been sent',
-        resetToken: passwordResetToken, // Trong production, gửi qua email
+        emailScheduled,
       };
+
+      // Dev fallback: trả token để test local khi SMTP chưa cấu hình
+      if (!emailScheduled && process.env.NODE_ENV !== 'production') {
+        response.resetToken = passwordResetToken;
+        response.resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${passwordResetToken}`;
+      }
+
+      return response;
     } catch (error) {
       throw new Error(`Error processing forgot password: ${error.message}`);
+    }
+  }
+
+  // Gửi lại email xác thực
+  async resendVerificationEmail(email) {
+    try {
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      if (!normalizedEmail) {
+        throw new Error('Email is required');
+      }
+
+      const userAuth = await UserAuth.findOne({ email: normalizedEmail });
+
+      if (!userAuth) {
+        // Không trả lỗi để tránh email enumeration
+        return {
+          message: 'If email exists, verification link has been sent',
+          emailScheduled: false,
+        };
+      }
+
+      if (userAuth.isEmailVerified) {
+        return {
+          message: 'Email is already verified',
+          emailScheduled: false,
+          alreadyVerified: true,
+        };
+      }
+
+      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      const emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      userAuth.emailVerificationToken = emailVerificationToken;
+      userAuth.emailVerificationExpiresAt = emailVerificationExpiresAt;
+      await userAuth.save();
+
+      let emailScheduled = false;
+      if (emailService.isAvailable()) {
+        const emailResult = await emailService.sendVerificationEmail(userAuth.email, emailVerificationToken);
+        emailScheduled = !!emailResult;
+      }
+
+      const response = {
+        message: 'If email exists, verification link has been sent',
+        emailScheduled,
+      };
+
+      // Dev fallback: trả token để test local khi SMTP chưa cấu hình
+      if (!emailScheduled && process.env.NODE_ENV !== 'production') {
+        response.verificationToken = emailVerificationToken;
+        response.verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${emailVerificationToken}`;
+      }
+
+      return response;
+    } catch (error) {
+      throw new Error(`Error resending verification email: ${error.message}`);
     }
   }
 

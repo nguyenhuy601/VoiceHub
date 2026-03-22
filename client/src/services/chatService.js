@@ -132,6 +132,21 @@ const chatService = {
     return await api.delete(`/chat/messages/${messageId}`);
   },
 
+  /* ----- RECALL MESSAGE: Thu hồi tin nhắn -----
+     
+     Gọi: PATCH /chat/messages/:messageId/recall
+     Body: {}
+     Return: { messageId, isRecalled: true }
+     
+     Chỉ recall được:
+     - Message của mình
+     - Khác với delete (vẫn hiển thị "Message recalled" ở UI)
+     
+     Dùng khi user click "Thu hồi" */
+  recallMessage: async (messageId) => {
+    return await api.patch(`/chat/messages/${messageId}/recall`);
+  },
+
   /* ----- REACT TO MESSAGE: Thêm emoji reaction -----
      
      Gọi: POST /chat/messages/:messageId/reactions
