@@ -23,6 +23,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "ioredis": "^5.9.0",
+    "mediasoup": "^3.19.3",
     "mongoose": "^9.1.4",
     "socket.io": "^4.8.3"
   },

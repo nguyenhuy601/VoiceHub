@@ -36,9 +36,9 @@ function SettingsPage() {
     <>
       <ThreeFrameLayout
         center={
-          <div className="p-6">
+          <div className="p-5 lg:p-6 bg-[#020817] text-slate-100 min-h-full">
         {/* Role Switcher for demo */}
-        <div className="mb-6 glass-strong p-4 rounded-xl">
+        <div className="mb-6 bg-slate-900/60 border border-slate-800 p-4 rounded-xl">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-white mb-1">Chế độ cài đặt</h2>
@@ -50,7 +50,7 @@ function SettingsPage() {
                 className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                   userRole === 'admin'
                     ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white'
-                    : 'glass hover:bg-white/10 text-gray-400'
+                    : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
                 }`}
               >
                 👑 Quản Trị Viên
@@ -60,7 +60,7 @@ function SettingsPage() {
                 className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                   userRole === 'manager'
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                    : 'glass hover:bg-white/10 text-gray-400'
+                    : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
                 }`}
               >
                 👔 Trưởng Phòng
@@ -70,7 +70,7 @@ function SettingsPage() {
                 className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                   userRole === 'user'
                     ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
-                    : 'glass hover:bg-white/10 text-gray-400'
+                    : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
                 }`}
               >
                 👷 Nhân Viên
@@ -79,10 +79,10 @@ function SettingsPage() {
           </div>
         </div>
 
-        <h1 className="text-4xl font-black text-gradient mb-2">
+        <h1 className="text-3xl font-extrabold text-white mb-1">
           {userRole === 'admin' ? 'Cài Đặt Tổ Chức' : 'Cài Đặt Cá Nhân'}
         </h1>
-        <p className="text-gray-400 mb-8">
+        <p className="text-sm text-gray-400 mb-8">
           {userRole === 'admin' 
             ? 'Quản lý cấu hình và chính sách toàn tổ chức' 
             : 'Tùy chỉnh trải nghiệm cá nhân của bạn'}
@@ -94,10 +94,10 @@ function SettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-xl font-semibold transition-all whitespace-nowrap ${
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                  : 'glass hover:bg-white/10 text-gray-400'
+                  : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -112,25 +112,25 @@ function SettingsPage() {
         {/* General Tab */}
         {activeTab === 'general' && (
           <div className="max-w-3xl space-y-6">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Thông Tin Tổ Chức</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Tên Tổ Chức</label>
-                  <input type="text" defaultValue="VoiceHub Tech" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" />
+                  <input type="text" defaultValue="VoiceHub Tech" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Mô Tả</label>
-                  <textarea className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" rows="3" defaultValue="Công ty công nghệ hàng đầu chuyên về giải pháp truyền thông"></textarea>
+                  <textarea className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" rows="3" defaultValue="Công ty công nghệ hàng đầu chuyên về giải pháp truyền thông"></textarea>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold mb-2 text-gray-300">Website</label>
-                    <input type="url" defaultValue="https://voicehub.com" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" />
+                    <input type="url" defaultValue="https://voicehub.com" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold mb-2 text-gray-300">Email Liên Hệ</label>
-                    <input type="email" defaultValue="contact@voicehub.com" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" />
+                    <input type="email" defaultValue="contact@voicehub.com" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" />
                   </div>
                 </div>
                 <GradientButton 
@@ -142,7 +142,7 @@ function SettingsPage() {
               </div>
             </GlassCard>
 
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Quota & Giới Hạn</h3>
               <div className="space-y-4">
                 <div>
@@ -171,7 +171,7 @@ function SettingsPage() {
         {/* Roles Tab */}
         {activeTab === 'roles' && (
           <div className="max-w-4xl">
-            <GlassCard className="mb-6">
+            <GlassCard className="mb-6 border border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-white">Quản Lý Vai Trò (RBAC)</h3>
                 <GradientButton 
@@ -188,7 +188,7 @@ function SettingsPage() {
                   { name: 'Trưởng Nhóm', members: 8, permissions: 'Quản lý nhóm', color: 'from-blue-500 to-cyan-500' },
                   { name: 'Nhân Viên', members: 30, permissions: 'Cơ bản', color: 'from-green-500 to-emerald-500' }
                 ].map((role, idx) => (
-                  <div key={idx} className="glass-strong p-4 rounded-xl flex items-center justify-between">
+                  <div key={idx} className="bg-[#040f2a] border border-slate-800 p-4 rounded-xl flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-2xl`}>
                         {['👑', '👔', '👨‍💼', '👷'][idx]}
@@ -199,8 +199,8 @@ function SettingsPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm">Sửa</button>
-                      <button className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm text-red-400">Xóa</button>
+                      <button className="bg-slate-900/60 border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm">Sửa</button>
+                      <button className="bg-slate-900/60 border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm text-red-400">Xóa</button>
                     </div>
                   </div>
                 ))}
@@ -212,7 +212,7 @@ function SettingsPage() {
         {/* Security Tab */}
         {activeTab === 'security' && (
           <div className="max-w-3xl space-y-6">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Chính Sách Bảo Mật</h3>
               <div className="space-y-4">
                 {[
@@ -222,7 +222,7 @@ function SettingsPage() {
                   { label: 'Chặn đăng nhập từ IP lạ', checked: false },
                   { label: 'Gửi email thông báo khi đăng nhập thiết bị mới', checked: true }
                 ].map((setting, idx) => (
-                  <label key={idx} className="flex items-center justify-between p-4 glass-strong rounded-xl cursor-pointer hover:bg-white/5 transition-all">
+                  <label key={idx} className="flex items-center justify-between p-4 bg-[#040f2a] border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-800/70 transition-all">
                     <span className="text-white">{setting.label}</span>
                     <input type="checkbox" defaultChecked={setting.checked} className="w-5 h-5 rounded" />
                   </label>
@@ -230,7 +230,7 @@ function SettingsPage() {
               </div>
             </GlassCard>
 
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">API Keys</h3>
               <p className="text-gray-400 mb-4">Quản lý API keys cho tích hợp bên ngoài</p>
               <div className="space-y-3 mb-4">
@@ -238,14 +238,14 @@ function SettingsPage() {
                   { name: 'Production API Key', created: '15/12/2025', lastUsed: '2 giờ trước' },
                   { name: 'Development API Key', created: '10/01/2026', lastUsed: '1 ngày trước' }
                 ].map((key, idx) => (
-                  <div key={idx} className="glass-strong p-4 rounded-xl flex items-center justify-between">
+                  <div key={idx} className="bg-[#040f2a] border border-slate-800 p-4 rounded-xl flex items-center justify-between">
                     <div>
                       <div className="font-bold text-white">{key.name}</div>
                       <div className="text-sm text-gray-400">Tạo: {key.created} • Sử dụng: {key.lastUsed}</div>
                     </div>
                     <div className="flex gap-2">
-                      <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all text-sm">Copy</button>
-                      <button className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all text-sm text-red-400">Xóa</button>
+                      <button className="bg-slate-900/60 border border-slate-800 px-3 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm">Copy</button>
+                      <button className="bg-slate-900/60 border border-slate-800 px-3 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm text-red-400">Xóa</button>
                     </div>
                   </div>
                 ))}
@@ -258,7 +258,7 @@ function SettingsPage() {
         {/* Integrations Tab */}
         {activeTab === 'integrations' && (
           <div className="max-w-4xl">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-6">Tích Hợp Bên Ngoài</h3>
               <div className="grid grid-cols-2 gap-4">
                 {[
@@ -267,7 +267,7 @@ function SettingsPage() {
                   { name: 'GitHub', icon: '🐙', status: 'Đã kết nối', color: 'from-green-500 to-emerald-500' },
                   { name: 'Jira', icon: '📊', status: 'Chưa kết nối', color: 'from-orange-500 to-yellow-500' }
                 ].map((integration, idx) => (
-                  <GlassCard key={idx} hover>
+                  <GlassCard key={idx} hover className="border border-slate-800 bg-slate-900/60">
                     <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${integration.color} flex items-center justify-center text-3xl mb-3`}>
                       {integration.icon}
                     </div>
@@ -290,10 +290,10 @@ function SettingsPage() {
         {/* Audit Log Tab */}
         {activeTab === 'audit' && (
           <div className="max-w-4xl">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-white">Nhật Ký Hoạt Động (Audit Log)</h3>
-                <button className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold">
+                <button className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold">
                   📥 Xuất Log
                 </button>
               </div>
@@ -305,7 +305,7 @@ function SettingsPage() {
                   { user: 'Admin', action: 'Bật 2FA bắt buộc', time: '1 ngày trước', type: 'security' },
                   { user: 'Emma Wilson', action: 'Xóa API key "Test Key"', time: '2 ngày trước', type: 'delete' }
                 ].map((log, idx) => (
-                  <div key={idx} className="glass-strong p-4 rounded-xl flex items-center gap-4">
+                  <div key={idx} className="bg-[#040f2a] border border-slate-800 p-4 rounded-xl flex items-center gap-4">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl ${
                       log.type === 'create' ? 'bg-green-500/20' :
                       log.type === 'update' ? 'bg-blue-500/20' :
@@ -339,7 +339,7 @@ function SettingsPage() {
         {/* Profile Tab */}
         {activeTab === 'profile' && (
           <div className="max-w-3xl space-y-6">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Thông Tin Cá Nhân</h3>
               <div className="flex items-center gap-6 mb-6">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-5xl">
@@ -350,21 +350,21 @@ function SettingsPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Họ và Tên</label>
-                  <input type="text" defaultValue="Nguyễn Văn Danh" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" />
+                  <input type="text" defaultValue="Nguyễn Văn Danh" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold mb-2 text-gray-300">Email</label>
-                    <input type="email" defaultValue="danh@voicehub.com" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" disabled />
+                    <input type="email" defaultValue="danh@voicehub.com" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" disabled />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold mb-2 text-gray-300">Số điện thoại</label>
-                    <input type="tel" defaultValue="+84 123 456 789" className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white" />
+                    <input type="tel" defaultValue="+84 123 456 789" className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-white" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Chức vụ</label>
-                  <input type="text" defaultValue={userRole === 'manager' ? 'Trưởng Phòng' : 'Nhân Viên'} className="w-full px-4 py-3 rounded-xl glass border border-white/20 bg-white/5 text-gray-400" disabled />
+                  <input type="text" defaultValue={userRole === 'manager' ? 'Trưởng Phòng' : 'Nhân Viên'} className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-gray-400" disabled />
                 </div>
                 <GradientButton 
                   variant="primary"
@@ -380,7 +380,7 @@ function SettingsPage() {
         {/* Notifications Tab */}
         {activeTab === 'notifications' && (
           <div className="max-w-3xl">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Cài Đặt Thông Báo</h3>
               <div className="space-y-4">
                 {[
@@ -391,7 +391,7 @@ function SettingsPage() {
                   { label: 'Thông báo qua email', checked: false },
                   { label: 'Thông báo push trên mobile', checked: true }
                 ].map((setting, idx) => (
-                  <label key={idx} className="flex items-center justify-between p-4 glass-strong rounded-xl cursor-pointer hover:bg-white/5 transition-all">
+                  <label key={idx} className="flex items-center justify-between p-4 bg-[#040f2a] border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-800/70 transition-all">
                     <span className="text-white">{setting.label}</span>
                     <input type="checkbox" defaultChecked={setting.checked} className="w-5 h-5 rounded" />
                   </label>
@@ -404,12 +404,12 @@ function SettingsPage() {
         {/* Privacy Tab */}
         {activeTab === 'privacy' && (
           <div className="max-w-3xl space-y-6">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Quyền Riêng Tư</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Hiển thị trạng thái online</label>
-                  <select className="w-full px-4 py-3 rounded-xl glass border border-white/20 text-white">
+                  <select className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white">
                     <option>Mọi người</option>
                     <option>Chỉ đồng nghiệp</option>
                     <option>Không ai</option>
@@ -417,7 +417,7 @@ function SettingsPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-300">Ai có thể nhắn tin cho tôi</label>
-                  <select className="w-full px-4 py-3 rounded-xl glass border border-white/20 text-white">
+                  <select className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white">
                     <option>Mọi người</option>
                     <option>Chỉ đồng nghiệp</option>
                   </select>
@@ -430,7 +430,7 @@ function SettingsPage() {
         {/* Appearance Tab */}
         {activeTab === 'appearance' && (
           <div className="max-w-3xl">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h3 className="text-xl font-bold text-white mb-4">Giao Diện</h3>
               <div className="space-y-4">
                 <div>
@@ -441,7 +441,7 @@ function SettingsPage() {
                       { name: 'Sáng', icon: '☀️', active: false }
                     ].map((theme, idx) => (
                       <div key={idx} className={`p-6 rounded-xl cursor-pointer transition-all ${
-                        theme.active ? 'bg-gradient-to-br from-purple-600 to-pink-600' : 'glass hover:bg-white/10'
+                        theme.active ? 'bg-gradient-to-br from-purple-600 to-pink-600' : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70'
                       }`}>
                         <div className="text-4xl mb-2">{theme.icon}</div>
                         <div className="font-bold text-white">{theme.name}</div>

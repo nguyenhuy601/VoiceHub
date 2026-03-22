@@ -58,14 +58,6 @@ function HomePage() {
       requiresAuth: true // Guest không được truy cập
     },
     {
-      icon: "✅",
-      title: "Quản Lý Công Việc",
-      desc: "Theo dõi và quản lý task hiệu quả",
-      color: "from-indigo-500 to-purple-500",
-      link: "/tasks",
-      stats: "Kanban Board"
-    },
-    {
       icon: "🏢",
       title: "Trung Tâm Đội Nhóm",
       desc: "Không gian làm việc cộng tác",
@@ -81,14 +73,6 @@ function HomePage() {
       color: "from-yellow-500 to-orange-500",
       link: "/friends",
       stats: "500K+ người dùng"
-    },
-    {
-      icon: "📁",
-      title: "Lưu Trữ Đám Mây",
-      desc: "Chia sẻ file bảo mật và cộng tác",
-      color: "from-teal-500 to-green-500",
-      link: "/documents",
-      stats: "Lưu trữ 1TB"
     }
   ];
 
@@ -109,276 +93,173 @@ function HomePage() {
   ];
 
   return (
-    <div className="min-h-screen overflow-hidden">
-      {/* Animated background particles */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-20 w-72 h-72 bg-purple-600/20 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute bottom-20 right-20 w-96 h-96 bg-pink-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '2s'}}></div>
+    <div className="relative min-h-screen overflow-hidden bg-[#020817] text-slate-100">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-20 -left-20 h-[22rem] w-[22rem] rounded-full border border-indigo-500/20 bg-indigo-500/10 blur-2xl" />
+        <div className="absolute top-12 left-1/2 h-56 w-[20rem] rounded-[48%] border border-blue-500/20 bg-blue-500/10 blur-2xl" />
+        <div className="absolute -bottom-16 right-8 h-[18rem] w-[18rem] rounded-full border border-violet-500/20 bg-violet-500/10 blur-2xl" />
       </div>
 
-      {/* Top Header */}
-      <div className="relative z-20">
-        <header className="sticky top-0 backdrop-blur-xl bg-[#0a0118]/40 border-b border-white/10">
-          <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl animate-glow">
-                🚀
-              </div>
-              <div className="leading-tight">
-                <div className="text-lg font-black text-gradient">VoiceHub</div>
-                <div className="text-xs text-gray-400">Enterprise Communication</div>
-              </div>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              {isAuthenticated ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/dashboard')}
-                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-semibold transition-colors"
-                  >
-                    Vào Dashboard
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast('Bạn đã đăng nhập rồi.');
-                      navigate('/dashboard');
-                    }}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold hover:opacity-90 transition-opacity"
-                  >
-                    Tiếp tục
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link
-                    to="/login"
-                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-semibold transition-colors"
-                  >
-                    Đăng nhập
-                  </Link>
-                  <Link
-                    to="/register"
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold hover:opacity-90 transition-opacity"
-                  >
-                    Đăng ký
-                  </Link>
-                </>
-              )}
+      <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-[#020817]/80 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-3.5">
+          <Link to="/" className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 text-sm text-white shadow-[0_0_20px_rgba(99,102,241,0.35)]">V</div>
+            <div>
+              <p className="text-base font-bold">VoiceHub</p>
+              <p className="text-xs text-slate-400">Enterprise communication</p>
             </div>
-          </div>
-        </header>
-      </div>
+          </Link>
 
-      <div className="relative z-10 container mx-auto px-6 py-12">
-        {/* Hero Section with Enhanced Details */}
-        <div className="text-center mb-16 animate-slideUp">
-          <div className="inline-block mb-4 relative">
-            <span className="text-8xl animate-float">🚀</span>
-            <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full animate-pulse border-4 border-[#0a0118]"></div>
-          </div>
-          <h1 className="text-7xl font-black mb-4">
-            <span className="text-gradient">VoiceHub</span>
-          </h1>
-          <p className="text-2xl text-gray-300 font-light mb-2">
-            Hệ Thống Giao Tiếp Doanh Nghiệp Thế Hệ Mới
-          </p>
-          <p className="text-sm text-gray-500 mb-2">
-            Kết nối toàn bộ tổ chức, doanh nghiệp và nhân viên
-          </p>
-          <p className="text-xs text-gray-600 mb-8">
-            Powered by Microservices • WebRTC • AWS Cloud
-          </p>
-          
-          {/* Tech Stack Pills */}
-          <div className="flex flex-wrap gap-2 justify-center mb-8">
-            {techStack.map((tech, idx) => (
-              <div 
-                key={idx}
-                className={`px-4 py-2 rounded-full bg-gradient-to-r ${tech.color} text-white text-sm font-semibold flex items-center gap-2 animate-scaleIn`}
-                style={{animationDelay: `${idx * 0.1}s`}}
-              >
-                <span>{tech.icon}</span>
-                {tech.name}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex gap-4 justify-center">
-            <GradientButton
-              variant="primary"
-              icon="🚀"
-              onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
-            >
-              {isAuthenticated ? 'Vào Dashboard' : 'Bắt Đầu Miễn Phí'}
-            </GradientButton>
-            <GradientButton
-              variant="secondary"
-              icon="▶️"
-              onClick={() => {
-                if (!isAuthenticated) {
-                  toast('Vui lòng đăng nhập để xem demo đầy đủ.');
-                  navigate('/login');
-                  return;
-                }
-                navigate('/dashboard');
-              }}
-            >
-              Xem Demo
-            </GradientButton>
-          </div>
-
-          {/* Live Stats Ticker */}
-          <div className="mt-8 glass rounded-2xl p-4 max-w-2xl mx-auto">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-gray-400">Trạng thái hệ thống:</span>
-                <span className="text-green-400 font-bold">Hoạt động tốt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">Người dùng online:</span>
-                <span className="text-gradient-cool font-bold">12,458</span>
-              </div>
-            </div>
+          <div className="flex items-center gap-3">
+            {isAuthenticated ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className="rounded-lg border border-slate-700 bg-slate-900/60 px-3.5 py-1.5 text-xs font-semibold text-slate-100 transition hover:bg-slate-800"
+                >
+                  Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast('Bạn đã đăng nhập rồi.');
+                    navigate('/dashboard');
+                  }}
+                  className="rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 px-3.5 py-1.5 text-xs font-bold text-white transition hover:from-violet-400 hover:to-indigo-400"
+                >
+                  Tiếp tục
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="rounded-lg border border-slate-700 bg-slate-900/60 px-3.5 py-1.5 text-xs font-semibold text-slate-100 transition hover:bg-slate-800">Đăng nhập</Link>
+                <Link to="/register" className="rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 px-3.5 py-1.5 text-xs font-bold text-white transition hover:from-violet-400 hover:to-indigo-400">Đăng ký</Link>
+              </>
+            )}
           </div>
         </div>
+      </header>
 
-        {/* Features Grid with Enhanced Hover */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+      <main className="relative z-10 mx-auto w-full max-w-7xl px-5 py-10">
+        <section className="grid gap-8 lg:grid-cols-[1.2fr_1fr] lg:items-center">
+          <div>
+            <p className="inline-flex rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs text-indigo-300">
+              Real-time collaboration platform
+            </p>
+            <h1 className="mt-5 text-4xl font-extrabold leading-tight text-white sm:text-5xl">
+              Work communication,
+              <span className="block bg-gradient-to-r from-violet-400 to-indigo-300 bg-clip-text text-transparent">designed for speed</span>
+            </h1>
+            <p className="mt-4 max-w-2xl text-base text-slate-300">
+              Kết nối nhân viên, đội nhóm và tổ chức trên một nền tảng thống nhất cho chat, gọi thoại và quản trị công việc.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-2.5">
+              <GradientButton
+                variant="primary"
+                className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-2.5 text-sm font-bold hover:from-violet-400 hover:to-indigo-400"
+                onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+              >
+                {isAuthenticated ? 'Vào Dashboard' : 'Bắt đầu miễn phí'}
+              </GradientButton>
+              <GradientButton
+                variant="secondary"
+                className="rounded-xl border border-slate-700 bg-slate-900/60 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    toast('Vui lòng đăng nhập để xem demo đầy đủ.');
+                    navigate('/login');
+                    return;
+                  }
+                  navigate('/dashboard');
+                }}
+              >
+                Xem demo
+              </GradientButton>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              {techStack.map((tech, idx) => (
+                <span key={idx} className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-300">
+                  {tech.name}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-[#020a1f]/85 p-5 shadow-[0_12px_32px_rgba(2,8,23,0.55)] backdrop-blur-xl">
+            <p className="mb-3 text-xs text-slate-400">System overview</p>
+            <div className="space-y-3">
+              {quickStats.map((stat, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5">
+                  <span className="text-xs text-slate-300">{stat.label}</span>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-white">{stat.value}</p>
+                    <p className="text-xs text-emerald-400">{stat.trend}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {features.map((feature, idx) => {
             const isRestricted = feature.requiresAuth && !isAuthenticated;
-            const FeatureWrapper = isRestricted ? 'div' : Link;
-            
+
+            const card = (
+              <GlassCard
+                hover={!isRestricted}
+                className={`group h-full border border-slate-800 bg-slate-900/60 p-4 transition ${isRestricted ? 'opacity-70' : ''}`}
+              >
+                <div className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br ${feature.color} text-lg`}>
+                  {feature.icon}
+                </div>
+                <h3 className="text-lg font-bold text-white">{feature.title}</h3>
+                <p className="mt-1.5 text-xs text-slate-400">{feature.desc}</p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs text-slate-300">{feature.stats}</span>
+                  <span className={`text-xs font-semibold ${isRestricted ? 'text-slate-500' : 'text-indigo-300'}`}>
+                    {isRestricted ? 'Cần đăng nhập' : 'Khám phá'}
+                  </span>
+                </div>
+              </GlassCard>
+            );
+
+            if (isRestricted) {
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={(e) => handleFeatureClick(e, feature)}
+                  onMouseEnter={() => setHoveredFeature(idx)}
+                  onMouseLeave={() => setHoveredFeature(null)}
+                  className="relative text-left"
+                >
+                  {card}
+                  {hoveredFeature === idx && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50 text-sm font-semibold text-white backdrop-blur-sm">
+                      Vui lòng đăng nhập
+                    </div>
+                  )}
+                </button>
+              );
+            }
+
             return (
-              <FeatureWrapper
+              <Link
                 key={idx}
-                to={isRestricted ? undefined : feature.link}
-                onClick={isRestricted ? (e) => handleFeatureClick(e, feature) : undefined}
-                className={`group ${isRestricted ? 'cursor-not-allowed' : ''}`}
+                to={feature.link}
                 onMouseEnter={() => setHoveredFeature(idx)}
                 onMouseLeave={() => setHoveredFeature(null)}
               >
-                <GlassCard 
-                  hover={!isRestricted}
-                  className={`h-full animate-slideUp relative overflow-hidden ${
-                    hoveredFeature === idx && !isRestricted ? 'ring-2 ring-purple-500' : ''
-                  } ${isRestricted ? 'opacity-60' : ''}`}
-                  style={{ animationDelay: `${idx * 0.1}s` }}
-                >
-                {/* Background Gradient on Hover */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
-                
-                <div className="relative z-10">
-                  <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform duration-300 relative`}>
-                    {feature.icon}
-                    {idx < 3 && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full animate-pulse"></div>
-                    )}
-                  </div>
-                  <h3 className="text-xl font-bold mb-2 text-white group-hover:text-gradient-warm transition-all">
-                    {feature.title}
-                  </h3>
-                  <p className="text-gray-400 text-sm mb-3">
-                    {feature.desc}
-                  </p>
-                  
-                  {/* Stats Badge */}
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs px-3 py-1 rounded-full bg-gradient-to-r ${feature.color} text-white font-semibold`}>
-                      {feature.stats}
-                    </span>
-                    {isRestricted ? (
-                      <div className="flex items-center text-gray-500 text-sm font-semibold">
-                        🔒 Cần đăng nhập
-                      </div>
-                    ) : (
-                      <div className="flex items-center text-purple-400 text-sm font-semibold group-hover:text-pink-400 transition-colors">
-                        Khám phá <span className="ml-1 group-hover:ml-2 transition-all">→</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Overlay cho Guest khi hover vào restricted feature */}
-                  {isRestricted && hoveredFeature === idx && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl backdrop-blur-sm z-20">
-                      <div className="text-center px-4">
-                        <div className="text-3xl mb-2">🔒</div>
-                        <div className="text-white font-bold text-sm">Cần đăng nhập</div>
-                        <div className="text-gray-300 text-xs mt-1">Vui lòng đăng nhập để sử dụng tính năng này</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </GlassCard>
-            </FeatureWrapper>
+                {card}
+              </Link>
             );
           })}
-        </div>
-
-        {/* Quick Stats with Animation */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 animate-slideUp" style={{animationDelay: '0.8s'}}>
-          {quickStats.map((stat, idx) => (
-            <GlassCard key={idx} className="text-center relative overflow-hidden group cursor-pointer" hover>
-              <div className={`absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
-              <div className="relative z-10">
-                <div className="text-4xl mb-2">{stat.icon}</div>
-                <div className="text-4xl font-black text-gradient mb-2">{stat.value}</div>
-                <div className="text-gray-400 mb-2">{stat.label}</div>
-                <div className={`text-sm font-bold ${stat.trend.includes('+') ? 'text-green-400' : 'text-blue-400'}`}>
-                  {stat.trend}
-                </div>
-              </div>
-            </GlassCard>
-          ))}
-        </div>
-
-        {/* Why Choose Us Section */}
-        <div className="mb-12">
-          <h2 className="text-4xl font-black text-center mb-8 text-gradient">
-            Tại Sao Chọn VoiceHub?
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              { 
-                icon: "⚡", 
-                title: "Hiệu Suất Cao", 
-                desc: "Kiến trúc microservices với độ trễ <50ms",
-                features: ["WebSocket real-time", "Redis caching", "CDN global"]
-              },
-              { 
-                icon: "🔒", 
-                title: "Bảo Mật Tuyệt Đối", 
-                desc: "JWT + RBAC + End-to-end encryption",
-                features: ["2FA authentication", "Role-based access", "Data encryption"]
-              },
-              { 
-                icon: "📈", 
-                title: "Mở Rộng Linh Hoạt", 
-                desc: "Docker Swarm trên AWS Cloud infrastructure",
-                features: ["Auto-scaling", "Load balancing", "99.9% uptime"]
-              }
-            ].map((item, idx) => (
-              <GlassCard key={idx} className="animate-slideUp" hover style={{animationDelay: `${(idx + 8) * 0.1}s`}}>
-                <div className="text-5xl mb-4">{item.icon}</div>
-                <h3 className="text-2xl font-bold text-white mb-2">{item.title}</h3>
-                <p className="text-gray-400 mb-4">{item.desc}</p>
-                <ul className="space-y-2">
-                  {item.features.map((feature, fidx) => (
-                    <li key={fidx} className="flex items-center gap-2 text-sm text-gray-300">
-                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-              </GlassCard>
-            ))}
-          </div>
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }

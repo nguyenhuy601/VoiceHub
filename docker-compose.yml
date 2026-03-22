@@ -209,6 +209,8 @@ services:
     container_name: enterprise-voice-service
     ports:
       - "3005:3005"
+      - "40000-40100:40000-40100/udp"
+      - "40000-40100:40000-40100/tcp"
     env_file:
       - ./services/voice-service/.env
     depends_on:
@@ -220,6 +222,7 @@ services:
       - ./services/voice-service:/app
       - ./shared:/shared
       - /app/node_modules
+    command: sh -c "npm install && node src/server.js"
 
   # Notification Service
   notification-service:
@@ -258,8 +261,8 @@ services:
   socket-service:
     build: ./services/socket-service
     container_name: enterprise-socket-service
-    ports:
-      - "3017:3017"
+    expose:
+      - "3017"
     env_file:
       - ./services/socket-service/.env
     depends_on:

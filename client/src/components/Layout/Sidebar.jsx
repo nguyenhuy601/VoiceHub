@@ -1,11 +1,8 @@
 import {
   Building2,
-  CheckSquare,
-  FileText,
   LayoutDashboard,
   MessageSquare,
   Phone,
-  Users,
   X,
   ChevronDown,
   LogOut,
@@ -21,11 +18,7 @@ const navItems = [
   { to: '/organizations', icon: Building2, label: 'Tổ chức' },
   // Chat được tách thành 2 trang riêng: bạn bè & doanh nghiệp
   { to: '/chat/friends', icon: MessageSquare, label: 'Chat bạn bè' },
-  { to: '/chat/organization', icon: Building2, label: 'Chat doanh nghiệp' },
   { to: '/voice', icon: Phone, label: 'Cuộc gọi' },
-  { to: '/tasks', icon: CheckSquare, label: 'Công việc' },
-  { to: '/documents', icon: FileText, label: 'Tài liệu' },
-  { to: '/friends', icon: Users, label: 'Bạn bè' },
 ];
 
 const Sidebar = ({ onClose }) => {
@@ -54,7 +47,7 @@ const Sidebar = ({ onClose }) => {
 
   return (
     <>
-    <aside className="w-64 bg-dark-800 border-r border-dark-700 flex flex-col h-screen relative">
+    <aside className="w-[min(16rem,82vw)] lg:w-64 bg-dark-800 border-r border-dark-700 flex flex-col h-screen relative">
       {/* User header (thay cho logo VoiceHub) */}
       <div className="p-4 border-b border-dark-700 flex items-center justify-between">
         <button

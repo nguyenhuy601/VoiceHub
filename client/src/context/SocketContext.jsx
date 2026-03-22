@@ -6,7 +6,7 @@
    - Voice chat signaling
    - Notifications realtime
    
-   Kết nối đến: chat-system-service (port 4002)
+   Kết nối đến: API Gateway (port 3000) -> socket-service
 ======================================== */
 
 // Import hooks để build context
@@ -45,11 +45,11 @@ export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
-   - Lấy từ .env file: VITE_SOCKET_URL (ví dụ: http://localhost:3017)
-   - Kết nối tới namespace /chat trên socket-service
-   - Production: https://your-socket-service.com/chat
+   - Lấy từ .env file: VITE_SOCKET_URL (ví dụ: http://localhost:3000)
+   - Kết nối tới namespace /chat qua API Gateway (gateway proxy tới socket-service)
+   - Production: https://your-gateway-domain/chat
 ======================================== */
-const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
+const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 const SOCKET_URL = `${SOCKET_BASE_URL}/chat`;
 
 // Log URL khi app start (giúp debug)
@@ -58,7 +58,7 @@ console.log('   URL:', SOCKET_URL);
 console.log('   Base:', SOCKET_BASE_URL);
 console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set - using default)');
 if (!import.meta.env.VITE_SOCKET_URL) {
-  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3006');
+  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3000');
 }
 console.log('');
 
@@ -106,6 +106,12 @@ function SocketProvider({ children }) {
     if (isAuthenticated && user) {
       // Lấy token từ localStorage để authenticate
       const token = localStorage.getItem('token');
+      if (!token || token === 'null' || token === 'undefined') {
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ [Socket] Skip connect: token missing or invalid');
+        }
+        return undefined;
+      }
       
       /* ----- TẠO SOCKET CONNECTION ----- */
       const newSocket = io(SOCKET_URL, {
@@ -173,11 +179,11 @@ function SocketProvider({ children }) {
         console.error('   Trying to connect to:', SOCKET_URL);
         console.error('');
         console.error('   📋 Debugging checklist:');
-        console.error('   1. Is socket-service running? (Port 3017)');
+        console.error('   1. Is api-gateway running? (Port 3000)');
         console.error('   2. Check if VITE_SOCKET_URL is correctly set in client/.env');
-        console.error('   3. Try: curl http://localhost:3017/health');
-        console.error('   4. Check browser console for CORS errors');
-        console.error('   5. Check server logs for socket.io errors');
+        console.error('   3. Try: curl http://localhost:3000/health');
+        console.error('   4. Check gateway logs for websocket proxy errors');
+        console.error('   5. Check socket-service logs for socket.io/auth errors');
         
         setConnectionError(error);
       });

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { GlassCard, GradientButton } from '../../components/Shared';
+import { GradientButton } from '../../components/Shared';
 import authService from '../../services/authService';
 import toast from 'react-hot-toast';
 
@@ -75,41 +75,48 @@ function VerifyEmailPage() {
 
   if (verified) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden">
-        <div className="absolute top-20 left-20 w-[500px] h-[500px] bg-green-600/20 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute bottom-20 right-20 w-[500px] h-[500px] bg-emerald-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-        
-        <div className="relative z-10 w-full max-w-md animate-scaleIn">
-          <GlassCard className="glass-strong p-10 text-center">
-            <div className="text-8xl mb-6 animate-bounce">✅</div>
-            <h1 className="text-4xl font-black text-gradient mb-4">Xác Thực Thành Công!</h1>
-            <p className="text-gray-300 mb-6">
-              Email của bạn đã được xác thực. Bạn có thể đăng nhập ngay bây giờ.
-            </p>
-            <div className="flex justify-center">
-              <GradientButton variant="primary" onClick={() => navigate('/login')}>
-                Đăng Nhập Ngay
-              </GradientButton>
-            </div>
-          </GlassCard>
+      <div className="relative min-h-screen bg-[#020817] text-slate-100 overflow-hidden flex items-center justify-center p-5">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-16 -left-16 h-72 w-72 rounded-full border border-emerald-500/20 bg-emerald-500/10 blur-2xl" />
+          <div className="absolute -bottom-12 right-8 h-64 w-64 rounded-full border border-indigo-500/20 bg-indigo-500/10 blur-2xl" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-800/80 bg-[#020a1f]/85 p-8 text-center shadow-[0_12px_32px_rgba(2,8,23,0.6)] backdrop-blur-xl">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-green-400 text-2xl font-black text-white shadow-[0_0_22px_rgba(16,185,129,0.35)]">
+            ✓
+          </div>
+          <h1 className="mt-5 text-3xl font-extrabold text-white">Xác thực thành công</h1>
+          <p className="mt-2 text-sm text-slate-300">Email của bạn đã được xác thực. Bạn có thể đăng nhập ngay bây giờ.</p>
+          <div className="mt-6 flex justify-center">
+            <GradientButton
+              variant="primary"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-6 py-2.5 text-sm hover:from-violet-400 hover:to-indigo-400"
+              onClick={() => navigate('/login')}
+            >
+              Đăng nhập ngay
+            </GradientButton>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden">
-      <div className="absolute top-20 left-20 w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-3xl animate-float"></div>
-      <div className="absolute bottom-20 right-20 w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-      
-      <div className="relative z-10 w-full max-w-md animate-scaleIn">
-        <GlassCard className="glass-strong p-10 text-center">
-          <div className="text-8xl mb-6 animate-spin">⏳</div>
-          <h1 className="text-4xl font-black text-gradient mb-4">Đang Xác Thực...</h1>
-          <p className="text-gray-300">
-            {loading ? 'Đang xác thực email của bạn...' : 'Vui lòng đợi...'}
-          </p>
-        </GlassCard>
+    <div className="relative min-h-screen bg-[#020817] text-slate-100 overflow-hidden flex items-center justify-center p-5">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-16 -left-16 h-72 w-72 rounded-full border border-blue-500/20 bg-blue-500/10 blur-2xl" />
+        <div className="absolute -bottom-12 right-8 h-64 w-64 rounded-full border border-violet-500/20 bg-violet-500/10 blur-2xl" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-800/80 bg-[#020a1f]/85 p-8 text-center shadow-[0_12px_32px_rgba(2,8,23,0.6)] backdrop-blur-xl">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-2xl font-black text-white animate-pulse shadow-[0_0_22px_rgba(99,102,241,0.35)]">
+          ...
+        </div>
+        <h1 className="mt-5 text-3xl font-extrabold text-white">Đang xác thực email</h1>
+        <p className="mt-2 text-sm text-slate-300">{loading ? 'Đang xác thực email của bạn...' : 'Vui lòng đợi...'}</p>
+        <div className="mx-auto mt-5 h-1.5 w-44 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-full w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" />
+        </div>
       </div>
     </div>
   );

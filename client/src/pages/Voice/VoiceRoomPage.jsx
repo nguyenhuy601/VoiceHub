@@ -1,591 +1,940 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { io } from 'socket.io-client';
+import toast from 'react-hot-toast';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import apiClient from '../../services/api/apiClient';
+import { useAuth } from '../../context/AuthContext';
+
+const getSignalBaseUrl = () => {
+  const explicit = import.meta.env.VITE_VOICE_SIGNAL_URL;
+  if (explicit) return explicit;
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+  return apiUrl.replace(/\/api\/?$/, '');
+};
+
+const getSignalPath = () => import.meta.env.VITE_VOICE_SIGNAL_PATH || '/voice-socket';
+
+const normalizeToken = (rawToken) => {
+  if (!rawToken) return null;
+  let token = String(rawToken).trim();
+  if (!token) return null;
+  if (token.startsWith('Bearer ')) token = token.slice(7).trim();
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+  if (!token || token === 'null' || token === 'undefined') return null;
+  return token;
+};
 
 function VoiceRoomPage() {
+  const navigate = useNavigate();
+  const { roomId } = useParams();
+  const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
+  const { user } = useAuth();
+
+  const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [viewMode, setViewMode] = useState('grid'); // grid or speaker
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+  const [hasLocalVideoTrack, setHasLocalVideoTrack] = useState(false);
+  const [isLocalSpeaking, setIsLocalSpeaking] = useState(false);
+  const [remoteSpeakingMap, setRemoteSpeakingMap] = useState({});
+  const [joining, setJoining] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState('');
+  const [viewStage, setViewStage] = useState('home'); // home | prejoin | inRoom
+  const [activeRoomId, setActiveRoomId] = useState(null);
+  const [meetingCode, setMeetingCode] = useState(safeRoomId || '');
+  const [displayNameInput, setDisplayNameInput] = useState('Huy Nguyen');
+  const [prejoinAudioEnabled, setPrejoinAudioEnabled] = useState(true);
+  const [prejoinVideoEnabled, setPrejoinVideoEnabled] = useState(true);
 
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+  const localVideoRef = useRef(null);
+  const prejoinVideoRef = useRef(null);
+  const prejoinStreamRef = useRef(null);
+  const mediasoupRef = useRef({
+    socket: null,
+    device: null,
+    sendTransport: null,
+    recvTransport: null,
+    audioProducer: null,
+    videoProducer: null,
+    consumers: new Map(),
+    localStream: null,
+    remoteStreams: new Map(),
+  });
+  const currentRoomRef = useRef(safeRoomId || 'room1');
+  const audioLevelMonitorsRef = useRef(new Map());
+
+  const localDisplayName = useMemo(
+    () => user?.displayName || user?.fullName || user?.name || user?.email?.split('@')[0] || 'Bạn',
+    [user]
+  );
+  const localAvatar = user?.avatar || null;
+
+  const totalParticipants = useMemo(() => participants.length + 1, [participants.length]);
+  const currentMeetingCode = useMemo(() => activeRoomId || safeRoomId || 'room1', [activeRoomId, safeRoomId]);
+
+  const generateMeetingCode = () => `room-${Math.random().toString(36).slice(2, 8)}`;
+
+  const buildInitials = (name) => {
+    const words = String(name || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!words.length) return 'U';
+    return words
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || '')
+      .join('');
   };
 
-  const participants = [
-    { name: 'Sarah Chen', avatar: '👩‍💼', speaking: true, video: true, muted: false, role: 'host', quality: 'excellent' },
-    { name: 'Mike Ross', avatar: '👨‍💻', speaking: false, video: true, muted: false, role: 'member', quality: 'good' },
-    { name: 'Emma Wilson', avatar: '👩‍🎨', speaking: false, video: false, muted: true, role: 'member', quality: 'good' },
-    { name: 'David Kim', avatar: '👨‍🔬', speaking: false, video: true, muted: false, role: 'member', quality: 'poor' },
-    { name: 'Bạn', avatar: '😊', speaking: !isMuted, video: !isVideoOff, muted: isMuted, role: 'moderator', quality: 'excellent' },
-    { name: 'Lisa Park', avatar: '👩‍💼', speaking: false, video: true, muted: false, role: 'member', quality: 'good' }
-  ];
-
-  const getQualityColor = (quality) => {
-    const colors = {
-      excellent: 'text-green-400',
-      good: 'text-yellow-400',
-      poor: 'text-red-400'
-    };
-    return colors[quality] || 'text-gray-400';
+  const stopAudioLevelMonitor = (key) => {
+    const monitor = audioLevelMonitorsRef.current.get(key);
+    if (!monitor) return;
+    if (monitor.rafId) cancelAnimationFrame(monitor.rafId);
+    monitor.source?.disconnect?.();
+    monitor.audioContext?.close?.().catch(() => {});
+    audioLevelMonitorsRef.current.delete(key);
   };
 
-  const getQualityIcon = (quality) => {
-    const icons = {
-      excellent: '📶',
-      good: '📡',
-      poor: '⚠️'
+  const startAudioLevelMonitor = (key, stream, onSpeakingChange) => {
+    if (!stream || audioLevelMonitorsRef.current.has(key)) return;
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) return;
+
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const audioContext = new AudioContextClass();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.8;
+
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const data = new Uint8Array(analyser.fftSize);
+      let lastSpeaking = false;
+
+      const detect = () => {
+        analyser.getByteTimeDomainData(data);
+        let sumSquares = 0;
+        for (let i = 0; i < data.length; i += 1) {
+          const v = (data[i] - 128) / 128;
+          sumSquares += v * v;
+        }
+        const rms = Math.sqrt(sumSquares / data.length);
+        const speaking = rms > 0.04;
+        if (speaking !== lastSpeaking) {
+          lastSpeaking = speaking;
+          onSpeakingChange(speaking);
+        }
+        const monitor = audioLevelMonitorsRef.current.get(key);
+        if (monitor) {
+          monitor.rafId = requestAnimationFrame(detect);
+        }
+      };
+
+      audioLevelMonitorsRef.current.set(key, {
+        audioContext,
+        analyser,
+        source,
+        rafId: requestAnimationFrame(detect),
+      });
+    } catch (monitorError) {
+      console.warn('startAudioLevelMonitor failed', monitorError);
+    }
+  };
+
+  const addOrUpdateParticipant = (payload) => {
+    setParticipants((prev) => {
+      const index = prev.findIndex((p) => p.socketId === payload.socketId);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = { ...next[index], ...payload };
+        return next;
+      }
+      return [...prev, payload];
+    });
+  };
+
+  const removeParticipant = (socketId) => {
+    setParticipants((prev) => prev.filter((item) => item.socketId !== socketId));
+  };
+
+  const stopPrejoinPreview = () => {
+    if (prejoinStreamRef.current) {
+      prejoinStreamRef.current.getTracks().forEach((track) => track.stop());
+      prejoinStreamRef.current = null;
+    }
+    if (prejoinVideoRef.current) {
+      prejoinVideoRef.current.srcObject = null;
+    }
+  };
+
+  const startPrejoinPreview = async (audioEnabled = true, videoEnabled = true) => {
+    stopPrejoinPreview();
+    if (!audioEnabled && !videoEnabled) return;
+
+    const mergedStream = new MediaStream();
+    let hasAtLeastOneTrack = false;
+    let hadPermissionError = false;
+
+    // Xin quyền theo từng loại để không fail toàn bộ preview.
+    if (videoEnabled) {
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const videoTrack = videoStream.getVideoTracks()[0];
+        if (videoTrack) {
+          mergedStream.addTrack(videoTrack);
+          hasAtLeastOneTrack = true;
+        }
+      } catch (videoErr) {
+        hadPermissionError = true;
+        console.warn('Video preview permission error', videoErr);
+      }
+    }
+
+    if (audioEnabled) {
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioTrack = audioStream.getAudioTracks()[0];
+        if (audioTrack) {
+          mergedStream.addTrack(audioTrack);
+          hasAtLeastOneTrack = true;
+        }
+      } catch (audioErr) {
+        hadPermissionError = true;
+        console.warn('Audio preview permission error', audioErr);
+      }
+    }
+
+    if (!hasAtLeastOneTrack) {
+      if (hadPermissionError) {
+        toast.error('Không truy cập được camera/micro để xem trước');
+      }
+      return;
+    }
+
+    prejoinStreamRef.current = mergedStream;
+    if (prejoinVideoRef.current) {
+      prejoinVideoRef.current.srcObject = mergedStream;
+    }
+
+    if (videoEnabled && mergedStream.getVideoTracks().length === 0) {
+      setPrejoinVideoEnabled(false);
+    }
+    if (audioEnabled && mergedStream.getAudioTracks().length === 0) {
+      setPrejoinAudioEnabled(false);
+    }
+  };
+
+  const requestSocket = (eventName, payload) =>
+    new Promise((resolve, reject) => {
+      const socket = mediasoupRef.current.socket;
+      socket.emit(eventName, payload, (response) => {
+        if (!response?.success) {
+          reject(new Error(response?.error || `Socket request failed: ${eventName}`));
+          return;
+        }
+        resolve(response);
+      });
+    });
+
+  const ensureRemoteParticipant = (producerMeta) => {
+    addOrUpdateParticipant({
+      socketId: producerMeta.socketId,
+      userId: producerMeta.userId,
+      displayName: producerMeta.displayName || 'Participant',
+      stream: null,
+      audioOn: true,
+      videoOn: true,
+    });
+  };
+
+  const consumeProducer = async (producerMeta) => {
+    const { recvTransport, device } = mediasoupRef.current;
+    if (!recvTransport || !device) return;
+
+    ensureRemoteParticipant(producerMeta);
+
+    const consumeResp = await requestSocket('voice:consume', {
+      roomId: currentRoomRef.current,
+      transportId: recvTransport.id,
+      producerId: producerMeta.producerId,
+      rtpCapabilities: device.rtpCapabilities,
+    });
+
+    const consumerParams = consumeResp.consumer;
+    const consumer = await recvTransport.consume({
+      id: consumerParams.id,
+      producerId: consumerParams.producerId,
+      kind: consumerParams.kind,
+      rtpParameters: consumerParams.rtpParameters,
+      appData: {},
+    });
+
+    mediasoupRef.current.consumers.set(consumer.id, consumer);
+
+    const currentStream =
+      mediasoupRef.current.remoteStreams.get(producerMeta.socketId) || new MediaStream();
+    currentStream.addTrack(consumer.track);
+    mediasoupRef.current.remoteStreams.set(producerMeta.socketId, currentStream);
+
+    addOrUpdateParticipant({
+      socketId: producerMeta.socketId,
+      userId: producerMeta.userId,
+      displayName: producerMeta.displayName || 'Participant',
+      stream: currentStream,
+      audioOn: producerMeta.kind === 'audio' ? true : undefined,
+      videoOn: producerMeta.kind === 'video' ? true : undefined,
+    });
+
+    await requestSocket('voice:resumeConsumer', {
+      roomId: currentRoomRef.current,
+      consumerId: consumer.id,
+    });
+  };
+
+  const initVoiceRoom = async ({
+    targetRoomId,
+    audioEnabled = true,
+    videoEnabled = true,
+    displayName = '',
+  }) => {
+    const roomTarget = targetRoomId || safeRoomId || 'room1';
+    try {
+      setJoining(true);
+      setError('');
+      setParticipants([]);
+      currentRoomRef.current = roomTarget;
+      setActiveRoomId(roomTarget);
+
+      await apiClient.get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`);
+
+      let localStream = prejoinStreamRef.current;
+      if (!localStream) {
+        if (audioEnabled || videoEnabled) {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: Boolean(audioEnabled),
+            video: Boolean(videoEnabled),
+          });
+        } else {
+          localStream = new MediaStream();
+        }
+      }
+      mediasoupRef.current.localStream = localStream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStream;
+      }
+      setHasLocalVideoTrack(localStream.getVideoTracks().length > 0);
+
+      startAudioLevelMonitor('local', localStream, (speaking) => {
+        setIsLocalSpeaking(speaking && !isMuted);
+      });
+
+      const token = normalizeToken(localStorage.getItem('token'));
+      const socket = io(`${getSignalBaseUrl()}/voice`, {
+        path: getSignalPath(),
+        transports: ['websocket', 'polling'],
+        auth: token ? { token } : {},
+      });
+      mediasoupRef.current.socket = socket;
+
+      socket.on('connect', () => setConnected(true));
+      socket.on('disconnect', () => setConnected(false));
+      socket.on('connect_error', (err) => {
+        setError(err.message || 'Voice signaling connect error');
+      });
+
+      socket.on('voice:peerJoined', (payload) => {
+        addOrUpdateParticipant({
+          socketId: payload.socketId,
+          userId: payload.userId,
+          displayName: payload.displayName || 'Participant',
+          stream: mediasoupRef.current.remoteStreams.get(payload.socketId) || null,
+        });
+      });
+
+      socket.on('voice:peerLeft', (payload) => {
+        removeParticipant(payload.socketId);
+        stopAudioLevelMonitor(`remote:${payload.socketId}`);
+        setRemoteSpeakingMap((prev) => {
+          const next = { ...prev };
+          delete next[payload.socketId];
+          return next;
+        });
+        const stream = mediasoupRef.current.remoteStreams.get(payload.socketId);
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          mediasoupRef.current.remoteStreams.delete(payload.socketId);
+        }
+      });
+
+      const mediasoupModule = await import('mediasoup-client');
+      const DeviceClass = mediasoupModule.Device;
+
+      const joinResp = await requestSocket('voice:joinRoom', { roomId: roomTarget, displayName });
+      const device = new DeviceClass();
+      await device.load({ routerRtpCapabilities: joinResp.rtpCapabilities });
+      mediasoupRef.current.device = device;
+
+      const sendTransportData = await requestSocket('voice:createTransport', {
+        roomId: roomTarget,
+        direction: 'send',
+      });
+      const sendTransport = device.createSendTransport(sendTransportData.transport);
+      mediasoupRef.current.sendTransport = sendTransport;
+
+      sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+        requestSocket('voice:connectTransport', {
+          roomId: roomTarget,
+          transportId: sendTransport.id,
+          dtlsParameters,
+        })
+          .then(() => callback())
+          .catch(errback);
+      });
+
+      sendTransport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) => {
+        requestSocket('voice:produce', {
+          roomId: roomTarget,
+          transportId: sendTransport.id,
+          kind,
+          rtpParameters,
+          appData,
+        })
+          .then((resp) => callback({ id: resp.producerId }))
+          .catch(errback);
+      });
+
+      const audioTrack = audioEnabled ? localStream.getAudioTracks()[0] : null;
+      const videoTrack = videoEnabled ? localStream.getVideoTracks()[0] : null;
+      if (audioTrack) {
+        mediasoupRef.current.audioProducer = await sendTransport.produce({
+          track: audioTrack,
+          appData: { mediaTag: 'audio' },
+        });
+      }
+      if (videoTrack) {
+        mediasoupRef.current.videoProducer = await sendTransport.produce({
+          track: videoTrack,
+          appData: { mediaTag: 'video' },
+        });
+      }
+
+      const recvTransportData = await requestSocket('voice:createTransport', {
+        roomId: roomTarget,
+        direction: 'recv',
+      });
+      const recvTransport = device.createRecvTransport(recvTransportData.transport);
+      mediasoupRef.current.recvTransport = recvTransport;
+
+      recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+        requestSocket('voice:connectTransport', {
+          roomId: roomTarget,
+          transportId: recvTransport.id,
+          dtlsParameters,
+        })
+          .then(() => callback())
+          .catch(errback);
+      });
+
+      const producers = await requestSocket('voice:getProducers', { roomId: roomTarget });
+      for (const producerMeta of producers.producers || []) {
+        // eslint-disable-next-line no-await-in-loop
+        await consumeProducer(producerMeta);
+      }
+
+      socket.on('voice:newProducer', async (producerMeta) => {
+        try {
+          await consumeProducer(producerMeta);
+        } catch (consumeError) {
+          console.error('consume new producer failed', consumeError);
+        }
+      });
+      setIsMuted(!audioTrack);
+      setIsCameraOff(!videoTrack);
+      setViewStage('inRoom');
+      stopPrejoinPreview();
+    } catch (initError) {
+      console.error(initError);
+      setError(initError.message || 'Khong the ket noi room');
+      toast.error(initError.message || 'Khong the ket noi room');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const leaveRoom = async () => {
+    try {
+      const { socket, audioProducer, videoProducer, sendTransport, recvTransport, consumers, localStream } =
+        mediasoupRef.current;
+
+      if (socket?.connected) {
+        socket.emit('voice:leaveRoom', { roomId: currentRoomRef.current });
+      }
+
+      for (const consumer of consumers.values()) {
+        consumer.close();
+      }
+      consumers.clear();
+
+      audioProducer?.close();
+      videoProducer?.close();
+      sendTransport?.close();
+      recvTransport?.close();
+
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+      }
+      stopAudioLevelMonitor('local');
+      for (const key of [...audioLevelMonitorsRef.current.keys()]) {
+        if (key.startsWith('remote:')) stopAudioLevelMonitor(key);
+      }
+      setRemoteSpeakingMap({});
+      setIsLocalSpeaking(false);
+      setHasLocalVideoTrack(false);
+      setActiveRoomId(null);
+      setViewStage('home');
+
+      socket?.disconnect();
+      navigate('/voice');
+    } catch (leaveError) {
+      console.error(leaveError);
+      navigate('/voice');
+    }
+  };
+
+  const toggleMute = async () => {
+    const producer = mediasoupRef.current.audioProducer;
+    if (!producer) return;
+    if (isMuted) {
+      await producer.resume();
+    } else {
+      await producer.pause();
+    }
+    setIsMuted((prev) => {
+      const nextMuted = !prev;
+      if (nextMuted) setIsLocalSpeaking(false);
+      return nextMuted;
+    });
+  };
+
+  const toggleCamera = async () => {
+    try {
+      const { sendTransport } = mediasoupRef.current;
+
+      // Bat camera lai: mo thiet bi cam that va tao producer moi
+      if (isCameraOff) {
+        if (!sendTransport) return;
+
+        const camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const newVideoTrack = camStream.getVideoTracks()[0];
+        if (!newVideoTrack) return;
+
+        if (!mediasoupRef.current.localStream) {
+          mediasoupRef.current.localStream = new MediaStream();
+        }
+        const localStream = mediasoupRef.current.localStream;
+
+        // Dam bao chi co 1 video track local
+        localStream.getVideoTracks().forEach((track) => {
+          track.stop();
+          localStream.removeTrack(track);
+        });
+        localStream.addTrack(newVideoTrack);
+
+        mediasoupRef.current.videoProducer = await sendTransport.produce({
+          track: newVideoTrack,
+          appData: { mediaTag: 'video' },
+        });
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStream;
+        }
+
+        setHasLocalVideoTrack(true);
+        setIsCameraOff(false);
+        return;
+      }
+
+      // Tat camera: close producer + stop track de giai phong camera o he thong
+      const producer = mediasoupRef.current.videoProducer;
+      if (producer) {
+        producer.close();
+        mediasoupRef.current.videoProducer = null;
+      }
+
+      const localStream = mediasoupRef.current.localStream;
+      if (localStream) {
+        localStream.getVideoTracks().forEach((track) => {
+          track.stop();
+          localStream.removeTrack(track);
+        });
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStream;
+        }
+      }
+
+      setHasLocalVideoTrack(false);
+      setIsCameraOff(true);
+    } catch (cameraError) {
+      console.error(cameraError);
+      toast.error(cameraError.message || 'Khong the bat/tat camera');
+    }
+  };
+
+  useEffect(() => {
+    if (safeRoomId) {
+      setMeetingCode(safeRoomId);
+      setViewStage('prejoin');
+    } else {
+      setViewStage('home');
+    }
+
+    return () => {
+      const { socket, localStream, consumers, audioProducer, videoProducer, sendTransport, recvTransport } =
+        mediasoupRef.current;
+      socket?.disconnect();
+      localStream?.getTracks().forEach((track) => track.stop());
+      stopPrejoinPreview();
+      stopAudioLevelMonitor('local');
+      for (const key of [...audioLevelMonitorsRef.current.keys()]) {
+        if (key.startsWith('remote:')) stopAudioLevelMonitor(key);
+      }
+      setRemoteSpeakingMap({});
+      setIsLocalSpeaking(false);
+      consumers.forEach((consumer) => consumer.close());
+      audioProducer?.close();
+      videoProducer?.close();
+      sendTransport?.close();
+      recvTransport?.close();
     };
-    return icons[quality] || '📶';
+  }, [safeRoomId]);
+
+  useEffect(() => {
+    const activeRemoteKeys = new Set();
+    participants.forEach((participant) => {
+      const key = `remote:${participant.socketId}`;
+      activeRemoteKeys.add(key);
+      if (participant.stream) {
+        startAudioLevelMonitor(key, participant.stream, (speaking) => {
+          setRemoteSpeakingMap((prev) => {
+            if (prev[participant.socketId] === speaking) return prev;
+            return { ...prev, [participant.socketId]: speaking };
+          });
+        });
+      }
+    });
+
+    for (const key of [...audioLevelMonitorsRef.current.keys()]) {
+      if (key.startsWith('remote:') && !activeRemoteKeys.has(key)) {
+        stopAudioLevelMonitor(key);
+      }
+    }
+  }, [participants]);
+
+  useEffect(() => {
+    if (viewStage !== 'prejoin') return undefined;
+    startPrejoinPreview(prejoinAudioEnabled, prejoinVideoEnabled);
+    return () => {
+      stopPrejoinPreview();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewStage, prejoinAudioEnabled, prejoinVideoEnabled]);
+
+  const handleNewMeeting = () => {
+    const generated = generateMeetingCode();
+    setMeetingCode(generated);
+    setPrejoinAudioEnabled(true);
+    setPrejoinVideoEnabled(true);
+    setViewStage('prejoin');
+  };
+
+  const handleJoinMeeting = () => {
+    const code = String(meetingCode || '').trim();
+    if (!code) {
+      toast.error('Vui lòng nhập Meeting ID');
+      return;
+    }
+    initVoiceRoom({
+      targetRoomId: code,
+      audioEnabled: prejoinAudioEnabled,
+      videoEnabled: prejoinVideoEnabled,
+      displayName: displayNameInput,
+    });
   };
 
   return (
-    <>
-      <div className="min-h-screen flex">
-        <NavigationSidebar currentPage="Phòng Họp" />
-
-        <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="p-4 glass-strong border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl">
-              🎙️
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-gradient">Họp Nhóm Hàng Ngày</h1>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-gray-400">{participants.length} người tham gia</span>
-                <span className="text-gray-600">•</span>
-                <span className="text-gray-400">Mã phòng: ABC-123</span>
-                <span className="text-gray-600">•</span>
-                <span className="flex items-center gap-1 text-gray-400">
-                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                  32:45
-                </span>
+    <div className="min-h-screen flex">
+      <NavigationSidebar />
+      <div className="flex-1 flex flex-col">
+        {viewStage !== 'inRoom' ? (
+          <div className="flex-1 p-6 bg-[#020817] text-slate-100 overflow-y-auto">
+            <div className="max-w-5xl mx-auto">
+              <div className="text-center mb-8">
+                <h1 className="text-4xl font-black text-white">
+                  {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                </h1>
+                <p className="text-gray-400">
+                  {new Date().toLocaleDateString('vi-VN', {
+                    weekday: 'long',
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </p>
               </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            {isRecording && (
-              <div className="flex items-center gap-2 glass px-4 py-2 rounded-xl animate-pulse">
-                <span className="w-3 h-3 bg-red-500 rounded-full"></span>
-                <span className="text-sm text-red-400 font-bold">ĐANG GHI</span>
-              </div>
-            )}
-            <button 
-              onClick={() => setViewMode(viewMode === 'grid' ? 'speaker' : 'grid')}
-              className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all text-sm font-semibold flex items-center gap-2"
-            >
-              <span>{viewMode === 'grid' ? '📊' : '👤'}</span>
-              {viewMode === 'grid' ? 'Lưới' : 'Người nói'}
-            </button>
-            <button 
-              onClick={() => setShowSettingsModal(true)}
-              className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all text-sm font-semibold"
-            >
-              ⚙️ Cài đặt
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 flex">
-          {/* Main Video Area */}
-          <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
-            {/* Video Grid */}
-            <div className={`grid gap-4 mb-6 ${ 
-              viewMode === 'grid' 
-                ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
-                : 'grid-cols-1'
-            }`}>
-              {participants.map((participant, idx) => (
-                <GlassCard 
-                  key={idx} 
-                  hover 
-                  glow={participant.speaking}
-                  className={`relative overflow-hidden group animate-scaleIn ${
-                    viewMode === 'speaker' && idx > 0 ? 'hidden' : ''
-                  } ${viewMode === 'speaker' && idx === 0 ? 'aspect-video' : 'aspect-video'}`}
-                  style={{animationDelay: `${idx * 0.1}s`}}
-                >
-                  {/* Video Background */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${
-                    participant.video 
-                      ? 'from-purple-900/30 to-pink-900/30' 
-                      : 'from-gray-900 to-gray-800'
-                  }`}>
-                    {participant.video && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="text-6xl opacity-50">{participant.avatar}</div>
-                      </div>
-                    )}
-                    {!participant.video && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="text-8xl">{participant.avatar}</div>
-                      </div>
-                    )}
+              {viewStage === 'home' && (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                    <button
+                      type="button"
+                      onClick={handleNewMeeting}
+                      className="rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 py-4 text-white font-semibold hover:opacity-90 transition"
+                    >
+                      New meeting
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewStage('prejoin')}
+                      className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white font-semibold hover:bg-slate-800/70 transition"
+                    >
+                      Join
+                    </button>
+                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
+                      Schedule
+                    </button>
+                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
+                      Share screen
+                    </button>
+                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
+                      My notes
+                    </button>
                   </div>
 
-                  {/* Speaking Indicator */}
-                  {participant.speaking && (
-                    <div className="absolute inset-0 border-4 border-green-400 rounded-xl animate-pulse"></div>
-                  )}
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-10 text-center">
+                    <div className="text-5xl mb-4">🏖️</div>
+                    <h3 className="text-2xl font-bold text-white mb-2">Chưa có cuộc họp nào</h3>
+                    <p className="text-gray-400 mb-4">Bắt đầu cuộc họp mới hoặc nhập mã phòng để tham gia.</p>
+                    <button
+                      type="button"
+                      onClick={handleNewMeeting}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-semibold text-white"
+                    >
+                      Tạo cuộc họp
+                    </button>
+                  </div>
+                </>
+              )}
 
-                  {/* Participant Info Bar */}
-                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white font-bold text-sm">{participant.name}</span>
-                        {participant.role === 'host' && (
-                          <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-xs font-bold text-white">
-                            Host
-                          </span>
-                        )}
-                        {participant.role === 'moderator' && (
-                          <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 text-xs font-bold text-white">
-                            Mod
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {participant.muted ? (
-                          <span className="text-red-400">🔇</span>
+              {viewStage === 'prejoin' && (
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <div className="relative aspect-video rounded-xl overflow-hidden bg-black/40">
+                      {prejoinVideoEnabled ? (
+                        <video ref={prejoinVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="h-full w-full flex flex-col items-center justify-center gap-3">
+                          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-2xl font-bold text-white">
+                            {buildInitials(displayNameInput || localDisplayName)}
+                          </div>
+                          <div className="text-sm text-gray-300">Camera đang tắt</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPrejoinAudioEnabled((v) => !v)}
+                        className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold ${prejoinAudioEnabled ? 'bg-[#040f2a] border border-slate-800' : 'bg-red-600 text-white'}`}
+                      >
+                        {prejoinAudioEnabled ? 'Audio bật' : 'Audio tắt'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPrejoinVideoEnabled((v) => !v)}
+                        className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold ${prejoinVideoEnabled ? 'bg-[#040f2a] border border-slate-800' : 'bg-red-600 text-white'}`}
+                      >
+                        {prejoinVideoEnabled ? 'Video bật' : 'Video tắt'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                    <h2 className="text-3xl font-black text-white mb-5">Join meeting</h2>
+                    <div className="space-y-3">
+                      <input
+                        value={meetingCode}
+                        onChange={(e) => setMeetingCode(e.target.value)}
+                        placeholder="Meeting ID or room code"
+                        className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white"
+                      />
+                      <input
+                        value={displayNameInput}
+                        onChange={(e) => setDisplayNameInput(e.target.value)}
+                        placeholder="Tên hiển thị"
+                        className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white"
+                      />
+                      <label className="flex items-center gap-2 text-sm text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={!prejoinAudioEnabled}
+                          onChange={(e) => setPrejoinAudioEnabled(!e.target.checked)}
+                        />
+                        Không kết nối âm thanh
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={!prejoinVideoEnabled}
+                          onChange={(e) => setPrejoinVideoEnabled(!e.target.checked)}
+                        />
+                        Tắt video trước khi vào
+                      </label>
+                    </div>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={handleJoinMeeting}
+                        className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-white font-semibold"
+                      >
+                        Start
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopPrejoinPreview();
+                          setViewStage('home');
+                        }}
+                        className="rounded-xl bg-[#040f2a] border border-slate-800 px-5 py-2.5 text-white font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="p-4 border-b border-white/10 glass-strong flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-black text-gradient">Voice/Video Room</h1>
+                <p className="text-sm text-gray-400">
+                  Room: {currentMeetingCode} • {totalParticipants} participant(s) • {connected ? 'Connected' : 'Disconnected'}
+                </p>
+              </div>
+              {error && <div className="text-xs text-red-300">{error}</div>}
+            </div>
+
+            <div className="flex-1 p-6 overflow-y-auto">
+              {joining && (
+                <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-gray-300">Dang ket noi phong...</div>
+              )}
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div
+                  className={`relative overflow-hidden rounded-2xl border aspect-video transition-all duration-200 ${
+                    isLocalSpeaking && !isMuted
+                      ? 'border-emerald-300/70 shadow-[0_0_28px_rgba(16,185,129,0.35)]'
+                      : 'border-cyan-300/30'
+                  } bg-black/30`}
+                >
+                  {hasLocalVideoTrack && !isCameraOff ? (
+                    <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-900/70">
+                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center overflow-hidden">
+                        {localAvatar && String(localAvatar).startsWith('http') ? (
+                          <img src={localAvatar} alt={localDisplayName} className="w-full h-full object-cover" />
                         ) : (
-                          <span className="text-green-400">🎤</span>
+                          <span className="text-2xl font-bold text-white">{buildInitials(localDisplayName)}</span>
                         )}
-                        {!participant.video && (
-                          <span className="text-red-400">🚫</span>
-                        )}
-                        <span className={`text-xs ${getQualityColor(participant.quality)}`} title={`Chất lượng: ${participant.quality}`}>
-                          {getQualityIcon(participant.quality)}
-                        </span>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Hover Actions */}
-                  <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                    <button className="w-8 h-8 rounded-lg glass hover:bg-white/20 flex items-center justify-center text-sm" title="Ghim">
-                      📌
-                    </button>
-                    <button className="w-8 h-8 rounded-lg glass hover:bg-white/20 flex items-center justify-center text-sm" title="Xem toàn màn hình">
-                      🔍
-                    </button>
-                  </div>
-
-                  {/* Hand Raised Indicator */}
-                  {participant.name === 'Emma Wilson' && (
-                    <div className="absolute top-3 left-3 animate-bounce">
-                      <div className="glass px-3 py-1.5 rounded-full flex items-center gap-2">
-                        <span className="text-xl">✋</span>
-                        <span className="text-xs text-white font-bold">Giơ tay</span>
-                      </div>
+                      <div className="text-sm text-gray-300">{localDisplayName}</div>
                     </div>
                   )}
-                </GlassCard>
-              ))}
-            </div>
-
-            {/* Screen Sharing Preview */}
-            {isScreenSharing && (
-              <GlassCard className="mb-6 relative">
-                <div className="aspect-video bg-gradient-to-br from-blue-900/30 to-cyan-900/30 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">🖥️</div>
-                    <div className="text-xl font-bold text-white">Đang chia sẻ màn hình</div>
-                    <div className="text-gray-400 text-sm">Màn hình của bạn đang được chia sẻ với mọi người</div>
+                  <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
+                    Ban {isMuted ? '• mic off' : ''} {isCameraOff ? '• cam off' : ''}
                   </div>
                 </div>
-                <button 
-                  onClick={() => setIsScreenSharing(false)}
-                  className="absolute top-4 right-4 glass px-4 py-2 rounded-xl hover:bg-red-600 transition-all flex items-center gap-2 font-semibold"
-                >
-                  <span>🛑</span> Dừng chia sẻ
-                </button>
-              </GlassCard>
-            )}
 
-            {/* Meeting Info Cards */}
-            <div className="grid grid-cols-3 gap-4">
-              <GlassCard hover>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl">
-                    ⏱️
-                  </div>
-                  <div>
-                    <div className="text-2xl font-black text-white">32:45</div>
-                    <div className="text-xs text-gray-400">Thời gian họp</div>
-                  </div>
-                </div>
-              </GlassCard>
-
-              <GlassCard hover>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-2xl">
-                    👥
-                  </div>
-                  <div>
-                    <div className="text-2xl font-black text-white">{participants.length}/50</div>
-                    <div className="text-xs text-gray-400">Người tham gia</div>
-                  </div>
-                </div>
-              </GlassCard>
-
-              <GlassCard hover>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-2xl">
-                    📶
-                  </div>
-                  <div>
-                    <div className="text-2xl font-black text-gradient">Tốt</div>
-                    <div className="text-xs text-gray-400">Chất lượng kết nối</div>
-                  </div>
-                </div>
-              </GlassCard>
-            </div>
-          </div>
-
-          {/* Right Sidebar - Participants & Chat */}
-          {showChat && (
-            <div className="w-80 glass-strong border-l border-white/10 flex flex-col">
-              <div className="p-4 border-b border-white/10">
-                <h3 className="text-lg font-bold text-white">Chat Cuộc Họp</h3>
-              </div>
-              <div className="flex-1 p-4 overflow-auto scrollbar-gradient space-y-3">
-                {[
-                  { user: 'Sarah', message: 'Chào mọi người! Sẵn sàng bắt đầu chưa?', time: '10:00' },
-                  { user: 'Mike', message: 'Ok, bắt đầu thôi!', time: '10:01' },
-                  { user: 'Emma', message: 'Mình có thể chia sẻ slides không?', time: '10:02' }
-                ].map((msg, idx) => (
-                  <div key={idx} className="glass p-3 rounded-xl">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-bold text-white">{msg.user}</span>
-                      <span className="text-xs text-gray-500">{msg.time}</span>
+                {participants.map((participant) => (
+                  <div
+                    key={participant.socketId}
+                    className={`relative overflow-hidden rounded-2xl border aspect-video bg-black/30 transition-all duration-200 ${
+                      remoteSpeakingMap[participant.socketId]
+                        ? 'border-emerald-300/70 shadow-[0_0_22px_rgba(16,185,129,0.30)]'
+                        : 'border-white/15'
+                    }`}
+                  >
+                    {participant.stream && participant.stream.getVideoTracks().length > 0 ? (
+                      <video
+                        autoPlay
+                        playsInline
+                        ref={(node) => {
+                          if (!node) return;
+                          if (node.srcObject !== participant.stream) {
+                            node.srcObject = participant.stream;
+                          }
+                        }}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-900/70">
+                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center text-xl font-bold text-white">
+                          {buildInitials(participant.displayName || participant.userId || 'P')}
+                        </div>
+                        <div className="text-sm text-gray-300">Đã tắt camera</div>
+                      </div>
+                    )}
+                    <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
+                      {participant.displayName || participant.userId || 'Participant'}
                     </div>
-                    <p className="text-sm text-gray-300">{msg.message}</p>
                   </div>
                 ))}
               </div>
-              <div className="p-4 border-t border-white/10">
-                <input
-                  type="text"
-                  placeholder="Nhập tin nhắn..."
-                  className="w-full px-4 py-2 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white text-sm"
-                />
-              </div>
             </div>
-          )}
-        </div>
 
-        {/* Control Bar */}
-        <div className="p-6 glass-strong border-t border-white/10 flex items-center justify-center gap-4">
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110 ${
-              isMuted
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-gradient-to-r from-purple-600 to-pink-600'
-            }`}
-            title={isMuted ? 'Bật micro' : 'Tắt micro'}
-          >
-            {isMuted ? '🔇' : '🎤'}
-          </button>
-          
-          <button
-            onClick={() => setIsVideoOff(!isVideoOff)}
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110 ${
-              isVideoOff
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-gradient-to-r from-blue-500 to-cyan-500'
-            }`}
-            title={isVideoOff ? 'Bật camera' : 'Tắt camera'}
-          >
-            {isVideoOff ? '🚫' : '📹'}
-          </button>
-
-          <button 
-            onClick={() => setIsScreenSharing(!isScreenSharing)}
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110 ${
-              isScreenSharing
-                ? 'bg-gradient-to-r from-green-500 to-emerald-500'
-                : 'glass hover:bg-white/10'
-            }`}
-            title={isScreenSharing ? 'Dừng chia sẻ' : 'Chia sẻ màn hình'}
-          >
-            🖥️
-          </button>
-
-          <button 
-            onClick={() => setIsRecording(!isRecording)}
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110 ${
-              isRecording
-                ? 'bg-red-600 hover:bg-red-700 animate-pulse'
-                : 'glass hover:bg-white/10'
-            }`}
-            title={isRecording ? 'Dừng ghi' : 'Ghi cuộc họp'}
-          >
-            ⏺️
-          </button>
-
-          <button className="w-16 h-16 rounded-2xl glass hover:bg-white/10 flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110" title="Giơ tay">
-            ✋
-          </button>
-
-          <button 
-            onClick={() => setShowChat(!showChat)}
-            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110 relative ${
-              showChat ? 'bg-gradient-to-r from-purple-600 to-pink-600' : 'glass hover:bg-white/10'
-            }`}
-            title="Chat"
-          >
-            💬
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
-              3
-            </span>
-          </button>
-
-          <button 
-            onClick={() => showToast("Đang mở cài đặt âm thanh...", "info")}
-            className="w-16 h-16 rounded-2xl glass hover:bg-white/10 flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110" 
-            title="Cài đặt âm thanh"
-          >
-            🎛️
-          </button>
-
-          <button 
-            onClick={() => showToast("Đang mở hiệu ứng nền...", "info")}
-            className="w-16 h-16 rounded-2xl glass hover:bg-white/10 flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110" 
-            title="Hiệu ứng nền"
-          >
-            🎨
-          </button>
-
-          <Link to="/dashboard">
-            <button className="w-16 h-16 rounded-2xl bg-red-600 hover:bg-red-700 flex items-center justify-center text-2xl transition-all duration-300 shadow-lg hover:scale-110" title="Rời phòng">
-              📞
-            </button>
-          </Link>
-        </div>
+            <div className="p-5 border-t border-white/10 glass-strong flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={toggleMute}
+                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+                  isMuted ? 'bg-red-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'
+                }`}
+              >
+                {isMuted ? 'Bat mic' : 'Tat mic'}
+              </button>
+              <button
+                type="button"
+                onClick={toggleCamera}
+                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+                  isCameraOff ? 'bg-red-600' : 'bg-gradient-to-r from-blue-600 to-cyan-600'
+                }`}
+              >
+                {isCameraOff ? 'Bat camera' : 'Tat camera'}
+              </button>
+              <button
+                type="button"
+                onClick={leaveRoom}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Roi phong
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
-
-    {/* Settings Modal */}
-    <Modal 
-      isOpen={showSettingsModal} 
-      onClose={() => setShowSettingsModal(false)}
-      title="Cài Đặt Phòng Họp"
-      size="lg"
-    >
-      <div className="space-y-6">
-        {/* Audio Settings */}
-        <div>
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <span>🎤</span> Cài Đặt Âm Thanh
-          </h3>
-          <div className="space-y-4">
-            <GlassCard>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-gray-300">Microphone</label>
-                <select className="glass px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                  <option>Microphone mặc định</option>
-                  <option>Microphone ngoài</option>
-                  <option>Tai nghe Bluetooth</option>
-                </select>
-              </div>
-              <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
-                <div className="h-full w-3/4 bg-gradient-to-r from-green-500 to-emerald-500"></div>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-gray-300">Speaker</label>
-                <select className="glass px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                  <option>Speaker mặc định</option>
-                  <option>Tai nghe</option>
-                  <option>Loa ngoài</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400">🔊</span>
-                <input type="range" min="0" max="100" defaultValue="75" className="flex-1" />
-                <span className="text-sm text-white font-semibold">75%</span>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">Noise Cancellation</div>
-                  <div className="text-xs text-gray-400">Loại bỏ tiếng ồn nền</div>
-                </div>
-                <button className="w-12 h-6 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 relative">
-                  <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
-                </button>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">Echo Cancellation</div>
-                  <div className="text-xs text-gray-400">Giảm tiếng vang</div>
-                </div>
-                <button className="w-12 h-6 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 relative">
-                  <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
-                </button>
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-
-        {/* Video Settings */}
-        <div>
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <span>📹</span> Cài Đặt Video
-          </h3>
-          <div className="space-y-4">
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-300">Camera</label>
-                <select className="glass px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                  <option>Camera mặc định</option>
-                  <option>Camera ngoài</option>
-                  <option>Camera laptop</option>
-                </select>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-300">Chất Lượng Video</label>
-                <select className="glass px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                  <option>Tự động</option>
-                  <option>HD (720p)</option>
-                  <option>Full HD (1080p)</option>
-                  <option>SD (480p)</option>
-                </select>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">Mirror Video</div>
-                  <div className="text-xs text-gray-400">Lật ngược video</div>
-                </div>
-                <button className="w-12 h-6 rounded-full glass relative">
-                  <div className="absolute left-1 top-1 w-4 h-4 bg-gray-400 rounded-full"></div>
-                </button>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">Virtual Background</div>
-                  <div className="text-xs text-gray-400">Hiệu ứng nền ảo</div>
-                </div>
-                <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold">
-                  Chọn Nền
-                </button>
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-
-        {/* Network Settings */}
-        <div>
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <span>📶</span> Thông Tin Kết Nối
-          </h3>
-          <div className="grid grid-cols-3 gap-4">
-            <GlassCard>
-              <div className="text-center">
-                <div className="text-2xl font-black text-gradient mb-1">32 ms</div>
-                <div className="text-xs text-gray-400">Độ Trễ</div>
-              </div>
-            </GlassCard>
-            <GlassCard>
-              <div className="text-center">
-                <div className="text-2xl font-black text-gradient mb-1">95%</div>
-                <div className="text-xs text-gray-400">Chất Lượng</div>
-              </div>
-            </GlassCard>
-            <GlassCard>
-              <div className="text-center">
-                <div className="text-2xl font-black text-gradient mb-1">5.2 MB/s</div>
-                <div className="text-xs text-gray-400">Tốc Độ</div>
-              </div>
-            </GlassCard>
-          </div>
-        </div>
-
-        {/* Recording Settings */}
-        <div>
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <span>🎥</span> Cài Đặt Ghi Hình
-          </h3>
-          <GlassCard>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">Tự động ghi hình</div>
-                  <div className="text-xs text-gray-400">Ghi hình khi bắt đầu cuộc họp</div>
-                </div>
-                <button className="w-12 h-6 rounded-full glass relative">
-                  <div className="absolute left-1 top-1 w-4 h-4 bg-gray-400 rounded-full"></div>
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-300">Chất lượng ghi</label>
-                <select className="glass px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                  <option>HD (720p)</option>
-                  <option>Full HD (1080p)</option>
-                  <option>SD (480p)</option>
-                </select>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <GradientButton 
-            variant="primary" 
-            onClick={() => {
-              showToast("Đã lưu cài đặt", "success");
-              setShowSettingsModal(false);
-            }}
-            className="flex-1"
-          >
-            ✅ Lưu Cài Đặt
-          </GradientButton>
-          <button 
-            onClick={() => setShowSettingsModal(false)}
-            className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
-          >
-            Hủy
-          </button>
-        </div>
-      </div>
-    </Modal>
-
-    {/* Toast */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
-    </>
   );
 }
 

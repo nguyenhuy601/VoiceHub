@@ -1,13 +1,21 @@
 const { mongoose } = require('/shared/config/mongo');
 
-const teamSchema = new mongoose.Schema(
+const channelSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
       trim: true,
     },
-    description: String,
+    description: {
+      type: String,
+      default: '',
+    },
+    type: {
+      type: String,
+      enum: ['chat', 'voice', 'announcement'],
+      default: 'chat',
+    },
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Organization',
@@ -23,14 +31,22 @@ const teamSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
-    members: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    }],
+    members: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-module.exports = mongoose.model('Team', teamSchema);
+channelSchema.index({ organization: 1, department: 1, isActive: 1 });
+
+module.exports = mongoose.model('Channel', channelSchema);

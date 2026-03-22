@@ -3,7 +3,7 @@ import apiClient from './apiClient';
 export const organizationAPI = {
   // Get all organizations
   getOrganizations: async () => {
-    const response = await apiClient.get('/organizations');
+    const response = await apiClient.get('/organizations/my');
     return response;
   },
 
@@ -16,6 +16,18 @@ export const organizationAPI = {
   // Create organization
   createOrganization: async (data) => {
     const response = await apiClient.post('/organizations', data);
+    return response;
+  },
+
+  // Get pending invitations for current user
+  getMyInvitations: async () => {
+    const response = await apiClient.get('/organizations/invitations');
+    return response;
+  },
+
+  // Respond invitation (accept/reject)
+  respondInvitation: async (invitationId, action) => {
+    const response = await apiClient.post(`/organizations/invitations/${invitationId}/respond`, { action });
     return response;
   },
 
@@ -45,13 +57,25 @@ export const organizationAPI = {
 
   // Update member role
   updateMemberRole: async (orgId, userId, role) => {
-    const response = await apiClient.put(`/organizations/${orgId}/members/${userId}`, { role });
+    const response = await apiClient.put(`/organizations/${orgId}/members/${userId}/role`, { role });
     return response;
   },
 
   // Remove member from organization
   removeMember: async (orgId, userId) => {
     const response = await apiClient.delete(`/organizations/${orgId}/members/${userId}`);
+    return response;
+  },
+
+  // Join organization via invite link (beta)
+  joinByInviteLink: async (orgId, token) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members/join-link`, { token });
+    return response;
+  },
+
+  // Create invite link for organization
+  createInviteLink: async (orgId) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members/invite-link`);
     return response;
   },
 
@@ -79,27 +103,27 @@ export const organizationAPI = {
     return response;
   },
 
-  // Get department teams
-  getTeams: async (orgId, deptId) => {
-    const response = await apiClient.get(`/organizations/${orgId}/departments/${deptId}/teams`);
+  // Get department channels
+  getChannels: async (orgId, deptId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/departments/${deptId}/channels`);
     return response;
   },
 
-  // Create team
-  createTeam: async (orgId, deptId, data) => {
-    const response = await apiClient.post(`/organizations/${orgId}/departments/${deptId}/teams`, data);
+  // Create channel
+  createChannel: async (orgId, deptId, data) => {
+    const response = await apiClient.post(`/organizations/${orgId}/departments/${deptId}/channels`, data);
     return response;
   },
 
-  // Update team
-  updateTeam: async (orgId, deptId, teamId, data) => {
-    const response = await apiClient.put(`/organizations/${orgId}/departments/${deptId}/teams/${teamId}`, data);
+  // Update channel
+  updateChannel: async (orgId, deptId, channelId, data) => {
+    const response = await apiClient.put(`/organizations/${orgId}/departments/${deptId}/channels/${channelId}`, data);
     return response;
   },
 
-  // Delete team
-  deleteTeam: async (orgId, deptId, teamId) => {
-    const response = await apiClient.delete(`/organizations/${orgId}/departments/${deptId}/teams/${teamId}`);
+  // Delete channel
+  deleteChannel: async (orgId, deptId, channelId) => {
+    const response = await apiClient.delete(`/organizations/${orgId}/departments/${deptId}/channels/${channelId}`);
     return response;
   },
 
@@ -109,3 +133,9 @@ export const organizationAPI = {
     return response;
   },
 };
+
+// Backward-compatible aliases while migrating callers.
+organizationAPI.getTeams = organizationAPI.getChannels;
+organizationAPI.createTeam = organizationAPI.createChannel;
+organizationAPI.updateTeam = organizationAPI.updateChannel;
+organizationAPI.deleteTeam = organizationAPI.deleteChannel;

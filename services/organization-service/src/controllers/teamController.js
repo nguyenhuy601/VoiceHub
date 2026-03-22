@@ -1,13 +1,16 @@
-const Team = require('../models/Team');
+const Channel = require('../models/Channel');
+
+const buildScope = (req) => ({
+  organization: req.params.orgId,
+  department: req.params.deptId,
+  isActive: true,
+});
 
 exports.getTeams = async (req, res, next) => {
   try {
-    const teams = await Team.find({
-      organization: req.params.orgId,
-      department: req.params.deptId,
-    }).populate('leader', 'name email');
+    const channels = await Channel.find(buildScope(req));
 
-    res.json({ status: 'success', data: teams });
+    res.json({ status: 'success', data: channels });
   } catch (error) {
     next(error);
   }
@@ -15,17 +18,17 @@ exports.getTeams = async (req, res, next) => {
 
 exports.createTeam = async (req, res, next) => {
   try {
-    const { name, description, leader } = req.body;
+    const { name, description, leader, type } = req.body;
 
-    const team = await Team.create({
+    const channel = await Channel.create({
       name,
       description,
-      organization: req.params.orgId,
-      department: req.params.deptId,
+      type: type || 'chat',
+      ...buildScope(req),
       leader,
     });
 
-    res.status(201).json({ status: 'success', data: team });
+    res.status(201).json({ status: 'success', data: channel });
   } catch (error) {
     next(error);
   }
@@ -33,15 +36,15 @@ exports.createTeam = async (req, res, next) => {
 
 exports.updateTeam = async (req, res, next) => {
   try {
-    const { name, description, leader } = req.body;
+    const { name, description, leader, type } = req.body;
 
-    const team = await Team.findByIdAndUpdate(
-      req.params.id,
-      { name, description, leader },
+    const channel = await Channel.findOneAndUpdate(
+      { _id: req.params.id, ...buildScope(req) },
+      { name, description, leader, type },
       { new: true }
     );
 
-    res.json({ status: 'success', data: team });
+    res.json({ status: 'success', data: channel });
   } catch (error) {
     next(error);
   }
@@ -49,9 +52,18 @@ exports.updateTeam = async (req, res, next) => {
 
 exports.deleteTeam = async (req, res, next) => {
   try {
-    await Team.findByIdAndDelete(req.params.id);
-    res.json({ status: 'success', message: 'Team deleted' });
+    await Channel.findOneAndUpdate(
+      { _id: req.params.id, ...buildScope(req) },
+      { isActive: false },
+      { new: true }
+    );
+    res.json({ status: 'success', message: 'Channel deleted' });
   } catch (error) {
     next(error);
   }
 };
+
+exports.getChannels = exports.getTeams;
+exports.createChannel = exports.createTeam;
+exports.updateChannel = exports.updateTeam;
+exports.deleteChannel = exports.deleteTeam;

@@ -19,6 +19,7 @@
     "react-hot-toast": "^2.4.1",
     "lucide-react": "^0.303.0",
     "framer-motion": "^10.18.0",
+    "mediasoup-client": "^3.9.2",
     "simple-peer": "^9.11.1",
     "date-fns": "^3.0.6",
     "moment": "^2.29.4",

@@ -182,6 +182,50 @@ class MeetingService {
     }
   }
 
+  async bootstrapMeetingRoom(meetingId, userId) {
+    const meeting = await Meeting.findById(meetingId).populate('hostId', 'username displayName avatar');
+    if (!meeting) {
+      throw new Error('Meeting not found');
+    }
+
+    const isHost = String(meeting.hostId?._id || meeting.hostId) === String(userId);
+    const participant = meeting.participants.find(
+      (item) => String(item.userId) === String(userId) && !item.leftAt
+    );
+
+    if (!isHost && !participant) {
+      // Auto append participant for MVP join flow.
+      meeting.participants.push({
+        userId,
+        joinedAt: new Date(),
+      });
+    }
+
+    if (meeting.status === 'scheduled') {
+      meeting.status = 'active';
+      meeting.startTime = meeting.startTime || new Date();
+    }
+
+    await meeting.save();
+
+    return {
+      meetingId: meeting._id,
+      roomId: String(meeting._id),
+      title: meeting.title,
+      status: meeting.status,
+      organizationId: meeting.organizationId || null,
+      role: isHost ? 'host' : 'participant',
+      participants: meeting.participants
+        .filter((item) => !item.leftAt)
+        .map((item) => ({
+          userId: item.userId,
+          joinedAt: item.joinedAt,
+          isMuted: item.isMuted,
+          isVideoOn: item.isVideoOn,
+        })),
+    };
+  }
+
   // Lấy danh sách meetings
   async getMeetings(filter, options = {}) {
     try {

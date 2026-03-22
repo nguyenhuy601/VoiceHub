@@ -144,18 +144,18 @@ function DashboardPage() {
   return (
     <>
     {/* Bố cục chuẩn 3 khung: cùng độ dài với sidebar, mỗi khung thanh trượt riêng */}
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex overflow-hidden bg-[#020817]">
       {/* Khung 1: Sidebar nav (icon only) */}
       <NavigationSidebar />
 
       {/* Khung 2: Trung tâm điều khiển - cuộn riêng */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
+        <div className="flex-1 min-h-0 p-5 lg:p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
           {/* Header with Search */}
-          <div className="mb-8 flex items-center justify-between">
+          <div className="mb-6 flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-black text-gradient mb-2">Trung Tâm Điều Khiển</h1>
-              <p className="text-gray-400">Giám sát không gian làm việc thời gian thực</p>
+              <h1 className="text-3xl font-extrabold text-white mb-1">Trung Tâm Điều Khiển</h1>
+              <p className="text-sm text-gray-400">Giám sát không gian làm việc thời gian thực</p>
             </div>
             <div className="flex gap-3">
               <div className="relative">
@@ -164,14 +164,14 @@ function DashboardPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Tìm kiếm..."
-                  className="pl-10 pr-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white w-64"
+                  className="pl-9 pr-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white w-56"
                 />
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xl">🔍</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">🔍</span>
               </div>
               <Dropdown
                 trigger={
-                  <button className="glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all">
-                    <span className="text-xl">⚙️</span>
+                  <button className="bg-[#040f2a] border border-slate-800 px-3.5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all">
+                    <span className="text-base">⚙️</span>
                   </button>
                 }
                 align="right"
@@ -188,31 +188,30 @@ function DashboardPage() {
           </div>
 
           {/* Enhanced Stats Grid with Click to Drilldown */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
             {stats.map((stat, idx) => (
               <GlassCard 
                 key={idx} 
                 hover 
-                glow 
                 onClick={() => setSelectedStat(stat)}
-                className="animate-slideUp relative overflow-hidden group cursor-pointer" 
+                className="animate-slideUp relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60" 
                 style={{animationDelay: `${idx * 0.1}s`}}
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
                 <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-2xl shadow-lg`}>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-xl shadow-lg`}>
                       {stat.icon}
                     </div>
-                    <div className={`flex items-center gap-1 text-sm font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`flex items-center gap-1 text-xs font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
                       <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
                       <span>{stat.change}</span>
                     </div>
                   </div>
-                  <div className="text-3xl font-black text-white mb-1">{stat.value}</div>
-                  <div className="text-gray-400 text-sm mb-2">{stat.label}</div>
+                  <div className="text-2xl font-extrabold text-white mb-1">{stat.value}</div>
+                  <div className="text-gray-400 text-xs mb-2">{stat.label}</div>
                   <div className="text-xs text-gray-500">{stat.detail}</div>
-                  <div className="mt-3 text-xs text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="mt-2 text-[11px] text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
                     Click để xem chi tiết →
                   </div>
                 </div>
@@ -221,18 +220,18 @@ function DashboardPage() {
           </div>
 
           {/* Activity Feed with Filters */}
-          <GlassCard className="mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white">Hoạt Động Gần Đây</h2>
+          <GlassCard className="mb-6 border border-slate-800 bg-slate-900/60">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-white">Hoạt Động Gần Đây</h2>
               <div className="flex gap-2">
                 {['all', 'tasks', 'messages', 'files'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => setActiveFilter(filter)}
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeFilter === filter
-                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                        : 'glass hover:bg-white/10 text-gray-400'
+                        ? 'bg-gradient-to-r from-violet-500 to-indigo-500 text-white'
+                        : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
                     }`}
                   >
                     {filter === 'all' ? 'Tất cả' : filter === 'tasks' ? 'Công việc' : filter === 'messages' ? 'Tin nhắn' : 'Tệp'}
@@ -243,20 +242,20 @@ function DashboardPage() {
             
             <div className="space-y-3">
               {filteredActivities.map((activity, idx) => (
-                <div 
+                <div
                   key={idx} 
                   onClick={() => setShowActivityDetail(activity)}
-                  className="flex items-center gap-4 p-4 rounded-xl hover:bg-white/5 transition-all cursor-pointer group"
+                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all cursor-pointer group"
                 >
-                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${activity.color} flex items-center justify-center text-2xl shadow-lg relative`}>
+                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${activity.color} flex items-center justify-center text-xl shadow-lg relative`}>
                     {activity.avatar}
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0a0118]"></div>
+                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#0a0118]"></div>
                   </div>
                   <div className="flex-1">
-                    <p className="text-white mb-1">
+                    <p className="text-sm text-white mb-1">
                       <span className="font-bold">{activity.user}</span>
                       <span className="text-gray-400"> {activity.action} </span>
-                      <span className="text-purple-400 font-semibold">{activity.item}</span>
+                      <span className="text-indigo-400 font-semibold">{activity.item}</span>
                     </p>
                     <div className="flex items-center gap-3">
                       <span className="text-gray-500 text-sm">{activity.time}</span>
@@ -265,20 +264,20 @@ function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 transition-opacity glass px-3 py-1.5 rounded-lg text-sm">
+                  <button className="opacity-0 group-hover:opacity-100 transition-opacity bg-[#040f2a] border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
                     Chi tiết
                   </button>
                 </div>
               ))}
             </div>
 
-            <button className="w-full mt-4 py-3 glass rounded-xl hover:bg-white/10 transition-all text-gray-400 hover:text-white">
+            <button className="w-full mt-3 py-2.5 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/70 transition-all text-sm text-gray-400 hover:text-white">
               Xem tất cả hoạt động →
             </button>
           </GlassCard>
 
           {/* Quick Actions Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
               { icon: "➕", label: "Dự Án Mới", color: "from-purple-600 to-pink-600", action: () => setShowNewProjectModal(true) },
               { icon: "📊", label: "Phân Tích", color: "from-blue-500 to-cyan-500", action: () => showToast("Chuyển đến trang phân tích", "info") },
@@ -288,13 +287,13 @@ function DashboardPage() {
               <button
                 key={idx}
                 onClick={action.action}
-                className={`glass p-4 rounded-xl hover:bg-white/10 transition-all group animate-scaleIn`}
+                className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl hover:bg-slate-800/70 transition-all group animate-scaleIn"
                 style={{animationDelay: `${(idx + 4) * 0.1}s`}}
               >
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-2xl mb-3 mx-auto group-hover:scale-110 transition-transform`}>
+                <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center text-xl mb-2 mx-auto group-hover:scale-110 transition-transform`}>
                   {action.icon}
                 </div>
-                <div className="text-sm font-semibold text-gray-400 group-hover:text-white transition-colors">
+                <div className="text-xs font-semibold text-gray-400 group-hover:text-white transition-colors">
                   {action.label}
                 </div>
               </button>
@@ -302,9 +301,9 @@ function DashboardPage() {
           </div>
 
           {/* Performance Chart Preview */}
-          <GlassCard>
-            <h3 className="text-xl font-bold text-white mb-4">Hiệu Suất Tuần Này</h3>
-            <div className="grid grid-cols-7 gap-2 h-48">
+          <GlassCard className="border border-slate-800 bg-slate-900/60">
+            <h3 className="text-lg font-bold text-white mb-3">Hiệu Suất Tuần Này</h3>
+            <div className="grid grid-cols-7 gap-2 h-40">
               {[65, 80, 55, 90, 75, 85, 70].map((height, idx) => (
                 <div key={idx} className="flex flex-col items-center justify-end group">
                   <div className="relative">
@@ -322,7 +321,7 @@ function DashboardPage() {
                 </div>
               ))}
             </div>
-            <div className="mt-4 flex items-center justify-between text-sm">
+            <div className="mt-3 flex items-center justify-between text-xs">
               <span className="text-gray-400">Tổng: 500 công việc</span>
               <span className="text-green-400 font-bold">+15% so với tuần trước</span>
             </div>
@@ -331,9 +330,9 @@ function DashboardPage() {
         </div>
 
       {/* Khung 3: Trạng thái nhóm - cùng độ cao, thanh trượt riêng */}
-      <div className="w-80 shrink-0 h-full flex flex-col overflow-hidden glass-strong border-l border-white/10">
-        <div className="flex-1 min-h-0 p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
-        <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2">
+      <div className="w-72 shrink-0 h-full flex flex-col overflow-hidden bg-slate-900/60 border-l border-slate-800">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-visible scrollbar-overlay">
+        <h2 className="text-lg font-bold mb-5 text-white flex items-center gap-2">
           <span>👥</span> Trạng Thái Nhóm
         </h2>
         
@@ -347,11 +346,11 @@ function DashboardPage() {
           </div>
           <div className="space-y-2">
             {['Sarah Chen', 'Mike Ross', 'Emma Wilson', 'David Kim', 'Lisa Park', 'Tom Zhang'].map((name, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group">
+                <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group">
                 <div className="relative">
-                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${
+                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${
                     ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
-                  } flex items-center justify-center text-xl`}>
+                  } flex items-center justify-center text-base`}>
                     {['👩‍💼', '👨‍💻', '👩‍🎨', '👨‍🔬', '👩‍💼', '👨‍💻'][idx]}
                   </div>
                   <StatusIndicator status="online" />
@@ -377,11 +376,11 @@ function DashboardPage() {
               { title: "Demo Khách Hàng", time: "2:30 PM", attendees: 5, color: "from-purple-600 to-pink-600", icon: "🎯" },
               { title: "Đánh Giá Thiết Kế", time: "4:00 PM", attendees: 4, color: "from-green-500 to-emerald-500", icon: "🎨" }
             ].map((event, idx) => (
-              <GlassCard key={idx} hover className="p-3 relative overflow-hidden group cursor-pointer">
+              <GlassCard key={idx} hover className="p-3 relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60">
                 <div className={`absolute inset-0 bg-gradient-to-br ${event.color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
                 <div className="relative z-10">
                   <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${event.color} flex items-center justify-center text-xl flex-shrink-0`}>
+                    <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${event.color} flex items-center justify-center text-base flex-shrink-0`}>
                       {event.icon}
                     </div>
                     <div className="flex-1">
@@ -393,7 +392,7 @@ function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                  <button className="mt-2 w-full py-1.5 glass rounded-lg text-xs font-semibold hover:bg-white/10 transition-all">
+                  <button className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all">
                     Tham gia
                   </button>
                 </div>
@@ -403,7 +402,7 @@ function DashboardPage() {
         </div>
 
         {/* Quick Stats */}
-        <div className="glass rounded-xl p-4">
+        <div className="bg-[#040f2a] border border-slate-800 rounded-xl p-3.5">
           <h3 className="text-sm font-semibold text-gray-400 mb-3">THỐNG KÊ NHANH</h3>
           <div className="space-y-3">
             {[
@@ -416,7 +415,7 @@ function DashboardPage() {
                   <span className="text-lg">{stat.icon}</span>
                   <span className="text-sm text-gray-400">{stat.label}</span>
                 </div>
-                <span className="text-sm font-bold text-gradient">{stat.value}</span>
+                <span className="text-sm font-bold text-indigo-300">{stat.value}</span>
               </div>
             ))}
           </div>
@@ -429,18 +428,18 @@ function DashboardPage() {
     <Modal
       isOpen={showWelcome}
       onClose={() => setShowWelcome(false)}
-      title="Xin chào 👋"
+      title="Xin chào"
       size="sm"
     >
       <div className="space-y-4">
-        <p className="text-lg font-semibold text-white">{getGreeting()}</p>
+        <p className="text-base font-semibold text-white">{getGreeting()}</p>
         <p className="text-sm text-gray-400">
           Chúc {displayName} có một ngày làm việc hiệu quả cùng <span className="font-semibold text-gradient">VoiceHub</span>.
         </p>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
-            className="glass px-4 py-2 rounded-xl text-sm hover:bg-white/10 transition-all"
+            className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl text-sm hover:bg-slate-800/70 transition-all"
             onClick={() => setShowWelcome(false)}
           >
             Đóng
@@ -448,7 +447,7 @@ function DashboardPage() {
           <GradientButton
             variant="primary"
             onClick={() => setShowWelcome(false)}
-            className="px-4 py-2"
+            className="px-4 py-2 text-sm"
           >
             Bắt đầu làm việc
           </GradientButton>
@@ -466,15 +465,15 @@ function DashboardPage() {
         {selectedStat && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
-              <GlassCard>
-                <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${selectedStat.color} flex items-center justify-center text-4xl mb-4 mx-auto`}>
+              <GlassCard className="border border-slate-800 bg-slate-900/60">
+                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedStat.color} flex items-center justify-center text-3xl mb-4 mx-auto`}>
                   {selectedStat.icon}
                 </div>
-                <div className="text-5xl font-black text-white text-center mb-2">{selectedStat.value}</div>
+                <div className="text-4xl font-black text-white text-center mb-2">{selectedStat.value}</div>
                 <div className="text-gray-400 text-center">{selectedStat.label}</div>
               </GlassCard>
               
-              <GlassCard>
+              <GlassCard className="border border-slate-800 bg-slate-900/60">
                 <h4 className="font-bold text-white mb-4">Thống Kê Chi Tiết</h4>
                 <div className="space-y-3">
                   {Object.entries(selectedStat.drilldown).filter(([key]) => !['projects', 'nguoiDongGopNhieuNhat', 'roles', 'channels'].includes(key)).map(([key, value]) => (
@@ -492,7 +491,7 @@ function DashboardPage() {
                 <h4 className="font-bold text-white mb-4">Dự Án Đang Hoạt Động</h4>
                 <div className="space-y-3">
                   {selectedStat.drilldown.projects.map((project, idx) => (
-                    <GlassCard key={idx} hover>
+                    <GlassCard key={idx} hover className="border border-slate-800 bg-slate-900/60">
                       <div className="flex items-center justify-between mb-3">
                         <h5 className="font-bold text-white">{project.name}</h5>
                         <span className="text-sm text-gray-400">Còn {project.deadline}</span>
@@ -517,7 +516,7 @@ function DashboardPage() {
                 <h4 className="font-bold text-white mb-4">Người Đóng Góp Nhiều Nhất</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.nguoiDongGopNhieuNhat.map((user, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 glass-strong rounded-xl">
+                    <div key={idx} className="flex items-center gap-3 p-3 bg-[#040f2a] border border-slate-800 rounded-xl">
                       <div className="text-2xl">{user.avatar}</div>
                       <div className="flex-1">
                         <div className="font-semibold text-white">{user.name}</div>
@@ -535,7 +534,7 @@ function DashboardPage() {
                 <h4 className="font-bold text-white mb-4">Phân Bổ Theo Vai Trò</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.roles.map((role, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 glass-strong rounded-xl">
+                    <div key={idx} className="flex items-center gap-3 p-3 bg-[#040f2a] border border-slate-800 rounded-xl">
                       <div className="flex-1">
                         <div className="font-semibold text-white">{role.name}</div>
                         <div className="text-xs text-gray-400">{role.online}/{role.count} online</div>
@@ -554,7 +553,7 @@ function DashboardPage() {
                 <h4 className="font-bold text-white mb-4">Kênh Hoạt Động</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.channels.map((channel, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 glass-strong rounded-xl hover:bg-white/5 cursor-pointer transition-all">
+                    <div key={idx} className="flex items-center justify-between p-3 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-all">
                       <div>
                         <div className="font-semibold text-white">{channel.name}</div>
                         <div className="text-xs text-gray-400">{channel.messages} tin nhắn</div>
@@ -580,18 +579,18 @@ function DashboardPage() {
       >
         {showActivityDetail && (
           <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 glass-strong rounded-xl">
-              <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${showActivityDetail.color} flex items-center justify-center text-3xl`}>
+            <div className="flex items-center gap-3 p-3.5 bg-[#040f2a] border border-slate-800 rounded-xl">
+              <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${showActivityDetail.color} flex items-center justify-center text-2xl`}>
                 {showActivityDetail.avatar}
               </div>
               <div>
-                <h3 className="text-xl font-bold text-white">{showActivityDetail.user}</h3>
-                <p className="text-gray-400">{showActivityDetail.action} {showActivityDetail.item}</p>
+                <h3 className="text-lg font-bold text-white">{showActivityDetail.user}</h3>
+                <p className="text-sm text-gray-400">{showActivityDetail.action} {showActivityDetail.item}</p>
                 <p className="text-sm text-gray-500">{showActivityDetail.time}</p>
               </div>
             </div>
 
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h4 className="font-bold text-white mb-3">Thông Tin</h4>
               <div className="space-y-2">
                 {Object.entries(showActivityDetail.detail).map(([key, value]) => (
@@ -606,7 +605,7 @@ function DashboardPage() {
             <div className="flex gap-3">
               <GradientButton 
                 variant="primary" 
-                className="flex-1"
+                className="flex-1 text-sm"
                 onClick={() => {
                   setShowActivityDetail(false);
                   showToast('Đang chuyển đến chi tiết...');
@@ -616,7 +615,7 @@ function DashboardPage() {
               </GradientButton>
               <button 
                 onClick={() => showToast('Đã chia sẻ hoạt động')}
-                className="flex-1 glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
+                className="flex-1 bg-[#040f2a] border border-slate-800 px-5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all text-sm font-semibold"
               >
                 Chia Sẻ
               </button>
@@ -638,7 +637,7 @@ function DashboardPage() {
             <input 
               type="text" 
               placeholder="Nhập tên dự án..."
-              className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
             />
           </div>
 
@@ -647,7 +646,7 @@ function DashboardPage() {
             <textarea 
               placeholder="Mô tả dự án..."
               rows="4"
-              className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
             ></textarea>
           </div>
 
@@ -656,14 +655,14 @@ function DashboardPage() {
               <label className="block text-sm font-semibold mb-2 text-gray-300">Ngày Bắt Đầu</label>
               <input 
                 type="date"
-                className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
               />
             </div>
             <div>
               <label className="block text-sm font-semibold mb-2 text-gray-300">Deadline</label>
               <input 
                 type="date"
-                className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
               />
             </div>
           </div>
@@ -672,18 +671,18 @@ function DashboardPage() {
             <label className="block text-sm font-semibold mb-2 text-gray-300">Thành Viên</label>
             <div className="flex flex-wrap gap-2 mb-3">
               {['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'].map((member, idx) => (
-                <button key={idx} className="glass px-3 py-2 rounded-lg text-sm hover:bg-white/10 transition-all">
+                <button key={idx} className="bg-[#040f2a] border border-slate-800 px-3 py-2 rounded-lg text-sm hover:bg-slate-800/70 transition-all">
                   {member}
                 </button>
               ))}
             </div>
-            <button className="text-purple-400 text-sm hover:text-purple-300 transition-colors">+ Thêm thành viên</button>
+            <button className="text-indigo-400 text-sm hover:text-indigo-300 transition-colors">+ Thêm thành viên</button>
           </div>
 
           <div className="flex gap-3 pt-4">
             <GradientButton 
               variant="primary" 
-              className="flex-1"
+              className="flex-1 text-sm"
               onClick={() => {
                 showToast("Tạo dự án thành công!", "success");
                 setShowNewProjectModal(false);
@@ -693,7 +692,7 @@ function DashboardPage() {
             </GradientButton>
             <button 
               onClick={() => setShowNewProjectModal(false)}
-              className="flex-1 glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
+              className="flex-1 bg-[#040f2a] border border-slate-800 px-5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all text-sm font-semibold"
             >
               Hủy
             </button>

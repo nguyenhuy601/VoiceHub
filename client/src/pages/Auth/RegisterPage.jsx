@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { GlassCard, GradientButton } from '../../components/Shared';
+import { GradientButton } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 
 function RegisterPage() {
@@ -149,241 +149,182 @@ function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 lg:p-12 relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute top-20 right-20 w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-3xl animate-float"></div>
-      <div className="absolute bottom-20 left-20 w-[500px] h-[500px] bg-cyan-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-      <div className="absolute top-1/3 right-1/3 w-[400px] h-[400px] bg-purple-600/10 rounded-full blur-3xl animate-float" style={{animationDelay: '2s'}}></div>
-      
-      <div className="relative z-10 w-full max-w-7xl animate-scaleIn">
-        <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[650px]">
-        {/* Left Side - Register Form */}
-        <div>
-        <GlassCard className="glass-strong p-10">
-          {/* Logo and Title */}
-          <div className="text-center mb-10">
-            <div className="relative inline-block mb-6">
-              <div className="text-7xl">✨</div>
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full animate-pulse"></div>
-            </div>
-            <h1 className="text-5xl font-black text-gradient-cool mb-3">Tham Gia VoiceHub</h1>
-            <p className="text-gray-400 text-lg">Tạo tài khoản trong vài giây</p>
+    <div className="relative min-h-screen bg-[#020817] text-slate-100 overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-20 -left-20 h-[22rem] w-[22rem] rounded-full border border-indigo-500/20 bg-indigo-500/10 blur-2xl" />
+        <div className="absolute top-20 left-1/3 h-56 w-[20rem] rounded-[48%] border border-blue-500/20 bg-blue-500/10 blur-2xl" />
+        <div className="absolute -bottom-16 left-8 h-[18rem] w-[18rem] rounded-full border border-violet-500/20 bg-violet-500/10 blur-2xl" />
+      </div>
+
+      <div className="relative z-10 grid min-h-screen lg:grid-cols-2">
+        <section className="hidden lg:flex flex-col justify-between border-r border-slate-800/80 px-10 py-12 xl:px-12">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-[0_0_24px_rgba(99,102,241,0.35)]">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
           </div>
 
-          {/* Benefits */}
-          <div className="grid grid-cols-3 gap-3 mb-8">
-            {[
-              { icon: "⚡", label: "Nhanh chóng" },
-              { icon: "🔒", label: "Bảo mật" },
-              { icon: "🎁", label: "Miễn phí" }
-            ].map((benefit, idx) => (
-              <div key={idx} className="glass p-4 rounded-xl text-center hover:bg-white/10 transition-all">
-                <div className="text-3xl mb-2">{benefit.icon}</div>
-                <div className="text-sm font-semibold text-gray-300">{benefit.label}</div>
-              </div>
-            ))}
+          <div className="max-w-md">
+            <h1 className="text-5xl font-extrabold tracking-tight">Create account</h1>
+            <p className="mt-4 text-2xl leading-tight text-slate-300">
+              Build your workspace in minutes with secure, reliable communication tools.
+            </p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleRegister}>
-            {/* First Name and Last Name Inputs */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Last Name (Họ) */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-300 flex items-center gap-2">
-                  <span>👤</span> Họ
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={(e) => {
-                    setFormData({...formData, lastName: e.target.value});
-                    if (errors.lastName) setErrors({...errors, lastName: ''});
-                  }}
-                  className={`w-full px-4 py-3 rounded-xl glass border transition-all outline-none text-white placeholder-gray-500 ${
-                    errors.lastName ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/50' : 'border-white/20 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50'
-                  }`}
-                  placeholder="Nguyễn"
-                />
-                {errors.lastName && <p className="mt-1 text-xs text-red-400">{errors.lastName}</p>}
-              </div>
+          <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3">Realtime chat</div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3">Video meetings</div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3">Team spaces</div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3">RBAC security</div>
+          </div>
+        </section>
 
-              {/* First Name (Tên) */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-300 flex items-center gap-2">
-                  <span>👤</span> Tên
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstName}
-                  onChange={(e) => {
-                    setFormData({...formData, firstName: e.target.value});
-                    if (errors.firstName) setErrors({...errors, firstName: ''});
-                  }}
-                  className={`w-full px-4 py-3 rounded-xl glass border transition-all outline-none text-white placeholder-gray-500 ${
-                    errors.firstName ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/50' : 'border-white/20 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50'
-                  }`}
-                  placeholder="Văn Huy"
-                />
-                {errors.firstName && <p className="mt-1 text-xs text-red-400">{errors.firstName}</p>}
-              </div>
+        <section className="flex items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-[#020a1f]/85 p-6 shadow-[0_12px_32px_rgba(2,8,23,0.6)] backdrop-blur-xl sm:p-8">
+            <div className="mb-2 text-right text-sm text-slate-400">
+              Đã có tài khoản?{' '}
+              <Link to="/login" className="font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">Đăng nhập</Link>
             </div>
 
-            {/* Email Input */}
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-300 flex items-center gap-2">
-                <span>📧</span> Địa Chỉ Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => {
-                  setFormData({...formData, email: e.target.value});
-                  if (errors.email) setErrors({...errors, email: ''});
-                }}
-                className={`w-full px-4 py-3 rounded-xl glass border transition-all outline-none text-white placeholder-gray-500 ${
-                  errors.email ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/50' : 'border-white/20 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50'
-                }`}
-                placeholder="yourname@email.com"
-              />
-              {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email}</p>}
-            </div>
+            <h2 className="mt-4 text-3xl font-bold text-white">Create your account</h2>
+            <p className="mt-2 text-base text-slate-400">Start your team workspace with enterprise-grade security.</p>
 
-            {/* Password Input with Strength Meter */}
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-300 flex items-center gap-2">
-                <span>🔒</span> Mật Khẩu
-              </label>
-              <input
-                type="password"
-                value={formData.password}
-                onChange={handlePasswordChange}
-                className="w-full px-4 py-3 rounded-xl glass border border-white/20 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none text-white placeholder-gray-500"
-                placeholder="••••••••"
-              />
-              {formData.password && (
-                <div className="mt-2">
-                  <div className="flex gap-1 mb-1">
-                    {[...Array(4)].map((_, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                          idx < passwordStrength 
-                            ? `bg-gradient-to-r ${getStrengthColor()}` 
-                            : 'bg-white/10'
-                        }`}
-                      ></div>
-                    ))}
-                  </div>
-                  <p className={`text-xs font-semibold bg-gradient-to-r ${getStrengthColor()} bg-clip-text text-transparent`}>
-                    {getStrengthText()}
-                  </p>
+            <form className="mt-6 space-y-4" onSubmit={handleRegister}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-200">Họ</label>
+                  <input
+                    type="text"
+                    value={formData.lastName}
+                    onChange={(e) => {
+                      setFormData({ ...formData, lastName: e.target.value });
+                      if (errors.lastName) setErrors({ ...errors, lastName: '' });
+                    }}
+                    className={`w-full rounded-xl border px-4 py-2.5 text-sm text-white placeholder:text-slate-500 transition ${
+                      errors.lastName ? 'border-red-500 bg-red-500/5 focus:border-red-500 focus:ring-2 focus:ring-red-500/30' : 'border-slate-800 bg-[#040f2a] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40'
+                    }`}
+                    placeholder="Nguyễn"
+                  />
+                  {errors.lastName && <p className="mt-1 text-xs text-red-400">{errors.lastName}</p>}
                 </div>
-              )}
-              {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
-            </div>
 
-            {/* Confirm Password */}
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-300 flex items-center gap-2">
-                <span>🔐</span> Xác Nhận Mật Khẩu
-              </label>
-              <input
-                type="password"
-                value={formData.confirmPassword}
-                onChange={(e) => {
-                  setFormData({...formData, confirmPassword: e.target.value});
-                  if (errors.confirmPassword) setErrors({...errors, confirmPassword: ''});
-                }}
-                className={`w-full px-4 py-3 rounded-xl glass border transition-all outline-none text-white placeholder-gray-500 ${
-                  errors.confirmPassword ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/50' : 'border-white/20 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50'
-                }`}
-                placeholder="••••••••"
-              />
-              {errors.confirmPassword && <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>}
-            </div>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-200">Tên</label>
+                  <input
+                    type="text"
+                    value={formData.firstName}
+                    onChange={(e) => {
+                      setFormData({ ...formData, firstName: e.target.value });
+                      if (errors.firstName) setErrors({ ...errors, firstName: '' });
+                    }}
+                    className={`w-full rounded-xl border px-4 py-2.5 text-sm text-white placeholder:text-slate-500 transition ${
+                      errors.firstName ? 'border-red-500 bg-red-500/5 focus:border-red-500 focus:ring-2 focus:ring-red-500/30' : 'border-slate-800 bg-[#040f2a] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40'
+                    }`}
+                    placeholder="Văn Huy"
+                  />
+                  {errors.firstName && <p className="mt-1 text-xs text-red-400">{errors.firstName}</p>}
+                </div>
+              </div>
 
-            {/* Terms Checkbox */}
-            <div>
-              <label className="flex items-start gap-3 cursor-pointer group">
-                <input 
-                  type="checkbox" 
-                  checked={agreedToTerms}
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-200">Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
                   onChange={(e) => {
-                    setAgreedToTerms(e.target.checked);
-                    if (errors.terms) setErrors({...errors, terms: ''});
+                    setFormData({ ...formData, email: e.target.value });
+                    if (errors.email) setErrors({ ...errors, email: '' });
                   }}
-                  className="mt-1 rounded w-4 h-4 border-white/20" 
+                  className={`w-full rounded-xl border px-4 py-2.5 text-sm text-white placeholder:text-slate-500 transition ${
+                    errors.email ? 'border-red-500 bg-red-500/5 focus:border-red-500 focus:ring-2 focus:ring-red-500/30' : 'border-slate-800 bg-[#040f2a] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40'
+                  }`}
+                  placeholder="name@company.com"
                 />
-                <span className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
-                  Tôi đồng ý với{' '}
-                  <a href="#" className="text-blue-400 hover:text-cyan-400">Điều khoản dịch vụ</a>
-                  {' '}và{' '}
-                  <a href="#" className="text-blue-400 hover:text-cyan-400">Chính sách bảo mật</a>
-                </span>
-              </label>
-              {errors.terms && <p className="mt-1 text-xs text-red-400">{errors.terms}</p>}
-            </div>
+                {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email}</p>}
+              </div>
 
-            {/* Register Button */}
-            <GradientButton 
-              variant="secondary" 
-              className="w-full" 
-              icon="🎉"
-              type="submit"
-              disabled={loading || !agreedToTerms || !formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword}
-            >
-              {loading ? 'Đang gửi email xác thực...' : 'Tạo Tài Khoản'}
-            </GradientButton>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-200">Mật khẩu</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={handlePasswordChange}
+                  className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-2.5 text-sm text-white placeholder:text-slate-500 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40"
+                  placeholder="••••••••"
+                />
+                {formData.password && (
+                  <div className="mt-2">
+                    <div className="mb-1 flex gap-1">
+                      {[...Array(4)].map((_, idx) => (
+                        <div
+                          key={idx}
+                          className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
+                            idx < passwordStrength ? `bg-gradient-to-r ${getStrengthColor()}` : 'bg-slate-800'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className={`text-xs font-semibold bg-gradient-to-r ${getStrengthColor()} bg-clip-text text-transparent`}>
+                      {getStrengthText()}
+                    </p>
+                  </div>
+                )}
+                {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
+              </div>
 
-            {/* Security Info */}
-            <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-              <span>🛡️</span>
-              <span>Mã hóa end-to-end • GDPR compliant</span>
-            </div>
-          </form>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-200">Xác nhận mật khẩu</label>
+                <input
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => {
+                    setFormData({ ...formData, confirmPassword: e.target.value });
+                    if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
+                  }}
+                  className={`w-full rounded-xl border px-4 py-2.5 text-sm text-white placeholder:text-slate-500 transition ${
+                    errors.confirmPassword ? 'border-red-500 bg-red-500/5 focus:border-red-500 focus:ring-2 focus:ring-red-500/30' : 'border-slate-800 bg-[#040f2a] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40'
+                  }`}
+                  placeholder="••••••••"
+                />
+                {errors.confirmPassword && <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>}
+              </div>
 
-          {/* Login Link */}
-          <div className="mt-6 text-center text-gray-400">
-            Đã có tài khoản?{' '}
-            <Link to="/login" className="text-blue-400 hover:text-cyan-400 font-semibold transition-colors">
-              Đăng nhập ngay
+              <div>
+                <label className="flex items-start gap-3 text-sm text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => {
+                      setAgreedToTerms(e.target.checked);
+                      if (errors.terms) setErrors({ ...errors, terms: '' });
+                    }}
+                    className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-500"
+                  />
+                  <span>
+                    Tôi đồng ý với{' '}
+                    <a href="#" className="text-indigo-400 hover:text-indigo-300">Điều khoản dịch vụ</a>
+                    {' '}và{' '}
+                    <a href="#" className="text-indigo-400 hover:text-indigo-300">Chính sách bảo mật</a>
+                  </span>
+                </label>
+                {errors.terms && <p className="mt-1 text-xs text-red-400">{errors.terms}</p>}
+              </div>
+
+              <GradientButton
+                variant="primary"
+                className="w-full justify-center rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 py-3 text-base font-bold hover:from-violet-400 hover:to-indigo-400"
+                type="submit"
+                disabled={loading || !agreedToTerms || !formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword}
+              >
+                {loading ? 'Đang gửi email xác thực...' : 'Tạo Tài Khoản'}
+              </GradientButton>
+            </form>
+
+            <Link to="/" className="mt-7 block text-center text-sm text-slate-500 hover:text-slate-300 transition-colors">
+              Về Trang Chủ
             </Link>
           </div>
-
-          {/* Back Link */}
-          <Link to="/" className="block mt-6 text-center text-gray-500 hover:text-gray-300 transition-colors flex items-center justify-center gap-2">
-            <span>←</span> Về Trang Chủ
-          </Link>
-        </GlassCard>
-        </div>
-        
-        {/* Right Side - Benefits */}
-        <div className="hidden lg:block">
-          <GlassCard className="glass-strong p-10">
-            <div className="text-7xl mb-8 animate-float">✨</div>
-            <h2 className="text-5xl font-black text-gradient-cool mb-6 leading-tight">Tại sao chọn VoiceHub?</h2>
-            <p className="text-gray-300 mb-8 text-xl leading-relaxed">Giải pháp toàn diện cho doanh nghiệp và nhân viên</p>
-            <div className="space-y-8">
-              {[
-                { icon: "🚀", title: "Miễn phí mãi mãi", desc: "Không giới hạn người dùng, không phí ẩn", color: "from-purple-600 to-pink-600" },
-                { icon: "⚡", title: "Siêu nhanh", desc: "Tin nhắn gửi tức thời < 50ms", color: "from-blue-500 to-cyan-500" },
-                { icon: "🔒", title: "An toàn tuyệt đối", desc: "Mã hóa E2E, tuân thủ GDPR", color: "from-green-500 to-emerald-500" },
-                { icon: "🌍", title: "Đa nền tảng", desc: "Web, Desktop, Mobile seamless", color: "from-orange-500 to-red-500" }
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-start gap-5 p-4 glass rounded-xl hover:bg-white/5 transition-all">
-                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${item.color} flex items-center justify-center text-3xl shadow-lg`}>
-                    {item.icon}
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold text-xl mb-1">{item.title}</h3>
-                    <p className="text-gray-400 text-base">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </GlassCard>
-        </div>
-        </div>
+        </section>
       </div>
     </div>
   );

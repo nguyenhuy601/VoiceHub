@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { GlassCard, GradientButton } from '../../components/Shared';
+import { GradientButton } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -44,160 +44,105 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 lg:p-12 relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute top-20 left-20 w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-3xl animate-float"></div>
-      <div className="absolute bottom-20 right-20 w-[500px] h-[500px] bg-pink-600/20 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-      <div className="absolute top-1/2 left-1/3 w-[400px] h-[400px] bg-blue-600/10 rounded-full blur-3xl animate-float" style={{animationDelay: '2s'}}></div>
-      
-      <div className="relative z-10 w-full max-w-7xl animate-scaleIn">
-        <div className="grid lg:grid-cols-2 gap-12 items-center min-h-[600px]">
-        {/* Left Side - Info */}
-        <div className="hidden lg:block">
-          <GlassCard className="glass-strong p-10">
-            <div className="text-7xl mb-8 animate-float">🚀</div>
-            <h2 className="text-5xl font-black text-gradient mb-6 leading-tight">Hệ Thống Giao Tiếp Doanh Nghiệp</h2>
-            <p className="text-gray-300 mb-8 text-xl leading-relaxed">Kết nối toàn bộ tổ chức và nhân viên trong một không gian làm việc thống nhất</p>
-            <div className="space-y-6">
-              {[
-                { icon: "💬", title: "Nhắn tin tức thời", desc: "Giao tiếp nhanh chóng với đồng nghiệp" },
-                { icon: "🎤", title: "Cuộc Họp Trực Tuyến", desc: "Voice và Video chất lượng cao 4K" },
-                { icon: "✅", title: "Quản lý công việc", desc: "Theo dõi task hiệu quả" },
-                { icon: "🔒", title: "Bảo mật tuyệt đối", desc: "Mã hóa end-to-end" }
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-start gap-4 p-4 glass rounded-xl hover:bg-white/5 transition-all">
-                  <div className="text-4xl">{item.icon}</div>
-                  <div>
-                    <h3 className="text-white font-bold text-lg mb-1">{item.title}</h3>
-                    <p className="text-gray-400 text-base">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </GlassCard>
-        </div>
-        
-        {/* Right Side - Login Form */}
-        <div>
-        <GlassCard className="glass-strong p-10">
-          {/* Logo and Title */}
-          <div className="text-center mb-10">
-            <div className="relative inline-block mb-6">
-              <div className="text-7xl">🔐</div>
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full animate-pulse"></div>
-            </div>
-            <h1 className="text-5xl font-black text-gradient mb-3">Chào Mừng Trở Lại</h1>
-            <p className="text-gray-400 text-lg">Đăng nhập để tiếp tục hành trình</p>
-          </div>
+    <div className="relative min-h-screen bg-[#020817] text-slate-100 overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-20 -left-20 h-[22rem] w-[22rem] rounded-full border border-indigo-500/20 bg-indigo-500/10 blur-2xl" />
+        <div className="absolute top-20 left-1/3 h-56 w-[20rem] rounded-[48%] border border-blue-500/20 bg-blue-500/10 blur-2xl" />
+        <div className="absolute -bottom-16 left-8 h-[18rem] w-[18rem] rounded-full border border-violet-500/20 bg-violet-500/10 blur-2xl" />
+      </div>
 
-          {/* Quick Login Options */}
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <button className="glass p-3 rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2">
-              <span className="text-xl">🔵</span>
-              <span className="text-sm font-semibold">Google</span>
-            </button>
-            <button className="glass p-3 rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2">
-              <span className="text-xl">⚫</span>
-              <span className="text-sm font-semibold">GitHub</span>
-            </button>
-          </div>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/20"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 glass-strong text-gray-400">hoặc tiếp tục với email</span>
+      <div className="relative z-10 grid min-h-screen lg:grid-cols-2">
+        <section className="hidden lg:flex flex-col justify-between border-r border-slate-800/80 px-10 py-12 xl:px-12">
+          <div>
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-[0_0_24px_rgba(99,102,241,0.35)]">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.25a5.25 5.25 0 005.25-5.25V8.5a5.25 5.25 0 10-10.5 0V13A5.25 5.25 0 0012 18.25zm0 0v2.25m-4-2.25h8" />
+              </svg>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Input */}
-            <div>
-              <label className="block text-base font-semibold mb-3 text-gray-300 flex items-center gap-2">
-                <span className="text-xl">📧</span> Địa Chỉ Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
-                className="w-full px-5 py-4 text-base rounded-xl glass border border-white/20 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all outline-none text-white placeholder-gray-500"
-                placeholder="yourname@voicehub.com"
-              />
+          <div className="max-w-md">
+            <h1 className="text-5xl font-extrabold tracking-tight">Vortex</h1>
+            <p className="mt-4 text-2xl leading-tight text-slate-300">
+              Enterprise communication that feels intuitive, real-time, and powerful.
+            </p>
+          </div>
+
+          <div className="h-8" />
+        </section>
+
+        <section className="flex items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-[#020a1f]/85 p-6 shadow-[0_12px_32px_rgba(2,8,23,0.6)] backdrop-blur-xl sm:p-8">
+            <div className="mb-2 text-right text-sm text-slate-400">
+              Chưa có tài khoản?{' '}
+              <Link to="/register" className="font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">Tạo ngay</Link>
             </div>
 
-            {/* Password Input */}
-            <div>
-              <label className="block text-base font-semibold mb-3 text-gray-300 flex items-center gap-2">
-                <span className="text-xl">🔒</span> Mật Khẩu
-              </label>
-              <div className="relative">
+            <h2 className="mt-4 text-3xl font-bold text-white">Welcome back</h2>
+            <p className="mt-2 text-base text-slate-400">Enter your credentials to access your workspace.</p>
+
+            <form onSubmit={handleSubmit} className="mt-7 space-y-5">
+              <div>
+                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-200">Email</label>
                 <input
-                  type={showPassword ? "text" : "password"}
-                  value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full px-5 py-4 text-base rounded-xl glass border border-white/20 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all outline-none text-white placeholder-gray-500"
-                  placeholder="••••••••"
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-sm text-white placeholder:text-slate-500 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40"
+                  placeholder="name@company.com"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xl hover:scale-110 transition-transform"
-                >
-                  {showPassword ? '👁️' : '👁️‍🗨️'}
-                </button>
               </div>
-            </div>
 
-            {/* Remember Me & Forgot Password */}
-            <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center text-gray-400 cursor-pointer group">
-                <input 
-                  type="checkbox" 
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <label htmlFor="password" className="block text-sm font-semibold text-slate-200">Password</label>
+                  <a href="#" className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">Forgot password?</a>
+                </div>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 pr-14 text-sm text-white placeholder:text-slate-500 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400 hover:text-slate-200"
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-400">
+                <input
+                  type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="mr-2 rounded w-4 h-4 border-white/20" 
+                  className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-500"
                 />
-                <span className="group-hover:text-white transition-colors">Ghi nhớ đăng nhập</span>
+                Remember this device
               </label>
-              <a href="#" className="text-purple-400 hover:text-pink-400 transition-colors font-semibold">
-                Quên mật khẩu?
-              </a>
-            </div>
 
-            {/* Login Button */}
-            <GradientButton 
-              variant="primary" 
-              className="w-full" 
-              icon="🚀"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? 'Đang đăng nhập...' : 'Đăng Nhập'}
-            </GradientButton>
+              <GradientButton
+                variant="primary"
+                className="w-full justify-center rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 py-3 text-base font-bold hover:from-violet-400 hover:to-indigo-400"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? 'Signing in...' : 'Sign in'}
+              </GradientButton>
+            </form>
 
-            {/* Security Badge */}
-            <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-              <span>🔒</span>
-              <span>Bảo mật bởi JWT + 2FA</span>
-            </div>
-          </form>
-
-          {/* Register Link */}
-          <div className="mt-6 text-center text-gray-400">
-            Chưa có tài khoản?{' '}
-            <Link to="/register" className="text-purple-400 hover:text-pink-400 font-semibold transition-colors">
-              Tạo ngay
+            <Link to="/" className="mt-7 block text-center text-sm text-slate-500 hover:text-slate-300 transition-colors">
+              Về Trang Chủ
             </Link>
           </div>
-
-          {/* Back Link */}
-          <Link to="/" className="block mt-6 text-center text-gray-500 hover:text-gray-300 transition-colors flex items-center justify-center gap-2">
-            <span>←</span> Về Trang Chủ
-          </Link>
-        </GlassCard>
-        </div>
-        </div>
+        </section>
       </div>
     </div>
   );

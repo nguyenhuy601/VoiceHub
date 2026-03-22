@@ -60,6 +60,7 @@ JWT_SECRET=your-secret-key-change-in-production
 AUTH_SERVICE_URL=http://auth-service:3001
 USER_SERVICE_URL=http://user-service:3004
 # ... các service khác
+SOCKET_SERVICE_URL=http://socket-service:3017
 ```
 
 ## Routes
@@ -84,13 +85,28 @@ Authorization: Bearer <token>
 - `/api/auth/*` → Auth Service (public routes)
 - `/api/users/*` → User Service
 - `/api/friends/*` → Friend Service (không cần serverId)
-- `/api/organizations/*`, `/api/servers/*` → Organization Service
+- `/api/organizations/*` → Organization Service
 - `/api/roles/*`, `/api/permissions/*` → Role & Permission Service
 - `/api/messages/*`, `/api/chat/*` → Chat Service (cần serverId)
 - `/api/voice/*`, `/api/meetings/*` → Voice Service (cần serverId)
 - `/api/tasks/*`, `/api/work/*` → Task Service (cần serverId)
 - `/api/documents/*` → Document Service (cần serverId)
 - `/api/notifications/*` → Notification Service
+- `/socket.io/*` (HTTP polling + WS upgrade) → Socket Service (realtime qua gateway)
+
+## Socket Realtime qua Gateway
+
+Client chỉ cần kết nối `http://localhost:3000` cho Socket.IO (namespace `/chat`).
+Gateway sẽ proxy đến `socket-service` nội bộ `http://socket-service:3017`.
+
+Ví dụ client:
+
+```js
+io('http://localhost:3000/chat', {
+  auth: { token: '<jwt>' },
+  transports: ['websocket', 'polling'],
+});
+```
 
 ## Permission Check
 

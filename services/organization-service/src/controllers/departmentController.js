@@ -3,8 +3,7 @@ const Membership = require('../models/Membership');
 
 exports.getDepartments = async (req, res, next) => {
   try {
-    const departments = await Department.find({ organization: req.params.orgId })
-      .populate('head', 'name email');
+    const departments = await Department.find({ organization: req.params.orgId });
 
     res.json({ status: 'success', data: departments });
   } catch (error) {

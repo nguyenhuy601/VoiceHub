@@ -3,6 +3,31 @@ const logger = require('../utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
+const normalizeToken = (rawToken) => {
+  if (!rawToken) return null;
+
+  let token = String(rawToken).trim();
+  if (!token) return null;
+
+  if (token.startsWith('Bearer ')) {
+    token = token.slice(7).trim();
+  }
+
+  // Handle accidentally stringified localStorage values like "\"ey...\""
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+
+  if (!token || token === 'null' || token === 'undefined') {
+    return null;
+  }
+
+  return token;
+};
+
 /**
  * Middleware xác thực JWT cho HTTP requests
  * @param {Object} req - Express request object
@@ -22,7 +47,7 @@ const authenticate = (req, res, next) => {
     }
 
     // Extract token
-    const token = authHeader.split(' ')[1];
+    const token = normalizeToken(authHeader.split(' ')[1]);
 
     if (!token) {
       return res.status(401).json({
@@ -80,15 +105,28 @@ const authenticate = (req, res, next) => {
  */
 const socketAuth = (socket, next) => {
   try {
-    const token = socket.handshake.auth?.token || 
-                  socket.handshake.headers?.authorization?.split(' ')[1];
+    const rawToken =
+      socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+    const token = normalizeToken(rawToken);
 
     if (!token) {
       return next(new Error('Authentication error: No token provided'));
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    socket.user = decoded;
+    const normalizedUser = {
+      ...decoded,
+      id: decoded.id || decoded.userId || decoded._id,
+      userId: decoded.userId || decoded.id || decoded._id,
+    };
+
+    if (!normalizedUser.id) {
+      return next(new Error('Authentication error: Invalid token payload'));
+    }
+
+    socket.user = normalizedUser;
+    socket.data = socket.data || {};
+    socket.data.user = normalizedUser;
     
     logger.debug(`Socket authenticated: ${socket.user.id}`);
     next();
@@ -117,7 +155,10 @@ const optionalAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
+      const token = normalizeToken(authHeader.split(' ')[1]);
+      if (!token) {
+        return next();
+      }
       
       try {
         const decoded = jwt.verify(token, JWT_SECRET);

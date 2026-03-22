@@ -1,20 +1,25 @@
-# 1️⃣ Base image
-FROM node:18
+# 1️⃣ Base image (mediasoup yêu cầu Node >= 22)
+FROM node:22-bullseye
 
 # 2️⃣ Set working dir
 WORKDIR /app
 
-# 3️⃣ Copy dependency files
+# 3️⃣ Build tools cho mediasoup worker fallback compile
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+# 4️⃣ Copy dependency files
 COPY package*.json ./
 
-# 4️⃣ Cài dependencies (và nodemon để dev mode dùng được)
+# 5️⃣ Cài dependencies (và nodemon để dev mode dùng được)
 RUN npm install && npm install -g nodemon
 
-# 5️⃣ Copy toàn bộ code
+# 6️⃣ Copy toàn bộ code
 COPY . .
 
-# 6️⃣ Mở cổng app
+# 7️⃣ Mở cổng app
 EXPOSE 3005
 
-# 7️⃣ Default command (dùng cho production)
+# 8️⃣ Default command (dùng cho production)
 CMD ["node", "src/server.js"]

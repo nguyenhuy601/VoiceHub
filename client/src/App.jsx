@@ -6,7 +6,7 @@ import { lazy, Suspense } from 'react';
 // Import Route và Routes từ react-router-dom để quản lý điều hướng
 // Routes: container chứa tất cả các route
 // Route: định nghĩa từng đường dẫn và component tương ứng
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 
 // Import ProtectedRoute để bảo vệ routes cần đăng nhập
 import ProtectedRoute from './components/ProtectedRoute';
@@ -48,22 +48,12 @@ const OrgChatPage = lazy(() => import('./pages/Chat/OrgChatPage'));
 // Kết nối với WebRTC để gọi voice, sử dụng simple-peer
 const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
 
-// Lazy load trang quản lý task - kết nối task-service
-const TasksPage = lazy(() => import('./pages/Tasks/TasksPage'));
-
 // Lazy load trang profile cá nhân - hiển thị thông tin user
 const ProfilePage = lazy(() => import('./pages/Profile/ProfilePage'));
 
 // Lazy load trang tổ chức - quản lý organizations
 // Kết nối với organization-service
 const OrganizationsPage = lazy(() => import('./pages/Organization/OrganizationsPage'));
-
-// Lazy load trang bạn bè - quản lý friend list
-// Kết nối với friend-service để add/remove friends
-const FriendsPage = lazy(() => import('./pages/Friends/FriendsPage'));
-
-// Lazy load trang documents - quản lý file và tài liệu
-const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 
 // Lazy load trang thông báo - hiển thị notifications realtime
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
@@ -173,6 +163,11 @@ function App() {
         {/* VD: /voice/room123 → roomId = "room123" */}
         {/* Sử dụng WebRTC peer-to-peer để gọi voice */}
         {/* Guest KHÔNG được truy cập */}
+        <Route path="/voice" element={
+          <ProtectedRoute>
+            <VoiceRoomPage />
+          </ProtectedRoute>
+        } />
         <Route path="/voice/:roomId" element={
           <ProtectedRoute>
             <VoiceRoomPage />
@@ -180,11 +175,9 @@ function App() {
         } />
         
         {/* Tasks - quản lý công việc */}
-        {/* Kết nối task-service qua api-gateway */}
+        {/* Tạm khóa giao diện tasks */}
         <Route path="/tasks" element={
-          <ProtectedRoute>
-            <TasksPage />
-          </ProtectedRoute>
+          <Navigate to="/dashboard" replace />
         } />
         
         {/* Profile - thông tin cá nhân */}
@@ -204,20 +197,15 @@ function App() {
           </ProtectedRoute>
         } />
         
-        {/* Friends - danh sách bạn bè */}
-        {/* Add/remove friends qua friend-service */}
+        {/* Friends - tạm khóa giao diện riêng, gom vào trang Tin nhắn */}
         <Route path="/friends" element={
-          <ProtectedRoute>
-            <FriendsPage />
-          </ProtectedRoute>
+          <Navigate to="/chat/friends" replace />
         } />
         
         {/* Documents - quản lý tài liệu */}
-        {/* Upload/download files, preview documents */}
+        {/* Tạm khóa giao diện documents */}
         <Route path="/documents" element={
-          <ProtectedRoute>
-            <DocumentsPage />
-          </ProtectedRoute>
+          <Navigate to="/dashboard" replace />
         } />
         
         {/* Notifications - thông báo */}
@@ -237,11 +225,9 @@ function App() {
         } />
         
         {/* Analytics - thống kê */}
-        {/* Charts, graphs, metrics */}
+        {/* Tạm khóa giao diện analytics */}
         <Route path="/analytics" element={
-          <ProtectedRoute>
-            <AnalyticsPage />
-          </ProtectedRoute>
+          <Navigate to="/dashboard" replace />
         } />
         
         {/* Settings - cài đặt */}

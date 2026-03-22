@@ -1,8 +1,13 @@
 require('dotenv').config();
+const http = require('http');
+const { Server } = require('socket.io');
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, logger } = require('/shared');
+const roomManager = require('./sfu/roomManager');
+const registerVoiceNamespace = require('./socket/voice.namespace');
 
 const PORT = process.env.PORT || 3005;
+const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
 // Kết nối MongoDB
 connectDB()
@@ -10,20 +15,37 @@ connectDB()
     // Kết nối Redis
     connectRedis();
 
-    // Khởi động server
-    app.listen(PORT, () => {
+    return roomManager.init();
+  })
+  .then(() => {
+    const server = http.createServer(app);
+    const io = new Server(server, {
+      cors: {
+        origin: (process.env.CORS_ORIGIN || '*')
+          .split(',')
+          .map((item) => item.trim()),
+        credentials: true,
+      },
+      path: VOICE_SIGNAL_PATH,
+      transports: ['websocket', 'polling'],
+    });
+
+    registerVoiceNamespace(io);
+
+    // Khởi động server HTTP + WS
+    server.listen(PORT, () => {
       logger.info(`Voice Service đang chạy trên cổng ${PORT}`);
+      logger.info(`Voice signaling path: ${VOICE_SIGNAL_PATH}, namespace: /voice`);
+    });
+
+    process.on('SIGTERM', async () => {
+      logger.info('SIGTERM signal received: closing HTTP server');
+      await disconnectDB();
+      server.close(() => process.exit(0));
     });
   })
   .catch((error) => {
     logger.error('Failed to start server:', error);
     process.exit(1);
   });
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
-  await disconnectDB();
-  process.exit(0);
-});
 

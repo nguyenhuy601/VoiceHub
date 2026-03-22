@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const { mongoose } = require('/shared/config/mongo');
 
 const membershipSchema = new mongoose.Schema(
   {
@@ -14,8 +14,8 @@ const membershipSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['org_admin', 'department_head', 'team_leader', 'employee'],
-      default: 'employee',
+      enum: ['owner', 'admin', 'member'],
+      default: 'member',
     },
     department: {
       type: mongoose.Schema.Types.ObjectId,
@@ -24,7 +24,7 @@ const membershipSchema = new mongoose.Schema(
     },
     team: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Team',
+      ref: 'Channel',
       default: null,
     },
     joinedAt: {
@@ -36,6 +36,11 @@ const membershipSchema = new mongoose.Schema(
       enum: ['pending', 'active', 'suspended'],
       default: 'active',
     },
+    invitedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -44,5 +49,20 @@ const membershipSchema = new mongoose.Schema(
 
 // Compound index for unique user-organization pair
 membershipSchema.index({ user: 1, organization: 1 }, { unique: true });
+membershipSchema.index({ organization: 1, role: 1, status: 1 });
+
+membershipSchema.statics.normalizeRole = (role) => {
+  const roleMap = {
+    owner: 'owner',
+    admin: 'admin',
+    member: 'member',
+    org_admin: 'admin',
+    department_head: 'admin',
+    team_leader: 'member',
+    employee: 'member',
+  };
+
+  return roleMap[role] || 'member';
+};
 
 module.exports = mongoose.model('Membership', membershipSchema);

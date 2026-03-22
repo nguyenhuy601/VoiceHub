@@ -59,15 +59,10 @@ const NavigationSidebar = () => {
   const navItems = [
     { icon: '📊', label: 'Bảng Điều Khiển', tooltip: 'Bảng điều khiển', path: '/dashboard', badge: '5' },
     { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
-    { icon: '🏢', label: 'Chat doanh nghiệp', tooltip: 'Chat doanh nghiệp', path: '/chat/organization', badge: null },
-    { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice/room1', badge: null },
-    { icon: '✅', label: 'Công Việc', tooltip: 'Công việc', path: '/tasks', badge: '3' },
+    { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice', badge: null },
     { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
-    { icon: '👥', label: 'Liên Hệ', tooltip: 'Bạn bè', path: '/friends', badge: '2' },
-    { icon: '📁', label: 'Tài Liệu', tooltip: 'Tài liệu', path: '/documents', badge: null },
     { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: '8' },
     { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
-    { icon: '📈', label: 'Phân Tích', tooltip: 'Phân tích', path: '/analytics', badge: null },
     { icon: '⚙️', label: 'Cài Đặt', tooltip: 'Cài đặt', path: '/settings', badge: null },
   ];
 
@@ -126,13 +121,13 @@ const NavigationSidebar = () => {
   return (
     <>
       {/* overflow-x-visible để tooltip bong bóng bên phải icon không bị cắt */}
-      <div className="w-[72px] shrink-0 glass-strong border-r border-white/10 h-screen overflow-y-hidden overflow-x-visible flex flex-col flex-shrink-0">
+      <div className="w-14 sm:w-16 md:w-[68px] shrink-0 glass-strong border-r border-white/10 h-screen overflow-y-hidden overflow-x-visible flex flex-col flex-shrink-0">
         {/* Một khối cuộn duy nhất: từ icon WebHub (VoiceHub) tới nút Đăng xuất — thanh trượt chạy suốt chiều cao */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay flex flex-col items-center py-4 gap-1">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay flex flex-col items-center py-3 gap-1">
           {/* Logo WebHub (không cần bong bóng tooltip) */}
           <Link
             to="/dashboard"
-            className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl shrink-0"
+            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl sm:text-2xl shrink-0"
           >
             🚀
           </Link>
@@ -147,7 +142,7 @@ const NavigationSidebar = () => {
               <Tooltip key={idx} label={item.tooltip ?? item.label}>
                 <Link
                   to={item.path}
-                  className={`relative w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 transition-all duration-200 ${
+                  className={`relative w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl shrink-0 transition-all duration-200 ${
                     isActivePath(item.path)
                       ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg'
                       : 'hover:bg-white/10'
@@ -169,18 +164,18 @@ const NavigationSidebar = () => {
             <button
               type="button"
               onClick={toggleTheme}
-              className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center text-xl shrink-0"
+              className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl hover:bg-white/10 flex items-center justify-center text-lg sm:text-xl shrink-0"
             >
               {isDarkMode ? '🌙' : '☀️'}
             </button>
           </Tooltip>
 
           {/* Avatar xuống cuối (vị trí cũ của đăng xuất) */}
-          <div className="mt-2 relative w-full flex justify-center">
+          <div className="mt-auto pt-2 relative w-full flex justify-center">
             <button
               type="button"
               onClick={() => setProfileOpen((p) => !p)}
-              className="w-12 h-12 rounded-xl hover:bg-white/10 flex items-center justify-center shrink-0"
+              className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl hover:bg-white/10 flex items-center justify-center shrink-0"
               title={displayName || user?.email || 'Tài khoản'}
             >
               <Avatar user={user} size="sm" online className="shrink-0" />

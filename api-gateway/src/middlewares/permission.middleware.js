@@ -31,6 +31,26 @@ const permissionMiddleware = async (req, res, next) => {
       console.warn(`No action mapping for ${req.method} ${req.path}`);
       return next();
     }
+
+    // Organization permissions được kiểm tra tại organization-service theo membership thực tế.
+    // Bỏ qua check role-service ở gateway để tránh false deny do khác ngữ cảnh serverId.
+    if (action.startsWith('organization:')) {
+      return next();
+    }
+
+    // Voice/WebRTC MVP hiện chưa gắn role-context theo organization/server cho từng event.
+    // Cho phép gateway bỏ qua permission check để tránh chặn bootstrap/join room.
+    if (action.startsWith('voice:')) {
+      return next();
+    }
+
+    const pathWithoutQuery = req.path.split('?')[0];
+    const isOrganizationGlobalRoute =
+      (req.method === 'GET' && pathWithoutQuery === '/api/organizations/my') ||
+      (req.method === 'POST' && pathWithoutQuery === '/api/organizations');
+    if (isOrganizationGlobalRoute) {
+      return next();
+    }
     
     // Extract serverId từ request
     const serverId = extractServerId(req);
