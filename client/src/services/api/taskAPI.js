@@ -1,10 +1,19 @@
 import apiClient from './apiClient';
 
+function buildQueryParams(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v != null && v !== '') params.set(k, String(v));
+  });
+  return params;
+}
+
 export const taskAPI = {
-  // Get all tasks
-  getTasks: (organizationId, filters = {}) => {
-    const params = new URLSearchParams({ organizationId, ...filters });
-    return apiClient.get(`/tasks?${params}`);
+  // Get all tasks — truyền object: { organizationId?, dueFrom?, dueTo?, status?, ... }
+  getTasks: (filters = {}) => {
+    const params = buildQueryParams(filters);
+    const q = params.toString();
+    return apiClient.get(q ? `/tasks?${q}` : '/tasks');
   },
 
   // Create new task
@@ -39,6 +48,9 @@ export const taskAPI = {
 
   // Get task statistics
   getStatistics: (organizationId) => {
-    return apiClient.get(`/tasks/statistics?organizationId=${organizationId}`);
-  }
+    if (organizationId == null || organizationId === '') {
+      return apiClient.get('/tasks/statistics');
+    }
+    return apiClient.get(`/tasks/statistics?organizationId=${encodeURIComponent(organizationId)}`);
+  },
 };

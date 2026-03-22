@@ -4,7 +4,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
+import friendService from '../../services/friendService';
 import Avatar from '../ui/Avatar';
+import NotificationBellBadge from '../Shared/NotificationBellBadge';
 import { getUserDisplayName } from '../../utils/helpers';
 import ProfileModal from '../Profile/ProfileModal';
 
@@ -17,10 +19,50 @@ const NavigationSidebar = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [togglingInvisible, setTogglingInvisible] = useState(false);
+  /** Mặc định thu gọn; hover vào vạch trái để mở full */
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  /** Badge chuông: lời mời kết bạn chờ + thông báo chưa đọc */
+  const [bellBadgeCount, setBellBadgeCount] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBellBadge = async () => {
+      try {
+        const [frRes, ntRes] = await Promise.allSettled([
+          friendService.getPendingRequests(),
+          api.get('/notifications', { params: { limit: 1 } }),
+        ]);
+        let pending = 0;
+        if (frRes.status === 'fulfilled') {
+          const r = frRes.value;
+          const list = Array.isArray(r?.data?.data)
+            ? r.data.data
+            : Array.isArray(r?.data)
+              ? r.data
+              : [];
+          pending = list.length;
+        }
+        let unread = 0;
+        if (ntRes.status === 'fulfilled') {
+          const d = ntRes.value?.data?.data ?? ntRes.value?.data;
+          unread = Number(d?.unreadCount) || 0;
+        }
+        if (!cancelled) setBellBadgeCount(pending + unread);
+      } catch {
+        if (!cancelled) setBellBadgeCount(0);
+      }
+    };
+    loadBellBadge();
+    const t = setInterval(loadBellBadge, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   const currentTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -82,9 +124,8 @@ const NavigationSidebar = () => {
     { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
     { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice', badge: null },
     { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
-    { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: '8' },
+    { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: null, bellBadge: true },
     { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
-    { icon: '⚙️', label: 'Cài Đặt', tooltip: 'Cài đặt', path: '/settings', badge: null },
   ];
 
   const isActivePath = (path) => {
@@ -141,8 +182,16 @@ const NavigationSidebar = () => {
 
   return (
     <>
-      {/* overflow-x-visible để tooltip bong bóng bên phải icon không bị cắt */}
-      <div className="w-14 sm:w-16 md:w-[68px] shrink-0 glass-strong border-r border-white/10 h-screen overflow-y-hidden overflow-x-visible flex flex-col flex-shrink-0">
+      {/* Mặc định thu ~8px; hover để mở full — overflow-x-visible để tooltip không bị cắt */}
+      <div
+        className={`relative h-screen shrink-0 overflow-hidden border-r border-white/10 transition-[width] duration-300 ease-out flex flex-col ${
+          sidebarExpanded ? 'w-14 sm:w-16 md:w-[68px]' : 'w-2'
+        }`}
+        onMouseEnter={() => setSidebarExpanded(true)}
+        onMouseLeave={() => setSidebarExpanded(false)}
+        title={sidebarExpanded ? undefined : 'Đưa chuột vào để mở menu'}
+      >
+        <div className="flex h-full w-14 sm:w-16 md:w-[68px] min-w-[56px] shrink-0 glass-strong flex-col overflow-y-hidden overflow-x-visible">
         {/* Một khối cuộn duy nhất: từ icon WebHub (VoiceHub) tới nút Đăng xuất — thanh trượt chạy suốt chiều cao */}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay flex flex-col items-center py-3 gap-1">
           {/* Logo WebHub (không cần bong bóng tooltip) */}
@@ -163,17 +212,36 @@ const NavigationSidebar = () => {
               <Tooltip key={idx} label={item.tooltip ?? item.label}>
                 <Link
                   to={item.path}
-                  className={`relative w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl shrink-0 transition-all duration-200 ${
-                    isActivePath(item.path)
-                      ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg'
-                      : 'hover:bg-white/10'
+                  className={`relative flex items-center justify-center shrink-0 transition-all duration-200 rounded-xl ${
+                    item.bellBadge
+                      ? isActivePath(item.path)
+                        ? 'ring-2 ring-purple-500/80 ring-offset-2 ring-offset-transparent'
+                        : ''
+                      : `w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 ${
+                          isActivePath(item.path)
+                            ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg'
+                            : 'hover:bg-white/10'
+                        } text-xl sm:text-2xl`
                   }`}
                 >
-                  {item.icon}
-                  {item.badge && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
-                      {item.badge}
-                    </span>
+                  {item.bellBadge ? (
+                    <NotificationBellBadge
+                      count={bellBadgeCount}
+                      className={
+                        isActivePath(item.path)
+                          ? 'ring-2 ring-white/30 shadow-lg'
+                          : 'opacity-95 hover:opacity-100'
+                      }
+                    />
+                  ) : (
+                    <>
+                      <span>{item.icon}</span>
+                      {item.badge != null && item.badge !== '' && (
+                        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
+                          {item.badge}
+                        </span>
+                      )}
+                    </>
                   )}
                 </Link>
               </Tooltip>
@@ -202,6 +270,7 @@ const NavigationSidebar = () => {
               <Avatar user={user} size="sm" online={isOnline} className="shrink-0" />
             </button>
           </div>
+        </div>
         </div>
       </div>
 

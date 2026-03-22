@@ -77,6 +77,8 @@ services:
       - "3004:3004"
     env_file:
       - ./services/user-service/.env
+    environment:
+      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN:-dev-user-internal-presence-token-change-me}
     depends_on:
       - mongodb
       - redis
@@ -115,11 +117,15 @@ services:
       - ./services/friend-service/.env
     environment:
       - AUTH_SERVICE_URL=http://auth-service:3001
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      # Cùng giá trị với chat-service CHAT_INTERNAL_TOKEN (xóa DM khi hủy kết bạn)
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
     depends_on:
       - mongodb
       - redis
       - auth-service
       - user-service
+      - chat-service
     networks:
       - enterprise-network
     volumes:
@@ -154,6 +160,8 @@ services:
       - "3006:3006"
     env_file:
       - ./services/chat-service/.env
+    environment:
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
     depends_on:
       - mongodb
       - redis
@@ -265,9 +273,13 @@ services:
       - "3017"
     env_file:
       - ./services/socket-service/.env
+    environment:
+      - USER_SERVICE_URL=http://user-service:3004
+      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN:-dev-user-internal-presence-token-change-me}
     depends_on:
       - chat-service
       - auth-service
+      - user-service
     networks:
       - enterprise-network
     volumes:

@@ -13,7 +13,9 @@ export const roleAPI = {
      Return: [{ id, name, permissions, members, color, icon, ... }]
   */
   getRolesByOrganization: (organizationId) => {
-    return apiClient.get(`/roles?organizationId=${organizationId}`);
+    const id = encodeURIComponent(organizationId);
+    // Backend: GET /api/roles/server/:serverId (organizationId thường trùng server context)
+    return apiClient.get(`/roles/server/${id}`);
   },
 
   /* ----- GET ROLES BY SERVER -----

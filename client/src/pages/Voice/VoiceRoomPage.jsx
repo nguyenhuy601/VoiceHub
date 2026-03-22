@@ -2,9 +2,57 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
+import {
+  ChevronUp,
+  Heart,
+  MessageSquare,
+  Mic,
+  MicOff,
+  MoreHorizontal,
+  Share2,
+  Users,
+  Video,
+  VideoOff,
+  X,
+} from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import apiClient from '../../services/api/apiClient';
 import { useAuth } from '../../context/AuthContext';
+
+/** Nút thanh họp: icon + (badge) + chevron + nhãn — tham chiếu layout Zoom/Teams (hình 1) */
+function VoiceToolbarControl({
+  label,
+  icon: Icon,
+  iconOff,
+  onClick,
+  chevron = true,
+  badge,
+  active = true,
+}) {
+  const OffIcon = iconOff || Icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex min-w-[56px] flex-col items-center gap-1 rounded-lg px-1.5 py-1 text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
+    >
+      <div className="flex items-center justify-center gap-0.5">
+        {active ? (
+          <Icon className="h-6 w-6 shrink-0 text-white" strokeWidth={1.75} />
+        ) : (
+          <OffIcon className="h-6 w-6 shrink-0 text-red-400" strokeWidth={1.75} />
+        )}
+        {badge != null && (
+          <span className="text-xs font-semibold tabular-nums text-white/90">{badge}</span>
+        )}
+        {chevron && <ChevronUp className="h-3 w-3 shrink-0 text-white/40" aria-hidden />}
+      </div>
+      <span className="max-w-[72px] text-center text-[11px] leading-tight text-white/60 group-hover:text-white/85">
+        {label}
+      </span>
+    </button>
+  );
+}
 
 const getSignalBaseUrl = () => {
   const explicit = import.meta.env.VITE_VOICE_SIGNAL_URL;
@@ -166,8 +214,23 @@ function VoiceRoomPage() {
     setParticipants((prev) => prev.filter((item) => item.socketId !== socketId));
   };
 
-  const stopPrejoinPreview = () => {
+  /**
+   * Gỡ preview trước khi vào phòng.
+   * @param {{ keepStreamForRoom?: boolean }} opts — nếu true: stream đã chuyển sang `mediasoupRef.localStream`,
+   *   KHÔNG được stop track (nếu stop sẽ làm mất hình trong phòng và hỏng producer).
+   */
+  const stopPrejoinPreview = (opts = {}) => {
+    const { keepStreamForRoom = false } = opts;
     if (prejoinStreamRef.current) {
+      const sameAsRoom =
+        keepStreamForRoom && mediasoupRef.current.localStream === prejoinStreamRef.current;
+      if (sameAsRoom) {
+        if (prejoinVideoRef.current) {
+          prejoinVideoRef.current.srcObject = null;
+        }
+        prejoinStreamRef.current = null;
+        return;
+      }
       prejoinStreamRef.current.getTracks().forEach((track) => track.stop());
       prejoinStreamRef.current = null;
     }
@@ -328,9 +391,7 @@ function VoiceRoomPage() {
         }
       }
       mediasoupRef.current.localStream = localStream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream;
-      }
+      // localVideoRef chỉ mount khi viewStage === 'inRoom' — gán srcObject trong ref callback / useEffect
       setHasLocalVideoTrack(localStream.getVideoTracks().length > 0);
 
       startAudioLevelMonitor('local', localStream, (speaking) => {
@@ -460,7 +521,7 @@ function VoiceRoomPage() {
       setIsMuted(!audioTrack);
       setIsCameraOff(!videoTrack);
       setViewStage('inRoom');
-      stopPrejoinPreview();
+      stopPrejoinPreview({ keepStreamForRoom: true });
     } catch (initError) {
       console.error(initError);
       setError(initError.message || 'Khong the ket noi room');
@@ -647,6 +708,21 @@ function VoiceRoomPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewStage, prejoinAudioEnabled, prejoinVideoEnabled]);
+
+  /** Đảm bảo gán lại stream sau khi vào phòng (ref mount / StrictMode / re-render). */
+  useEffect(() => {
+    if (viewStage !== 'inRoom') return;
+    if (!hasLocalVideoTrack || isCameraOff) return;
+    const stream = mediasoupRef.current.localStream;
+    const el = localVideoRef.current;
+    if (!stream || !el) return;
+    const live = stream.getVideoTracks().some((t) => t.readyState === 'live');
+    if (!live) return;
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play?.().catch(() => {});
+    }
+  }, [viewStage, hasLocalVideoTrack, isCameraOff, joining]);
 
   const handleNewMeeting = () => {
     const generated = generateMeetingCode();
@@ -835,7 +911,7 @@ function VoiceRoomPage() {
               {error && <div className="text-xs text-red-300">{error}</div>}
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
               {joining && (
                 <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-gray-300">Đang kết nối phòng...</div>
               )}
@@ -849,7 +925,20 @@ function VoiceRoomPage() {
                   } bg-black/30`}
                 >
                   {hasLocalVideoTrack && !isCameraOff ? (
-                    <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                    <video
+                      ref={(node) => {
+                        localVideoRef.current = node;
+                        const stream = mediasoupRef.current.localStream;
+                        if (node && stream && node.srcObject !== stream) {
+                          node.srcObject = stream;
+                          node.play?.().catch(() => {});
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-900/70">
                       <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center overflow-hidden">
@@ -904,32 +993,81 @@ function VoiceRoomPage() {
               </div>
             </div>
 
-            <div className="p-5 border-t border-white/10 glass-strong flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={toggleMute}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-                  isMuted ? 'bg-red-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'
-                }`}
-              >
-                {isMuted ? 'Bật mic' : 'Tắt mic'}
-              </button>
-              <button
-                type="button"
-                onClick={toggleCamera}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-                  isCameraOff ? 'bg-red-600' : 'bg-gradient-to-r from-blue-600 to-cyan-600'
-                }`}
-              >
-                {isCameraOff ? 'Bật camera' : 'Tắt camera'}
-              </button>
-              <button
-                type="button"
-                onClick={leaveRoom}
-                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Rời phòng
-              </button>
+            {/* Thanh điều khiển dạng meeting bar (tham chiếu hình 1): trái — Âm thanh/Video; giữa — Thành viên & công cụ; phải — Kết thúc */}
+            <div className="shrink-0 border-t border-white/10 bg-black px-3 py-3 sm:px-6">
+              <div className="mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-2 gap-y-3">
+                <div className="flex items-end gap-1 sm:gap-4">
+                  <VoiceToolbarControl
+                    label="Âm thanh"
+                    icon={Mic}
+                    iconOff={MicOff}
+                    active={!isMuted}
+                    onClick={toggleMute}
+                    chevron
+                  />
+                  <VoiceToolbarControl
+                    label="Video"
+                    icon={Video}
+                    iconOff={VideoOff}
+                    active={!isCameraOff}
+                    onClick={toggleCamera}
+                    chevron
+                  />
+                </div>
+
+                <div className="flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-3 md:gap-5">
+                  <VoiceToolbarControl
+                    label="Thành viên"
+                    icon={Users}
+                    badge={totalParticipants}
+                    onClick={() => toast(`${totalParticipants} người trong phòng`, { icon: '👥' })}
+                    chevron
+                  />
+                  <VoiceToolbarControl
+                    label="Cảm xúc"
+                    icon={Heart}
+                    onClick={() => toast('Biểu cảm — sắp có', { icon: '❤️' })}
+                    chevron
+                  />
+                  <VoiceToolbarControl
+                    label="Chat"
+                    icon={MessageSquare}
+                    onClick={() => toast('Chat phòng — sắp có', { icon: '💬' })}
+                    chevron
+                  />
+                  <VoiceToolbarControl
+                    label="Chia sẻ"
+                    icon={Share2}
+                    onClick={() => toast('Chia sẻ màn hình — sắp có', { icon: '🖥️' })}
+                    chevron
+                  />
+                  <VoiceToolbarControl
+                    label="Thêm"
+                    icon={MoreHorizontal}
+                    onClick={() => toast('Thêm tùy chọn — sắp có', { icon: '⋯' })}
+                    chevron={false}
+                  />
+                </div>
+
+                <div className="flex items-end pl-2">
+                  <button
+                    type="button"
+                    onClick={leaveRoom}
+                    className="group flex flex-col items-center gap-1 rounded-lg px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
+                    title="Rời phòng / Kết thúc cuộc gọi"
+                  >
+                    <div
+                      className="flex h-11 w-11 items-center justify-center bg-gradient-to-br from-rose-500 to-pink-600 shadow-lg transition group-hover:from-rose-600 group-hover:to-pink-700"
+                      style={{
+                        clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%)',
+                      }}
+                    >
+                      <X className="h-5 w-5 text-white" strokeWidth={2.5} aria-hidden />
+                    </div>
+                    <span className="text-[11px] text-white/60 group-hover:text-white/85">Kết thúc</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </>
         )}

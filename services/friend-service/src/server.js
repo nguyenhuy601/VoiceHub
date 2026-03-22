@@ -1,4 +1,6 @@
-require('dotenv').config();
+const path = require('path');
+// Luôn đọc .env trong thư mục service (kể cả khi chạy từ thư mục khác)
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, logger } = require('/shared');
 

@@ -3,7 +3,33 @@ const { emitToRoom, emitToUser } = require('./realtimeHub');
 
 // URL nội bộ tới chat-service trong docker-compose
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://chat-service:3006';
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
+const USER_SERVICE_INTERNAL_TOKEN = process.env.USER_SERVICE_INTERNAL_TOKEN || '';
+
 const onlineUserSockets = new Map();
+
+/**
+ * Đồng bộ presence lên user-service (online / offline).
+ * Cần USER_SERVICE_INTERNAL_TOKEN trùng với user-service.
+ */
+async function syncPresenceUserStatus(userId, status) {
+  if (!USER_SERVICE_INTERNAL_TOKEN || !userId) return;
+  try {
+    await axios.patch(
+      `${USER_SERVICE_URL}/api/users/internal/status`,
+      { userId: String(userId), status },
+      {
+        headers: { 'x-internal-token': USER_SERVICE_INTERNAL_TOKEN },
+        timeout: 8000,
+      }
+    );
+  } catch (err) {
+    console.error(
+      `[socket-service] syncPresenceUserStatus ${status} failed for ${userId}:`,
+      err.response?.data?.message || err.message
+    );
+  }
+}
 
 const normalizeToken = (rawToken) => {
   if (!rawToken) return null;
@@ -28,11 +54,16 @@ module.exports = function registerChatNamespace(io) {
 
     // Join room theo userId để hỗ trợ DM
     if (userId) {
-      socket.join(`user:${userId}`);
-      const current = onlineUserSockets.get(String(userId)) || 0;
-      onlineUserSockets.set(String(userId), current + 1);
-      io.emit('user:connected', String(userId));
+      const key = String(userId);
+      socket.join(`user:${key}`);
+      const prevCount = onlineUserSockets.get(key) || 0;
+      onlineUserSockets.set(key, prevCount + 1);
+      io.emit('user:connected', key);
       io.emit('users:online', Array.from(onlineUserSockets.keys()));
+      // Kết nối socket đầu tiên → online trong DB
+      if (prevCount === 0) {
+        syncPresenceUserStatus(key, 'online');
+      }
     }
 
     // ====== FRIEND DM: gửi tin nhắn ======
@@ -97,6 +128,8 @@ module.exports = function registerChatNamespace(io) {
         if (current <= 1) {
           onlineUserSockets.delete(key);
           io.emit('user:disconnected', key);
+          // Hết socket (đóng app / mất mạng) → offline trong DB
+          syncPresenceUserStatus(key, 'offline');
         } else {
           onlineUserSockets.set(key, current - 1);
         }

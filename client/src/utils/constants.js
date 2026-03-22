@@ -50,7 +50,7 @@ export const USER_STATUS = {
 };
 
 export const USER_STATUS_NAMES = {
-  [USER_STATUS.ONLINE]: 'Trực tuyến',
+  [USER_STATUS.ONLINE]: 'Đang làm việc',
   [USER_STATUS.OFFLINE]: 'Ngoại tuyến',
   [USER_STATUS.AWAY]: 'Vắng mặt',
   [USER_STATUS.BUSY]: 'Bận',

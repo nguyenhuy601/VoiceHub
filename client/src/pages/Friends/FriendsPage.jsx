@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton, Toast } from '../../components/Shared';
 import friendService from '../../services/friendService';
+import { markFriendNotificationsResolved } from '../../services/notificationSync';
 
 function FriendsPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('all');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() =>
+    searchParams.get('tab') === 'requests' ? 'requests' : 'all'
+  );
   const [toast, setToast] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -68,6 +72,11 @@ function FriendsPage() {
   }, []);
 
   useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'requests') setActiveTab('requests');
+  }, [searchParams]);
+
+  useEffect(() => {
     if (activeTab === 'requests') loadPendingRequests();
   }, [activeTab, loadPendingRequests]);
 
@@ -95,6 +104,7 @@ function FriendsPage() {
     if (!id) return;
     try {
       await friendService.acceptRequest(id);
+      await markFriendNotificationsResolved(id);
       showToast('Đã chấp nhận lời mời', 'success');
       loadPendingRequests();
     } catch (err) {
@@ -107,6 +117,7 @@ function FriendsPage() {
     if (!id) return;
     try {
       await friendService.rejectRequest(id);
+      await markFriendNotificationsResolved(id);
       showToast('Đã từ chối', 'success');
       loadPendingRequests();
     } catch (err) {

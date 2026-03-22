@@ -229,13 +229,14 @@ class MeetingService {
   // Lấy danh sách meetings
   async getMeetings(filter, options = {}) {
     try {
-      const { page = 1, limit = 50 } = options;
+      const { page = 1, limit = 50, sort: sortOption } = options;
+      const sort = sortOption || { startTime: -1 };
 
+      // Không populate hostId: voice-service không đăng ký model User — populate gây MissingSchemaError/500.
       const meetings = await Meeting.find(filter)
-        .populate('hostId', 'username displayName avatar')
         .limit(limit * 1)
         .skip((page - 1) * limit)
-        .sort({ startTime: -1 });
+        .sort(sort);
 
       const total = await Meeting.countDocuments(filter);
 

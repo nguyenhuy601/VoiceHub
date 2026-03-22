@@ -196,6 +196,11 @@ Muc tieu: ban mo ta dac ta API va service behavior dua tren bang nay la du.
   - status: scheduled/active/ended/cancelled
   - startTime, endTime
 
+### Query (GET /api/meetings) — calendar / list
+- `startFrom`, `startTo` (ISO): loc `startTime` trong khoang; bat buoc ca hai neu dung loc thoi gian.
+- Mac dinh chi tra meeting ma user la host hoac co trong `participants` (userId tu JWT / header gateway).
+- `status=cancelled` bi loai khoi list khi dung `startFrom`/`startTo` (calendar).
+
 ### Endpoints
 - POST /api/meetings
 - GET /api/meetings
@@ -223,6 +228,11 @@ Muc tieu: ban mo ta dac ta API va service behavior dua tren bang nay la du.
   - priority: low/medium/high/urgent
   - dueDate, completedAt
   - comments[]
+
+### Query (GET /api/tasks)
+- Filter thuong dung: `assigneeId`, `organizationId`, `status`, `priority`, `page`, `limit`.
+- **dueFrom**, **dueTo** (ISO): loc `dueDate` trong khoang (ca hai bat buoc neu truyen); toi da 180 ngay; sap xep theo `dueDate` tang dan khi dung loc nay.
+- User scope: gateway gui `x-user-id`; task cua user = assignee hoac creator.
 
 ### Endpoints
 - POST /api/tasks
@@ -279,6 +289,7 @@ Muc tieu: ban mo ta dac ta API va service behavior dua tren bang nay la du.
 - POST /api/notifications/bulk
 - GET /api/notifications
 - GET /api/notifications/user/:userId
+- PATCH /api/notifications/read-friend-related — body `{ counterpartyId }`: danh dau da doc thong bao `friend_request` / `friend_accepted` lien quan (sau accept/reject ket ban tren client)
 - PATCH /api/notifications/:notificationId/read
 - PATCH /api/notifications/read-all
 - DELETE /api/notifications/:notificationId

@@ -19,8 +19,10 @@ const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <h2 className="text-2xl font-bold text-gradient">{title}</h2>
           <button 
+            type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-xl hover:bg-white/10 transition-all flex items-center justify-center text-2xl"
+            className="w-10 h-10 rounded-xl hover:bg-white/10 transition-all flex items-center justify-center text-2xl text-white/90 hover:text-white"
+            aria-label="Đóng"
           >
             ✕
           </button>

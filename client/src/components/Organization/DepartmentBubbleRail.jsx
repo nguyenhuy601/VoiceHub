@@ -106,7 +106,7 @@ const DepartmentBubbleRail = ({
             }}
             className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
           >
-            Chinh sua to chuc
+            Cài đặt tổ chức
           </button>
           <button
             type="button"
@@ -116,7 +116,7 @@ const DepartmentBubbleRail = ({
             }}
             className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
           >
-            Moi tham gia to chuc
+            Mời tham gia tổ chức
           </button>
         </div>
       </>,
@@ -126,7 +126,7 @@ const DepartmentBubbleRail = ({
   return (
     <div className="h-full w-24 border-l border-white/10 bg-black/10 px-3 py-4">
       <div className="mb-4 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-        To chuc
+        Tổ chức
         {invitationCount > 0 && (
           <span className="ml-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-pink-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
             {invitationCount}

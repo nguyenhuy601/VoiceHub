@@ -4,6 +4,8 @@ const { getRedisClient, friendWebhook, logger, emitRealtimeEvent } = require('/s
 const axios = require('axios');
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
+const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://chat-service:3006';
+const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
@@ -443,6 +445,28 @@ class FriendService {
       }
 
       logger.info(`Friend removed: ${userId} <-> ${friendId}`);
+
+      // Xóa toàn bộ tin nhắn DM giữa hai người (chat-service)
+      if (CHAT_INTERNAL_TOKEN) {
+        try {
+          await axios.post(
+            `${CHAT_SERVICE_URL}/api/messages/internal/dm/delete-between`,
+            { userIdA: String(userId), userIdB: String(friendId) },
+            {
+              headers: { 'x-internal-token': CHAT_INTERNAL_TOKEN },
+              timeout: 20000,
+            }
+          );
+          logger.info(`DM messages purged for pair ${userId} <-> ${friendId}`);
+        } catch (chatErr) {
+          logger.warn(
+            `Could not purge DM messages after unfriend: ${chatErr.response?.data?.message || chatErr.message}`
+          );
+        }
+      } else {
+        logger.warn('CHAT_INTERNAL_TOKEN not set; DM messages are not deleted from database on unfriend');
+      }
+
       await emitRealtimeEvent({
         event: 'friend:removed',
         userIds: [String(userId), String(friendId)],

@@ -2,6 +2,13 @@ const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
 /**
+ * Lưu ý: trong mỗi microservice, model/controller PHẢI dùng cùng `mongoose` với module này
+ * (ví dụ `src/db.js` re-export `require('../../../shared/config/mongo').mongoose`).
+ * `require('mongoose')` trực tiếp trong service dùng bản từ `service/node_modules` → khác singleton
+ * → kết nối từ connectDB() không áp dụng → lỗi buffering timed out.
+ */
+
+/**
  * Kết nối MongoDB
  * @param {string} mongoUri - MongoDB connection string
  * @param {Object} options - Mongoose connection options
@@ -65,7 +72,12 @@ const connectDB = async (mongoUri = null, options = {}) => {
       logger.error('MongoDB ping failed:', error);
       throw error;
     }
-    
+
+    // Sau khi đã kết nối thật: không xếp hàng lệnh khi mất kết nối (tránh lỗi khó hiểu
+    // "buffering timed out after 10000ms" — thay vào đó lỗi ngay nếu DB không sẵn sàng).
+    mongoose.set('bufferCommands', false);
+    logger.info('Mongoose bufferCommands=false (fail-fast khi Mongo không connected)');
+
     // Handle connection events
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);

@@ -117,6 +117,86 @@ class MessageService {
     }
   }
 
+  /**
+   * Tin nhắn gửi đến user (DM), không tính tin tự gửi; loại đã xóa/thu hồi.
+   */
+  async countIncomingMessagesInRange(userId, start, end) {
+    try {
+      await ensureMongoReady();
+      const uid = mongoose.Types.ObjectId.isValid(userId)
+        ? new mongoose.Types.ObjectId(String(userId))
+        : userId;
+
+      return Message.countDocuments({
+        receiverId: uid,
+        senderId: { $ne: uid },
+        createdAt: { $gte: start, $lt: end },
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+      });
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error counting incoming messages: ${err.message}`);
+    }
+  }
+
+  /** Số tin chưa đọc (gửi đến user). */
+  async countUnreadIncoming(userId) {
+    try {
+      await ensureMongoReady();
+      const uid = mongoose.Types.ObjectId.isValid(userId)
+        ? new mongoose.Types.ObjectId(String(userId))
+        : userId;
+
+      return Message.countDocuments({
+        receiverId: uid,
+        senderId: { $ne: uid },
+        isRead: false,
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+      });
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error counting unread messages: ${err.message}`);
+    }
+  }
+
+  /**
+   * Tin nhắn kênh tổ chức (có roomId + organizationId) chưa đọc, không phải do user gửi.
+   * Lưu ý: isRead hiện là cờ đơn (phù hợp DM); với kênh nhiều người có thể cần mở rộng sau.
+   */
+  async findUnreadOrgRoomMessages(userId, limit = 30) {
+    try {
+      await ensureMongoReady();
+      const uid = mongoose.Types.ObjectId.isValid(userId)
+        ? new mongoose.Types.ObjectId(String(userId))
+        : userId;
+
+      const cap = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
+
+      const messages = await Message.find({
+        roomId: { $exists: true, $ne: null },
+        organizationId: { $exists: true, $ne: null },
+        senderId: { $ne: uid },
+        isRead: false,
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+      })
+        .sort({ createdAt: -1 })
+        .limit(cap)
+        .exec();
+
+      for (const m of messages) {
+        await maybeMigrateMessageContent(m);
+      }
+
+      return messages.map((m) => toClientMessage(m));
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error listing unread org room messages: ${err.message}`);
+    }
+  }
+
   async getMessages(filter, options = {}) {
     try {
       await ensureMongoReady();
@@ -229,6 +309,41 @@ class MessageService {
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error recalling message: ${err.message}`);
+    }
+  }
+
+  /**
+   * Xóa hẳn tin nhắn DM (bạn bè) giữa hai user — không có roomId (không xóa tin kênh tổ chức).
+   * Dùng khi hủy kết bạn để gỡ nội dung hội thoại.
+   */
+  async deleteDirectMessagesBetweenUsers(userIdA, userIdB) {
+    try {
+      await ensureMongoReady();
+      const toOid = (id) =>
+        mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(String(id)) : id;
+      const a = toOid(userIdA);
+      const b = toOid(userIdB);
+
+      const filter = {
+        $and: [
+          {
+            $or: [
+              { senderId: a, receiverId: b },
+              { senderId: b, receiverId: a },
+            ],
+          },
+          {
+            $or: [{ roomId: { $exists: false } }, { roomId: null }],
+          },
+        ],
+      };
+
+      const result = await Message.deleteMany(filter);
+
+      return { deletedCount: result.deletedCount || 0 };
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error deleting DM messages: ${err.message}`);
     }
   }
 

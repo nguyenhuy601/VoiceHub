@@ -20,9 +20,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'notification-service' });
 });
 
-// Notification routes
+// Notification routes — userId từ header x-user-id (do API Gateway gắn sau JWT)
+const gatewayUserMiddleware = require('./middlewares/gatewayUser');
 const notificationRoutes = require('./routes/notification.routes');
-app.use('/api/notifications', notificationRoutes);
+app.use('/api/notifications', gatewayUserMiddleware, notificationRoutes);
 
 module.exports = app;
 
