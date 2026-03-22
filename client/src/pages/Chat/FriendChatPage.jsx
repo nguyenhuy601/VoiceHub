@@ -366,9 +366,9 @@ function FriendChatPage() {
           </div>
 
           <div className="space-y-1.5 pb-3">
-            {sidebarRecentFriends.map((f) => (
+            {sidebarRecentFriends.map((f, idx) => (
               <div
-                key={f.id}
+                key={`sidebar-${String(f.id || 'unknown')}-${idx}`}
                 onClick={() => setSelectedFriendId(f.id)}
                 className={`flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-slate-800/60 ${
                   selectedFriendId === f.id ? 'bg-slate-800/80 border border-slate-700' : 'border border-transparent'
@@ -462,9 +462,9 @@ function FriendChatPage() {
                 </h3>
 
                 <div className="space-y-1.5">
-                  {centerFriends.map((f) => (
+                  {centerFriends.map((f, idx) => (
                     <div
-                      key={`center-${f.id}`}
+                      key={`center-${String(f.id || 'unknown')}-${idx}`}
                       className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-900/35 hover:bg-slate-800/50 transition"
                     >
                       <div className="relative">
@@ -554,7 +554,7 @@ function FriendChatPage() {
                       const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                       return ta - tb;
                     })
-                    .map((m) => {
+                    .map((m, idx) => {
                     const rawSender = m.senderId?._id || m.senderId || '';
                     const senderId = String(rawSender);
                     const myId = currentUserId ? String(currentUserId) : null;
@@ -574,7 +574,7 @@ function FriendChatPage() {
 
                     return (
                       <div
-                        key={m._id || m.id}
+                        key={`msg-${String(m._id || m.id || 'unknown')}-${idx}`}
                         className={`flex items-start mb-1 ${isMine ? 'justify-end' : 'justify-start'}`}
                       >
                         {!isMine && (
@@ -624,10 +624,10 @@ function FriendChatPage() {
               Bạn bè hoạt động gần nhất
             </h3>
             <div className="mt-3 space-y-2">
-              {recentActiveFriends.map((f) => (
+              {recentActiveFriends.map((f, idx) => (
                 <button
                   type="button"
-                  key={`active-${f.id}`}
+                  key={`active-${String(f.id || 'unknown')}-${idx}`}
                   onClick={() => setSelectedFriendId(f.id)}
                   className="w-full flex items-center gap-3 p-2 rounded-xl bg-[#030d24] border border-slate-800 hover:bg-slate-800/60 text-left"
                 >
@@ -680,9 +680,9 @@ function FriendChatPage() {
 
           {friendModalTab === 'contacts' && (
             <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1 scrollbar-overlay">
-              {viewFriends.map((f) => (
+              {viewFriends.map((f, idx) => (
                 <button
-                  key={`contact-${f.id}`}
+                  key={`contact-${String(f.id || 'unknown')}-${idx}`}
                   type="button"
                   onClick={() => {
                     setSelectedFriendId(f.id);
@@ -712,7 +712,7 @@ function FriendChatPage() {
               {loadingRequests ? (
                 <div className="text-sm text-gray-400">Đang tải yêu cầu kết bạn...</div>
               ) : (
-                pendingRequests.map((request) => {
+                pendingRequests.map((request, idx) => {
                   const from = request.userId || request.from || request.requester;
                   const actionTargetId = from?._id || from?.id || request.userId || request.requester || request._id || request.id;
                   const requestId = request._id || request.id || actionTargetId;
@@ -720,7 +720,7 @@ function FriendChatPage() {
                   const avatar = from?.avatar || '👤';
                   return (
                     <div
-                      key={`req-${requestId}`}
+                      key={`req-${String(requestId || 'unknown')}-${idx}`}
                       className="w-full p-2.5 rounded-xl bg-[#030d24] border border-slate-800"
                     >
                       <div className="flex items-center gap-3">
