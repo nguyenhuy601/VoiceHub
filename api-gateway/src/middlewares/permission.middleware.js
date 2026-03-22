@@ -61,7 +61,9 @@ const permissionMiddleware = async (req, res, next) => {
     // Dựa cả vào action mapping và path thực tế để tránh lệch config
     const isMessagesPath =
       req.path.startsWith('/api/messages') ||
-      req.path.startsWith('/messages');
+      req.path.startsWith('/messages') ||
+      req.path.startsWith('/api/chat/messages') ||
+      req.path.startsWith('/chat/messages');
     const isChatRoute = action.startsWith('chat:') || isMessagesPath;
     const hasOrgOrServer =
       req.query?.organizationId ||

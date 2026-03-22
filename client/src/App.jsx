@@ -32,6 +32,18 @@ const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage'));
 // Lazy load trang xác thực email
 const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
 
+// Lazy load trang quên mật khẩu
+const ForgotPasswordPage = lazy(() => import('./pages/Auth/ForgotPasswordPage'));
+
+// Lazy load trang đặt lại mật khẩu
+const ResetPasswordPage = lazy(() => import('./pages/Auth/ResetPasswordPage'));
+
+// Lazy load trang điều khoản dịch vụ
+const TermsOfServicePage = lazy(() => import('./pages/Auth/TermsOfServicePage'));
+
+// Lazy load trang chính sách bảo mật
+const PrivacyPolicyPage = lazy(() => import('./pages/Auth/PrivacyPolicyPage'));
+
 // Lazy load dashboard - trang tổng quan sau khi đăng nhập
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage'));
 
@@ -126,6 +138,18 @@ function App() {
         {/* Route xác thực email - path "/verify-email?token=xxx" */}
         {/* VerifyEmailPage sẽ gọi authService.verifyEmail() → auth-service */}
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+
+        {/* Route quên mật khẩu */}
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+        {/* Route đặt lại mật khẩu qua token */}
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+        {/* Route điều khoản dịch vụ */}
+        <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+
+        {/* Route chính sách bảo mật */}
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
         {/* ===== PROTECTED ROUTES =====
             Cần đăng nhập mới truy cập được

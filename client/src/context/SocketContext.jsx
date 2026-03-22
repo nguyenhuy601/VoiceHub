@@ -52,6 +52,21 @@ export { useSocket };
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 const SOCKET_URL = `${SOCKET_BASE_URL}/chat`;
 
+const normalizeToken = (rawToken) => {
+  if (!rawToken) return null;
+  let token = String(rawToken).trim();
+  if (!token) return null;
+  if (token.startsWith('Bearer ')) token = token.slice(7).trim();
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+  if (!token || token === 'null' || token === 'undefined') return null;
+  return token;
+};
+
 // Log URL khi app start (giúp debug)
 console.log('🔌 [Socket] Configuration:');
 console.log('   URL:', SOCKET_URL);
@@ -105,8 +120,8 @@ function SocketProvider({ children }) {
     // Chỉ connect khi user đã login
     if (isAuthenticated && user) {
       // Lấy token từ localStorage để authenticate
-      const token = localStorage.getItem('token');
-      if (!token || token === 'null' || token === 'undefined') {
+      const token = normalizeToken(localStorage.getItem('token'));
+      if (!token) {
         if (import.meta.env.DEV) {
           console.warn('⚠️ [Socket] Skip connect: token missing or invalid');
         }

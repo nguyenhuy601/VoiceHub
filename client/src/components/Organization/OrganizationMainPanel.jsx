@@ -190,11 +190,11 @@ const OrganizationMainPanel = ({
               📨
             </span>
             <h4 className="truncate text-sm font-semibold tracking-wide text-white">
-              Loi moi tham gia to chuc
+              Lời mời tham gia tổ chức
             </h4>
           </div>
           <p className="mt-1 text-xs text-gray-400">
-            Quan ly va phan hoi loi moi ngay tai Organization Home
+            Quản lý và phản hồi lời mời ngay tại Organization Home
           </p>
         </div>
         <span className="inline-flex min-w-[30px] items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/15 px-2 py-0.5 text-xs font-semibold text-cyan-200">
@@ -211,9 +211,9 @@ const OrganizationMainPanel = ({
 
       {!loadingInvitations && invitations.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-3 py-3 text-center">
-          <div className="text-sm font-medium text-gray-200">Khong co loi moi moi</div>
+          <div className="text-sm font-medium text-gray-200">Không có lời mời mới</div>
           <div className="mt-1 text-xs text-gray-500">
-            Khi co nguoi moi ban vao to chuc, thong bao se hien thi tai day.
+            Khi có người mời bạn vào tổ chức, thông báo sẽ hiển thị tại đây.
           </div>
         </div>
       )}
@@ -222,7 +222,7 @@ const OrganizationMainPanel = ({
         <div className="space-y-2">
           {invitations.map((invite) => {
             const invitationId = invite.invitationId || invite._id;
-            const orgName = invite.organization?.name || 'To chuc';
+            const orgName = invite.organization?.name || 'Tổ chức';
             const isResponding = respondingInvitationIds.includes(invitationId);
             const createdAt = invite.createdAt
               ? new Date(invite.createdAt).toLocaleDateString('vi-VN')
@@ -238,9 +238,9 @@ const OrganizationMainPanel = ({
                     <div className="truncate text-sm font-semibold text-white">{orgName}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
                       <span className="rounded-md bg-white/10 px-1.5 py-0.5">
-                        Vai tro: {invite.role || 'member'}
+                        Vai trò: {invite.role || 'member'}
                       </span>
-                      {createdAt && <span>Moi ngay {createdAt}</span>}
+                      {createdAt && <span>Mời ngày {createdAt}</span>}
                     </div>
                   </div>
                 </div>
@@ -252,7 +252,7 @@ const OrganizationMainPanel = ({
                     onClick={() => onRespondInvitation?.(invitationId, 'reject')}
                     className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Tu choi
+                    Từ chối
                   </button>
                   <button
                     type="button"
@@ -260,7 +260,7 @@ const OrganizationMainPanel = ({
                     onClick={() => onRespondInvitation?.(invitationId, 'accept')}
                     className="rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(99,102,241,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Chap nhan
+                    Chấp nhận
                   </button>
                 </div>
               </div>
@@ -303,7 +303,7 @@ const OrganizationMainPanel = ({
             onClick={() => onToggle?.(cardKey)}
             className="rounded-md border border-white/15 px-2 py-1 text-xs text-gray-200 transition hover:bg-white/10"
           >
-            {expanded ? 'An' : 'Mo'}
+            {expanded ? 'Ẩn' : 'Mở'}
           </button>
         </div>
       </div>
@@ -327,7 +327,7 @@ const OrganizationMainPanel = ({
           onClick={onViewAll}
           className="rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/20"
         >
-          Xem tat ca
+          Xem tất cả
         </button>
       </div>
     </div>
@@ -342,13 +342,13 @@ const OrganizationMainPanel = ({
               <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-violet-600/70 to-fuchsia-500/70 text-4xl shadow-[0_0_24px_rgba(123,47,247,0.45)]">
                 🏢
               </div>
-              <h3 className="mt-4 text-2xl font-bold text-white">Chua tham gia to chuc nao</h3>
+              <h3 className="mt-4 text-2xl font-bold text-white">Chưa tham gia tổ chức nào</h3>
               <p className="mt-2 text-sm leading-7 text-[#A0A0B2]">
-                Tro chuyen theo phong ban
+                Trò chuyện theo phòng ban
                 <br />
-                Quan ly nhan su
+                Quản lý nhân sự
                 <br />
-                Lam viec nhom hieu qua
+                Làm việc nhóm hiệu quả
               </p>
 
               <div className="mt-6 flex items-center justify-center gap-3">
@@ -357,7 +357,7 @@ const OrganizationMainPanel = ({
                   onClick={onCreateOrganization}
                   className="h-10 rounded-[10px] bg-gradient-to-r from-[#7B2FF7] to-[#F107A3] px-5 text-sm font-semibold text-white transition hover:scale-[1.04] hover:shadow-[0_0_12px_rgba(123,47,247,0.6)]"
                 >
-                  Tao to chuc
+                  Tạo tổ chức
                 </button>
                 <button
                   type="button"
@@ -365,7 +365,7 @@ const OrganizationMainPanel = ({
                   disabled={joiningQuickInvite}
                   className="h-10 rounded-[10px] border border-white/20 bg-transparent px-5 text-sm font-semibold text-white transition hover:scale-[1.03] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {joiningQuickInvite ? 'Dang tham gia...' : 'Tham gia'}
+                  {joiningQuickInvite ? 'Đang tham gia...' : 'Tham gia'}
                 </button>
               </div>
 
@@ -379,7 +379,7 @@ const OrganizationMainPanel = ({
                       onJoinQuickInvite();
                     }
                   }}
-                  placeholder="Dan link moi (inviteToken)"
+                  placeholder="Dán link mời (inviteToken)"
                   className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none placeholder:text-[#6B6B80] focus:border-[#7B2FF7] focus:shadow-[0_0_10px_rgba(123,47,247,0.35)]"
                 />
                 <button
@@ -406,9 +406,9 @@ const OrganizationMainPanel = ({
         <div className="min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5">
           <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div>
-              <h3 className="text-xl font-semibold text-white">Organization Home</h3>
+              <h3 className="text-xl font-semibold text-white">Trang chủ tổ chức</h3>
               <p className="text-sm text-gray-400">
-                Tong hop nhanh lich, thong bao va loi moi cua khong gian to chuc
+                Tổng hợp nhanh lịch, thông báo và lời mời của không gian tổ chức
               </p>
             </div>
             <button
@@ -416,7 +416,7 @@ const OrganizationMainPanel = ({
               onClick={onGoHome}
               className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10"
             >
-              Dang o Home
+              Đang ở Home
             </button>
           </div>
 
@@ -425,14 +425,14 @@ const OrganizationMainPanel = ({
 
             {renderHomeWidget({
               icon: '🔔',
-              title: 'Thong bao',
-              subtitle: 'Thong tin quan trong duoc tom tat theo thoi gian',
+              title: 'Thông báo',
+              subtitle: 'Thông tin quan trọng được tóm tắt theo thời gian',
               cardKey: 'notifications',
               items: homeNotificationPreview.slice(0, 5),
               expanded: !!expandedHomeCards.notifications,
               onToggle: onToggleHomeCard,
               onViewAll: onOpenNotificationsPage,
-              emptyMessage: 'Khong co thong bao moi.',
+              emptyMessage: 'Không có thông báo mới.',
               renderItem: (item) => (
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
                   <div className="flex items-start justify-between gap-2">
@@ -447,7 +447,7 @@ const OrganizationMainPanel = ({
                           : 'bg-blue-500/20 text-blue-200'
                       }`}
                     >
-                      {item.priority === 'high' ? 'Quan trong' : 'Thong thuong'}
+                      {item.priority === 'high' ? 'Quan trọng' : 'Thông thường'}
                     </span>
                   </div>
                   <div className="mt-1 text-[11px] text-gray-500">{item.time}</div>
@@ -457,14 +457,14 @@ const OrganizationMainPanel = ({
 
             {renderHomeWidget({
               icon: '📅',
-              title: 'Lich',
-              subtitle: 'Su kien sap toi trong ngay va tuan',
+              title: 'Lịch',
+              subtitle: 'Sự kiện sắp tới trong ngày và tuần',
               cardKey: 'calendar',
               items: homeCalendarPreview.slice(0, 5),
               expanded: !!expandedHomeCards.calendar,
               onToggle: onToggleHomeCard,
               onViewAll: onOpenCalendarPage,
-              emptyMessage: 'Khong co su kien sap toi.',
+              emptyMessage: 'Không có sự kiện sắp tới.',
               renderItem: (item) => (
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
@@ -493,14 +493,14 @@ const OrganizationMainPanel = ({
         <div className="min-h-0 rounded-2xl border border-white/10 bg-black/15 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-300">
-              Phong ban
+              Phòng ban
             </h2>
             <button
               type="button"
               onClick={onCreateDepartment}
               className="rounded-md bg-white/10 px-2 py-1 text-xs text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              + Tao
+              + Tạo
             </button>
           </div>
 
@@ -509,7 +509,7 @@ const OrganizationMainPanel = ({
 
             {!loadingDepartments && departments.length === 0 && (
               <div className="rounded-lg border border-dashed border-white/15 p-3 text-sm text-gray-400">
-                Chua co phong ban nao.
+                Chưa có phòng ban nào.
               </div>
             )}
 
@@ -532,7 +532,7 @@ const OrganizationMainPanel = ({
           {selectedDepartment && (
             <div className="mt-4 border-t border-white/10 pt-3">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kenh Chat</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kênh Chat</div>
                 <button
                   type="button"
                   onClick={() => onCreateChannel('chat')}
@@ -559,7 +559,7 @@ const OrganizationMainPanel = ({
               </div>
 
               <div className="mb-2 mt-4 flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kenh Thoai</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kênh Thoại</div>
                 <button
                   type="button"
                   onClick={() => onCreateChannel('voice')}
@@ -592,23 +592,23 @@ const OrganizationMainPanel = ({
           <div className="flex h-full flex-col">
             <div className="mb-3 border-b border-white/10 pb-3">
               <h3 className="text-lg font-semibold text-white">
-                {selectedDepartment ? selectedDepartment.name : 'Chua chon phong ban'}
+                {selectedDepartment ? selectedDepartment.name : 'Chưa chọn phòng ban'}
               </h3>
               <p className="text-sm text-gray-400">
                 {selectedOrganization
-                  ? `To chuc: ${selectedOrganization.name}${selectedChannel ? ` • Kenh: ${selectedChannel.name}` : ''}`
-                  : 'Dang tai du lieu...'}
+                  ? `Tổ chức: ${selectedOrganization.name}${selectedChannel ? ` • Kênh: ${selectedChannel.name}` : ''}`
+                  : 'Đang tải dữ liệu...'}
               </p>
             </div>
 
             <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {loadingMessages && (
-                <div className="rounded-xl bg-white/5 p-4 text-sm text-gray-300">Dang tai tin nhan...</div>
+                <div className="rounded-xl bg-white/5 p-4 text-sm text-gray-300">Đang tải tin nhắn...</div>
               )}
 
               {!loadingMessages && messages.length === 0 && (
                 <div className="rounded-xl bg-white/5 p-4 text-sm text-gray-300">
-                  Chua co tin nhan trong kenh nay.
+                  Chưa có tin nhắn trong kênh này.
                 </div>
               )}
 
@@ -618,7 +618,7 @@ const OrganizationMainPanel = ({
                   const isMine = String(senderId || '') === String(currentUserId || '');
                   const type = message?.messageType || 'text';
                   const typeLabel =
-                    type === 'image' ? 'Hinh anh' : type === 'file' ? 'Tep' : type === 'system' ? 'He thong' : 'Tin nhan';
+                    type === 'image' ? 'Hình ảnh' : type === 'file' ? 'Tệp' : type === 'system' ? 'Hệ thống' : 'Tin nhắn';
                   return (
                     <div
                       key={message._id || message.id}
@@ -630,7 +630,7 @@ const OrganizationMainPanel = ({
                         }`}
                       >
                         <div className="mb-1 flex items-center gap-2 text-[11px] text-white/70">
-                          <span>{isMine ? 'Ban' : 'Thanh vien'}</span>
+                          <span>{isMine ? 'Bạn' : 'Thành viên'}</span>
                           <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px]">{typeLabel}</span>
                           <span>{formatTime(message.createdAt)}</span>
                         </div>
@@ -674,28 +674,28 @@ const OrganizationMainPanel = ({
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
                   >
-                    Tai len tep
+                    Tải lên tệp
                   </button>
                   <button
                     type="button"
                     onClick={() => imageInputRef.current?.click()}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
                   >
-                    Gui hinh anh
+                    Gửi hình ảnh
                   </button>
                   <button
                     type="button"
                     onClick={handleCreateContactCard}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
                   >
-                    Gui danh thiep
+                    Gửi danh thiếp
                   </button>
                   <button
                     type="button"
                     onClick={handleCreatePoll}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
                   >
-                    Tao khao sat
+                    Tạo khảo sát
                   </button>
                 </div>
               )}
@@ -708,7 +708,7 @@ const OrganizationMainPanel = ({
                     onSendMessage();
                   }
                 }}
-                placeholder={selectedChannelId ? 'Nhap tin nhan...' : 'Chon kenh de nhan tin'}
+                placeholder={selectedChannelId ? 'Nhập tin nhắn...' : 'Chọn kênh để nhắn tin'}
                 disabled={!selectedChannelId || sendingMessage}
                 className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
               />
@@ -718,36 +718,36 @@ const OrganizationMainPanel = ({
                 disabled={!selectedChannelId || !messageInput.trim() || sendingMessage}
                 className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Gui
+                Gửi
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <Modal isOpen={isPollModalOpen} onClose={() => setIsPollModalOpen(false)} title="Tao mot khao sat" size="md">
+      <Modal isOpen={isPollModalOpen} onClose={() => setIsPollModalOpen(false)} title="Tạo một khảo sát" size="md">
         <div className="space-y-4">
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">Cau hoi</div>
+            <div className="mb-1 text-sm font-semibold text-white">Câu hỏi</div>
             <input
               value={pollQuestion}
               maxLength={300}
               onChange={(event) => setPollQuestion(event.target.value)}
-              placeholder="Cau hoi ban muon dat ra la gi?"
+              placeholder="Câu hỏi bạn muốn đặt ra là gì?"
               className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
             />
             <div className="mt-1 text-right text-xs text-gray-400">{pollQuestion.length} / 300</div>
           </div>
 
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">Cau tra loi</div>
+            <div className="mb-1 text-sm font-semibold text-white">Câu trả lời</div>
             <div className="space-y-2">
               {pollOptions.map((option, index) => (
                 <div key={`poll-option-${index}`} className="flex items-center gap-2">
                   <input
                     value={option}
                     onChange={(event) => updatePollOption(index, event.target.value)}
-                    placeholder="Nhap cau tra loi cua ban"
+                    placeholder="Nhập câu trả lời của bạn"
                     className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
                   />
                   <button
@@ -765,23 +765,23 @@ const OrganizationMainPanel = ({
                 onClick={addPollOption}
                 className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
               >
-                + Them mot cau tra loi khac
+                + Thêm một câu trả lời khác
               </button>
             </div>
           </div>
 
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">Khoang thoi gian</div>
+            <div className="mb-1 text-sm font-semibold text-white">Khoảng thời gian</div>
             <select
               value={pollDuration}
               onChange={(event) => setPollDuration(event.target.value)}
               className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none"
             >
-              <option value="1h">1 gio</option>
-              <option value="6h">6 gio</option>
-              <option value="24h">24 gio</option>
-              <option value="3d">3 ngay</option>
-              <option value="7d">7 ngay</option>
+              <option value="1h">1 giờ</option>
+              <option value="6h">6 giờ</option>
+              <option value="24h">24 giờ</option>
+              <option value="3d">3 ngày</option>
+              <option value="7d">7 ngày</option>
             </select>
           </div>
 
@@ -792,7 +792,7 @@ const OrganizationMainPanel = ({
               onChange={(event) => setAllowMultiAnswer(event.target.checked)}
               className="h-4 w-4 rounded border-white/20 bg-white/5"
             />
-            Cho phep nhieu cau tra loi
+            Cho phép nhiều câu trả lời
           </label>
 
           <div className="flex justify-end gap-2">
@@ -801,7 +801,7 @@ const OrganizationMainPanel = ({
               onClick={() => setIsPollModalOpen(false)}
               className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
             >
-              Huy
+              Hủy
             </button>
             <button
               type="button"
@@ -809,27 +809,27 @@ const OrganizationMainPanel = ({
               disabled={!pollQuestion.trim() || pollOptions.map((item) => item.trim()).filter(Boolean).length < 2}
               className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              Bai dang
+              Bài đăng
             </button>
           </div>
         </div>
       </Modal>
 
-      <Modal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} title="Gui danh thiep" size="lg">
+      <Modal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} title="Gửi danh thiếp" size="lg">
         <div className="space-y-3">
           <input
             value={contactSearch}
             onChange={(event) => setContactSearch(event.target.value)}
-            placeholder="Tim danh thiep theo ten"
+            placeholder="Tìm danh thiếp theo tên"
             className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
           />
 
           <div className="flex flex-wrap gap-2">
             {[
-              { key: 'all', label: 'Tat ca' },
-              { key: 'friend', label: 'Ban be' },
-              { key: 'work', label: 'Cong viec' },
-              { key: 'family', label: 'Gia dinh' },
+              { key: 'all', label: 'Tất cả' },
+              { key: 'friend', label: 'Bạn bè' },
+              { key: 'work', label: 'Công việc' },
+              { key: 'family', label: 'Gia đình' },
             ].map((category) => (
               <button
                 key={category.key}
@@ -848,11 +848,11 @@ const OrganizationMainPanel = ({
 
           <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.02] p-2">
             {loadingChatContacts && (
-              <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">Dang tai danh ba...</div>
+              <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">Đang tải danh bạ...</div>
             )}
             {!loadingChatContacts && filteredContacts.length === 0 && (
               <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-gray-400">
-                Khong co danh thiep phu hop.
+                Không có danh thiếp phù hợp.
               </div>
             )}
             {!loadingChatContacts &&
@@ -885,7 +885,7 @@ const OrganizationMainPanel = ({
               onClick={() => setIsContactModalOpen(false)}
               className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
             >
-              Huy
+              Hủy
             </button>
             <button
               type="button"
@@ -893,7 +893,7 @@ const OrganizationMainPanel = ({
               disabled={!selectedContactId}
               className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              Gui danh thiep
+              Gửi danh thiếp
             </button>
           </div>
         </div>

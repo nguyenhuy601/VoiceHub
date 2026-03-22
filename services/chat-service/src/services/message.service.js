@@ -130,14 +130,21 @@ class MessageService {
     }
   }
 
-  // Xóa tin nhắn
+  // Xóa tin nhắn (Soft delete - giữ message data nhưng đánh dấu deleted)
   async deleteMessage(messageId, userId) {
     try {
       await ensureMongoReady();
-      const message = await Message.findOneAndDelete({
-        _id: messageId,
-        senderId: userId,
-      });
+      const message = await Message.findOneAndUpdate(
+        {
+          _id: messageId,
+          senderId: userId,
+        },
+        {
+          isDeleted: true,
+          deletedAt: new Date(),
+        },
+        { new: true }
+      );
 
       // Xóa cache
       const redis = getRedisClient();
@@ -150,6 +157,73 @@ class MessageService {
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error deleting message: ${err.message}`);
+    }
+  }
+
+  // Thu hồi tin nhắn (Recall) - ẩn nội dung nhưng giữ message
+  async recallMessage(messageId, userId) {
+    try {
+      await ensureMongoReady();
+      const message = await Message.findOneAndUpdate(
+        {
+          _id: messageId,
+          senderId: userId,
+        },
+        {
+          isRecalled: true,
+          recalledAt: new Date(),
+          // Lưu nội dung cũ
+          originalContent: this._getPreviousContent ? await this._getPreviousContent(messageId) : undefined,
+        },
+        { new: true }
+      );
+
+      // Xóa cache
+      const redis = getRedisClient();
+      if (redis) {
+        const cacheKey = `message:${messageId}`;
+        await redis.del(cacheKey);
+      }
+
+      return message;
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error recalling message: ${err.message}`);
+    }
+  }
+
+  // Chỉnh sửa tin nhắn
+  async editMessage(messageId, userId, newContent) {
+    try {
+      await ensureMongoReady();
+      
+      // Lấy message cũ để backup content
+      const oldMessage = await Message.findById(messageId);
+      if (!oldMessage || oldMessage.senderId.toString() !== userId.toString()) {
+        return null;
+      }
+
+      const message = await Message.findByIdAndUpdate(
+        messageId,
+        {
+          content: newContent,
+          originalContent: oldMessage.content,
+          editedAt: new Date(),
+        },
+        { new: true }
+      );
+
+      // Xóa cache
+      const redis = getRedisClient();
+      if (redis) {
+        const cacheKey = `message:${messageId}`;
+        await redis.del(cacheKey);
+      }
+
+      return message;
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error editing message: ${err.message}`);
     }
   }
 }

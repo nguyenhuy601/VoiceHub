@@ -14,46 +14,46 @@ const unwrapData = (payload) => payload?.data ?? payload;
 const HOME_NOTIFICATION_PREVIEW = [
   {
     id: 'n1',
-    title: 'Task duoc gan',
-    message: 'Sarah Chen da gan ban vao task "Thiet ke Landing Page"',
-    time: '5 phut truoc',
+    title: 'Task được gán',
+    message: 'Sarah Chen đã gán bạn vào task "Thiết kế Landing Page"',
+    time: '5 phút trước',
     priority: 'high',
   },
   {
     id: 'n2',
     title: '@mention trong chat',
-    message: 'Mike Ross da nhac den ban trong #general',
+    message: 'Mike Ross đã nhắc đến bạn trong #general',
     time: '15 phut truoc',
     priority: 'medium',
   },
   {
     id: 'n3',
-    title: 'Deadline sap den',
-    message: 'Task "Review Pull Request" se den han trong 2 gio',
-    time: '30 phut truoc',
+    title: 'Deadline sắp đến',
+    message: 'Task "Review Pull Request" sẽ đến hạn trong 2 giờ',
+    time: '30 phút trước',
     priority: 'high',
   },
 ];
 const HOME_CALENDAR_PREVIEW = [
   {
     id: 'c1',
-    title: 'Hop nhom hang ngay',
+    title: 'Họp nhóm hằng ngày',
     time: '10:00',
-    date: 'Hom nay',
+    date: 'Hôm nay',
     type: 'meeting',
   },
   {
     id: 'c2',
-    title: 'Demo khach hang',
+    title: 'Demo khách hàng',
     time: '14:30',
-    date: 'Hom nay',
+    date: 'Hôm nay',
     type: 'meeting',
   },
   {
     id: 'c3',
-    title: 'Danh gia thiet ke',
+    title: 'Đánh giá thiết kế',
     time: '16:00',
-    date: 'Ngay mai',
+    date: 'Ngày mai',
     type: 'review',
   },
 ];
@@ -94,6 +94,16 @@ function OrganizationsPage() {
   });
   const [chatContacts, setChatContacts] = useState([]);
   const [loadingChatContacts, setLoadingChatContacts] = useState(false);
+  const [createOrgModalOpen, setCreateOrgModalOpen] = useState(false);
+  const [createOrgName, setCreateOrgName] = useState('');
+  const [editOrgModalOpen, setEditOrgModalOpen] = useState(false);
+  const [editingOrgId, setEditingOrgId] = useState('');
+  const [editOrgName, setEditOrgName] = useState('');
+  const [createDeptModalOpen, setCreateDeptModalOpen] = useState(false);
+  const [createDeptName, setCreateDeptName] = useState('');
+  const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
+  const [createChannelType, setCreateChannelType] = useState('chat');
+  const [createChannelName, setCreateChannelName] = useState('');
 
   const selectedOrganization = useMemo(
     () => organizations.find((org) => org._id === selectedOrganizationId) || null,
@@ -130,13 +140,12 @@ function OrganizationsPage() {
         token: url.searchParams.get('inviteToken') || '',
       };
     } catch (error) {
-      // Fallback: cho phép dán query string rút gọn
-      const token =
-        (input.includes('inviteToken=') && input.split('inviteToken=')[1]?.split('&')[0]) || '';
-      const orgId =
-        (input.includes('orgId=') && input.split('orgId=')[1]?.split('&')[0]) ||
-        (input.includes('inviteOrgId=') && input.split('inviteOrgId=')[1]?.split('&')[0]) ||
-        '';
+      // Fallback: cho phép dán query string rút gọn + decode URL-encoded values
+      const tokenRaw = (input.includes('inviteToken=') && input.split('inviteToken=')[1]?.split('&')[0]) || '';
+      const token = tokenRaw ? decodeURIComponent(tokenRaw) : '';
+      const orgIdRaw = (input.includes('orgId=') && input.split('orgId=')[1]?.split('&')[0]) ||
+        (input.includes('inviteOrgId=') && input.split('inviteOrgId=')[1]?.split('&')[0]) || '';
+      const orgId = orgIdRaw ? decodeURIComponent(orgIdRaw) : '';
       return { orgId, token };
     }
   };
@@ -154,7 +163,7 @@ function OrganizationsPage() {
         setSelectedOrganizationId('');
       }
     } catch (error) {
-      toast.error('Khong the tai danh sach to chuc');
+      toast.error('Không thể tải danh sách tổ chức');
     } finally {
       setLoadingOrganizations(false);
     }
@@ -168,7 +177,7 @@ function OrganizationsPage() {
       setPendingInvitations(Array.isArray(list) ? list : []);
     } catch (error) {
       setPendingInvitations([]);
-      toast.error('Khong the tai loi moi to chuc');
+      toast.error('Không thể tải lời mời tổ chức');
     } finally {
       setLoadingInvitations(false);
     }
@@ -185,7 +194,7 @@ function OrganizationsPage() {
         .filter(Boolean)
         .map((item) => ({
           id: item._id || item.id,
-          name: item.displayName || item.name || item.username || 'Nguoi dung',
+          name: item.displayName || item.name || item.username || 'Người dùng',
           phone: item.phone || '',
           email: item.email || '',
           avatar: item.avatar || null,
@@ -215,7 +224,7 @@ function OrganizationsPage() {
     } catch (error) {
       setDepartments([]);
       setSelectedDepartmentId('');
-      toast.error('Khong the tai phong ban');
+      toast.error('Không thể tải phòng ban');
     } finally {
       setLoadingDepartments(false);
     }
@@ -241,7 +250,7 @@ function OrganizationsPage() {
     } catch (error) {
       setChannels([]);
       setSelectedChannelId('');
-      toast.error('Khong the tai danh sach kenh');
+      toast.error('Không thể tải danh sách kênh');
     } finally {
       setLoadingChannels(false);
     }
@@ -262,40 +271,48 @@ function OrganizationsPage() {
       setMessages(list);
     } catch (error) {
       setMessages([]);
-      toast.error('Khong the tai tin nhan kenh');
+      toast.error('Không thể tải tin nhắn kênh');
     } finally {
       setLoadingMessages(false);
     }
   };
 
   const handleCreateOrganization = async () => {
-    const name = window.prompt('Nhap ten to chuc moi');
-    if (!name?.trim()) return;
+    setCreateOrgName('');
+    setCreateOrgModalOpen(true);
+  };
+
+  const handleSubmitCreateOrganization = async () => {
+    if (!createOrgName?.trim()) {
+      toast.error('Vui lòng nhập tên tổ chức');
+      return;
+    }
 
     try {
-      await organizationAPI.createOrganization({ name: name.trim() });
-      toast.success('Da tao to chuc moi');
+      await organizationAPI.createOrganization({ name: createOrgName.trim() });
+      toast.success('Đã tạo tổ chức mới');
+      setCreateOrgModalOpen(false);
       await loadOrganizations();
     } catch (error) {
-      toast.error('Tao to chuc that bai');
+      toast.error('Tạo tổ chức thất bại');
     }
   };
 
   const handleJoinQuickInvite = async () => {
     const { orgId, token } = extractInvitePayloadFromInput(quickInviteInput);
     if (!orgId || !token) {
-      toast.error('Vui long dan link moi hop le (co orgId va inviteToken)');
+      toast.error('Vui lòng dán link mời hợp lệ (có orgId và inviteToken)');
       return;
     }
 
     setJoiningQuickInvite(true);
     try {
       await organizationAPI.joinByInviteLink(orgId, token);
-      toast.success('Da tham gia to chuc tu link moi');
+      toast.success('Đã tham gia tổ chức từ link mời');
       setQuickInviteInput('');
       await Promise.all([loadOrganizations(), loadPendingInvitations()]);
     } catch (error) {
-      toast.error('Khong the tham gia to chuc tu link moi');
+      toast.error('Không thể tham gia tổ chức từ link mời');
     } finally {
       setJoiningQuickInvite(false);
     }
@@ -303,19 +320,27 @@ function OrganizationsPage() {
 
   const handleCreateDepartment = async () => {
     if (!selectedOrganizationId) {
-      toast.error('Hay chon to chuc truoc');
+      toast.error('Hãy chọn tổ chức trước');
       return;
     }
 
-    const name = window.prompt('Nhap ten phong ban');
-    if (!name?.trim()) return;
+    setCreateDeptName('');
+    setCreateDeptModalOpen(true);
+  };
+
+  const handleSubmitCreateDepartment = async () => {
+    if (!createDeptName?.trim()) {
+      toast.error('Vui lòng nhập tên phòng ban');
+      return;
+    }
 
     try {
-      await organizationAPI.createDepartment(selectedOrganizationId, { name: name.trim() });
-      toast.success('Da tao phong ban');
+      await organizationAPI.createDepartment(selectedOrganizationId, { name: createDeptName.trim() });
+      toast.success('Đã tạo phòng ban');
+      setCreateDeptModalOpen(false);
       await loadDepartments(selectedOrganizationId);
     } catch (error) {
-      toast.error('Tao phong ban that bai');
+      toast.error('Tạo phòng ban thất bại');
     }
   };
 
@@ -333,15 +358,24 @@ function OrganizationsPage() {
     const current = organizations.find((org) => org._id === orgId);
     if (!current) return;
 
-    const nextName = window.prompt('Nhap ten to chuc moi', current.name || '');
-    if (!nextName || !nextName.trim()) return;
+    setEditingOrgId(orgId);
+    setEditOrgName(current.name || '');
+    setEditOrgModalOpen(true);
+  };
+
+  const handleSubmitEditOrganization = async () => {
+    if (!editingOrgId || !editOrgName.trim()) {
+      toast.error('Vui lòng nhập tên tổ chức');
+      return;
+    }
 
     try {
-      await organizationAPI.updateOrganization(orgId, { name: nextName.trim() });
-      toast.success('Da cap nhat to chuc');
+      await organizationAPI.updateOrganization(editingOrgId, { name: editOrgName.trim() });
+      toast.success('Đã cập nhật tổ chức');
+      setEditOrgModalOpen(false);
       await loadOrganizations();
     } catch (error) {
-      toast.error('Khong the cap nhat to chuc');
+      toast.error('Không thể cập nhật tổ chức');
     }
   };
 
@@ -365,7 +399,7 @@ function OrganizationsPage() {
         const id = raw?._id || raw?.id;
         return {
           id,
-          name: raw?.displayName || raw?.name || raw?.username || 'Nguoi dung',
+          name: raw?.displayName || raw?.name || raw?.username || 'Người dùng',
           username: raw?.username || raw?.email || '',
           avatar: raw?.avatar || null,
         };
@@ -377,7 +411,7 @@ function OrganizationsPage() {
     } catch (error) {
       setInviteFriends([]);
       setGeneratedInviteLink('');
-      toast.error('Khong the khoi tao du lieu moi');
+      toast.error('Không thể khởi tạo dữ liệu mời');
     } finally {
       setLoadingInviteFriends(false);
       setGeneratingInviteLink(false);
@@ -389,9 +423,9 @@ function OrganizationsPage() {
     setInvitingIds((prev) => (prev.includes(friendId) ? prev : [...prev, friendId]));
     try {
       await organizationAPI.addMember(inviteOrgId, { userId: friendId, role: 'member' });
-      toast.success('Da gui loi moi tham gia to chuc');
+      toast.success('Đã gửi lời mời tham gia tổ chức');
     } catch (error) {
-      toast.error('Moi thanh vien that bai');
+      toast.error('Mời thành viên thất bại');
     } finally {
       setInvitingIds((prev) => prev.filter((id) => id !== friendId));
     }
@@ -401,9 +435,9 @@ function OrganizationsPage() {
     if (!generatedInviteLink) return;
     try {
       await navigator.clipboard.writeText(generatedInviteLink);
-      toast.success('Da sao chep link moi');
+      toast.success('Đã sao chép link mời');
     } catch (error) {
-      toast.error('Khong the sao chep link');
+      toast.error('Không thể sao chép link');
     }
   };
 
@@ -415,13 +449,13 @@ function OrganizationsPage() {
     try {
       await organizationAPI.respondInvitation(invitationId, action);
       if (action === 'accept') {
-        toast.success('Da chap nhan loi moi to chuc');
+        toast.success('Đã chấp nhận lời mời tổ chức');
       } else {
-        toast.success('Da tu choi loi moi to chuc');
+        toast.success('Đã từ chối lời mời tổ chức');
       }
       await Promise.all([loadOrganizations(), loadPendingInvitations()]);
     } catch (error) {
-      toast.error('Khong the xu ly loi moi');
+      toast.error('Không thể xử lý lời mời');
     } finally {
       setRespondingInvitationIds((prev) => prev.filter((id) => id !== invitationId));
     }
@@ -429,23 +463,31 @@ function OrganizationsPage() {
 
   const handleCreateChannel = async (channelType = 'chat') => {
     if (!selectedOrganizationId || !selectedDepartmentId) {
-      toast.error('Hay chon phong ban truoc');
+      toast.error('Hãy chọn phòng ban trước');
       return;
     }
 
-    const label = channelType === 'voice' ? 'kenh voice' : 'kenh chat';
-    const name = window.prompt(`Nhap ten ${label}`);
-    if (!name?.trim()) return;
+    setCreateChannelType(channelType);
+    setCreateChannelName('');
+    setCreateChannelModalOpen(true);
+  };
+
+  const handleSubmitCreateChannel = async () => {
+    if (!createChannelName.trim()) {
+      toast.error('Vui lòng nhập tên kênh');
+      return;
+    }
 
     try {
       await organizationAPI.createChannel(selectedOrganizationId, selectedDepartmentId, {
-        name: name.trim(),
-        type: channelType,
+        name: createChannelName.trim(),
+        type: createChannelType,
       });
-      toast.success('Da tao kenh');
+      toast.success('Đã tạo kênh');
+      setCreateChannelModalOpen(false);
       await loadChannels(selectedOrganizationId, selectedDepartmentId);
     } catch (error) {
-      toast.error('Tao kenh that bai');
+      toast.error('Tạo kênh thất bại');
     }
   };
 
@@ -465,7 +507,7 @@ function OrganizationsPage() {
       setMessages((prev) => [...prev, created]);
       setMessageInput('');
     } catch (error) {
-      toast.error('Gui tin nhan that bai');
+      toast.error('Gửi tin nhắn thất bại');
     } finally {
       setSendingMessage(false);
     }
@@ -480,17 +522,17 @@ function OrganizationsPage() {
     if (kind === 'file' && file) {
       const sizeKb = Math.max(1, Math.round(file.size / 1024));
       messageType = 'file';
-      content = `📎 Tep: ${file.name} (${sizeKb} KB)`;
+      content = `📎 Tệp: ${file.name} (${sizeKb} KB)`;
     } else if (kind === 'image' && file) {
       messageType = 'image';
-      content = `🖼️ Hinh anh: ${file.name}`;
+      content = `🖼️ Hình ảnh: ${file.name}`;
     } else if (kind === 'contact') {
       messageType = 'system';
-      content = `👤 Danh thiep\nTen: ${payload?.fullName || '-'}\nSDT: ${payload?.phone || '-'}\nEmail: ${payload?.email || '-'}`;
+      content = `👤 Danh thiếp\nTên: ${payload?.fullName || '-'}\nSĐT: ${payload?.phone || '-'}\nEmail: ${payload?.email || '-'}`;
     } else if (kind === 'poll') {
       messageType = 'system';
       const options = Array.isArray(payload?.options) ? payload.options : [];
-      content = `📊 Khao sat: ${payload?.question || ''}\n${options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n')}`;
+      content = `📊 Khảo sát: ${payload?.question || ''}\n${options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n')}`;
     } else {
       return;
     }
@@ -505,9 +547,9 @@ function OrganizationsPage() {
       });
       const normalized = unwrapData(created);
       setMessages((prev) => [...prev, normalized]);
-      toast.success('Da gui noi dung vao kenh');
+      toast.success('Đã gửi nội dung vào kênh');
     } catch (error) {
-      toast.error('Khong the gui noi dung');
+      toast.error('Không thể gửi nội dung');
     } finally {
       setSendingMessage(false);
     }
@@ -529,10 +571,10 @@ function OrganizationsPage() {
     const joinOrganizationByLink = async () => {
       try {
         await organizationAPI.joinByInviteLink(orgIdFromUrl, tokenFromUrl);
-        toast.success('Da tham gia to chuc tu link moi');
+        toast.success('Đã tham gia tổ chức từ link mời');
         await Promise.all([loadOrganizations(), loadPendingInvitations()]);
       } catch (error) {
-        toast.error('Khong the tham gia to chuc tu link moi');
+        toast.error('Không thể tham gia tổ chức từ link mời');
       } finally {
         params.delete('orgId');
         params.delete('inviteOrgId');
@@ -633,24 +675,24 @@ function OrganizationsPage() {
         <Modal
           isOpen={inviteModalOpen}
           onClose={() => setInviteModalOpen(false)}
-          title={`Moi tham gia ${inviteOrganization?.name || 'to chuc'}`}
+          title={`Mời tham gia ${inviteOrganization?.name || 'tổ chức'}`}
           size="md"
         >
           <div className="space-y-4">
             <input
               value={inviteSearch}
               onChange={(event) => setInviteSearch(event.target.value)}
-              placeholder="Tim kiem ban be"
+              placeholder="Tìm kiếm bạn bè"
               className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
             />
 
             <div className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-overlay">
               {loadingInviteFriends && (
-                <div className="rounded-lg bg-white/5 p-3 text-sm text-gray-300">Dang tai ban be...</div>
+                <div className="rounded-lg bg-white/5 p-3 text-sm text-gray-300">Đang tải bạn bè...</div>
               )}
               {!loadingInviteFriends && filteredInviteFriends.length === 0 && (
                 <div className="rounded-lg border border-dashed border-white/15 p-3 text-sm text-gray-400">
-                  Khong tim thay ban be de moi.
+                  Không tìm thấy bạn bè để mời.
                 </div>
               )}
               {!loadingInviteFriends &&
@@ -671,7 +713,7 @@ function OrganizationsPage() {
                         disabled={inviting}
                         className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white transition hover:bg-white/20 disabled:opacity-50"
                       >
-                        {inviting ? 'Dang moi...' : 'Moi'}
+                        {inviting ? 'Đang mời...' : 'Mời'}
                       </button>
                     </div>
                   );
@@ -680,7 +722,7 @@ function OrganizationsPage() {
 
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-white">Moi qua link</div>
+                <div className="text-sm font-semibold text-white">Mời qua link</div>
                 {isInviteLinkBeta && (
                   <span className="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-300">
                     Beta
@@ -690,7 +732,7 @@ function OrganizationsPage() {
               <div className="flex gap-2">
                 <input
                   readOnly
-                  value={generatedInviteLink || (generatingInviteLink ? 'Dang tao link moi...' : '')}
+                  value={generatedInviteLink || (generatingInviteLink ? 'Đang tạo link mời...' : '')}
                   className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-200"
                 />
                 <button
@@ -699,18 +741,146 @@ function OrganizationsPage() {
                   disabled={!generatedInviteLink || generatingInviteLink}
                   className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
                 >
-                  Sao chep
+                  Sao chép
                 </button>
               </div>
               <p className="mt-2 text-xs text-gray-400">
                 {isInviteLinkBeta
-                  ? 'Link moi dang o che do Beta tren local HTTP. Khi nang cap HTTPS, co the bo sung xac thuc token moi de an toan hon.'
-                  : 'Link moi dang duoc chia se qua HTTPS. Ban co the nang cap endpoint xac thuc token moi trong backend.'}
+                  ? 'Link mời đang ở chế độ Beta trên local HTTP. Khi nâng cấp HTTPS, có thể bổ sung xác thực token mời để an toàn hơn.'
+                  : 'Link mời đang được chia sẻ qua HTTPS. Bạn có thể nâng cấp endpoint xác thực token mời trong backend.'}
               </p>
             </div>
           </div>
         </Modal>
       )}
+
+      <Modal
+        isOpen={createOrgModalOpen}
+        onClose={() => setCreateOrgModalOpen(false)}
+        title="Tạo tổ chức mới"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            value={createOrgName}
+            onChange={(event) => setCreateOrgName(event.target.value)}
+            placeholder="Nhập tên tổ chức"
+            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateOrgModalOpen(false)}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitCreateOrganization}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo mới
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={editOrgModalOpen}
+        onClose={() => setEditOrgModalOpen(false)}
+        title="Đổi tên tổ chức"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            value={editOrgName}
+            onChange={(event) => setEditOrgName(event.target.value)}
+            placeholder="Nhập tên tổ chức mới"
+            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditOrgModalOpen(false)}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitEditOrganization}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Lưu
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={createDeptModalOpen}
+        onClose={() => setCreateDeptModalOpen(false)}
+        title="Tạo phòng ban"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            value={createDeptName}
+            onChange={(event) => setCreateDeptName(event.target.value)}
+            placeholder="Nhập tên phòng ban"
+            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateDeptModalOpen(false)}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitCreateDepartment}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={createChannelModalOpen}
+        onClose={() => setCreateChannelModalOpen(false)}
+        title={createChannelType === 'voice' ? 'Tạo kênh thoại' : 'Tạo kênh chat'}
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            value={createChannelName}
+            onChange={(event) => setCreateChannelName(event.target.value)}
+            placeholder={createChannelType === 'voice' ? 'Nhập tên kênh thoại' : 'Nhập tên kênh chat'}
+            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateChannelModalOpen(false)}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitCreateChannel}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo kênh
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

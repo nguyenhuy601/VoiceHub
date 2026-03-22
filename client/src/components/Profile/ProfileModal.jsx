@@ -14,7 +14,7 @@ function ProfileModal({ isOpen, onClose }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const [form, setForm] = useState({ displayName: '', bio: '', phone: '' });
+  const [form, setForm] = useState({ displayName: '', bio: '', phone: '', status: 'online', isInvisible: false });
   const [activeProfileTab, setActiveProfileTab] = useState('main'); // 'main' | 'organization' | 'account' | 'security' | 'notifications'
 
   const fetchProfile = useCallback(async () => {
@@ -27,6 +27,8 @@ function ProfileModal({ isOpen, onClose }) {
         displayName: data?.displayName ?? data?.username ?? '',
         bio: data?.bio ?? '',
         phone: data?.phone ?? '',
+        status: data?.status ?? 'online',
+        isInvisible: data?.isInvisible ?? false,
       });
     } catch (err) {
       toast.error(err?.message || 'Không tải được hồ sơ');
@@ -49,6 +51,8 @@ function ProfileModal({ isOpen, onClose }) {
         displayName: form.displayName?.trim() || undefined,
         bio: form.bio?.trim() || undefined,
         phone: form.phone?.trim() || undefined,
+        status: form.status,
+        isInvisible: form.isInvisible,
       });
       const updated = res?.data ?? res;
       setProfile(updated);
@@ -214,12 +218,12 @@ function ProfileModal({ isOpen, onClose }) {
                   <label className="block text-xs font-semibold mb-2 text-gray-400 uppercase tracking-wide">
                     Chọn tổ chức
                   </label>
-                  <select className={inputClass} defaultValue="">
-                    <option value="" disabled>
+                  <select className={inputClass} defaultValue="" style={{ colorScheme: 'dark' }}>
+                    <option className="bg-slate-900 text-slate-100" value="" disabled>
                       Chọn tổ chức (demo)
                     </option>
-                    <option value="org-1">Tổ chức A</option>
-                    <option value="org-2">Tổ chức B</option>
+                    <option className="bg-slate-900 text-slate-100" value="org-1">Tổ chức A</option>
+                    <option className="bg-slate-900 text-slate-100" value="org-2">Tổ chức B</option>
                   </select>
                 </div>
                 <div>
@@ -278,15 +282,44 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'security' && (
               <>
                 <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
-                  <p className="text-sm font-semibold text-white">Quyền riêng tư</p>
+                  <p className="text-sm font-semibold text-white">Trạng thái & Quyền riêng tư</p>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-gray-300">
+                      Trạng thái hiện tại
+                    </label>
+                    <select 
+                      value={form.status} 
+                      onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                      className={inputClass}
+                    >
+                      <option className="bg-slate-900 text-slate-100" value="online">🟢 Trực tuyến</option>
+                      <option className="bg-slate-900 text-slate-100" value="away">🟡 Vắng mặt</option>
+                      <option className="bg-slate-900 text-slate-100" value="busy">🔴 Đang bận</option>
+                      <option className="bg-slate-900 text-slate-100" value="offline">⚪ Ngoại tuyến</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={form.isInvisible}
+                        onChange={(e) => setForm((f) => ({ ...f, isInvisible: e.target.checked }))}
+                        className="w-4 h-4 rounded"
+                      />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-300">👻 Chế độ vô hình</p>
+                        <p className="text-xs text-gray-500">Người khác sẽ không thấy bạn ngoại tuyến</p>
+                      </div>
+                    </label>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold mb-1 text-gray-300">
                       Hiển thị trạng thái online
                     </label>
                     <select className={inputClass}>
-                      <option>Mọi người</option>
-                      <option>Chỉ đồng nghiệp</option>
-                      <option>Không ai</option>
+                      <option className="bg-slate-900 text-slate-100">Mọi người</option>
+                      <option className="bg-slate-900 text-slate-100">Chỉ đồng nghiệp</option>
+                      <option className="bg-slate-900 text-slate-100">Không ai</option>
                     </select>
                   </div>
                   <div>
@@ -294,8 +327,8 @@ function ProfileModal({ isOpen, onClose }) {
                       Ai có thể nhắn tin cho tôi
                     </label>
                     <select className={inputClass}>
-                      <option>Mọi người</option>
-                      <option>Chỉ đồng nghiệp</option>
+                      <option className="bg-slate-900 text-slate-100">Mọi người</option>
+                      <option className="bg-slate-900 text-slate-100">Chỉ đồng nghiệp</option>
                     </select>
                   </div>
                 </div>

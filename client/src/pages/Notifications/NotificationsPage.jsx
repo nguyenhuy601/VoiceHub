@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, Toast } from '../../components/Shared';
+import api from '../../services/api';
 
 function NotificationsPage() {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
   const [notifications, setNotifications] = useState([
     { id: 1, type: 'task', icon: '✅', title: 'Task được gán', message: 'Sarah Chen đã gán bạn vào task "Thiết kế Landing Page"', time: '5 phút trước', read: false, priority: 'high', action: 'Xem Task' },
@@ -16,26 +19,150 @@ function NotificationsPage() {
   ]);
   const [toast, setToast] = useState(null);
 
+  const getRelativeTime = (input) => {
+    if (!input) return 'Vừa xong';
+    const target = new Date(input).getTime();
+    if (!Number.isFinite(target)) return 'Vừa xong';
+
+    const diffMinutes = Math.max(1, Math.floor((Date.now() - target) / 60000));
+    if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} ngày trước`;
+  };
+
+  const iconByType = {
+    task: '✅',
+    mention: '💬',
+    deadline: '⏰',
+    meeting: '📅',
+    file: '📁',
+    friend: '👥',
+    system: '🔔',
+  };
+
+  const actionByType = {
+    task: 'Xem Task',
+    mention: 'Xem Chat',
+    deadline: 'Cập Nhật',
+    meeting: 'Tham Gia',
+    file: 'Xem File',
+    friend: 'Xem Profile',
+    system: 'Xem Chi Tiết',
+  };
+
+  const toViewNotification = (item) => {
+    const id = item?._id || item?.id;
+    const type = String(item?.type || 'system');
+    return {
+      id,
+      type,
+      icon: iconByType[type] || '🔔',
+      title: item?.title || 'Thông báo',
+      message: item?.content || item?.message || '',
+      time: getRelativeTime(item?.createdAt),
+      read: Boolean(item?.isRead),
+      priority: item?.data?.priority || 'low',
+      action: actionByType[type] || 'Xem Chi Tiết',
+    };
+  };
+
+  const loadNotifications = async () => {
+    try {
+      const response = await api.get('/notifications', { params: { limit: 100 } });
+      const payload = response?.data || response;
+      const data = payload?.data || payload;
+      const list = Array.isArray(data?.notifications) ? data.notifications : [];
+      if (list.length > 0) {
+        setNotifications(list.map(toViewNotification));
+      }
+    } catch (error) {
+      showToast(error?.response?.data?.message || 'Không tải được thông báo từ máy chủ', 'error');
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleMarkAsRead = (id) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    ));
-    showToast("Đã đánh dấu đã đọc", "success");
+  const handleMarkAsRead = async (id) => {
+    if (!id) return;
+    try {
+      await api.patch(`/notifications/${id}/read`);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      showToast('Đã đánh dấu đã đọc', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || 'Không thể cập nhật trạng thái thông báo', 'error');
+    }
   };
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
-    showToast("Đã đánh dấu tất cả đã đọc", "success");
+  const handleMarkAllAsRead = async () => {
+    try {
+      await api.patch('/notifications/read-all');
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      showToast('Đã đánh dấu tất cả đã đọc', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || 'Không thể đánh dấu tất cả thông báo', 'error');
+    }
   };
 
-  const handleDeleteNotification = (id) => {
-    setNotifications(notifications.filter(n => n.id !== id));
-    showToast("Đã xóa thông báo", "success");
+  const handleDeleteNotification = async (id) => {
+    if (!id) return;
+    try {
+      await api.delete(`/notifications/${id}`);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      showToast('Đã xóa thông báo', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || 'Không thể xóa thông báo', 'error');
+    }
+  };
+
+  const handleOpenNotification = (notif) => {
+    if (!notif) return;
+
+    // Mark as read immediately when user opens a notification target
+    if (!notif.read) {
+      handleMarkAsRead(notif.id);
+    }
+
+    switch (notif.type) {
+      case 'mention':
+        navigate('/chat/organization');
+        showToast('Đang mở chat tổ chức', 'info');
+        break;
+      case 'friend':
+        navigate('/chat/friends');
+        showToast('Đang mở chat bạn bè', 'info');
+        break;
+      case 'meeting':
+        navigate('/calendar');
+        showToast('Đang mở lịch họp', 'info');
+        break;
+      case 'system':
+        navigate('/settings');
+        showToast('Đang mở cài đặt hệ thống', 'info');
+        break;
+      case 'task':
+      case 'deadline':
+        // Tasks page is intentionally locked, route to dashboard context instead.
+        navigate('/dashboard');
+        showToast('Trang công việc đang khóa, đã chuyển về dashboard', 'info');
+        break;
+      case 'file':
+        // Documents page is intentionally locked, route to dashboard context instead.
+        navigate('/dashboard');
+        showToast('Trang tài liệu đang khóa, đã chuyển về dashboard', 'info');
+        break;
+      default:
+        navigate('/dashboard');
+        showToast('Đang mở chi tiết thông báo', 'info');
+    }
   };
 
   const filteredNotifications = filter === 'all' 
@@ -59,7 +186,7 @@ function NotificationsPage() {
           </div>
           <div className="flex gap-3">
             <button 
-              onClick={() => showToast("Cài đặt thông báo", "info")}
+              onClick={() => navigate('/settings')}
               className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-sm"
             >
               ⚙️ Cài Đặt Thông Báo
@@ -177,7 +304,7 @@ function NotificationsPage() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <button 
-                    onClick={() => showToast(`Đang mở ${notif.action}...`, "info")}
+                    onClick={() => handleOpenNotification(notif)}
                     className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm font-semibold whitespace-nowrap"
                   >
                     {notif.action}
@@ -192,7 +319,7 @@ function NotificationsPage() {
                   )}
                   <button 
                     onClick={() => {
-                      if (confirm('Xóa thông báo này?')) {
+                      if (window.confirm('Xóa thông báo này?')) {
                         handleDeleteNotification(notif.id);
                       }
                     }}

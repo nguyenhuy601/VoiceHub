@@ -28,7 +28,7 @@ export const authAPI = {
   // Refresh access token
   refreshToken: async () => {
     const refreshToken = localStorage.getItem('refreshToken');
-    const response = await apiClient.post('/auth/refresh', { refreshToken });
+    const response = await apiClient.post('/auth/refresh-token', { refreshToken });
     return response;
   },
 
@@ -40,7 +40,11 @@ export const authAPI = {
 
   // Reset password with token
   resetPassword: async (token, password) => {
-    const response = await apiClient.post('/auth/reset-password', { token, password });
+    const response = await apiClient.post('/auth/reset-password', {
+      token,
+      password,
+      newPassword: password,
+    });
     return response;
   },
 
@@ -52,8 +56,8 @@ export const authAPI = {
   },
 
   // Resend verification email
-  resendVerification: async () => {
-    const response = await apiClient.post('/auth/resend-verification');
+  resendVerification: async (email) => {
+    const response = await apiClient.post('/auth/resend-verification', { email });
     return response;
   },
 };

@@ -84,6 +84,7 @@ api.interceptors.request.use(
       '/auth/login',
       '/auth/refresh-token',
       '/auth/forgot-password',
+      '/auth/resend-verification',
       '/auth/reset-password',
       '/auth/verify-email', // Verify email chỉ dùng token trong query, KHÔNG dùng JWT
     ];
@@ -199,6 +200,7 @@ api.interceptors.response.use(
       isAuthLoginRoute ||
       isAuthRegisterRoute ||
       requestUrl.includes('/auth/forgot-password') ||
+      requestUrl.includes('/auth/resend-verification') ||
       requestUrl.includes('/auth/reset-password') ||
       requestUrl.includes('/auth/verify-email');
 

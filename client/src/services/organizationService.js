@@ -68,11 +68,11 @@ const organizationService = {
 
   /* ===== MEMBERS MANAGEMENT ===== */
   
-  // Mời thành viên - POST /organizations/:orgId/invite
-  // email: email của người được mời
-  // role: 'admin' | 'member' | 'viewer'
-  inviteMember: async (orgId, email, role) => {
-    return await api.post(`/organizations/${orgId}/invite`, { email, role });
+  // Mời thành viên - POST /organizations/:orgId/members/invite
+  // userId: id của người dùng cần mời
+  // role: 'owner' | 'admin' | 'member'
+  inviteMember: async (orgId, userId, role = 'member') => {
+    return await api.post(`/organizations/${orgId}/members/invite`, { userId, role });
   },
 
   // Lấy danh sách members - GET /organizations/:orgId/members

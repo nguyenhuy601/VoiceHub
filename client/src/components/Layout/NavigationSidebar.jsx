@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import api from '../../services/api';
 import Avatar from '../ui/Avatar';
 import { getUserDisplayName } from '../../utils/helpers';
 import ProfileModal from '../Profile/ProfileModal';
@@ -11,10 +12,11 @@ const NavigationSidebar = () => {
   const [time, setTime] = useState(new Date());
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [togglingInvisible, setTogglingInvisible] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -23,6 +25,25 @@ const NavigationSidebar = () => {
 
   const currentTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const displayName = getUserDisplayName(user);
+  const isInvisible = Boolean(user?.isInvisible);
+  const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
+
+  const handleToggleInvisible = async () => {
+    if (togglingInvisible) return;
+    const nextInvisible = !isInvisible;
+
+    try {
+      setTogglingInvisible(true);
+      await api.patch('/users/me', { isInvisible: nextInvisible });
+      updateUser({ isInvisible: nextInvisible });
+      setProfileOpen(false);
+    } catch (error) {
+      console.error('Toggle invisible mode failed:', error);
+      window.alert(error?.response?.data?.message || 'Không thể cập nhật chế độ vô hình');
+    } finally {
+      setTogglingInvisible(false);
+    }
+  };
 
   const getGreeting = () => {
     const hour = time.getHours();
@@ -178,7 +199,7 @@ const NavigationSidebar = () => {
               className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl hover:bg-white/10 flex items-center justify-center shrink-0"
               title={displayName || user?.email || 'Tài khoản'}
             >
-              <Avatar user={user} size="sm" online className="shrink-0" />
+              <Avatar user={user} size="sm" online={isOnline} className="shrink-0" />
             </button>
           </div>
         </div>
@@ -198,7 +219,11 @@ const NavigationSidebar = () => {
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Avatar user={user} size="lg" online />
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-400 border-2 border-gray-900" />
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-gray-900 ${
+                        isOnline ? 'bg-emerald-400' : 'bg-gray-500'
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold text-white truncate text-sm">{displayName}</div>
@@ -226,13 +251,17 @@ const NavigationSidebar = () => {
                 </button>
                 <button
                   type="button"
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-gray-200 transition-colors"
+                  onClick={handleToggleInvisible}
+                  disabled={togglingInvisible}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-gray-200 transition-colors disabled:opacity-60"
                 >
                   <span className="flex items-center gap-2">
                     <span>👁️‍🗨️</span>
                     <span>Chế độ vô hình</span>
                   </span>
-                  <span className="text-xs text-yellow-400">Beta</span>
+                  <span className="text-xs text-yellow-400">
+                    {togglingInvisible ? 'Đang lưu...' : isInvisible ? 'Đang bật' : 'Đang tắt'}
+                  </span>
                 </button>
                 <button
                   type="button"

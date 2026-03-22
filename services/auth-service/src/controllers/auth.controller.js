@@ -257,8 +257,43 @@ class AuthController {
       res.json({
         success: true,
         message: result.message,
-        // Trong production, không trả về token
-        // resetToken: result.resetToken,
+        data: {
+          emailScheduled: !!result.emailScheduled,
+          ...(result.resetToken ? { resetToken: result.resetToken } : {}),
+          ...(result.resetUrl ? { resetUrl: result.resetUrl } : {}),
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  // Gửi lại email xác thực
+  async resendVerification(req, res) {
+    try {
+      const { email } = req.body || {};
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required',
+        });
+      }
+
+      const result = await authService.resendVerificationEmail(email);
+
+      res.json({
+        success: true,
+        message: result.message,
+        data: {
+          emailScheduled: !!result.emailScheduled,
+          ...(result.alreadyVerified ? { alreadyVerified: true } : {}),
+          ...(result.verificationToken ? { verificationToken: result.verificationToken } : {}),
+          ...(result.verificationUrl ? { verificationUrl: result.verificationUrl } : {}),
+        },
       });
     } catch (error) {
       res.status(500).json({
@@ -271,7 +306,8 @@ class AuthController {
   // Reset mật khẩu
   async resetPassword(req, res) {
     try {
-      const { resetToken, newPassword } = req.body;
+      const resetToken = req.body?.resetToken || req.body?.token;
+      const newPassword = req.body?.newPassword || req.body?.password;
 
       if (!resetToken || !newPassword) {
         return res.status(400).json({
