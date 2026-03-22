@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { getCryptoMetrics } = require('/shared');
 
 const app = express();
 
@@ -11,6 +12,10 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'user-service' });
+});
+
+app.get('/health/crypto', (req, res) => {
+  res.json({ status: 'ok', service: 'user-service', crypto: getCryptoMetrics() });
 });
 
 // User routes

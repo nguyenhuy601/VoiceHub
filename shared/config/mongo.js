@@ -15,10 +15,16 @@ const connectDB = async (mongoUri = null, options = {}) => {
       throw new Error('MONGODB_URI is not defined');
     }
 
-    // Ensure UTF-8 charset in connection string
-    if (!uri.includes('charset')) {
-      const separator = uri.includes('?') ? '&' : '?';
-      uri = `${uri}${separator}charset=utf8mb4`;
+    // MongoDB driver không hỗ trợ query option `charset`.
+    // Nếu URI cũ có tham số này thì loại bỏ để tránh lỗi:
+    // "MongoDB connection error: option charset is not supported"
+    if (uri.includes('charset=')) {
+      uri = uri.replace(/([?&])charset=[^&]*(&)?/i, (match, prefix, hasNext) => {
+        if (prefix === '?' && hasNext) return '?';
+        if (prefix === '&' && hasNext) return '&';
+        return '';
+      });
+      uri = uri.replace(/[?&]$/, '');
     }
 
     // Kiểm tra xem có phải Atlas connection string không

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { toast } from 'react-hot-toast';
 import { useNavigate, useParams } from 'react-router-dom';
+import { NotificationModal } from '../../components/Shared';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -13,6 +13,16 @@ const OrganizationDetailPage = () => {
   const [departments, setDepartments] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState(null);
+  const [pendingRedirect, setPendingRedirect] = useState('');
+
+  const notify = (message, type = 'success') => {
+    setNotice({
+      type,
+      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      message,
+    });
+  };
 
   useEffect(() => {
     loadOrganizationDetails();
@@ -30,8 +40,8 @@ const OrganizationDetailPage = () => {
       setDepartments(deptData);
       setMembers(memberData);
     } catch (error) {
-      toast.error('Không thể tải thông tin tổ chức');
-      navigate('/organizations');
+      notify('Không thể tải thông tin tổ chức', 'fail');
+      setPendingRedirect('/organizations');
     } finally {
       setLoading(false);
     }
@@ -46,7 +56,18 @@ const OrganizationDetailPage = () => {
   }
 
   if (!organization) {
-    return null;
+    return (
+      <NotificationModal
+        notice={notice}
+        onClose={() => {
+          setNotice(null);
+          if (pendingRedirect) {
+            navigate(pendingRedirect);
+            setPendingRedirect('');
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -163,6 +184,16 @@ const OrganizationDetailPage = () => {
           </div>
         </Card>
       </div>
+      <NotificationModal
+        notice={notice}
+        onClose={() => {
+          setNotice(null);
+          if (pendingRedirect) {
+            navigate(pendingRedirect);
+            setPendingRedirect('');
+          }
+        }}
+      />
     </div>
   );
 };

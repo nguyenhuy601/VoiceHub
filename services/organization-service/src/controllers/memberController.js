@@ -1,5 +1,7 @@
 const Membership = require('../models/Membership');
 const jwt = require('jsonwebtoken');
+const { emitRealtimeEvent } = require('/shared');
+// Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'member'];
 const INVITE_LINK_SECRET = process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || 'org-invite-secret';
 const INVITE_LINK_EXPIRES_IN = process.env.INVITE_LINK_EXPIRES_IN || '7d';
@@ -48,6 +50,18 @@ exports.inviteMember = async (req, res, next) => {
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
+
+    await emitRealtimeEvent({
+      event: 'organization:invitation_received',
+      userId: String(userId),
+      payload: {
+        invitationId: String(membership._id),
+        organizationId: String(req.params.orgId),
+        role: normalizedRole,
+        invitedBy: inviterId || null,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     res.json({ status: 'success', data: membership, message: 'Invitation sent successfully' });
   } catch (error) {
@@ -112,10 +126,31 @@ exports.respondToInvitation = async (req, res, next) => {
       invitation.status = 'active';
       invitation.joinedAt = new Date();
       await invitation.save();
+
+      await emitRealtimeEvent({
+        event: 'organization:invitation_accepted',
+        userIds: [String(userId), String(invitation.invitedBy || '')].filter(Boolean),
+        payload: {
+          invitationId: String(invitation._id),
+          organizationId: String(invitation.organization),
+          userId: String(userId),
+          timestamp: new Date().toISOString(),
+        },
+      });
       return res.json({ status: 'success', data: invitation, message: 'Invitation accepted' });
     }
 
     await Membership.deleteOne({ _id: invitationId });
+    await emitRealtimeEvent({
+      event: 'organization:invitation_rejected',
+      userIds: [String(userId), String(invitation.invitedBy || '')].filter(Boolean),
+      payload: {
+        invitationId: String(invitation._id),
+        organizationId: String(invitation.organization),
+        userId: String(userId),
+        timestamp: new Date().toISOString(),
+      },
+    });
     return res.json({ status: 'success', message: 'Invitation rejected' });
   } catch (error) {
     next(error);
@@ -196,6 +231,17 @@ exports.joinViaLink = async (req, res, next) => {
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
+    await emitRealtimeEvent({
+      event: 'organization:member_joined',
+      userId: String(userId),
+      payload: {
+        organizationId: String(req.params.orgId),
+        userId: String(userId),
+        membershipId: String(membership._id),
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     res.json({
       status: 'success',
       data: membership,
@@ -220,6 +266,17 @@ exports.updateMemberRole = async (req, res, next) => {
       { new: true }
     );
 
+    await emitRealtimeEvent({
+      event: 'organization:member_role_updated',
+      userId: String(req.params.userId),
+      payload: {
+        organizationId: String(req.params.orgId),
+        userId: String(req.params.userId),
+        role: normalizedRole,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     res.json({ status: 'success', data: membership });
   } catch (error) {
     next(error);
@@ -231,6 +288,16 @@ exports.removeMember = async (req, res, next) => {
     await Membership.findOneAndDelete({
       user: req.params.userId,
       organization: req.params.orgId,
+    });
+
+    await emitRealtimeEvent({
+      event: 'organization:member_removed',
+      userId: String(req.params.userId),
+      payload: {
+        organizationId: String(req.params.orgId),
+        userId: String(req.params.userId),
+        timestamp: new Date().toISOString(),
+      },
     });
 
     res.json({ status: 'success', message: 'Member removed' });

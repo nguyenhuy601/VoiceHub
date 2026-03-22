@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, Toast } from '../../components/Shared';
 import api from '../../services/api';
+import { useSocket } from '../../context/SocketContext';
 
 function NotificationsPage() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ function NotificationsPage() {
     { id: 8, type: 'system', icon: '🔔', title: 'Cập nhật hệ thống', message: 'VoiceHub đã được cập nhật lên phiên bản 2.1.0', time: '1 ngày trước', read: true, priority: 'low', action: 'Xem Changelog' }
   ]);
   const [toast, setToast] = useState(null);
+  const { on, off } = useSocket();
 
   const getRelativeTime = (input) => {
     if (!input) return 'Vừa xong';
@@ -85,6 +87,69 @@ function NotificationsPage() {
   useEffect(() => {
     loadNotifications();
   }, []);
+
+  useEffect(() => {
+    if (!on || !off) return;
+
+    const upsertNotification = (raw) => {
+      const item = toViewNotification(raw);
+      setNotifications((prev) => {
+        if (!item?.id) return prev;
+        const exists = prev.some((n) => n.id === item.id);
+        if (exists) {
+          return prev.map((n) => (n.id === item.id ? { ...n, ...item } : n));
+        }
+        return [item, ...prev];
+      });
+    };
+
+    const handleNotificationNew = (payload) => {
+      if (payload?.notification) {
+        upsertNotification(payload.notification);
+      }
+    };
+
+    const handleNotificationBulk = (payload) => {
+      const list = Array.isArray(payload?.notifications) ? payload.notifications : [];
+      list.forEach((item) => upsertNotification(item));
+    };
+
+    const handleRead = (payload) => {
+      const targetId = payload?.notificationId;
+      if (!targetId) return;
+      setNotifications((prev) => prev.map((n) => (String(n.id) === String(targetId) ? { ...n, read: true } : n)));
+    };
+
+    const handleReadAll = () => {
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    };
+
+    const handleDeleted = (payload) => {
+      const targetId = payload?.notificationId;
+      if (!targetId) return;
+      setNotifications((prev) => prev.filter((n) => String(n.id) !== String(targetId)));
+    };
+
+    const handleDeletedReadAll = () => {
+      setNotifications((prev) => prev.filter((n) => !n.read));
+    };
+
+    on('notification:new', handleNotificationNew);
+    on('notification:bulk_new', handleNotificationBulk);
+    on('notification:read', handleRead);
+    on('notification:read_all', handleReadAll);
+    on('notification:deleted', handleDeleted);
+    on('notification:deleted_read_all', handleDeletedReadAll);
+
+    return () => {
+      off('notification:new', handleNotificationNew);
+      off('notification:bulk_new', handleNotificationBulk);
+      off('notification:read', handleRead);
+      off('notification:read_all', handleReadAll);
+      off('notification:deleted', handleDeleted);
+      off('notification:deleted_read_all', handleDeletedReadAll);
+    };
+  }, [on, off]);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });

@@ -30,7 +30,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/socket.io': {
-        target: process.env.VITE_SOCKET_URL || 'http://localhost:3006',
+        target: process.env.VITE_SOCKET_URL || 'http://localhost:3000',
         changeOrigin: true,
         ws: true,
       },

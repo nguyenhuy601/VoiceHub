@@ -4,6 +4,11 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = require('./app');
 const { services } = require('./config/services');
 
+/** Production: chạy sau reverse proxy TLS (HTTPS) — bật trust proxy nếu cần req.secure */
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
 const PORT = process.env.PORT || 3000;
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 

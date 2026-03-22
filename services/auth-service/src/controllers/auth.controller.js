@@ -41,7 +41,7 @@ class AuthController {
         });
       }
 
-      // dateOfBirth is optional - không cần validate
+      // dateOfBirth: bắt buộc khi đăng ký mới (validate trong auth.service)
 
       console.log('[AuthController] Starting registration for:', email);
       console.log('[AuthController] Calling authService.register()...');

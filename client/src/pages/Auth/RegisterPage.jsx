@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GradientButton } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
@@ -6,7 +6,24 @@ import { useAuth } from '../../context/AuthContext';
 function RegisterPage() {
   const navigate = useNavigate();
   const { register } = useAuth();
-  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    dateOfBirth: '',
+  });
+
+  /** Trùng logic backend: từ 13 đến 120 tuổi — dùng ngày local để tránh lệch timezone so với input type="date" */
+  const birthDateBounds = useMemo(() => {
+    const today = new Date();
+    const max = new Date(today.getFullYear() - 13, today.getMonth(), today.getDate());
+    const min = new Date(today.getFullYear() - 120, today.getMonth(), today.getDate());
+    const pad = (n) => String(n).padStart(2, '0');
+    const toYmd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return { min: toYmd(min), max: toYmd(max) };
+  }, []);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -81,6 +98,15 @@ function RegisterPage() {
       newErrors.terms = 'Vui lòng đồng ý với điều khoản dịch vụ';
     }
 
+    if (!formData.dateOfBirth || !String(formData.dateOfBirth).trim()) {
+      newErrors.dateOfBirth = 'Vui lòng chọn ngày sinh';
+    } else {
+      const raw = String(formData.dateOfBirth).trim();
+      if (raw < birthDateBounds.min || raw > birthDateBounds.max) {
+        newErrors.dateOfBirth = 'Ngày sinh phải phù hợp độ tuổi đăng ký (từ 13 đến 120 tuổi)';
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -115,6 +141,7 @@ function RegisterPage() {
         lastName,
         email: formData.email,
         password: formData.password,
+        dateOfBirth: formData.dateOfBirth,
       });
       const duration = Date.now() - startTime;
 
@@ -236,6 +263,27 @@ function RegisterPage() {
               </div>
 
               <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-200">Ngày sinh</label>
+                <input
+                  type="date"
+                  value={formData.dateOfBirth}
+                  min={birthDateBounds.min}
+                  max={birthDateBounds.max}
+                  onChange={(e) => {
+                    setFormData({ ...formData, dateOfBirth: e.target.value });
+                    if (errors.dateOfBirth) setErrors({ ...errors, dateOfBirth: '' });
+                  }}
+                  className={`w-full rounded-xl border px-4 py-2.5 text-sm text-white transition [color-scheme:dark] ${
+                    errors.dateOfBirth
+                      ? 'border-red-500 bg-red-500/5 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
+                      : 'border-slate-800 bg-[#040f2a] focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/40'
+                  }`}
+                />
+                <p className="mt-1 text-xs text-slate-500">Bắt buộc — từ 13 đến 120 tuổi (theo quy định đăng ký).</p>
+                {errors.dateOfBirth && <p className="mt-1 text-xs text-red-400">{errors.dateOfBirth}</p>}
+              </div>
+
+              <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-200">Email</label>
                 <input
                   type="email"
@@ -323,7 +371,16 @@ function RegisterPage() {
                 variant="primary"
                 className="w-full justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-base font-bold hover:from-cyan-400 hover:to-blue-500"
                 type="submit"
-                disabled={loading || !agreedToTerms || !formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword}
+                disabled={
+                  loading ||
+                  !agreedToTerms ||
+                  !formData.firstName ||
+                  !formData.lastName ||
+                  !formData.dateOfBirth ||
+                  !formData.email ||
+                  !formData.password ||
+                  !formData.confirmPassword
+                }
               >
                 {loading ? 'Đang gửi email xác thực...' : 'Tạo tài khoản'}
               </GradientButton>

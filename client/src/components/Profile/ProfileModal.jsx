@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import { GradientButton } from '../../components/Shared';
-import { getUserDisplayName, getInitials, getAvatarColor } from '../../utils/helpers';
-import toast from 'react-hot-toast';
+import { GradientButton, NotificationModal } from '../../components/Shared';
+import { getUserDisplayName, getInitials, getAvatarColor, formatBirthDateSafe } from '../../utils/helpers';
 
 const inputClass =
   'w-full px-4 py-3 rounded-xl bg-white/5 border border-white/20 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 outline-none text-white placeholder-gray-500 transition-all';
@@ -16,6 +15,15 @@ function ProfileModal({ isOpen, onClose }) {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [form, setForm] = useState({ displayName: '', bio: '', phone: '', status: 'online', isInvisible: false });
   const [activeProfileTab, setActiveProfileTab] = useState('main'); // 'main' | 'organization' | 'account' | 'security' | 'notifications'
+  const [notice, setNotice] = useState(null);
+
+  const showNotice = (message, type = 'success') => {
+    setNotice({
+      type,
+      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      message,
+    });
+  };
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -31,7 +39,7 @@ function ProfileModal({ isOpen, onClose }) {
         isInvisible: data?.isInvisible ?? false,
       });
     } catch (err) {
-      toast.error(err?.message || 'Không tải được hồ sơ');
+      showNotice(err?.message || 'Không tải được hồ sơ', 'fail');
       setProfile(null);
     } finally {
       setLoading(false);
@@ -56,10 +64,10 @@ function ProfileModal({ isOpen, onClose }) {
       });
       const updated = res?.data ?? res;
       setProfile(updated);
-      toast.success('Đã lưu thay đổi');
+      showNotice('Đã lưu thay đổi', 'success');
       if (onClose) onClose();
     } catch (err) {
-      toast.error(err?.message || 'Lưu thất bại');
+      showNotice(err?.message || 'Lưu thất bại', 'fail');
     } finally {
       setSaving(false);
     }
@@ -75,7 +83,7 @@ function ProfileModal({ isOpen, onClose }) {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      toast.error('Vui lòng chọn một file hình ảnh hợp lệ');
+      showNotice('Vui lòng chọn một file hình ảnh hợp lệ', 'fail');
       return;
     }
 
@@ -94,15 +102,15 @@ function ProfileModal({ isOpen, onClose }) {
       const avatarUrl = data?.avatarUrl || data?.data?.avatarUrl;
 
       if (!avatarUrl) {
-        toast.error('Không nhận được đường dẫn avatar mới từ server');
+        showNotice('Không nhận được đường dẫn avatar mới từ server', 'fail');
         return;
       }
 
       // Cập nhật profile và auth user hiển thị
       setProfile((prev) => (prev ? { ...prev, avatar: avatarUrl } : prev));
-      toast.success('Đã cập nhật ảnh đại diện');
+      showNotice('Đã cập nhật ảnh đại diện', 'success');
     } catch (error) {
-      toast.error(error?.message || 'Lỗi khi tải lên avatar');
+      showNotice(error?.message || 'Lỗi khi tải lên avatar', 'fail');
     } finally {
       setAvatarUploading(false);
       // reset value để có thể chọn lại cùng một file
@@ -257,6 +265,17 @@ function ProfileModal({ isOpen, onClose }) {
                     className={`${inputClass} opacity-80 cursor-not-allowed`}
                   />
                   <p className="text-xs text-gray-500 mt-1">Email không thể thay đổi tại đây.</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-2 text-gray-400 uppercase tracking-wide">
+                    Ngày sinh
+                  </label>
+                  <p className={`${inputClass} opacity-90 cursor-default py-2.5`}>
+                    {formatBirthDateSafe(profile?.dateOfBirth)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Tài khoản cũ có thể chưa có ngày sinh — hiển thị &quot;Chưa cập nhật&quot;.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold mb-2 text-gray-400 uppercase tracking-wide">
@@ -443,6 +462,7 @@ function ProfileModal({ isOpen, onClose }) {
           )}
         </div>
       </div>
+      <NotificationModal notice={notice} onClose={() => setNotice(null)} />
     </div>
   );
 }
