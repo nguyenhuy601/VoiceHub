@@ -12,6 +12,18 @@ export const formatDate = (date) => {
   });
 };
 
+/** Ngày sinh / dữ liệu cũ có thể null — không throw khi parse lỗi */
+export const formatBirthDateSafe = (date, placeholder = 'Chưa cập nhật') => {
+  if (date == null || date === '') return placeholder;
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return placeholder;
+  return d.toLocaleDateString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
 export const formatTime = (date) => {
   if (!date) return '';
   const d = new Date(date);

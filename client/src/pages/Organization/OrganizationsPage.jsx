@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { Modal } from '../../components/Shared';
+import { Modal, NotificationModal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
 import OrganizationMainPanel from '../../components/Organization/OrganizationMainPanel';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
 import apiClient from '../../services/api/apiClient';
 import friendService from '../../services/friendService';
 import { organizationAPI } from '../../services/api/organizationAPI';
@@ -60,6 +60,7 @@ const HOME_CALENDAR_PREVIEW = [
 
 function OrganizationsPage() {
   const { user } = useAuth();
+  const { on, off } = useSocket();
   const navigate = useNavigate();
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
@@ -104,6 +105,17 @@ function OrganizationsPage() {
   const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
   const [createChannelType, setCreateChannelType] = useState('chat');
   const [createChannelName, setCreateChannelName] = useState('');
+  const [notice, setNotice] = useState(null);
+
+  const notify = (message, type = 'success') => {
+    setNotice({
+      type,
+      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      message,
+    });
+  };
+  const notifySuccess = (message) => notify(message, 'success');
+  const notifyError = (message) => notify(message, 'fail');
 
   const selectedOrganization = useMemo(
     () => organizations.find((org) => org._id === selectedOrganizationId) || null,
@@ -163,7 +175,7 @@ function OrganizationsPage() {
         setSelectedOrganizationId('');
       }
     } catch (error) {
-      toast.error('Không thể tải danh sách tổ chức');
+      notifyError('Không thể tải danh sách tổ chức');
     } finally {
       setLoadingOrganizations(false);
     }
@@ -177,7 +189,7 @@ function OrganizationsPage() {
       setPendingInvitations(Array.isArray(list) ? list : []);
     } catch (error) {
       setPendingInvitations([]);
-      toast.error('Không thể tải lời mời tổ chức');
+      notifyError('Không thể tải lời mời tổ chức');
     } finally {
       setLoadingInvitations(false);
     }
@@ -224,7 +236,7 @@ function OrganizationsPage() {
     } catch (error) {
       setDepartments([]);
       setSelectedDepartmentId('');
-      toast.error('Không thể tải phòng ban');
+      notifyError('Không thể tải phòng ban');
     } finally {
       setLoadingDepartments(false);
     }
@@ -250,7 +262,7 @@ function OrganizationsPage() {
     } catch (error) {
       setChannels([]);
       setSelectedChannelId('');
-      toast.error('Không thể tải danh sách kênh');
+      notifyError('Không thể tải danh sách kênh');
     } finally {
       setLoadingChannels(false);
     }
@@ -271,7 +283,7 @@ function OrganizationsPage() {
       setMessages(list);
     } catch (error) {
       setMessages([]);
-      toast.error('Không thể tải tin nhắn kênh');
+      notifyError('Không thể tải tin nhắn kênh');
     } finally {
       setLoadingMessages(false);
     }
@@ -284,35 +296,35 @@ function OrganizationsPage() {
 
   const handleSubmitCreateOrganization = async () => {
     if (!createOrgName?.trim()) {
-      toast.error('Vui lòng nhập tên tổ chức');
+      notifyError('Vui lòng nhập tên tổ chức');
       return;
     }
 
     try {
       await organizationAPI.createOrganization({ name: createOrgName.trim() });
-      toast.success('Đã tạo tổ chức mới');
+      notifySuccess('Đã tạo tổ chức mới');
       setCreateOrgModalOpen(false);
       await loadOrganizations();
     } catch (error) {
-      toast.error('Tạo tổ chức thất bại');
+      notifyError('Tạo tổ chức thất bại');
     }
   };
 
   const handleJoinQuickInvite = async () => {
     const { orgId, token } = extractInvitePayloadFromInput(quickInviteInput);
     if (!orgId || !token) {
-      toast.error('Vui lòng dán link mời hợp lệ (có orgId và inviteToken)');
+      notifyError('Vui lòng dán link mời hợp lệ (có orgId và inviteToken)');
       return;
     }
 
     setJoiningQuickInvite(true);
     try {
       await organizationAPI.joinByInviteLink(orgId, token);
-      toast.success('Đã tham gia tổ chức từ link mời');
+      notifySuccess('Đã tham gia tổ chức từ link mời');
       setQuickInviteInput('');
       await Promise.all([loadOrganizations(), loadPendingInvitations()]);
     } catch (error) {
-      toast.error('Không thể tham gia tổ chức từ link mời');
+      notifyError('Không thể tham gia tổ chức từ link mời');
     } finally {
       setJoiningQuickInvite(false);
     }
@@ -320,7 +332,7 @@ function OrganizationsPage() {
 
   const handleCreateDepartment = async () => {
     if (!selectedOrganizationId) {
-      toast.error('Hãy chọn tổ chức trước');
+      notifyError('Hãy chọn tổ chức trước');
       return;
     }
 
@@ -330,17 +342,17 @@ function OrganizationsPage() {
 
   const handleSubmitCreateDepartment = async () => {
     if (!createDeptName?.trim()) {
-      toast.error('Vui lòng nhập tên phòng ban');
+      notifyError('Vui lòng nhập tên phòng ban');
       return;
     }
 
     try {
       await organizationAPI.createDepartment(selectedOrganizationId, { name: createDeptName.trim() });
-      toast.success('Đã tạo phòng ban');
+      notifySuccess('Đã tạo phòng ban');
       setCreateDeptModalOpen(false);
       await loadDepartments(selectedOrganizationId);
     } catch (error) {
-      toast.error('Tạo phòng ban thất bại');
+      notifyError('Tạo phòng ban thất bại');
     }
   };
 
@@ -365,17 +377,17 @@ function OrganizationsPage() {
 
   const handleSubmitEditOrganization = async () => {
     if (!editingOrgId || !editOrgName.trim()) {
-      toast.error('Vui lòng nhập tên tổ chức');
+      notifyError('Vui lòng nhập tên tổ chức');
       return;
     }
 
     try {
       await organizationAPI.updateOrganization(editingOrgId, { name: editOrgName.trim() });
-      toast.success('Đã cập nhật tổ chức');
+      notifySuccess('Đã cập nhật tổ chức');
       setEditOrgModalOpen(false);
       await loadOrganizations();
     } catch (error) {
-      toast.error('Không thể cập nhật tổ chức');
+      notifyError('Không thể cập nhật tổ chức');
     }
   };
 
@@ -411,7 +423,7 @@ function OrganizationsPage() {
     } catch (error) {
       setInviteFriends([]);
       setGeneratedInviteLink('');
-      toast.error('Không thể khởi tạo dữ liệu mời');
+      notifyError('Không thể khởi tạo dữ liệu mời');
     } finally {
       setLoadingInviteFriends(false);
       setGeneratingInviteLink(false);
@@ -423,9 +435,9 @@ function OrganizationsPage() {
     setInvitingIds((prev) => (prev.includes(friendId) ? prev : [...prev, friendId]));
     try {
       await organizationAPI.addMember(inviteOrgId, { userId: friendId, role: 'member' });
-      toast.success('Đã gửi lời mời tham gia tổ chức');
+      notifySuccess('Đã gửi lời mời tham gia tổ chức');
     } catch (error) {
-      toast.error('Mời thành viên thất bại');
+      notifyError('Mời thành viên thất bại');
     } finally {
       setInvitingIds((prev) => prev.filter((id) => id !== friendId));
     }
@@ -435,9 +447,9 @@ function OrganizationsPage() {
     if (!generatedInviteLink) return;
     try {
       await navigator.clipboard.writeText(generatedInviteLink);
-      toast.success('Đã sao chép link mời');
+      notifySuccess('Đã sao chép link mời');
     } catch (error) {
-      toast.error('Không thể sao chép link');
+      notifyError('Không thể sao chép link');
     }
   };
 
@@ -449,13 +461,13 @@ function OrganizationsPage() {
     try {
       await organizationAPI.respondInvitation(invitationId, action);
       if (action === 'accept') {
-        toast.success('Đã chấp nhận lời mời tổ chức');
+        notifySuccess('Đã chấp nhận lời mời tổ chức');
       } else {
-        toast.success('Đã từ chối lời mời tổ chức');
+        notifySuccess('Đã từ chối lời mời tổ chức');
       }
       await Promise.all([loadOrganizations(), loadPendingInvitations()]);
     } catch (error) {
-      toast.error('Không thể xử lý lời mời');
+      notifyError('Không thể xử lý lời mời');
     } finally {
       setRespondingInvitationIds((prev) => prev.filter((id) => id !== invitationId));
     }
@@ -463,7 +475,7 @@ function OrganizationsPage() {
 
   const handleCreateChannel = async (channelType = 'chat') => {
     if (!selectedOrganizationId || !selectedDepartmentId) {
-      toast.error('Hãy chọn phòng ban trước');
+      notifyError('Hãy chọn phòng ban trước');
       return;
     }
 
@@ -474,7 +486,7 @@ function OrganizationsPage() {
 
   const handleSubmitCreateChannel = async () => {
     if (!createChannelName.trim()) {
-      toast.error('Vui lòng nhập tên kênh');
+      notifyError('Vui lòng nhập tên kênh');
       return;
     }
 
@@ -483,11 +495,11 @@ function OrganizationsPage() {
         name: createChannelName.trim(),
         type: createChannelType,
       });
-      toast.success('Đã tạo kênh');
+      notifySuccess('Đã tạo kênh');
       setCreateChannelModalOpen(false);
       await loadChannels(selectedOrganizationId, selectedDepartmentId);
     } catch (error) {
-      toast.error('Tạo kênh thất bại');
+      notifyError('Tạo kênh thất bại');
     }
   };
 
@@ -507,7 +519,7 @@ function OrganizationsPage() {
       setMessages((prev) => [...prev, created]);
       setMessageInput('');
     } catch (error) {
-      toast.error('Gửi tin nhắn thất bại');
+      notifyError('Gửi tin nhắn thất bại');
     } finally {
       setSendingMessage(false);
     }
@@ -547,9 +559,9 @@ function OrganizationsPage() {
       });
       const normalized = unwrapData(created);
       setMessages((prev) => [...prev, normalized]);
-      toast.success('Đã gửi nội dung vào kênh');
+      notifySuccess('Đã gửi nội dung vào kênh');
     } catch (error) {
-      toast.error('Không thể gửi nội dung');
+      notifyError('Không thể gửi nội dung');
     } finally {
       setSendingMessage(false);
     }
@@ -571,10 +583,10 @@ function OrganizationsPage() {
     const joinOrganizationByLink = async () => {
       try {
         await organizationAPI.joinByInviteLink(orgIdFromUrl, tokenFromUrl);
-        toast.success('Đã tham gia tổ chức từ link mời');
+        notifySuccess('Đã tham gia tổ chức từ link mời');
         await Promise.all([loadOrganizations(), loadPendingInvitations()]);
       } catch (error) {
-        toast.error('Không thể tham gia tổ chức từ link mời');
+        notifyError('Không thể tham gia tổ chức từ link mời');
       } finally {
         params.delete('orgId');
         params.delete('inviteOrgId');
@@ -605,6 +617,35 @@ function OrganizationsPage() {
       loadMessages(selectedChannelId);
     }
   }, [selectedChannelId, viewMode]);
+
+  useEffect(() => {
+    if (!on || !off) return;
+
+    const refreshOrgData = () => {
+      loadOrganizations();
+      loadPendingInvitations();
+    };
+
+    const handleOrgEvent = () => {
+      refreshOrgData();
+    };
+
+    on('organization:invitation_received', handleOrgEvent);
+    on('organization:invitation_accepted', handleOrgEvent);
+    on('organization:invitation_rejected', handleOrgEvent);
+    on('organization:member_joined', handleOrgEvent);
+    on('organization:member_removed', handleOrgEvent);
+    on('organization:updated', handleOrgEvent);
+
+    return () => {
+      off('organization:invitation_received', handleOrgEvent);
+      off('organization:invitation_accepted', handleOrgEvent);
+      off('organization:invitation_rejected', handleOrgEvent);
+      off('organization:member_joined', handleOrgEvent);
+      off('organization:member_removed', handleOrgEvent);
+      off('organization:updated', handleOrgEvent);
+    };
+  }, [on, off]);
 
   return (
     <>
@@ -881,6 +922,7 @@ function OrganizationsPage() {
           </div>
         </div>
       </Modal>
+      <NotificationModal notice={notice} onClose={() => setNotice(null)} />
     </>
   );
 }

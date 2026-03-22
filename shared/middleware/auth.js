@@ -105,8 +105,10 @@ const authenticate = (req, res, next) => {
  */
 const socketAuth = (socket, next) => {
   try {
+    const authHeader = socket.handshake.headers?.authorization;
+    const tokenFromHeader = authHeader?.split?.(' ')?.[1];
     const rawToken =
-      socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+      socket.handshake.auth?.token || tokenFromHeader;
     const token = normalizeToken(rawToken);
 
     if (!token) {

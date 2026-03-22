@@ -2,6 +2,7 @@ const Organization = require('../models/Organization');
 const Membership = require('../models/Membership');
 const Department = require('../models/Department');
 const Channel = require('../models/Channel');
+const { emitRealtimeEvent } = require('/shared');
 
 const getUserId = (req) => req.user?.id || req.user?.userId || req.user?._id;
 const DEFAULT_DEPARTMENTS = [
@@ -95,6 +96,16 @@ exports.createOrganization = async (req, res, next) => {
     // Seed cấu trúc mặc định: phòng ban bắt buộc + 1 chat/1 voice cho mỗi phòng ban
     await seedDefaultStructure(organization._id, userId);
 
+    await emitRealtimeEvent({
+      event: 'organization:created',
+      userId: String(userId),
+      payload: {
+        organizationId: String(organization._id),
+        name: organization.name,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     res.status(201).json({ status: 'success', data: organization });
   } catch (error) {
     next(error);
@@ -138,6 +149,16 @@ exports.updateOrganization = async (req, res, next) => {
       { new: true, runValidators: true }
     );
 
+    await emitRealtimeEvent({
+      event: 'organization:updated',
+      userId: String(getUserId(req) || ''),
+      payload: {
+        organizationId: String(req.params.id),
+        name: organization?.name,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     res.json({ status: 'success', data: organization });
   } catch (error) {
     next(error);
@@ -147,6 +168,15 @@ exports.updateOrganization = async (req, res, next) => {
 exports.deleteOrganization = async (req, res, next) => {
   try {
     await Organization.findByIdAndUpdate(req.params.id, { isActive: false });
+
+    await emitRealtimeEvent({
+      event: 'organization:deleted',
+      userId: String(getUserId(req) || ''),
+      payload: {
+        organizationId: String(req.params.id),
+        timestamp: new Date().toISOString(),
+      },
+    });
     res.json({ status: 'success', message: 'Organization deactivated' });
   } catch (error) {
     next(error);

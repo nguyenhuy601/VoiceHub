@@ -1,10 +1,17 @@
-const { mongo, getRedisClient } = require('/shared');
+const {
+  mongo,
+  getRedisClient,
+  encryptField,
+  isEncrypted,
+  isEncryptionEnabled,
+  unwrapPlaintext,
+  recordLazyMigrate,
+} = require('/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
-// Helper: đảm bảo MongoDB đã sẵn sàng, tránh lỗi buffering timed out
 async function ensureMongoReady() {
   if (mongoose.connection.readyState === 1) return;
 
@@ -25,33 +32,67 @@ function normalizeMongoError(error) {
   return error;
 }
 
+function encryptContentIfEnabled(plain) {
+  if (!isEncryptionEnabled()) return plain;
+  return encryptField(String(plain ?? ''));
+}
+
+function toClientMessage(doc) {
+  if (!doc) return null;
+  const o = doc.toObject ? doc.toObject() : { ...doc };
+  o.content = unwrapPlaintext(o.content);
+  if (o.originalContent) o.originalContent = unwrapPlaintext(o.originalContent);
+  return o;
+}
+
+async function maybeMigrateMessageContent(doc) {
+  if (!doc || !isEncryptionEnabled()) return;
+  const updates = {};
+  if (doc.content && !isEncrypted(doc.content)) {
+    updates.content = encryptField(String(doc.content));
+    updates.encV = 1;
+    recordLazyMigrate();
+  }
+  if (doc.originalContent && !isEncrypted(doc.originalContent)) {
+    updates.originalContent = encryptField(String(doc.originalContent));
+    updates.encV = 1;
+    recordLazyMigrate();
+  }
+  if (Object.keys(updates).length > 0) {
+    await Message.updateOne({ _id: doc._id }, { $set: updates });
+    Object.assign(doc, updates);
+  }
+}
+
 class MessageService {
-  // Tạo tin nhắn mới
   async createMessage(messageData) {
     try {
       await ensureMongoReady();
-      const message = new Message(messageData);
+      const payload = { ...messageData };
+      if (payload.content !== undefined) {
+        payload.content = encryptContentIfEnabled(payload.content);
+        if (isEncryptionEnabled()) payload.encV = 1;
+      }
+
+      const message = new Message(payload);
       await message.save();
 
-      // Cache message trong Redis
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${message._id}`;
-        await redis.setex(cacheKey, 3600, JSON.stringify(message));
+        await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error creating message: ${err.message}`);
     }
   }
 
-  // Lấy tin nhắn theo ID
   async getMessageById(messageId) {
     try {
       await ensureMongoReady();
-      // Kiểm tra cache trước
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${messageId}`;
@@ -61,38 +102,36 @@ class MessageService {
         }
       }
 
-      // Không populate User tại đây vì chat-service không đăng ký schema User;
-      // FE chỉ cần content/createdAt, thông tin user sẽ lấy từ user-service.
       const message = await Message.findById(messageId);
+      if (message) await maybeMigrateMessageContent(message);
 
-      // Cache message
       if (redis && message) {
         const cacheKey = `message:${messageId}`;
-        await redis.setex(cacheKey, 3600, JSON.stringify(message));
+        await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error getting message: ${err.message}`);
     }
   }
 
-  // Lấy danh sách tin nhắn
   async getMessages(filter, options = {}) {
     try {
       await ensureMongoReady();
       const { page = 1, limit = 50, sort = { createdAt: -1 } } = options;
 
-      const messages = await Message.find(filter)
-        .sort(sort)
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
+      const messages = await Message.find(filter).sort(sort).limit(limit * 1).skip((page - 1) * limit);
+
+      for (const m of messages) {
+        await maybeMigrateMessageContent(m);
+      }
 
       const total = await Message.countDocuments(filter);
 
       return {
-        messages,
+        messages: messages.map((m) => toClientMessage(m)),
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         total,
@@ -103,7 +142,6 @@ class MessageService {
     }
   }
 
-  // Đánh dấu tin nhắn đã đọc
   async markAsRead(messageId, userId) {
     try {
       await ensureMongoReady();
@@ -116,21 +154,19 @@ class MessageService {
         { new: true }
       );
 
-      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${messageId}`;
         await redis.del(cacheKey);
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error marking message as read: ${err.message}`);
     }
   }
 
-  // Xóa tin nhắn (Soft delete - giữ message data nhưng đánh dấu deleted)
   async deleteMessage(messageId, userId) {
     try {
       await ensureMongoReady();
@@ -146,24 +182,30 @@ class MessageService {
         { new: true }
       );
 
-      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${messageId}`;
         await redis.del(cacheKey);
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error deleting message: ${err.message}`);
     }
   }
 
-  // Thu hồi tin nhắn (Recall) - ẩn nội dung nhưng giữ message
   async recallMessage(messageId, userId) {
     try {
       await ensureMongoReady();
+      const oldMessage = await Message.findById(messageId);
+      if (!oldMessage || oldMessage.senderId.toString() !== userId.toString()) {
+        return null;
+      }
+
+      const prevContent = oldMessage.content;
+      const encPrev = isEncryptionEnabled() ? encryptField(unwrapPlaintext(prevContent)) : prevContent;
+
       const message = await Message.findOneAndUpdate(
         {
           _id: messageId,
@@ -172,55 +214,54 @@ class MessageService {
         {
           isRecalled: true,
           recalledAt: new Date(),
-          // Lưu nội dung cũ
-          originalContent: this._getPreviousContent ? await this._getPreviousContent(messageId) : undefined,
+          originalContent: encPrev,
         },
         { new: true }
       );
 
-      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${messageId}`;
         await redis.del(cacheKey);
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error recalling message: ${err.message}`);
     }
   }
 
-  // Chỉnh sửa tin nhắn
   async editMessage(messageId, userId, newContent) {
     try {
       await ensureMongoReady();
-      
-      // Lấy message cũ để backup content
+
       const oldMessage = await Message.findById(messageId);
       if (!oldMessage || oldMessage.senderId.toString() !== userId.toString()) {
         return null;
       }
 
+      const encNew = encryptContentIfEnabled(newContent);
+      const encOrig = encryptContentIfEnabled(unwrapPlaintext(oldMessage.content));
+
       const message = await Message.findByIdAndUpdate(
         messageId,
         {
-          content: newContent,
-          originalContent: oldMessage.content,
+          content: encNew,
+          originalContent: encOrig,
           editedAt: new Date(),
+          ...(isEncryptionEnabled() ? { encV: 1 } : {}),
         },
         { new: true }
       );
 
-      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `message:${messageId}`;
         await redis.del(cacheKey);
       }
 
-      return message;
+      return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error editing message: ${err.message}`);
@@ -229,5 +270,3 @@ class MessageService {
 }
 
 module.exports = new MessageService();
-
-

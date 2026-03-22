@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { GlassCard, GradientButton, Modal, NotificationModal } from '../../components/Shared';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { getUserDisplayName } from '../../utils/helpers';
 import { useSocket } from '../../context/SocketContext';
+import UnifiedChatComposer from '../../components/Chat/UnifiedChatComposer';
 
 function FriendChatPage() {
   const messageEndRef = useRef(null);
-  const messageInputRef = useRef(null);
-  const composerEmojiRef = useRef(null);
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -29,6 +28,8 @@ function FriendChatPage() {
   const [activityByFriend, setActivityByFriend] = useState({});
   const [chatSearch, setChatSearch] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiSearch, setEmojiSearch] = useState('');
+  const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
   const [activeMessageMenuId, setActiveMessageMenuId] = useState(null);
   const [activeReactionPickerId, setActiveReactionPickerId] = useState(null);
   const [messageReactions, setMessageReactions] = useState({});
@@ -36,7 +37,7 @@ function FriendChatPage() {
   const [editingDraft, setEditingDraft] = useState('');
   const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState(null);
   const [pinnedByFriend, setPinnedByFriend] = useState({});
-  const [toast, setToast] = useState(null);
+  const [notificationModal, setNotificationModal] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { emit, on, off } = useSocket();
@@ -47,10 +48,24 @@ function FriendChatPage() {
   const currentUserName = getUserDisplayName(user) || 'Bạn';
   const currentUserAvatar = user?.avatar || '🧑';
   const quickEmojis = ['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '👏'];
+  const composerEmojiList = [
+    '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
+    '🥳', '🤩', '😇', '🤔', '😢', '😭', '😡', '😴',
+    '👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '👀',
+    '❤️', '💜', '🧡', '💙', '🔥', '✨', '🎉', '🚀',
+  ];
+  const filteredComposerEmojis = useMemo(() => {
+    const keyword = emojiSearch.trim().toLowerCase();
+    if (!keyword) return composerEmojiList;
+    return composerEmojiList.filter((emoji) => emoji.toLowerCase().includes(keyword));
+  }, [composerEmojiList, emojiSearch]);
 
   const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    setNotificationModal({
+      type,
+      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      message,
+    });
   };
 
   const getPinnedStorageKey = useCallback(
@@ -70,7 +85,7 @@ function FriendChatPage() {
     setMessage((prev) => `${prev}${emoji}`);
     setShowEmojiPicker(false);
     setActiveReactionPickerId(null);
-    requestAnimationFrame(() => messageInputRef.current?.focus());
+    setEmojiSearch('');
   };
 
   const handleCopyMessage = async (item) => {
@@ -521,10 +536,6 @@ function FriendChatPage() {
 
   useEffect(() => {
     const handleDocumentClick = (event) => {
-      if (composerEmojiRef.current && !composerEmojiRef.current.contains(event.target)) {
-        setShowEmojiPicker(false);
-      }
-
       if (!event.target.closest('.message-reaction-root')) {
         setActiveReactionPickerId(null);
       }
@@ -609,6 +620,31 @@ function FriendChatPage() {
     };
   }, [on, off, currentUserId, selectedFriendId, upsertFriendActivity]);
 
+  useEffect(() => {
+    if (!on || !off) return;
+
+    const refreshFriendViews = () => {
+      loadPendingRequests();
+      loadFriends();
+    };
+
+    const handleFriendRequestEvent = () => {
+      refreshFriendViews();
+    };
+
+    on('friend:request_sent', handleFriendRequestEvent);
+    on('friend:request_accepted', handleFriendRequestEvent);
+    on('friend:request_rejected', handleFriendRequestEvent);
+    on('friend:removed', handleFriendRequestEvent);
+
+    return () => {
+      off('friend:request_sent', handleFriendRequestEvent);
+      off('friend:request_accepted', handleFriendRequestEvent);
+      off('friend:request_rejected', handleFriendRequestEvent);
+      off('friend:removed', handleFriendRequestEvent);
+    };
+  }, [on, off, loadPendingRequests, loadFriends]);
+
   const sortedMessages = useMemo(
     () =>
       [...messages].sort((a, b) => {
@@ -671,6 +707,20 @@ function FriendChatPage() {
     if (!normalizedCenterSearch) return true;
     return String(f.name || '').toLowerCase().includes(normalizedCenterSearch);
   });
+
+  const handleComposerFeature = useCallback((featureName) => {
+    showToast(`${featureName} đang ở bản beta`, 'info');
+  }, []);
+
+  const composerPlusItems = useMemo(
+    () => [
+      { key: 'upload-file', icon: '📁', label: 'Tải lên tệp', onClick: () => handleComposerFeature('Tải lên tệp') },
+      { key: 'topic', icon: '🧵', label: 'Tạo chủ đề', onClick: () => handleComposerFeature('Tạo chủ đề') },
+      { key: 'poll', icon: '🗳️', label: 'Tạo khảo sát', onClick: () => handleComposerFeature('Tạo khảo sát') },
+      { key: 'apps', icon: '✳️', label: 'Dùng các ứng dụng', onClick: () => handleComposerFeature('Ứng dụng chat') },
+    ],
+    [handleComposerFeature]
+  );
 
   const formatTime = (iso) => {
     if (!iso) return '';
@@ -1125,55 +1175,108 @@ function FriendChatPage() {
                 <div ref={messageEndRef} />
               </div>
 
-              <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5">
-                <div className="flex gap-2">
-                  <div className="relative" ref={composerEmojiRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
+              <div className="relative">
+                <UnifiedChatComposer
+                  value={message}
+                  onChange={setMessage}
+                  onSend={handleSend}
+                  placeholder="Nhập tin nhắn..."
+                  disabled={!selectedFriendId}
+                  sendDisabled={!message.trim()}
+                  sendLabel="Gửi"
+                  plusItems={composerPlusItems}
+                  actionItems={[
+                    {
+                      key: 'emoji',
+                      title: 'Emoji',
+                      content: '🙂',
+                      className: 'w-8 text-lg',
+                      onClick: () => {
                         setActiveReactionPickerId(null);
                         setActiveMessageMenuId(null);
+                        setEmojiPickerTab('emoji');
                         setShowEmojiPicker((prev) => !prev);
-                      }}
-                      className="w-10 h-10 rounded-xl bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-lg"
-                      title="Biểu cảm"
-                    >
-                      😊
-                    </button>
+                      },
+                    },
+                  ]}
+                />
 
-                    {showEmojiPicker && (
-                      <div className="absolute bottom-12 left-0 z-20 p-2 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-                        <div className="grid grid-cols-4 gap-1">
-                          {quickEmojis.map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              onClick={() => appendEmoji(emoji)}
-                              className="w-9 h-9 rounded-lg hover:bg-slate-800/80 text-lg"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
+                {showEmojiPicker && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Đóng bảng emoji"
+                      onClick={() => setShowEmojiPicker(false)}
+                      className="fixed inset-0 z-40 cursor-default bg-black/30"
+                    />
+                    <div className="fixed bottom-24 right-8 z-50 h-[420px] w-[520px] overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                      <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+                        {[
+                          { id: 'gif', label: 'Ảnh động' },
+                          { id: 'sticker', label: 'Sticker' },
+                          { id: 'emoji', label: 'Emoji' },
+                        ].map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setEmojiPickerTab(tab.id)}
+                            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                              emojiPickerTab === tab.id
+                                ? 'bg-slate-700 text-white'
+                                : 'text-gray-300 hover:bg-slate-800/70'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="border-b border-slate-700 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={emojiSearch}
+                            onChange={(event) => setEmojiSearch(event.target.value)}
+                            placeholder="Tìm emoji hợp lý nhất"
+                            className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-gray-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleComposerFeature('Thêm emoji')}
+                            className="h-11 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white transition hover:bg-slate-600"
+                          >
+                            Thêm emoji
+                          </button>
                         </div>
                       </div>
-                    )}
-                  </div>
 
-                <input
-                  ref={messageInputRef}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  placeholder="Nhập tin nhắn..."
-                  className="flex-1 px-3 py-2 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white placeholder-gray-500"
-                />
-                <GradientButton className="rounded-xl px-4 py-2 text-sm" onClick={handleSend}>Gửi</GradientButton>
-                </div>
+                      <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
+                        {emojiPickerTab !== 'emoji' ? (
+                          <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                            Mục này đang ở bản beta.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-9 gap-2">
+                            {filteredComposerEmojis.map((emoji, idx) => (
+                              <button
+                                key={`${emoji}-${idx}`}
+                                type="button"
+                                onClick={() => appendEmoji(emoji)}
+                                className="h-11 rounded-lg bg-[#111a2c] text-2xl transition hover:bg-slate-700/80"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            {filteredComposerEmojis.length === 0 && (
+                              <div className="col-span-9 rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-gray-400">
+                                Không tìm thấy emoji phù hợp.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -1403,7 +1506,7 @@ function FriendChatPage() {
           </div>
         </div>
       </Modal>
-      {toast && <Toast message={toast.message} type={toast.type} />}
+      <NotificationModal notice={notificationModal} onClose={() => setNotificationModal(null)} />
     </div>
   );
 }

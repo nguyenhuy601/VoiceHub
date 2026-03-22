@@ -7,31 +7,48 @@ require('dotenv').config();
 const app = express();
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
-// Middleware
-app.use(cors());
+const isProd = process.env.NODE_ENV === 'production';
+const corsAllowList = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000')
+  .split(',')
+  .map((o) => o.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
+  .filter(Boolean);
+
+// Middleware — production: chỉ origin trong whitelist; dev: cho phép không có Origin (mobile/curl)
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (corsAllowList.includes(origin)) return callback(null, true);
+      if (!isProd) return callback(null, true);
+      return callback(new Error('CORS blocked'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
+);
 // app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
 
 // Proxy Socket.IO polling traffic before auth/permission middlewares.
 app.use(
+  '/socket.io',
   createProxyMiddleware({
     target: services.socket.url,
     changeOrigin: true,
     ws: false,
     xfwd: true,
-    pathFilter: '/socket.io',
     logLevel: 'warn',
   })
 );
 
 // Proxy voice signaling polling (mediasoup signaling via Socket.IO)
 app.use(
+  VOICE_SIGNAL_PATH,
   createProxyMiddleware({
     target: services.voice.url,
     changeOrigin: true,
     ws: false,
     xfwd: true,
-    pathFilter: VOICE_SIGNAL_PATH,
     logLevel: 'warn',
   })
 );
@@ -42,6 +59,12 @@ app.use('/', routes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
+  if (err && (err.message === 'CORS blocked' || String(err.message || '').includes('CORS'))) {
+    return res.status(403).json({
+      success: false,
+      message: 'Not allowed by CORS',
+    });
+  }
   console.error('Error:', err);
   res.status(err.status || 500).json({
     success: false,

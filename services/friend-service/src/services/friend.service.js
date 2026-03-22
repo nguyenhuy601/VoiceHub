@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Friend = require('../models/Friend');
-const { getRedisClient, friendWebhook, logger } = require('/shared');
+const { getRedisClient, friendWebhook, logger, emitRealtimeEvent } = require('/shared');
 const axios = require('axios');
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
@@ -101,6 +101,18 @@ class FriendService {
 
       await friend.save();
 
+      await emitRealtimeEvent({
+        event: 'friend:request_sent',
+        userId: String(friendId),
+        payload: {
+          requesterId: String(userId),
+          receiverId: String(friendId),
+          requestId: String(friend._id),
+          status: 'pending',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
       logger.info(`Friend request sent: ${userId} -> ${friendId}`);
       return friend;
     } catch (error) {
@@ -149,6 +161,17 @@ class FriendService {
         await reverseFriend.save();
       }
 
+      await emitRealtimeEvent({
+        event: 'friend:request_accepted',
+        userIds: [String(userId), String(friendId)],
+        payload: {
+          userId: String(userId),
+          friendId: String(friendId),
+          acceptedAt: friend.acceptedAt,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
       // Xóa cache
       const redis = getRedisClient();
       if (redis) {
@@ -189,6 +212,18 @@ class FriendService {
         throw new Error('Friend request not found');
       }
 
+      const requesterId = String(friend.userId);
+      const receiverId = String(friend.friendId);
+      await emitRealtimeEvent({
+        event: 'friend:request_rejected',
+        userIds: [requesterId, receiverId],
+        payload: {
+          requesterId,
+          receiverId,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
       logger.info(`Friend request rejected: ${userId} <-> ${friendId}`);
       return friend;
     } catch (error) {
@@ -227,6 +262,15 @@ class FriendService {
       }
 
       logger.info(`User blocked: ${userId} blocked ${friendId}`);
+      await emitRealtimeEvent({
+        event: 'friend:blocked',
+        userIds: [String(userId), String(friendId)],
+        payload: {
+          blockerId: String(userId),
+          blockedId: String(friendId),
+          timestamp: new Date().toISOString(),
+        },
+      });
       return block;
     } catch (error) {
       normalizeMongoError(error);
@@ -256,6 +300,15 @@ class FriendService {
       }
 
       logger.info(`User unblocked: ${userId} unblocked ${friendId}`);
+      await emitRealtimeEvent({
+        event: 'friend:unblocked',
+        userIds: [String(userId), String(friendId)],
+        payload: {
+          blockerId: String(userId),
+          blockedId: String(friendId),
+          timestamp: new Date().toISOString(),
+        },
+      });
       return block;
     } catch (error) {
       normalizeMongoError(error);
@@ -390,6 +443,15 @@ class FriendService {
       }
 
       logger.info(`Friend removed: ${userId} <-> ${friendId}`);
+      await emitRealtimeEvent({
+        event: 'friend:removed',
+        userIds: [String(userId), String(friendId)],
+        payload: {
+          userId: String(userId),
+          friendId: String(friendId),
+          timestamp: new Date().toISOString(),
+        },
+      });
       return result;
     } catch (error) {
       normalizeMongoError(error);

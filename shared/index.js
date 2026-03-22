@@ -36,5 +36,11 @@ module.exports = {
   
   // Webhook utilities
   ...require('./utils/webhook'),
+  // Realtime utilities
+  ...require('./utils/realtime'),
+  // Field encryption & metrics
+  ...require('./utils/fieldCrypto'),
+  ...require('./utils/cryptoMetrics'),
+  ...require('./utils/migration'),
 };
 

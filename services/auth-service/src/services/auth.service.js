@@ -1,4 +1,5 @@
 const UserAuth = require('../models/UserAuth');
+const { validateRegistrationDateOfBirth } = require('../utils/dateOfBirth');
 const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
 const { getRedisClient } = require('/shared');
@@ -22,7 +23,10 @@ class AuthService {
         throw new Error('First name and last name are required');
       }
 
-      // dateOfBirth is optional - không cần validate
+      const dobCheck = validateRegistrationDateOfBirth(dateOfBirth);
+      if (!dobCheck.ok) {
+        throw new Error(dobCheck.message);
+      }
 
       // Kiểm tra MongoDB connection trước khi query
       const readyState = mongoose.connection.readyState;
@@ -112,7 +116,7 @@ class AuthService {
         password: hashedPassword,
         firstName,
         lastName,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        dateOfBirth: dobCheck.date,
         emailVerificationToken,
         emailVerificationExpiresAt,
         isEmailVerified: false,

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal } from '../Shared';
+import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 
 const OrganizationMainPanel = ({
   selectedOrganization,
@@ -42,7 +43,6 @@ const OrganizationMainPanel = ({
   loadingChannels = false,
   loadingDepartments = false,
 }) => {
-  const [showComposerMenu, setShowComposerMenu] = useState(false);
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
@@ -52,8 +52,9 @@ const OrganizationMainPanel = ({
   const [contactSearch, setContactSearch] = useState('');
   const [contactCategory, setContactCategory] = useState('all');
   const [selectedContactId, setSelectedContactId] = useState('');
-  const menuRef = useRef(null);
-  const menuButtonRef = useRef(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiSearch, setEmojiSearch] = useState('');
+  const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -70,28 +71,11 @@ const OrganizationMainPanel = ({
     });
   };
 
-  useEffect(() => {
-    if (!showComposerMenu) return undefined;
-    const handleOutsideClick = (event) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(event.target) &&
-        menuButtonRef.current &&
-        !menuButtonRef.current.contains(event.target)
-      ) {
-        setShowComposerMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showComposerMenu]);
-
   const handleCreateContactCard = () => {
     setContactSearch('');
     setContactCategory('all');
     setSelectedContactId('');
     setIsContactModalOpen(true);
-    setShowComposerMenu(false);
   };
 
   const handleCreatePoll = () => {
@@ -100,7 +84,6 @@ const OrganizationMainPanel = ({
     setPollDuration('24h');
     setAllowMultiAnswer(false);
     setIsPollModalOpen(true);
-    setShowComposerMenu(false);
   };
 
   const handleFileSelected = (event, kind) => {
@@ -108,7 +91,6 @@ const OrganizationMainPanel = ({
     event.target.value = '';
     if (!file) return;
     onSendChatOption?.({ kind, file });
-    setShowComposerMenu(false);
   };
 
   const normalizedContacts = chatContacts.map((item) => {
@@ -131,6 +113,19 @@ const OrganizationMainPanel = ({
         .toLowerCase()
         .includes(contactSearch.trim().toLowerCase());
     return byCategory && bySearch;
+  });
+
+  const composerEmojiList = [
+    '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
+    '🥳', '🤩', '😇', '🤔', '😢', '😭', '😡', '😴',
+    '👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '👀',
+    '❤️', '💜', '🧡', '💙', '🔥', '✨', '🎉', '🚀',
+  ];
+
+  const filteredComposerEmojis = composerEmojiList.filter((emoji) => {
+    const keyword = emojiSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return emoji.toLowerCase().includes(keyword);
   });
 
   const addPollOption = () => {
@@ -175,6 +170,12 @@ const OrganizationMainPanel = ({
       },
     });
     setIsContactModalOpen(false);
+  };
+
+  const appendEmoji = (emoji) => {
+    onChangeMessageInput?.(`${messageInput || ''}${emoji}`);
+    setShowEmojiPicker(false);
+    setEmojiSearch('');
   };
 
   const renderInvitationPanel = (compact = false) => (
@@ -641,7 +642,7 @@ const OrganizationMainPanel = ({
                 })}
             </div>
 
-            <div className="relative mt-3 flex shrink-0 gap-2 border-t border-white/10 pt-3">
+            <div className="relative mt-3 shrink-0 border-t border-white/10 pt-3">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -655,71 +656,111 @@ const OrganizationMainPanel = ({
                 className="hidden"
                 onChange={(event) => handleFileSelected(event, 'image')}
               />
-              <button
-                ref={menuButtonRef}
-                type="button"
-                disabled={!selectedChannelId || sendingMessage}
-                onClick={() => setShowComposerMenu((prev) => !prev)}
-                className="h-10 w-10 rounded-xl border border-white/15 bg-white/5 text-2xl leading-none text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                +
-              </button>
-              {showComposerMenu && (
-                <div
-                  ref={menuRef}
-                  className="absolute bottom-[56px] left-0 z-20 w-52 rounded-xl border border-white/10 bg-gray-900/95 p-2 shadow-2xl"
-                >
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                  >
-                    Tải lên tệp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => imageInputRef.current?.click()}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                  >
-                    Gửi hình ảnh
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCreateContactCard}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                  >
-                    Gửi danh thiếp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCreatePoll}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                  >
-                    Tạo khảo sát
-                  </button>
-                </div>
-              )}
-              <input
+              <UnifiedChatComposer
                 value={messageInput}
-                onChange={(event) => onChangeMessageInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    onSendMessage();
-                  }
-                }}
-                placeholder={selectedChannelId ? 'Nhập tin nhắn...' : 'Chọn kênh để nhắn tin'}
+                onChange={onChangeMessageInput}
+                onSend={onSendMessage}
+                placeholder={selectedChannelId ? 'Nhắn #' + (selectedChannel?.name || 'chat-chung') : 'Chọn kênh để nhắn tin'}
                 disabled={!selectedChannelId || sendingMessage}
-                className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
+                sendDisabled={!messageInput.trim()}
+                sendLabel="Gửi"
+                plusItems={[
+                  { key: 'upload-file', icon: '📁', label: 'Tải lên tệp', onClick: () => fileInputRef.current?.click() },
+                  { key: 'upload-image', icon: '🖼️', label: 'Gửi hình ảnh', onClick: () => imageInputRef.current?.click() },
+                  { key: 'topic', icon: '🧵', label: 'Tạo chủ đề', onClick: () => onSendChatOption?.({ kind: 'topic' }) },
+                  { key: 'poll', icon: '🗳️', label: 'Tạo khảo sát', onClick: handleCreatePoll },
+                  { key: 'contact', icon: '👤', label: 'Gửi danh thiếp', onClick: handleCreateContactCard },
+                ]}
+                actionItems={[
+                  {
+                    key: 'emoji',
+                    title: 'Emoji',
+                    content: '🙂',
+                    className: 'w-8 text-lg',
+                    onClick: () => {
+                      setEmojiPickerTab('emoji');
+                      setShowEmojiPicker((prev) => !prev);
+                    },
+                  },
+                ]}
               />
-              <button
-                type="button"
-                onClick={onSendMessage}
-                disabled={!selectedChannelId || !messageInput.trim() || sendingMessage}
-                className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Gửi
-              </button>
+
+              {showEmojiPicker && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Đóng bảng emoji"
+                    onClick={() => setShowEmojiPicker(false)}
+                    className="fixed inset-0 z-40 cursor-default bg-black/30"
+                  />
+                  <div className="fixed bottom-24 right-8 z-50 h-[420px] w-[520px] overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1220] shadow-2xl">
+                    <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+                      {[
+                        { id: 'gif', label: 'Ảnh động' },
+                        { id: 'sticker', label: 'Sticker' },
+                        { id: 'emoji', label: 'Emoji' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setEmojiPickerTab(tab.id)}
+                          className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                            emojiPickerTab === tab.id
+                              ? 'bg-slate-700 text-white'
+                              : 'text-gray-300 hover:bg-slate-800/70'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="border-b border-slate-700 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={emojiSearch}
+                          onChange={(event) => setEmojiSearch(event.target.value)}
+                          placeholder="Tìm emoji hợp lý nhất"
+                          className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-gray-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onSendChatOption?.({ kind: 'add-emoji-beta' })}
+                          className="h-11 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white transition hover:bg-slate-600"
+                        >
+                          Thêm emoji
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
+                      {emojiPickerTab !== 'emoji' ? (
+                        <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                          Mục này đang ở bản beta.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-9 gap-2">
+                          {filteredComposerEmojis.map((emoji, idx) => (
+                            <button
+                              key={`${emoji}-${idx}`}
+                              type="button"
+                              onClick={() => appendEmoji(emoji)}
+                              className="h-11 rounded-lg bg-[#111a2c] text-2xl transition hover:bg-slate-700/80"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                          {filteredComposerEmojis.length === 0 && (
+                            <div className="col-span-9 rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-gray-400">
+                              Không tìm thấy emoji phù hợp.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

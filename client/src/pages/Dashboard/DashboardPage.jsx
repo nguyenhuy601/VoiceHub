@@ -7,6 +7,10 @@ import api from '../../services/api';
 import organizationService from '../../services/organizationService';
 import userService from '../../services/userService';
 
+// Theo cấu hình hiện tại, Tasks/Documents đang được ẩn tạm thời.
+// Chỉ bật lại khi set VITE_ENABLE_TASKS_DOCS=true
+const ENABLE_TASKS_DOCS = import.meta.env.VITE_ENABLE_TASKS_DOCS === 'true';
+
 const DEFAULT_PROJECTS = [
   { name: 'VoiceHub Enterprise', progress: 75, members: 8, deadline: '2 ngày' },
   { name: 'Chiến Dịch Marketing Q1', progress: 60, members: 5, deadline: '5 ngày' },
@@ -163,46 +167,48 @@ function DashboardPage() {
           if (firstOrganizationId) {
             setActiveOrganizationId(firstOrganizationId);
 
-            const [tasksResp, documentsResp] = await Promise.allSettled([
-              api.get('/tasks', {
-                params: {
-                  organizationId: firstOrganizationId,
-                  limit: 8,
-                },
-              }),
-              api.get('/documents', {
-                params: {
-                  organizationId: firstOrganizationId,
-                  limit: 8,
-                },
-              }),
-            ]);
+            if (ENABLE_TASKS_DOCS) {
+              const [tasksResp, documentsResp] = await Promise.allSettled([
+                api.get('/tasks', {
+                  params: {
+                    organizationId: firstOrganizationId,
+                    limit: 8,
+                  },
+                }),
+                api.get('/documents', {
+                  params: {
+                    organizationId: firstOrganizationId,
+                    limit: 8,
+                  },
+                }),
+              ]);
 
-            const taskData = tasksResp.status === 'fulfilled' ? extractData(tasksResp.value) : null;
-            const documentData =
-              documentsResp.status === 'fulfilled' ? extractData(documentsResp.value) : null;
+              const taskData = tasksResp.status === 'fulfilled' ? extractData(tasksResp.value) : null;
+              const documentData =
+                documentsResp.status === 'fulfilled' ? extractData(documentsResp.value) : null;
 
-            const tasks = Array.isArray(taskData?.tasks)
-              ? taskData.tasks
-              : Array.isArray(taskData?.data?.tasks)
-                ? taskData.data.tasks
-                : [];
-            const documents = Array.isArray(documentData?.documents)
-              ? documentData.documents
-              : Array.isArray(documentData?.data?.documents)
-                ? documentData.data.documents
-                : [];
+              const tasks = Array.isArray(taskData?.tasks)
+                ? taskData.tasks
+                : Array.isArray(taskData?.data?.tasks)
+                  ? taskData.data.tasks
+                  : [];
+              const documents = Array.isArray(documentData?.documents)
+                ? documentData.documents
+                : Array.isArray(documentData?.data?.documents)
+                  ? documentData.data.documents
+                  : [];
 
-            const mergedActivities = [
-              ...tasks.map(mapTaskToActivity),
-              ...documents.map(mapDocumentToActivity),
-            ]
-              .sort((a, b) => new Date(b._createdAt).getTime() - new Date(a._createdAt).getTime())
-              .slice(0, 20)
-              .map(({ _createdAt, ...activity }) => activity);
+              const mergedActivities = [
+                ...tasks.map(mapTaskToActivity),
+                ...documents.map(mapDocumentToActivity),
+              ]
+                .sort((a, b) => new Date(b._createdAt).getTime() - new Date(a._createdAt).getTime())
+                .slice(0, 20)
+                .map(({ _createdAt, ...activity }) => activity);
 
-            if (mergedActivities.length > 0) {
-              setActivities(mergedActivities);
+              if (mergedActivities.length > 0) {
+                setActivities(mergedActivities);
+              }
             }
           }
         }

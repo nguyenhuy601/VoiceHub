@@ -1,4 +1,5 @@
 const messageService = require('../services/message.service');
+const { emitRealtimeEvent } = require('/shared');
 
 class MessageController {
   // Tạo tin nhắn mới
@@ -30,6 +31,27 @@ class MessageController {
       }
 
       const message = await messageService.createMessage(messageData);
+
+      if (receiverId) {
+        await emitRealtimeEvent({
+          event: 'friend:new_message',
+          userId: String(receiverId),
+          payload: message,
+        });
+        await emitRealtimeEvent({
+          event: 'friend:sent',
+          userId: String(senderId),
+          payload: message,
+        });
+      }
+
+      if (roomId) {
+        await emitRealtimeEvent({
+          event: 'room:new_message',
+          roomId: String(roomId),
+          payload: message,
+        });
+      }
 
       res.status(201).json({
         success: true,

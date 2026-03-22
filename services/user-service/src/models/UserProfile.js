@@ -43,6 +43,18 @@ const userProfileSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    /** HMAC blind index cho tra cứu / unique khi phone được mã hóa at-rest */
+    phoneBlindIndex: {
+      type: String,
+      default: null,
+      sparse: true,
+      unique: true,
+    },
+    /** Phiên bản mã hóa trường PII (0 = legacy plaintext) */
+    encV: {
+      type: Number,
+      default: 0,
+    },
     dateOfBirth: {
       type: Date,
       default: null,

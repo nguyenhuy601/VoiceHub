@@ -1,3 +1,36 @@
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'authorization',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'inviteToken',
+  'phone',
+  'content',
+]);
+
+function sanitizeForLog(value, depth = 0) {
+  if (depth > 6) return '[max-depth]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    if (value.length > 64 && /^[A-Za-z0-9._-]+$/.test(value)) return '[redacted-string]';
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((v) => sanitizeForLog(v, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+        out[k] = '[redacted]';
+      } else {
+        out[k] = sanitizeForLog(v, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 /**
  * Logger utility với các mức log khác nhau
  */
@@ -35,7 +68,8 @@ class Logger {
     const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
     
     if (data) {
-      return `${prefix} ${message} ${JSON.stringify(data)}`;
+      const safe = typeof data === 'object' ? sanitizeForLog(data) : data;
+      return `${prefix} ${message} ${JSON.stringify(safe)}`;
     }
     
     return `${prefix} ${message}`;

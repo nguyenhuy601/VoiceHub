@@ -1,8 +1,55 @@
 const Notification = require('../models/Notification');
-const { getRedisClient, logger } = require('/shared');
+const {
+  getRedisClient,
+  logger,
+  emitRealtimeEvent,
+  encryptField,
+  isEncrypted,
+  isEncryptionEnabled,
+  unwrapPlaintext,
+  recordLazyMigrate,
+} = require('/shared');
+
+function encText(val) {
+  if (val === undefined || val === null) return val;
+  if (!isEncryptionEnabled()) return String(val);
+  return encryptField(String(val));
+}
+
+function toClientNotification(doc) {
+  if (!doc) return null;
+  const o = doc.toObject ? doc.toObject() : { ...doc };
+  o.title = unwrapPlaintext(o.title);
+  o.content = unwrapPlaintext(o.content);
+  if (o.actionUrl) o.actionUrl = unwrapPlaintext(o.actionUrl);
+  return o;
+}
+
+async function maybeMigrateNotification(doc) {
+  if (!doc || !isEncryptionEnabled()) return;
+  const updates = {};
+  if (doc.title && !isEncrypted(doc.title)) {
+    updates.title = encryptField(String(doc.title));
+    updates.encV = 1;
+    recordLazyMigrate();
+  }
+  if (doc.content && !isEncrypted(doc.content)) {
+    updates.content = encryptField(String(doc.content));
+    updates.encV = 1;
+    recordLazyMigrate();
+  }
+  if (doc.actionUrl && !isEncrypted(doc.actionUrl)) {
+    updates.actionUrl = encryptField(String(doc.actionUrl));
+    updates.encV = 1;
+    recordLazyMigrate();
+  }
+  if (Object.keys(updates).length > 0) {
+    await Notification.updateOne({ _id: doc._id }, { $set: updates });
+    Object.assign(doc, updates);
+  }
+}
 
 class NotificationService {
-  // Tạo notification mới
   async createNotification(notificationData) {
     try {
       const { userId, type, title, content, data, actionUrl } = notificationData;
@@ -10,50 +57,70 @@ class NotificationService {
       const notification = new Notification({
         userId,
         type,
-        title,
-        content,
+        title: encText(title),
+        content: encText(content),
         data: data || {},
-        actionUrl,
+        actionUrl: actionUrl != null ? encText(actionUrl) : null,
+        ...(isEncryptionEnabled() ? { encV: 1 } : {}),
       });
 
       await notification.save();
 
-      // Emit real-time notification (nếu có Socket.IO)
-      // io.to(`user:${userId}`).emit('notification', notification);
+      const clientN = toClientNotification(notification);
+
+      await emitRealtimeEvent({
+        event: 'notification:new',
+        userId: String(userId),
+        payload: {
+          notification: clientN,
+          timestamp: new Date().toISOString(),
+        },
+      });
 
       logger.info(`Notification created: ${notification._id} for user: ${userId}`);
-      return notification;
+      return clientN;
     } catch (error) {
       logger.error('Error creating notification:', error);
       throw new Error(`Error creating notification: ${error.message}`);
     }
   }
 
-  // Tạo nhiều notifications cùng lúc
   async createBulkNotifications(userIds, notificationData) {
     try {
       const { type, title, content, data, actionUrl } = notificationData;
 
+      const enc = isEncryptionEnabled();
       const notifications = userIds.map((userId) => ({
         userId,
         type,
-        title,
-        content,
+        title: encText(title),
+        content: encText(content),
         data: data || {},
-        actionUrl,
+        actionUrl: actionUrl != null ? encText(actionUrl) : null,
+        ...(enc ? { encV: 1 } : {}),
       }));
 
       const created = await Notification.insertMany(notifications);
 
+      const clientList = created.map((n) => toClientNotification(n));
+
+      await emitRealtimeEvent({
+        event: 'notification:bulk_new',
+        userIds: userIds.map((id) => String(id)),
+        payload: {
+          notifications: clientList,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
       logger.info(`Bulk notifications created: ${created.length} notifications`);
-      return created;
+      return clientList;
     } catch (error) {
       logger.error('Error creating bulk notifications:', error);
       throw new Error(`Error creating bulk notifications: ${error.message}`);
     }
   }
 
-  // Lấy notifications của user
   async getUserNotifications(userId, options = {}) {
     try {
       const { isRead, type, page = 1, limit = 50 } = options;
@@ -67,11 +134,15 @@ class NotificationService {
         .limit(limit * 1)
         .skip((page - 1) * limit);
 
+      for (const n of notifications) {
+        await maybeMigrateNotification(n);
+      }
+
       const total = await Notification.countDocuments(filter);
       const unreadCount = await Notification.countDocuments({ userId, isRead: false });
 
       return {
-        notifications,
+        notifications: notifications.map((n) => toClientNotification(n)),
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         total,
@@ -83,7 +154,6 @@ class NotificationService {
     }
   }
 
-  // Đánh dấu notification là đã đọc
   async markAsRead(notificationId, userId) {
     try {
       const notification = await Notification.findOneAndUpdate(
@@ -101,15 +171,24 @@ class NotificationService {
         throw new Error('Notification not found');
       }
 
+      await maybeMigrateNotification(notification);
+
       logger.info(`Notification marked as read: ${notificationId}`);
-      return notification;
+      await emitRealtimeEvent({
+        event: 'notification:read',
+        userId: String(userId),
+        payload: {
+          notificationId: String(notificationId),
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return toClientNotification(notification);
     } catch (error) {
       logger.error('Error marking notification as read:', error);
       throw new Error(`Error marking notification as read: ${error.message}`);
     }
   }
 
-  // Đánh dấu tất cả notifications là đã đọc
   async markAllAsRead(userId) {
     try {
       const result = await Notification.updateMany(
@@ -123,6 +202,13 @@ class NotificationService {
       );
 
       logger.info(`All notifications marked as read for user: ${userId}`);
+      await emitRealtimeEvent({
+        event: 'notification:read_all',
+        userId: String(userId),
+        payload: {
+          timestamp: new Date().toISOString(),
+        },
+      });
       return result;
     } catch (error) {
       logger.error('Error marking all notifications as read:', error);
@@ -130,7 +216,6 @@ class NotificationService {
     }
   }
 
-  // Xóa notification
   async deleteNotification(notificationId, userId) {
     try {
       const notification = await Notification.findOneAndDelete({
@@ -143,14 +228,21 @@ class NotificationService {
       }
 
       logger.info(`Notification deleted: ${notificationId}`);
-      return notification;
+      await emitRealtimeEvent({
+        event: 'notification:deleted',
+        userId: String(userId),
+        payload: {
+          notificationId: String(notificationId),
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return toClientNotification(notification);
     } catch (error) {
       logger.error('Error deleting notification:', error);
       throw new Error(`Error deleting notification: ${error.message}`);
     }
   }
 
-  // Xóa tất cả notifications đã đọc
   async deleteAllRead(userId) {
     try {
       const result = await Notification.deleteMany({
@@ -159,6 +251,13 @@ class NotificationService {
       });
 
       logger.info(`All read notifications deleted for user: ${userId}`);
+      await emitRealtimeEvent({
+        event: 'notification:deleted_read_all',
+        userId: String(userId),
+        payload: {
+          timestamp: new Date().toISOString(),
+        },
+      });
       return result;
     } catch (error) {
       logger.error('Error deleting all read notifications:', error);
@@ -168,4 +267,3 @@ class NotificationService {
 }
 
 module.exports = new NotificationService();
-

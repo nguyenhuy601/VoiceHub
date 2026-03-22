@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+const { mongo } = require('/shared');
+const { mongoose } = mongo;
 
 const notificationSchema = new mongoose.Schema(
   {
@@ -45,13 +46,16 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    encV: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Indexes
 notificationSchema.index({ userId: 1, isRead: 1 });
 notificationSchema.index({ userId: 1, createdAt: -1 });
 notificationSchema.index({ type: 1 });
@@ -59,6 +63,3 @@ notificationSchema.index({ type: 1 });
 const Notification = mongoose.model('Notification', notificationSchema);
 
 module.exports = Notification;
-
-
-

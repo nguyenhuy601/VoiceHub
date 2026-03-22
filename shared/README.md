@@ -13,8 +13,18 @@ shared/
 ├── middleware/
 │   └── auth.js       # JWT authentication middleware
 └── utils/
-    └── logger.js     # Logger utility
+    ├── logger.js       # Logger utility (redact token/phone/content trong object log)
+    ├── fieldCrypto.js  # AES-256-GCM envelope: encryptField / decryptField / phoneBlindIndex
+    ├── cryptoMetrics.js
+    ├── migration.js    # unwrapPlaintext, lazyEncryptField
+    └── realtime.js
 ```
+
+## Mã hóa trường dữ liệu (at-rest)
+
+- Đặt `ENCRYPTION_MASTER_KEY` (32+ ký tự UTF-8 hoặc 64 ký tự hex) trên **user-service**, **chat-service**, **notification-service** (và bất kỳ service nào gọi `encryptField`).
+- Lazy migration: đọc vẫn trả plaintext; bản ghi cũ được mã hóa lại khi đọc/ghi hoặc qua `scripts/encryption-backfill.js`.
+- Metrics: `getCryptoMetrics()` — endpoint `/health/crypto` trên user-service (ví dụ).
 
 ## Cách sử dụng
 

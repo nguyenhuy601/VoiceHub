@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import toast from 'react-hot-toast';
 import { FiEdit2, FiPlus, FiSettings, FiTrash2, FiUsers } from 'react-icons/fi';
 import { Link, useParams } from 'react-router-dom';
+import { NotificationModal } from '../../components/Shared';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -20,6 +20,15 @@ const OrganizationPage = () => {
   const [showDeptModal, setShowDeptModal] = useState(false);
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [deptForm, setDeptForm] = useState({ name: '', description: '' });
+  const [notice, setNotice] = useState(null);
+
+  const notify = (message, type = 'success') => {
+    setNotice({
+      type,
+      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      message,
+    });
+  };
 
   useEffect(() => {
     loadOrganization();
@@ -32,7 +41,7 @@ const OrganizationPage = () => {
       const data = await organizationAPI.getOrganization(orgId);
       setOrganization(data);
     } catch (error) {
-      toast.error('Không thể tải thông tin tổ chức');
+      notify('Không thể tải thông tin tổ chức', 'fail');
     }
   };
 
@@ -60,12 +69,12 @@ const OrganizationPage = () => {
     e.preventDefault();
     try {
       await organizationAPI.createDepartment(orgId, deptForm);
-      toast.success('Tạo phòng ban thành công');
+      notify('Tạo phòng ban thành công', 'success');
       setShowDeptModal(false);
       setDeptForm({ name: '', description: '' });
       loadDepartments();
     } catch (error) {
-      toast.error('Không thể tạo phòng ban');
+      notify('Không thể tạo phòng ban', 'fail');
     }
   };
 
@@ -270,6 +279,7 @@ const OrganizationPage = () => {
           </div>
         </form>
       </Modal>
+      <NotificationModal notice={notice} onClose={() => setNotice(null)} />
     </div>
   );
 };

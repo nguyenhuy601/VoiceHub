@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const { mongoose } = require('/shared/config/mongo');
 
 const userRoleSchema = new mongoose.Schema(
   {

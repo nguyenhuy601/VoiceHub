@@ -202,7 +202,8 @@ class UserController {
       });
     } catch (error) {
       logger.error('Update user profile error:', error);
-      res.status(400).json({
+      const statusCode = error.statusCode || (error.message === 'Số điện thoại đã được sử dụng' ? 409 : 400);
+      res.status(statusCode).json({
         success: false,
         message: error.message,
       });
