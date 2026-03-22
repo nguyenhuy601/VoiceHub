@@ -58,14 +58,6 @@ function HomePage() {
       requiresAuth: true // Guest không được truy cập
     },
     {
-      icon: "✅",
-      title: "Quản Lý Công Việc",
-      desc: "Theo dõi và quản lý task hiệu quả",
-      color: "from-indigo-500 to-purple-500",
-      link: "/tasks",
-      stats: "Kanban Board"
-    },
-    {
       icon: "🏢",
       title: "Trung Tâm Đội Nhóm",
       desc: "Không gian làm việc cộng tác",
@@ -81,14 +73,6 @@ function HomePage() {
       color: "from-yellow-500 to-orange-500",
       link: "/friends",
       stats: "500K+ người dùng"
-    },
-    {
-      icon: "📁",
-      title: "Lưu Trữ Đám Mây",
-      desc: "Chia sẻ file bảo mật và cộng tác",
-      color: "from-teal-500 to-green-500",
-      link: "/documents",
-      stats: "Lưu trữ 1TB"
     }
   ];
 

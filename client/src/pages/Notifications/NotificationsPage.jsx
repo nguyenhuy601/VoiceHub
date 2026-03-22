@@ -50,23 +50,23 @@ function NotificationsPage() {
     <>
       <ThreeFrameLayout
         center={
-          <div className="p-6">
+          <div className="p-5 lg:p-6 bg-[#020817] text-slate-100 min-h-full">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-black text-gradient mb-2">Trung Tâm Thông Báo</h1>
-            <p className="text-gray-400">Theo dõi tất cả hoạt động và cập nhật quan trọng</p>
+            <h1 className="text-3xl font-extrabold text-white mb-1">Trung Tâm Thông Báo</h1>
+            <p className="text-sm text-gray-400">Theo dõi tất cả hoạt động và cập nhật quan trọng</p>
           </div>
           <div className="flex gap-3">
             <button 
               onClick={() => showToast("Cài đặt thông báo", "info")}
-              className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold"
+              className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-sm"
             >
               ⚙️ Cài Đặt Thông Báo
             </button>
             <button 
               onClick={handleMarkAllAsRead}
-              className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold"
+              className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-sm"
             >
               ✓ Đánh Dấu Đã Đọc Tất Cả
             </button>
@@ -75,7 +75,7 @@ function NotificationsPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mb-6">
-          <GlassCard hover>
+          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl">
                 🔔
@@ -86,7 +86,7 @@ function NotificationsPage() {
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover>
+          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-2xl">
                 ⭐
@@ -97,7 +97,7 @@ function NotificationsPage() {
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover>
+          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-2xl">
                 ✅
@@ -108,7 +108,7 @@ function NotificationsPage() {
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover>
+          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-2xl">
                 💬
@@ -134,10 +134,10 @@ function NotificationsPage() {
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`px-4 py-2 rounded-xl font-semibold transition-all ${
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                 filter === f.id
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                  : 'glass hover:bg-white/10 text-gray-400'
+                  : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
               }`}
             >
               <span className="mr-2">{f.icon}</span>
@@ -149,7 +149,7 @@ function NotificationsPage() {
         {/* Notifications List */}
         <div className="space-y-3">
           {filteredNotifications.map((notif, idx) => (
-            <GlassCard key={notif.id} hover className={`animate-slideUp ${!notif.read ? 'border-l-4 border-purple-500' : ''}`} style={{animationDelay: `${idx * 0.05}s`}}>
+            <GlassCard key={notif.id} hover className={`animate-slideUp border border-slate-800 bg-slate-900/60 ${!notif.read ? 'border-l-4 border-purple-500' : ''}`} style={{animationDelay: `${idx * 0.05}s`}}>
               <div className="flex items-start gap-4">
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${
                   notif.priority === 'high' ? 'from-red-500 to-orange-500' :
@@ -178,14 +178,14 @@ function NotificationsPage() {
                 <div className="flex flex-col gap-2">
                   <button 
                     onClick={() => showToast(`Đang mở ${notif.action}...`, "info")}
-                    className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold whitespace-nowrap"
+                    className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm font-semibold whitespace-nowrap"
                   >
                     {notif.action}
                   </button>
                   {!notif.read && (
                     <button 
                       onClick={() => handleMarkAsRead(notif.id)}
-                      className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-xs text-gray-400 hover:text-white"
+                      className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-xs text-gray-400 hover:text-white"
                     >
                       Đánh dấu đã đọc
                     </button>
@@ -196,7 +196,7 @@ function NotificationsPage() {
                         handleDeleteNotification(notif.id);
                       }
                     }}
-                    className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-xs text-red-400 hover:text-red-300"
+                    className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-xs text-red-400 hover:text-red-300"
                   >
                     🗑️ Xóa
                   </button>

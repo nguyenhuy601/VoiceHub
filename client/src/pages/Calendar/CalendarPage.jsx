@@ -31,13 +31,13 @@ function CalendarPage() {
     <>
       <ThreeFrameLayout
         center={
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full bg-[#020817] text-slate-100">
         {/* Header */}
-        <div className="p-6 glass-strong border-b border-white/10">
+        <div className="p-5 lg:p-6 bg-slate-900/60 border-b border-slate-800">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-4xl font-black text-gradient mb-2">Lịch và Sự Kiện</h1>
-              <p className="text-gray-400">Quản lý meetings, deadlines và sự kiện</p>
+              <h1 className="text-3xl font-extrabold text-white mb-1">Lịch và Sự Kiện</h1>
+              <p className="text-sm text-gray-400">Quản lý meetings, deadlines và sự kiện</p>
             </div>
             <div className="flex gap-3">
               <div className="flex gap-2">
@@ -45,10 +45,10 @@ function CalendarPage() {
                   <button
                     key={v}
                     onClick={() => setView(v)}
-                    className={`px-4 py-2 rounded-xl font-semibold transition-all ${
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                       view === v
                         ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                        : 'glass hover:bg-white/10 text-gray-400'
+                        : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
                     }`}
                   >
                     {v === 'day' ? 'Ngày' : v === 'week' ? 'Tuần' : 'Tháng'}
@@ -66,7 +66,7 @@ function CalendarPage() {
 
           {/* Quick Stats */}
           <div className="grid grid-cols-4 gap-4">
-            <GlassCard hover>
+            <GlassCard hover className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center gap-3">
                 <div className="text-3xl">📅</div>
                 <div>
@@ -75,7 +75,7 @@ function CalendarPage() {
                 </div>
               </div>
             </GlassCard>
-            <GlassCard hover>
+            <GlassCard hover className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center gap-3">
                 <div className="text-3xl">🔜</div>
                 <div>
@@ -84,7 +84,7 @@ function CalendarPage() {
                 </div>
               </div>
             </GlassCard>
-            <GlassCard hover>
+            <GlassCard hover className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center gap-3">
                 <div className="text-3xl">🎤</div>
                 <div>
@@ -93,7 +93,7 @@ function CalendarPage() {
                 </div>
               </div>
             </GlassCard>
-            <GlassCard hover>
+            <GlassCard hover className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center gap-3">
                 <div className="text-3xl">⏰</div>
                 <div>
@@ -105,10 +105,10 @@ function CalendarPage() {
           </div>
         </div>
 
-        <div className="flex-1 p-6 grid grid-cols-3 gap-6">
+        <div className="flex-1 p-5 lg:p-6 grid grid-cols-3 gap-6">
           {/* Calendar View */}
           <div className="col-span-2">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-white">Tháng {selectedDate.getMonth() + 1}, {selectedDate.getFullYear()}</h2>
                 <div className="flex gap-2">
@@ -119,14 +119,14 @@ function CalendarPage() {
                       setSelectedDate(newDate);
                       showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, "info");
                     }}
-                    className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all"
+                    className="bg-[#040f2a] border border-slate-800 px-3 py-2 rounded-lg hover:bg-slate-800/70 transition-all"
                   >◀</button>
                   <button 
                     onClick={() => {
                       setSelectedDate(new Date());
                       showToast("Quay về hôm nay", "info");
                     }}
-                    className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all font-semibold"
+                    className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all font-semibold"
                   >Hôm nay</button>
                   <button 
                     onClick={() => {
@@ -135,7 +135,7 @@ function CalendarPage() {
                       setSelectedDate(newDate);
                       showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, "info");
                     }}
-                    className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all"
+                    className="bg-[#040f2a] border border-slate-800 px-3 py-2 rounded-lg hover:bg-slate-800/70 transition-all"
                   >▶</button>
                 </div>
               </div>
@@ -150,7 +150,7 @@ function CalendarPage() {
                   const isToday = dayNum === 18;
                   const hasEvent = events.some(e => parseInt(e.date.split('-')[2]) === dayNum);
                   return (
-                    <div 
+                    <div
                       key={i}
                       onClick={() => {
                         if (dayNum > 0 && dayNum <= 31) {
@@ -162,10 +162,10 @@ function CalendarPage() {
                           }
                         }
                       }}
-                      className={`aspect-square glass rounded-lg p-2 cursor-pointer transition-all hover:scale-105 ${
+                      className={`aspect-square bg-[#040f2a] border border-slate-800 rounded-lg p-2 cursor-pointer transition-all hover:scale-105 ${
                         isToday ? 'bg-gradient-to-br from-purple-600 to-pink-600 text-white' :
                         hasEvent ? 'hover:bg-white/10 border border-purple-500/50' :
-                        'hover:bg-white/5'
+                        'hover:bg-slate-800/70'
                       } ${dayNum < 1 || dayNum > 31 ? 'opacity-30 cursor-default' : ''}`}
                     >
                       {dayNum > 0 && dayNum <= 31 && (
@@ -196,10 +196,10 @@ function CalendarPage() {
               </h3>
               <div className="space-y-3">
                 {todayEvents.map((event, idx) => (
-                  <GlassCard 
+                  <GlassCard
                     key={event.id} 
                     hover 
-                    className="animate-slideUp cursor-pointer" 
+                    className="animate-slideUp cursor-pointer border border-slate-800 bg-slate-900/60"
                     style={{animationDelay: `${idx * 0.1}s`}}
                     onClick={() => setSelectedEvent(event)}
                   >
@@ -229,7 +229,7 @@ function CalendarPage() {
                         e.stopPropagation();
                         showToast(event.type === 'meeting' ? 'Đang tham gia...' : 'Mở chi tiết...', 'info');
                       }}
-                      className="w-full mt-3 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
+                      className="w-full mt-3 py-2 bg-[#040f2a] border border-slate-800 rounded-lg hover:bg-slate-800/70 transition-all text-sm font-semibold"
                     >
                       {event.type === 'meeting' ? 'Tham Gia' : 'Xem Chi Tiết'}
                     </button>
@@ -245,10 +245,10 @@ function CalendarPage() {
               </h3>
               <div className="space-y-2">
                 {upcomingEvents.slice(0, 4).map((event, idx) => (
-                  <GlassCard 
+                  <GlassCard
                     key={event.id} 
                     hover 
-                    className="p-3 cursor-pointer"
+                    className="p-3 cursor-pointer border border-slate-800 bg-slate-900/60"
                     onClick={() => setSelectedEvent(event)}
                   >
                     <div className="flex items-center gap-3">
@@ -284,7 +284,7 @@ function CalendarPage() {
           
           {/* Event Info */}
           <div className="grid grid-cols-2 gap-4">
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h4 className="font-bold text-white mb-3 flex items-center gap-2">
                 <span>🕐</span> Thời Gian
               </h4>
@@ -295,7 +295,7 @@ function CalendarPage() {
               </div>
             </GlassCard>
 
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h4 className="font-bold text-white mb-3 flex items-center gap-2">
                 <span>ℹ️</span> Chi Tiết
               </h4>
@@ -309,13 +309,13 @@ function CalendarPage() {
 
           {/* Attendees List */}
           {selectedEvent.attendees && selectedEvent.type === 'meeting' && (
-            <GlassCard>
+            <GlassCard className="border border-slate-800 bg-slate-900/60">
               <h4 className="font-bold text-white mb-3 flex items-center gap-2">
                 <span>👥</span> Người Tham Gia ({selectedEvent.attendees})
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 {['Sarah Chen', 'Mike Ross', 'Emma Wilson', 'David Kim', 'Lisa Park', 'Tom Zhang', 'Anna Lee', 'John Doe'].slice(0, selectedEvent.attendees).map((name, idx) => (
-                  <div key={idx} className="flex items-center gap-2 p-2 glass rounded-lg">
+                  <div key={idx} className="flex items-center gap-2 p-2 bg-[#040f2a] border border-slate-800 rounded-lg">
                     <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500', 'from-orange-500 to-red-500'][idx % 4]} flex items-center justify-center text-xs font-bold`}>
                       {name.split(' ').map(n => n[0]).join('')}
                     </div>
@@ -327,7 +327,7 @@ function CalendarPage() {
           )}
 
           {/* Description */}
-          <GlassCard>
+          <GlassCard className="border border-slate-800 bg-slate-900/60">
             <h4 className="font-bold text-white mb-3 flex items-center gap-2">
               <span>📝</span> Mô Tả
             </h4>
@@ -369,7 +369,7 @@ function CalendarPage() {
                   setSelectedEvent(null);
                 }
               }}
-              className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold text-red-400"
+            className="bg-[#040f2a] border border-slate-800 px-6 py-3 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-red-400"
             >
               🗑️ Xóa
             </button>
@@ -394,7 +394,7 @@ function CalendarPage() {
           <input 
             type="text"
             placeholder="Nhập tiêu đề..."
-            className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all"
+            className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white placeholder-gray-500 transition-all"
           />
         </div>
 
@@ -411,7 +411,7 @@ function CalendarPage() {
             ].map(type => (
               <button
                 key={type.id}
-                className="glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold flex items-center justify-center gap-2"
+                className="bg-[#040f2a] border border-slate-800 px-4 py-3 rounded-xl hover:bg-slate-800/70 transition-all font-semibold flex items-center justify-center gap-2"
               >
                 <span>{type.icon}</span>
                 <span>{type.label}</span>
@@ -428,7 +428,7 @@ function CalendarPage() {
             </label>
             <input 
               type="date"
-              className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white transition-all"
+              className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white transition-all"
             />
           </div>
           <div>
@@ -437,7 +437,7 @@ function CalendarPage() {
             </label>
             <input 
               type="time"
-              className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white transition-all"
+              className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white transition-all"
             />
           </div>
         </div>
@@ -448,7 +448,7 @@ function CalendarPage() {
             <label className="block text-sm font-semibold text-gray-400 mb-2">
               Thời Lượng
             </label>
-            <select className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white">
+            <select className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white">
               <option>15 phút</option>
               <option>30 phút</option>
               <option>45 phút</option>
@@ -464,7 +464,7 @@ function CalendarPage() {
             <input 
               type="text"
               placeholder="Voice Room hoặc link..."
-              className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all"
+              className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white placeholder-gray-500 transition-all"
             />
           </div>
         </div>
@@ -477,7 +477,7 @@ function CalendarPage() {
           <textarea 
             rows={4}
             placeholder="Nhập mô tả chi tiết..."
-            className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all resize-none"
+            className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white placeholder-gray-500 transition-all resize-none"
           ></textarea>
         </div>
 
@@ -490,9 +490,9 @@ function CalendarPage() {
             <input 
               type="text"
               placeholder="Thêm người tham gia..."
-              className="flex-1 glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all"
+              className="flex-1 px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 focus:outline-none text-white placeholder-gray-500 transition-all"
             />
-            <button className="glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold">
+            <button className="bg-[#040f2a] border border-slate-800 px-4 py-3 rounded-xl hover:bg-slate-800/70 transition-all font-semibold">
               ➕ Thêm
             </button>
           </div>
@@ -512,7 +512,7 @@ function CalendarPage() {
           </GradientButton>
           <button 
             onClick={() => setShowCreateEventModal(false)}
-            className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
+            className="bg-[#040f2a] border border-slate-800 px-6 py-3 rounded-xl hover:bg-slate-800/70 transition-all font-semibold"
           >
             Hủy
           </button>
