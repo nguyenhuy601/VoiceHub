@@ -1,17 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
+import organizationService from '../../services/organizationService';
+import userService from '../../services/userService';
+
+const DEFAULT_PROJECTS = [
+  { name: 'VoiceHub Enterprise', progress: 75, members: 8, deadline: '2 ngày' },
+  { name: 'Chiến Dịch Marketing Q1', progress: 60, members: 5, deadline: '5 ngày' },
+  { name: 'Thiết Kế Lại Ứng Dụng Di Động', progress: 40, members: 6, deadline: '1 tuần' },
+];
+
+const DEFAULT_ACTIVITIES = [
+  { user: 'Sarah Chen', action: 'hoàn thành', item: 'Đánh giá thiết kế UI', time: '2 phút trước', avatar: '👩‍💼', type: 'task', color: 'from-green-500 to-emerald-500', detail: { project: 'VoiceHub Enterprise', duration: '2 giờ', tags: ['Thiết Kế', 'Đánh Giá'] } },
+  { user: 'Mike Ross', action: 'tải lên', item: 'BaoCaoQ4.pdf', time: '15 phút trước', avatar: '👨‍💻', type: 'file', color: 'from-blue-500 to-cyan-500', detail: { size: '2.4 MB', folder: 'Tài Liệu/Báo Cáo', downloads: 5 } },
+  { user: 'Emma Wilson', action: 'tạo kênh', item: '#y-tuong-marketing', time: '1 giờ trước', avatar: '👩‍🎨', type: 'message', color: 'from-purple-600 to-pink-600', detail: { members: 8, category: 'Marketing', description: 'Tổng kết ý tưởng chiến dịch' } },
+  { user: 'David Kim', action: 'tham gia', item: 'Họp Nhóm Hàng Ngày', time: '2 giờ trước', avatar: '👨‍🔬', type: 'task', color: 'from-orange-500 to-red-500', detail: { duration: '30 phút', participants: 12, recording: true } },
+  { user: 'Lisa Park', action: 'comment', item: 'Dự án Website mới', time: '3 giờ trước', avatar: '👩‍💼', type: 'message', color: 'from-pink-500 to-rose-500', detail: { comments: 3, mentions: ['@Mike', '@Sarah'], project: 'Thiết Kế Lại Website' } },
+];
 
 function DashboardPage() {
+  const teamMembers = ['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'];
+  const uploadInputRef = useRef(null);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStat, setSelectedStat] = useState(null);
   const [showActivityDetail, setShowActivityDetail] = useState(null);
   const [toast, setToast] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [newProjectForm, setNewProjectForm] = useState({
+    name: '',
+    description: '',
+    startDate: '',
+    deadline: '',
+  });
+  const [selectedProjectMembers, setSelectedProjectMembers] = useState(['👩‍💼 Sarah']);
+  const [activeOrganizationId, setActiveOrganizationId] = useState(null);
+  const [projects, setProjects] = useState(DEFAULT_PROJECTS);
+  const [activities, setActivities] = useState(DEFAULT_ACTIVITIES);
   const [showWelcome, setShowWelcome] = useState(false);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const displayName =
     user?.fullName ||
@@ -30,6 +63,80 @@ function DashboardPage() {
     return `Khuya rồi, ${displayName}!`;
   };
 
+  const extractData = (response) => response?.data ?? response;
+
+  const getEntityId = (entity) =>
+    String(entity?._id || entity?.id || entity?.organizationId || '').trim();
+
+  const formatRelativeTime = (input) => {
+    if (!input) return 'Vừa xong';
+    const target = new Date(input).getTime();
+    if (!Number.isFinite(target)) return 'Vừa xong';
+
+    const diffMs = Date.now() - target;
+    const diffMinutes = Math.max(1, Math.floor(diffMs / 60000));
+    if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} ngày trước`;
+  };
+
+  const mapOrganizationToProject = (organization) => {
+    const id = getEntityId(organization);
+    const createdAt = organization?.createdAt ? new Date(organization.createdAt) : null;
+    const ageInDays = createdAt ? Math.max(1, Math.ceil((Date.now() - createdAt.getTime()) / 86400000)) : 1;
+    const progress = Math.max(10, Math.min(95, ageInDays * 3));
+
+    return {
+      id,
+      name: organization?.name || 'Dự án chưa đặt tên',
+      progress,
+      members: Number(organization?.memberCount || 1),
+      deadline: organization?.updatedAt
+        ? new Date(organization.updatedAt).toLocaleDateString('vi-VN')
+        : 'Đang hoạt động',
+    };
+  };
+
+  const mapTaskToActivity = (task) => ({
+    id: getEntityId(task),
+    user: displayName,
+    action: 'tạo công việc',
+    item: task?.title || 'Công việc mới',
+    time: formatRelativeTime(task?.createdAt),
+    avatar: '🧑',
+    type: 'task',
+    color: 'from-green-500 to-emerald-500',
+    detail: {
+      status: task?.status || 'todo',
+      priority: task?.priority || 'medium',
+      dueDate: task?.dueDate ? new Date(task.dueDate).toLocaleDateString('vi-VN') : 'Chưa đặt',
+    },
+    _createdAt: task?.createdAt || new Date().toISOString(),
+  });
+
+  const mapDocumentToActivity = (document) => ({
+    id: getEntityId(document),
+    user: displayName,
+    action: 'tải lên',
+    item: document?.name || 'Tệp mới',
+    time: formatRelativeTime(document?.createdAt),
+    avatar: '🧑',
+    type: 'file',
+    color: 'from-blue-500 to-cyan-500',
+    detail: {
+      size: document?.fileSize
+        ? `${(Number(document.fileSize) / 1024 / 1024).toFixed(2)} MB`
+        : 'Không rõ',
+      folder: 'Kho tài liệu',
+      mimeType: document?.mimeType || 'application/octet-stream',
+    },
+    _createdAt: document?.createdAt || new Date().toISOString(),
+  });
+
   useEffect(() => {
     // Chỉ hiển thị modal chào khi vừa đăng nhập / lần đầu vào web trong phiên này
     const seen = localStorage.getItem('vh_seen_welcome');
@@ -37,31 +144,132 @@ function DashboardPage() {
       setShowWelcome(true);
       localStorage.setItem('vh_seen_welcome', '1');
     }
+
+    const loadDashboardData = async () => {
+      try {
+        const organizationsResp = await organizationService.getMyOrganizations();
+        const organizationsData = extractData(organizationsResp);
+        const organizationList = Array.isArray(organizationsData)
+          ? organizationsData
+          : Array.isArray(organizationsData?.data)
+            ? organizationsData.data
+            : [];
+
+        if (organizationList.length > 0) {
+          const mappedProjects = organizationList.map(mapOrganizationToProject);
+          setProjects(mappedProjects);
+
+          const firstOrganizationId = mappedProjects[0]?.id || getEntityId(organizationList[0]);
+          if (firstOrganizationId) {
+            setActiveOrganizationId(firstOrganizationId);
+
+            const [tasksResp, documentsResp] = await Promise.allSettled([
+              api.get('/tasks', {
+                params: {
+                  organizationId: firstOrganizationId,
+                  limit: 8,
+                },
+              }),
+              api.get('/documents', {
+                params: {
+                  organizationId: firstOrganizationId,
+                  limit: 8,
+                },
+              }),
+            ]);
+
+            const taskData = tasksResp.status === 'fulfilled' ? extractData(tasksResp.value) : null;
+            const documentData =
+              documentsResp.status === 'fulfilled' ? extractData(documentsResp.value) : null;
+
+            const tasks = Array.isArray(taskData?.tasks)
+              ? taskData.tasks
+              : Array.isArray(taskData?.data?.tasks)
+                ? taskData.data.tasks
+                : [];
+            const documents = Array.isArray(documentData?.documents)
+              ? documentData.documents
+              : Array.isArray(documentData?.data?.documents)
+                ? documentData.data.documents
+                : [];
+
+            const mergedActivities = [
+              ...tasks.map(mapTaskToActivity),
+              ...documents.map(mapDocumentToActivity),
+            ]
+              .sort((a, b) => new Date(b._createdAt).getTime() - new Date(a._createdAt).getTime())
+              .slice(0, 20)
+              .map(({ _createdAt, ...activity }) => activity);
+
+            if (mergedActivities.length > 0) {
+              setActivities(mergedActivities);
+            }
+          }
+        }
+      } catch (error) {
+        showToast(error?.message || 'Không tải được dữ liệu dashboard từ máy chủ', 'error');
+      }
+    };
+
+    loadDashboardData();
   }, []);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
   };
 
-  const stats = [
+  const handleCustomizeDashboard = () => {
+    navigate('/settings');
+    showToast('Đã mở cài đặt để tùy chỉnh dashboard', 'info');
+  };
+
+  const handleExportReport = () => {
+    const rows = [
+      ['loai', 'ten', 'gia_tri'],
+      ...stats.map((stat) => ['stat', stat.label, stat.value]),
+      ...projects.map((project) => ['project', project.name, `${project.progress}%`]),
+      ...activities.slice(0, 10).map((activity) => ['activity', `${activity.user} ${activity.action}`, activity.item]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dashboard-report-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('Đã xuất báo cáo dashboard', 'success');
+  };
+
+  const handleShareDashboard = async () => {
+    const shareUrl = `${window.location.origin}/dashboard`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast('Đã sao chép liên kết chia sẻ dashboard', 'success');
+    } catch {
+      showToast('Không thể sao chép liên kết chia sẻ', 'error');
+    }
+  };
+
+  const handleOpenSettings = () => {
+    navigate('/settings');
+  };
+
+  const stats = useMemo(() => [
     { 
       icon: "📊", 
       label: "Dự Án Hoạt Động", 
-      value: "12", 
+      value: String(projects.length), 
       change: "+2.5%", 
       color: "from-purple-600 to-pink-600",
       trend: "up",
       detail: "3 sắp deadline",
       drilldown: {
-        total: 12,
+        total: projects.length,
         dangHoatDong: 9,
         tamDung: 2,
         hoanThanh: 45,
-        projects: [
-          { name: "VoiceHub Enterprise", progress: 75, members: 8, deadline: "2 ngày" },
-          { name: "Chiến Dịch Marketing Q1", progress: 60, members: 5, deadline: "5 ngày" },
-          { name: "Thiết Kế Lại Ứng Dụng Di Động", progress: 40, members: 6, deadline: "1 tuần" }
-        ]
+        projects
       }
     },
     { 
@@ -123,23 +331,271 @@ function DashboardPage() {
         ]
       }
     }
-  ];
+  ], [projects]);
 
-  const activities = [
-    { user: "Sarah Chen", action: "hoàn thành", item: "Đánh giá thiết kế UI", time: "2 phút trước", avatar: "👩‍💼", type: "task", color: "from-green-500 to-emerald-500", detail: { project: "VoiceHub Enterprise", duration: "2 giờ", tags: ["Thiết Kế", "Đánh Giá"] } },
-    { user: "Mike Ross", action: "tải lên", item: "BaoCaoQ4.pdf", time: "15 phút trước", avatar: "👨‍💻", type: "file", color: "from-blue-500 to-cyan-500", detail: { size: "2.4 MB", folder: "Tài Liệu/Báo Cáo", downloads: 5 } },
-    { user: "Emma Wilson", action: "tạo kênh", item: "#y-tuong-marketing", time: "1 giờ trước", avatar: "👩‍🎨", type: "message", color: "from-purple-600 to-pink-600", detail: { members: 8, category: "Marketing", description: "Tổng kết ý tưởng chiến dịch" } },
-    { user: "David Kim", action: "tham gia", item: "Họp Nhóm Hàng Ngày", time: "2 giờ trước", avatar: "👨‍🔬", type: "task", color: "from-orange-500 to-red-500", detail: { duration: "30 phút", participants: 12, recording: true } },
-    { user: "Lisa Park", action: "comment", item: "Dự án Website mới", time: "3 giờ trước", avatar: "👩‍💼", type: "message", color: "from-pink-500 to-rose-500", detail: { comments: 3, mentions: ["@Mike", "@Sarah"], project: "Thiết Kế Lại Website" } }
-  ];
+  const addActivity = (activity) => {
+    setActivities((prev) => [activity, ...prev]);
+  };
 
-  const filteredActivities = activeFilter === 'all' 
-    ? activities 
-    : activities.filter(a => 
-        activeFilter === 'tasks' ? a.type === 'task' :
-        activeFilter === 'messages' ? a.type === 'message' :
-        activeFilter === 'files' ? a.type === 'file' : true
-      );
+  const handleOpenAnalytics = () => {
+    setSelectedStat(stats[0]);
+    showToast('Đã mở phân tích nhanh của dashboard', 'info');
+  };
+
+  const handleUploadButtonClick = () => {
+    uploadInputRef.current?.click();
+  };
+
+  const ensureActiveOrganization = async () => {
+    if (activeOrganizationId) return activeOrganizationId;
+
+    const organizationsResp = await organizationService.getMyOrganizations();
+    const organizationsData = extractData(organizationsResp);
+    const organizationList = Array.isArray(organizationsData)
+      ? organizationsData
+      : Array.isArray(organizationsData?.data)
+        ? organizationsData.data
+        : [];
+
+    if (organizationList.length > 0) {
+      const firstId = getEntityId(organizationList[0]);
+      if (firstId) {
+        setActiveOrganizationId(firstId);
+        return firstId;
+      }
+    }
+
+    throw new Error('Bạn cần tạo dự án trước khi thực hiện thao tác này');
+  };
+
+  const handleUploadFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const organizationId = await ensureActiveOrganization();
+      const pseudoFileUrl = `local://dashboard-upload/${Date.now()}-${encodeURIComponent(file.name)}`;
+
+      const createDocumentResp = await api.post('/documents', {
+        name: file.name,
+        description: `Tải lên từ dashboard bởi ${displayName}`,
+        organizationId,
+        fileUrl: pseudoFileUrl,
+        fileSize: file.size || 0,
+        mimeType: file.type || 'application/octet-stream',
+        tags: ['dashboard', 'upload'],
+        isPublic: false,
+      });
+
+      const createdDocumentPayload = extractData(createDocumentResp);
+      const createdDocument = createdDocumentPayload?.data || createdDocumentPayload;
+
+      addActivity({
+        user: displayName,
+        action: 'tải lên',
+        item: createdDocument?.name || file.name,
+        time: 'Vừa xong',
+        avatar: '🧑',
+        type: 'file',
+        color: 'from-blue-500 to-cyan-500',
+        detail: {
+          size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+          folder: 'Kho tài liệu',
+          documentId: getEntityId(createdDocument),
+        },
+      });
+      showToast('Đã lưu metadata tệp vào MongoDB thành công', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || error?.message || 'Không thể tải tệp lên', 'error');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleCreateProject = async () => {
+    const projectName = String(newProjectForm.name || '').trim();
+    if (!projectName) {
+      showToast('Vui lòng nhập tên dự án', 'error');
+      return;
+    }
+
+    try {
+      const createResp = await organizationService.createOrganization({
+        name: projectName,
+        description: String(newProjectForm.description || '').trim(),
+      });
+      const createPayload = extractData(createResp);
+      const createdOrganization = createPayload?.data || createPayload;
+      const createdProject = mapOrganizationToProject(createdOrganization);
+
+      setProjects((prev) => [createdProject, ...prev.filter((item) => item.id !== createdProject.id)]);
+      if (createdProject.id) {
+        setActiveOrganizationId(createdProject.id);
+      }
+
+      addActivity({
+        user: displayName,
+        action: 'tạo dự án',
+        item: createdProject.name,
+        time: 'Vừa xong',
+        avatar: '🧑',
+        type: 'task',
+        color: 'from-violet-500 to-indigo-500',
+        detail: {
+          projectId: createdProject.id,
+          description: newProjectForm.description || 'Không có mô tả',
+        },
+      });
+
+      setNewProjectForm({ name: '', description: '', startDate: '', deadline: '' });
+      setSelectedProjectMembers(['👩‍💼 Sarah']);
+      setShowNewProjectModal(false);
+      showToast('Tạo dự án thành công và đã lưu vào MongoDB', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || error?.message || 'Không thể tạo dự án', 'error');
+    }
+  };
+
+  const handleToggleProjectMember = (member) => {
+    setSelectedProjectMembers((prev) => (
+      prev.includes(member)
+        ? prev.filter((item) => item !== member)
+        : [...prev, member]
+    ));
+  };
+
+  const handleOpenTeamChat = (name) => {
+    navigate('/chat/friends');
+    showToast(`Đang mở chat với ${name}`, 'info');
+  };
+
+  const handleJoinUpcomingEvent = (title) => {
+    navigate('/voice');
+    showToast(`Đang tham gia ${title}`, 'success');
+  };
+
+  const handleViewAllActivities = () => {
+    setActiveFilter('all');
+    setSearchQuery('');
+    showToast('Đã hiển thị tất cả hoạt động', 'info');
+  };
+
+  const handleShareActivity = async (activity) => {
+    if (!activity) return;
+    const summary = `${activity.user} ${activity.action} ${activity.item} (${activity.time})`;
+    try {
+      await navigator.clipboard.writeText(summary);
+      showToast('Đã sao chép nội dung hoạt động', 'success');
+    } catch {
+      showToast('Không thể sao chép nội dung hoạt động', 'error');
+    }
+  };
+
+  const handleInviteMember = async () => {
+    const keyword = String(inviteEmail || '').trim();
+    if (!keyword) {
+      showToast('Vui lòng nhập username, tên hiển thị hoặc số điện thoại', 'error');
+      return;
+    }
+
+    try {
+      const organizationId = await ensureActiveOrganization();
+      const searchTerms = keyword.includes('@')
+        ? [keyword, keyword.split('@')[0]].filter(Boolean)
+        : [keyword];
+
+      let users = [];
+      for (const term of searchTerms) {
+        const searchResp = await userService.searchUsers(encodeURIComponent(term));
+        const searchPayload = extractData(searchResp);
+        users = Array.isArray(searchPayload?.users)
+          ? searchPayload.users
+          : Array.isArray(searchPayload?.data?.users)
+            ? searchPayload.data.users
+            : [];
+        if (users.length > 0) break;
+      }
+
+      const targetUser = users[0];
+      const targetUserId =
+        targetUser?.userId || targetUser?._id || targetUser?.id || targetUser?.profileId || null;
+
+      if (!targetUserId) {
+        showToast('Không tìm thấy người dùng phù hợp để mời', 'error');
+        return;
+      }
+
+      await organizationService.inviteMember(organizationId, targetUserId, 'member');
+
+      addActivity({
+        user: displayName,
+        action: 'mời thành viên',
+        item: targetUser.displayName || targetUser.username || keyword,
+        time: 'Vừa xong',
+        avatar: '🧑',
+        type: 'message',
+        color: 'from-green-500 to-emerald-500',
+        detail: {
+          userId: String(targetUserId),
+          status: 'Đã gửi lời mời',
+        },
+      });
+
+      setInviteEmail('');
+      setShowInviteModal(false);
+      showToast('Đã tạo lời mời thành viên trong MongoDB', 'success');
+    } catch (error) {
+      const statusCode = error?.response?.status;
+      if (statusCode === 409) {
+        showToast('Người dùng đã ở trong tổ chức này', 'info');
+        return;
+      }
+      showToast(error?.response?.data?.message || error?.message || 'Không thể mời thành viên', 'error');
+    }
+  };
+
+  const handleOpenActivityTarget = (activity) => {
+    if (!activity) return;
+
+    if (activity.type === 'message') {
+      navigate('/chat/friends');
+      return;
+    }
+
+    if (activity.type === 'task') {
+      navigate('/organizations');
+      return;
+    }
+
+    if (activity.type === 'file') {
+      handleUploadButtonClick();
+      return;
+    }
+
+    showToast('Đang chuyển đến chi tiết...', 'info');
+  };
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
+  const filteredActivities = activities.filter((a) => {
+    const matchedType =
+      activeFilter === 'all'
+        ? true
+        : activeFilter === 'tasks'
+          ? a.type === 'task'
+          : activeFilter === 'messages'
+            ? a.type === 'message'
+            : activeFilter === 'files'
+              ? a.type === 'file'
+              : true;
+
+    if (!matchedType) return false;
+    if (!normalizedSearch) return true;
+
+    return [a.user, a.action, a.item, a.type]
+      .filter(Boolean)
+      .some((field) => String(field).toLowerCase().includes(normalizedSearch));
+  });
 
   return (
     <>
@@ -177,11 +633,11 @@ function DashboardPage() {
                 align="right"
               >
                 <div className="p-2">
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Tùy Chỉnh Dashboard</button>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Xuất Báo Cáo</button>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Chia Sẻ</button>
+                  <button onClick={handleCustomizeDashboard} className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Tùy Chỉnh Dashboard</button>
+                  <button onClick={handleExportReport} className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Xuất Báo Cáo</button>
+                  <button onClick={handleShareDashboard} className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Chia Sẻ</button>
                   <div className="h-px bg-white/10 my-2"></div>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Cài Đặt</button>
+                  <button onClick={handleOpenSettings} className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Cài Đặt</button>
                 </div>
               </Dropdown>
             </div>
@@ -264,14 +720,20 @@ function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 transition-opacity bg-[#040f2a] border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowActivityDetail(activity);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity bg-[#040f2a] border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-gray-200 hover:text-white"
+                  >
                     Chi tiết
                   </button>
                 </div>
               ))}
             </div>
 
-            <button className="w-full mt-3 py-2.5 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/70 transition-all text-sm text-gray-400 hover:text-white">
+            <button onClick={handleViewAllActivities} className="w-full mt-3 py-2.5 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/70 transition-all text-sm text-gray-400 hover:text-white">
               Xem tất cả hoạt động →
             </button>
           </GlassCard>
@@ -280,9 +742,9 @@ function DashboardPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
               { icon: "➕", label: "Dự Án Mới", color: "from-purple-600 to-pink-600", action: () => setShowNewProjectModal(true) },
-              { icon: "📊", label: "Phân Tích", color: "from-blue-500 to-cyan-500", action: () => showToast("Chuyển đến trang phân tích", "info") },
-              { icon: "👥", label: "Mời Thành Viên", color: "from-green-500 to-emerald-500", action: () => showToast("Gửi lời mời thành công", "success") },
-              { icon: "📁", label: "Tải Lên", color: "from-orange-500 to-red-500", action: () => showToast("Chọn tệp để tải lên", "info") }
+              { icon: "📊", label: "Phân Tích", color: "from-blue-500 to-cyan-500", action: handleOpenAnalytics },
+              { icon: "👥", label: "Mời Thành Viên", color: "from-green-500 to-emerald-500", action: () => setShowInviteModal(true) },
+              { icon: "📁", label: "Tải Lên", color: "from-orange-500 to-red-500", action: handleUploadButtonClick }
             ].map((action, idx) => (
               <button
                 key={idx}
@@ -299,6 +761,13 @@ function DashboardPage() {
               </button>
             ))}
           </div>
+
+          <input
+            ref={uploadInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleUploadFile}
+          />
 
           {/* Performance Chart Preview */}
           <GlassCard className="border border-slate-800 bg-slate-900/60">
@@ -340,7 +809,7 @@ function DashboardPage() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-400">ĐANG ONLINE - 18</h3>
-            <button className="text-xs text-purple-400 hover:text-pink-400 transition-colors">
+            <button onClick={() => navigate('/chat/friends')} className="text-xs text-purple-400 hover:text-pink-400 transition-colors">
               Xem tất cả
             </button>
           </div>
@@ -359,7 +828,10 @@ function DashboardPage() {
                   <div className="text-white font-medium text-sm">{name}</div>
                   <div className="text-gray-500 text-xs">Đang làm việc...</div>
                 </div>
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-lg">
+                <button onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenTeamChat(name);
+                }} className="opacity-0 group-hover:opacity-100 transition-opacity text-lg">
                   💬
                 </button>
               </div>
@@ -392,7 +864,7 @@ function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                  <button className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all">
+                  <button onClick={() => handleJoinUpcomingEvent(event.title)} className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all">
                     Tham gia
                   </button>
                 </div>
@@ -608,13 +1080,13 @@ function DashboardPage() {
                 className="flex-1 text-sm"
                 onClick={() => {
                   setShowActivityDetail(false);
-                  showToast('Đang chuyển đến chi tiết...');
+                  handleOpenActivityTarget(showActivityDetail);
                 }}
               >
                 Xem Chi Tiết
               </GradientButton>
               <button 
-                onClick={() => showToast('Đã chia sẻ hoạt động')}
+                onClick={() => handleShareActivity(showActivityDetail)}
                 className="flex-1 bg-[#040f2a] border border-slate-800 px-5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all text-sm font-semibold"
               >
                 Chia Sẻ
@@ -637,6 +1109,8 @@ function DashboardPage() {
             <input 
               type="text" 
               placeholder="Nhập tên dự án..."
+              value={newProjectForm.name}
+              onChange={(e) => setNewProjectForm((prev) => ({ ...prev, name: e.target.value }))}
               className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
             />
           </div>
@@ -646,6 +1120,8 @@ function DashboardPage() {
             <textarea 
               placeholder="Mô tả dự án..."
               rows="4"
+              value={newProjectForm.description}
+              onChange={(e) => setNewProjectForm((prev) => ({ ...prev, description: e.target.value }))}
               className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
             ></textarea>
           </div>
@@ -655,6 +1131,8 @@ function DashboardPage() {
               <label className="block text-sm font-semibold mb-2 text-gray-300">Ngày Bắt Đầu</label>
               <input 
                 type="date"
+                value={newProjectForm.startDate}
+                onChange={(e) => setNewProjectForm((prev) => ({ ...prev, startDate: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
               />
             </div>
@@ -662,6 +1140,8 @@ function DashboardPage() {
               <label className="block text-sm font-semibold mb-2 text-gray-300">Deadline</label>
               <input 
                 type="date"
+                value={newProjectForm.deadline}
+                onChange={(e) => setNewProjectForm((prev) => ({ ...prev, deadline: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
               />
             </div>
@@ -670,23 +1150,23 @@ function DashboardPage() {
           <div>
             <label className="block text-sm font-semibold mb-2 text-gray-300">Thành Viên</label>
             <div className="flex flex-wrap gap-2 mb-3">
-              {['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'].map((member, idx) => (
-                <button key={idx} className="bg-[#040f2a] border border-slate-800 px-3 py-2 rounded-lg text-sm hover:bg-slate-800/70 transition-all">
+              {teamMembers.map((member, idx) => (
+                <button key={idx} onClick={() => handleToggleProjectMember(member)} className={`border px-3 py-2 rounded-lg text-sm transition-all ${selectedProjectMembers.includes(member) ? 'bg-gradient-to-r from-violet-500 to-indigo-500 border-violet-400 text-white' : 'bg-[#040f2a] border-slate-800 hover:bg-slate-800/70'}`}>
                   {member}
                 </button>
               ))}
             </div>
-            <button className="text-indigo-400 text-sm hover:text-indigo-300 transition-colors">+ Thêm thành viên</button>
+            <button onClick={() => {
+              setShowNewProjectModal(false);
+              setShowInviteModal(true);
+            }} className="text-indigo-400 text-sm hover:text-indigo-300 transition-colors">+ Thêm thành viên</button>
           </div>
 
           <div className="flex gap-3 pt-4">
             <GradientButton 
               variant="primary" 
               className="flex-1 text-sm"
-              onClick={() => {
-                showToast("Tạo dự án thành công!", "success");
-                setShowNewProjectModal(false);
-              }}
+              onClick={handleCreateProject}
             >
               Tạo Dự Án
             </GradientButton>
@@ -698,6 +1178,38 @@ function DashboardPage() {
             </button>
           </div>
         </div>
+    </Modal>
+
+    <Modal
+      isOpen={showInviteModal}
+      onClose={() => setShowInviteModal(false)}
+      title="Mời Thành Viên"
+      size="sm"
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-gray-300">Username / Tên hiển thị / SĐT</label>
+          <input
+            type="text"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="vd: nguyenvana hoặc 090xxxxxxx"
+            className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
+          />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={() => setShowInviteModal(false)}
+            className="px-4 py-2 rounded-lg bg-[#040f2a] border border-slate-800 text-sm text-gray-200 hover:bg-slate-800/70"
+          >
+            Hủy
+          </button>
+          <GradientButton variant="primary" className="px-4 py-2 text-sm" onClick={handleInviteMember}>
+            Gửi lời mời
+          </GradientButton>
+        </div>
+      </div>
     </Modal>
 
     {/* Toast Notifications */}

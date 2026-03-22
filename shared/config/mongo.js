@@ -9,14 +9,17 @@ const logger = require('../utils/logger');
  */
 const connectDB = async (mongoUri = null, options = {}) => {
   try {
-    const uri = mongoUri || process.env.MONGODB_URI;
+    let uri = mongoUri || process.env.MONGODB_URI;
 
     if (!uri) {
       throw new Error('MONGODB_URI is not defined');
     }
 
-    // Không disable buffering vì có thể gây disconnect
-    // mongoose.set('bufferCommands', false);
+    // Ensure UTF-8 charset in connection string
+    if (!uri.includes('charset')) {
+      const separator = uri.includes('?') ? '&' : '?';
+      uri = `${uri}${separator}charset=utf8mb4`;
+    }
 
     // Kiểm tra xem có phải Atlas connection string không
     const isAtlas = uri.includes('mongodb+srv://') || uri.includes('mongodb.net');

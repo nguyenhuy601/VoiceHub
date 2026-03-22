@@ -57,6 +57,10 @@ const userProfileSchema = new mongoose.Schema(
       enum: ['online', 'offline', 'away', 'busy'],
       default: 'offline',
     },
+    isInvisible: {
+      type: Boolean,
+      default: false, // Khi true, người khác sẽ không thấy online status
+    },
     lastSeen: {
       type: Date,
       default: Date.now,

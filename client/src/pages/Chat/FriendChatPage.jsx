@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
@@ -9,6 +9,9 @@ import { getUserDisplayName } from '../../utils/helpers';
 import { useSocket } from '../../context/SocketContext';
 
 function FriendChatPage() {
+  const messageEndRef = useRef(null);
+  const messageInputRef = useRef(null);
+  const composerEmojiRef = useRef(null);
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -24,6 +27,15 @@ function FriendChatPage() {
   const [searchPhone, setSearchPhone] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [activityByFriend, setActivityByFriend] = useState({});
+  const [chatSearch, setChatSearch] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [activeMessageMenuId, setActiveMessageMenuId] = useState(null);
+  const [activeReactionPickerId, setActiveReactionPickerId] = useState(null);
+  const [messageReactions, setMessageReactions] = useState({});
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingDraft, setEditingDraft] = useState('');
+  const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState(null);
+  const [pinnedByFriend, setPinnedByFriend] = useState({});
   const [toast, setToast] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -34,10 +46,240 @@ function FriendChatPage() {
   const currentUserId = user?.userId || user?._id || user?.id;
   const currentUserName = getUserDisplayName(user) || 'Bạn';
   const currentUserAvatar = user?.avatar || '🧑';
+  const quickEmojis = ['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '👏'];
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const getPinnedStorageKey = useCallback(
+    () => `friend-chat:pinned:${currentUserId || 'guest'}`,
+    [currentUserId]
+  );
+
+  const getMessageId = useCallback((item) => String(item?._id || item?.id || ''), []);
+
+  const getRenderableMessageContent = useCallback((item) => {
+    if (item?.isDeleted) return 'Tin nhắn đã bị xóa';
+    if (item?.isRecalled) return 'Tin nhắn đã được thu hồi';
+    return item?.content || '';
+  }, []);
+
+  const appendEmoji = (emoji) => {
+    setMessage((prev) => `${prev}${emoji}`);
+    setShowEmojiPicker(false);
+    setActiveReactionPickerId(null);
+    requestAnimationFrame(() => messageInputRef.current?.focus());
+  };
+
+  const handleCopyMessage = async (item) => {
+    const text = getRenderableMessageContent(item);
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Đã sao chép nội dung tin nhắn', 'success');
+    } catch (error) {
+      showToast('Không thể sao chép tin nhắn', 'fail');
+    }
+  };
+
+  const handleTogglePinMessage = (item) => {
+    const friendId = String(selectedFriendId || '');
+    const messageId = getMessageId(item);
+    if (!friendId || !messageId) return;
+
+    setPinnedByFriend((prev) => {
+      const current = Array.isArray(prev[friendId]) ? prev[friendId] : [];
+      const exists = current.includes(messageId);
+      const next = exists ? current.filter((id) => id !== messageId) : [messageId, ...current];
+      showToast(exists ? 'Đã bỏ ghim tin nhắn' : 'Đã ghim tin nhắn', 'success');
+      return { ...prev, [friendId]: next.slice(0, 10) };
+    });
+    setActiveMessageMenuId(null);
+  };
+
+  const handleStartEditMessage = (item) => {
+    if (!item || item.isDeleted || item.isRecalled) return;
+    const messageId = getMessageId(item);
+    if (!messageId) return;
+    setEditingMessageId(messageId);
+    setEditingDraft(item.content || '');
+    setActiveMessageMenuId(null);
+  };
+
+  const handleCancelEditMessage = () => {
+    setEditingMessageId(null);
+    setEditingDraft('');
+  };
+
+  const handleSaveEditMessage = async (messageId) => {
+    const normalizedMessageId = String(messageId || '').trim();
+    if (!normalizedMessageId) {
+      showToast('Không xác định được tin nhắn để chỉnh sửa', 'fail');
+      return;
+    }
+
+    const targetMessage = messages.find((item) => getMessageId(item) === normalizedMessageId);
+    if (!targetMessage?._id) {
+      showToast('Tin nhắn chưa đồng bộ xong, vui lòng thử lại sau vài giây', 'fail');
+      return;
+    }
+
+    const nextContent = String(editingDraft || '').trim();
+    if (!nextContent) {
+      showToast('Nội dung chỉnh sửa không được để trống', 'fail');
+      return;
+    }
+
+    try {
+      const candidateEndpoints = [
+        `/messages/${normalizedMessageId}/edit`,
+        `/chat/messages/${normalizedMessageId}/edit`,
+        `/messages/${normalizedMessageId}`,
+      ];
+
+      let updatedMessage = null;
+      let lastError = null;
+
+      for (const endpoint of candidateEndpoints) {
+        try {
+          const response = await api.patch(endpoint, { content: nextContent });
+          const payload = response?.data || response;
+          updatedMessage = payload?.data || payload;
+          break;
+        } catch (requestError) {
+          lastError = requestError;
+          const status = requestError?.status || requestError?.response?.status;
+          // Interceptor đã normalize lỗi; fallback cho cả 404/403 giữa các endpoint tương thích.
+          if (status !== 404 && status !== 403) {
+            throw requestError;
+          }
+        }
+      }
+
+      if (!updatedMessage && lastError) {
+        throw lastError;
+      }
+
+      setMessages((prev) =>
+        prev.map((item) =>
+          getMessageId(item) === normalizedMessageId
+            ? {
+                ...item,
+                ...(updatedMessage && typeof updatedMessage === 'object' ? updatedMessage : {}),
+                content: updatedMessage?.content || nextContent,
+                editedAt: updatedMessage?.editedAt || new Date().toISOString(),
+              }
+            : item
+        )
+      );
+      handleCancelEditMessage();
+      showToast('Đã cập nhật tin nhắn', 'success');
+    } catch (error) {
+      showToast(
+        error?.response?.data?.message || error?.data?.message || error?.message || 'Không thể chỉnh sửa tin nhắn',
+        'fail'
+      );
+    }
+  };
+
+  const handleRecallMessage = async (messageId) => {
+    try {
+      const normalizedMessageId = String(messageId || '').trim();
+      if (!normalizedMessageId) {
+        showToast('Không xác định được tin nhắn để thu hồi', 'fail');
+        return;
+      }
+
+      const candidateRequests = [
+        async () => api.patch(`/messages/${normalizedMessageId}/recall`),
+        async () => api.patch(`/chat/messages/${normalizedMessageId}/recall`),
+        // Backend cũ chưa có recall endpoint: fallback sang soft delete để vẫn cập nhật dữ liệu thật.
+        async () => api.delete(`/messages/${normalizedMessageId}`),
+      ];
+
+      let lastError = null;
+      let recalled = false;
+
+      for (const requestFn of candidateRequests) {
+        try {
+          await requestFn();
+          recalled = true;
+          break;
+        } catch (requestError) {
+          lastError = requestError;
+          const status = requestError?.status || requestError?.response?.status;
+          if (status !== 404 && status !== 403) {
+            throw requestError;
+          }
+        }
+      }
+
+      if (!recalled && lastError) {
+        throw lastError;
+      }
+
+      setMessages((prev) =>
+        prev.map((item) =>
+          getMessageId(item) === normalizedMessageId
+            ? {
+                ...item,
+                isRecalled: true,
+                recalledAt: new Date().toISOString(),
+                originalContent: item.content,
+              }
+            : item
+        )
+      );
+      handleCancelEditMessage();
+      setActiveMessageMenuId(null);
+      showToast('Đã thu hồi tin nhắn', 'success');
+    } catch (error) {
+      showToast(
+        error?.response?.data?.message || error?.data?.message || error?.message || 'Không thể thu hồi tin nhắn',
+        'fail'
+      );
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    if (!messageId) return;
+    try {
+      await api.delete(`/messages/${messageId}`);
+      setMessages((prev) => prev.filter((item) => getMessageId(item) !== String(messageId)));
+      setMessageReactions((prev) => {
+        const next = { ...prev };
+        delete next[String(messageId)];
+        return next;
+      });
+      setActiveMessageMenuId(null);
+      setActiveReactionPickerId(null);
+      setConfirmDeleteMessageId(null);
+      showToast('Đã xóa tin nhắn', 'success');
+    } catch (error) {
+      showToast(error?.response?.data?.message || 'Không thể xóa tin nhắn', 'fail');
+    }
+  };
+
+  const handleToggleReaction = (messageId, emoji) => {
+    if (!messageId || !emoji) return;
+    setMessageReactions((prev) => {
+      const current = Array.isArray(prev[messageId]) ? prev[messageId] : [];
+      const exists = current.includes(emoji);
+      const nextList = exists ? current.filter((item) => item !== emoji) : [...current, emoji];
+      return { ...prev, [messageId]: nextList };
+    });
+    setActiveReactionPickerId(null);
+  };
+
+  const getReactionCountMap = (messageId) => {
+    const list = Array.isArray(messageReactions[messageId]) ? messageReactions[messageId] : [];
+    return list.reduce((acc, emoji) => {
+      acc[emoji] = (acc[emoji] || 0) + 1;
+      return acc;
+    }, {});
   };
 
   // Load danh sách bạn bè từ friend-service
@@ -235,6 +477,28 @@ function FriendChatPage() {
   }, [loadPendingRequests]);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getPinnedStorageKey());
+      if (!raw) {
+        setPinnedByFriend({});
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      setPinnedByFriend(parsed && typeof parsed === 'object' ? parsed : {});
+    } catch (error) {
+      setPinnedByFriend({});
+    }
+  }, [getPinnedStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(getPinnedStorageKey(), JSON.stringify(pinnedByFriend));
+    } catch (error) {
+      // Ignore storage write errors
+    }
+  }, [getPinnedStorageKey, pinnedByFriend]);
+
+  useEffect(() => {
     if (!isContactsModalOpen) return;
     if (friendModalTab === 'requests') {
       loadPendingRequests();
@@ -246,6 +510,35 @@ function FriendChatPage() {
       loadMessages(selectedFriendId);
     }
   }, [selectedFriendId, loadMessages]);
+
+  useEffect(() => {
+    setChatSearch('');
+    setShowEmojiPicker(false);
+    setActiveReactionPickerId(null);
+    setActiveMessageMenuId(null);
+    handleCancelEditMessage();
+  }, [selectedFriendId]);
+
+  useEffect(() => {
+    const handleDocumentClick = (event) => {
+      if (composerEmojiRef.current && !composerEmojiRef.current.contains(event.target)) {
+        setShowEmojiPicker(false);
+      }
+
+      if (!event.target.closest('.message-reaction-root')) {
+        setActiveReactionPickerId(null);
+      }
+
+      if (!event.target.closest('.message-menu-root')) {
+        setActiveMessageMenuId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+    };
+  }, []);
 
   // Gửi tin nhắn qua socket-service (realtime)
   const handleSend = async () => {
@@ -315,6 +608,42 @@ function FriendChatPage() {
       off('friend:sent', handleSentMessage);
     };
   }, [on, off, currentUserId, selectedFriendId, upsertFriendActivity]);
+
+  const sortedMessages = useMemo(
+    () =>
+      [...messages].sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return ta - tb;
+      }),
+    [messages]
+  );
+
+  const normalizedChatSearch = chatSearch.trim().toLowerCase();
+
+  const filteredConversationMessages = useMemo(() => {
+    if (!normalizedChatSearch) return sortedMessages;
+    return sortedMessages.filter((item) =>
+      String(getRenderableMessageContent(item)).toLowerCase().includes(normalizedChatSearch)
+    );
+  }, [sortedMessages, normalizedChatSearch, getRenderableMessageContent]);
+
+  const pinnedMessageIds = useMemo(() => {
+    const friendId = String(selectedFriendId || '');
+    return friendId && Array.isArray(pinnedByFriend[friendId]) ? pinnedByFriend[friendId] : [];
+  }, [pinnedByFriend, selectedFriendId]);
+
+  const pinnedMessages = useMemo(() => {
+    if (pinnedMessageIds.length === 0) return [];
+    return sortedMessages.filter((item) => pinnedMessageIds.includes(getMessageId(item)));
+  }, [pinnedMessageIds, sortedMessages, getMessageId]);
+
+  useEffect(() => {
+    if (!selectedFriendId) return;
+    requestAnimationFrame(() => {
+      messageEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  }, [selectedFriendId, filteredConversationMessages.length]);
 
   const currentFriend = viewFriends.find((f) => f.id === selectedFriendId) || null;
   const compactFriends = viewFriends.slice(0, 8);
@@ -541,8 +870,49 @@ function FriendChatPage() {
           ) : (
             <>
               <div className="shrink-0 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
-                <h2 className="text-lg font-semibold text-white">{currentFriend.name}</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-semibold text-white">{currentFriend.name}</h2>
+                  <div className="ml-auto relative w-full max-w-xs">
+                    <input
+                      type="text"
+                      value={chatSearch}
+                      onChange={(e) => setChatSearch(e.target.value)}
+                      placeholder="Tìm trong đoạn chat..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white placeholder-gray-500"
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
+                  </div>
+                </div>
               </div>
+
+              {pinnedMessages.length > 0 && (
+                <div className="shrink-0 border-b border-slate-800 bg-slate-900/40 px-4 py-2">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-yellow-300">📌</span>
+                    <span className="text-xs font-semibold text-gray-300">Tin nhắn đã ghim</span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto scrollbar-overlay pb-1">
+                    {pinnedMessages.map((item) => {
+                      const messageId = getMessageId(item);
+                      const text = getRenderableMessageContent(item);
+                      return (
+                        <button
+                          key={`pin-${messageId}`}
+                          type="button"
+                          onClick={() => {
+                            const target = document.getElementById(`message-${messageId}`);
+                            target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}
+                          className="max-w-[280px] text-left px-2.5 py-1.5 rounded-lg bg-[#040f2a] border border-slate-700 text-xs text-gray-200 truncate"
+                        >
+                          {text || 'Tin nhắn'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2 scrollbar-overlay">
                 {loadingMessages ? (
                   <div className="text-center text-gray-400">Đang tải tin nhắn...</div>
@@ -554,16 +924,15 @@ function FriendChatPage() {
                       const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                       return ta - tb;
                     })
-                    .map((m, idx) => {
+                    .map((m) => {
                     const rawSender = m.senderId?._id || m.senderId || '';
                     const senderId = String(rawSender);
                     const myId = currentUserId ? String(currentUserId) : null;
+                    const messageId = getMessageId(m);
+                    const isPinned = pinnedMessageIds.includes(messageId);
 
                     const isMine = myId && senderId === myId;
 
-                    // Trong chat bạn bè (DM) chỉ có 2 người:
-                    // - Tin của mình: tên mình (so theo userId từ Auth)
-                    // - Tin còn lại: tên bạn (currentFriend)
                     const displayName = isMine
                       ? currentUserName
                       : currentFriend?.name || 'Bạn bè';
@@ -572,9 +941,14 @@ function FriendChatPage() {
                       ? currentUserAvatar
                       : currentFriend?.avatar || '👤';
 
+                    const renderedContent = getRenderableMessageContent(m);
+                    const isMessageEditing = editingMessageId === messageId;
+                    const reactionCountMap = getReactionCountMap(messageId);
+                    const reactionEntries = Object.entries(reactionCountMap);
+
                     return (
                       <div
-                        key={`msg-${String(m._id || m.id || 'unknown')}-${idx}`}
+                        key={m._id || m.id}
                         className={`flex items-start mb-1 ${isMine ? 'justify-end' : 'justify-start'}`}
                       >
                         {!isMine && (
@@ -587,31 +961,219 @@ function FriendChatPage() {
                             isMine ? 'bg-[#0a1734]' : ''
                           }`}
                         >
-                          <div className="flex items-baseline gap-2 mb-1">
+                          <div className="flex items-start gap-2 mb-1">
                             <span className="text-xs font-bold text-purple-300 truncate">
                               {displayName}
                             </span>
                             <span className="text-[10px] text-gray-500">
                               {formatTime(m.createdAt)}
                             </span>
+                            {m.editedAt && !m.isDeleted && !m.isRecalled && (
+                              <span className="text-[10px] text-gray-500">(đã sửa)</span>
+                            )}
+                            {isPinned && <span className="text-[11px]">📌</span>}
+
+                            <div className="relative message-reaction-root">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowEmojiPicker(false);
+                                  setActiveMessageMenuId(null);
+                                  setActiveReactionPickerId((prev) => (prev === messageId ? null : messageId));
+                                }}
+                                className="w-6 h-6 rounded-md hover:bg-slate-700/70 text-gray-300 text-xs"
+                                title="Biểu cảm"
+                              >
+                                😊
+                              </button>
+
+                              {activeReactionPickerId === messageId && (
+                                <div className="absolute right-0 top-7 z-30 p-1.5 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+                                  <div className="flex gap-1">
+                                    {quickEmojis.map((emoji) => (
+                                      <button
+                                        key={`${messageId}-${emoji}`}
+                                        type="button"
+                                        onClick={() => handleToggleReaction(messageId, emoji)}
+                                        className="w-8 h-8 rounded-md hover:bg-slate-800/80 text-base"
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="relative ml-auto message-menu-root">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowEmojiPicker(false);
+                                  setActiveReactionPickerId(null);
+                                  setActiveMessageMenuId((prev) => (prev === messageId ? null : messageId));
+                                }}
+                                className="w-6 h-6 rounded-md hover:bg-slate-700/70 text-gray-300 text-xs"
+                                title="Tùy chọn tin nhắn"
+                              >
+                                ⋯
+                              </button>
+
+                              {activeMessageMenuId === messageId && (
+                                <div className="absolute right-0 top-7 z-20 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyMessage(m)}
+                                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-slate-800"
+                                  >
+                                    Sao chép
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTogglePinMessage(m)}
+                                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-slate-800"
+                                  >
+                                    {isPinned ? 'Bỏ ghim' : 'Ghim tin nhắn'}
+                                  </button>
+                                  {isMine && !m.isDeleted && !m.isRecalled && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartEditMessage(m)}
+                                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-slate-800"
+                                    >
+                                      Chỉnh sửa
+                                    </button>
+                                  )}
+                                  {isMine && !m.isDeleted && !m.isRecalled && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecallMessage(messageId)}
+                                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-slate-800"
+                                    >
+                                      Thu hồi
+                                    </button>
+                                  )}
+                                  {isMine && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setConfirmDeleteMessageId(messageId);
+                                        setActiveMessageMenuId(null);
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs text-rose-400 hover:bg-rose-500/10"
+                                    >
+                                      Xóa
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-white whitespace-pre-wrap break-words">
-                            {m.content}
-                          </div>
+
+                          {isMessageEditing ? (
+                            <div className="space-y-2">
+                              <input
+                                type="text"
+                                value={editingDraft}
+                                onChange={(e) => setEditingDraft(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded-lg bg-[#040f2a] border border-slate-700 text-sm text-white"
+                                autoFocus
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditMessage(messageId)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold"
+                                >
+                                  Lưu
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMessage}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 text-white text-xs font-semibold"
+                                >
+                                  Hủy
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={`whitespace-pre-wrap break-words ${m.isDeleted || m.isRecalled ? 'text-gray-400 italic' : 'text-white'}`}>
+                                {renderedContent}
+                              </div>
+                              {reactionEntries.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {reactionEntries.map(([emoji, count]) => (
+                                    <button
+                                      key={`${messageId}-reaction-${emoji}`}
+                                      type="button"
+                                      onClick={() => handleToggleReaction(messageId, emoji)}
+                                      className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-gray-100"
+                                    >
+                                      {emoji} {count}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </GlassCard>
                       </div>
                     );
                   })
                 )}
+                <div ref={messageEndRef} />
               </div>
-              <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5 flex gap-2">
+
+              <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5">
+                <div className="flex gap-2">
+                  <div className="relative" ref={composerEmojiRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveReactionPickerId(null);
+                        setActiveMessageMenuId(null);
+                        setShowEmojiPicker((prev) => !prev);
+                      }}
+                      className="w-10 h-10 rounded-xl bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-lg"
+                      title="Biểu cảm"
+                    >
+                      😊
+                    </button>
+
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-12 left-0 z-20 p-2 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+                        <div className="grid grid-cols-4 gap-1">
+                          {quickEmojis.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => appendEmoji(emoji)}
+                              className="w-9 h-9 rounded-lg hover:bg-slate-800/80 text-lg"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                 <input
+                  ref={messageInputRef}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
                   placeholder="Nhập tin nhắn..."
                   className="flex-1 px-3 py-2 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white placeholder-gray-500"
                 />
                 <GradientButton className="rounded-xl px-4 py-2 text-sm" onClick={handleSend}>Gửi</GradientButton>
+                </div>
               </div>
             </>
           )}
@@ -813,6 +1375,32 @@ function FriendChatPage() {
               )}
             </div>
           )}
+        </div>
+      </Modal>
+      <Modal
+        isOpen={confirmDeleteMessageId !== null}
+        onClose={() => setConfirmDeleteMessageId(null)}
+        title="Xác nhận"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-300">Bạn có chắc muốn xóa tin nhắn này?</p>
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteMessageId(null)}
+              className="px-4 py-2 rounded-lg bg-[#040f2a] border border-slate-800 text-sm text-white hover:bg-slate-800/70"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteMessage(confirmDeleteMessageId)}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+            >
+              Xóa
+            </button>
+          </div>
         </div>
       </Modal>
       {toast && <Toast message={toast.message} type={toast.type} />}

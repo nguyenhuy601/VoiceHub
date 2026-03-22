@@ -17,6 +17,7 @@ app.get('/health', (req, res) => {
 // Message routes
 const messageRoutes = require('./routes/message.routes');
 app.use('/api/messages', messageRoutes);
+app.use('/api/chat/messages', messageRoutes);
 
 module.exports = app;
 

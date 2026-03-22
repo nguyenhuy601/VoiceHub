@@ -8,6 +8,10 @@ const routeActionMap = {
   'POST /api/messages': 'chat:write',
   'PATCH /api/messages': 'chat:write',
   'DELETE /api/messages': 'chat:delete',
+  'GET /api/chat/messages': 'chat:read',
+  'POST /api/chat/messages': 'chat:write',
+  'PATCH /api/chat/messages': 'chat:write',
+  'DELETE /api/chat/messages': 'chat:delete',
 
   // Task Service
   'GET /api/tasks': 'task:read',

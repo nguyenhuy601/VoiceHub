@@ -699,23 +699,23 @@ function VoiceRoomPage() {
                       onClick={handleNewMeeting}
                       className="rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 py-4 text-white font-semibold hover:opacity-90 transition"
                     >
-                      New meeting
+                      Cuộc họp mới
                     </button>
                     <button
                       type="button"
                       onClick={() => setViewStage('prejoin')}
                       className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white font-semibold hover:bg-slate-800/70 transition"
                     >
-                      Join
+                      Tham gia
                     </button>
                     <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      Schedule
+                      Lên lịch
                     </button>
                     <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      Share screen
+                      Chia sẻ màn hình
                     </button>
                     <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      My notes
+                      Ghi chú của tôi
                     </button>
                   </div>
 
@@ -768,12 +768,12 @@ function VoiceRoomPage() {
                   </div>
 
                   <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-                    <h2 className="text-3xl font-black text-white mb-5">Join meeting</h2>
+                    <h2 className="text-3xl font-black text-white mb-5">Tham gia cuộc họp</h2>
                     <div className="space-y-3">
                       <input
                         value={meetingCode}
                         onChange={(e) => setMeetingCode(e.target.value)}
-                        placeholder="Meeting ID or room code"
+                        placeholder="Meeting ID hoặc mã phòng"
                         className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white"
                       />
                       <input
@@ -805,7 +805,7 @@ function VoiceRoomPage() {
                         onClick={handleJoinMeeting}
                         className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-white font-semibold"
                       >
-                        Start
+                        Bắt đầu
                       </button>
                       <button
                         type="button"
@@ -815,7 +815,7 @@ function VoiceRoomPage() {
                         }}
                         className="rounded-xl bg-[#040f2a] border border-slate-800 px-5 py-2.5 text-white font-semibold"
                       >
-                        Cancel
+                        Hủy
                       </button>
                     </div>
                   </div>
@@ -827,9 +827,9 @@ function VoiceRoomPage() {
           <>
             <div className="p-4 border-b border-white/10 glass-strong flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-black text-gradient">Voice/Video Room</h1>
+                <h1 className="text-2xl font-black text-gradient">Phòng Voice/Video</h1>
                 <p className="text-sm text-gray-400">
-                  Room: {currentMeetingCode} • {totalParticipants} participant(s) • {connected ? 'Connected' : 'Disconnected'}
+                  Phòng: {currentMeetingCode} • {totalParticipants} người tham gia • {connected ? 'Đã kết nối' : 'Mất kết nối'}
                 </p>
               </div>
               {error && <div className="text-xs text-red-300">{error}</div>}
@@ -837,7 +837,7 @@ function VoiceRoomPage() {
 
             <div className="flex-1 p-6 overflow-y-auto">
               {joining && (
-                <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-gray-300">Dang ket noi phong...</div>
+                <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-gray-300">Đang kết nối phòng...</div>
               )}
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -863,7 +863,7 @@ function VoiceRoomPage() {
                     </div>
                   )}
                   <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
-                    Ban {isMuted ? '• mic off' : ''} {isCameraOff ? '• cam off' : ''}
+                    Bạn {isMuted ? '• tắt mic' : ''} {isCameraOff ? '• tắt cam' : ''}
                   </div>
                 </div>
 
@@ -897,7 +897,7 @@ function VoiceRoomPage() {
                       </div>
                     )}
                     <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
-                      {participant.displayName || participant.userId || 'Participant'}
+                      {participant.displayName || participant.userId || 'Thành viên'}
                     </div>
                   </div>
                 ))}
@@ -912,7 +912,7 @@ function VoiceRoomPage() {
                   isMuted ? 'bg-red-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'
                 }`}
               >
-                {isMuted ? 'Bat mic' : 'Tat mic'}
+                {isMuted ? 'Bật mic' : 'Tắt mic'}
               </button>
               <button
                 type="button"
@@ -921,14 +921,14 @@ function VoiceRoomPage() {
                   isCameraOff ? 'bg-red-600' : 'bg-gradient-to-r from-blue-600 to-cyan-600'
                 }`}
               >
-                {isCameraOff ? 'Bat camera' : 'Tat camera'}
+                {isCameraOff ? 'Bật camera' : 'Tắt camera'}
               </button>
               <button
                 type="button"
                 onClick={leaveRoom}
                 className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Roi phong
+                Rời phòng
               </button>
             </div>
           </>
