@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 const {
   getRedisClient,
@@ -213,6 +214,65 @@ class NotificationService {
     } catch (error) {
       logger.error('Error marking all notifications as read:', error);
       throw new Error(`Error marking all notifications as read: ${error.message}`);
+    }
+  }
+
+  /**
+   * Sau khi accept/reject kết bạn: đánh dấu đã đọc mọi thông báo friend_request / friend_accepted
+   * liên quan tới counterparty (data.userId hoặc data.friendId khớp requester/accepter).
+   */
+  async markFriendRelatedRead(userId, counterpartyId) {
+    try {
+      const uid = new mongoose.Types.ObjectId(String(userId));
+      const cp = String(counterpartyId).trim();
+      if (!cp) {
+        throw new Error('counterpartyId is required');
+      }
+
+      const cpVariants = [cp];
+      if (mongoose.Types.ObjectId.isValid(cp)) {
+        cpVariants.push(new mongoose.Types.ObjectId(cp));
+      }
+
+      const filter = {
+        userId: uid,
+        isRead: false,
+        type: { $in: ['friend_request', 'friend_accepted'] },
+        $or: [
+          { 'data.userId': { $in: cpVariants } },
+          { 'data.friendId': { $in: cpVariants } },
+        ],
+      };
+
+      const docs = await Notification.find(filter).select('_id').lean();
+      const ids = docs.map((d) => String(d._id));
+
+      if (ids.length === 0) {
+        return { modifiedCount: 0, notificationIds: [] };
+      }
+
+      await Notification.updateMany(
+        { _id: { $in: docs.map((d) => d._id) } },
+        { $set: { isRead: true, readAt: new Date() } }
+      );
+
+      logger.info(
+        `Friend-related notifications marked read for user ${userId}: ${ids.length} (counterparty ${cp})`
+      );
+
+      await emitRealtimeEvent({
+        event: 'notification:read_many',
+        userId: String(userId),
+        payload: {
+          notificationIds: ids,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      return { modifiedCount: ids.length, notificationIds: ids };
+    } catch (error) {
+      logger.error('Error marking friend-related notifications read:', error);
+      throw new Error(`Error marking friend-related notifications read: ${error.message}`);
     }
   }
 

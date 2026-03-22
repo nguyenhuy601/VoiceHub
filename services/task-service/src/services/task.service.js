@@ -75,10 +75,8 @@ class TaskService {
   // Lấy task theo ID
   async getTaskById(taskId) {
     try {
-      const task = await Task.findById(taskId)
-        .populate('assigneeId', 'username displayName avatar')
-        .populate('createdBy', 'username displayName avatar')
-        .populate('comments.userId', 'username displayName avatar');
+      // Không populate User (không có model User đăng ký trong task-service).
+      const task = await Task.findById(taskId);
 
       return task;
     } catch (error) {
@@ -90,11 +88,12 @@ class TaskService {
   // Lấy danh sách tasks
   async getTasks(filter, options = {}) {
     try {
-      const { page = 1, limit = 50, sort = { createdAt: -1 } } = options;
+      const { page = 1, limit = 50, sort: sortOption } = options;
+      const sort = sortOption || { createdAt: -1 };
 
+      // Không populate User: task-service không đăng ký model User — populate gây MissingSchemaError → 500
+      // (dashboard, lịch, danh sách task chỉ cần id + title + dueDate + status).
       const tasks = await Task.find(filter)
-        .populate('assigneeId', 'username displayName avatar')
-        .populate('createdBy', 'username displayName avatar')
         .sort(sort)
         .limit(limit * 1)
         .skip((page - 1) * limit);

@@ -2,6 +2,44 @@ const messageService = require('../services/message.service');
 const { emitRealtimeEvent } = require('/shared');
 
 class MessageController {
+  /**
+   * Nội bộ: xóa toàn bộ DM giữa hai user (friend-service gọi khi xóa bạn).
+   * Bảo vệ bằng header x-internal-token (CHAT_INTERNAL_TOKEN).
+   */
+  async deleteDmBetweenUsers(req, res) {
+    try {
+      const { userIdA, userIdB } = req.body || {};
+      if (!userIdA || !userIdB) {
+        return res.status(400).json({
+          success: false,
+          message: 'userIdA and userIdB are required',
+        });
+      }
+
+      const result = await messageService.deleteDirectMessagesBetweenUsers(userIdA, userIdB);
+
+      await emitRealtimeEvent({
+        event: 'friend:dm_cleared',
+        userIds: [String(userIdA), String(userIdB)],
+        payload: {
+          userIdA: String(userIdA),
+          userIdB: String(userIdB),
+          deletedCount: result.deletedCount,
+        },
+      });
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
   // Tạo tin nhắn mới
   async createMessage(req, res) {
     try {
@@ -56,6 +94,86 @@ class MessageController {
       res.status(201).json({
         success: true,
         data: message,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Danh sách tin nhắn kênh tổ chức chưa đọc (mới nhất trước).
+   */
+  async getUnreadOrgMessagesFeed(req, res) {
+    try {
+      const userId = req.user?.id || req.user?._id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
+      const messages = await messageService.findUnreadOrgRoomMessages(userId, limit);
+
+      res.json({
+        success: true,
+        data: { messages },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Thống kê tin nhắn cho dashboard: hôm nay / hôm qua + % thay đổi (tin gửi đến user, DM).
+   */
+  async getMessageStatsSummary(req, res) {
+    try {
+      const userId = req.user?.id || req.user?._id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      const now = new Date();
+      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endToday = new Date(startToday);
+      endToday.setDate(endToday.getDate() + 1);
+
+      const startYesterday = new Date(startToday);
+      startYesterday.setDate(startYesterday.getDate() - 1);
+      const endYesterday = startToday;
+
+      const [todayCount, yesterdayCount, unreadCount] = await Promise.all([
+        messageService.countIncomingMessagesInRange(userId, startToday, endToday),
+        messageService.countIncomingMessagesInRange(userId, startYesterday, endYesterday),
+        messageService.countUnreadIncoming(userId),
+      ]);
+
+      let changePercent = 0;
+      let trend = 'flat';
+      if (yesterdayCount > 0) {
+        changePercent = Math.round(((todayCount - yesterdayCount) / yesterdayCount) * 100);
+        if (changePercent > 0) trend = 'up';
+        else if (changePercent < 0) trend = 'down';
+        else trend = 'flat';
+      } else if (todayCount > 0) {
+        changePercent = 100;
+        trend = 'up';
+      }
+
+      res.json({
+        success: true,
+        data: {
+          todayCount,
+          yesterdayCount,
+          unreadCount,
+          changePercent,
+          trend,
+        },
       });
     } catch (error) {
       res.status(500).json({

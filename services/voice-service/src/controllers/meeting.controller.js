@@ -1,3 +1,4 @@
+const mongoose = require('../db');
 const meetingService = require('../services/meeting.service');
 const { logger } = require('/shared');
 
@@ -160,16 +161,78 @@ class MeetingController {
   // Lấy danh sách meetings
   async getMeetings(req, res) {
     try {
-      const { serverId, organizationId, status, page, limit } = req.query;
+      const { serverId, organizationId, status, page, limit, startFrom, startTo } = req.query;
 
       const filter = {};
       if (serverId) filter.serverId = serverId;
       if (organizationId) filter.organizationId = organizationId;
-      if (status) filter.status = status;
+
+      let sort = { startTime: -1 };
+
+      if (startFrom || startTo) {
+        if (!startFrom || !startTo) {
+          return res.status(400).json({
+            success: false,
+            message: 'startFrom and startTo are both required when filtering by time range',
+          });
+        }
+        const from = new Date(startFrom);
+        const to = new Date(startTo);
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid startFrom or startTo',
+          });
+        }
+        if (from > to) {
+          return res.status(400).json({
+            success: false,
+            message: 'startFrom must be before or equal to startTo',
+          });
+        }
+        const maxMs = 180 * 24 * 60 * 60 * 1000;
+        if (to.getTime() - from.getTime() > maxMs) {
+          return res.status(400).json({
+            success: false,
+            message: 'startTime range cannot exceed 180 days',
+          });
+        }
+
+        const userId =
+          req.user?.id || req.user?.userId || req.user?._id || req.headers['x-user-id'];
+        if (!userId) {
+          return res.status(401).json({
+            success: false,
+            message: 'Unauthorized',
+          });
+        }
+
+        let userOid;
+        try {
+          userOid = new mongoose.Types.ObjectId(String(userId));
+        } catch (e) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid user id',
+          });
+        }
+
+        filter.$or = [{ hostId: userOid }, { 'participants.userId': userOid }];
+        filter.startTime = { $gte: from, $lte: to };
+        if (status) {
+          filter.status = status;
+        } else {
+          filter.status = { $ne: 'cancelled' };
+        }
+        sort = { startTime: 1 };
+      } else if (status) {
+        filter.status = status;
+      }
 
       const result = await meetingService.getMeetings(filter, {
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 50,
+        sort,
       });
 
       res.json({

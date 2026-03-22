@@ -55,12 +55,12 @@ class RoleService {
     }
   }
 
-  // Lấy danh sách roles trong server
+  // Lấy danh sách roles trong server (hoặc theo organizationId nếu client truyền org id)
   async getRolesByServer(serverId) {
     try {
       const roles = await Role.find({
-        serverId,
         isActive: true,
+        $or: [{ serverId }, { organizationId: serverId }],
       }).sort({ priority: -1, createdAt: 1 });
 
       return roles;

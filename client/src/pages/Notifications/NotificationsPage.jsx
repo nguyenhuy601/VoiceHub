@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, Toast } from '../../components/Shared';
+import { GlassCard, GradientButton, NotificationBellBadge, Toast } from '../../components/Shared';
 import api from '../../services/api';
+import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { useSocket } from '../../context/SocketContext';
 
 function NotificationsPage() {
@@ -50,16 +51,19 @@ function NotificationsPage() {
     deadline: 'Cập Nhật',
     meeting: 'Tham Gia',
     file: 'Xem File',
-    friend: 'Xem Profile',
+    friend: 'Thêm bạn',
     system: 'Xem Chi Tiết',
   };
 
   const toViewNotification = (item) => {
     const id = item?._id || item?.id;
-    const type = String(item?.type || 'system');
+    const rawType = String(item?.type || 'system');
+    const type =
+      rawType === 'friend_request' || rawType === 'friend_accepted' ? 'friend' : rawType;
     return {
       id,
       type,
+      rawType,
       icon: iconByType[type] || '🔔',
       title: item?.title || 'Thông báo',
       message: item?.content || item?.message || '',
@@ -67,26 +71,35 @@ function NotificationsPage() {
       read: Boolean(item?.isRead),
       priority: item?.data?.priority || 'low',
       action: actionByType[type] || 'Xem Chi Tiết',
+      /** Chuông + badge đỏ giống sidebar (chủ yếu lời mời kết bạn) */
+      useBellCard: rawType === 'friend_request' || type === 'friend',
     };
   };
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       const response = await api.get('/notifications', { params: { limit: 100 } });
       const payload = response?.data || response;
       const data = payload?.data || payload;
       const list = Array.isArray(data?.notifications) ? data.notifications : [];
-      if (list.length > 0) {
-        setNotifications(list.map(toViewNotification));
-      }
+      setNotifications(list.map(toViewNotification));
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Không tải được thông báo từ máy chủ', 'error');
+      const msg = error?.response?.data?.message || 'Không tải được thông báo từ máy chủ';
+      setToast({ message: msg, type: 'error' });
+      setTimeout(() => setToast(null), 3000);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadNotifications();
-  }, []);
+  }, [loadNotifications]);
+
+  /** Đồng bộ sau accept/reject kết bạn (cùng tab hoặc sau markFriendNotificationsResolved) */
+  useEffect(() => {
+    const onRefresh = () => loadNotifications();
+    window.addEventListener(NOTIFICATIONS_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(NOTIFICATIONS_REFRESH_EVENT, onRefresh);
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (!on || !off) return;
@@ -124,6 +137,14 @@ function NotificationsPage() {
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     };
 
+    const handleReadMany = (payload) => {
+      const ids = new Set((payload?.notificationIds || []).map(String));
+      if (ids.size === 0) return;
+      setNotifications((prev) =>
+        prev.map((n) => (ids.has(String(n.id)) ? { ...n, read: true } : n))
+      );
+    };
+
     const handleDeleted = (payload) => {
       const targetId = payload?.notificationId;
       if (!targetId) return;
@@ -145,6 +166,7 @@ function NotificationsPage() {
       off('notification:new', handleNotificationNew);
       off('notification:bulk_new', handleNotificationBulk);
       off('notification:read', handleRead);
+      off('notification:read_many', handleReadMany);
       off('notification:read_all', handleReadAll);
       off('notification:deleted', handleDeleted);
       off('notification:deleted_read_all', handleDeletedReadAll);
@@ -202,8 +224,8 @@ function NotificationsPage() {
         showToast('Đang mở chat tổ chức', 'info');
         break;
       case 'friend':
-        navigate('/chat/friends');
-        showToast('Đang mở chat bạn bè', 'info');
+        navigate('/chat/friends?tab=requests');
+        showToast('Đang mở lời mời kết bạn', 'info');
         break;
       case 'meeting':
         navigate('/calendar');
@@ -230,11 +252,14 @@ function NotificationsPage() {
     }
   };
 
-  const filteredNotifications = filter === 'all' 
-    ? notifications 
-    : filter === 'unread' 
-      ? notifications.filter(n => !n.read)
-      : notifications.filter(n => n.type === filter);
+  const filteredNotifications =
+    filter === 'all'
+      ? notifications
+      : filter === 'unread'
+        ? notifications.filter((n) => !n.read)
+        : filter === 'friend'
+          ? notifications.filter((n) => n.type === 'friend')
+          : notifications.filter((n) => n.type === filter);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -321,7 +346,8 @@ function NotificationsPage() {
             { id: 'task', label: 'Công Việc', icon: '✅' },
             { id: 'mention', label: 'Mentions', icon: '💬' },
             { id: 'deadline', label: 'Deadline', icon: '⏰' },
-            { id: 'meeting', label: 'Meetings', icon: '📅' }
+            { id: 'meeting', label: 'Meetings', icon: '📅' },
+            { id: 'friend', label: 'Kết bạn', icon: '🔔' },
           ].map(f => (
             <button
               key={f.id}
@@ -343,6 +369,15 @@ function NotificationsPage() {
           {filteredNotifications.map((notif, idx) => (
             <GlassCard key={notif.id} hover className={`animate-slideUp border border-slate-800 bg-slate-900/60 ${!notif.read ? 'border-l-4 border-purple-500' : ''}`} style={{animationDelay: `${idx * 0.05}s`}}>
               <div className="flex items-start gap-4">
+                {notif.useBellCard && notif.type === 'friend' ? (
+                  <div className="flex-shrink-0 pt-0.5">
+                    <NotificationBellBadge
+                      count={notif.read ? 0 : 1}
+                      sizeClass="h-12 w-12"
+                      textSizeClass="text-2xl"
+                    />
+                  </div>
+                ) : (
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${
                   notif.priority === 'high' ? 'from-red-500 to-orange-500' :
                   notif.priority === 'medium' ? 'from-blue-500 to-cyan-500' :
@@ -350,6 +385,7 @@ function NotificationsPage() {
                 } flex items-center justify-center text-2xl flex-shrink-0`}>
                   {notif.icon}
                 </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-bold text-white">{notif.title}</h3>
@@ -368,12 +404,22 @@ function NotificationsPage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
+                  {notif.useBellCard && notif.type === 'friend' ? (
+                    <GradientButton
+                      variant="friend"
+                      className="!px-5 !py-2.5 !rounded-xl text-sm font-bold whitespace-nowrap shadow-lg"
+                      onClick={() => handleOpenNotification(notif)}
+                    >
+                      Thêm bạn
+                    </GradientButton>
+                  ) : (
                   <button 
                     onClick={() => handleOpenNotification(notif)}
                     className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-sm font-semibold whitespace-nowrap"
                   >
                     {notif.action}
                   </button>
+                  )}
                   {!notif.read && (
                     <button 
                       onClick={() => handleMarkAsRead(notif.id)}

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Modal, NotificationModal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
 import OrganizationMainPanel from '../../components/Organization/OrganizationMainPanel';
+import OrganizationSettingsModal from '../../components/Organization/OrganizationSettingsModal';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -62,6 +63,7 @@ function OrganizationsPage() {
   const { user } = useAuth();
   const { on, off } = useSocket();
   const navigate = useNavigate();
+  const location = useLocation();
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
   const [viewMode, setViewMode] = useState('home');
@@ -97,9 +99,8 @@ function OrganizationsPage() {
   const [loadingChatContacts, setLoadingChatContacts] = useState(false);
   const [createOrgModalOpen, setCreateOrgModalOpen] = useState(false);
   const [createOrgName, setCreateOrgName] = useState('');
-  const [editOrgModalOpen, setEditOrgModalOpen] = useState(false);
-  const [editingOrgId, setEditingOrgId] = useState('');
-  const [editOrgName, setEditOrgName] = useState('');
+  const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
+  const [orgForSettings, setOrgForSettings] = useState(null);
   const [createDeptModalOpen, setCreateDeptModalOpen] = useState(false);
   const [createDeptName, setCreateDeptName] = useState('');
   const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
@@ -366,29 +367,11 @@ function OrganizationsPage() {
     setViewMode('home');
   };
 
-  const handleEditOrganization = async (orgId) => {
+  const handleEditOrganization = (orgId) => {
     const current = organizations.find((org) => org._id === orgId);
     if (!current) return;
-
-    setEditingOrgId(orgId);
-    setEditOrgName(current.name || '');
-    setEditOrgModalOpen(true);
-  };
-
-  const handleSubmitEditOrganization = async () => {
-    if (!editingOrgId || !editOrgName.trim()) {
-      notifyError('Vui lòng nhập tên tổ chức');
-      return;
-    }
-
-    try {
-      await organizationAPI.updateOrganization(editingOrgId, { name: editOrgName.trim() });
-      notifySuccess('Đã cập nhật tổ chức');
-      setEditOrgModalOpen(false);
-      await loadOrganizations();
-    } catch (error) {
-      notifyError('Không thể cập nhật tổ chức');
-    }
+    setOrgForSettings(current);
+    setOrgSettingsModalOpen(true);
   };
 
   const handleInviteOrganization = async (orgId) => {
@@ -571,6 +554,23 @@ function OrganizationsPage() {
     Promise.all([loadOrganizations(), loadPendingInvitations()]);
     loadChatContacts();
   }, []);
+
+  /** Mở đúng kênh tổ chức khi điều hướng từ Chat bạn bè (tin chưa đọc). */
+  useEffect(() => {
+    const target = location.state?.openWorkspace;
+    if (!target?.organizationId || !target?.channelId) return;
+    if (!organizations.length) return;
+    const orgExists = organizations.some((o) => String(o._id) === String(target.organizationId));
+    if (!orgExists) return;
+
+    setViewMode('workspace');
+    setSelectedOrganizationId(String(target.organizationId));
+    if (target.departmentId) {
+      setSelectedDepartmentId(String(target.departmentId));
+    }
+    setSelectedChannelId(String(target.channelId));
+    navigate('/organizations', { replace: true, state: {} });
+  }, [organizations, location.state, navigate]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -827,37 +827,15 @@ function OrganizationsPage() {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={editOrgModalOpen}
-        onClose={() => setEditOrgModalOpen(false)}
-        title="Đổi tên tổ chức"
-        size="sm"
-      >
-        <div className="space-y-3">
-          <input
-            value={editOrgName}
-            onChange={(event) => setEditOrgName(event.target.value)}
-            placeholder="Nhập tên tổ chức mới"
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setEditOrgModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitEditOrganization}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              Lưu
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <OrganizationSettingsModal
+        isOpen={orgSettingsModalOpen}
+        onClose={() => {
+          setOrgSettingsModalOpen(false);
+          setOrgForSettings(null);
+        }}
+        organization={orgForSettings}
+        onOrganizationUpdated={loadOrganizations}
+      />
 
       <Modal
         isOpen={createDeptModalOpen}

@@ -78,8 +78,18 @@ class TaskController {
   // Lấy danh sách tasks
   async getTasks(req, res) {
     try {
-      const { assigneeId, organizationId, serverId, status, priority, page, limit } = req.query;
-      const userId = req.user?.id || req.userContext?.userId;
+      const {
+        assigneeId,
+        organizationId,
+        serverId,
+        status,
+        priority,
+        page,
+        limit,
+        dueFrom,
+        dueTo,
+      } = req.query;
+      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
 
       const filter = { isActive: true };
 
@@ -95,9 +105,43 @@ class TaskController {
       if (status) filter.status = status;
       if (priority) filter.priority = priority;
 
+      let sort = { createdAt: -1 };
+      if (dueFrom || dueTo) {
+        if (!dueFrom || !dueTo) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueFrom and dueTo are both required when filtering by due date',
+          });
+        }
+        const from = new Date(dueFrom);
+        const to = new Date(dueTo);
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid dueFrom or dueTo',
+          });
+        }
+        if (from > to) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueFrom must be before or equal to dueTo',
+          });
+        }
+        const maxMs = 180 * 24 * 60 * 60 * 1000;
+        if (to.getTime() - from.getTime() > maxMs) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueDate range cannot exceed 180 days',
+          });
+        }
+        filter.dueDate = { $gte: from, $lte: to };
+        sort = { dueDate: 1 };
+      }
+
       const result = await taskService.getTasks(filter, {
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 50,
+        sort,
       });
 
       res.json({

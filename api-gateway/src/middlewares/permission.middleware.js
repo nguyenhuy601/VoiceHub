@@ -38,9 +38,25 @@ const permissionMiddleware = async (req, res, next) => {
       return next();
     }
 
+    // Role & Permission service: tự xử lý sau khi proxy (JWT đã qua auth middleware).
+    // Tránh 403 do gateway map GET /api/roles → get:default và không có quyền trong Discord-style role cache.
+    const pathWithoutQueryEarly = req.path.split('?')[0];
+    if (
+      pathWithoutQueryEarly.startsWith('/api/roles') ||
+      pathWithoutQueryEarly.startsWith('/api/permissions')
+    ) {
+      return next();
+    }
+
     // Voice/WebRTC MVP hiện chưa gắn role-context theo organization/server cho từng event.
     // Cho phép gateway bỏ qua permission check để tránh chặn bootstrap/join room.
     if (action.startsWith('voice:')) {
+      return next();
+    }
+
+    // Task: task-service tự lọc theo user (JWT / x-user-id). Lịch gọi GET /api/tasks?dueFrom&dueTo
+    // không mang serverId — không chặn ở gateway (tránh 400 "serverId or organizationId is required").
+    if (action.startsWith('task:')) {
       return next();
     }
 

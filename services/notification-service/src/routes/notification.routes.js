@@ -12,6 +12,12 @@ router.post('/bulk', notificationController.createBulkNotifications.bind(notific
 router.get('/', notificationController.getUserNotifications.bind(notificationController));
 router.get('/user/:userId', notificationController.getUserNotifications.bind(notificationController));
 
+// Đánh dấu đã đọc thông báo kết bạn theo counterparty (đặt trước /:notificationId/read)
+router.patch(
+  '/read-friend-related',
+  notificationController.markFriendRelatedRead.bind(notificationController)
+);
+
 // Đánh dấu notification là đã đọc
 router.patch('/:notificationId/read', notificationController.markAsRead.bind(notificationController));
 

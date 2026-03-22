@@ -3,6 +3,26 @@ const router = express.Router();
 const userController = require('../controllers/user.controller');
 const userContext = require('../middlewares/userContext');
 
+const USER_SERVICE_INTERNAL_TOKEN = process.env.USER_SERVICE_INTERNAL_TOKEN || '';
+
+function internalServiceOnly(req, res, next) {
+  const t = req.headers['x-internal-token'] || req.headers['x-user-service-internal-token'];
+  if (!USER_SERVICE_INTERNAL_TOKEN || t !== USER_SERVICE_INTERNAL_TOKEN) {
+    return res.status(403).json({
+      success: false,
+      message: 'Forbidden',
+    });
+  }
+  next();
+}
+
+// Presence từ socket-service (trước userContext / JWT)
+router.patch(
+  '/internal/status',
+  internalServiceOnly,
+  userController.setStatusInternal.bind(userController)
+);
+
 // Apply user context middleware cho tất cả routes
 router.use(userContext);
 

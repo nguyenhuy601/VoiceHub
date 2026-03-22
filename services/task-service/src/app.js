@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const gatewayUserMiddleware = require('./middlewares/gatewayUser');
+const { mongoose } = require('../../../shared/config/mongo');
 
 const app = express();
 
@@ -7,10 +9,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(gatewayUserMiddleware);
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'task-service' });
+  const mongoOk = mongoose.connection.readyState === 1;
+  res.status(mongoOk ? 200 : 503).json({
+    status: mongoOk ? 'ok' : 'degraded',
+    service: 'task-service',
+    mongo: {
+      readyState: mongoose.connection.readyState,
+      ok: mongoOk,
+    },
+  });
 });
 
 // Task routes

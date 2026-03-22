@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton, Modal, NotificationModal } from '../../components/Shared';
 import friendService from '../../services/friendService';
+import { markFriendNotificationsResolved } from '../../services/notificationSync';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { getUserDisplayName } from '../../utils/helpers';
@@ -38,9 +40,16 @@ function FriendChatPage() {
   const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState(null);
   const [pinnedByFriend, setPinnedByFriend] = useState({});
   const [notificationModal, setNotificationModal] = useState(null);
+  /** Tin kênh tổ chức chưa đọc — sidebar trái */
+  const [orgUnreadMessages, setOrgUnreadMessages] = useState([]);
+  const [loadingOrgUnread, setLoadingOrgUnread] = useState(true);
+  const [roomMetaById, setRoomMetaById] = useState({});
+  /** Tooltip tin tổ chức — fixed bên phải dòng (tránh bị clip overflow sidebar) */
+  const [orgUnreadHoverTip, setOrgUnreadHoverTip] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { emit, on, off } = useSocket();
+  const location = useLocation();
+  const { emit, on, off, onlineUsers } = useSocket();
 
   // Trong hệ thống hiện tại, ID đăng nhập lưu ở field userId (Auth service),
   // còn _id là của profile. Tin nhắn lưu senderId theo userId.
@@ -311,16 +320,130 @@ function FriendChatPage() {
     }
   }, []);
 
-  // Map dữ liệu friends sang view model đơn giản
-  const viewFriends = friends.map((f) => {
-    const u = f.friendId || f;
-    return {
-      id: u?._id || u?.id || f.id,
-      name: u?.displayName || u?.username || 'Người dùng',
-      avatar: u?.avatar || '👤',
-      status: String(u?.status || 'offline').toLowerCase(),
+  const buildChannelRoomMetaMap = useCallback(async () => {
+    const map = {};
+    try {
+      const orgRes = await api.get('/organizations/my');
+      const orgPayload = orgRes?.data ?? orgRes;
+      const orgList = Array.isArray(orgPayload)
+        ? orgPayload
+        : Array.isArray(orgPayload?.data)
+          ? orgPayload.data
+          : [];
+      for (const org of orgList) {
+        const orgId = org._id || org.id;
+        const orgName = org.name || 'Tổ chức';
+        const deptRes = await api.get(`/organizations/${orgId}/departments`);
+        const deptPayload = deptRes?.data ?? deptRes;
+        const depts = Array.isArray(deptPayload)
+          ? deptPayload
+          : Array.isArray(deptPayload?.data)
+            ? deptPayload.data
+            : [];
+        for (const dept of depts) {
+          const deptId = dept._id;
+          const deptName = dept.name || 'Phòng ban';
+          const chRes = await api.get(`/organizations/${orgId}/departments/${deptId}/channels`);
+          const chPayload = chRes?.data ?? chRes;
+          const chs = Array.isArray(chPayload)
+            ? chPayload
+            : Array.isArray(chPayload?.data)
+              ? chPayload.data
+              : [];
+          for (const ch of chs) {
+            const id = String(ch._id);
+            map[id] = {
+              orgName,
+              deptName,
+              channelName: ch.name || 'Kênh',
+              orgId: String(orgId),
+              deptId: String(deptId),
+              channelId: id,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[FriendChat] buildChannelRoomMetaMap', e);
+    }
+    return map;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoadingOrgUnread(true);
+      try {
+        const [metaMap, unreadRes] = await Promise.all([
+          buildChannelRoomMetaMap(),
+          api.get('/chat/messages/unread/org', { params: { limit: 40 } }),
+        ]);
+        if (cancelled) return;
+        setRoomMetaById(metaMap);
+        const raw = unreadRes?.data ?? unreadRes;
+        const inner = raw?.data ?? raw;
+        const list = Array.isArray(inner?.messages) ? inner.messages : [];
+        setOrgUnreadMessages(list);
+      } catch {
+        if (!cancelled) {
+          setOrgUnreadMessages([]);
+          setRoomMetaById({});
+        }
+      } finally {
+        if (!cancelled) setLoadingOrgUnread(false);
+      }
     };
-  });
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [buildChannelRoomMetaMap]);
+
+  const truncateOrgUnreadPreview = (text, len = 44) => {
+    const s = String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s) return 'Tin nhắn mới';
+    return s.length > len ? `${s.slice(0, len)}…` : s;
+  };
+
+  const handleOpenOrgUnread = (msg) => {
+    const roomId = String(msg?.roomId || '');
+    const orgId = String(msg?.organizationId || '');
+    const meta = roomMetaById[roomId];
+    navigate('/organizations', {
+      state: {
+        openWorkspace: {
+          organizationId: meta?.orgId || orgId,
+          departmentId: meta?.deptId || '',
+          channelId: roomId,
+        },
+      },
+    });
+  };
+
+  const onlineUserSet = useMemo(
+    () => new Set((onlineUsers || []).map((id) => String(id))),
+    [onlineUsers]
+  );
+
+  /** Trạng thái online = socket (users:online) hoặc profile user-service */
+  const viewFriends = useMemo(() => {
+    return friends.map((f) => {
+      const u = f.friendId || f;
+      const id = u?._id || u?.id || f.id;
+      const idStr = String(id || '');
+      const socketOnline = idStr && onlineUserSet.has(idStr);
+      const dbStatus = String(u?.status || 'offline').toLowerCase();
+      const isOnline = socketOnline || dbStatus === 'online';
+      return {
+        id,
+        name: u?.displayName || u?.username || 'Người dùng',
+        avatar: u?.avatar || '👤',
+        status: isOnline ? 'online' : 'offline',
+      };
+    });
+  }, [friends, onlineUserSet]);
 
   const getMessageTimestamp = (msg) => {
     const raw = msg?.createdAt || msg?.updatedAt;
@@ -409,6 +532,7 @@ function FriendChatPage() {
     if (!id) return;
     try {
       await friendService.acceptRequest(id);
+      await markFriendNotificationsResolved(id);
       showToast('Đã chấp nhận lời mời', 'success');
       await Promise.all([loadPendingRequests(), loadFriends()]);
     } catch (err) {
@@ -421,6 +545,7 @@ function FriendChatPage() {
     if (!id) return;
     try {
       await friendService.rejectRequest(id);
+      await markFriendNotificationsResolved(id);
       showToast('Đã từ chối lời mời', 'success');
       loadPendingRequests();
     } catch (err) {
@@ -645,6 +770,37 @@ function FriendChatPage() {
     };
   }, [on, off, loadPendingRequests, loadFriends]);
 
+  /** Backend xóa DM khi hủy kết bạn — đồng bộ UI (cả phía người còn lại) */
+  useEffect(() => {
+    if (!on || !off || !currentUserId) return;
+
+    const handleDmCleared = (payload) => {
+      const a = String(payload?.userIdA || '');
+      const b = String(payload?.userIdB || '');
+      const my = String(currentUserId);
+      if (!a || !b) return;
+      const peer = a === my ? b : b === my ? a : null;
+      if (!peer) return;
+
+      setActivityByFriend((prev) => {
+        const next = { ...prev };
+        delete next[peer];
+        return next;
+      });
+      setPinnedByFriend((prev) => {
+        const next = { ...prev };
+        delete next[peer];
+        return next;
+      });
+      if (selectedFriendId && String(selectedFriendId) === String(peer)) {
+        setMessages([]);
+      }
+    };
+
+    on('friend:dm_cleared', handleDmCleared);
+    return () => off('friend:dm_cleared', handleDmCleared);
+  }, [on, off, currentUserId, selectedFriendId]);
+
   const sortedMessages = useMemo(
     () =>
       [...messages].sort((a, b) => {
@@ -681,8 +837,14 @@ function FriendChatPage() {
     });
   }, [selectedFriendId, filteredConversationMessages.length]);
 
+  useEffect(() => {
+    const id = location.state?.selectFriendId;
+    if (!id) return;
+    setSelectedFriendId(String(id));
+    navigate(location.pathname + location.search, { replace: true, state: {} });
+  }, [location.state, location.pathname, location.search, navigate]);
+
   const currentFriend = viewFriends.find((f) => f.id === selectedFriendId) || null;
-  const compactFriends = viewFriends.slice(0, 8);
 
   const recentActiveFriends = [...viewFriends]
     .sort((a, b) => {
@@ -693,11 +855,6 @@ function FriendChatPage() {
     })
     .slice(0, 6);
 
-  const recentMessagedFriends = viewFriends
-    .filter((f) => activityByFriend[f.id])
-    .sort((a, b) => activityByFriend[b.id].timestamp - activityByFriend[a.id].timestamp)
-    .slice(0, 6);
-  const sidebarRecentFriends = recentMessagedFriends.length > 0 ? recentMessagedFriends : compactFriends;
   const pendingCount = pendingRequests.length;
   const onlineCount = viewFriends.filter((f) => f.status === 'online').length;
 
@@ -737,42 +894,67 @@ function FriendChatPage() {
       {/* Khung 1: Sidebar nav chỉ icon, thanh trượt riêng */}
       <NavigationSidebar />
       <div className="flex-1 flex h-full min-w-0 relative">
-        {/* Khung 2: Danh sách bạn bè rút gọn */}
+        {/* Khung 2: Tin chưa đọc theo tổ chức */}
         <div className="w-64 shrink-0 bg-slate-900/60 p-3.5 border-r border-slate-800 overflow-y-auto h-full scrollbar-overlay relative">
           <div className="mb-4">
-            <h2 className="text-base md:text-lg font-bold text-white tracking-tight">Chat bạn bè</h2>
-            <p className="text-[11px] md:text-xs text-gray-400 mt-1">Gần đây</p>
+            <h2 className="text-base md:text-lg font-bold text-white tracking-tight leading-snug">
+              Tổ chức
+            </h2>
+            <p className="text-[11px] md:text-xs text-gray-400 mt-1">Tin chưa đọc</p>
           </div>
 
           <div className="space-y-1.5 pb-3">
-            {sidebarRecentFriends.map((f, idx) => (
-              <div
-                key={`sidebar-${String(f.id || 'unknown')}-${idx}`}
-                onClick={() => setSelectedFriendId(f.id)}
-                className={`flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-slate-800/60 ${
-                  selectedFriendId === f.id ? 'bg-slate-800/80 border border-slate-700' : 'border border-transparent'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
-                  {f.avatar}
-                </div>
-                <div className="flex-1">
-                  <div className="text-white font-semibold text-sm truncate">{f.name}</div>
-                  {activityByFriend[f.id]?.preview ? (
-                    <div className="text-[11px] text-gray-500 truncate">{activityByFriend[f.id].preview}</div>
-                  ) : (
-                    <div className="text-[11px] text-gray-500">
-                      {f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+            {loadingOrgUnread && (
+              <div className="text-xs text-gray-500 py-2">Đang tải tin chưa đọc…</div>
+            )}
+            {!loadingOrgUnread &&
+              orgUnreadMessages.map((msg, idx) => {
+                const roomId = String(msg?.roomId || '');
+                const meta = roomMetaById[roomId];
+                const orgDisplayName = meta?.orgName || 'Tổ chức';
+                const preview = truncateOrgUnreadPreview(getRenderableMessageContent(msg));
+                return (
+                  <div
+                    key={`org-unread-${String(msg?._id || msg?.id || idx)}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleOpenOrgUnread(msg)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleOpenOrgUnread(msg);
+                      }
+                    }}
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setOrgUnreadHoverTip({
+                        top: rect.top + rect.height / 2,
+                        left: rect.right + 8,
+                        deptName: meta?.deptName,
+                        channelName: meta?.channelName,
+                        orgName: meta?.orgName,
+                      });
+                    }}
+                    onMouseLeave={() => setOrgUnreadHoverTip(null)}
+                    className="relative flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-slate-800/60 border border-transparent"
+                  >
+                    <div className="relative shrink-0 mt-0.5">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
+                        💬
+                      </div>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#020817] bg-emerald-400" />
                     </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {sidebarRecentFriends.length === 0 && (
-              <div className="text-xs text-gray-500">Chưa có bạn bè.</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white font-semibold text-sm truncate">{orgDisplayName}</div>
+                      <div className="text-[11px] text-gray-500 truncate">{preview}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            {!loadingOrgUnread && orgUnreadMessages.length === 0 && (
+              <div className="text-xs text-gray-500">Không có tin chưa đọc từ tổ chức.</div>
             )}
           </div>
-
         </div>
 
         {/* Khung 3: Khu vực chat */}
@@ -795,7 +977,7 @@ function FriendChatPage() {
                       : 'text-gray-300 hover:bg-slate-800/70'
                   }`}
                 >
-                  Trực tuyến
+                  Đang làm việc
                 </button>
                 <button
                   type="button"
@@ -836,7 +1018,7 @@ function FriendChatPage() {
               <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 scrollbar-overlay">
                 <h3 className="text-lg md:text-xl font-bold text-white mb-4 tracking-tight">
                   {friendCenterTab === 'online'
-                    ? `Trực tuyến - ${onlineCount}`
+                    ? `Đang làm việc - ${onlineCount}`
                     : `Tất cả - ${viewFriends.length}`}
                 </h3>
 
@@ -847,8 +1029,12 @@ function FriendChatPage() {
                       className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-900/35 hover:bg-slate-800/50 transition"
                     >
                       <div className="relative">
-                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-base">
-                          {f.avatar}
+                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-base overflow-hidden">
+                          {f.avatar && String(f.avatar).startsWith('http') ? (
+                            <img src={f.avatar} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            f.avatar
+                          )}
                         </div>
                         <span
                           className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#020817] ${
@@ -860,7 +1046,7 @@ function FriendChatPage() {
                       <div className="flex-1 min-w-0">
                         <div className="text-white font-semibold text-sm md:text-base leading-6 truncate">{f.name}</div>
                         <div className="text-gray-400 text-sm truncate">
-                          {f.status === 'online' ? 'Trực tuyến' : 'Ngoại tuyến'}
+                          {f.status === 'online' ? 'Đang làm việc' : 'Ngoại tuyến'}
                         </div>
                       </div>
 
@@ -1296,13 +1482,24 @@ function FriendChatPage() {
                   onClick={() => setSelectedFriendId(f.id)}
                   className="w-full flex items-center gap-3 p-2 rounded-xl bg-[#030d24] border border-slate-800 hover:bg-slate-800/60 text-left"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
-                    {f.avatar}
+                  <div className="relative">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm overflow-hidden">
+                      {f.avatar && String(f.avatar).startsWith('http') ? (
+                        <img src={f.avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        f.avatar
+                      )}
+                    </div>
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#020817] ${
+                        f.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-white truncate">{f.name}</div>
                     <div className="text-[11px] text-gray-400">
-                      {f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                      {f.status === 'online' ? 'Đang làm việc' : 'Ngoại tuyến'}
                     </div>
                   </div>
                 </button>
@@ -1355,13 +1552,24 @@ function FriendChatPage() {
                   }}
                   className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-[#030d24] border border-slate-800 hover:bg-slate-800/60 text-left"
                 >
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
-                    {f.avatar}
+                  <div className="relative">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm overflow-hidden">
+                      {f.avatar && String(f.avatar).startsWith('http') ? (
+                        <img src={f.avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        f.avatar
+                      )}
+                    </div>
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#030d24] ${
+                        f.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm text-white truncate">{f.name}</div>
                     <div className="text-[11px] text-gray-400">
-                      {f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                      {f.status === 'online' ? 'Đang làm việc' : 'Ngoại tuyến'}
                     </div>
                   </div>
                 </button>
@@ -1441,7 +1649,7 @@ function FriendChatPage() {
               {searchResult && (
                 <div className="p-3 rounded-xl bg-[#030d24] border border-slate-800">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-sm">
+                    <div className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-sm">
                       {searchResult.avatar || '👤'}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1452,27 +1660,27 @@ function FriendChatPage() {
                         {searchResult.phone || searchResult.email || ''}
                       </div>
                     </div>
-                  </div>
-                  <div className="mt-3">
-                    {searchResult.relationship?.status === 'accepted' ? (
-                      <span className="inline-flex px-3 py-1.5 rounded-lg bg-white/10 text-gray-300 text-xs">
-                        Đã là bạn bè
-                      </span>
-                    ) : searchResult.relationship?.status === 'pending' ? (
-                      <span className="inline-flex px-3 py-1.5 rounded-lg bg-white/10 text-gray-400 text-xs">
-                        Đã gửi lời mời
-                      </span>
-                    ) : (
-                      <GradientButton
-                        variant="secondary"
-                        className="px-3 py-1.5 text-sm rounded-lg"
-                        onClick={() =>
-                          handleSendFriendRequest(searchResult.userId?.toString?.() || searchResult.userId)
-                        }
-                      >
-                        Thêm bạn
-                      </GradientButton>
-                    )}
+                    <div className="shrink-0 flex items-center">
+                      {searchResult.relationship?.status === 'accepted' ? (
+                        <span className="inline-flex px-3 py-1.5 rounded-lg bg-white/10 text-gray-300 text-xs whitespace-nowrap">
+                          Đã là bạn bè
+                        </span>
+                      ) : searchResult.relationship?.status === 'pending' ? (
+                        <span className="inline-flex px-3 py-1.5 rounded-lg bg-white/10 text-gray-400 text-xs whitespace-nowrap">
+                          Đã gửi lời mời
+                        </span>
+                      ) : (
+                        <GradientButton
+                          variant="secondary"
+                          className="px-3 py-1.5 text-sm rounded-lg whitespace-nowrap"
+                          onClick={() =>
+                            handleSendFriendRequest(searchResult.userId?.toString?.() || searchResult.userId)
+                          }
+                        >
+                          Thêm bạn
+                        </GradientButton>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1507,6 +1715,32 @@ function FriendChatPage() {
         </div>
       </Modal>
       <NotificationModal notice={notificationModal} onClose={() => setNotificationModal(null)} />
+
+      {typeof document !== 'undefined' &&
+        orgUnreadHoverTip &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[9999] w-max max-w-[260px] -translate-y-1/2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-xs text-gray-200 shadow-xl"
+            style={{ top: orgUnreadHoverTip.top, left: orgUnreadHoverTip.left }}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Phòng ban
+            </div>
+            <div className="text-sm font-medium text-white">{orgUnreadHoverTip.deptName || '—'}</div>
+            <div className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Kênh chat
+            </div>
+            <div className="text-sm font-medium text-white">
+              #{orgUnreadHoverTip.channelName || '—'}
+            </div>
+            {orgUnreadHoverTip.orgName && (
+              <div className="mt-2 border-t border-slate-700 pt-2 text-[11px] text-gray-500">
+                {orgUnreadHoverTip.orgName}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

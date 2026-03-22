@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
+import { Dropdown, GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
 import api from '../../services/api';
 import organizationService from '../../services/organizationService';
 import userService from '../../services/userService';
+import friendService from '../../services/friendService';
 
 // Theo cấu hình hiện tại, Tasks/Documents đang được ẩn tạm thời.
 // Chỉ bật lại khi set VITE_ENABLE_TASKS_DOCS=true
@@ -47,8 +49,42 @@ function DashboardPage() {
   const [projects, setProjects] = useState(DEFAULT_PROJECTS);
   const [activities, setActivities] = useState(DEFAULT_ACTIVITIES);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [friendsList, setFriendsList] = useState([]);
+  const [messageStats, setMessageStats] = useState({
+    todayCount: 0,
+    yesterdayCount: 0,
+    unreadCount: 0,
+    changePercent: 0,
+    trend: 'flat',
+  });
   const { user } = useAuth();
+  const { onlineUsers } = useSocket();
   const navigate = useNavigate();
+
+  const onlineUserSet = useMemo(
+    () => new Set((onlineUsers || []).map((id) => String(id))),
+    [onlineUsers]
+  );
+
+  const dashboardFriends = useMemo(() => {
+    return friendsList.map((row) => {
+      const u = row.friendId || row;
+      const id = String(u?._id || u?.id || row.friendId || '').trim();
+      const dbStatus = String(u?.status || 'offline').toLowerCase();
+      const isWorking = (id && onlineUserSet.has(id)) || dbStatus === 'online';
+      return {
+        id,
+        name: u?.displayName || u?.username || 'Người dùng',
+        avatar: u?.avatar || '👤',
+        isWorking,
+      };
+    });
+  }, [friendsList, onlineUserSet]);
+
+  const workingFriends = useMemo(
+    () => dashboardFriends.filter((f) => f.id && f.isWorking),
+    [dashboardFriends]
+  );
 
   const displayName =
     user?.fullName ||
@@ -140,6 +176,54 @@ function DashboardPage() {
     },
     _createdAt: document?.createdAt || new Date().toISOString(),
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFriends = async () => {
+      try {
+        const resp = await friendService.getFriends();
+        const payload = resp?.data ?? resp;
+        const result = payload?.data ?? payload;
+        const list = result?.friends ?? result;
+        if (!cancelled) {
+          setFriendsList(Array.isArray(list) ? list : []);
+        }
+      } catch {
+        if (!cancelled) setFriendsList([]);
+      }
+    };
+    loadFriends();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMessageStats = async () => {
+      try {
+        const resp = await api.get('/chat/messages/stats/summary');
+        const inner = extractData(resp);
+        const payload = inner?.data ?? inner;
+        if (!payload || cancelled) return;
+        setMessageStats({
+          todayCount: Number(payload.todayCount) || 0,
+          yesterdayCount: Number(payload.yesterdayCount) || 0,
+          unreadCount: Number(payload.unreadCount) || 0,
+          changePercent: Number(payload.changePercent) || 0,
+          trend: payload.trend === 'up' || payload.trend === 'down' || payload.trend === 'flat' ? payload.trend : 'flat',
+        });
+      } catch {
+        if (!cancelled) {
+          setMessageStats((s) => ({ ...s }));
+        }
+      }
+    };
+    loadMessageStats();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     // Chỉ hiển thị modal chào khi vừa đăng nhập / lần đầu vào web trong phiên này
@@ -261,6 +345,11 @@ function DashboardPage() {
     navigate('/settings');
   };
 
+  const formatMessageTrendPct = (pct, trend) => {
+    if (trend === 'flat' && pct === 0) return '0%';
+    return `${pct > 0 ? '+' : ''}${pct}%`;
+  };
+
   const stats = useMemo(() => [
     { 
       icon: "📊", 
@@ -300,16 +389,16 @@ function DashboardPage() {
     { 
       icon: "👥", 
       label: "Thành Viên", 
-      value: "24", 
+      value: String(dashboardFriends.length || 0), 
       change: "+3", 
       color: "from-green-500 to-emerald-500",
       trend: "up",
-      detail: "18 online",
+      detail: `${workingFriends.length} đang làm việc`,
       drilldown: {
-        total: 24,
-        trucTuyen: 18,
-        ban: 4,
-        vangMat: 2,
+        total: dashboardFriends.length,
+        trucTuyen: workingFriends.length,
+        ban: Math.max(0, dashboardFriends.length - workingFriends.length),
+        vangMat: 0,
         roles: [
           { name: "Lập Trình Viên", count: 12, online: 9 },
           { name: "Thiết Kế Viên", count: 6, online: 5 },
@@ -321,23 +410,18 @@ function DashboardPage() {
     { 
       icon: "💬", 
       label: "Tin Nhắn Mới", 
-      value: "156", 
-      change: "+45%", 
+      value: String(messageStats.todayCount), 
+      change: formatMessageTrendPct(messageStats.changePercent, messageStats.trend), 
       color: "from-orange-500 to-red-500",
-      trend: "up",
+      trend: messageStats.trend,
       detail: "Hôm nay",
       drilldown: {
-        homNay: 156,
-        chuaDoc: 42,
-        channels: [
-          { name: "#general", messages: 45, unread: 12 },
-          { name: "#dev-team", messages: 38, unread: 15 },
-          { name: "#design", messages: 28, unread: 8 },
-          { name: "#random", messages: 45, unread: 7 }
-        ]
+        'Tin đến hôm nay': messageStats.todayCount,
+        'Tin đến hôm qua': messageStats.yesterdayCount,
+        'Chưa đọc (tổng)': messageStats.unreadCount,
       }
     }
-  ], [projects]);
+  ], [projects, dashboardFriends.length, workingFriends.length, messageStats]);
 
   const addActivity = (activity) => {
     setActivities((prev) => [activity, ...prev]);
@@ -470,9 +554,13 @@ function DashboardPage() {
     ));
   };
 
-  const handleOpenTeamChat = (name) => {
-    navigate('/chat/friends');
-    showToast(`Đang mở chat với ${name}`, 'info');
+  const handleOpenTeamChat = (friend) => {
+    if (friend?.id) {
+      navigate('/chat/friends', { state: { selectFriendId: String(friend.id) } });
+    } else {
+      navigate('/chat/friends');
+    }
+    showToast(`Đang mở chat với ${friend?.name || 'bạn bè'}`, 'info');
   };
 
   const handleJoinUpcomingEvent = (title) => {
@@ -665,8 +753,12 @@ function DashboardPage() {
                     <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-xl shadow-lg`}>
                       {stat.icon}
                     </div>
-                    <div className={`flex items-center gap-1 text-xs font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
-                      <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
+                    <div
+                      className={`flex items-center gap-1 text-xs font-bold ${
+                        stat.trend === 'up' ? 'text-green-400' : stat.trend === 'down' ? 'text-red-400' : 'text-gray-400'
+                      }`}
+                    >
+                      <span>{stat.trend === 'up' ? '↗' : stat.trend === 'down' ? '↘' : '→'}</span>
                       <span>{stat.change}</span>
                     </div>
                   </div>
@@ -814,30 +906,60 @@ function DashboardPage() {
         {/* Online Members */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-400">ĐANG ONLINE - 18</h3>
+            <h3 className="text-sm font-semibold text-gray-400">
+              ĐANG LÀM VIỆC — {workingFriends.length}
+            </h3>
             <button onClick={() => navigate('/chat/friends')} className="text-xs text-purple-400 hover:text-pink-400 transition-colors">
               Xem tất cả
             </button>
           </div>
           <div className="space-y-2">
-            {['Sarah Chen', 'Mike Ross', 'Emma Wilson', 'David Kim', 'Lisa Park', 'Tom Zhang'].map((name, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group">
-                <div className="relative">
-                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${
-                    ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
-                  } flex items-center justify-center text-base`}>
-                    {['👩‍💼', '👨‍💻', '👩‍🎨', '👨‍🔬', '👩‍💼', '👨‍💻'][idx]}
+            {workingFriends.length === 0 && (
+              <p className="text-xs text-gray-500 py-2">
+                Chưa có bạn bè nào đang làm việc (kết nối socket để cập nhật trạng thái).
+              </p>
+            )}
+            {workingFriends.map((friend, idx) => (
+              <div
+                key={friend.id || `wf-${idx}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleOpenTeamChat(friend)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') handleOpenTeamChat(friend);
+                }}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group"
+              >
+                <div className="relative shrink-0">
+                  <div
+                    className={`w-9 h-9 rounded-full bg-gradient-to-br ${
+                      ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
+                    } flex items-center justify-center text-base overflow-hidden`}
+                  >
+                    {friend.avatar && String(friend.avatar).startsWith('http') ? (
+                      <img src={friend.avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      friend.avatar
+                    )}
                   </div>
-                  <StatusIndicator status="online" />
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#020817] bg-emerald-400"
+                    title="Đang làm việc"
+                  />
                 </div>
-                <div className="flex-1">
-                  <div className="text-white font-medium text-sm">{name}</div>
-                  <div className="text-gray-500 text-xs">Đang làm việc...</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-medium text-sm truncate">{friend.name}</div>
+                  <div className="text-gray-500 text-xs">Đang làm việc…</div>
                 </div>
-                <button onClick={(event) => {
-                  event.stopPropagation();
-                  handleOpenTeamChat(name);
-                }} className="opacity-0 group-hover:opacity-100 transition-opacity text-lg">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleOpenTeamChat(friend);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-lg"
+                  title="Nhắn tin"
+                >
                   💬
                 </button>
               </div>

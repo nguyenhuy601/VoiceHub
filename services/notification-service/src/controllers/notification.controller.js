@@ -72,7 +72,8 @@ class NotificationController {
   // Lấy notifications của user
   async getUserNotifications(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.params.userId;
+      const userId =
+        req.headers['x-user-id'] || req.user?.id || req.userContext?.userId || req.params.userId;
       const { isRead, type, page, limit } = req.query;
 
       if (!userId) {
@@ -96,6 +97,41 @@ class NotificationController {
     } catch (error) {
       logger.error('Get user notifications error:', error);
       res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  // Đánh dấu đã đọc mọi thông báo kết bạn liên quan tới một user (sau accept/reject)
+  async markFriendRelatedRead(req, res) {
+    try {
+      const userId =
+        req.headers['x-user-id'] || req.user?.id || req.userContext?.userId;
+      const { counterpartyId } = req.body || {};
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+      if (!counterpartyId) {
+        return res.status(400).json({
+          success: false,
+          message: 'counterpartyId is required',
+        });
+      }
+
+      const result = await notificationService.markFriendRelatedRead(userId, counterpartyId);
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      logger.error('Mark friend-related read error:', error);
+      res.status(400).json({
         success: false,
         message: error.message,
       });

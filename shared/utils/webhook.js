@@ -32,7 +32,11 @@ async function sendWebhook(eventType, eventName, data) {
     logger.info(`Webhook sent: ${eventType}/${eventName}`);
   } catch (error) {
     // Log error nhưng không throw để không ảnh hưởng đến flow chính
-    logger.error(`Error sending webhook ${eventType}/${eventName}:`, error.message);
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail || error.response?.data?.message;
+    logger.error(
+      `Error sending webhook ${eventType}/${eventName}: ${error.message}${status ? ` [HTTP ${status}]` : ''}${detail ? ` — ${detail}` : ''}`
+    );
   }
 }
 

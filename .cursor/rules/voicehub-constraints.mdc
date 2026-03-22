@@ -1,0 +1,11 @@
+---
+description: Quy tắc chỉnh sửa VoiceHub — bảo mật và không phá chức năng khác
+alwaysApply: true
+---
+
+# VoiceHub — nguyên tắc sửa code
+
+- **Bảo mật**: Không làm thay đổi luồng xác thực/ủy quyền (JWT, API Gateway, `permission.middleware`, `x-user-id`, v.v.) trừ khi yêu cầu nhiệm vụ nói rõ cần chỉnh policy.
+- **Tương thích**: Ưu tiên sửa lỗi cục bộ (null check, populate thiếu model, query hợp lệ) thay vì refactor lớn hoặc đổi contract API công khai.
+- **Regression**: Tránh phá luồng đã chạy (chat, voice, friend, org). Nếu phải đổi hành vi API, ghi rõ trong spec và giữ backward-compatible khi có thể.
+- **Microservice**: Mỗi service chỉ có các model đăng ký trong repo đó — `populate()` ref tới model chưa đăng ký (ví dụ `User`) sẽ gây 500; dùng bỏ populate, lean, hoặc đăng ký model tối thiểu có chủ đích.

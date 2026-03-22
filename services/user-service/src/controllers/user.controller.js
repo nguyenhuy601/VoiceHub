@@ -312,6 +312,39 @@ class UserController {
       });
     }
   }
+
+  /**
+   * Cập nhật trạng thái từ socket-service (presence) — header x-internal-token.
+   * Dùng khi user đóng app / mất mạng → offline; kết nối lại → online.
+   */
+  async setStatusInternal(req, res) {
+    try {
+      const { userId, status } = req.body || {};
+      if (!userId || !status) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId and status are required',
+        });
+      }
+      if (!['online', 'offline', 'away', 'busy'].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status',
+        });
+      }
+      const userProfile = await userService.updateStatus(userId, status);
+      res.json({
+        success: true,
+        data: { userId: String(userId), status: userProfile?.status },
+      });
+    } catch (error) {
+      logger.error('setStatusInternal error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
 }
 
 module.exports = new UserController();

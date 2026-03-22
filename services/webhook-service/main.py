@@ -43,8 +43,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Webhook secret for authentication
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-webhook-secret")
+# Webhook secret for authentication — phải trùng WEBHOOK_SECRET trên friend-service / các service gọi webhook
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-webhook-secret-key-change-this-in-production")
 NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:3003")
 
 
