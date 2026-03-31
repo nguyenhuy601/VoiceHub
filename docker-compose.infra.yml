@@ -1,0 +1,35 @@
+# Hạ tầng: MongoDB + Redis + volumes + network dùng chung
+# Thường không cần chạy riêng — đã gộp trong `docker-compose.yml` (include).
+# Chạy riêng: docker compose -f docker-compose.infra.yml up -d
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: enterprise-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    networks:
+      - enterprise-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: enterprise-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - enterprise-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  enterprise-network:
+    driver: bridge

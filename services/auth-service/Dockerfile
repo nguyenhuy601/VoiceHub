@@ -1,5 +1,5 @@
 # 1️⃣ Base image
-FROM node:18
+FROM node:20-alpine
 
 # 2️⃣ Set working dir
 WORKDIR /app
@@ -7,8 +7,10 @@ WORKDIR /app
 # 3️⃣ Copy dependency files
 COPY package*.json ./
 
-# 4️⃣ Cài dependencies (và nodemon để dev mode dùng được)
-RUN npm install && npm install -g nodemon
+# 4️⃣ Cài dependencies (bcrypt cần toolchain trên Alpine; nodemon cho dev)
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+  && npm install && npm install -g nodemon \
+  && apk del .build-deps
 
 # 5️⃣ Copy toàn bộ code
 COPY . .

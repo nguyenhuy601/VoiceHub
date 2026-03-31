@@ -518,10 +518,21 @@ Entity cốt lõi toàn hệ:
 
 ### 12.1 Chạy bằng Docker Compose
 
+Cấu trúc: `docker-compose.yml` (entry — `include` infra + core), `docker-compose.infra.yml`, `docker-compose.core.yml`, `docker-compose.dev.yml` (nodemon). Chi tiết: `docs/DOCKER-COMPOSE.md`.
+
+**Mặc định (Mongo + Redis + toàn bộ app, không nodemon):**
 ```bash
-docker-compose up -d --build
-docker-compose ps
-docker-compose logs -f api-gateway
+docker compose up -d --build
+```
+
+**Dev (hot reload):**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+```bash
+docker compose ps
+docker compose logs -f api-gateway
 ```
 
 Các cổng quan trọng:
@@ -2083,10 +2094,12 @@ Luồng webhook:
 
 ### I. Cách chạy chuẩn hiện tại
 
-Backend stack:
-1. docker compose up -d --build
-2. docker compose ps
+Backend stack (dev có hot reload):
+1. `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
+2. `docker compose ps`
 3. Health gateway: http://localhost:3000/health
+
+Xem `docs/DOCKER-COMPOSE.md` nếu cần chỉ chạy Mongo/Redis hoặc dùng `docker compose up` without dev.
 
 Frontend:
 1. cd client

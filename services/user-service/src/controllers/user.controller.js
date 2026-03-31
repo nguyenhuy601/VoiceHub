@@ -202,8 +202,7 @@ class UserController {
       });
     } catch (error) {
       logger.error('Update user profile error:', error);
-      const statusCode = error.statusCode || (error.message === 'Số điện thoại đã được sử dụng' ? 409 : 400);
-      res.status(statusCode).json({
+      res.status(400).json({
         success: false,
         message: error.message,
       });
@@ -306,39 +305,6 @@ class UserController {
       });
     } catch (error) {
       logger.error('Delete user profile error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
-  /**
-   * Cập nhật trạng thái từ socket-service (presence) — header x-internal-token.
-   * Dùng khi user đóng app / mất mạng → offline; kết nối lại → online.
-   */
-  async setStatusInternal(req, res) {
-    try {
-      const { userId, status } = req.body || {};
-      if (!userId || !status) {
-        return res.status(400).json({
-          success: false,
-          message: 'userId and status are required',
-        });
-      }
-      if (!['online', 'offline', 'away', 'busy'].includes(status)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid status',
-        });
-      }
-      const userProfile = await userService.updateStatus(userId, status);
-      res.json({
-        success: true,
-        data: { userId: String(userId), status: userProfile?.status },
-      });
-    } catch (error) {
-      logger.error('setStatusInternal error:', error);
       res.status(400).json({
         success: false,
         message: error.message,

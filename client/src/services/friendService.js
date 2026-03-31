@@ -11,23 +11,6 @@
 ======================================== */
 import api from './api';
 
-const isNotFound = (error) => error?.response?.status === 404 || error?.status === 404;
-
-const requestWithFallback = async (requestFactories) => {
-  let lastError;
-  for (let i = 0; i < requestFactories.length; i += 1) {
-    try {
-      return await requestFactories[i]();
-    } catch (error) {
-      lastError = error;
-      if (!isNotFound(error) || i === requestFactories.length - 1) {
-        throw error;
-      }
-    }
-  }
-  throw lastError;
-};
-
 const friendService = {
   // Lấy danh sách bạn bè - GET /friends
   // Return: [{ id, name, avatar, status, ... }]
@@ -38,30 +21,18 @@ const friendService = {
   // Gửi lời mời kết bạn - POST /friends/request
   // userId: ID của người muốn kết bạn
   sendRequest: async (userId) => {
-    return await requestWithFallback([
-      () => api.post('/friends/request', { userId }),
-      () => api.post('/friends/request', { friendId: userId }),
-    ]);
+    return await api.post('/friends/request', { userId });
   },
 
-  // Chấp nhận lời mời kết bạn
-  // Có 2 chuẩn route đang tồn tại trong dự án:
-  // - new: /friends/:friendId/accept
-  // - legacy: /friends/accept/:requestId
-  acceptRequest: async (id) => {
-    return await requestWithFallback([
-      () => api.post(`/friends/${id}/accept`),
-      () => api.post(`/friends/accept/${id}`),
-    ]);
+  // Chấp nhận lời mời - POST /friends/accept/:requestId
+  // requestId: ID của friend request
+  acceptRequest: async (requestId) => {
+    return await api.post(`/friends/accept/${requestId}`);
   },
 
-  // Từ chối lời mời kết bạn
-  // Hỗ trợ cả legacy và new route
-  rejectRequest: async (id) => {
-    return await requestWithFallback([
-      () => api.post(`/friends/${id}/reject`),
-      () => api.delete(`/friends/reject/${id}`),
-    ]);
+  // Từ chối lời mời - DELETE /friends/reject/:requestId
+  rejectRequest: async (requestId) => {
+    return await api.delete(`/friends/reject/${requestId}`);
   },
 
   // Xóa bạn - DELETE /friends/:friendId
@@ -70,30 +41,21 @@ const friendService = {
     return await api.delete(`/friends/${friendId}`);
   },
 
-  // Lấy các lời mời chờ duyệt
-  // Return: [{ id, from/requester/userId: {...}, createdAt, ... }]
+  // Lấy các lời mời chờ duyệt - GET /friends/pending
+  // Return: [{ id, from: {...}, createdAt, ... }]
   getPendingRequests: async () => {
-    return await requestWithFallback([
-      () => api.get('/friends/requests', { params: { type: 'received' } }),
-      () => api.get('/friends/pending'),
-    ]);
+    return await api.get('/friends/pending');
   },
 
   // Chặn user - POST /friends/block
   // Khi block: không nhận message, không thấy online status
   blockUser: async (userId) => {
-    return await requestWithFallback([
-      () => api.post(`/friends/${userId}/block`),
-      () => api.post('/friends/block', { userId }),
-    ]);
+    return await api.post('/friends/block', { userId });
   },
 
   // Bỏ chặn - DELETE /friends/unblock/:userId
   unblockUser: async (userId) => {
-    return await requestWithFallback([
-      () => api.post(`/friends/${userId}/unblock`),
-      () => api.delete(`/friends/unblock/${userId}`),
-    ]);
+    return await api.delete(`/friends/unblock/${userId}`);
   },
 
   // Tìm bạn theo số điện thoại

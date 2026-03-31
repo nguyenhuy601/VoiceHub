@@ -4,30 +4,53 @@ const { emitToRoom, emitToUser } = require('./realtimeHub');
 // URL nội bộ tới chat-service trong docker-compose
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://chat-service:3006';
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
-const USER_SERVICE_INTERNAL_TOKEN = process.env.USER_SERVICE_INTERNAL_TOKEN || '';
+
+function getPresenceInternalToken() {
+  return String(process.env.USER_SERVICE_INTERNAL_TOKEN || '').trim();
+}
 
 const onlineUserSockets = new Map();
 
 /**
  * Đồng bộ presence lên user-service (online / offline).
- * Cần USER_SERVICE_INTERNAL_TOKEN trùng với user-service.
+ * Cần USER_SERVICE_INTERNAL_TOKEN trùng với user-service (docker-compose / .env).
  */
 async function syncPresenceUserStatus(userId, status) {
-  if (!USER_SERVICE_INTERNAL_TOKEN || !userId) return;
+  if (!userId) return false;
+  const token = getPresenceInternalToken();
+  if (!token) {
+    console.warn(
+      '[socket-service] syncPresenceUserStatus skipped: USER_SERVICE_INTERNAL_TOKEN is empty. ' +
+        'Set the same token as user-service so disconnect → offline in DB works.'
+    );
+    return false;
+  }
   try {
-    await axios.patch(
-      `${USER_SERVICE_URL}/api/users/internal/status`,
+    const url = `${USER_SERVICE_URL.replace(/\/$/, '')}/api/users/internal/status`;
+    const res = await axios.patch(
+      url,
       { userId: String(userId), status },
       {
-        headers: { 'x-internal-token': USER_SERVICE_INTERNAL_TOKEN },
+        headers: { 'x-internal-token': token },
         timeout: 8000,
+        validateStatus: () => true,
       }
     );
+    if (res.status >= 200 && res.status < 300) {
+      console.log(`[socket-service] presence synced: user=${userId} status=${status}`);
+      return true;
+    }
+    console.error(
+      `[socket-service] syncPresenceUserStatus ${status} HTTP ${res.status} for ${userId}:`,
+      res.data?.message || res.data
+    );
+    return false;
   } catch (err) {
     console.error(
       `[socket-service] syncPresenceUserStatus ${status} failed for ${userId}:`,
       err.response?.data?.message || err.message
     );
+    return false;
   }
 }
 
@@ -121,15 +144,15 @@ module.exports = function registerChatNamespace(io) {
       });
     });
 
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       if (userId) {
         const key = String(userId);
         const current = onlineUserSockets.get(key) || 0;
         if (current <= 1) {
           onlineUserSockets.delete(key);
           io.emit('user:disconnected', key);
-          // Hết socket (đóng app / mất mạng) → offline trong DB
-          syncPresenceUserStatus(key, 'offline');
+          // Hết socket (đóng app / mất mạng) → offline trong DB (chờ PATCH xong)
+          await syncPresenceUserStatus(key, 'offline');
         } else {
           onlineUserSockets.set(key, current - 1);
         }

@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 
 import NavigationSidebar from "../../components/Layout/NavigationSidebar";
-import { ChatMessage } from "../../components/Chat/ChatMessage";
 import {
   Dropdown,
   GlassCard,
@@ -30,8 +29,6 @@ function ChatPage() {
   const [toast, setToast] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
-  const [newChannelName, setNewChannelName] = useState("");
-  const [newChannelIcon, setNewChannelIcon] = useState("💬");
 
   const emojis = [
     "😊","😂","❤️","👍","🎉","🔥","✨","💯",
@@ -83,47 +80,6 @@ function ChatPage() {
     }
   };
 
-  const handleCreateChannel = async () => {
-    const channelName = String(newChannelName || "").trim();
-    if (!channelName) {
-      showToast("Vui lòng nhập tên kênh", "error");
-      return;
-    }
-
-    try {
-      const res = await axios.post("/api/channels", {
-        name: channelName,
-        icon: newChannelIcon,
-      });
-
-      const created = res?.data || {};
-      const normalized = {
-        id: created.id || created._id || `ch-${Date.now()}`,
-        name: created.name || channelName,
-        icon: created.icon || newChannelIcon,
-        members: created.members || 1,
-      };
-
-      setChannels((prev) => [normalized, ...prev]);
-      setSelectedChannel(normalized.id);
-      showToast("Đã tạo kênh mới", "success");
-    } catch (err) {
-      const fallback = {
-        id: `ch-${Date.now()}`,
-        name: channelName,
-        icon: newChannelIcon,
-        members: 1,
-      };
-      setChannels((prev) => [fallback, ...prev]);
-      setSelectedChannel(fallback.id);
-      showToast("Đã tạo kênh mới (local)", "success");
-    } finally {
-      setNewChannelName("");
-      setNewChannelIcon("💬");
-      setShowCreateChannelModal(false);
-    }
-  };
-
   /* ---------------- SEND MESSAGE ---------------- */
 
   const sendMessage = async () => {
@@ -165,55 +121,29 @@ function ChatPage() {
 
   const handleDeleteMessage = async (msgId) => {
     try {
+
       await axios.delete(`/api/messages/${msgId}`);
+
       setMessages(messages.filter(m => m.id !== msgId));
+
       showToast("Đã xóa tin nhắn");
-    } catch (err) {
-      console.error(err);
-      showToast("Lỗi khi xóa tin nhắn", "error");
-    }
-  };
 
-  const handleRecallMessage = async (msgId) => {
-    try {
-      await axios.patch(`/api/messages/${msgId}/recall`);
-      setMessages(messages.map(m => 
-        m.id === msgId ? { ...m, isRecalled: true } : m
-      ));
-      showToast("Đã thu hồi tin nhắn");
     } catch (err) {
       console.error(err);
-      showToast("Lỗi khi thu hồi tin nhắn", "error");
-    }
-  };
-
-  const handleEditMessage = async (msgId, newContent) => {
-    try {
-      // Match backend endpoint: PATCH /messages/{id}/edit
-      await axios.patch(`/api/messages/${msgId}/edit`, { content: newContent });
-      setMessages(messages.map(m => 
-        m.id === msgId ? { ...m, content: newContent, editedAt: new Date() } : m
-      ));
-      showToast("Đã cập nhật tin nhắn");
-    } catch (err) {
-      console.error(err);
-      showToast("Lỗi khi cập nhật tin nhắn", "error");
     }
   };
 
   const handleReaction = async (msgId, emoji) => {
     try {
-      if (!msgId) {
-        showToast("Vui lòng chọn tin nhắn", "error");
-        return;
-      }
+
       await axios.post(`/api/messages/${msgId}/reaction`, { emoji });
+
       showToast("Đã thêm reaction");
+
       setShowEmojiPicker(false);
-      setSelectedMessage(null);
+
     } catch (err) {
       console.error(err);
-      showToast("Lỗi khi thêm reaction", "error");
     }
   };
 
@@ -346,27 +276,29 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 
 <div className="flex-1 p-4 overflow-y-auto space-y-3 scrollbar-overlay">
 
-{messages.map(msg => {
-  // Determine if message belongs to current user
-  // Note: Compare with userId from auth context or API response
-  const isOwnMessage = msg.senderId === selectedChannel || msg.isOwn;
-  
-  return (
-    <ChatMessage
-      key={msg.id}
-      messageId={msg.id}
-      message={msg.content}
-      sender={msg.user?.name || msg.sender || 'Unknown'}
-      timestamp={msg.createdAt || msg.timestamp}
-      profileImage={msg.user?.avatar}
-      chatImage={msg.image}
-      isOwnMessage={isOwnMessage}
-      onDelete={handleDeleteMessage}
-      onRecall={handleRecallMessage}
-      onEdit={handleEditMessage}
-    />
-  );
-})}
+{messages.map(msg => (
+
+<div key={msg.id} className="flex gap-3">
+
+<div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
+{msg.user?.avatar}
+</div>
+
+<div>
+
+<div className="text-white font-semibold text-xs">
+{msg.user?.name}
+</div>
+
+<p className="text-sm text-gray-300">
+{msg.content}
+</p>
+
+</div>
+
+</div>
+
+))}
 
 </div>
 
@@ -403,26 +335,22 @@ className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500
 </div>
 
 
-{/* EMOJI PICKER MODAL */}
+{/* EMOJI MODAL */}
 
 <Modal
 isOpen={showEmojiPicker}
-onClose={() => {
-  setShowEmojiPicker(false);
-  setSelectedMessage(null);
-}}
-title="Chọn Emoji"
+onClose={()=>setShowEmojiPicker(false)}
+title="Emoji"
 size="sm"
 >
 
 <div className="grid grid-cols-8 gap-2">
 
-{emojis.map((emoji, i) => (
+{emojis.map((emoji,i)=>(
 <button
 key={i}
-onClick={() => handleReaction(selectedMessage, emoji)}
-className="text-2xl hover:scale-110 transition-transform"
-title={emoji}
+onClick={()=>handleReaction(selectedMessage,emoji)}
+className="text-xl"
 >
 {emoji}
 </button>
@@ -441,41 +369,11 @@ onClose={()=>setShowCreateChannelModal(false)}
 title="Tạo Kênh"
 >
 
-<div className="space-y-3">
-  <input
-    value={newChannelName}
-    onChange={(event) => setNewChannelName(event.target.value)}
-    placeholder="Nhập tên kênh"
-    className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white outline-none"
-  />
-  <div>
-    <label className="block text-sm text-gray-400 mb-2">Biểu tượng kênh</label>
-    <div className="flex gap-2">
-      {["💬", "📣", "🚀", "🎯", "🧠", "📌"].map((icon) => (
-        <button
-          key={icon}
-          type="button"
-          onClick={() => setNewChannelIcon(icon)}
-          className={`px-3 py-2 rounded-lg border transition-all ${newChannelIcon === icon ? 'border-indigo-400 bg-indigo-500/20' : 'border-slate-800 bg-[#040f2a] hover:bg-slate-800/70'}`}
-        >
-          {icon}
-        </button>
-      ))}
-    </div>
-  </div>
-  <div className="flex justify-end gap-2 pt-1">
-    <button
-      type="button"
-      onClick={() => setShowCreateChannelModal(false)}
-      className="px-4 py-2 rounded-xl bg-[#040f2a] border border-slate-800 text-sm hover:bg-slate-800/70"
-    >
-      Hủy
-    </button>
-    <GradientButton onClick={handleCreateChannel}>
-      Tạo
-    </GradientButton>
-  </div>
-</div>
+<GradientButton
+onClick={()=>showToast("Tạo kênh thành công")}
+>
+Tạo
+</GradientButton>
 
 </Modal>
 
