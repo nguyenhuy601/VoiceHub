@@ -1,0 +1,256 @@
+# Core: API Gateway + microservices (không gồm Mongo/Redis — xem docker-compose.infra.yml)
+# File này được gộp qua docker-compose.yml (include). Hoặc chạy tay:
+# docker compose -f docker-compose.infra.yml -f docker-compose.core.yml up -d
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    container_name: enterprise-api-gateway
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./api-gateway/.env
+    depends_on:
+      - auth-service
+      - user-service
+      - friend-service
+      - organization-service
+      - role-permission-service
+      - chat-service
+      - voice-service
+      - task-service
+      - document-service
+      - notification-service
+      - webhook-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./api-gateway:/app
+      - /app/node_modules
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: enterprise-auth-service
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./services/auth-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/auth-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  user-service:
+    build: ./services/user-service
+    container_name: enterprise-user-service
+    ports:
+      - "3004:3004"
+    env_file:
+      - ./services/user-service/.env
+    environment:
+      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/user-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  organization-service:
+    build: ./services/organization-service
+    container_name: enterprise-organization-service
+    ports:
+      - "3013:3013"
+    env_file:
+      - ./services/organization-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/organization-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  friend-service:
+    build: ./services/friend-service
+    container_name: enterprise-friend-service
+    ports:
+      - "3014:3014"
+    env_file:
+      - ./services/friend-service/.env
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
+    depends_on:
+      - mongodb
+      - redis
+      - auth-service
+      - user-service
+      - chat-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/friend-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  role-permission-service:
+    build: ./services/role-permission-service
+    container_name: enterprise-role-permission-service
+    ports:
+      - "3015:3015"
+    env_file:
+      - ./services/role-permission-service/.env
+    depends_on:
+      - mongodb
+      - redis
+      - organization-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/role-permission-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  chat-service:
+    build: ./services/chat-service
+    container_name: enterprise-chat-service
+    ports:
+      - "3006:3006"
+    env_file:
+      - ./services/chat-service/.env
+    environment:
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
+    depends_on:
+      - mongodb
+      - redis
+      - user-service
+      - organization-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/chat-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  task-service:
+    build: ./services/task-service
+    container_name: enterprise-task-service
+    ports:
+      - "3009:3009"
+    env_file:
+      - ./services/task-service/.env
+    depends_on:
+      - mongodb
+      - redis
+      - organization-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/task-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  document-service:
+    build: ./services/document-service
+    container_name: enterprise-document-service
+    ports:
+      - "3010:3010"
+    env_file:
+      - ./services/document-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/document-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  voice-service:
+    build: ./services/voice-service
+    container_name: enterprise-voice-service
+    ports:
+      - "3005:3005"
+      - "40000-40100:40000-40100/udp"
+      - "40000-40100:40000-40100/tcp"
+    env_file:
+      - ./services/voice-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/voice-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+    command: sh -c "npm install && node src/server.js"
+
+  notification-service:
+    build: ./services/notification-service
+    container_name: enterprise-notification-service
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./services/notification-service/.env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/notification-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+  webhook-service:
+    build: ./services/webhook-service
+    container_name: enterprise-webhook-service
+    ports:
+      - "3016:3016"
+    env_file:
+      - ./services/webhook-service/.env
+    depends_on:
+      - notification-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/webhook-service:/app
+
+  socket-service:
+    build: ./services/socket-service
+    container_name: enterprise-socket-service
+    expose:
+      - "3017"
+    env_file:
+      - ./services/socket-service/.env
+    environment:
+      - USER_SERVICE_URL=http://user-service:3004
+      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
+    depends_on:
+      - chat-service
+      - auth-service
+      - user-service
+    networks:
+      - enterprise-network
+    volumes:
+      - ./services/socket-service:/app
+      - ./shared:/shared
+      - /app/node_modules
+
+networks:
+  enterprise-network:
+    driver: bridge

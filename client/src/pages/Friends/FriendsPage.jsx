@@ -1,19 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton, Toast } from '../../components/Shared';
 import friendService from '../../services/friendService';
-import { markFriendNotificationsResolved } from '../../services/notificationSync';
 
 function FriendsPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(() =>
-    searchParams.get('tab') === 'requests' ? 'requests' : 'all'
-  );
+  const [activeTab, setActiveTab] = useState('all');
   const [toast, setToast] = useState(null);
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [loadingRequests, setLoadingRequests] = useState(false);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -21,109 +15,27 @@ function FriendsPage() {
   };
 
   const sendFriendRequest = async (userId) => {
-    if (!userId) return;
     try {
       await friendService.sendRequest(userId);
       showToast('Đã gửi lời mời', 'success');
-      // Cập nhật trạng thái kết quả tìm kiếm để nút hiển thị "Đã gửi lời mời"
-      setSearchResult((prev) =>
-        prev && (prev.userId?.toString?.() === userId.toString() || prev.userId === userId)
-          ? { ...prev, relationship: { status: 'pending' } }
-          : prev
-      );
     } catch (err) {
-      const msg = err.response?.data?.message ?? err.message ?? 'Lỗi khi gửi yêu cầu';
-      showToast(msg, 'fail');
+      showToast(err.response?.data?.message || 'Lỗi khi gửi yêu cầu', 'fail');
     }
   };
 
-  // Danh sách bạn bè thực từ API
-  const [friends, setFriends] = useState([]);
-  const [loadingFriends, setLoadingFriends] = useState(false);
+  const friends = [
+    { name: 'Sarah Chen', status: 'online', avatar: '👩‍💼', role: 'Designer', mutualFriends: 12, lastActive: 'Đang hoạt động', activity: 'Đang làm việc trong dự án UI' },
+    { name: 'Mike Ross', status: 'online', avatar: '👨‍💻', role: 'Developer', mutualFriends: 8, lastActive: 'Đang hoạt động', activity: 'Code review' },
+    { name: 'Emma Wilson', status: 'away', avatar: '👩‍🎨', role: 'Product Manager', mutualFriends: 15, lastActive: '10 phút trước', activity: 'Trong cuộc họp' },
+    { name: 'David Kim', status: 'offline', avatar: '👨‍🔬', role: 'Data Scientist', mutualFriends: 6, lastActive: '2 giờ trước', activity: '' },
+    { name: 'Lisa Park', status: 'online', avatar: '👩‍💼', role: 'Marketing Lead', mutualFriends: 20, lastActive: 'Đang hoạt động', activity: 'Đang soạn báo cáo' },
+    { name: 'Tom Zhang', status: 'busy', avatar: '👨‍💻', role: 'DevOps', mutualFriends: 5, lastActive: 'Đang hoạt động', activity: 'Đừng làm phiền' }
+  ];
 
-  const loadPendingRequests = useCallback(async () => {
-    setLoadingRequests(true);
-    try {
-      const resp = await friendService.getPendingRequests();
-      const list = Array.isArray(resp?.data) ? resp.data : resp?.data?.data ?? [];
-      setPendingRequests(list);
-    } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Không tải được danh sách yêu cầu', 'fail');
-      setPendingRequests([]);
-    } finally {
-      setLoadingRequests(false);
-    }
-  }, []);
-
-  // Load danh sách bạn bè thật từ API
-  const loadFriends = useCallback(async () => {
-    setLoadingFriends(true);
-    try {
-      const resp = await friendService.getFriends();
-      const payload = resp?.data || resp;
-      const list = payload?.data?.friends || payload?.friends || payload?.data || [];
-      setFriends(Array.isArray(list) ? list : []);
-    } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Không tải được danh sách bạn bè', 'fail');
-      setFriends([]);
-    } finally {
-      setLoadingFriends(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'requests') setActiveTab('requests');
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (activeTab === 'requests') loadPendingRequests();
-  }, [activeTab, loadPendingRequests]);
-
-  useEffect(() => {
-    loadFriends();
-  }, [loadFriends]);
-
-  const formatRequestDate = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffM = Math.floor(diffMs / 60000);
-    const diffH = Math.floor(diffMs / 3600000);
-    const diffD = Math.floor(diffMs / 86400000);
-    if (diffM < 1) return 'Vừa xong';
-    if (diffM < 60) return `${diffM} phút trước`;
-    if (diffH < 24) return `${diffH} giờ trước`;
-    if (diffD < 7) return `${diffD} ngày trước`;
-    return d.toLocaleDateString('vi-VN');
-  };
-
-  const handleAcceptRequest = async (requesterId) => {
-    const id = requesterId?.toString?.() ?? requesterId;
-    if (!id) return;
-    try {
-      await friendService.acceptRequest(id);
-      await markFriendNotificationsResolved(id);
-      showToast('Đã chấp nhận lời mời', 'success');
-      loadPendingRequests();
-    } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Không chấp nhận được', 'fail');
-    }
-  };
-
-  const handleRejectRequest = async (requesterId) => {
-    const id = requesterId?.toString?.() ?? requesterId;
-    if (!id) return;
-    try {
-      await friendService.rejectRequest(id);
-      await markFriendNotificationsResolved(id);
-      showToast('Đã từ chối', 'success');
-      loadPendingRequests();
-    } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Không từ chối được', 'fail');
-    }
-  };
+  const friendRequests = [
+    { name: 'Anna Lee', avatar: '👩‍🔬', mutualFriends: 3, requestDate: '2 ngày trước' },
+    { name: 'John Smith', avatar: '👨‍💼', mutualFriends: 7, requestDate: '1 tuần trước' }
+  ];
 
   const suggestions = [
     { name: 'Sophie Turner', avatar: '👩‍🎨', mutualFriends: 9, reason: 'Cùng tổ chức' },
@@ -155,23 +67,8 @@ function FriendsPage() {
     return labels[status] || status;
   };
 
-  // Map dữ liệu thô từ API sang view model cho UI
-  const viewFriends = friends.map((f) => {
-    const u = f.friendId || f.user || f;
-    return {
-      id: u?._id || u?.id || f.id,
-      name: u?.displayName || u?.username || 'Người dùng',
-      avatar: u?.avatar || '👤',
-      status: u?.status || 'offline',
-      role: u?.role || '',
-      mutualFriends: f.mutualFriends || 0,
-      lastActive: '',
-      activity: '',
-    };
-  });
-
-  const onlineFriends = viewFriends.filter(f => f.status === 'online');
-  const allFriends = viewFriends;
+  const onlineFriends = friends.filter(f => f.status === 'online');
+  const allFriends = friends;
 
   const handleSearch = async () => {
     if (!searchPhone) {
@@ -181,22 +78,14 @@ function FriendsPage() {
 
     try {
       const resp = await friendService.searchByPhone(searchPhone);
-      // Sau interceptor, resp có dạng { status, data }
-      const user = resp?.data || resp;
-
-      if (user) {
-        setSearchResult(user);
+      if (resp.data && resp.data.data) {
+        setSearchResult(resp.data.data);
       } else {
         showToast('Không tìm thấy người dùng', 'info');
         setSearchResult(null);
       }
     } catch (err) {
-      // Nếu backend trả 404 (User profile not found) → coi như không có kết quả, không phải lỗi hệ thống
-      if (err.status === 404 || err.response?.status === 404) {
-        showToast('Không tìm thấy người dùng', 'info');
-      } else {
-        showToast(err.response?.data?.message || err.message || 'Lỗi khi tìm kiếm', 'fail');
-      }
+      showToast(err.response?.data?.message || 'Lỗi khi tìm kiếm', 'fail');
       setSearchResult(null);
     }
   };
@@ -219,9 +108,9 @@ function FriendsPage() {
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
           {[
-            { id: 'all', label: `Tất cả (${allFriends.length})`, icon: '👥' },
+            { id: 'all', label: `Tất cả (${friends.length})`, icon: '👥' },
             { id: 'online', label: `Online (${onlineFriends.length})`, icon: '🟢' },
-            { id: 'requests', label: `Yêu cầu (${pendingRequests.length})`, icon: '📬' },
+            { id: 'requests', label: `Yêu cầu (${friendRequests.length})`, icon: '📬' },
             { id: 'suggestions', label: 'Gợi ý', icon: '✨' }
           ].map(tab => (
             <button
@@ -242,11 +131,8 @@ function FriendsPage() {
         {/* All Friends Tab */}
         {activeTab === 'all' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {loadingFriends ? (
-              <div className="text-center py-12 text-gray-400">Đang tải danh sách bạn bè...</div>
-            ) : (
-              allFriends.map((friend, idx) => (
-              <GlassCard key={friend.id || idx} hover className="animate-slideUp group" style={{animationDelay: `${idx * 0.05}s`}}>
+            {allFriends.map((friend, idx) => (
+              <GlassCard key={idx} hover className="animate-slideUp group" style={{animationDelay: `${idx * 0.05}s`}}>
                 <div className="flex items-start gap-4">
                   <div className="relative">
                     <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-3xl">
@@ -296,7 +182,7 @@ function FriendsPage() {
                   </div>
                 </div>
               </GlassCard>
-            )))}
+            ))}
           </div>
         )}
 
@@ -304,7 +190,7 @@ function FriendsPage() {
         {activeTab === 'online' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {onlineFriends.map((friend, idx) => (
-              <GlassCard key={friend.id || idx} hover glow className="animate-slideUp" style={{animationDelay: `${idx * 0.05}s`}}>
+              <GlassCard key={idx} hover glow className="animate-slideUp" style={{animationDelay: `${idx * 0.05}s`}}>
                 <div className="text-center">
                   <div className="relative inline-block mb-3">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-4xl">
@@ -332,55 +218,32 @@ function FriendsPage() {
           </div>
         )}
 
-        {/* Friend Requests Tab - dữ liệu từ API */}
+        {/* Friend Requests Tab */}
         {activeTab === 'requests' && (
           <div className="grid gap-4 max-w-2xl">
-            {loadingRequests ? (
-              <div className="text-center py-12 text-gray-400">Đang tải...</div>
-            ) : (
-              <>
-                {pendingRequests.map((request) => {
-                  const from = request.userId || request.from;
-                  const requesterId = from?._id ?? from?.id ?? request.userId;
-                  const name = from?.displayName || from?.username || 'Người dùng';
-                  const avatar = from?.avatar;
-                  return (
-                    <GlassCard key={request._id || requesterId} hover className="animate-slideUp">
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-3xl overflow-hidden">
-                          {avatar ? (
-                            <img src={avatar} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            '👤'
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-bold text-white mb-1">{name}</h3>
-                          <div className="text-xs text-gray-500">Gửi yêu cầu {formatRequestDate(request.createdAt)}</div>
-                        </div>
-                        <div className="flex gap-2">
-                          <GradientButton variant="primary" onClick={() => handleAcceptRequest(requesterId)}>
-                            Chấp nhận
-                          </GradientButton>
-                          <button
-                            type="button"
-                            className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold"
-                            onClick={() => handleRejectRequest(requesterId)}
-                          >
-                            Từ chối
-                          </button>
-                        </div>
-                      </div>
-                    </GlassCard>
-                  );
-                })}
-                {pendingRequests.length === 0 && !loadingRequests && (
-                  <div className="text-center py-12 text-gray-500">
-                    <div className="text-6xl mb-4">📭</div>
-                    <p>Không có yêu cầu kết bạn mới</p>
+            {friendRequests.map((request, idx) => (
+              <GlassCard key={idx} hover className="animate-slideUp" style={{animationDelay: `${idx * 0.1}s`}}>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-3xl">
+                    {request.avatar}
                   </div>
-                )}
-              </>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-white mb-1">{request.name}</h3>
+                    <div className="text-sm text-gray-400 mb-1">{request.mutualFriends} bạn chung</div>
+                    <div className="text-xs text-gray-500">Gửi yêu cầu {request.requestDate}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <GradientButton variant="primary">Chấp nhận</GradientButton>
+                    <button className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold">Từ chối</button>
+                  </div>
+                </div>
+              </GlassCard>
+            ))}
+            {friendRequests.length === 0 && (
+              <div className="text-center py-12 text-gray-500">
+                <div className="text-6xl mb-4">📭</div>
+                <p>Không có yêu cầu kết bạn mới</p>
+              </div>
             )}
           </div>
         )}
@@ -411,34 +274,18 @@ function FriendsPage() {
                 <h2 className="text-xl font-bold text-white mb-2">Kết quả tìm kiếm</h2>
                 <GlassCard hover>
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-3xl overflow-hidden">
-                      {searchResult.avatar ? (
-                        <img src={searchResult.avatar} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        '👤'
-                      )}
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-3xl">
+                      {searchResult.avatar || '👤'}
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-white mb-1">{searchResult.displayName || searchResult.username || '—'}</h3>
-                      <div className="text-xs text-gray-400 mb-1">{searchResult.phone || searchResult.email || '—'}</div>
+                      <h3 className="font-bold text-white mb-1">{searchResult.displayName || searchResult.username}</h3>
+                      <div className="text-xs text-gray-400 mb-1">{searchResult.phone}</div>
                       {searchResult.relationship && (
                         <div className="text-xs text-gray-300">Trạng thái: {searchResult.relationship.status}</div>
                       )}
                     </div>
                     <div className="flex gap-2">
-                      {searchResult.relationship?.status === 'accepted' ? (
-                        <span className="flex-1 px-4 py-2 rounded-xl bg-white/10 text-gray-300 text-center text-sm">Đã là bạn bè</span>
-                      ) : searchResult.relationship?.status === 'pending' ? (
-                        <span className="flex-1 px-4 py-2 rounded-xl bg-white/10 text-gray-400 text-center text-sm">Đã gửi lời mời</span>
-                      ) : (
-                        <GradientButton
-                          variant="secondary"
-                          className="flex-1"
-                          onClick={() => sendFriendRequest(searchResult.userId?.toString?.() || searchResult.userId)}
-                        >
-                          Thêm bạn
-                        </GradientButton>
-                      )}
+                      <GradientButton variant="secondary" className="flex-1">Thêm bạn</GradientButton>
                     </div>
                   </div>
                 </GlassCard>

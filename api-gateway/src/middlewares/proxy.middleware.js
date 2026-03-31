@@ -1,5 +1,5 @@
 const httpProxy = require('http-proxy');
-const { getServiceByPath, normalizePath } = require('../config/services');
+const { getServiceByPath } = require('../config/services');
 const { URL } = require('url');
 
 // Cache proxy instances để tránh tạo lại mỗi request
@@ -46,17 +46,11 @@ const proxyMiddleware = (req, res, next) => {
   const proxyHost = targetUrlObj.hostname;
   const proxyPort = parseInt(targetUrlObj.port) || (targetUrlObj.protocol === 'https:' ? 443 : 80);
   const proxyTarget = `${targetUrlObj.protocol}//${proxyHost}:${proxyPort}`;
-  // Path gửi tới service: luôn dạng /api/... (friend-service mount tại /api/friends)
-  const pathToForward = normalizePath(req.path);
-  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  const fullTargetUrl = `${targetUrl}${pathToForward}${query}`;
-
+  const fullTargetUrl = `${targetUrl}${req.path}`;
+  
   console.log(`[API-Gateway] Creating proxy to: ${targetUrl}`);
   console.log(`[API-Gateway] Full target URL: ${fullTargetUrl}`);
-
-  // Ghi đè req.url để backend nhận đúng path /api/... (khi gateway mount tại /api thì req.path là /friends/search)
-  req.url = pathToForward + query;
-
+  
   // Dùng proxyTarget làm cache key thay vì targetUrl gốc
   let proxy = proxyCache.get(proxyTarget);
   

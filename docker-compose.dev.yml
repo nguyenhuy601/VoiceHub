@@ -1,0 +1,78 @@
+# Dev: nodemon + file polling (Windows/WSL).
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  api-gateway:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  auth-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  user-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  organization-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  friend-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  role-permission-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  chat-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  voice-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  task-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  document-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  notification-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
+
+  webhook-service:
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3016", "--reload"]
+
+  socket-service:
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"

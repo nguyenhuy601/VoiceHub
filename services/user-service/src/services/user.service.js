@@ -1,188 +1,87 @@
-const mongoose = require('mongoose');
 const UserProfile = require('../models/UserProfile');
-const {
-  getRedisClient,
-  logger,
-  encryptField,
-  isEncrypted,
-  isEncryptionEnabled,
-  phoneBlindIndex,
-  unwrapPlaintext,
-  recordLazyMigrate,
-} = require('/shared');
-
-function normalizePhone(phone) {
-  if (phone === undefined || phone === null) return null;
-  const raw = String(phone).trim();
-  if (!raw) return null;
-
-  const digits = raw.replace(/\D/g, '');
-  if (!digits) return null;
-
-  return raw.startsWith('+') ? `+${digits}` : digits;
-}
-
-function toPlainObject(doc) {
-  if (!doc) return null;
-  return doc.toObject ? doc.toObject() : { ...doc };
-}
-
-/** Trả về bản plaintext cho API; không lộ phoneBlindIndex / ciphertext */
-function toClientProfile(doc) {
-  if (!doc) return null;
-  const o = toPlainObject(doc);
-  delete o.phoneBlindIndex;
-  o.phone = unwrapPlaintext(o.phone);
-  o.bio = unwrapPlaintext(o.bio);
-  if (o.location) o.location = unwrapPlaintext(o.location);
-  return o;
-}
-
-async function maybeMigrateProfilePII(doc) {
-  if (!doc || !isEncryptionEnabled()) return;
-  const updates = {};
-
-  if (doc.phone && !isEncrypted(doc.phone)) {
-    const n = normalizePhone(doc.phone);
-    if (n) {
-      updates.phone = encryptField(n);
-      updates.phoneBlindIndex = phoneBlindIndex(n);
-      updates.encV = 1;
-      recordLazyMigrate();
-    }
-  }
-
-  if (doc.bio && String(doc.bio).length > 0 && !isEncrypted(doc.bio)) {
-    updates.bio = encryptField(String(doc.bio));
-    updates.encV = 1;
-    recordLazyMigrate();
-  }
-
-  if (doc.location && String(doc.location).length > 0 && !isEncrypted(doc.location)) {
-    updates.location = encryptField(String(doc.location));
-    updates.encV = 1;
-    recordLazyMigrate();
-  }
-
-  if (Object.keys(updates).length > 0) {
-    await UserProfile.updateOne({ _id: doc._id }, { $set: updates });
-    Object.assign(doc, updates);
-  }
-}
+const { getRedisClient, logger } = require('/shared');
 
 class UserService {
-  // Tạo user profile mới (idempotent theo userId / email: gọi lại cùng user thì trả về profile có sẵn)
+  // Tạo user profile mới
   async createUserProfile(userData) {
     try {
-      const { userId, username, email, displayName, dateOfBirth } = userData;
+      const { userId, username, displayName, dateOfBirth } = userData;
 
-      if (!email || typeof email !== 'string' || !email.trim()) {
-        throw new Error('email is required');
-      }
-
-      const normalizedEmail = email.trim().toLowerCase();
-      const normalizedUsername = username ? String(username).trim() : '';
-      if (!normalizedUsername || normalizedUsername.length < 3) {
-        throw new Error('username is required and must be at least 3 characters');
-      }
-      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
-
-      const existingByUserId = await UserProfile.findOne({ userId: userIdObj });
-      if (existingByUserId) {
-        logger.info(`User profile already exists for userId: ${userId}, returning existing`);
-        await maybeMigrateProfilePII(existingByUserId);
-        return toClientProfile(existingByUserId);
-      }
-
-      const existingByEmail = await UserProfile.findOne({ email: normalizedEmail });
-      if (existingByEmail) {
-        const existingUserIdStr = existingByEmail.userId?.toString?.() || existingByEmail.userId;
-        if (existingUserIdStr === userId.toString()) {
-          logger.info(`User profile already exists for email (same userId): ${normalizedEmail}, returning existing`);
-          await maybeMigrateProfilePII(existingByEmail);
-          return toClientProfile(existingByEmail);
-        }
-        logger.warn(`Email already exists: existing userId=${existingUserIdStr}, request userId=${userId}`);
-        throw new Error('Email already exists');
+      // Kiểm tra username đã tồn tại chưa
+      const existingUser = await UserProfile.findOne({ username });
+      if (existingUser) {
+        throw new Error('Username already exists');
       }
 
       const userProfile = new UserProfile({
-        userId: userIdObj,
-        username: normalizedUsername,
-        email: normalizedEmail,
-        displayName: (displayName && String(displayName).trim()) || normalizedUsername,
+        userId,
+        username,
+        displayName: displayName || username,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
       });
 
       await userProfile.save();
 
+      // Cache user profile trong Redis
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `user:${userId}`;
-        const client = toClientProfile(userProfile);
-        await redis.setex(cacheKey, 3600, JSON.stringify(client));
+        await redis.setex(cacheKey, 3600, JSON.stringify(userProfile));
       }
 
       logger.info(`User profile created: ${userId}`);
-      return toClientProfile(userProfile);
+      return userProfile;
     } catch (error) {
       logger.error('Error creating user profile:', error);
       throw new Error(`Error creating user profile: ${error.message}`);
     }
   }
 
+  // Lấy user profile theo ID
   async getUserProfileById(userId) {
     try {
-      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
-
+      // Kiểm tra cache trước
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userIdObj.toString()}`;
+        const cacheKey = `user:${userId}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
-          try {
-            return JSON.parse(cached);
-          } catch (e) {
-            await redis.del(cacheKey).catch(() => {});
-          }
+          return JSON.parse(cached);
         }
       }
 
-      const userProfile = await UserProfile.findOne({ userId: userIdObj });
-      if (userProfile) {
-        await maybeMigrateProfilePII(userProfile);
+      const userProfile = await UserProfile.findOne({ userId })
+        .populate('userId', 'email');
+
+      // Cache user profile
+      if (redis && userProfile) {
+        const cacheKey = `user:${userId}`;
+        await redis.setex(cacheKey, 3600, JSON.stringify(userProfile));
       }
 
-      const client = toClientProfile(userProfile);
-
-      if (redis && client) {
-        const cacheKey = `user:${userIdObj.toString()}`;
-        await redis.setex(cacheKey, 3600, JSON.stringify(client));
-      }
-
-      return client;
+      return userProfile;
     } catch (error) {
       logger.error('Error getting user profile:', error);
       throw new Error(`Error getting user profile: ${error.message}`);
     }
   }
 
+  // Lấy user profile theo username
   async getUserProfileByUsername(username) {
     try {
-      const normalized = username ? String(username).trim() : '';
-      if (!normalized) return null;
-      const userProfile = await UserProfile.findOne({ username: normalized });
-      if (userProfile) await maybeMigrateProfilePII(userProfile);
-      return toClientProfile(userProfile);
+      const userProfile = await UserProfile.findOne({ username })
+        .populate('userId', 'email');
+
+      return userProfile;
     } catch (error) {
       logger.error('Error getting user profile by username:', error);
-      throw new Error(`Error getting user profile by username: ${error.message}`);
+      throw new Error(`Error getting user profile: ${error.message}`);
     }
   }
 
+  // Cập nhật user profile
   async updateUserProfile(userId, updateData) {
     try {
-      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
       const allowedFields = [
         'displayName',
         'avatar',
@@ -200,49 +99,8 @@ class UserService {
         }
       }
 
-      if (Object.prototype.hasOwnProperty.call(updateFields, 'phone')) {
-        const normalizedPhone = normalizePhone(updateFields.phone);
-        updateFields.phone = normalizedPhone;
-
-        if (normalizedPhone) {
-          const blind = phoneBlindIndex(normalizedPhone);
-          const existingPhoneOwner = await UserProfile.findOne({
-            isActive: true,
-            userId: { $ne: userIdObj },
-            $or: [{ phoneBlindIndex: blind }, { phone: normalizedPhone }],
-          }).select('_id userId');
-
-          if (existingPhoneOwner) {
-            const conflictError = new Error('Số điện thoại đã được sử dụng');
-            conflictError.statusCode = 409;
-            throw conflictError;
-          }
-
-          if (isEncryptionEnabled()) {
-            updateFields.phone = encryptField(normalizedPhone);
-            updateFields.phoneBlindIndex = blind;
-            updateFields.encV = 1;
-          } else {
-            updateFields.phoneBlindIndex = blind;
-          }
-        } else {
-          updateFields.phone = null;
-          updateFields.phoneBlindIndex = null;
-        }
-      }
-
-      if (Object.prototype.hasOwnProperty.call(updateFields, 'bio') && isEncryptionEnabled()) {
-        updateFields.bio = encryptField(String(updateFields.bio ?? ''));
-        updateFields.encV = 1;
-      }
-
-      if (Object.prototype.hasOwnProperty.call(updateFields, 'location') && updateFields.location && isEncryptionEnabled()) {
-        updateFields.location = encryptField(String(updateFields.location));
-        updateFields.encV = 1;
-      }
-
       const userProfile = await UserProfile.findOneAndUpdate(
-        { userId: userIdObj },
+        { userId },
         { $set: updateFields },
         { new: true, runValidators: true }
       );
@@ -251,67 +109,62 @@ class UserService {
         throw new Error('User profile not found');
       }
 
+      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userIdObj.toString()}`;
+        const cacheKey = `user:${userId}`;
         await redis.del(cacheKey);
       }
 
       logger.info(`User profile updated: ${userId}`);
-      return toClientProfile(userProfile);
+      return userProfile;
     } catch (error) {
       logger.error('Error updating user profile:', error);
       throw new Error(`Error updating user profile: ${error.message}`);
     }
   }
 
+  // Cập nhật status
   async updateStatus(userId, status) {
     try {
-      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
-      const userProfile = await UserProfile.findOne({ userId: userIdObj });
+      const userProfile = await UserProfile.findOne({ userId });
       if (!userProfile) {
         throw new Error('User profile not found');
       }
 
       await userProfile.updateStatus(status);
 
+      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userIdObj.toString()}`;
+        const cacheKey = `user:${userId}`;
         await redis.del(cacheKey);
       }
 
-      return toClientProfile(userProfile);
+      return userProfile;
     } catch (error) {
       logger.error('Error updating status:', error);
       throw new Error(`Error updating status: ${error.message}`);
     }
   }
 
+  // Tìm kiếm users
   async searchUsers(query, options = {}) {
     try {
-      const page = Math.max(1, parseInt(options.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, parseInt(options.limit, 10) || 20));
-      const sanitized = String(query || '').trim().slice(0, 100);
-      if (!sanitized) {
-        return { users: [], totalPages: 0, currentPage: page, total: 0 };
-      }
-      const escaped = sanitized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const searchRegex = new RegExp(escaped, 'i');
+      const { page = 1, limit = 20 } = options;
 
+      const searchRegex = new RegExp(query, 'i');
       const filter = {
+        $or: [
+          { username: searchRegex },
+          { displayName: searchRegex },
+          { phone: searchRegex },
+        ],
         isActive: true,
-        $or: [{ username: searchRegex }, { displayName: searchRegex }],
       };
 
-      const np = normalizePhone(sanitized);
-      if (np && np.replace(/\D/g, '').length >= 8) {
-        filter.$or.push({ phoneBlindIndex: phoneBlindIndex(np) });
-        filter.$or.push({ phone: searchRegex });
-      }
-
       const users = await UserProfile.find(filter)
-        .limit(limit)
+        .limit(limit * 1)
         .skip((page - 1) * limit)
         .select('userId username displayName avatar status')
         .sort({ username: 1 });
@@ -330,28 +183,22 @@ class UserService {
     }
   }
 
+  // Tìm user profile theo số điện thoại
   async getUserProfileByPhone(phone) {
     try {
-      const normalized = normalizePhone(phone);
-      if (!normalized) return null;
-      const blind = phoneBlindIndex(normalized);
-      let userProfile = await UserProfile.findOne({ phoneBlindIndex: blind, isActive: true });
-      if (!userProfile) {
-        userProfile = await UserProfile.findOne({ phone: normalized, isActive: true });
-      }
-      if (userProfile) await maybeMigrateProfilePII(userProfile);
-      return toClientProfile(userProfile);
+      const userProfile = await UserProfile.findOne({ phone, isActive: true });
+      return userProfile;
     } catch (error) {
       logger.error('Error getting user profile by phone:', error);
       throw new Error(`Error getting user profile by phone: ${error.message}`);
     }
   }
 
+  // Xóa user profile (soft delete)
   async deleteUserProfile(userId) {
     try {
-      const userIdObj = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
       const userProfile = await UserProfile.findOneAndUpdate(
-        { userId: userIdObj },
+        { userId },
         { $set: { isActive: false } },
         { new: true }
       );
@@ -360,14 +207,15 @@ class UserService {
         throw new Error('User profile not found');
       }
 
+      // Xóa cache
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `user:${userIdObj.toString()}`;
+        const cacheKey = `user:${userId}`;
         await redis.del(cacheKey);
       }
 
       logger.info(`User profile deactivated: ${userId}`);
-      return toClientProfile(userProfile);
+      return userProfile;
     } catch (error) {
       logger.error('Error deleting user profile:', error);
       throw new Error(`Error deleting user profile: ${error.message}`);
@@ -376,3 +224,4 @@ class UserService {
 }
 
 module.exports = new UserService();
+

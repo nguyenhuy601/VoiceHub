@@ -71,5 +71,10 @@ server.listen(PORT, () => {
     socketCorsOrigin === true ? '*' : Array.isArray(socketCorsOrigin) ? socketCorsOrigin.join(', ') : String(socketCorsOrigin);
   console.log(`Socket Service đang chạy trên cổng ${PORT}`);
   console.log(`[socket-service] Allowed origins: ${originLabel}`);
+  const presenceToken = String(process.env.USER_SERVICE_INTERNAL_TOKEN || '').trim();
+  console.log(
+    `[socket-service] Presence → user-service: USER_SERVICE_URL=${process.env.USER_SERVICE_URL || 'http://user-service:3004'} ` +
+      `internal token ${presenceToken ? 'SET (len=' + presenceToken.length + ')' : 'MISSING (disconnect sẽ KHÔNG cập nhật offline trong DB)'}`
+  );
 });
 

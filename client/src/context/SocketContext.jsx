@@ -6,7 +6,7 @@
    - Voice chat signaling
    - Notifications realtime
    
-   Kết nối đến: API Gateway (port 3000) -> socket-service
+   Kết nối đến: chat-system-service (port 4002)
 ======================================== */
 
 // Import hooks để build context
@@ -45,35 +45,18 @@ export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
-   - Lấy từ .env file: VITE_SOCKET_URL (ví dụ: http://localhost:3000)
-   - Kết nối tới namespace /chat qua API Gateway (gateway proxy tới socket-service)
-   - Production: https://your-gateway-domain/chat
+   - Lấy từ .env file: VITE_SOCKET_URL
+   - Fallback: http://localhost:3006 (Chat Service port 3006 theo docker-compose)
+   - Production: https://your-api.com/socket
 ======================================== */
-const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
-const SOCKET_URL = `${SOCKET_BASE_URL}/chat`;
-
-const normalizeToken = (rawToken) => {
-  if (!rawToken) return null;
-  let token = String(rawToken).trim();
-  if (!token) return null;
-  if (token.startsWith('Bearer ')) token = token.slice(7).trim();
-  if (
-    (token.startsWith('"') && token.endsWith('"')) ||
-    (token.startsWith("'") && token.endsWith("'"))
-  ) {
-    token = token.slice(1, -1).trim();
-  }
-  if (!token || token === 'null' || token === 'undefined') return null;
-  return token;
-};
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
 
 // Log URL khi app start (giúp debug)
 console.log('🔌 [Socket] Configuration:');
 console.log('   URL:', SOCKET_URL);
-console.log('   Base:', SOCKET_BASE_URL);
 console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set - using default)');
 if (!import.meta.env.VITE_SOCKET_URL) {
-  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3000');
+  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3006');
 }
 console.log('');
 
@@ -120,13 +103,7 @@ function SocketProvider({ children }) {
     // Chỉ connect khi user đã login
     if (isAuthenticated && user) {
       // Lấy token từ localStorage để authenticate
-      const token = normalizeToken(localStorage.getItem('token'));
-      if (!token) {
-        if (import.meta.env.DEV) {
-          console.warn('⚠️ [Socket] Skip connect: token missing or invalid');
-        }
-        return undefined;
-      }
+      const token = localStorage.getItem('token');
       
       /* ----- TẠO SOCKET CONNECTION ----- */
       const newSocket = io(SOCKET_URL, {
@@ -164,24 +141,17 @@ function SocketProvider({ children }) {
 
       // Event: 'disconnect' - khi mất kết nối
       newSocket.on('disconnect', (reason) => {
+        console.warn('⚠️ [Socket] Disconnected');
+        console.warn('   Reason:', reason);
+        
         setConnected(false);
-
-        // Chỉ log chi tiết trong môi trường dev để tránh spam console ở production
-        if (import.meta.env.DEV) {
-          console.warn('⚠️ [Socket] Disconnected');
-          console.warn('   Reason:', reason);
-        }
-
-        // Phân loại nguyên nhân:
-        // - server disconnect: có thể là lỗi cấu hình → lưu vào connectionError
-        // - client disconnect / chuyển trang / reload: không coi là lỗi
-        // - các lý do khác (ping timeout, transport close...): chỉ log nhẹ, không set error
+        
+        // Nếu disconnect vì server error → log chi tiết
         if (reason === 'io server disconnect') {
-          if (import.meta.env.DEV) {
-            console.error('   Server forced disconnect. Check server logs.');
-          }
+          console.error('   Server forced disconnect. Check server logs.');
           setConnectionError(new Error('Server forced disconnect'));
         } else if (reason === 'io client disconnect') {
+          console.log('   Client initiated disconnect');
           setConnectionError(null);
         }
       });
@@ -194,11 +164,11 @@ function SocketProvider({ children }) {
         console.error('   Trying to connect to:', SOCKET_URL);
         console.error('');
         console.error('   📋 Debugging checklist:');
-        console.error('   1. Is api-gateway running? (Port 3000)');
-        console.error('   2. Check if VITE_SOCKET_URL is correctly set in client/.env');
-        console.error('   3. Try: curl http://localhost:3000/health');
-        console.error('   4. Check gateway logs for websocket proxy errors');
-        console.error('   5. Check socket-service logs for socket.io/auth errors');
+        console.error('   1. Is chat-service running? (Port 3006)');
+        console.error('   2. Check if VITE_SOCKET_URL is correctly set in .env');
+        console.error('   3. Try: curl http://localhost:3006/health');
+        console.error('   4. Check browser console for CORS errors');
+        console.error('   5. Check server logs for socket.io errors');
         
         setConnectionError(error);
       });
