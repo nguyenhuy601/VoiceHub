@@ -81,6 +81,12 @@ class MessageService {
       if (redis) {
         const cacheKey = `message:${message._id}`;
         await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
+        if (message.receiverId && message.senderId) {
+          const a = String(message.senderId);
+          const b = String(message.receiverId);
+          const pair = [a, b].sort().join(':');
+          await redis.del(`dm:last:${pair}`);
+        }
       }
 
       return toClientMessage(message);
@@ -200,7 +206,20 @@ class MessageService {
   async getMessages(filter, options = {}) {
     try {
       await ensureMongoReady();
-      const { page = 1, limit = 50, sort = { createdAt: -1 } } = options;
+      const { page = 1, limit = 50, sort = { createdAt: -1 }, dmCacheKey } = options;
+
+      const redis = getRedisClient();
+      if (redis && dmCacheKey && page === 1 && limit <= 50) {
+        const ck = `dm:last:${dmCacheKey}`;
+        try {
+          const cached = await redis.get(ck);
+          if (cached) {
+            return JSON.parse(cached);
+          }
+        } catch {
+          /* miss */
+        }
+      }
 
       const messages = await Message.find(filter).sort(sort).limit(limit * 1).skip((page - 1) * limit);
 
@@ -210,12 +229,22 @@ class MessageService {
 
       const total = await Message.countDocuments(filter);
 
-      return {
+      const result = {
         messages: messages.map((m) => toClientMessage(m)),
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         total,
       };
+
+      if (redis && dmCacheKey && page === 1 && limit <= 50) {
+        try {
+          await redis.setex(`dm:last:${dmCacheKey}`, 60, JSON.stringify(result));
+        } catch {
+          /* ignore cache write */
+        }
+      }
+
+      return result;
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error getting messages: ${err.message}`);

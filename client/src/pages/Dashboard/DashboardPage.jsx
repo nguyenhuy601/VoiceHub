@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
+import api from '../../services/api';
+import friendService from '../../services/friendService';
+import { organizationAPI } from '../../services/api/organizationAPI';
+import { taskAPI } from '../../services/api/taskAPI';
+import { meetingAPI } from '../../services/api/meetingAPI';
 
 function DashboardPage() {
   const [activeFilter, setActiveFilter] = useState('all');
@@ -11,7 +18,21 @@ function DashboardPage() {
   const [toast, setToast] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [metrics, setMetrics] = useState({
+    loading: true,
+    orgCount: null,
+    friendsTotal: null,
+    pendingCount: 0,
+    unread: 0,
+    taskDone: null,
+  });
+  /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
+  const [presenceFriends, setPresenceFriends] = useState([]);
+  /** Cuộc họp sắp tới (từ GET /api/meetings + startFrom/startTo) */
+  const [upcomingMeetings, setUpcomingMeetings] = useState([]);
   const { user } = useAuth();
+  const { onlineUsers } = useSocket();
+  const navigate = useNavigate();
 
   const displayName =
     user?.fullName ||
@@ -39,91 +60,213 @@ function DashboardPage() {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const orgPayload = await organizationAPI.getOrganizations().catch(() => null);
+        let orgList = [];
+        if (orgPayload && Array.isArray(orgPayload.data)) {
+          orgList = orgPayload.data;
+        } else if (Array.isArray(orgPayload)) {
+          orgList = orgPayload;
+        }
+        const orgCount = orgList.length;
+        const rawOrgId = orgList[0]?._id ?? orgList[0]?.id;
+        const firstOrgId = rawOrgId != null ? String(rawOrgId) : null;
+
+        let taskDone = null;
+        if (firstOrgId) {
+          const ts = await taskAPI.getStatistics(firstOrgId).catch(() => null);
+          const stat = ts?.data ?? ts;
+          const formatted = stat?.data ?? stat;
+          if (formatted && typeof formatted === 'object') {
+            taskDone = formatted.done ?? null;
+          }
+        }
+
+        const fr = await friendService.getFriends().catch(() => null);
+        let friendsTotal = null;
+        let friendsRaw = [];
+        if (fr) {
+          const inner = fr.data ?? fr;
+          const list = inner?.friends ?? inner?.data?.friends;
+          if (Array.isArray(list)) {
+            friendsRaw = list;
+            friendsTotal = list.length;
+          }
+        }
+
+        const presence = friendsRaw.slice(0, 12).map((row) => {
+          const u = row.friendId && typeof row.friendId === 'object' ? row.friendId : null;
+          const name =
+            u?.displayName || u?.username || (u?.email ? String(u.email).split('@')[0] : null) || 'Bạn bè';
+          const st = String(u?.status || 'offline').toLowerCase();
+          return {
+            id: u?._id || u?.userId || row.friendId,
+            name,
+            avatarUrl: u?.avatar || null,
+            status: ['online', 'away', 'busy', 'offline'].includes(st) ? st : 'offline',
+          };
+        });
+        setPresenceFriends(presence);
+
+        const startFrom = new Date();
+        const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const meetingRes = await meetingAPI
+          .getMeetings({
+            startFrom: startFrom.toISOString(),
+            startTo: startTo.toISOString(),
+            limit: 8,
+          })
+          .catch(() => null);
+        let meetingsUi = [];
+        if (meetingRes) {
+          const body = meetingRes?.data ?? meetingRes;
+          const inner = body?.data ?? body;
+          const meetings = inner?.meetings ?? inner?.data?.meetings;
+          if (Array.isArray(meetings)) {
+            meetingsUi = meetings.slice(0, 5).map((m) => {
+              const t = m.startTime ? new Date(m.startTime) : null;
+              const timeStr =
+                t && !Number.isNaN(t.getTime())
+                  ? t.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                  : '—';
+              const parts = Array.isArray(m.participants) ? m.participants.length : 0;
+              return {
+                id: m._id,
+                title: m.title || 'Cuộc họp',
+                time: timeStr,
+                attendees: parts || 1,
+                startTime: m.startTime,
+              };
+            });
+          }
+        }
+        setUpcomingMeetings(meetingsUi);
+
+        const pend = await friendService.getPendingRequests().catch(() => null);
+        let pendingCount = 0;
+        if (pend) {
+          const raw = pend.data ?? pend;
+          const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+          pendingCount = arr.length;
+        }
+
+        const notif = await api.get('/notifications', { params: { limit: 1 } }).catch(() => null);
+        let unread = 0;
+        if (notif) {
+          const nd = notif.data?.data ?? notif.data ?? notif;
+          unread = Number(nd?.unreadCount) || 0;
+        }
+
+        if (!cancelled) {
+          setMetrics({
+            loading: false,
+            orgCount,
+            friendsTotal,
+            pendingCount,
+            unread,
+            taskDone,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setMetrics((m) => ({ ...m, loading: false }));
+          setPresenceFriends([]);
+          setUpcomingMeetings([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const showToast = (message, type = "success") => {
     setToast({ message, type });
   };
 
-  const stats = [
-    { 
-      icon: "📊", 
-      label: "Dự Án Hoạt Động", 
-      value: "12", 
-      change: "+2.5%", 
-      color: "from-purple-600 to-pink-600",
-      trend: "up",
-      detail: "3 sắp deadline",
-      drilldown: {
-        total: 12,
-        dangHoatDong: 9,
-        tamDung: 2,
-        hoanThanh: 45,
-        projects: [
-          { name: "VoiceHub Enterprise", progress: 75, members: 8, deadline: "2 ngày" },
-          { name: "Chiến Dịch Marketing Q1", progress: 60, members: 5, deadline: "5 ngày" },
-          { name: "Thiết Kế Lại Ứng Dụng Di Động", progress: 40, members: 6, deadline: "1 tuần" }
-        ]
-      }
-    },
-    { 
-      icon: "✅", 
-      label: "Công Việc Hoàn Thành", 
-      value: "89", 
-      change: "+12%", 
-      color: "from-blue-500 to-cyan-500",
-      trend: "up",
-      detail: "Tuần này",
-      drilldown: {
-        homNay: 15,
-        tuan: 89,
-        thang: 342,
-        nguoiDongGopNhieuNhat: [
-          { name: "Sarah Chen", tasks: 25, avatar: "👩‍💼" },
-          { name: "Mike Ross", tasks: 18, avatar: "👨‍💻" },
-          { name: "Emma Wilson", tasks: 16, avatar: "👩‍🎨" }
-        ]
-      }
-    },
-    { 
-      icon: "👥", 
-      label: "Thành Viên", 
-      value: "24", 
-      change: "+3", 
-      color: "from-green-500 to-emerald-500",
-      trend: "up",
-      detail: "18 online",
-      drilldown: {
-        total: 24,
-        trucTuyen: 18,
-        ban: 4,
-        vangMat: 2,
-        roles: [
-          { name: "Lập Trình Viên", count: 12, online: 9 },
-          { name: "Thiết Kế Viên", count: 6, online: 5 },
-          { name: "Quản Lý", count: 4, online: 3 },
-          { name: "QA", count: 2, online: 1 }
-        ]
-      }
-    },
-    { 
-      icon: "💬", 
-      label: "Tin Nhắn Mới", 
-      value: "156", 
-      change: "+45%", 
-      color: "from-orange-500 to-red-500",
-      trend: "up",
-      detail: "Hôm nay",
-      drilldown: {
-        homNay: 156,
-        chuaDoc: 42,
-        channels: [
-          { name: "#general", messages: 45, unread: 12 },
-          { name: "#dev-team", messages: 38, unread: 15 },
-          { name: "#design", messages: 28, unread: 8 },
-          { name: "#random", messages: 45, unread: 7 }
-        ]
-      }
-    }
-  ];
+  /** Merge socket onlineUsers (Redis-backed trên server) với status từ API */
+  const displayPresenceFriends = useMemo(() => {
+    const set = new Set((onlineUsers || []).map(String));
+    return presenceFriends.map((p) => ({
+      ...p,
+      status: set.has(String(p.id)) ? 'online' : p.status,
+    }));
+  }, [presenceFriends, onlineUsers]);
+
+  const onlineFriendCount = useMemo(
+    () => displayPresenceFriends.filter((p) => p.status === 'online').length,
+    [displayPresenceFriends]
+  );
+
+  const stats = useMemo(() => {
+    const fmt = (n) => {
+      if (metrics.loading) return '…';
+      if (n == null || n === '') return '—';
+      return String(n);
+    };
+    return [
+      {
+        icon: '📊',
+        label: 'Tổ chức',
+        value: fmt(metrics.orgCount),
+        change: '',
+        color: 'from-purple-600 to-pink-600',
+        trend: 'up',
+        detail: metrics.loading ? 'Đang tải...' : `${metrics.orgCount ?? 0} tổ chức`,
+        drilldown: {
+          nguon: 'GET /api/organizations/my',
+          soToChuc: metrics.orgCount ?? '—',
+        },
+      },
+      {
+        icon: '✅',
+        label: 'Công việc (done)',
+        value: fmt(metrics.taskDone),
+        change: '',
+        color: 'from-blue-500 to-cyan-500',
+        trend: 'up',
+        detail: metrics.loading
+          ? 'Đang tải...'
+          : 'Theo tổ chức đầu tiên trong danh sách của bạn',
+        drilldown: {
+          nguon: 'GET /api/tasks/statistics?organizationId=…',
+          done: metrics.taskDone ?? '—',
+        },
+      },
+      {
+        icon: '👥',
+        label: 'Bạn bè',
+        value: fmt(metrics.friendsTotal),
+        change: '',
+        color: 'from-green-500 to-emerald-500',
+        trend: 'up',
+        detail: metrics.loading
+          ? 'Đang tải...'
+          : `${metrics.pendingCount} lời mời đang chờ`,
+        drilldown: {
+          nguon: 'GET /api/friends, /api/friends/pending',
+          soBan: metrics.friendsTotal ?? '—',
+          loiMoiCho: metrics.pendingCount,
+        },
+      },
+      {
+        icon: '🔔',
+        label: 'Thông báo chưa đọc',
+        value: fmt(metrics.unread),
+        change: '',
+        color: 'from-orange-500 to-red-500',
+        trend: 'up',
+        detail: metrics.loading ? 'Đang tải...' : 'Theo notification-service',
+        drilldown: {
+          nguon: 'GET /api/notifications',
+          chuaDoc: metrics.unread,
+        },
+      },
+    ];
+  }, [metrics]);
 
   const activities = [
     { user: "Sarah Chen", action: "hoàn thành", item: "Đánh giá thiết kế UI", time: "2 phút trước", avatar: "👩‍💼", type: "task", color: "from-green-500 to-emerald-500", detail: { project: "VoiceHub Enterprise", duration: "2 giờ", tags: ["Thiết Kế", "Đánh Giá"] } },
@@ -203,10 +346,14 @@ function DashboardPage() {
                     <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-xl shadow-lg`}>
                       {stat.icon}
                     </div>
-                    <div className={`flex items-center gap-1 text-xs font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
-                      <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
-                      <span>{stat.change}</span>
-                    </div>
+                    {stat.change ? (
+                      <div className={`flex items-center gap-1 text-xs font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
+                        <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
+                        <span>{stat.change}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Live</span>
+                    )}
                   </div>
                   <div className="text-2xl font-extrabold text-white mb-1">{stat.value}</div>
                   <div className="text-gray-400 text-xs mb-2">{stat.label}</div>
@@ -222,7 +369,10 @@ function DashboardPage() {
           {/* Activity Feed with Filters */}
           <GlassCard className="mb-6 border border-slate-800 bg-slate-900/60">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-bold text-white">Hoạt Động Gần Đây</h2>
+              <div>
+                <h2 className="text-xl font-bold text-white">Hoạt Động Gần Đây</h2>
+                <p className="text-xs text-gray-500 mt-1">Minh họa — feed thật sẽ nối sau</p>
+              </div>
               <div className="flex gap-2">
                 {['all', 'tasks', 'messages', 'files'].map(filter => (
                   <button
@@ -336,30 +486,65 @@ function DashboardPage() {
           <span>👥</span> Trạng Thái Nhóm
         </h2>
         
-        {/* Online Members */}
+        {/* Online Members — dữ liệu từ /api/friends */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-400">ĐANG ONLINE - 18</h3>
-            <button className="text-xs text-purple-400 hover:text-pink-400 transition-colors">
+            <h3 className="text-sm font-semibold text-gray-400">
+              {metrics.loading
+                ? 'Đang tải…'
+                : `ĐANG ONLINE — ${onlineFriendCount} / ${displayPresenceFriends.length} bạn`}
+            </h3>
+            <button
+              type="button"
+              className="text-xs text-purple-400 hover:text-pink-400 transition-colors"
+              onClick={() => navigate('/chat/friends')}
+            >
               Xem tất cả
             </button>
           </div>
           <div className="space-y-2">
-            {['Sarah Chen', 'Mike Ross', 'Emma Wilson', 'David Kim', 'Lisa Park', 'Tom Zhang'].map((name, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group">
+            {!metrics.loading && displayPresenceFriends.length === 0 && (
+              <p className="text-sm text-gray-500 py-2">
+                Chưa có bạn bè trong danh sách. Thêm bạn tại mục Tin nhắn.
+              </p>
+            )}
+            {displayPresenceFriends.map((pf, idx) => (
+              <div
+                key={pf.id != null ? String(pf.id) : idx}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group"
+              >
                 <div className="relative">
-                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${
-                    ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
-                  } flex items-center justify-center text-base`}>
-                    {['👩‍💼', '👨‍💻', '👩‍🎨', '👨‍🔬', '👩‍💼', '👨‍💻'][idx]}
+                  <div
+                    className={`w-9 h-9 rounded-full bg-gradient-to-br ${
+                      ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
+                    } flex items-center justify-center text-base overflow-hidden`}
+                  >
+                    {pf.avatarUrl ? (
+                      <img src={pf.avatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-bold text-white">{pf.name.charAt(0).toUpperCase()}</span>
+                    )}
                   </div>
-                  <StatusIndicator status="online" />
+                  <StatusIndicator status={pf.status} />
                 </div>
-                <div className="flex-1">
-                  <div className="text-white font-medium text-sm">{name}</div>
-                  <div className="text-gray-500 text-xs">Đang làm việc...</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-medium text-sm truncate">{pf.name}</div>
+                  <div className="text-gray-500 text-xs capitalize">
+                    {pf.status === 'online'
+                      ? 'Đang hoạt động'
+                      : pf.status === 'away'
+                        ? 'Vắng'
+                        : pf.status === 'busy'
+                          ? 'Bận'
+                          : 'Offline'}
+                  </div>
                 </div>
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-lg">
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-lg"
+                  aria-label="Chat"
+                  onClick={() => navigate('/chat/friends')}
+                >
                   💬
                 </button>
               </div>
@@ -367,37 +552,54 @@ function DashboardPage() {
           </div>
         </div>
 
-        {/* Upcoming Events */}
+        {/* Upcoming Events — /api/meetings (7 ngày tới) */}
         <div className="mb-8">
           <h3 className="text-sm font-semibold text-gray-400 mb-4">SỰ KIỆN SẮP TỚI</h3>
           <div className="space-y-3">
-            {[
-              { title: "Họp Nhóm Hàng Ngày", time: "10:00 AM", attendees: 8, color: "from-blue-500 to-cyan-500", icon: "📅" },
-              { title: "Demo Khách Hàng", time: "2:30 PM", attendees: 5, color: "from-purple-600 to-pink-600", icon: "🎯" },
-              { title: "Đánh Giá Thiết Kế", time: "4:00 PM", attendees: 4, color: "from-green-500 to-emerald-500", icon: "🎨" }
-            ].map((event, idx) => (
-              <GlassCard key={idx} hover className="p-3 relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60">
-                <div className={`absolute inset-0 bg-gradient-to-br ${event.color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
-                <div className="relative z-10">
-                  <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${event.color} flex items-center justify-center text-base flex-shrink-0`}>
-                      {event.icon}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-white font-semibold text-sm mb-1">{event.title}</div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-gray-400">{event.time}</span>
-                        <span className="text-gray-600">•</span>
-                        <span className="text-gray-400">{event.attendees} người</span>
+            {!metrics.loading && upcomingMeetings.length === 0 && (
+              <p className="text-sm text-gray-500">Không có cuộc họp trong 7 ngày tới.</p>
+            )}
+            {upcomingMeetings.map((event, idx) => {
+              const colors = [
+                'from-blue-500 to-cyan-500',
+                'from-purple-600 to-pink-600',
+                'from-green-500 to-emerald-500',
+              ];
+              const color = colors[idx % colors.length];
+              return (
+                <GlassCard
+                  key={event.id != null ? String(event.id) : idx}
+                  hover
+                  className="p-3 relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
+                  <div className="relative z-10">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`w-9 h-9 rounded-lg bg-gradient-to-br ${color} flex items-center justify-center text-base flex-shrink-0`}
+                      >
+                        📅
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white font-semibold text-sm mb-1 truncate">{event.title}</div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-gray-400">{event.time}</span>
+                          <span className="text-gray-600">•</span>
+                          <span className="text-gray-400">{event.attendees} người</span>
+                        </div>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all"
+                      onClick={() => navigate('/calendar')}
+                    >
+                      Lịch
+                    </button>
                   </div>
-                  <button className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all">
-                    Tham gia
-                  </button>
-                </div>
-              </GlassCard>
-            ))}
+                </GlassCard>
+              );
+            })}
           </div>
         </div>
 
@@ -406,9 +608,21 @@ function DashboardPage() {
           <h3 className="text-sm font-semibold text-gray-400 mb-3">THỐNG KÊ NHANH</h3>
           <div className="space-y-3">
             {[
-              { label: "Thời gian làm việc", value: "32.5h", icon: "⏱️" },
-              { label: "Tỷ lệ hoàn thành", value: "94%", icon: "✅" },
-              { label: "Tin nhắn đã gửi", value: "1,245", icon: "💬" }
+              {
+                label: 'Thông báo chưa đọc',
+                value: metrics.loading ? '…' : String(metrics.unread),
+                icon: '🔔',
+              },
+              {
+                label: 'Lời mời kết bạn',
+                value: metrics.loading ? '…' : String(metrics.pendingCount),
+                icon: '👋',
+              },
+              {
+                label: 'Bạn bè',
+                value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal),
+                icon: '👥',
+              },
             ].map((stat, idx) => (
               <div key={idx} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">

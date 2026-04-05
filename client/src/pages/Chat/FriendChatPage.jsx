@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { GlassCard, GradientButton, Toast } from '../../components/Shared';
+import { GradientButton, Toast } from '../../components/Shared';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -84,18 +84,30 @@ function FriendChatPage() {
     }
   }, [selectedFriendId, loadMessages]);
 
-  // Gửi tin nhắn qua socket-service (realtime)
+  // Gửi tin nhắn qua socket-service (realtime) + optimistic UI
   const handleSend = async () => {
     if (!selectedFriendId || !message.trim()) return;
 
     try {
+      const text = message.trim();
+      const tempId = `temp-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          _id: tempId,
+          senderId: currentUserId,
+          receiverId: selectedFriendId,
+          content: text,
+          createdAt: new Date().toISOString(),
+          _optimistic: true,
+        },
+      ]);
+      setMessage('');
       emit('friend:send', {
         receiverId: selectedFriendId,
-        content: message.trim(),
+        content: text,
         messageType: 'text',
       });
-      // Xóa input, chờ server trả về qua sự kiện socket
-      setMessage('');
     } catch (err) {
       showToast(err.response?.data?.message || err.message || 'Gửi tin nhắn thất bại', 'fail');
     }
@@ -140,7 +152,15 @@ function FriendChatPage() {
     };
 
     const handleSentMessage = (m) => {
-      appendIfRelevant(m);
+      if (!isMessageForCurrentConversation(m)) return;
+      setMessages((prev) => {
+        const withoutOpt = prev.filter((x) => !x._optimistic);
+        const id = m._id || m.id;
+        if (id && withoutOpt.some((x) => (x._id || x.id) === id)) {
+          return withoutOpt;
+        }
+        return [...withoutOpt, m];
+      });
     };
 
     on('friend:new_message', handleNewMessage);
@@ -165,24 +185,24 @@ function FriendChatPage() {
   };
 
   return (
-    <div className="h-screen flex overflow-hidden bg-[#020817] text-slate-100">
+    <div className="h-screen flex overflow-hidden bg-[#0b0e14] text-slate-100">
       {/* Khung 1: Sidebar nav chỉ icon, thanh trượt riêng */}
       <NavigationSidebar />
       <div className="flex-1 flex h-full min-w-0">
         {/* Khung 2: Danh sách bạn bè - thanh trượt riêng, chỉ hiện khi cần */}
-        <div className="w-72 shrink-0 bg-slate-900/60 p-4 border-r border-slate-800 overflow-y-auto h-full scrollbar-overlay">
+        <div className="w-72 shrink-0 bg-[#0f1218] p-4 border-r border-white/[0.06] overflow-y-auto h-full scrollbar-overlay">
           <h2 className="text-xl font-extrabold text-white mb-4">Chat bạn bè</h2>
-          <h3 className="text-sm font-bold text-gray-400 mb-2">Bạn bè</h3>
+          <h3 className="text-sm font-bold text-[#8e9297] mb-2">Bạn bè</h3>
           <div className="space-y-2">
             {viewFriends.map((f) => (
               <div
                 key={f.id}
                 onClick={() => setSelectedFriendId(f.id)}
-                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-slate-800/60 ${
-                  selectedFriendId === f.id ? 'bg-slate-800/80' : ''
+                className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer hover:bg-[#1a1d26]/80 ${
+                  selectedFriendId === f.id ? 'bg-[#1a1d26]' : ''
                 }`}
               >
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-base">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#8e44ad] to-pink-500 flex items-center justify-center text-base shadow-sm">
                   {f.avatar}
                 </div>
                 <div className="flex-1">
@@ -194,25 +214,25 @@ function FriendChatPage() {
               </div>
             ))}
             {viewFriends.length === 0 && (
-              <div className="text-xs text-gray-500">Chưa có bạn bè. Hãy thêm bạn ở trang Liên Hệ.</div>
+              <div className="text-xs text-[#8e9297]">Chưa có bạn bè. Hãy thêm bạn ở trang Liên Hệ.</div>
             )}
           </div>
         </div>
 
         {/* Khung 3: Khu vực chat - thanh trượt riêng cho danh sách tin nhắn */}
-        <div className="flex-1 flex flex-col h-full min-w-0">
+        <div className="flex-1 flex flex-col h-full min-w-0 bg-[#0b0e14]">
           {!currentFriend ? (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="flex-1 flex items-center justify-center text-[#8e9297]">
               Chọn một người bạn để bắt đầu chat
             </div>
           ) : (
             <>
-              <div className="shrink-0 border-b border-slate-800 bg-slate-900/60 px-4 py-3">
-                <h2 className="text-lg font-semibold text-white">{currentFriend.name}</h2>
+              <div className="shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-3">
+                <h2 className="text-lg font-bold text-white">{currentFriend.name}</h2>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2 scrollbar-overlay">
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 scrollbar-overlay">
                 {loadingMessages ? (
-                  <div className="text-center text-gray-400">Đang tải tin nhắn...</div>
+                  <div className="text-center text-[#8e9297]">Đang tải tin nhắn...</div>
                 ) : (
                   // Sắp xếp theo thời gian tăng dần: tin cũ ở trên, mới ở dưới
                   [...messages]
@@ -242,43 +262,49 @@ function FriendChatPage() {
                     return (
                       <div
                         key={m._id || m.id}
-                        className={`flex items-start mb-1 ${isMine ? 'justify-end' : 'justify-start'}`}
+                        className={`flex items-start gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}
                       >
                         {!isMine && (
-                          <div className="mr-2 w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-xs flex-shrink-0">
+                          <div className="mr-0.5 w-9 h-9 rounded-full bg-gradient-to-br from-[#8e44ad] to-pink-500 flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
                             {avatar}
                           </div>
                         )}
-                        <GlassCard
-                          className={`inline-block max-w-[80%] px-3 py-2 text-sm border border-slate-800 bg-slate-900/70 ${
-                            isMine ? 'bg-[#0a1734]' : ''
+                        <div
+                          className={`inline-block max-w-[min(80%,28rem)] rounded-2xl border border-white/[0.06] bg-[#1a1d26] px-3.5 py-2.5 text-sm shadow-sm ${
+                            isMine ? 'rounded-tr-md' : 'rounded-tl-md'
                           }`}
                         >
-                          <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-xs font-bold text-purple-300 truncate">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1">
+                            <span className="text-xs font-semibold text-[#a29bfe] truncate max-w-[12rem]">
                               {displayName}
                             </span>
-                            <span className="text-[10px] text-gray-500">
+                            <span className="text-[11px] text-[#8e9297] tabular-nums">
                               {formatTime(m.createdAt)}
                             </span>
                           </div>
-                          <div className="text-white whitespace-pre-wrap break-words">
+                          <div className="text-white whitespace-pre-wrap break-words leading-relaxed">
                             {m.content}
                           </div>
-                        </GlassCard>
+                        </div>
                       </div>
                     );
                   })
                 )}
               </div>
-              <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5 flex gap-2">
+              <div className="shrink-0 border-t border-white/[0.06] bg-[#0f1218] p-3.5 flex gap-3 items-stretch">
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Nhập tin nhắn..."
-                  className="flex-1 px-3 py-2 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white placeholder-gray-500"
+                  className="flex-1 min-w-0 px-4 py-2.5 rounded-xl bg-[#0b0e14] border border-white/[0.08] text-sm text-white placeholder-[#8e9297] focus:outline-none focus:ring-2 focus:ring-[#a29bfe]/30 focus:border-[#a29bfe]/40"
                 />
-                <GradientButton className="rounded-xl px-4 py-2 text-sm" onClick={handleSend}>Gửi</GradientButton>
+                <GradientButton
+                  variant="primary"
+                  className="rounded-xl px-5 py-2.5 text-sm shrink-0 hover:scale-100 shadow-md"
+                  onClick={handleSend}
+                >
+                  Gửi
+                </GradientButton>
               </div>
             </>
           )}

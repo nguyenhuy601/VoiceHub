@@ -1,4 +1,6 @@
 const taskService = require('../services/task.service');
+const Task = require('../models/Task');
+const mongoose = require('../db');
 const { logger } = require('/shared');
 
 class TaskController {
@@ -150,6 +152,63 @@ class TaskController {
       });
     } catch (error) {
       logger.error('Get tasks error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Thống kê task theo organizationId (phải khai báo route GET /statistics trước GET /:taskId).
+   */
+  async getStatistics(req, res) {
+    try {
+      const { organizationId } = req.query;
+      const oid =
+        organizationId != null && organizationId !== ''
+          ? String(organizationId).trim()
+          : '';
+      if (!oid || !mongoose.Types.ObjectId.isValid(oid)) {
+        return res.status(400).json({
+          success: false,
+          message: 'organizationId query parameter is required and must be a valid ObjectId',
+        });
+      }
+
+      const stats = await Task.aggregate([
+        { $match: { organizationId: new mongoose.Types.ObjectId(oid), isActive: true } },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const formatted = {
+        total: 0,
+        todo: 0,
+        in_progress: 0,
+        review: 0,
+        done: 0,
+        cancelled: 0,
+      };
+
+      stats.forEach((s) => {
+        if (s._id && Object.prototype.hasOwnProperty.call(formatted, s._id)) {
+          formatted[s._id] = s.count;
+          formatted.total += s.count;
+        }
+      });
+
+      res.json({
+        success: true,
+        status: 'success',
+        data: formatted,
+      });
+    } catch (error) {
+      logger.error('Get task statistics error:', error);
       res.status(500).json({
         success: false,
         message: error.message,

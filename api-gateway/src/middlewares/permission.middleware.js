@@ -2,6 +2,14 @@ const roleService = require('../services/role.service');
 const { getAction, extractServerId, noPermissionRoutes } = require('../config/permissions');
 const { isPublicRoute } = require('../config/services');
 
+/** Cache kết quả checkPermission (giảm tải role-service) */
+const permissionCache = new Map();
+const CACHE_TTL_MS = Math.max(5000, parseInt(process.env.GATEWAY_PERMISSION_CACHE_TTL_MS || '60000', 10) || 60000);
+
+function cacheKey(userId, serverId, action) {
+  return `${userId}|${serverId}|${action}`;
+}
+
 /**
  * Middleware kiểm tra quyền truy cập
  * Gọi Role Service để check permission
@@ -116,12 +124,27 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
-    // Gọi Role Service để check permission
+    const ck = cacheKey(userId, serverId, action);
+    const now = Date.now();
+    const hit = permissionCache.get(ck);
+    if (hit && now - hit.at < CACHE_TTL_MS) {
+      if (hit.allowed) {
+        return next();
+      }
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied',
+        reason: hit.reason || 'You do not have permission to perform this action',
+      });
+    }
+
     const { allowed, reason } = await roleService.checkPermission(
       userId,
       serverId,
       action
     );
+
+    permissionCache.set(ck, { allowed, reason, at: now });
 
     if (!allowed) {
       return res.status(403).json({
@@ -131,7 +154,6 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
-    // Cho phép request tiếp tục
     next();
   } catch (error) {
     console.error('Permission middleware error:', error);

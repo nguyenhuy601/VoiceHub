@@ -239,6 +239,12 @@ class MessageController {
         limit: parseInt(limit) || 50,
       };
 
+      if (receiverId && userId) {
+        const a = String(userId);
+        const b = String(receiverId);
+        options.dmCacheKey = [a, b].sort().join(':');
+      }
+
       const result = await messageService.getMessages(filter, options);
 
       res.json({

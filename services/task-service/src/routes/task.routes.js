@@ -8,6 +8,9 @@ router.post('/', taskController.createTask.bind(taskController));
 // Lấy danh sách tasks
 router.get('/', taskController.getTasks.bind(taskController));
 
+// Thống kê theo organization (đặt trước /:taskId — tránh khớp taskId = "statistics")
+router.get('/statistics', taskController.getStatistics.bind(taskController));
+
 // Lấy task theo ID
 router.get('/:taskId', taskController.getTaskById.bind(taskController));
 
