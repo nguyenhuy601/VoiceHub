@@ -3,11 +3,13 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Modal, NotificationModal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
 import OrganizationMainPanel from '../../components/Organization/OrganizationMainPanel';
+import ForwardChannelModal from '../../components/Organization/ForwardChannelModal';
 import OrganizationSettingsModal from '../../components/Organization/OrganizationSettingsModal';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import apiClient from '../../services/api/apiClient';
+import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
 import friendService from '../../services/friendService';
 import { organizationAPI } from '../../services/api/organizationAPI';
 
@@ -73,11 +75,14 @@ function OrganizationsPage() {
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
-  const [loadingOrganizations, setLoadingOrganizations] = useState(true);
+  /** Đã hoàn tất ít nhất một lần gọi API danh sách tổ chức (sidebar: chỉ hiện “chưa tham gia” sau khi biết kết quả). */
+  const [organizationsLoaded, setOrganizationsLoaded] = useState(false);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingChannels, setLoadingChannels] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  /** Tiến trình upload file/ảnh lên kênh (0–100), null khi không upload */
+  const [channelUploadProgress, setChannelUploadProgress] = useState(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteOrgId, setInviteOrgId] = useState(null);
   const [inviteSearch, setInviteSearch] = useState('');
@@ -107,6 +112,15 @@ function OrganizationsPage() {
   const [createChannelType, setCreateChannelType] = useState('chat');
   const [createChannelName, setCreateChannelName] = useState('');
   const [notice, setNotice] = useState(null);
+  const [leaveOrgModalOpen, setLeaveOrgModalOpen] = useState(false);
+  const [leaveOrgPendingId, setLeaveOrgPendingId] = useState(null);
+  const [leaveOrgPendingName, setLeaveOrgPendingName] = useState('');
+  const [leavingOrg, setLeavingOrg] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [forwardModalOpen, setForwardModalOpen] = useState(false);
+  const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
+  const [forwardTargets, setForwardTargets] = useState([]);
+  const [forwardTargetsLoading, setForwardTargetsLoading] = useState(false);
 
   const notify = (message, type = 'success') => {
     setNotice({
@@ -126,6 +140,10 @@ function OrganizationsPage() {
     () => departments.find((department) => department._id === selectedDepartmentId) || null,
     [departments, selectedDepartmentId]
   );
+  const selectedChannel = useMemo(
+    () => channels.find((ch) => String(ch._id) === String(selectedChannelId)) || null,
+    [channels, selectedChannelId]
+  );
   const inviteOrganization = useMemo(
     () => organizations.find((org) => org._id === inviteOrgId) || null,
     [organizations, inviteOrgId]
@@ -140,6 +158,11 @@ function OrganizationsPage() {
     });
   }, [inviteFriends, inviteSearch]);
   const hasOrganizations = organizations.length > 0;
+
+  const forwardPreviewText = useMemo(() => {
+    if (!forwardSourceMessage) return '';
+    return String(forwardSourceMessage.content || '').slice(0, 500);
+  }, [forwardSourceMessage]);
 
   const extractInvitePayloadFromInput = (raw) => {
     if (!raw) return '';
@@ -164,7 +187,6 @@ function OrganizationsPage() {
   };
 
   const loadOrganizations = async () => {
-    setLoadingOrganizations(true);
     try {
       const payload = await organizationAPI.getOrganizations();
       const list = unwrapData(payload);
@@ -178,7 +200,7 @@ function OrganizationsPage() {
     } catch (error) {
       notifyError('Không thể tải danh sách tổ chức');
     } finally {
-      setLoadingOrganizations(false);
+      setOrganizationsLoaded(true);
     }
   };
 
@@ -374,6 +396,67 @@ function OrganizationsPage() {
     setOrgSettingsModalOpen(true);
   };
 
+  const handleOrganizationDeleted = (deletedOrgId) => {
+    if (String(selectedOrganizationId) === String(deletedOrgId)) {
+      setViewMode('home');
+      setSelectedOrganizationId('');
+      setSelectedDepartmentId('');
+      setSelectedChannelId('');
+      setChannels([]);
+      setDepartments([]);
+      setMessages([]);
+    }
+    loadPendingInvitations();
+  };
+
+  const handleLeaveOrganization = (orgId) => {
+    if (!orgId) return;
+    const name =
+      organizations.find((o) => String(o._id) === String(orgId))?.name || 'tổ chức này';
+    setLeaveOrgPendingId(orgId);
+    setLeaveOrgPendingName(name);
+    setLeaveOrgModalOpen(true);
+  };
+
+  const closeLeaveOrgModal = () => {
+    if (leavingOrg) return;
+    setLeaveOrgModalOpen(false);
+    setLeaveOrgPendingId(null);
+    setLeaveOrgPendingName('');
+  };
+
+  const confirmLeaveOrganization = async () => {
+    const orgId = leaveOrgPendingId;
+    if (!orgId) return;
+    setLeavingOrg(true);
+    try {
+      await organizationAPI.leaveOrganization(orgId);
+      notifySuccess('Đã rời tổ chức');
+      setLeaveOrgModalOpen(false);
+      setLeaveOrgPendingId(null);
+      setLeaveOrgPendingName('');
+      if (String(selectedOrganizationId) === String(orgId)) {
+        setViewMode('home');
+        setSelectedOrganizationId('');
+        setSelectedDepartmentId('');
+        setSelectedChannelId('');
+        setChannels([]);
+        setDepartments([]);
+        setMessages([]);
+      }
+      await Promise.all([loadOrganizations(), loadPendingInvitations()]);
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Không thể rời tổ chức';
+      notifyError(typeof msg === 'string' ? msg : 'Không thể rời tổ chức');
+    } finally {
+      setLeavingOrg(false);
+    }
+  };
+
   const handleInviteOrganization = async (orgId) => {
     setInviteOrgId(orgId);
     setGeneratedInviteLink('');
@@ -492,20 +575,84 @@ function OrganizationsPage() {
 
     setSendingMessage(true);
     try {
-      const payload = await apiClient.post('/messages', {
+      const replyId = replyingToMessage?._id || replyingToMessage?.id;
+      const body = {
         roomId: selectedChannelId,
         content,
         messageType: 'text',
         organizationId: selectedOrganizationId || undefined,
-      });
+      };
+      if (replyId) body.replyToMessageId = replyId;
+      const payload = await apiClient.post('/messages', body);
       const created = unwrapData(payload);
       setMessages((prev) => [...prev, created]);
       setMessageInput('');
+      setReplyingToMessage(null);
     } catch (error) {
       notifyError('Gửi tin nhắn thất bại');
     } finally {
       setSendingMessage(false);
     }
+  };
+
+  const handleSaveMessageEdit = async (messageId, content) => {
+    try {
+      const res = await apiClient.patch(`/messages/${messageId}/edit`, { content });
+      const raw = unwrapData(res);
+      const updated = raw?.data !== undefined ? raw.data : raw;
+      setMessages((prev) =>
+        prev.map((m) => (String(m._id || m.id) === String(messageId) ? { ...m, ...updated } : m))
+      );
+      notifySuccess('Đã cập nhật tin nhắn');
+    } catch {
+      notifyError('Không thể chỉnh sửa');
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    if (!messageId || !window.confirm('Xoá tin nhắn này?')) return;
+    try {
+      await apiClient.delete(`/messages/${messageId}`);
+      setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
+      notifySuccess('Đã xoá tin nhắn');
+    } catch {
+      notifyError('Không thể xoá');
+    }
+  };
+
+  const handleForwardRequest = (msg) => {
+    setForwardSourceMessage(msg);
+    setForwardModalOpen(true);
+  };
+
+  const handleForwardConfirm = async ({ channelIds, note }) => {
+    if (!forwardSourceMessage || !channelIds?.length) return;
+    const chName = selectedChannel?.name || 'kênh';
+    const preview = String(forwardSourceMessage.content || '').trim().slice(0, 500);
+    const header = `📎 Chuyển tiếp từ #${chName}`;
+    const body = [note, header, preview].filter(Boolean).join('\n\n');
+    setSendingMessage(true);
+    try {
+      for (const cid of channelIds) {
+        await apiClient.post('/messages', {
+          roomId: cid,
+          content: body,
+          messageType: 'text',
+          organizationId: selectedOrganizationId || undefined,
+        });
+      }
+      notifySuccess('Đã chuyển tiếp');
+      setForwardModalOpen(false);
+      setForwardSourceMessage(null);
+    } catch {
+      notifyError('Chuyển tiếp thất bại');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleQuickReactMessage = (_message, _emoji) => {
+    notify('Phản hồi nhanh (emoji) đồng bộ server sẽ bổ sung sau.', 'info');
   };
 
   const handleSendChatOption = async ({ kind, file, payload }) => {
@@ -515,12 +662,54 @@ function OrganizationsPage() {
     let content = '';
 
     if (kind === 'file' && file) {
-      const sizeKb = Math.max(1, Math.round(file.size / 1024));
-      messageType = 'file';
-      content = `📎 Tệp: ${file.name} (${sizeKb} KB)`;
-    } else if (kind === 'image' && file) {
-      messageType = 'image';
-      content = `🖼️ Hình ảnh: ${file.name}`;
+      setSendingMessage(true);
+      setChannelUploadProgress(0);
+      try {
+        const normalized = await uploadChatFileAndCreateMessage(
+          apiClient,
+          file,
+          {
+            retentionContext: 'org_room',
+            roomId: selectedChannelId,
+            organizationId: selectedOrganizationId || undefined,
+          },
+          (p) => setChannelUploadProgress(p)
+        );
+        const unwrapped = unwrapData({ data: normalized });
+        setMessages((prev) => [...prev, unwrapped]);
+        notifySuccess('Đã gửi tệp lên kênh');
+      } catch (error) {
+        notifyError(error.response?.data?.message || error.message || 'Không gửi được tệp');
+      } finally {
+        setChannelUploadProgress(null);
+        setSendingMessage(false);
+      }
+      return;
+    }
+    if (kind === 'image' && file) {
+      setSendingMessage(true);
+      setChannelUploadProgress(0);
+      try {
+        const normalized = await uploadChatFileAndCreateMessage(
+          apiClient,
+          file,
+          {
+            retentionContext: 'org_room',
+            roomId: selectedChannelId,
+            organizationId: selectedOrganizationId || undefined,
+          },
+          (p) => setChannelUploadProgress(p)
+        );
+        const unwrapped = unwrapData({ data: normalized });
+        setMessages((prev) => [...prev, unwrapped]);
+        notifySuccess('Đã gửi hình ảnh lên kênh');
+      } catch (error) {
+        notifyError(error.response?.data?.message || error.message || 'Không gửi được hình');
+      } finally {
+        setChannelUploadProgress(null);
+        setSendingMessage(false);
+      }
+      return;
     } else if (kind === 'contact') {
       messageType = 'system';
       content = `👤 Danh thiếp\nTên: ${payload?.fullName || '-'}\nSĐT: ${payload?.phone || '-'}\nEmail: ${payload?.email || '-'}`;
@@ -554,6 +743,39 @@ function OrganizationsPage() {
     Promise.all([loadOrganizations(), loadPendingInvitations()]);
     loadChatContacts();
   }, []);
+
+  useEffect(() => {
+    if (!forwardModalOpen || !selectedOrganizationId || !departments.length) {
+      if (!forwardModalOpen) setForwardTargets([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setForwardTargetsLoading(true);
+      try {
+        const blocks = await Promise.all(
+          departments.map(async (d) => {
+            const payload = await organizationAPI.getChannels(selectedOrganizationId, d._id);
+            const list = unwrapData(payload);
+            const arr = Array.isArray(list) ? list : [];
+            return {
+              departmentId: d._id,
+              departmentName: d.name || 'Phòng ban',
+              channels: arr,
+            };
+          })
+        );
+        if (!cancelled) setForwardTargets(blocks);
+      } catch {
+        if (!cancelled) setForwardTargets([]);
+      } finally {
+        if (!cancelled) setForwardTargetsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [forwardModalOpen, selectedOrganizationId, departments]);
 
   /** Mở đúng kênh tổ chức khi điều hướng từ Chat bạn bè (tin chưa đọc). */
   useEffect(() => {
@@ -654,6 +876,7 @@ function OrganizationsPage() {
           <OrganizationMainPanel
             selectedOrganization={selectedOrganization}
             hasOrganizations={hasOrganizations}
+            organizationsLoaded={organizationsLoaded}
             viewMode={viewMode}
             departments={departments}
             selectedDepartment={selectedDepartment}
@@ -693,6 +916,14 @@ function OrganizationsPage() {
             loadingChatContacts={loadingChatContacts}
             loadingChannels={loadingChannels}
             loadingDepartments={loadingDepartments}
+            channelUploadProgress={channelUploadProgress}
+            replyingToMessage={replyingToMessage}
+            onClearReply={() => setReplyingToMessage(null)}
+            onReplyToMessage={(m) => setReplyingToMessage(m)}
+            onSaveMessageEdit={handleSaveMessageEdit}
+            onDeleteMessage={handleDeleteMessage}
+            onForwardMessage={handleForwardRequest}
+            onQuickReactMessage={handleQuickReactMessage}
           />
         }
         right={
@@ -705,13 +936,46 @@ function OrganizationsPage() {
             onOpenHome={handleOpenHome}
             onEditOrganization={handleEditOrganization}
             onInviteOrganization={handleInviteOrganization}
+            onLeaveOrganization={handleLeaveOrganization}
             onCreateOrganization={handleCreateOrganization}
             invitationCount={pendingInvitations.length}
-            loading={loadingOrganizations}
+            organizationsLoaded={organizationsLoaded}
           />
         }
         rightWidth="w-28"
       />
+      {leaveOrgModalOpen && (
+        <Modal
+          isOpen={leaveOrgModalOpen}
+          onClose={leavingOrg ? () => {} : closeLeaveOrgModal}
+          title="Rời khỏi tổ chức?"
+          size="sm"
+        >
+          <p className="text-sm leading-relaxed text-gray-300">
+            Bạn sắp rời khỏi{' '}
+            <span className="font-semibold text-white">&quot;{leaveOrgPendingName}&quot;</span>.
+            Bạn sẽ mất quyền truy cập kênh và dữ liệu tổ chức cho đến khi được mời lại.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
+            <button
+              type="button"
+              onClick={closeLeaveOrgModal}
+              disabled={leavingOrg}
+              className="rounded-xl border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Huỷ
+            </button>
+            <button
+              type="button"
+              onClick={confirmLeaveOrganization}
+              disabled={leavingOrg}
+              className="rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_16px_rgba(225,29,72,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {leavingOrg ? 'Đang xử lý…' : 'Rời khỏi'}
+            </button>
+          </div>
+        </Modal>
+      )}
       {inviteModalOpen && (
         <Modal
           isOpen={inviteModalOpen}
@@ -835,6 +1099,20 @@ function OrganizationsPage() {
         }}
         organization={orgForSettings}
         onOrganizationUpdated={loadOrganizations}
+        onOrganizationDeleted={handleOrganizationDeleted}
+      />
+
+      <ForwardChannelModal
+        isOpen={forwardModalOpen}
+        onClose={() => {
+          setForwardModalOpen(false);
+          setForwardSourceMessage(null);
+        }}
+        organizationName={selectedOrganization?.name || ''}
+        targets={forwardTargets}
+        loading={forwardTargetsLoading}
+        previewText={forwardPreviewText}
+        onConfirm={handleForwardConfirm}
       />
 
       <Modal

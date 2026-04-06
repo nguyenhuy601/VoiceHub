@@ -197,21 +197,20 @@ function SocketProvider({ children }) {
       // Event: 'users:online' - server gửi list users online
       // Chạy khi connect hoặc khi có user join/leave
       newSocket.on('users:online', (users) => {
-        // users: array of user IDs ['user1', 'user2', ...]
-        setOnlineUsers(users);
+        const list = Array.isArray(users) ? users.map((id) => String(id)) : [];
+        setOnlineUsers(list);
       });
 
       // Event: 'user:connected' - có user mới online
       newSocket.on('user:connected', (userId) => {
-        // Thêm userId vào onlineUsers
-        // Set: loại bỏ duplicates
-        setOnlineUsers((prev) => [...new Set([...prev, userId])]);
+        const id = String(userId);
+        setOnlineUsers((prev) => [...new Set([...prev.map(String), id])]);
       });
 
       // Event: 'user:disconnected' - có user offline
       newSocket.on('user:disconnected', (userId) => {
-        // Remove userId khỏi onlineUsers
-        setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+        const id = String(userId);
+        setOnlineUsers((prev) => prev.map(String).filter((x) => x !== id));
       });
 
       // Lưu socket instance vào state

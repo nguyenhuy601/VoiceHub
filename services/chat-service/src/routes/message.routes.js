@@ -23,8 +23,26 @@ router.post(
   messageController.deleteDmBetweenUsers.bind(messageController)
 );
 
+router.get(
+  '/internal/messages/:messageId',
+  internalServiceOnly,
+  messageController.getMessageInternal.bind(messageController)
+);
+
+router.patch(
+  '/internal/messages/:messageId/file-promoted',
+  internalServiceOnly,
+  messageController.promoteMessageFileInternal.bind(messageController)
+);
+
 // Tất cả routes đều cần authentication
 router.use(authenticate);
+
+// Signed upload URL (Firebase) — đặt trước POST /
+router.post(
+  '/storage/signed-upload',
+  messageController.createSignedUploadUrl.bind(messageController)
+);
 
 // Tạo tin nhắn mới
 router.post('/', messageController.createMessage.bind(messageController));

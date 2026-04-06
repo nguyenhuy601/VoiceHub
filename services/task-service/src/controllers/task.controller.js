@@ -1,7 +1,12 @@
+const axios = require('axios');
 const taskService = require('../services/task.service');
 const Task = require('../models/Task');
 const mongoose = require('../db');
 const { logger } = require('/shared');
+const { publishTaskFromFileJob } = require('../messaging/taskFromFilePublisher');
+
+const CHAT_SERVICE_URL = (process.env.CHAT_SERVICE_URL || 'http://chat-service:3006').replace(/\/$/, '');
+const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
 
 class TaskController {
   // Tạo task mới
@@ -267,6 +272,84 @@ class TaskController {
     } catch (error) {
       logger.error('Delete task error:', error);
       res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Hàng đợi: tạo task từ file trong tin nhắn (worker copy Storage temp → tasks/).
+   */
+  async createTaskFromChatFile(req, res) {
+    try {
+      const userId = req.user?.id || req.userContext?.userId;
+      const { messageId, title, organizationId } = req.body || {};
+
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      if (!messageId || !organizationId) {
+        return res.status(400).json({
+          success: false,
+          message: 'messageId and organizationId are required',
+        });
+      }
+      if (!CHAT_INTERNAL_TOKEN) {
+        return res.status(503).json({
+          success: false,
+          message: 'CHAT_INTERNAL_TOKEN is not configured',
+        });
+      }
+
+      const msgRes = await axios.get(
+        `${CHAT_SERVICE_URL}/api/messages/internal/messages/${messageId}`,
+        {
+          headers: { 'x-internal-token': CHAT_INTERNAL_TOKEN },
+          timeout: 15000,
+          validateStatus: () => true,
+        }
+      );
+
+      if (msgRes.status !== 200 || !msgRes.data?.data) {
+        return res.status(400).json({
+          success: false,
+          message: 'Message not found',
+        });
+      }
+
+      const msg = msgRes.data.data;
+      const sender = msg.senderId?._id || msg.senderId;
+      if (String(sender) !== String(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not your message',
+        });
+      }
+      if (!msg.fileMeta?.storagePath) {
+        return res.status(400).json({
+          success: false,
+          message: 'Message has no file attachment',
+        });
+      }
+
+      await publishTaskFromFileJob({
+        messageId: String(messageId),
+        userId: String(userId),
+        organizationId: String(organizationId),
+        title: title || 'Task từ file',
+        storagePath: msg.fileMeta.storagePath,
+        originalName: msg.fileMeta.originalName,
+        mimeType: msg.fileMeta.mimeType,
+      });
+
+      return res.status(202).json({
+        success: true,
+        message: 'Queued for processing',
+      });
+    } catch (error) {
+      logger.error('createTaskFromChatFile error:', error);
+      return res.status(500).json({
         success: false,
         message: error.message,
       });

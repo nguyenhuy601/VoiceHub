@@ -305,3 +305,56 @@ exports.removeMember = async (req, res, next) => {
     next(error);
   }
 };
+
+/** Người dùng tự rời tổ chức (không cần quyền admin). Chủ sở hữu duy nhất không được rời — phải xóa tổ chức hoặc chuyển quyền. */
+exports.leaveOrganization = async (req, res, next) => {
+  try {
+    const orgId = req.params.orgId;
+    const userId = req.user?.id || req.user?.userId || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+    }
+
+    const membership = await Membership.findOne({
+      user: userId,
+      organization: orgId,
+      status: 'active',
+    });
+
+    if (!membership) {
+      return res.status(404).json({ status: 'fail', message: 'Bạn không thuộc tổ chức này' });
+    }
+
+    const normalizedRole = Membership.normalizeRole(membership.role);
+    if (normalizedRole === 'owner') {
+      const ownerCount = await Membership.countDocuments({
+        organization: orgId,
+        status: 'active',
+        role: 'owner',
+      });
+      if (ownerCount <= 1) {
+        return res.status(400).json({
+          status: 'fail',
+          message:
+            'Bạn là chủ sở hữu duy nhất. Hãy xóa tổ chức hoặc chuyển quyền sở hữu trước khi rời.',
+        });
+      }
+    }
+
+    await Membership.findOneAndDelete({ _id: membership._id });
+
+    await emitRealtimeEvent({
+      event: 'organization:member_removed',
+      userId: String(userId),
+      payload: {
+        organizationId: String(orgId),
+        userId: String(userId),
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    res.json({ status: 'success', message: 'Đã rời tổ chức' });
+  } catch (error) {
+    next(error);
+  }
+};

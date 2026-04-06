@@ -28,7 +28,13 @@ const storageKey = (orgId, key) => `orgSettings:${orgId}:${key}`;
  * Owner / Admin: toàn bộ tab quản trị (giống chế độ Quản trị viên trên trang Cài đặt).
  * Member: chỉ Hồ sơ / Thông báo / Quyền riêng tư / Giao diện (giống hình 2).
  */
-function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizationUpdated }) {
+function OrganizationSettingsModal({
+  isOpen,
+  onClose,
+  organization,
+  onOrganizationUpdated,
+  onOrganizationDeleted,
+}) {
   const { user, updateUser } = useAuth();
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
@@ -86,6 +92,22 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
     icon: '🧩',
   });
 
+  /** Tên tổ chức từ API — dùng để so khớp khi xóa (không phụ thuộc chỉnh sửa form chưa lưu). */
+  const [serverOrgName, setServerOrgName] = useState('');
+  const [deleteOrgModalOpen, setDeleteOrgModalOpen] = useState(false);
+  const [deleteOrgNameInput, setDeleteOrgNameInput] = useState('');
+  const [deletingOrg, setDeletingOrg] = useState(false);
+
+  const expectedOrgNameForDelete = useMemo(() => {
+    const fromServer = serverOrgName?.trim();
+    if (fromServer) return fromServer;
+    return String(organization?.name || '').trim();
+  }, [serverOrgName, organization?.name]);
+
+  const deleteNameMatches =
+    expectedOrgNameForDelete.length > 0 &&
+    deleteOrgNameInput.trim() === expectedOrgNameForDelete;
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
   };
@@ -97,8 +119,10 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
       const payload = await organizationAPI.getOrganization(orgId);
       const data = unwrap(payload);
       const o = data?.data ?? data;
+      const n = o?.name || organization?.name || '';
+      setServerOrgName(n);
       setOrganizationForm({
-        name: o?.name || organization?.name || '',
+        name: n,
         description: o?.description || '',
         website: o?.website || '',
         contactEmail: o?.contactEmail || '',
@@ -108,6 +132,7 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
         ...prev,
         name: organization?.name || prev.name,
       }));
+      setServerOrgName(organization?.name || '');
     } finally {
       setLoadingOrg(false);
     }
@@ -134,7 +159,13 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
   }, [orgId, isFullAccess]);
 
   useEffect(() => {
-    if (!isOpen || !orgId) return;
+    if (!isOpen) {
+      setDeleteOrgModalOpen(false);
+      setDeleteOrgNameInput('');
+      setDeletingOrg(false);
+      return;
+    }
+    if (!orgId) return;
     const first = isFullAccess ? 'general' : 'profile';
     setActiveTab(first);
     loadOrgFromApi();
@@ -177,16 +208,52 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
     }
   };
 
+  const openDeleteOrgModal = () => {
+    setDeleteOrgNameInput('');
+    setDeleteOrgModalOpen(true);
+  };
+
+  const closeDeleteOrgModal = () => {
+    if (deletingOrg) return;
+    setDeleteOrgModalOpen(false);
+    setDeleteOrgNameInput('');
+  };
+
+  const handleConfirmDeleteOrganization = async () => {
+    if (!orgId || !deleteNameMatches) return;
+    setDeletingOrg(true);
+    try {
+      await organizationAPI.deleteOrganization(orgId);
+      showToast('Đã xóa tổ chức', 'success');
+      setDeleteOrgModalOpen(false);
+      setDeleteOrgNameInput('');
+      onOrganizationUpdated?.();
+      onOrganizationDeleted?.(orgId);
+      onClose();
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        'Không thể xóa tổ chức';
+      showToast(typeof msg === 'string' ? msg : 'Không thể xóa tổ chức', 'error');
+    } finally {
+      setDeletingOrg(false);
+    }
+  };
+
   const handleSaveOrganization = async () => {
     if (!orgId || !organizationForm.name?.trim()) {
       showToast('Vui lòng nhập tên tổ chức', 'error');
       return;
     }
     try {
+      const trimmedName = organizationForm.name.trim();
       await organizationAPI.updateOrganization(orgId, {
-        name: organizationForm.name.trim(),
+        name: trimmedName,
         description: organizationForm.description,
       });
+      setServerOrgName(trimmedName);
       showToast('Đã lưu thông tin tổ chức', 'success');
       onOrganizationUpdated?.();
     } catch {
@@ -370,6 +437,22 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
                   Theo gói đăng ký — chi tiết sẽ đồng bộ khi backend billing sẵn sàng.
                 </p>
               </GlassCard>
+              {myRole === 'owner' && (
+                <GlassCard className="border border-red-900/40 bg-red-950/20">
+                  <h3 className="mb-2 text-lg font-bold text-red-300">Vùng nguy hiểm</h3>
+                  <p className="mb-3 text-sm text-gray-400">
+                    Xóa tổ chức sẽ vô hiệu hóa tổ chức này. Nếu bạn là chủ sở hữu duy nhất và không thể rời
+                    tổ chức, hãy xóa tổ chức hoặc chuyển quyền sở hữu trước.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openDeleteOrgModal}
+                    className="rounded-xl border border-red-500/60 bg-red-950/40 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-950/60"
+                  >
+                    Xóa tổ chức vĩnh viễn
+                  </button>
+                </GlassCard>
+              )}
             </div>
           )}
 
@@ -659,6 +742,57 @@ function OrganizationSettingsModal({ isOpen, onClose, organization, onOrganizati
           )}
         </div>
       </Modal>
+
+      <Modal
+        isOpen={deleteOrgModalOpen}
+        onClose={closeDeleteOrgModal}
+        title="Xóa tổ chức vĩnh viễn?"
+        size="sm"
+        layerClassName="z-[250]"
+      >
+        <div className="space-y-4 text-slate-100">
+          <p className="text-sm text-gray-300">
+            Hành động này vô hiệu hóa tổ chức và không thể hoàn tác từ giao diện này.
+          </p>
+          <div className="rounded-xl border border-white/10 bg-[#040f2a] px-3 py-2 text-sm">
+            <span className="text-gray-400">Tên tổ chức: </span>
+            <span className="font-semibold text-white">{expectedOrgNameForDelete || '—'}</span>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-400">
+              Nhập tên tổ chức để xác nhận.
+            </label>
+            <input
+              type="text"
+              value={deleteOrgNameInput}
+              onChange={(e) => setDeleteOrgNameInput(e.target.value)}
+              placeholder="Nhập tên tổ chức"
+              autoComplete="off"
+              disabled={deletingOrg}
+              className="w-full rounded-xl border border-slate-700 bg-[#040f2a] px-4 py-3 text-white outline-none placeholder:text-gray-500 focus:border-indigo-500 disabled:opacity-50"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={closeDeleteOrgModal}
+              disabled={deletingOrg}
+              className="rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-semibold text-gray-200 hover:bg-white/5 disabled:opacity-50"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteOrganization}
+              disabled={!deleteNameMatches || deletingOrg || !expectedOrgNameForDelete}
+              className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-gray-600 disabled:text-gray-300"
+            >
+              {deletingOrg ? 'Đang xóa…' : 'Xóa tổ chức'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}

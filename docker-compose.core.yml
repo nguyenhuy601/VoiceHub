@@ -163,16 +163,28 @@ services:
       - "3009:3009"
     env_file:
       - ./services/task-service/.env
+    environment:
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
     depends_on:
-      - mongodb
-      - redis
-      - organization-service
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      chat-service:
+        condition: service_started
+      organization-service:
+        condition: service_started
     networks:
       - enterprise-network
     volumes:
       - ./services/task-service:/app
       - ./shared:/shared
       - /app/node_modules
+    command: ["sh", "-c", "npm install && node src/server.js"]
 
   document-service:
     build: ./services/document-service

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton, Toast } from '../../components/Shared';
+import AddFriendModal from '../../components/Friends/AddFriendModal';
 import friendService from '../../services/friendService';
 
 function FriendsPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('all');
   const [toast, setToast] = useState(null);
+  const [showAddFriend, setShowAddFriend] = useState(false);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -15,8 +17,13 @@ function FriendsPage() {
   };
 
   const sendFriendRequest = async (userId) => {
+    const id = userId && String(userId).trim();
+    if (!id) {
+      showToast('Không xác định được người dùng', 'fail');
+      return;
+    }
     try {
-      await friendService.sendRequest(userId);
+      await friendService.sendRequest(id);
       showToast('Đã gửi lời mời', 'success');
     } catch (err) {
       showToast(err.response?.data?.message || 'Lỗi khi gửi yêu cầu', 'fail');
@@ -78,8 +85,10 @@ function FriendsPage() {
 
     try {
       const resp = await friendService.searchByPhone(searchPhone);
-      if (resp.data && resp.data.data) {
-        setSearchResult(resp.data.data);
+      const body = resp?.data !== undefined ? resp.data : resp;
+      const user = body?.data !== undefined ? body.data : body;
+      if (user && (user._id || user.userId || user.phone)) {
+        setSearchResult(user);
       } else {
         showToast('Không tìm thấy người dùng', 'info');
         setSearchResult(null);
@@ -100,9 +109,19 @@ function FriendsPage() {
       <NavigationSidebar currentPage="Bạn Bè" />
       <div className="flex-1 p-6 overflow-y-auto overflow-x-visible scrollbar-gradient">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-black text-gradient mb-2">Bạn Bè và Liên Hệ</h1>
-          <p className="text-gray-400">Kết nối và giao tiếp với đồng nghiệp</p>
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-black text-gradient mb-2">Bạn Bè và Liên Hệ</h1>
+            <p className="text-gray-400">Kết nối và giao tiếp với đồng nghiệp</p>
+          </div>
+          <GradientButton
+            type="button"
+            variant="primary"
+            className="shrink-0 px-6 py-3 text-base font-semibold"
+            onClick={() => setShowAddFriend(true)}
+          >
+            ➕ Kết bạn
+          </GradientButton>
         </div>
 
         {/* Tabs */}
@@ -285,7 +304,16 @@ function FriendsPage() {
                       )}
                     </div>
                     <div className="flex gap-2">
-                      <GradientButton variant="secondary" className="flex-1">Thêm bạn</GradientButton>
+                      <GradientButton
+                        variant="secondary"
+                        className="flex-1"
+                        type="button"
+                        onClick={() =>
+                          sendFriendRequest(searchResult.userId || searchResult._id)
+                        }
+                      >
+                        Thêm bạn
+                      </GradientButton>
                     </div>
                   </div>
                 </GlassCard>
@@ -316,6 +344,8 @@ function FriendsPage() {
         )}
       </div>
       
+      <AddFriendModal isOpen={showAddFriend} onClose={() => setShowAddFriend(false)} />
+
       {/* Toast */}
       {toast && (
         <Toast 

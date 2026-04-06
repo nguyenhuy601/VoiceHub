@@ -93,14 +93,17 @@ module.exports = function registerChatNamespace(io) {
     }
 
     // ====== FRIEND DM: gửi tin nhắn ======
-    socket.on('friend:send', async ({ receiverId, content, messageType = 'text' }) => {
+    socket.on('friend:send', async ({ receiverId, content, messageType = 'text', replyToMessageId }) => {
       try {
         if (!receiverId || !content) {
           return socket.emit('error', { message: 'receiverId and content are required' });
         }
 
-        const useQueue =
+        let useQueue =
           process.env.FRIEND_DM_USE_QUEUE !== 'false' && Boolean(process.env.RABBITMQ_URL);
+        if (replyToMessageId) {
+          useQueue = false;
+        }
 
         if (useQueue && userId) {
           const pub = await publishFriendDm({
@@ -120,9 +123,12 @@ module.exports = function registerChatNamespace(io) {
           socket.handshake.auth?.token || socket.handshake.headers?.authorization
         );
 
+        const body = { receiverId, content, messageType };
+        if (replyToMessageId) body.replyToMessageId = replyToMessageId;
+
         const resp = await axios.post(
           `${CHAT_SERVICE_URL}/api/messages`,
-          { receiverId, content, messageType },
+          body,
           token
             ? { headers: { Authorization: `Bearer ${token}` } }
             : undefined

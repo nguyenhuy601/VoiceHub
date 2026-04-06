@@ -10,9 +10,11 @@ const DepartmentBubbleRail = ({
   onOpenHome,
   onEditOrganization,
   onInviteOrganization,
+  onLeaveOrganization,
   onCreateOrganization,
   invitationCount = 0,
-  loading = false,
+  /** Sau lần tải danh sách tổ chức đầu tiên (để không hiện nhầm “chưa tham gia” trước khi API trả). */
+  organizationsLoaded = false,
 }) => {
   const orderedOrganizations = [...organizations].reverse();
 
@@ -82,6 +84,12 @@ const DepartmentBubbleRail = ({
       document.body
     );
 
+  const dropdownOrg =
+    dropdown.show && dropdown.orgId
+      ? organizations.find((o) => String(o._id) === String(dropdown.orgId))
+      : null;
+  const isOrgOwner = String(dropdownOrg?.myRole || '').toLowerCase() === 'owner';
+
   const dropdownPortal =
     dropdown.show &&
     createPortal(
@@ -118,6 +126,19 @@ const DepartmentBubbleRail = ({
           >
             Mời tham gia tổ chức
           </button>
+          {!isOrgOwner && (
+            <button
+              type="button"
+              onClick={() => {
+                const id = dropdown.orgId;
+                setDropdown((prev) => ({ ...prev, show: false }));
+                onLeaveOrganization?.(id);
+              }}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-rose-300 transition hover:bg-rose-500/15"
+            >
+              Thoát tổ chức
+            </button>
+          )}
         </div>
       </>,
       document.body
@@ -138,7 +159,7 @@ const DepartmentBubbleRail = ({
         <button
           type="button"
           onClick={onOpenHome}
-          title="Trang chu to chuc"
+          title="Trang chủ tổ chức"
           className={`group relative flex h-11 w-11 items-center justify-center rounded-full border transition ${
             viewMode === 'home'
               ? 'border-cyan-400/80 bg-cyan-500/20 shadow-[0_0_16px_rgba(34,211,238,0.28)]'
@@ -148,24 +169,18 @@ const DepartmentBubbleRail = ({
           <span className="text-lg leading-none">⌂</span>
         </button>
 
-        {loading && (
-          <div className="mt-2 h-9 w-9 animate-pulse rounded-full bg-white/10" />
-        )}
+        <button
+          type="button"
+          onClick={onCreateOrganization}
+          title="Tạo tổ chức"
+          className="group relative flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white transition hover:border-white/35 hover:bg-white/10"
+        >
+          <span className="text-2xl leading-none">+</span>
+        </button>
 
-        {!loading && (
-          <button
-            type="button"
-            onClick={onCreateOrganization}
-            title="Tao to chuc"
-            className="group relative flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white transition hover:border-white/35 hover:bg-white/10"
-          >
-            <span className="text-2xl leading-none">+</span>
-          </button>
-        )}
-
-        {!loading && organizations.length === 0 && (
-          <div className="px-1 text-center text-[11px] text-gray-500">
-            Ban chua thuoc to chuc nao
+        {organizationsLoaded && organizations.length === 0 && (
+          <div className="px-1 text-center text-[11px] leading-snug text-gray-500">
+            Chưa tham gia tổ chức nào
           </div>
         )}
 

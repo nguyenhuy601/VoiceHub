@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import AddFriendModal from '../../components/Friends/AddFriendModal';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -18,6 +19,9 @@ function DashboardPage() {
   const [toast, setToast] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  /** Tăng khi đổi danh sách bạn / lời mời để refetch metrics */
+  const [metricsTick, setMetricsTick] = useState(0);
   const [metrics, setMetrics] = useState({
     loading: true,
     orgCount: null,
@@ -31,7 +35,7 @@ function DashboardPage() {
   /** Cuộc họp sắp tới (từ GET /api/meetings + startFrom/startTo) */
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
   const { user } = useAuth();
-  const { onlineUsers } = useSocket();
+  const { onlineUsers, connected: socketConnected } = useSocket();
   const navigate = useNavigate();
 
   const displayName =
@@ -181,20 +185,31 @@ function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [metricsTick]);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
   };
 
-  /** Merge socket onlineUsers (Redis-backed trên server) với status từ API */
+  /**
+   * Presence realtime: khi socket đã kết nối, danh sách `onlineUsers` từ socket-service là nguồn đúng
+   * (ai không còn trong danh sách = offline). Không fallback `p.status` từ API khi đã connected — API/DB
+   * có thể vẫn là "online" vài giây sau khi peer đã disconnect.
+   */
   const displayPresenceFriends = useMemo(() => {
     const set = new Set((onlineUsers || []).map(String));
-    return presenceFriends.map((p) => ({
-      ...p,
-      status: set.has(String(p.id)) ? 'online' : p.status,
-    }));
-  }, [presenceFriends, onlineUsers]);
+    return presenceFriends.map((p) => {
+      const idStr = String(p.id);
+      const inLiveList = set.has(idStr);
+      if (socketConnected) {
+        return { ...p, status: inLiveList ? 'online' : 'offline' };
+      }
+      return {
+        ...p,
+        status: inLiveList ? 'online' : p.status,
+      };
+    });
+  }, [presenceFriends, onlineUsers, socketConnected]);
 
   const onlineFriendCount = useMemo(
     () => displayPresenceFriends.filter((p) => p.status === 'online').length,
@@ -632,11 +647,25 @@ function DashboardPage() {
                 <span className="text-sm font-bold text-indigo-300">{stat.value}</span>
               </div>
             ))}
+            <GradientButton
+              type="button"
+              variant="primary"
+              className="w-full mt-4 py-3 text-sm font-semibold"
+              onClick={() => setShowAddFriendModal(true)}
+            >
+              ➕ Kết bạn
+            </GradientButton>
           </div>
         </div>
         </div>
       </div>
     </div>
+
+    <AddFriendModal
+      isOpen={showAddFriendModal}
+      onClose={() => setShowAddFriendModal(false)}
+      onFriendlistChanged={() => setMetricsTick((t) => t + 1)}
+    />
 
     {/* Welcome Greeting Modal (hiển thị 1 lần sau khi đăng nhập / vào web) */}
     <Modal

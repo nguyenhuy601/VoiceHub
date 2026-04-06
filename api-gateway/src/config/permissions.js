@@ -6,10 +6,12 @@ const routeActionMap = {
   // Chat Service
   'GET /api/messages': 'chat:read',
   'POST /api/messages': 'chat:write',
+  'POST /api/messages/storage/signed-upload': 'chat:write',
   'PATCH /api/messages': 'chat:write',
   'DELETE /api/messages': 'chat:delete',
   'GET /api/chat/messages': 'chat:read',
   'POST /api/chat/messages': 'chat:write',
+  'POST /api/chat/messages/storage/signed-upload': 'chat:write',
   'PATCH /api/chat/messages': 'chat:write',
   'DELETE /api/chat/messages': 'chat:delete',
 
@@ -44,6 +46,7 @@ const routeActionMap = {
   'PUT /api/organizations/:orgId/departments': 'organization:write',
   'DELETE /api/organizations/:orgId/departments': 'organization:delete',
   'GET /api/organizations/:orgId/members': 'organization:read',
+  'POST /api/organizations/:orgId/members/leave': 'organization:read',
   'POST /api/organizations/:orgId/members': 'organization:write',
   'PUT /api/organizations/:orgId/members': 'organization:write',
   'DELETE /api/organizations/:orgId/members': 'organization:delete',

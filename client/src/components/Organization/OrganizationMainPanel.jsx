@@ -1,10 +1,17 @@
 import { useRef, useState } from 'react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
+import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
+import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
+import ChannelMessageToolbar from './ChannelMessageToolbar';
+import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
+import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 
 const OrganizationMainPanel = ({
   selectedOrganization,
   hasOrganizations = true,
+  /** false: chưa biết user có tổ chức hay không — không hiển thị màn empty/home để tránh nháy UI */
+  organizationsLoaded = false,
   viewMode = 'home',
   departments = [],
   selectedDepartment,
@@ -42,6 +49,15 @@ const OrganizationMainPanel = ({
   loadingChatContacts = false,
   loadingChannels = false,
   loadingDepartments = false,
+  channelUploadProgress = null,
+  /** Trả lời tin (Discord-like) */
+  replyingToMessage = null,
+  onClearReply,
+  onReplyToMessage,
+  onSaveMessageEdit,
+  onDeleteMessage,
+  onForwardMessage,
+  onQuickReactMessage,
 }) => {
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -58,6 +74,12 @@ const OrganizationMainPanel = ({
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
+  /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
+  const [toolbarPlacementById, setToolbarPlacementById] = useState({});
+
   const chatChannels = channels.filter((channel) => channel.type !== 'voice');
   const voiceChannels = channels.filter((channel) => channel.type === 'voice');
   const selectedChannel = channels.find((channel) => channel._id === selectedChannelId) || null;
@@ -69,6 +91,64 @@ const OrganizationMainPanel = ({
       minute: '2-digit',
       hour12: true,
     });
+  };
+
+  const plainTextForMessage = (msg) => {
+    if (!msg) return '';
+    const t = msg.messageType || 'text';
+    if (t === 'text') return String(msg.content || '');
+    if (t === 'file' || t === 'image')
+      return msg.fileMeta?.originalName || String(msg.content || '').slice(0, 200) || '[Đính kèm]';
+    return String(msg.content || '');
+  };
+
+  /** Ảnh / file: không hiện sao chép. Còn lại: có nội dung chuỗi (kể cả link) là cho phép. */
+  const canShowCopyTextInMenu = (msg) => {
+    if (!msg) return false;
+    const t = String(msg.messageType || 'text').toLowerCase();
+    if (t === 'image' || t === 'file') return false;
+    if (msg.fileMeta) return false;
+    const raw = msg.content;
+    if (raw == null) return false;
+    const s = typeof raw === 'string' ? raw : String(raw);
+    return s.trim().length > 0;
+  };
+
+  const handleMessageRowMouseEnter = (messageId, event) => {
+    const el = event?.currentTarget;
+    if (!el) return;
+    const needBelow = shouldPlaceToolbarBelowBubble(el);
+    const next = needBelow ? 'below' : 'above';
+    setToolbarPlacementById((prev) => {
+      const key = String(messageId);
+      if (prev[key] === next) return prev;
+      return { ...prev, [key]: next };
+    });
+  };
+
+  const canEditOrgMessage = (msg) => {
+    const t = msg?.messageType || 'text';
+    if (t !== 'text') return false;
+    if (msg?.fileMeta) return false;
+    return true;
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setEditDraft('');
+  };
+
+  const submitEdit = async (messageId) => {
+    const trimmed = editDraft.trim();
+    if (!trimmed || !messageId) return;
+    await onSaveMessageEdit?.(messageId, trimmed);
+    cancelEdit();
+  };
+
+  const replyToLabel = (msg) => {
+    const sid = msg?.senderId?._id || msg?.senderId;
+    if (String(sid || '') === String(currentUserId || '')) return 'Bạn';
+    return 'Thành viên';
   };
 
   const handleCreateContactCard = () => {
@@ -333,6 +413,21 @@ const OrganizationMainPanel = ({
       </div>
     </div>
   );
+
+  if (!organizationsLoaded) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-6">
+        <div className="rounded-2xl border border-white/10 bg-black/20 px-12 py-14 text-center shadow-[0_0_40px_rgba(0,0,0,0.35)]">
+          <div
+            className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-cyan-400/20 border-t-cyan-400"
+            role="status"
+            aria-label="Đang tải"
+          />
+          <p className="mt-5 text-sm text-gray-400">Đang tải không gian tổ chức…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasOrganizations) {
     return (
@@ -615,27 +710,123 @@ const OrganizationMainPanel = ({
 
               {!loadingMessages &&
                 messages.map((message) => {
+                  const mid = message._id || message.id;
                   const senderId = message?.senderId?._id || message?.senderId;
                   const isMine = String(senderId || '') === String(currentUserId || '');
                   const type = message?.messageType || 'text';
                   const typeLabel =
                     type === 'image' ? 'Hình ảnh' : type === 'file' ? 'Tệp' : type === 'system' ? 'Hệ thống' : 'Tin nhắn';
+                  const replyId = message.replyToMessageId;
+                  const parentMsg = replyId
+                    ? messages.find((m) => String(m._id || m.id) === String(replyId))
+                    : null;
+                  const replyPreview = parentMsg
+                    ? plainTextForMessage(parentMsg).slice(0, 160)
+                    : 'Tin nhắn gốc';
+                  const isEditing = editingMessageId && String(editingMessageId) === String(mid);
+                  const showToolbar = !isEditing && !sendingMessage;
+
+                  const toolbarPlace = toolbarPlacementById[String(mid)] ?? 'above';
+
                   return (
                     <div
-                      key={message._id || message.id}
+                      key={mid}
                       className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${
-                          isMine ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/10 text-white'
-                        }`}
+                        className="group relative max-w-[78%]"
+                        onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
                       >
-                        <div className="mb-1 flex items-center gap-2 text-[11px] text-white/70">
-                          <span>{isMine ? 'Bạn' : 'Thành viên'}</span>
-                          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px]">{typeLabel}</span>
-                          <span>{formatTime(message.createdAt)}</span>
+                        {showToolbar && (
+                          <div
+                            className={`absolute z-20 opacity-0 transition-opacity group-hover:opacity-100 ${
+                              toolbarPlace === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
+                            } ${isMine ? 'right-0' : 'left-0'}`}
+                          >
+                            <ChannelMessageToolbar
+                              isMine={isMine}
+                              showEdit={isMine && canEditOrgMessage(message)}
+                              disabled={sendingMessage}
+                              onQuickReact={(emoji) => onQuickReactMessage?.(message, emoji)}
+                              onOpenEmojiPicker={() => {}}
+                              onMiddleAction={() => {
+                                if (isMine && canEditOrgMessage(message)) {
+                                  setEditingMessageId(mid);
+                                  setEditDraft(String(message.content || ''));
+                                } else {
+                                  onReplyToMessage?.(message);
+                                }
+                              }}
+                              onForward={() => onForwardMessage?.(message)}
+                              onMore={(e) => {
+                                const r = e?.currentTarget?.getBoundingClientRect?.();
+                                if (r) {
+                                  setMoreMenu({
+                                    open: true,
+                                    anchorRect: r,
+                                    message,
+                                  });
+                                }
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div
+                          className={`rounded-2xl px-3 py-2 text-sm ${
+                            isMine ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/10 text-white'
+                          }`}
+                        >
+                          <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-white/70">
+                            <span>{isMine ? 'Bạn' : 'Thành viên'}</span>
+                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px]">{typeLabel}</span>
+                            <span>{formatTime(message.createdAt)}</span>
+                            {message.editedAt && (
+                              <span className="text-[10px] text-white/45">(đã chỉnh sửa)</span>
+                            )}
+                          </div>
+                          {replyId && (
+                            <div className="mb-2 border-l-2 border-cyan-400/50 pl-2 text-[11px] text-white/55">
+                              <span className="font-semibold text-cyan-200/90">
+                                @{replyToLabel(parentMsg || {})}{' '}
+                              </span>
+                              <span className="line-clamp-2">{replyPreview}</span>
+                            </div>
+                          )}
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editDraft}
+                                onChange={(e) => setEditDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    submitEdit(mid);
+                                  }
+                                  if (e.key === 'Escape') cancelEdit();
+                                }}
+                                rows={3}
+                                className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan-500/50"
+                              />
+                              <p className="text-[11px] text-gray-400">
+                                nhấn escape để{' '}
+                                <button type="button" className="text-cyan-400 hover:underline" onClick={cancelEdit}>
+                                  hủy
+                                </button>
+                                {' • '}
+                                nhấn enter để{' '}
+                                <button
+                                  type="button"
+                                  className="text-cyan-400 hover:underline"
+                                  onClick={() => submitEdit(mid)}
+                                >
+                                  lưu
+                                </button>
+                              </p>
+                            </div>
+                          ) : (
+                            <ChatMessageAttachmentBody message={message} />
+                          )}
                         </div>
-                        <div className="break-words whitespace-pre-wrap">{message.content}</div>
                       </div>
                     </div>
                   );
@@ -643,6 +834,10 @@ const OrganizationMainPanel = ({
             </div>
 
             <div className="relative mt-3 shrink-0 border-t border-white/10 pt-3">
+              <ChatUploadProgressBar
+                percent={channelUploadProgress}
+                label="Đang tải lên kênh…"
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -657,6 +852,24 @@ const OrganizationMainPanel = ({
                 onChange={(event) => handleFileSelected(event, 'image')}
               />
               <UnifiedChatComposer
+                topSlot={
+                  replyingToMessage ? (
+                    <div className="mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-slate-700/80 bg-[#1a1d21] px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <span className="text-gray-500">Đang phản hồi </span>
+                        <span className="font-semibold text-[#a29bfe]">{replyToLabel(replyingToMessage)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onClearReply?.()}
+                        className="rounded-full p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+                        aria-label="Huỷ trả lời"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : null
+                }
                 value={messageInput}
                 onChange={onChangeMessageInput}
                 onSend={onSendMessage}
@@ -765,6 +978,35 @@ const OrganizationMainPanel = ({
           </div>
         </div>
       </div>
+
+      <ChannelMessageMoreMenu
+        open={moreMenu.open}
+        anchorRect={moreMenu.anchorRect}
+        onClose={() => setMoreMenu({ open: false, anchorRect: null, message: null })}
+        isMine={
+          moreMenu.message
+            ? String(moreMenu.message?.senderId?._id || moreMenu.message?.senderId || '') ===
+              String(currentUserId || '')
+            : false
+        }
+        canCopy={canShowCopyTextInMenu(moreMenu.message)}
+        onCopyText={() => {
+          const t = plainTextForMessage(moreMenu.message);
+          if (t) navigator.clipboard.writeText(t);
+        }}
+        onReply={() => moreMenu.message && onReplyToMessage?.(moreMenu.message)}
+        onForward={() => moreMenu.message && onForwardMessage?.(moreMenu.message)}
+        onEdit={() => {
+          const m = moreMenu.message;
+          if (!m || !canEditOrgMessage(m)) return;
+          setEditingMessageId(m._id || m.id);
+          setEditDraft(String(m.content || ''));
+        }}
+        onDelete={() => {
+          const m = moreMenu.message;
+          if (m) onDeleteMessage?.(m._id || m.id);
+        }}
+      />
 
       <Modal isOpen={isPollModalOpen} onClose={() => setIsPollModalOpen(false)} title="Tạo một khảo sát" size="md">
         <div className="space-y-4">

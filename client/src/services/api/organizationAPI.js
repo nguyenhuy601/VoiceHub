@@ -67,6 +67,12 @@ export const organizationAPI = {
     return response;
   },
 
+  /** Người dùng hiện tại tự rời tổ chức */
+  leaveOrganization: async (orgId) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members/leave`);
+    return response;
+  },
+
   // Join organization via invite link (beta)
   joinByInviteLink: async (orgId, token) => {
     const response = await apiClient.post(`/organizations/${orgId}/members/join-link`, { token });

@@ -1,4 +1,4 @@
-const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
+const Modal = ({ isOpen, onClose, title, children, size = "md", layerClassName = "z-[200]" }) => {
   if (!isOpen) return null;
   
   const sizes = {
@@ -10,7 +10,7 @@ const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fadeIn" onClick={onClose}>
+    <div className={`fixed inset-0 ${layerClassName} flex items-center justify-center p-4 animate-fadeIn`} onClick={onClose}>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
       <div 
         className={`relative glass-strong rounded-2xl ${sizes[size]} w-full max-h-[90vh] overflow-hidden animate-scaleIn border border-white/20`}

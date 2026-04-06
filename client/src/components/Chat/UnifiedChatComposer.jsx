@@ -15,6 +15,10 @@ function UnifiedChatComposer({
   onOpenEmoji,
   onOpenApps,
   actionItems,
+  /** Tuỳ chỉnh lớp vỏ ngoài (ví dụ nền khớp trang chat bạn bè) */
+  wrapperClassName,
+  /** Ví dụ: thanh “Đang phản hồi …” phía trên ô nhập */
+  topSlot = null,
 }) {
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const plusButtonRef = useRef(null);
@@ -61,7 +65,12 @@ function UnifiedChatComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5">
+    <div
+      className={
+        wrapperClassName ?? 'shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5'
+      }
+    >
+      {topSlot}
       <div className="relative flex items-center gap-2 rounded-xl border border-slate-800 bg-[#040f2a] px-2 py-1.5">
         {safePlusItems.length > 0 && (
           <>

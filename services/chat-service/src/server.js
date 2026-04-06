@@ -5,6 +5,7 @@ const app = require('./app');
 const { connectDB, connectRedis } = require('/shared');
 const initializeSocket = require('./socket/index');
 const { startFriendDmConsumer } = require('./workers/friendDmConsumer');
+const { startStorageGcScheduler } = require('./jobs/storageGc');
 
 const PORT = process.env.PORT || 3006;
 
@@ -26,6 +27,8 @@ connectDB(mongoUri)
     startFriendDmConsumer().catch((err) => {
       console.error('[chat-service] friendDmConsumer failed to start:', err.message);
     });
+
+    startStorageGcScheduler();
 
     // Khởi động server
     server.listen(PORT, () => {
