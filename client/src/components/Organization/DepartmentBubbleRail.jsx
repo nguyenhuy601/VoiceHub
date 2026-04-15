@@ -1,8 +1,28 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
+/** Badge đỏ góc trên phải (kiểu thông báo), số trắng trong vòng tròn. */
+function CornerBadge({ count }) {
+  if (count == null || count < 1) return null;
+  const text = count > 99 ? '99+' : String(count);
+  return (
+    <span
+      className="pointer-events-none absolute -right-0.5 -top-0.5 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#12151c] bg-red-600 px-0.5 text-[10px] font-bold leading-none text-white shadow-sm"
+      aria-hidden
+    >
+      {text}
+    </span>
+  );
+}
+
 const DepartmentBubbleRail = ({
   organizations = [],
+  /** Đơn gia nhập đang chờ duyệt (bubble riêng, không mở workspace). */
+  pendingJoinApplications = [],
+  /** Map organizationId → số đơn cần duyệt (badge trên avatar tổ chức). */
+  joinReviewCountByOrgId = {},
+  /** Tổng thông báo trên Trang chủ tổ chức (lời mời + đơn duyệt) — badge nút Home. */
+  homeNotificationBadgeCount = 0,
   selectedOrganizationId,
   viewMode = 'home',
   onSelectOrganization,
@@ -12,14 +32,19 @@ const DepartmentBubbleRail = ({
   onInviteOrganization,
   onLeaveOrganization,
   onCreateOrganization,
-  invitationCount = 0,
   /** Sau lần tải danh sách tổ chức đầu tiên (để không hiện nhầm “chưa tham gia” trước khi API trả). */
   organizationsLoaded = false,
 }) => {
-  const orderedOrganizations = [...organizations].reverse();
+  const ownedOrganizations = [...organizations]
+    .filter((o) => String(o.myRole || '').toLowerCase() === 'owner')
+    .reverse();
+  const joinedOrganizations = [...organizations]
+    .filter((o) => String(o.myRole || '').toLowerCase() !== 'owner')
+    .reverse();
 
   const [tooltip, setTooltip] = useState({
     show: false,
+    variant: 'member',
     name: '',
     onlineCount: 0,
     x: 0,
@@ -36,8 +61,21 @@ const DepartmentBubbleRail = ({
     const rect = event.currentTarget.getBoundingClientRect();
     setTooltip({
       show: true,
+      variant: 'member',
       name: organization.name || 'To chuc',
       onlineCount: organization.onlineMembers || organization.onlineCount || 0,
+      x: rect.left - 14,
+      y: rect.top + rect.height / 2,
+    });
+  };
+
+  const handleEnterPending = (event, row) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTooltip({
+      show: true,
+      variant: 'pending',
+      name: row.organizationName || 'Tổ chức',
+      onlineCount: 0,
       x: rect.left - 14,
       y: rect.top + rect.height / 2,
     });
@@ -63,6 +101,37 @@ const DepartmentBubbleRail = ({
     });
   };
 
+  const renderOrgAvatarButton = (organization) => {
+    const isActive = organization._id === selectedOrganizationId;
+    const oid = String(organization._id);
+    const reviewCount = Number(joinReviewCountByOrgId[oid]) || 0;
+    return (
+      <button
+        key={organization._id}
+        type="button"
+        title={organization.name}
+        onMouseEnter={(event) => handleEnter(event, organization)}
+        onMouseLeave={handleLeave}
+        onClick={(event) => handleAvatarClick(event, organization)}
+        onContextMenu={(event) => handleAvatarContextMenu(event, organization)}
+        className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${
+          isActive && viewMode === 'workspace'
+            ? 'border-cyan-400/80 bg-cyan-500/20 shadow-[0_0_16px_rgba(34,211,238,0.28)]'
+            : 'border-white/15 bg-white/5 hover:border-white/30 hover:bg-white/10'
+        }`}
+      >
+        {organization.logo ? (
+          <img src={organization.logo} alt="" className="h-full w-full rounded-full object-cover" />
+        ) : (
+          <span className="text-sm font-bold uppercase text-white">
+            {(organization.name || 'O').charAt(0)}
+          </span>
+        )}
+        <CornerBadge count={reviewCount} />
+      </button>
+    );
+  };
+
   const tooltipPortal =
     tooltip.show &&
     createPortal(
@@ -75,7 +144,11 @@ const DepartmentBubbleRail = ({
         }}
       >
         <div className="font-semibold">{tooltip.name}</div>
-        <div className="mt-0.5 text-xs text-cyan-200">Online: {tooltip.onlineCount}</div>
+        {tooltip.variant === 'pending' ? (
+          <div className="mt-0.5 text-xs text-amber-200">Đang chờ xét duyệt</div>
+        ) : (
+          <div className="mt-0.5 text-xs text-cyan-200">Online: {tooltip.onlineCount}</div>
+        )}
         <span
           className="absolute left-full top-1/2 h-0 w-0 -translate-y-1/2 border-[6px] border-solid border-transparent border-l-gray-700"
           aria-hidden
@@ -145,14 +218,9 @@ const DepartmentBubbleRail = ({
     );
 
   return (
-    <div className="h-full w-24 border-l border-white/10 bg-black/10 px-3 py-4">
+    <div className="h-full w-full bg-black/10 px-2 py-4">
       <div className="mb-4 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400">
         Tổ chức
-        {invitationCount > 0 && (
-          <span className="ml-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-pink-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-            {invitationCount}
-          </span>
-        )}
       </div>
 
       <div className="scrollbar-overlay flex h-[calc(100%-1.75rem)] flex-col items-center gap-3 overflow-y-auto">
@@ -160,13 +228,14 @@ const DepartmentBubbleRail = ({
           type="button"
           onClick={onOpenHome}
           title="Trang chủ tổ chức"
-          className={`group relative flex h-11 w-11 items-center justify-center rounded-full border transition ${
+          className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${
             viewMode === 'home'
               ? 'border-cyan-400/80 bg-cyan-500/20 shadow-[0_0_16px_rgba(34,211,238,0.28)]'
               : 'border-white/20 bg-white/5 text-white hover:border-white/35 hover:bg-white/10'
           }`}
         >
           <span className="text-lg leading-none">⌂</span>
+          <CornerBadge count={homeNotificationBadgeCount} />
         </button>
 
         <button
@@ -178,35 +247,65 @@ const DepartmentBubbleRail = ({
           <span className="text-2xl leading-none">+</span>
         </button>
 
-        {organizationsLoaded && organizations.length === 0 && (
-          <div className="px-1 text-center text-[11px] leading-snug text-gray-500">
-            Chưa tham gia tổ chức nào
-          </div>
+        {organizationsLoaded &&
+          organizations.length === 0 &&
+          pendingJoinApplications.length === 0 && (
+            <div className="px-1 text-center text-[11px] leading-snug text-gray-500">
+              Chưa tham gia tổ chức nào
+            </div>
+          )}
+
+        {pendingJoinApplications.map((row) => (
+          <button
+            key={row.applicationId}
+            type="button"
+            title={`${row.organizationName || 'Tổ chức'} — đang chờ xét duyệt`}
+            onMouseEnter={(event) => handleEnterPending(event, row)}
+            onMouseLeave={handleLeave}
+            onClick={(e) => {
+              e.preventDefault();
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            className="group relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-amber-400/45 bg-amber-500/10 text-white transition hover:border-amber-300/60 hover:bg-amber-500/18"
+          >
+            {row.logo ? (
+              <img
+                src={row.logo}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-sm font-bold uppercase">
+                {(row.organizationName || 'O').charAt(0)}
+              </span>
+            )}
+            <CornerBadge count={1} />
+          </button>
+        ))}
+
+        {ownedOrganizations.length > 0 && (
+          <>
+            <div
+              className="w-full px-0.5 text-center text-[9px] font-semibold uppercase leading-tight text-gray-500"
+              title="Tổ chức do bạn tạo (vai trò chủ sở hữu)"
+            >
+              Của bạn
+            </div>
+            {ownedOrganizations.map(renderOrgAvatarButton)}
+          </>
         )}
 
-        {orderedOrganizations.map((organization) => {
-          const isActive = organization._id === selectedOrganizationId;
-          return (
-            <button
-              key={organization._id}
-              type="button"
-              title={organization.name}
-              onMouseEnter={(event) => handleEnter(event, organization)}
-              onMouseLeave={handleLeave}
-              onClick={(event) => handleAvatarClick(event, organization)}
-              onContextMenu={(event) => handleAvatarContextMenu(event, organization)}
-              className={`group relative flex h-11 w-11 items-center justify-center rounded-full border transition ${
-                isActive && viewMode === 'workspace'
-                  ? 'border-cyan-400/80 bg-cyan-500/20 shadow-[0_0_16px_rgba(34,211,238,0.28)]'
-                  : 'border-white/15 bg-white/5 hover:border-white/30 hover:bg-white/10'
-              }`}
+        {joinedOrganizations.length > 0 && (
+          <>
+            <div
+              className="w-full px-0.5 text-center text-[9px] font-semibold uppercase leading-tight text-gray-500"
+              title="Tổ chức bạn tham gia (thành viên hoặc quản trị)"
             >
-              <span className="text-sm font-bold text-white uppercase">
-                {(organization.name || 'O').charAt(0)}
-              </span>
-            </button>
-          );
-        })}
+              Tham gia
+            </div>
+            {joinedOrganizations.map(renderOrgAvatarButton)}
+          </>
+        )}
       </div>
       {tooltipPortal}
       {dropdownPortal}

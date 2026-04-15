@@ -1,4 +1,5 @@
 const Membership = require('../models/Membership');
+const Organization = require('../models/Organization');
 const jwt = require('jsonwebtoken');
 const { emitRealtimeEvent } = require('/shared');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
@@ -218,6 +219,24 @@ exports.joinViaLink = async (req, res, next) => {
     const userId = req.user?.id || req.user?._id || req.user?.userId;
     if (!userId) {
       return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+    }
+
+    const org = await Organization.findById(req.params.orgId).lean();
+    if (!org || !org.isActive) {
+      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+    }
+
+    const joinForm = org.settings?.joinApplicationForm;
+    if (joinForm?.enabled) {
+      return res.json({
+        status: 'success',
+        data: {
+          requiresJoinApplication: true,
+          organizationId: String(org._id),
+          organizationName: org.name,
+        },
+        message: 'Vui lòng điền form gia nhập',
+      });
     }
 
     const membership = await Membership.findOneAndUpdate(

@@ -6,12 +6,15 @@ import NavigationSidebar from './NavigationSidebar';
  * - Khung 2 (giữa): Nội dung chính (Trung tâm điều khiển, v.v.), thanh trượt riêng khi nội dung dài.
  * - Khung 3 (phải, tùy chọn): Panel phụ (Trạng thái nhóm, sự kiện, v.v.), thanh trượt riêng.
  * Cả 3 khung cùng độ dài (h-screen), thanh cuộn chỉ hiện khi cần (scrollbar-overlay).
+ *
+ * @param {string} [rightFrameClassName] — Nếu set, thay thế toàn bộ class khung phải (vd. panel hover tự quản lý).
  */
 const ThreeFrameLayout = ({
   left = <NavigationSidebar />,
   center,
   right = null,
   rightWidth = 'w-80',
+  rightFrameClassName = null,
 }) => {
   return (
     <div className="h-screen flex overflow-hidden">
@@ -26,13 +29,18 @@ const ThreeFrameLayout = ({
       </div>
 
       {/* Khung 3 (tùy chọn): Panel phải - cuộn riêng */}
-      {right !== null && (
-        <div className={`shrink-0 h-full flex flex-col overflow-hidden glass-strong border-l border-white/10 ${rightWidth}`}>
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay">
-            {right}
+      {right !== null &&
+        (rightFrameClassName ? (
+          <div className={rightFrameClassName}>{right}</div>
+        ) : (
+          <div
+            className={`shrink-0 h-full flex flex-col overflow-hidden glass-strong border-l border-white/10 ${rightWidth}`}
+          >
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay">
+              {right}
+            </div>
           </div>
-        </div>
-      )}
+        ))}
     </div>
   );
 };

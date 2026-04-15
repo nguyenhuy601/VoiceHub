@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { Bell, Calendar, MoreHorizontal, Phone, Video } from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import UnifiedChatComposer from '../../components/Chat/UnifiedChatComposer';
 import { ChatMessageAttachmentBody } from '../../components/Chat/ChatFileAttachment';
@@ -15,6 +16,44 @@ import { useAuth } from '../../context/AuthContext';
 import { getUserDisplayName } from '../../utils/helpers';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { useSocket } from '../../context/SocketContext';
+
+/** Chữ ký tên hiển thị trong avatar tròn (theo mockup sidebar DM). */
+function friendInitials(name) {
+  if (!name || typeof name !== 'string') return '?';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  const one = parts[0] || '';
+  return one.slice(0, 2).toUpperCase() || '?';
+}
+
+function messageDayKey(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatDateDividerLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const t0 = startOf(d);
+  const now = new Date();
+  const today0 = startOf(now);
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  const yesterday0 = startOf(y);
+  const dd = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  if (t0 === today0) return `HÔM NAY — ${dd}`;
+  if (t0 === yesterday0) return `HÔM QUA — ${dd}`;
+  return d.toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
 
 function FriendChatPage() {
   const [friends, setFriends] = useState([]);
@@ -43,7 +82,7 @@ function FriendChatPage() {
   const [forwarding, setForwarding] = useState(false);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const { user } = useAuth();
-  const { emit, on, off } = useSocket();
+  const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
 
   // Trong hệ thống hiện tại, ID đăng nhập lưu ở field userId (Auth service),
   // còn _id là của profile. Tin nhắn lưu senderId theo userId.
@@ -73,22 +112,61 @@ function FriendChatPage() {
     }
   }, []);
 
-  // Map friends + sắp xếp theo tin nhắn gần nhất (mới nhất trên cùng)
+  // Map friends + sắp xếp theo tin nhắn gần nhất; presence realtime khớp Dashboard (onlineUsers từ socket)
   const viewFriends = useMemo(() => {
     const rows = friends.map((f) => {
       const u = f.friendId || f;
+      const uname = typeof u?.username === 'string' ? u.username.trim() : '';
+      const title =
+        typeof u?.title === 'string'
+          ? u.title.trim()
+          : typeof u?.headline === 'string'
+            ? u.headline.trim()
+            : '';
+      const subtitle =
+        title ||
+        (uname ? `@${uname}` : '') ||
+        'TRÒ CHUYỆN TRỰC TIẾP';
+      const id = u?._id || u?.userId || u?.id || f.id;
+      const rawFriendId = f.friendId;
+      const presenceKeys = [
+        id,
+        u?.userId,
+        u?._id,
+        u?.id,
+        typeof rawFriendId === 'string' || typeof rawFriendId === 'number' ? rawFriendId : null,
+        rawFriendId && typeof rawFriendId === 'object' ? rawFriendId._id || rawFriendId.userId : null,
+      ]
+        .filter((x) => x != null && typeof x !== 'object')
+        .map(String);
+      const uniqueKeys = [...new Set(presenceKeys)];
       return {
-        id: u?._id || u?.id || f.id,
+        id,
         name: u?.displayName || u?.username || 'Người dùng',
         avatar: u?.avatar || '👤',
-        status: u?.status || 'offline',
+        status: String(u?.status || 'offline').toLowerCase(),
+        subtitle,
+        _presenceKeys: uniqueKeys,
       };
     });
-    return [...rows].sort(
+    const sorted = [...rows].sort(
       (a, b) =>
         (lastDmAtByFriendId[String(b.id)] || 0) - (lastDmAtByFriendId[String(a.id)] || 0)
     );
-  }, [friends, lastDmAtByFriendId]);
+    const onlineSet = new Set((onlineUsers || []).map(String));
+    return sorted.map((row) => {
+      const { _presenceKeys, ...rest } = row;
+      const inLiveList = (_presenceKeys || [String(rest.id)]).some((k) => onlineSet.has(String(k)));
+      /** Khi socket đã nối: chỉ tin danh sách online từ server (khớp Dashboard). */
+      if (socketConnected) {
+        return { ...rest, status: inLiveList ? 'online' : 'offline' };
+      }
+      return {
+        ...rest,
+        status: inLiveList ? 'online' : rest.status,
+      };
+    });
+  }, [friends, lastDmAtByFriendId, onlineUsers, socketConnected]);
 
   /** Lấy thời gian tin DM gần nhất với mỗi bạn (từ API /messages, không receiverId) */
   const fetchLastDmActivity = useCallback(async () => {
@@ -144,7 +222,7 @@ function FriendChatPage() {
           const rows = friends.map((f) => {
             const u = f.friendId || f;
             return {
-              id: u?._id || u?.id || f.id,
+              id: u?._id || u?.userId || u?.id || f.id,
               name: u?.displayName || u?.username || 'Người dùng',
               avatar: u?.avatar || '👤',
               status: u?.status || 'offline',
@@ -311,6 +389,25 @@ function FriendChatPage() {
   }, [on, off, currentUserId, selectedFriendId]);
 
   const currentFriend = viewFriends.find((f) => f.id === selectedFriendId) || null;
+
+  const sortedChatMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return ta - tb;
+    });
+  }, [messages]);
+
+  const lastOutgoingMessageId = useMemo(() => {
+    if (!currentUserId) return null;
+    const myId = String(currentUserId);
+    for (let i = sortedChatMessages.length - 1; i >= 0; i--) {
+      const m = sortedChatMessages[i];
+      const sid = String(m.senderId?._id || m.senderId || '');
+      if (sid === myId) return m._id || m.id;
+    }
+    return null;
+  }, [sortedChatMessages, currentUserId]);
 
   const composerEmojiList = useMemo(
     () => [
@@ -517,35 +614,68 @@ function FriendChatPage() {
       <NavigationSidebar />
       <div className="flex-1 flex h-full min-w-0">
         {/* Khung 2: Danh sách bạn bè - thanh trượt riêng, chỉ hiện khi cần */}
-        <div className="w-72 shrink-0 bg-[#0f1218] p-4 border-r border-white/[0.06] overflow-y-auto h-full scrollbar-overlay">
-          <h2 className="text-xl font-extrabold text-white mb-4">Chat bạn bè</h2>
-          <h3 className="text-sm font-bold text-[#8e9297] mb-2">Bạn bè</h3>
-          <div className="space-y-2">
+        {/* Cột 2: rail avatar bạn bè (mockup — thanh chọn tím, chấm online) */}
+        <div className="w-[76px] shrink-0 flex flex-col bg-[#0c0f15] border-r border-white/[0.06] h-full min-h-0">
+          <div className="shrink-0 px-2 pt-3 pb-2 border-b border-white/[0.05]">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-center text-[#6d7380]">
+              Bạn bè
+            </p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-overlay px-2 py-2 flex flex-col items-stretch gap-1">
             {friendsLoading ? (
-              <div className="text-xs text-[#8e9297] py-2">Đang tải…</div>
+              <div className="text-[10px] text-center text-[#6d7380] py-4 leading-relaxed">
+                Đang tải…
+              </div>
             ) : (
-              viewFriends.map((f) => (
-                <div
-                  key={f.id}
-                  onClick={() => setSelectedFriendId(f.id)}
-                  className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer hover:bg-[#1a1d26]/80 ${
-                    selectedFriendId === f.id ? 'bg-[#1a1d26]' : ''
-                  }`}
-                >
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#8e44ad] to-pink-500 flex items-center justify-center text-base shadow-sm">
-                    {f.avatar}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-white font-medium text-sm">{f.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+              viewFriends.map((f) => {
+                const active = selectedFriendId === f.id;
+                const avatarUrl =
+                  typeof f.avatar === 'string' && /^https?:\/\//i.test(f.avatar) ? f.avatar : null;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setSelectedFriendId(f.id)}
+                    title={f.name}
+                    aria-label={`Mở chat với ${f.name}`}
+                    aria-current={active ? 'true' : undefined}
+                    className="group relative flex w-full justify-center rounded-xl py-2 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-[#5865F2]/50"
+                  >
+                    {active && (
+                      <span
+                        className="pointer-events-none absolute left-0 top-1/2 z-10 h-9 w-[3px] -translate-y-1/2 rounded-r-full bg-[#5865F2] shadow-[0_0_12px_rgba(88,101,242,0.55)]"
+                        aria-hidden
+                      />
+                    )}
+                    <div className="relative">
+                      <div
+                        className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border text-[11px] font-bold tracking-tight text-white shadow-inner transition ${
+                          active
+                            ? 'border-[#5865F2]/80 bg-[#1e2230] ring-2 ring-[#5865F2]/35'
+                            : 'border-white/[0.08] bg-[#151923] group-hover:border-white/15'
+                        }`}
+                      >
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="select-none">{friendInitials(f.name)}</span>
+                        )}
+                      </div>
+                      <span
+                        className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0c0f15] ${
+                          f.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
+                        }`}
+                        title={f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                      />
                     </div>
-                  </div>
-                </div>
-              ))
+                  </button>
+                );
+              })
             )}
             {!friendsLoading && viewFriends.length === 0 && (
-              <div className="text-xs text-[#8e9297]">Chưa có bạn bè. Hãy thêm bạn ở trang Liên Hệ.</div>
+              <div className="text-[10px] text-center text-[#6d7380] px-1 py-4 leading-relaxed">
+                Chưa có bạn. Thêm ở Liên hệ.
+              </div>
             )}
           </div>
         </div>
@@ -571,21 +701,103 @@ function FriendChatPage() {
             </div>
           ) : (
             <>
-              <div className="shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-3">
-                <h2 className="text-lg font-bold text-white">{currentFriend.name}</h2>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 scrollbar-overlay">
+              <header className="shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="relative shrink-0">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/[0.08] bg-[#151923] text-sm font-bold text-white shadow-inner">
+                      {(() => {
+                        const url =
+                          typeof currentFriend.avatar === 'string' &&
+                          /^https?:\/\//i.test(currentFriend.avatar)
+                            ? currentFriend.avatar
+                            : null;
+                        if (url) {
+                          return (
+                            <img src={url} alt="" className="h-full w-full object-cover" />
+                          );
+                        }
+                        return <span className="select-none">{friendInitials(currentFriend.name)}</span>;
+                      })()}
+                    </div>
+                    <span
+                      className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0b0e14] ${
+                        currentFriend.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
+                      }`}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <h2 className="truncate text-base font-bold tracking-tight text-white">
+                        {currentFriend.name}
+                      </h2>
+                    </div>
+                    <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-[#a29bfe]">
+                      {currentFriend.subtitle}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#8e9297]">
+                      {currentFriend.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {['# trò-chuyện', '# tin-nhắn'].map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full border border-white/[0.08] bg-[#12151f] px-2.5 py-0.5 text-[11px] font-medium text-[#b4b8c4]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      title="Gọi thoại"
+                      onClick={() => showToast('Gọi thoại — sẽ có trong bản sau', 'info')}
+                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <Phone className="h-5 w-5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Gọi video"
+                      onClick={() => showToast('Gọi video — sẽ có trong bản sau', 'info')}
+                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <Video className="h-5 w-5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Đặt lịch"
+                      onClick={() => showToast('Đặt lịch — sẽ có trong bản sau', 'info')}
+                      className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#12151f] px-2.5 py-1.5 text-xs font-semibold text-[#e3e5e8] transition hover:bg-white/[0.06]"
+                    >
+                      <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
+                      Đặt lịch
+                    </button>
+                    <button
+                      type="button"
+                      title="Thông báo"
+                      onClick={() => showToast('Thông báo cuộc trò chuyện — sẽ có trong bản sau', 'info')}
+                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <Bell className="h-5 w-5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Thêm"
+                      onClick={() => showToast('Menu thêm — sẽ có trong bản sau', 'info')}
+                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
+                    </button>
+                  </div>
+                </div>
+              </header>
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 scrollbar-overlay bg-[#080a0f]">
                 {loadingMessages ? (
                   <div className="text-center text-[#8e9297]">Đang tải tin nhắn...</div>
                 ) : (
-                  // Sắp xếp theo thời gian tăng dần: tin cũ ở trên, mới ở dưới
-                  [...messages]
-                    .sort((a, b) => {
-                      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-                      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-                      return ta - tb;
-                    })
-                    .map((m) => {
+                  sortedChatMessages.map((m, idx) => {
                     const mid = m._id || m.id;
                     const rawSender = m.senderId?._id || m.senderId || '';
                     const senderId = String(rawSender);
@@ -597,9 +809,15 @@ function FriendChatPage() {
                       ? currentUserName
                       : currentFriend?.name || 'Bạn bè';
 
-                    const avatar = isMine
-                      ? currentUserAvatar
-                      : currentFriend?.avatar || '👤';
+                    const friendMsgAvatarUrl =
+                      typeof currentFriend?.avatar === 'string' &&
+                      /^https?:\/\//i.test(currentFriend.avatar)
+                        ? currentFriend.avatar
+                        : null;
+
+                    const prev = idx > 0 ? sortedChatMessages[idx - 1] : null;
+                    const showDayDivider =
+                      !prev || messageDayKey(m.createdAt) !== messageDayKey(prev.createdAt);
 
                     const replyId = m.replyToMessageId;
                     const parentMsg = replyId
@@ -612,116 +830,175 @@ function FriendChatPage() {
                     const showToolbar = !isEditing && uploadProgress == null;
                     const toolbarPlace = toolbarPlacementById[String(mid)] ?? 'above';
 
+                    const showReadReceipt =
+                      isMine &&
+                      !m._optimistic &&
+                      lastOutgoingMessageId != null &&
+                      String(mid) === String(lastOutgoingMessageId);
+
+                    const mineBubble = isMine
+                      ? 'border-[#5865F2]/35 bg-gradient-to-br from-[#5865F2] to-[#4752c4] text-white shadow-md shadow-[#5865F2]/15'
+                      : 'border-white/[0.06] bg-[#1a1d26] text-slate-100';
+
                     return (
-                      <div
-                        key={mid}
-                        className={`flex items-start gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}
-                      >
-                        {!isMine && (
-                          <div className="mr-0.5 w-9 h-9 rounded-full bg-gradient-to-br from-[#8e44ad] to-pink-500 flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
-                            {avatar}
+                      <Fragment key={mid}>
+                        {showDayDivider && (
+                          <div className="flex justify-center py-2">
+                            <span className="rounded-full border border-white/[0.06] bg-[#12151f] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e9297]">
+                              {formatDateDividerLabel(m.createdAt)}
+                            </span>
                           </div>
                         )}
                         <div
-                          className="group relative max-w-[min(80%,28rem)]"
-                          onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
+                          className={`flex w-full items-end gap-2 ${
+                            isMine ? 'justify-end' : 'justify-start'
+                          }`}
                         >
-                          {showToolbar && (
-                            <div
-                              className={`absolute z-20 opacity-0 transition-opacity group-hover:opacity-100 ${
-                                toolbarPlace === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
-                              } ${isMine ? 'right-0' : 'left-0'}`}
-                            >
-                              <ChannelMessageToolbar
-                                recentReactionsStorageKey="vh_dm_recent_reactions"
-                                isMine={isMine}
-                                showEdit={isMine && canEditDmMessage(m)}
-                                disabled={uploadProgress != null}
-                                onQuickReact={(emoji) => handleQuickReactMessage(m, emoji)}
-                                onOpenEmojiPicker={() => {}}
-                                onMiddleAction={() => {
-                                  if (isMine && canEditDmMessage(m)) {
-                                    setEditingMessageId(mid);
-                                    setEditDraft(String(m.content || ''));
-                                  } else {
-                                    setReplyingToMessage(m);
-                                  }
-                                }}
-                                onForward={() => handleForwardRequest(m)}
-                                onMore={(e) => {
-                                  const r = e?.currentTarget?.getBoundingClientRect?.();
-                                  if (r) {
-                                    setMoreMenu({ open: true, anchorRect: r, message: m });
-                                  }
-                                }}
-                              />
+                          {!isMine && (
+                            <div className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.08] bg-[#151923] text-[11px] font-bold text-white shadow-sm">
+                              {friendMsgAvatarUrl ? (
+                                <img src={friendMsgAvatarUrl} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="select-none">{friendInitials(currentFriend.name)}</span>
+                              )}
                             </div>
                           )}
                           <div
-                            className={`inline-block w-full rounded-2xl border border-white/[0.06] bg-[#1a1d26] px-3.5 py-2.5 text-sm shadow-sm ${
-                              isMine ? 'rounded-tr-md' : 'rounded-tl-md'
-                            }`}
+                            className="group relative max-w-[min(80%,28rem)]"
+                            onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
                           >
-                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1">
-                              <span className="text-xs font-semibold text-[#a29bfe] truncate max-w-[12rem]">
-                                {displayName}
-                              </span>
-                              <span className="text-[11px] text-[#8e9297] tabular-nums">
-                                {formatTime(m.createdAt)}
-                              </span>
-                              {m.editedAt && (
-                                <span className="text-[10px] text-[#8e9297]/70">(đã chỉnh sửa)</span>
+                            {showToolbar && (
+                              <div
+                                className={`absolute z-20 opacity-0 transition-opacity group-hover:opacity-100 ${
+                                  toolbarPlace === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
+                                } ${isMine ? 'right-0' : 'left-0'}`}
+                              >
+                                <ChannelMessageToolbar
+                                  recentReactionsStorageKey="vh_dm_recent_reactions"
+                                  isMine={isMine}
+                                  showEdit={isMine && canEditDmMessage(m)}
+                                  disabled={uploadProgress != null}
+                                  onQuickReact={(emoji) => handleQuickReactMessage(m, emoji)}
+                                  onOpenEmojiPicker={() => {}}
+                                  onMiddleAction={() => {
+                                    if (isMine && canEditDmMessage(m)) {
+                                      setEditingMessageId(mid);
+                                      setEditDraft(String(m.content || ''));
+                                    } else {
+                                      setReplyingToMessage(m);
+                                    }
+                                  }}
+                                  onForward={() => handleForwardRequest(m)}
+                                  onMore={(e) => {
+                                    const r = e?.currentTarget?.getBoundingClientRect?.();
+                                    if (r) {
+                                      setMoreMenu({ open: true, anchorRect: r, message: m });
+                                    }
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <div
+                              className={`inline-block w-full rounded-2xl border px-3.5 py-2.5 text-sm shadow-sm ${
+                                isMine ? 'rounded-tr-md' : 'rounded-tl-md'
+                              } ${mineBubble}`}
+                            >
+                              <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span
+                                  className={`max-w-[12rem] truncate text-xs font-semibold ${
+                                    isMine ? 'text-white/95' : 'text-[#a29bfe]'
+                                  }`}
+                                >
+                                  {displayName}
+                                </span>
+                                <span
+                                  className={`text-[11px] tabular-nums ${
+                                    isMine ? 'text-white/70' : 'text-[#8e9297]'
+                                  }`}
+                                >
+                                  {formatTime(m.createdAt)}
+                                </span>
+                                {m.editedAt && (
+                                  <span
+                                    className={`text-[10px] ${isMine ? 'text-white/55' : 'text-[#8e9297]/70'}`}
+                                  >
+                                    (đã chỉnh sửa)
+                                  </span>
+                                )}
+                              </div>
+                              {replyId && (
+                                <div
+                                  className={`mb-2 border-l-2 pl-2 text-[11px] ${
+                                    isMine
+                                      ? 'border-white/40 text-white/85'
+                                      : 'border-[#a29bfe]/50 text-[#8e9297]'
+                                  }`}
+                                >
+                                  <span
+                                    className={`font-semibold ${isMine ? 'text-white' : 'text-[#a29bfe]'}`}
+                                  >
+                                    @{replyLabelForDm(parentMsg || {})}{' '}
+                                  </span>
+                                  <span className="line-clamp-2">{replyPreview}</span>
+                                </div>
+                              )}
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={editDraft}
+                                    onChange={(e) => setEditDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        submitEdit(mid);
+                                      }
+                                      if (e.key === 'Escape') cancelEdit();
+                                    }}
+                                    rows={3}
+                                    className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-[#a29bfe]/50"
+                                  />
+                                  <p className="text-[11px] text-[#8e9297]">
+                                    nhấn escape để{' '}
+                                    <button
+                                      type="button"
+                                      className="text-[#a29bfe] hover:underline"
+                                      onClick={cancelEdit}
+                                    >
+                                      hủy
+                                    </button>
+                                    {' • '}
+                                    nhấn enter để{' '}
+                                    <button
+                                      type="button"
+                                      className="text-[#a29bfe] hover:underline"
+                                      onClick={() => submitEdit(mid)}
+                                    >
+                                      lưu
+                                    </button>
+                                  </p>
+                                </div>
+                              ) : (
+                                <ChatMessageAttachmentBody message={m} />
+                              )}
+                              {showReadReceipt && (
+                                <p className="mt-1.5 text-right text-[10px] font-medium text-white/70">
+                                  Đã đọc
+                                </p>
                               )}
                             </div>
-                            {replyId && (
-                              <div className="mb-2 border-l-2 border-[#a29bfe]/50 pl-2 text-[11px] text-[#8e9297]">
-                                <span className="font-semibold text-[#a29bfe]">
-                                  @{replyLabelForDm(parentMsg || {})}{' '}
-                                </span>
-                                <span className="line-clamp-2">{replyPreview}</span>
-                              </div>
-                            )}
-                            {isEditing ? (
-                              <div className="space-y-2">
-                                <textarea
-                                  value={editDraft}
-                                  onChange={(e) => setEditDraft(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                      e.preventDefault();
-                                      submitEdit(mid);
-                                    }
-                                    if (e.key === 'Escape') cancelEdit();
-                                  }}
-                                  rows={3}
-                                  className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-[#a29bfe]/50"
-                                />
-                                <p className="text-[11px] text-[#8e9297]">
-                                  nhấn escape để{' '}
-                                  <button
-                                    type="button"
-                                    className="text-[#a29bfe] hover:underline"
-                                    onClick={cancelEdit}
-                                  >
-                                    hủy
-                                  </button>
-                                  {' • '}
-                                  nhấn enter để{' '}
-                                  <button
-                                    type="button"
-                                    className="text-[#a29bfe] hover:underline"
-                                    onClick={() => submitEdit(mid)}
-                                  >
-                                    lưu
-                                  </button>
-                                </p>
-                              </div>
-                            ) : (
-                              <ChatMessageAttachmentBody message={m} />
-                            )}
                           </div>
+                          {isMine && (
+                            <div className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#5865F2]/40 bg-[#1e2230] text-[10px] font-bold uppercase tracking-tight text-[#a29bfe] shadow-sm">
+                              {typeof currentUserAvatar === 'string' &&
+                              /^https?:\/\//i.test(currentUserAvatar) ? (
+                                <img src={currentUserAvatar} alt="" className="h-full w-full rounded-full object-cover" />
+                              ) : (
+                                <span className="select-none">ME</span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      </Fragment>
                     );
                   })
                 )}
@@ -745,7 +1022,8 @@ function FriendChatPage() {
                   onChange={handleFriendFileSelected}
                 />
                 <UnifiedChatComposer
-                  wrapperClassName="shrink-0 border-t border-white/[0.06] bg-[#0f1218] p-3.5"
+                  richToolbar
+                  wrapperClassName="shrink-0 border-t border-white/[0.06] bg-[#0b0e14] px-4 py-3"
                   topSlot={
                     replyingToMessage ? (
                       <div className="mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-white/[0.08] bg-[#1a1d21] px-3 py-2 text-sm">
@@ -773,7 +1051,7 @@ function FriendChatPage() {
                     uploadProgress != null
                       ? 'Đang gửi tệp…'
                       : currentFriend
-                        ? `Nhắn ${currentFriend.name}`
+                        ? `Nhắn ${currentFriend.name}...`
                         : 'Chọn bạn để nhắn tin'
                   }
                   disabled={!selectedFriendId || uploadProgress != null}

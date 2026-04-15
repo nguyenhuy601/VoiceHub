@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Modal, NotificationModal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
+import OrganizationMemberSidebar from '../../components/Organization/OrganizationMemberSidebar';
+import OrganizationMemberPeekDock from '../../components/Organization/OrganizationMemberPeekDock';
 import OrganizationMainPanel from '../../components/Organization/OrganizationMainPanel';
 import ForwardChannelModal from '../../components/Organization/ForwardChannelModal';
-import OrganizationSettingsModal from '../../components/Organization/OrganizationSettingsModal';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -63,7 +64,7 @@ const HOME_CALENDAR_PREVIEW = [
 
 function OrganizationsPage() {
   const { user } = useAuth();
-  const { on, off } = useSocket();
+  const { on, off, onlineUsers, connected: socketConnected } = useSocket();
   const navigate = useNavigate();
   const location = useLocation();
   const [organizations, setOrganizations] = useState([]);
@@ -94,6 +95,12 @@ function OrganizationsPage() {
   const [generatedInviteLink, setGeneratedInviteLink] = useState('');
   const [generatingInviteLink, setGeneratingInviteLink] = useState(false);
   const [pendingInvitations, setPendingInvitations] = useState([]);
+  /** Đơn gia nhập đang chờ duyệt (hiển thị bubble sidebar). */
+  const [pendingJoinApplications, setPendingJoinApplications] = useState([]);
+  /** Đơn cần duyệt (owner/admin) — Trang chủ tổ chức. */
+  const [joinApplicationsToReview, setJoinApplicationsToReview] = useState([]);
+  const [loadingJoinApplicationsToReview, setLoadingJoinApplicationsToReview] = useState(false);
+  const [respondingJoinReviewKeys, setRespondingJoinReviewKeys] = useState([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [respondingInvitationIds, setRespondingInvitationIds] = useState([]);
   const [expandedHomeCards, setExpandedHomeCards] = useState({
@@ -121,6 +128,8 @@ function OrganizationsPage() {
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwardTargets, setForwardTargets] = useState([]);
   const [forwardTargetsLoading, setForwardTargetsLoading] = useState(false);
+  /** Làm mới danh sách thành viên sidebar khi có thay đổi thành viên tổ chức */
+  const [memberListRefreshKey, setMemberListRefreshKey] = useState(0);
 
   const notify = (message, type = 'success') => {
     setNotice({
@@ -158,6 +167,22 @@ function OrganizationsPage() {
     });
   }, [inviteFriends, inviteSearch]);
   const hasOrganizations = organizations.length > 0;
+
+  /** Số đơn gia nhập chờ duyệt theo từng tổ chức (badge trên avatar). */
+  const joinReviewCountByOrgId = useMemo(() => {
+    const m = {};
+    for (const app of joinApplicationsToReview) {
+      const id = String(app.organizationId);
+      m[id] = (m[id] || 0) + 1;
+    }
+    return m;
+  }, [joinApplicationsToReview]);
+
+  /** Tổng mục cần xem trên Trang chủ tổ chức (lời mời + đơn duyệt). */
+  const orgHomeSidebarBadgeCount = useMemo(
+    () => joinApplicationsToReview.length + pendingInvitations.length,
+    [joinApplicationsToReview, pendingInvitations]
+  );
 
   const forwardPreviewText = useMemo(() => {
     if (!forwardSourceMessage) return '';
@@ -215,6 +240,74 @@ function OrganizationsPage() {
       notifyError('Không thể tải lời mời tổ chức');
     } finally {
       setLoadingInvitations(false);
+    }
+  };
+
+  const loadPendingJoinApplications = async () => {
+    try {
+      const payload = await organizationAPI.getMyPendingJoinApplications();
+      const list = unwrapData(payload);
+      setPendingJoinApplications(Array.isArray(list) ? list : []);
+    } catch (error) {
+      setPendingJoinApplications([]);
+    }
+  };
+
+  const loadJoinApplicationsToReview = async () => {
+    setLoadingJoinApplicationsToReview(true);
+    try {
+      const payload = await organizationAPI.getJoinApplicationsToReview();
+      const list = unwrapData(payload);
+      setJoinApplicationsToReview(Array.isArray(list) ? list : []);
+    } catch (error) {
+      setJoinApplicationsToReview([]);
+    } finally {
+      setLoadingJoinApplicationsToReview(false);
+    }
+  };
+
+  const joinReviewKey = (orgId, applicationId) => `${orgId}:${applicationId}`;
+
+  const handleApproveJoinApplication = async (orgId, applicationId) => {
+    if (!orgId || !applicationId) return;
+    const key = joinReviewKey(orgId, applicationId);
+    setRespondingJoinReviewKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    try {
+      await organizationAPI.reviewJoinApplication(orgId, applicationId, { action: 'approve' });
+      notifySuccess('Đã duyệt đơn');
+      await Promise.all([loadJoinApplicationsToReview(), loadOrganizations()]);
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Không duyệt được';
+      notifyError(typeof msg === 'string' ? msg : 'Không duyệt được');
+    } finally {
+      setRespondingJoinReviewKeys((prev) => prev.filter((k) => k !== key));
+    }
+  };
+
+  const handleRejectJoinApplication = async (orgId, applicationId, rejectionReason) => {
+    if (!orgId || !applicationId) return;
+    const key = joinReviewKey(orgId, applicationId);
+    setRespondingJoinReviewKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    try {
+      await organizationAPI.reviewJoinApplication(orgId, applicationId, {
+        action: 'reject',
+        rejectionReason: String(rejectionReason || '').trim(),
+      });
+      notifySuccess('Đã từ chối đơn');
+      await loadJoinApplicationsToReview();
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Không từ chối được';
+      notifyError(typeof msg === 'string' ? msg : 'Không từ chối được');
+    } finally {
+      setRespondingJoinReviewKeys((prev) => prev.filter((k) => k !== key));
     }
   };
 
@@ -342,10 +435,25 @@ function OrganizationsPage() {
 
     setJoiningQuickInvite(true);
     try {
-      await organizationAPI.joinByInviteLink(orgId, token);
+      const res = await organizationAPI.joinByInviteLink(orgId, token);
+      const body = res?.data ?? res;
+      const data = body?.data ?? body;
+      if (data?.requiresJoinApplication) {
+        const qs = new URLSearchParams();
+        if (data.organizationName) qs.set('name', data.organizationName);
+        const q = qs.toString();
+        navigate(`/organizations/join/${encodeURIComponent(orgId)}${q ? `?${q}` : ''}`);
+        setQuickInviteInput('');
+        return;
+      }
       notifySuccess('Đã tham gia tổ chức từ link mời');
       setQuickInviteInput('');
-      await Promise.all([loadOrganizations(), loadPendingInvitations()]);
+      await Promise.all([
+        loadOrganizations(),
+        loadPendingInvitations(),
+        loadPendingJoinApplications(),
+        loadJoinApplicationsToReview(),
+      ]);
     } catch (error) {
       notifyError('Không thể tham gia tổ chức từ link mời');
     } finally {
@@ -390,10 +498,8 @@ function OrganizationsPage() {
   };
 
   const handleEditOrganization = (orgId) => {
-    const current = organizations.find((org) => org._id === orgId);
-    if (!current) return;
-    setOrgForSettings(current);
-    setOrgSettingsModalOpen(true);
+    if (!orgId) return;
+    navigate(`/organizations/${encodeURIComponent(orgId)}/settings`);
   };
 
   const handleOrganizationDeleted = (deletedOrgId) => {
@@ -407,6 +513,8 @@ function OrganizationsPage() {
       setMessages([]);
     }
     loadPendingInvitations();
+    loadPendingJoinApplications();
+    loadJoinApplicationsToReview();
   };
 
   const handleLeaveOrganization = (orgId) => {
@@ -444,7 +552,12 @@ function OrganizationsPage() {
         setDepartments([]);
         setMessages([]);
       }
-      await Promise.all([loadOrganizations(), loadPendingInvitations()]);
+      await Promise.all([
+        loadOrganizations(),
+        loadPendingInvitations(),
+        loadPendingJoinApplications(),
+        loadJoinApplicationsToReview(),
+      ]);
     } catch (error) {
       const msg =
         error?.response?.data?.message ||
@@ -531,7 +644,12 @@ function OrganizationsPage() {
       } else {
         notifySuccess('Đã từ chối lời mời tổ chức');
       }
-      await Promise.all([loadOrganizations(), loadPendingInvitations()]);
+      await Promise.all([
+        loadOrganizations(),
+        loadPendingInvitations(),
+        loadPendingJoinApplications(),
+        loadJoinApplicationsToReview(),
+      ]);
     } catch (error) {
       notifyError('Không thể xử lý lời mời');
     } finally {
@@ -740,7 +858,12 @@ function OrganizationsPage() {
   };
 
   useEffect(() => {
-    Promise.all([loadOrganizations(), loadPendingInvitations()]);
+    Promise.all([
+      loadOrganizations(),
+      loadPendingInvitations(),
+      loadPendingJoinApplications(),
+      loadJoinApplicationsToReview(),
+    ]);
     loadChatContacts();
   }, []);
 
@@ -803,19 +926,40 @@ function OrganizationsPage() {
     }
 
     const joinOrganizationByLink = async () => {
+      let navigatedToJoinForm = false;
       try {
-        await organizationAPI.joinByInviteLink(orgIdFromUrl, tokenFromUrl);
-        notifySuccess('Đã tham gia tổ chức từ link mời');
-        await Promise.all([loadOrganizations(), loadPendingInvitations()]);
+        const res = await organizationAPI.joinByInviteLink(orgIdFromUrl, tokenFromUrl);
+        const body = res?.data ?? res;
+        const data = body?.data ?? body;
+        if (data?.requiresJoinApplication) {
+          navigatedToJoinForm = true;
+          const qs = new URLSearchParams();
+          if (data.organizationName) qs.set('name', data.organizationName);
+          const q = qs.toString();
+          navigate(
+            `/organizations/join/${encodeURIComponent(orgIdFromUrl)}${q ? `?${q}` : ''}`,
+            { replace: true }
+          );
+        } else {
+          notifySuccess('Đã tham gia tổ chức từ link mời');
+          await Promise.all([
+            loadOrganizations(),
+            loadPendingInvitations(),
+            loadPendingJoinApplications(),
+            loadJoinApplicationsToReview(),
+          ]);
+        }
       } catch (error) {
         notifyError('Không thể tham gia tổ chức từ link mời');
       } finally {
-        params.delete('orgId');
-        params.delete('inviteOrgId');
-        params.delete('inviteToken');
-        const nextQuery = params.toString();
-        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`;
-        window.history.replaceState({}, '', nextUrl);
+        if (!navigatedToJoinForm) {
+          params.delete('orgId');
+          params.delete('inviteOrgId');
+          params.delete('inviteToken');
+          const nextQuery = params.toString();
+          const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`;
+          window.history.replaceState({}, '', nextUrl);
+        }
       }
     };
 
@@ -846,6 +990,8 @@ function OrganizationsPage() {
     const refreshOrgData = () => {
       loadOrganizations();
       loadPendingInvitations();
+      loadPendingJoinApplications();
+      loadJoinApplicationsToReview();
     };
 
     const handleOrgEvent = () => {
@@ -858,6 +1004,9 @@ function OrganizationsPage() {
     on('organization:member_joined', handleOrgEvent);
     on('organization:member_removed', handleOrgEvent);
     on('organization:updated', handleOrgEvent);
+    on('organization:join_application_created', handleOrgEvent);
+    on('organization:join_application_approved', handleOrgEvent);
+    on('organization:join_application_rejected', handleOrgEvent);
 
     return () => {
       off('organization:invitation_received', handleOrgEvent);
@@ -866,6 +1015,33 @@ function OrganizationsPage() {
       off('organization:member_joined', handleOrgEvent);
       off('organization:member_removed', handleOrgEvent);
       off('organization:updated', handleOrgEvent);
+      off('organization:join_application_created', handleOrgEvent);
+      off('organization:join_application_approved', handleOrgEvent);
+      off('organization:join_application_rejected', handleOrgEvent);
+    };
+  }, [on, off]);
+
+  useEffect(() => {
+    if (!location.state?.refreshPendingJoin) return;
+    void loadPendingJoinApplications();
+    const rest = { ...location.state };
+    delete rest.refreshPendingJoin;
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: Object.keys(rest).length ? rest : undefined,
+    });
+  }, [location.state?.refreshPendingJoin]);
+
+  useEffect(() => {
+    if (!on || !off) return;
+    const bump = () => setMemberListRefreshKey((k) => k + 1);
+    on('organization:member_joined', bump);
+    on('organization:member_removed', bump);
+    on('organization:join_application_approved', bump);
+    return () => {
+      off('organization:member_joined', bump);
+      off('organization:member_removed', bump);
+      off('organization:join_application_approved', bump);
     };
   }, [on, off]);
 
@@ -873,6 +1049,7 @@ function OrganizationsPage() {
     <>
       <ThreeFrameLayout
         center={
+          <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0b0e14]">
           <OrganizationMainPanel
             selectedOrganization={selectedOrganization}
             hasOrganizations={hasOrganizations}
@@ -900,6 +1077,11 @@ function OrganizationsPage() {
             loadingInvitations={loadingInvitations}
             respondingInvitationIds={respondingInvitationIds}
             onRespondInvitation={handleRespondInvitation}
+            joinApplicationsToReview={joinApplicationsToReview}
+            loadingJoinApplicationsToReview={loadingJoinApplicationsToReview}
+            respondingJoinReviewKeys={respondingJoinReviewKeys}
+            onApproveJoinApplication={handleApproveJoinApplication}
+            onRejectJoinApplication={handleRejectJoinApplication}
             homeNotificationPreview={HOME_NOTIFICATION_PREVIEW}
             homeCalendarPreview={HOME_CALENDAR_PREVIEW}
             expandedHomeCards={expandedHomeCards}
@@ -924,25 +1106,50 @@ function OrganizationsPage() {
             onDeleteMessage={handleDeleteMessage}
             onForwardMessage={handleForwardRequest}
             onQuickReactMessage={handleQuickReactMessage}
+            workspaceOnlineUserIds={onlineUsers}
           />
+          </div>
         }
         right={
-          <DepartmentBubbleRail
-            organizations={organizations}
-            selectedOrganizationId={selectedOrganizationId}
-            viewMode={viewMode}
-            onSelectOrganization={setSelectedOrganizationId}
-            onOpenWorkspace={handleOpenWorkspace}
-            onOpenHome={handleOpenHome}
-            onEditOrganization={handleEditOrganization}
-            onInviteOrganization={handleInviteOrganization}
-            onLeaveOrganization={handleLeaveOrganization}
-            onCreateOrganization={handleCreateOrganization}
-            invitationCount={pendingInvitations.length}
-            organizationsLoaded={organizationsLoaded}
-          />
+          <div className="flex h-full shrink-0 flex-row">
+            {viewMode === 'workspace' && selectedOrganizationId ? (
+              <OrganizationMemberPeekDock>
+                <OrganizationMemberSidebar
+                  organizationId={selectedOrganizationId}
+                  organizationName={selectedOrganization?.name || ''}
+                  onlineUsers={onlineUsers}
+                  socketConnected={socketConnected}
+                  refreshKey={memberListRefreshKey}
+                  currentUserId={user?.userId || user?._id || user?.id}
+                  myRole={selectedOrganization?.myRole}
+                  onMentionUser={(text) =>
+                    setMessageInput((prev) => `${prev || ''}${text}`)
+                  }
+                  onMemberRemoved={() => setMemberListRefreshKey((k) => k + 1)}
+                />
+              </OrganizationMemberPeekDock>
+            ) : null}
+            <div className="flex h-full w-28 min-w-[7rem] shrink-0 flex-col overflow-hidden border-l border-white/10 bg-black/10 glass-strong">
+              <DepartmentBubbleRail
+                organizations={organizations}
+                pendingJoinApplications={pendingJoinApplications}
+                joinReviewCountByOrgId={joinReviewCountByOrgId}
+                homeNotificationBadgeCount={orgHomeSidebarBadgeCount}
+                selectedOrganizationId={selectedOrganizationId}
+                viewMode={viewMode}
+                onSelectOrganization={setSelectedOrganizationId}
+                onOpenWorkspace={handleOpenWorkspace}
+                onOpenHome={handleOpenHome}
+                onEditOrganization={handleEditOrganization}
+                onInviteOrganization={handleInviteOrganization}
+                onLeaveOrganization={handleLeaveOrganization}
+                onCreateOrganization={handleCreateOrganization}
+                organizationsLoaded={organizationsLoaded}
+              />
+            </div>
+          </div>
         }
-        rightWidth="w-28"
+        rightFrameClassName="shrink-0 h-full min-w-0 overflow-visible flex flex-col w-auto"
       />
       {leaveOrgModalOpen && (
         <Modal
@@ -1090,17 +1297,6 @@ function OrganizationsPage() {
           </div>
         </div>
       </Modal>
-
-      <OrganizationSettingsModal
-        isOpen={orgSettingsModalOpen}
-        onClose={() => {
-          setOrgSettingsModalOpen(false);
-          setOrgForSettings(null);
-        }}
-        organization={orgForSettings}
-        onOrganizationUpdated={loadOrganizations}
-        onOrganizationDeleted={handleOrganizationDeleted}
-      />
 
       <ForwardChannelModal
         isOpen={forwardModalOpen}

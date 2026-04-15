@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Modal, GlassCard, GradientButton, Toast } from '../Shared';
 import { useAuth } from '../../context/AuthContext';
 import { organizationAPI } from '../../services/api/organizationAPI';
@@ -8,6 +9,7 @@ const unwrap = (payload) => payload?.data ?? payload;
 
 const ADMIN_TABS = [
   { id: 'general', label: 'Tổng quan', icon: '⚙️' },
+  { id: 'join', label: 'Đơn gia nhập', icon: '📋' },
   { id: 'roles', label: 'Vai trò & quyền', icon: '🔐' },
   { id: 'security', label: 'Bảo mật', icon: '🛡️' },
   { id: 'integrations', label: 'Tích hợp', icon: '🔗' },
@@ -24,16 +26,44 @@ const MEMBER_TABS = [
 
 const storageKey = (orgId, key) => `orgSettings:${orgId}:${key}`;
 
+const JOIN_CHOICE_MAX = 8;
+const JOIN_CHOICE_MIN = 2;
+
+/** Số ô mặc định khi chọn kiểu câu hỏi */
+function joinDefaultOptionSlotCount(type) {
+  if (type === 'radio') return 4;
+  if (type === 'checkbox') return 2;
+  if (type === 'single_choice') return 2;
+  return 2;
+}
+
+/** Chuẩn hóa mảng options để hiển thị đủ ô (radio mặc định 4, checkbox 2, tối đa 8). */
+function joinPadOptionsForDisplay(type, options) {
+  if (!['single_choice', 'radio', 'checkbox'].includes(type)) return [];
+  const raw = Array.isArray(options) ? options : [];
+  const def = joinDefaultOptionSlotCount(type);
+  const len = Math.min(JOIN_CHOICE_MAX, Math.max(JOIN_CHOICE_MIN, def, raw.length));
+  const out = [];
+  for (let i = 0; i < len; i += 1) out.push(raw[i] ?? '');
+  return out;
+}
+
+function joinCreateEmptyOptionsForType(type) {
+  const n = joinDefaultOptionSlotCount(type);
+  return Array.from({ length: n }, () => '');
+}
+
 /**
- * Owner / Admin: toàn bộ tab quản trị (giống chế độ Quản trị viên trên trang Cài đặt).
- * Member: chỉ Hồ sơ / Thông báo / Quyền riêng tư / Giao diện (giống hình 2).
+ * Owner / Admin: toàn bộ mục quản trị. Member: chỉ Hồ sơ / Thông báo / …
+ * Full màn hình: sidebar trái (mục) + vùng nội dung phải.
  */
-function OrganizationSettingsModal({
-  isOpen,
-  onClose,
+function OrganizationSettingsPanel({
   organization,
+  onBack,
   onOrganizationUpdated,
   onOrganizationDeleted,
+  /** ?tab=join trên URL */
+  initialTab = null,
 }) {
   const { user, updateUser } = useAuth();
   const orgId = organization?._id || organization?.id;
@@ -98,6 +128,12 @@ function OrganizationSettingsModal({
   const [deleteOrgNameInput, setDeleteOrgNameInput] = useState('');
   const [deletingOrg, setDeletingOrg] = useState(false);
 
+  const [joinFormLoading, setJoinFormLoading] = useState(false);
+  const [joinFormSaving, setJoinFormSaving] = useState(false);
+  const [joinFormEnabled, setJoinFormEnabled] = useState(false);
+  const [joinFormDefaultRole, setJoinFormDefaultRole] = useState('member');
+  const [joinFormFields, setJoinFormFields] = useState([]);
+
   const expectedOrgNameForDelete = useMemo(() => {
     const fromServer = serverOrgName?.trim();
     if (fromServer) return fromServer;
@@ -158,16 +194,34 @@ function OrganizationSettingsModal({
     }
   }, [orgId, isFullAccess]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      setDeleteOrgModalOpen(false);
-      setDeleteOrgNameInput('');
-      setDeletingOrg(false);
-      return;
+  const loadJoinWorkspace = useCallback(async () => {
+    if (!orgId || !isFullAccess) return;
+    setJoinFormLoading(true);
+    try {
+      const formRes = await organizationAPI.getJoinApplicationForm(orgId);
+      const formRaw = unwrap(formRes);
+      const fd = formRaw?.data ?? formRaw;
+      setJoinFormEnabled(Boolean(fd?.enabled));
+      setJoinFormDefaultRole(fd?.defaultRoleOnApprove === 'admin' ? 'admin' : 'member');
+      setJoinFormFields(Array.isArray(fd?.fields) ? fd.fields : []);
+    } catch {
+      showToast('Không tải được cấu hình đơn gia nhập', 'error');
+    } finally {
+      setJoinFormLoading(false);
     }
+  }, [orgId, isFullAccess]);
+
+  useEffect(() => {
+    if (!orgId || !isFullAccess || activeTab !== 'join') return;
+    loadJoinWorkspace();
+  }, [orgId, isFullAccess, activeTab, loadJoinWorkspace]);
+
+  useEffect(() => {
     if (!orgId) return;
     const first = isFullAccess ? 'general' : 'profile';
-    setActiveTab(first);
+    const allowed = (isFullAccess ? ADMIN_TABS : MEMBER_TABS).map((t) => t.id);
+    const nextTab = initialTab && allowed.includes(initialTab) ? initialTab : first;
+    setActiveTab(nextTab);
     loadOrgFromApi();
     loadRoles();
 
@@ -182,7 +236,7 @@ function OrganizationSettingsModal({
     } catch {
       /* ignore */
     }
-  }, [isOpen, orgId, isFullAccess, loadOrgFromApi, loadRoles]);
+  }, [orgId, isFullAccess, initialTab, loadOrgFromApi, loadRoles]);
 
   useEffect(() => {
     if (!user) return;
@@ -190,7 +244,7 @@ function OrganizationSettingsModal({
       fullName: user?.displayName || user?.fullName || user?.name || '',
       phone: user?.phone || '',
     });
-  }, [user, isOpen]);
+  }, [user, orgId]);
 
   const persistMemberPrefs = () => {
     if (!orgId) return;
@@ -229,7 +283,7 @@ function OrganizationSettingsModal({
       setDeleteOrgNameInput('');
       onOrganizationUpdated?.();
       onOrganizationDeleted?.(orgId);
-      onClose();
+      onBack();
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
@@ -352,56 +406,135 @@ function OrganizationSettingsModal({
     }
   };
 
+  const handleSaveJoinForm = async () => {
+    if (!orgId) return;
+    setJoinFormSaving(true);
+    try {
+      await organizationAPI.updateJoinApplicationForm(orgId, {
+        enabled: joinFormEnabled,
+        defaultRoleOnApprove: joinFormDefaultRole,
+        fields: joinFormFields,
+      });
+      showToast('Đã lưu form gia nhập', 'success');
+      onOrganizationUpdated?.();
+      await loadJoinWorkspace();
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        'Không lưu được';
+      showToast(typeof msg === 'string' ? msg : 'Không lưu được', 'error');
+    } finally {
+      setJoinFormSaving(false);
+    }
+  };
+
+  const addJoinField = () => {
+    setJoinFormFields((prev) => [
+      ...prev,
+      {
+        id: `field_${Date.now()}`,
+        label: 'Câu hỏi mới',
+        type: 'short_text',
+        required: false,
+        options: [],
+      },
+    ]);
+  };
+
+  const updateJoinField = (index, patch) => {
+    setJoinFormFields((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+  };
+
+  const removeJoinField = (index) => {
+    setJoinFormFields((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const tabs = isFullAccess ? ADMIN_TABS : MEMBER_TABS;
 
-  if (!isOpen || !organization) return null;
+  if (!organization) return null;
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title="Cài đặt tổ chức" size="xl">
-        <div className="space-y-4 text-slate-100">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
-            <div>
-              <p className="text-sm font-semibold text-white">{organization.name}</p>
-              <p className="text-xs text-gray-400">
-                Vai trò của bạn:{' '}
-                <span className="text-cyan-300">
-                  {myRole === 'owner'
-                    ? 'Chủ sở hữu'
-                    : myRole === 'admin'
-                      ? 'Quản trị viên'
-                      : 'Thành viên'}
-                </span>
-                {!isFullAccess && ' — chỉ xem các mục cá nhân trong tổ chức'}
-              </p>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#0b0e14] text-slate-100">
+        <header className="shrink-0 border-b border-white/[0.08] px-4 py-4 md:px-8">
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 text-sm text-cyan-400/90 hover:text-cyan-300 hover:underline"
+          >
+            ← Quay lại Tổ chức
+          </button>
+          <h1 className="text-xl font-bold text-white md:text-2xl">Cài đặt tổ chức</h1>
+          <p className="mt-1 text-sm font-semibold text-white/90">{organization.name}</p>
+          <p className="text-xs text-gray-400">
+            Vai trò của bạn:{' '}
+            <span className="text-cyan-300">
+              {myRole === 'owner'
+                ? 'Chủ sở hữu'
+                : myRole === 'admin'
+                  ? 'Quản trị viên'
+                  : 'Thành viên'}
+            </span>
+            {!isFullAccess && ' — chỉ xem các mục cá nhân trong tổ chức'}
+          </p>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <aside className="hidden w-56 shrink-0 overflow-y-auto border-b border-white/[0.08] bg-[#06080d] py-4 md:block md:border-b-0 md:border-r lg:w-64">
+            <nav className="flex flex-col gap-1 px-3">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
+                      : 'border border-transparent text-gray-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
+                  }`}
+                >
+                  <span className="text-lg leading-none">{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+          </aside>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-white/[0.08] bg-[#080a10] px-2 py-2 md:hidden">
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${
+                      activeTab === tab.id
+                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                        : 'border border-slate-800 bg-[#040f2a] text-gray-400'
+                    }`}
+                  >
+                    <span className="mr-0.5">{tab.icon}</span>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {loadingOrg && isFullAccess && (
-            <p className="text-sm text-gray-400">Đang tải thông tin tổ chức…</p>
-          )}
-
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-gradient">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                    : 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
-                }`}
-              >
-                <span className="mr-1">{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
-          </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-10 md:py-8">
+              {loadingOrg && isFullAccess && (
+                <p className="mb-4 text-sm text-gray-400">Đang tải thông tin tổ chức…</p>
+              )}
 
           {/* ——— Admin ——— */}
           {isFullAccess && activeTab === 'general' && (
-            <div className="max-w-3xl space-y-4">
+            <div className="mx-auto max-w-4xl space-y-4">
               <GlassCard className="border border-slate-800 bg-slate-900/60">
                 <h3 className="mb-4 text-xl font-bold text-white">Thông tin tổ chức</h3>
                 <div className="space-y-3">
@@ -456,8 +589,198 @@ function OrganizationSettingsModal({
             </div>
           )}
 
+          {isFullAccess && activeTab === 'join' && (
+            <div className="mx-auto w-full max-w-6xl space-y-4">
+              <GlassCard className="border border-slate-800 bg-slate-900/60">
+                <h3 className="mb-3 text-xl font-bold text-white">Form gia nhập (link mời)</h3>
+                <p className="mb-2 text-sm text-gray-400">
+                  Khi bật, người dùng phải điền form trước khi vào tổ chức. Bạn có thể thêm trường ngắn, đoạn
+                  văn hoặc một lựa chọn.
+                </p>
+                {orgId && (
+                  <p className="mb-4 text-sm">
+                    <Link
+                      to={`/organizations/join/${orgId}?name=${encodeURIComponent(organization?.name || '')}`}
+                      className="text-cyan-400 hover:underline"
+                    >
+                      Mở trang đơn gia nhập (xem trước)
+                    </Link>
+                  </p>
+                )}
+                {joinFormLoading ? (
+                  <p className="text-sm text-gray-500">Đang tải…</p>
+                ) : (
+                  <div className="space-y-4">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={joinFormEnabled}
+                        onChange={(e) => setJoinFormEnabled(e.target.checked)}
+                        className="h-4 w-4 rounded"
+                      />
+                      Bật form gia nhập
+                    </label>
+                    <div>
+                      <label className="mb-1 block text-sm text-gray-300">Vai trò khi duyệt</label>
+                      <select
+                        value={joinFormDefaultRole}
+                        onChange={(e) => setJoinFormDefaultRole(e.target.value)}
+                        className="w-full max-w-xs rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white"
+                      >
+                        <option value="member">Thành viên</option>
+                        <option value="admin">Quản trị viên</option>
+                      </select>
+                    </div>
+                    <div className="space-y-3">
+                      {joinFormFields.map((f, idx) => (
+                        <div
+                          key={f.id || idx}
+                          className="rounded-xl border border-slate-800 bg-[#040f2a] p-3 space-y-2"
+                        >
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <input
+                              value={f.label}
+                              onChange={(e) => updateJoinField(idx, { label: e.target.value })}
+                              placeholder="Nhãn câu hỏi"
+                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                            />
+                            <input
+                              value={f.id}
+                              onChange={(e) => updateJoinField(idx, { id: e.target.value.trim() })}
+                              placeholder="id (vd: full_name)"
+                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <select
+                              value={f.type}
+                              onChange={(e) => {
+                                const nextType = e.target.value;
+                                const needsOptions = ['single_choice', 'radio', 'checkbox'].includes(
+                                  nextType
+                                );
+                                updateJoinField(idx, {
+                                  type: nextType,
+                                  options: needsOptions ? joinCreateEmptyOptionsForType(nextType) : [],
+                                });
+                              }}
+                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                            >
+                              <option value="short_text">Một dòng</option>
+                              <option value="long_text">Đoạn văn</option>
+                              <option value="single_choice">Chọn một (dropdown)</option>
+                              <option value="radio">Radio (một lựa chọn)</option>
+                              <option value="checkbox">Checkbox (nhiều lựa chọn)</option>
+                            </select>
+                            <label className="flex items-center gap-1 text-xs text-gray-400">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(f.required)}
+                                onChange={(e) => updateJoinField(idx, { required: e.target.checked })}
+                              />
+                              Bắt buộc
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeJoinField(idx)}
+                              className="ml-auto text-xs text-red-400 hover:underline"
+                            >
+                              Xóa trường
+                            </button>
+                          </div>
+                          {['single_choice', 'radio', 'checkbox'].includes(f.type) && (
+                            <div className="space-y-2 border-t border-white/5 pt-3">
+                              <p className="text-xs text-gray-500">
+                                Lựa chọn — tối đa {JOIN_CHOICE_MAX} ô (tối thiểu {JOIN_CHOICE_MIN} giá trị có nội
+                                dung khi lưu).
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {joinPadOptionsForDisplay(f.type, f.options).map((opt, optIdx) => (
+                                  <input
+                                    key={optIdx}
+                                    value={opt}
+                                    onChange={(e) => {
+                                      const padded = joinPadOptionsForDisplay(f.type, f.options);
+                                      padded[optIdx] = e.target.value;
+                                      updateJoinField(idx, { options: padded });
+                                    }}
+                                    placeholder={`Lựa chọn ${optIdx + 1}`}
+                                    className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white placeholder:text-gray-600"
+                                  />
+                                ))}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={
+                                    joinPadOptionsForDisplay(f.type, f.options).length >= JOIN_CHOICE_MAX
+                                  }
+                                  onClick={() => {
+                                    const padded = joinPadOptionsForDisplay(f.type, f.options);
+                                    if (padded.length >= JOIN_CHOICE_MAX) return;
+                                    updateJoinField(idx, { options: [...padded, ''] });
+                                  }}
+                                  className="text-xs font-medium text-cyan-400 hover:underline disabled:cursor-not-allowed disabled:text-gray-600"
+                                >
+                                  + Thêm lựa chọn
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    joinPadOptionsForDisplay(f.type, f.options).length <= JOIN_CHOICE_MIN
+                                  }
+                                  onClick={() => {
+                                    const padded = joinPadOptionsForDisplay(f.type, f.options);
+                                    if (padded.length <= JOIN_CHOICE_MIN) return;
+                                    updateJoinField(idx, { options: padded.slice(0, -1) });
+                                  }}
+                                  className="text-xs text-gray-400 hover:text-red-300 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Xóa ô cuối
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={addJoinField}
+                        className="text-sm font-medium text-cyan-400 hover:underline"
+                      >
+                        + Thêm trường
+                      </button>
+                    </div>
+                    <GradientButton
+                      variant="primary"
+                      onClick={handleSaveJoinForm}
+                      disabled={joinFormSaving}
+                    >
+                      {joinFormSaving ? 'Đang lưu…' : 'Lưu form'}
+                    </GradientButton>
+                  </div>
+                )}
+              </GlassCard>
+
+              <GlassCard className="border border-slate-800 bg-slate-900/60">
+                <h3 className="mb-2 text-sm font-semibold text-white">Đơn chờ duyệt</h3>
+                <p className="text-sm leading-relaxed text-gray-400">
+                  Danh sách đơn gia nhập cần bạn xử lý được gom tại{' '}
+                  <span className="font-medium text-gray-200">Trang chủ tổ chức</span> (Organization
+                  Home) để xem và duyệt thống nhất từ mọi tổ chức bạn quản trị.
+                </p>
+                <Link
+                  to="/organizations"
+                  className="mt-3 inline-block text-sm font-medium text-cyan-400 hover:text-cyan-300 hover:underline"
+                >
+                  Mở Trang chủ tổ chức →
+                </Link>
+              </GlassCard>
+            </div>
+          )}
+
           {isFullAccess && activeTab === 'roles' && (
-            <div className="max-w-4xl">
+            <div className="mx-auto max-w-5xl">
               <GlassCard className="border border-slate-800 bg-slate-900/60">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-xl font-bold text-white">Quản lý vai trò (RBAC)</h3>
@@ -740,8 +1063,10 @@ function OrganizationSettingsModal({
               </div>
             </GlassCard>
           )}
+            </div>
+          </div>
         </div>
-      </Modal>
+      </div>
 
       <Modal
         isOpen={deleteOrgModalOpen}
@@ -800,4 +1125,4 @@ function OrganizationSettingsModal({
   );
 }
 
-export default OrganizationSettingsModal;
+export default OrganizationSettingsPanel;

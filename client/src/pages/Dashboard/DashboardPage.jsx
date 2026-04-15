@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Bell, MoreHorizontal, Search } from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
@@ -10,6 +11,29 @@ import friendService from '../../services/friendService';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import { meetingAPI } from '../../services/api/meetingAPI';
+
+function initialsFromName(name) {
+  if (!name || typeof name !== 'string') return '?';
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  if (p.length >= 2) return `${p[0][0]}${p[p.length - 1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+/** Mini sparkline — thanh nhỏ cho thẻ metric */
+function MiniSparkline({ up = true, className = '' }) {
+  const heights = up ? [38, 52, 45, 58, 50, 65, 72] : [72, 58, 62, 48, 55, 42, 38];
+  return (
+    <div className={`flex h-7 items-end gap-[3px] ${className}`}>
+      {heights.map((h, i) => (
+        <div
+          key={i}
+          className="w-[3px] min-h-[4px] rounded-full bg-current opacity-90 transition-all"
+          style={{ height: `${h}%` }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function DashboardPage() {
   const [activeFilter, setActiveFilter] = useState('all');
@@ -48,11 +72,11 @@ function DashboardPage() {
   const getGreeting = () => {
     const now = new Date();
     const hour = now.getHours();
-    if (hour >= 5 && hour < 11) return `Chào buổi Sáng, ${displayName}!`;
-    if (hour >= 11 && hour < 13) return `Chào buổi Trưa, ${displayName}!`;
-    if (hour >= 13 && hour < 17) return `Chào buổi Chiều, ${displayName}!`;
-    if (hour >= 17 && hour < 22) return `Chào buổi Tối, ${displayName}!`;
-    return `Khuya rồi, ${displayName}!`;
+    if (hour >= 5 && hour < 11) return `Chào buổi sáng, ${displayName}`;
+    if (hour >= 11 && hour < 13) return `Chào buổi trưa, ${displayName}`;
+    if (hour >= 13 && hour < 17) return `Chào buổi chiều, ${displayName}`;
+    if (hour >= 17 && hour < 22) return `Chào buổi tối, ${displayName}`;
+    return `Khuya rồi, ${displayName}`;
   };
 
   useEffect(() => {
@@ -227,10 +251,12 @@ function DashboardPage() {
         icon: '📊',
         label: 'Tổ chức',
         value: fmt(metrics.orgCount),
-        change: '',
-        color: 'from-purple-600 to-pink-600',
+        change: '+1',
+        color: 'from-violet-600 to-fuchsia-600',
+        iconBg: 'from-[#7C3AED] to-[#a855f7]',
+        sparkClass: 'text-emerald-400',
         trend: 'up',
-        detail: metrics.loading ? 'Đang tải...' : `${metrics.orgCount ?? 0} tổ chức`,
+        detail: metrics.loading ? 'Đang tải...' : 'Không gian làm việc đã tham gia',
         drilldown: {
           nguon: 'GET /api/organizations/my',
           soToChuc: metrics.orgCount ?? '—',
@@ -238,14 +264,16 @@ function DashboardPage() {
       },
       {
         icon: '✅',
-        label: 'Công việc (done)',
+        label: 'Việc đã xong',
         value: fmt(metrics.taskDone),
-        change: '',
+        change: '-4',
         color: 'from-blue-500 to-cyan-500',
-        trend: 'up',
+        iconBg: 'from-[#3B82F6] to-[#06b6d4]',
+        sparkClass: 'text-rose-400',
+        trend: 'down',
         detail: metrics.loading
           ? 'Đang tải...'
-          : 'Theo tổ chức đầu tiên trong danh sách của bạn',
+          : 'Theo tổ chức đầu tiên của bạn',
         drilldown: {
           nguon: 'GET /api/tasks/statistics?organizationId=…',
           done: metrics.taskDone ?? '—',
@@ -255,8 +283,10 @@ function DashboardPage() {
         icon: '👥',
         label: 'Bạn bè',
         value: fmt(metrics.friendsTotal),
-        change: '',
-        color: 'from-green-500 to-emerald-500',
+        change: '+1',
+        color: 'from-emerald-500 to-teal-500',
+        iconBg: 'from-[#10B981] to-[#14b8a6]',
+        sparkClass: 'text-emerald-400',
         trend: 'up',
         detail: metrics.loading
           ? 'Đang tải...'
@@ -269,12 +299,14 @@ function DashboardPage() {
       },
       {
         icon: '🔔',
-        label: 'Thông báo chưa đọc',
+        label: 'Thông báo',
         value: fmt(metrics.unread),
-        change: '',
-        color: 'from-orange-500 to-red-500',
+        change: '+2',
+        color: 'from-amber-500 to-orange-600',
+        iconBg: 'from-[#F59E0B] to-[#ea580c]',
+        sparkClass: 'text-emerald-400',
         trend: 'up',
-        detail: metrics.loading ? 'Đang tải...' : 'Theo notification-service',
+        detail: metrics.loading ? 'Đang tải...' : 'Chưa đọc trên hệ thống',
         drilldown: {
           nguon: 'GET /api/notifications',
           chuaDoc: metrics.unread,
@@ -284,379 +316,407 @@ function DashboardPage() {
   }, [metrics]);
 
   const activities = [
-    { user: "Sarah Chen", action: "hoàn thành", item: "Đánh giá thiết kế UI", time: "2 phút trước", avatar: "👩‍💼", type: "task", color: "from-green-500 to-emerald-500", detail: { project: "VoiceHub Enterprise", duration: "2 giờ", tags: ["Thiết Kế", "Đánh Giá"] } },
-    { user: "Mike Ross", action: "tải lên", item: "BaoCaoQ4.pdf", time: "15 phút trước", avatar: "👨‍💻", type: "file", color: "from-blue-500 to-cyan-500", detail: { size: "2.4 MB", folder: "Tài Liệu/Báo Cáo", downloads: 5 } },
-    { user: "Emma Wilson", action: "tạo kênh", item: "#y-tuong-marketing", time: "1 giờ trước", avatar: "👩‍🎨", type: "message", color: "from-purple-600 to-pink-600", detail: { members: 8, category: "Marketing", description: "Tổng kết ý tưởng chiến dịch" } },
-    { user: "David Kim", action: "tham gia", item: "Họp Nhóm Hàng Ngày", time: "2 giờ trước", avatar: "👨‍🔬", type: "task", color: "from-orange-500 to-red-500", detail: { duration: "30 phút", participants: 12, recording: true } },
-    { user: "Lisa Park", action: "comment", item: "Dự án Website mới", time: "3 giờ trước", avatar: "👩‍💼", type: "message", color: "from-pink-500 to-rose-500", detail: { comments: 3, mentions: ["@Mike", "@Sarah"], project: "Thiết Kế Lại Website" } }
+    { user: 'Sarah Chen', action: 'hoàn thành', item: 'Đánh giá thiết kế UI', time: '2 phút', avatar: '👩‍💼', type: 'task', color: 'from-emerald-500 to-teal-600', detail: { project: 'VoiceHub Enterprise', duration: '2 giờ', tags: ['Thiết Kế', 'Đánh Giá'] } },
+    { user: 'Mike Ross', action: 'tải lên', item: 'BaoCaoQ4.pdf', time: '15 phút', avatar: '👨‍💻', type: 'file', color: 'from-blue-500 to-sky-600', detail: { size: '2.4 MB', folder: 'Tài Liệu/Báo Cáo', downloads: 5 } },
+    { user: 'Emma Wilson', action: 'tạo kênh', item: '#y-tuong-marketing', time: '1 giờ', avatar: '👩‍🎨', type: 'message', color: 'from-violet-600 to-fuchsia-600', detail: { members: 8, category: 'Marketing', description: 'Tổng kết ý tưởng chiến dịch' } },
+    { user: 'David Kim', action: 'tham gia', item: 'Họp Nhóm Hàng Ngày', time: '2 giờ', avatar: '👨‍🔬', type: 'task', color: 'from-amber-500 to-orange-600', detail: { duration: '30 phút', participants: 12, recording: true } },
+    { user: 'Lisa Park', action: 'comment', item: 'Dự án Website mới', time: '3 giờ', avatar: '👩‍💼', type: 'message', color: 'from-pink-500 to-rose-600', detail: { comments: 3, mentions: ['@Mike', '@Sarah'], project: 'Thiết Kế Lại Website' } },
+    { user: 'Alex Nguyen', action: 'cập nhật', item: 'Roadmap Q3', time: '5 giờ', avatar: '🧑‍💼', type: 'file', color: 'from-cyan-500 to-blue-600', detail: { project: 'VoiceHub Enterprise' } },
   ];
 
-  const filteredActivities = activeFilter === 'all' 
-    ? activities 
-    : activities.filter(a => 
-        activeFilter === 'tasks' ? a.type === 'task' :
-        activeFilter === 'messages' ? a.type === 'message' :
-        activeFilter === 'files' ? a.type === 'file' : true
-      );
+  const filteredActivities =
+    activeFilter === 'all'
+      ? activities
+      : activities.filter((a) =>
+          activeFilter === 'tasks'
+            ? a.type === 'task'
+            : activeFilter === 'messages'
+              ? a.type === 'message'
+              : activeFilter === 'files'
+                ? a.type === 'file'
+                : true
+        );
+
+  const activityTypeLabel = (t) =>
+    t === 'task' ? 'Việc' : t === 'file' ? 'Tệp' : t === 'message' ? 'Tin nhắn' : 'Hoạt động';
 
   return (
     <>
-    {/* Bố cục chuẩn 3 khung: cùng độ dài với sidebar, mỗi khung thanh trượt riêng */}
-    <div className="h-screen flex overflow-hidden bg-[#020817]">
-      {/* Khung 1: Sidebar nav (icon only) */}
+    <div className="flex h-screen overflow-hidden bg-[#0D0D0F]">
       <NavigationSidebar />
 
-      {/* Khung 2: Trung tâm điều khiển - cuộn riêng */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 p-5 lg:p-6 overflow-y-auto overflow-x-visible scrollbar-overlay">
-          {/* Header with Search */}
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-extrabold text-white mb-1">Trung Tâm Điều Khiển</h1>
-              <p className="text-sm text-gray-400">Giám sát không gian làm việc thời gian thực</p>
-            </div>
-            <div className="flex gap-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Tìm kiếm..."
-                  className="pl-9 pr-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white w-56"
-                />
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">🔍</span>
-              </div>
-              <Dropdown
-                trigger={
-                  <button className="bg-[#040f2a] border border-slate-800 px-3.5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all">
-                    <span className="text-base">⚙️</span>
-                  </button>
-                }
-                align="right"
-              >
-                <div className="p-2">
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Tùy Chỉnh Dashboard</button>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Xuất Báo Cáo</button>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Chia Sẻ</button>
-                  <div className="h-px bg-white/10 my-2"></div>
-                  <button className="w-full text-left px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-white">Cài Đặt</button>
-                </div>
-              </Dropdown>
-            </div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] bg-[#0D0D0F]/95 px-4 py-3 backdrop-blur-md md:gap-4 md:px-6">
+          <p className="max-w-[40%] truncate text-sm font-medium text-white/90 md:max-w-none md:text-[15px]">
+            {getGreeting()}
+          </p>
+          <div className="relative min-w-0 flex-1 md:max-w-xl md:mx-auto">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b7280]" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm toàn hệ thống..."
+              className="w-full rounded-2xl border border-white/[0.06] bg-[#1A1A1C] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-[#6b7280] focus:border-[#7C3AED]/35 focus:ring-1 focus:ring-[#7C3AED]/25"
+            />
           </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/notifications')}
+              className="relative rounded-xl p-2.5 text-[#9ca3af] transition hover:bg-white/[0.06] hover:text-white"
+              aria-label="Thông báo"
+            >
+              <Bell className="h-5 w-5" strokeWidth={2} />
+              {(metrics.unread > 0 || metrics.pendingCount > 0) && (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-[#0D0D0F]" />
+              )}
+            </button>
+          </div>
+        </header>
 
-          {/* Enhanced Stats Grid with Click to Drilldown */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <div className="flex min-h-0 flex-1">
+          <main className="min-h-0 flex-1 overflow-y-auto overflow-x-visible px-4 py-5 scrollbar-overlay md:px-6 lg:px-8">
+            <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">Dashboard</p>
+                <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Trung Tâm Điều Khiển</h1>
+                <p className="mt-1 text-sm text-[#9ca3af]">Giám sát không gian làm việc thời gian thực</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.12)]">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                  Live
+                </span>
+                <Dropdown
+                  trigger={
+                    <button
+                      type="button"
+                      className="rounded-xl border border-white/[0.08] bg-[#1A1A1C] p-2 text-[#9ca3af] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
+                    </button>
+                  }
+                  align="right"
+                >
+                  <div className="p-2">
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
+                    >
+                      Tùy chỉnh Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
+                    >
+                      Xuất báo cáo
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
+                    >
+                      Chia sẻ
+                    </button>
+                    <div className="my-2 h-px bg-white/10" />
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
+                    >
+                      Cài đặt
+                    </button>
+                  </div>
+                </Dropdown>
+              </div>
+            </div>
+
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat, idx) => (
-              <GlassCard 
-                key={idx} 
-                hover 
+              <GlassCard
+                key={idx}
+                hover
                 onClick={() => setSelectedStat(stat)}
-                className="animate-slideUp relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60" 
-                style={{animationDelay: `${idx * 0.1}s`}}
+                className="group relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.06] bg-[#1A1A1C] p-4 shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition duration-300 hover:border-white/[0.1] hover:shadow-[0_12px_48px_rgba(0,0,0,0.5)]"
+                style={{ animationDelay: `${idx * 0.06}s` }}
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
+                <div
+                  className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 transition-opacity duration-300 group-hover:opacity-[0.07]`}
+                />
                 <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-xl shadow-lg`}>
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div
+                      className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${stat.iconBg || stat.color} text-lg shadow-[0_4px_20px_rgba(124,58,237,0.25)]`}
+                    >
                       {stat.icon}
                     </div>
-                    {stat.change ? (
-                      <div className={`flex items-center gap-1 text-xs font-bold ${stat.trend === 'up' ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className="text-right">
+                      <div
+                        className={`flex items-center justify-end gap-0.5 text-xs font-bold ${stat.trend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}
+                      >
                         <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
                         <span>{stat.change}</span>
                       </div>
-                    ) : (
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Live</span>
-                    )}
+                      <div className={`mt-1 flex justify-end ${stat.sparkClass || 'text-emerald-400/90'}`}>
+                        <MiniSparkline up={stat.trend === 'up'} />
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-white mb-1">{stat.value}</div>
-                  <div className="text-gray-400 text-xs mb-2">{stat.label}</div>
-                  <div className="text-xs text-gray-500">{stat.detail}</div>
-                  <div className="mt-2 text-[11px] text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click để xem chi tiết →
+                  <div className="mb-0.5 text-3xl font-bold tabular-nums tracking-tight text-white">{stat.value}</div>
+                  <div className="mb-1 text-xs font-medium text-[#9ca3af]">{stat.label}</div>
+                  <div className="text-[11px] leading-relaxed text-[#6b7280]">{stat.detail}</div>
+                  <div className="mt-3 text-[11px] font-medium text-[#7C3AED] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                    Xem chi tiết →
                   </div>
                 </div>
               </GlassCard>
             ))}
           </div>
 
-          {/* Activity Feed with Filters */}
-          <GlassCard className="mb-6 border border-slate-800 bg-slate-900/60">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-xl font-bold text-white">Hoạt Động Gần Đây</h2>
-                <p className="text-xs text-gray-500 mt-1">Minh họa — feed thật sẽ nối sau</p>
+          <GlassCard className="mb-2 border border-white/[0.06] bg-[#1A1A1C] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600/80 to-indigo-600/80 text-lg shadow-lg">
+                  ⚡
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Hoạt động gần đây</h2>
+                  <p className="mt-0.5 text-xs text-[#6b7280]">
+                    <span className="font-semibold text-[#a78bfa]">{filteredActivities.length} sự kiện</span>
+                    <span className="mx-1.5">·</span>
+                    Minh họa — feed thật sẽ nối sau
+                  </p>
+                </div>
               </div>
-              <div className="flex gap-2">
-                {['all', 'tasks', 'messages', 'files'].map(filter => (
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'all', label: 'Tất cả' },
+                  { id: 'tasks', label: 'Việc' },
+                  { id: 'files', label: 'Tệp' },
+                  { id: 'messages', label: 'Tin nhắn' },
+                ].map((f) => (
                   <button
-                    key={filter}
-                    onClick={() => setActiveFilter(filter)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      activeFilter === filter
-                        ? 'bg-gradient-to-r from-violet-500 to-indigo-500 text-white'
-                        : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
+                    key={f.id}
+                    type="button"
+                    onClick={() => setActiveFilter(f.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                      activeFilter === f.id
+                        ? 'bg-[#7C3AED] text-white shadow-[0_0_20px_rgba(124,58,237,0.35)]'
+                        : 'border border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
                     }`}
                   >
-                    {filter === 'all' ? 'Tất cả' : filter === 'tasks' ? 'Công việc' : filter === 'messages' ? 'Tin nhắn' : 'Tệp'}
+                    {f.label}
                   </button>
                 ))}
               </div>
             </div>
-            
-            <div className="space-y-3">
+
+            <div className="relative space-y-0">
+              <div className="absolute bottom-0 left-[19px] top-2 w-px bg-gradient-to-b from-[#7C3AED]/50 via-white/10 to-transparent" aria-hidden />
               {filteredActivities.map((activity, idx) => (
                 <div
-                  key={idx} 
+                  key={idx}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setShowActivityDetail(activity)}
-                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all cursor-pointer group"
+                  onKeyDown={(e) => e.key === 'Enter' && setShowActivityDetail(activity)}
+                  className="group relative flex gap-4 border-b border-white/[0.04] py-4 pl-1 pr-2 transition-colors last:border-0 hover:bg-white/[0.02]"
                 >
-                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${activity.color} flex items-center justify-center text-xl shadow-lg relative`}>
-                    {activity.avatar}
-                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#0a0118]"></div>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-white mb-1">
-                      <span className="font-bold">{activity.user}</span>
-                      <span className="text-gray-400"> {activity.action} </span>
-                      <span className="text-indigo-400 font-semibold">{activity.item}</span>
-                    </p>
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-500 text-sm">{activity.time}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full bg-gradient-to-r ${activity.color} text-white`}>
-                        {activity.type === 'task' ? 'Công việc' : activity.type === 'file' ? 'Tệp' : 'Tin nhắn'}
-                      </span>
+                  <div className="relative z-10 flex shrink-0 flex-col items-center pt-0.5">
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br ${activity.color} ring-4 ring-[#1A1A1C]`}
+                    />
+                    <div
+                      className={`mt-2 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br ${activity.color} text-xs font-bold text-white shadow-md`}
+                    >
+                      {initialsFromName(activity.user)}
                     </div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 transition-opacity bg-[#040f2a] border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
-                    Chi tiết
-                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-relaxed text-[#e5e7eb]">
+                      <span className="font-semibold text-white">{activity.user}</span>{' '}
+                      <span className="text-[#9ca3af]">{activity.action}</span>{' '}
+                      <span className="font-semibold text-[#a78bfa]">{activity.item}</span>
+                    </p>
+                    {activity.detail?.project && (
+                      <p className="mt-1 text-xs text-[#6b7280]">{activity.detail.project}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span
+                      className={`inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#d1d5db]`}
+                    >
+                      {activityTypeLabel(activity.type)}
+                    </span>
+                    <span className="text-xs tabular-nums text-[#6b7280]">{activity.time}</span>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <button className="w-full mt-3 py-2.5 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/70 transition-all text-sm text-gray-400 hover:text-white">
+            <button
+              type="button"
+              className="mt-2 w-full rounded-xl border border-white/[0.06] bg-[#141416] py-2.5 text-sm text-[#9ca3af] transition hover:border-white/10 hover:bg-white/[0.04] hover:text-white"
+            >
               Xem tất cả hoạt động →
             </button>
           </GlassCard>
+          </main>
 
-          {/* Quick Actions Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <aside className="flex w-80 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#121214]">
+        <div className="flex-1 min-h-0 space-y-6 overflow-y-auto overflow-x-visible p-4 scrollbar-overlay">
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Truy cập nhanh</p>
             {[
-              { icon: "➕", label: "Dự Án Mới", color: "from-purple-600 to-pink-600", action: () => setShowNewProjectModal(true) },
-              { icon: "📊", label: "Phân Tích", color: "from-blue-500 to-cyan-500", action: () => showToast("Chuyển đến trang phân tích", "info") },
-              { icon: "👥", label: "Mời Thành Viên", color: "from-green-500 to-emerald-500", action: () => showToast("Gửi lời mời thành công", "success") },
-              { icon: "📁", label: "Tải Lên", color: "from-orange-500 to-red-500", action: () => showToast("Chọn tệp để tải lên", "info") }
-            ].map((action, idx) => (
+              { ch: '# chat-chung', badge: '4 tin mới', color: 'bg-violet-500/20 text-violet-300' },
+              { ch: '# thiết-kế', badge: null, color: '' },
+              { ch: '# tổng-hợp', badge: '2', color: 'bg-sky-500/20 text-sky-300' },
+            ].map((row, i) => (
               <button
-                key={idx}
-                onClick={action.action}
-                className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl hover:bg-slate-800/70 transition-all group animate-scaleIn"
-                style={{animationDelay: `${(idx + 4) * 0.1}s`}}
+                key={i}
+                type="button"
+                onClick={() => navigate('/organizations')}
+                className="flex w-full items-center justify-between rounded-xl border border-white/[0.05] bg-[#1A1A1C] px-3 py-2.5 text-left text-sm text-[#e5e7eb] transition hover:border-[#7C3AED]/30 hover:bg-white/[0.03]"
               >
-                <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center text-xl mb-2 mx-auto group-hover:scale-110 transition-transform`}>
-                  {action.icon}
-                </div>
-                <div className="text-xs font-semibold text-gray-400 group-hover:text-white transition-colors">
-                  {action.label}
-                </div>
+                <span className="font-medium">{row.ch}</span>
+                {row.badge && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${row.color || 'bg-white/10 text-gray-300'}`}>
+                    {row.badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* Performance Chart Preview */}
-          <GlassCard className="border border-slate-800 bg-slate-900/60">
-            <h3 className="text-lg font-bold text-white mb-3">Hiệu Suất Tuần Này</h3>
-            <div className="grid grid-cols-7 gap-2 h-40">
-              {[65, 80, 55, 90, 75, 85, 70].map((height, idx) => (
-                <div key={idx} className="flex flex-col items-center justify-end group">
-                  <div className="relative">
-                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity glass px-2 py-1 rounded text-xs whitespace-nowrap">
-                      {Math.floor(height * 5)} tasks
-                    </div>
-                  </div>
-                  <div 
-                    className="w-full bg-gradient-to-t from-purple-600 to-pink-600 rounded-t-lg transition-all hover:scale-105 cursor-pointer"
-                    style={{height: `${height}%`}}
-                  ></div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][idx]}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs">
-              <span className="text-gray-400">Tổng: 500 công việc</span>
-              <span className="text-green-400 font-bold">+15% so với tuần trước</span>
-            </div>
-          </GlassCard>
-        </div>
-        </div>
-
-      {/* Khung 3: Trạng thái nhóm - cùng độ cao, thanh trượt riêng */}
-      <div className="w-72 shrink-0 h-full flex flex-col overflow-hidden bg-slate-900/60 border-l border-slate-800">
-        <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-visible scrollbar-overlay">
-        <h2 className="text-lg font-bold mb-5 text-white flex items-center gap-2">
-          <span>👥</span> Trạng Thái Nhóm
-        </h2>
-        
-        {/* Online Members — dữ liệu từ /api/friends */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-400">
-              {metrics.loading
-                ? 'Đang tải…'
-                : `ĐANG ONLINE — ${onlineFriendCount} / ${displayPresenceFriends.length} bạn`}
-            </h3>
-            <button
-              type="button"
-              className="text-xs text-purple-400 hover:text-pink-400 transition-colors"
-              onClick={() => navigate('/chat/friends')}
-            >
-              Xem tất cả
-            </button>
-          </div>
           <div className="space-y-2">
-            {!metrics.loading && displayPresenceFriends.length === 0 && (
-              <p className="text-sm text-gray-500 py-2">
-                Chưa có bạn bè trong danh sách. Thêm bạn tại mục Tin nhắn.
-              </p>
-            )}
-            {displayPresenceFriends.map((pf, idx) => (
-              <div
-                key={pf.id != null ? String(pf.id) : idx}
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-all cursor-pointer group"
-              >
-                <div className="relative">
-                  <div
-                    className={`w-9 h-9 rounded-full bg-gradient-to-br ${
-                      ['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500'][idx % 3]
-                    } flex items-center justify-center text-base overflow-hidden`}
-                  >
-                    {pf.avatarUrl ? (
-                      <img src={pf.avatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-sm font-bold text-white">{pf.name.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
-                  <StatusIndicator status={pf.status} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-medium text-sm truncate">{pf.name}</div>
-                  <div className="text-gray-500 text-xs capitalize">
-                    {pf.status === 'online'
-                      ? 'Đang hoạt động'
-                      : pf.status === 'away'
-                        ? 'Vắng'
-                        : pf.status === 'busy'
-                          ? 'Bận'
-                          : 'Offline'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-lg"
-                  aria-label="Chat"
-                  onClick={() => navigate('/chat/friends')}
-                >
-                  💬
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Upcoming Events — /api/meetings (7 ngày tới) */}
-        <div className="mb-8">
-          <h3 className="text-sm font-semibold text-gray-400 mb-4">SỰ KIỆN SẮP TỚI</h3>
-          <div className="space-y-3">
-            {!metrics.loading && upcomingMeetings.length === 0 && (
-              <p className="text-sm text-gray-500">Không có cuộc họp trong 7 ngày tới.</p>
+            {!metrics.loading && metrics.pendingCount > 0 && (
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
+                {metrics.pendingCount} lời mời kết bạn
+              </div>
             )}
-            {upcomingMeetings.map((event, idx) => {
-              const colors = [
-                'from-blue-500 to-cyan-500',
-                'from-purple-600 to-pink-600',
-                'from-green-500 to-emerald-500',
-              ];
-              const color = colors[idx % colors.length];
-              return (
-                <GlassCard
-                  key={event.id != null ? String(event.id) : idx}
-                  hover
-                  className="p-3 relative overflow-hidden group cursor-pointer border border-slate-800 bg-slate-900/60"
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
-                  <div className="relative z-10">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`w-9 h-9 rounded-lg bg-gradient-to-br ${color} flex items-center justify-center text-base flex-shrink-0`}
-                      >
-                        📅
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white font-semibold text-sm mb-1 truncate">{event.title}</div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-gray-400">{event.time}</span>
-                          <span className="text-gray-600">•</span>
-                          <span className="text-gray-400">{event.attendees} người</span>
-                        </div>
-                      </div>
+          </div>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Cuộc họp</h3>
+              <button
+                type="button"
+                onClick={() => navigate('/calendar')}
+                className="text-[11px] font-semibold text-[#7C3AED] hover:text-violet-300"
+              >
+                Xem tất cả
+              </button>
+            </div>
+            <div className="space-y-3">
+              {!metrics.loading && upcomingMeetings.length === 0 && (
+                <p className="text-xs text-[#6b7280]">Không có cuộc họp trong 7 ngày tới.</p>
+              )}
+              {upcomingMeetings.map((event, idx) => {
+                const borderColors = ['border-l-blue-500', 'border-l-emerald-500', 'border-l-amber-500'];
+                const bc = borderColors[idx % borderColors.length];
+                return (
+                  <div
+                    key={event.id != null ? String(event.id) : idx}
+                    className={`rounded-xl border border-white/[0.06] bg-[#1A1A1C] p-3 pl-3 ${bc} border-l-4 shadow-sm transition hover:bg-white/[0.02]`}
+                  >
+                    <div className="text-sm font-semibold text-white">{event.title}</div>
+                    <div className="mt-1 text-xs text-[#9ca3af]">
+                      {event.time} · {event.attendees} người
                     </div>
                     <button
                       type="button"
-                      className="mt-2 w-full py-1.5 bg-[#040f2a] border border-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-800/70 transition-all"
                       onClick={() => navigate('/calendar')}
+                      className="mt-3 w-full rounded-lg bg-[#7C3AED]/20 py-2 text-xs font-semibold text-violet-200 transition hover:bg-[#7C3AED]/30"
                     >
-                      Lịch
+                      Tham gia
                     </button>
                   </div>
-                </GlassCard>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Quick Stats */}
-        <div className="bg-[#040f2a] border border-slate-800 rounded-xl p-3.5">
-          <h3 className="text-sm font-semibold text-gray-400 mb-3">THỐNG KÊ NHANH</h3>
-          <div className="space-y-3">
-            {[
-              {
-                label: 'Thông báo chưa đọc',
-                value: metrics.loading ? '…' : String(metrics.unread),
-                icon: '🔔',
-              },
-              {
-                label: 'Lời mời kết bạn',
-                value: metrics.loading ? '…' : String(metrics.pendingCount),
-                icon: '👋',
-              },
-              {
-                label: 'Bạn bè',
-                value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal),
-                icon: '👥',
-              },
-            ].map((stat, idx) => (
-              <div key={idx} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{stat.icon}</span>
-                  <span className="text-sm text-gray-400">{stat.label}</span>
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Trạng thái nhóm</h3>
+              <span className="text-xs font-semibold text-emerald-400/90">{onlineFriendCount} online</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {displayPresenceFriends.slice(0, 9).map((pf, idx) => (
+                <div key={pf.id != null ? String(pf.id) : idx} className="flex flex-col items-center text-center">
+                  <div className="relative">
+                    <div
+                      className={`flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br ${
+                        ['from-violet-600 to-fuchsia-600', 'from-blue-500 to-cyan-500', 'from-emerald-500 to-teal-600'][idx % 3]
+                      } text-xs font-bold text-white`}
+                    >
+                      {pf.avatarUrl ? (
+                        <img src={pf.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
+                      ) : (
+                        initialsFromName(pf.name)
+                      )}
+                    </div>
+                    <StatusIndicator status={pf.status} />
+                  </div>
+                  <span className="mt-1 w-full truncate text-[10px] font-medium text-[#d1d5db]">{pf.name.split(' ')[0]}</span>
                 </div>
-                <span className="text-sm font-bold text-indigo-300">{stat.value}</span>
-              </div>
-            ))}
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/chat/friends')}
+              className="mt-3 w-full rounded-xl border border-white/[0.08] py-2 text-xs font-semibold text-[#9ca3af] transition hover:bg-white/[0.04] hover:text-white"
+            >
+              Mở chat bạn bè
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.06] bg-[#1A1A1C] p-3">
+            <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Hoạt động tuần</h3>
+            <div className="flex h-24 items-end justify-between gap-1">
+              {[45, 62, 38, 70, 55, 88, 72].map((h, idx) => (
+                <div key={idx} className="flex flex-1 flex-col items-center gap-1">
+                  <div
+                    className={`w-full max-w-[28px] rounded-t-md transition-all ${
+                      idx >= 5 ? 'bg-gradient-to-t from-violet-600 to-fuchsia-500' : 'bg-gradient-to-t from-slate-600 to-slate-500'
+                    }`}
+                    style={{ height: `${h}%` }}
+                  />
+                  <span className="text-[9px] font-medium text-[#6b7280]">{['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-center text-[11px] text-emerald-400/90">+15% so với tuần trước</p>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.06] bg-[#141416] p-3.5">
+            <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Thống kê nhanh</h3>
+            <div className="space-y-2.5">
+              {[
+                { label: 'Thông báo chưa đọc', value: metrics.loading ? '…' : String(metrics.unread), icon: '🔔' },
+                { label: 'Lời mời', value: metrics.loading ? '…' : String(metrics.pendingCount), icon: '👋' },
+                { label: 'Bạn bè', value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal), icon: '👥' },
+              ].map((s, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-[#9ca3af]">
+                    <span>{s.icon}</span>
+                    {s.label}
+                  </span>
+                  <span className="font-bold text-violet-300">{s.value}</span>
+                </div>
+              ))}
+            </div>
             <GradientButton
               type="button"
               variant="primary"
-              className="w-full mt-4 py-3 text-sm font-semibold"
+              className="mt-4 w-full py-3 text-sm font-semibold shadow-[0_8px_24px_rgba(124,58,237,0.25)]"
               onClick={() => setShowAddFriendModal(true)}
             >
-              ➕ Kết bạn
+              + Kết bạn
             </GradientButton>
           </div>
         </div>
+      </aside>
         </div>
       </div>
     </div>
@@ -850,7 +910,7 @@ function DashboardPage() {
                 variant="primary" 
                 className="flex-1 text-sm"
                 onClick={() => {
-                  setShowActivityDetail(false);
+                  setShowActivityDetail(null);
                   showToast('Đang chuyển đến chi tiết...');
                 }}
               >

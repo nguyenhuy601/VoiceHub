@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FiEdit2, FiPlus, FiSettings, FiTrash2, FiUsers } from 'react-icons/fi';
 import { Link, useParams } from 'react-router-dom';
+import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { NotificationModal } from '../../components/Shared';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -100,12 +101,15 @@ const OrganizationPage = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="flex min-h-screen bg-[#0b0e14] text-slate-100">
+      <NavigationSidebar />
+      <main className="min-w-0 flex-1 overflow-y-auto scrollbar-overlay">
+        <div className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       {/* Header */}
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">{organization.name}</h1>
-          <p className="text-gray-600 mt-2">{organization.description}</p>
+          <h1 className="text-3xl font-bold text-white">{organization.name}</h1>
+          <p className="mt-2 text-[#9aa0ae]">{organization.description}</p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" icon={FiSettings}>
@@ -280,6 +284,8 @@ const OrganizationPage = () => {
         </form>
       </Modal>
       <NotificationModal notice={notice} onClose={() => setNotice(null)} />
+        </div>
+      </main>
     </div>
   );
 };

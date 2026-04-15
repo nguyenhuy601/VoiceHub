@@ -67,6 +67,12 @@ const ProfilePage = lazy(() => import('./pages/Profile/ProfilePage'));
 // Kết nối với organization-service
 const OrganizationsPage = lazy(() => import('./pages/Organization/OrganizationsPage'));
 
+// Cài đặt tổ chức full màn hình — đặt trước /organizations
+const OrganizationSettingsPage = lazy(() => import('./pages/Organization/OrganizationSettingsPage'));
+
+// Đơn gia nhập tổ chức (trang riêng, có :orgId)
+const JoinApplicationPage = lazy(() => import('./pages/Organization/JoinApplicationPage'));
+
 // Lazy load trang thông báo - hiển thị notifications realtime
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 
@@ -212,6 +218,25 @@ function App() {
           </ProtectedRoute>
         } />
         
+        {/* Đơn gia nhập — đặt trước /organizations/:orgId/settings */}
+        <Route
+          path="/organizations/join/:orgId"
+          element={
+            <ProtectedRoute>
+              <JoinApplicationPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/organizations/:orgId/settings"
+          element={
+            <ProtectedRoute>
+              <OrganizationSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Organizations - quản lý tổ chức */}
         {/* CRUD operations với organization-service */}
         {/* Guest KHÔNG được truy cập */}

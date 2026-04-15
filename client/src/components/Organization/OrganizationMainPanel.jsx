@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
+import { Bell, Filter, Search, Zap } from 'lucide-react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
@@ -6,6 +7,87 @@ import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
 import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
+
+function formatJoinAnswerValue(value) {
+  if (value === undefined || value === null) return '—';
+  if (Array.isArray(value)) {
+    const parts = value.filter((v) => v != null && String(v).trim() !== '');
+    return parts.length ? parts.join(', ') : '—';
+  }
+  if (typeof value === 'object') return JSON.stringify(value);
+  const s = String(value).trim();
+  return s || '—';
+}
+
+/**
+ * Bản rõ: nhãn từ formSnapshot (lúc nộp đơn), giá trị từ answers.
+ * Không có snapshot (đơn cũ) → trả mode raw.
+ */
+function messageDayKey(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatDateDividerLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const t0 = startOf(d);
+  const now = new Date();
+  const today0 = startOf(now);
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  const yesterday0 = startOf(y);
+  const dd = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  if (t0 === today0) return `HÔM NAY — ${dd}`;
+  if (t0 === yesterday0) return `HÔM QUA — ${dd}`;
+  return d.toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function senderInitials(message) {
+  const u = message?.senderId;
+  if (u && typeof u === 'object') {
+    const n = u.displayName || u.username || u.fullName || '';
+    if (typeof n === 'string' && n.trim()) {
+      const p = n.trim().split(/\s+/);
+      if (p.length >= 2) return `${p[0][0]}${p[p.length - 1][0]}`.toUpperCase();
+      return n.slice(0, 2).toUpperCase();
+    }
+  }
+  return 'TV';
+}
+
+function buildJoinAnswerDisplayRows(answers, formSnapshot) {
+  const raw = answers && typeof answers === 'object' ? answers : {};
+  const fields = formSnapshot?.fields;
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return { mode: 'raw', rows: [] };
+  }
+  const rows = fields.map((f) => {
+    const id = f.id;
+    return {
+      id: String(id),
+      label: String(f.label || id || '').trim() || String(id),
+      value: formatJoinAnswerValue(raw[id]),
+    };
+  });
+  const seen = new Set(fields.map((f) => String(f.id)));
+  for (const k of Object.keys(raw)) {
+    if (seen.has(k)) continue;
+    rows.push({
+      id: k,
+      label: k,
+      value: formatJoinAnswerValue(raw[k]),
+    });
+  }
+  return { mode: 'labeled', rows };
+}
 
 const OrganizationMainPanel = ({
   selectedOrganization,
@@ -35,6 +117,12 @@ const OrganizationMainPanel = ({
   loadingInvitations = false,
   respondingInvitationIds = [],
   onRespondInvitation,
+  /** Đơn gia nhập cần duyệt (owner/admin) — Trang chủ tổ chức */
+  joinApplicationsToReview = [],
+  loadingJoinApplicationsToReview = false,
+  respondingJoinReviewKeys = [],
+  onApproveJoinApplication,
+  onRejectJoinApplication,
   homeNotificationPreview = [],
   homeCalendarPreview = [],
   expandedHomeCards = { notifications: false, calendar: false },
@@ -58,6 +146,8 @@ const OrganizationMainPanel = ({
   onDeleteMessage,
   onForwardMessage,
   onQuickReactMessage,
+  /** ID user đang socket online — avatar stack + số đếm ở header workspace */
+  workspaceOnlineUserIds = [],
 }) => {
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -77,12 +167,26 @@ const OrganizationMainPanel = ({
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editDraft, setEditDraft] = useState('');
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
+  const [joinRejectDraft, setJoinRejectDraft] = useState({
+    open: false,
+    organizationId: null,
+    applicationId: null,
+    reason: '',
+  });
   /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
 
   const chatChannels = channels.filter((channel) => channel.type !== 'voice');
   const voiceChannels = channels.filter((channel) => channel.type === 'voice');
   const selectedChannel = channels.find((channel) => channel._id === selectedChannelId) || null;
+
+  const sortedWorkspaceMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return ta - tb;
+    });
+  }, [messages]);
 
   const formatTime = (isoDate) => {
     if (!isoDate) return '';
@@ -257,6 +361,125 @@ const OrganizationMainPanel = ({
     setShowEmojiPicker(false);
     setEmojiSearch('');
   };
+
+  const joinReviewKey = (organizationId, applicationId) => `${organizationId}:${applicationId}`;
+
+  const renderJoinApplicationsToReviewPanel = () => (
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#1a1528]/90 to-[#111422]/80 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/20 text-sm">
+              📋
+            </span>
+            <h4 className="truncate text-sm font-semibold tracking-wide text-white">
+              Đơn gia nhập chờ duyệt
+            </h4>
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            Tổng hợp từ các tổ chức bạn quản trị. Nội dung hiển thị theo tên câu hỏi và câu trả lời đã gửi.
+          </p>
+        </div>
+        <span className="inline-flex min-w-[30px] items-center justify-center rounded-full border border-violet-300/30 bg-violet-400/15 px-2 py-0.5 text-xs font-semibold text-violet-200">
+          {joinApplicationsToReview.length}
+        </span>
+      </div>
+
+      {loadingJoinApplicationsToReview && (
+        <div className="space-y-2">
+          <div className="h-16 animate-pulse rounded-xl bg-white/10" />
+          <div className="h-16 animate-pulse rounded-xl bg-white/5" />
+        </div>
+      )}
+
+      {!loadingJoinApplicationsToReview && joinApplicationsToReview.length === 0 && (
+        <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-3 py-3 text-center">
+          <div className="text-sm font-medium text-gray-200">Không có đơn chờ duyệt</div>
+          <div className="mt-1 text-xs text-gray-500">
+            Khi có người gửi đơn vào tổ chức bạn quản trị, đơn sẽ hiển thị tại đây.
+          </div>
+        </div>
+      )}
+
+      {!loadingJoinApplicationsToReview && joinApplicationsToReview.length > 0 && (
+        <ul className="space-y-3">
+          {joinApplicationsToReview.map((app) => {
+            const oid = app.organizationId;
+            const aid = app.applicationId;
+            const key = joinReviewKey(oid, aid);
+            const busy = respondingJoinReviewKeys.includes(key);
+            return (
+              <li
+                key={key}
+                className="rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-gray-200"
+              >
+                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-white">{app.organizationName}</div>
+                    <div className="mt-0.5 font-mono text-[11px] text-gray-500">
+                      Người nộp: {app.applicantUser}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs text-gray-500">
+                    {app.submittedAt
+                      ? new Date(app.submittedAt).toLocaleString('vi-VN')
+                      : ''}
+                  </span>
+                </div>
+                {(() => {
+                  const { mode, rows } = buildJoinAnswerDisplayRows(app.answers, app.formSnapshot);
+                  if (mode === 'labeled' && rows.length > 0) {
+                    return (
+                      <div className="mb-3 max-h-48 space-y-2.5 overflow-y-auto rounded-lg border border-white/10 bg-black/35 p-3">
+                        {rows.map((row) => (
+                          <div key={row.id}>
+                            <div className="text-[11px] font-semibold text-cyan-100/90">{row.label}</div>
+                            <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-gray-100">
+                              {row.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return (
+                    <pre className="mb-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-black/40 p-2 text-xs text-amber-100/90">
+                      {JSON.stringify(app.answers || {}, null, 2)}
+                    </pre>
+                  );
+                })()}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onApproveJoinApplication?.(oid, aid)}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Duyệt
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      setJoinRejectDraft({
+                        open: true,
+                        organizationId: oid,
+                        applicationId: aid,
+                        reason: '',
+                      })
+                    }
+                    className="rounded-lg border border-red-500/50 px-3 py-1.5 text-xs text-red-300 transition hover:bg-red-950/30 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Từ chối
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 
   const renderInvitationPanel = (compact = false) => (
     <div
@@ -497,27 +720,35 @@ const OrganizationMainPanel = ({
   }
 
   if (viewMode === 'home') {
-    return (
-      <div className="flex h-full flex-col p-6">
-        <div className="min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5">
-          <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div>
-              <h3 className="text-xl font-semibold text-white">Trang chủ tổ chức</h3>
-              <p className="text-sm text-gray-400">
-                Tổng hợp nhanh lịch, thông báo và lời mời của không gian tổ chức
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onGoHome}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10"
-            >
-              Đang ở Home
-            </button>
-          </div>
+    const busyRejectKey =
+      joinRejectDraft.open && joinRejectDraft.organizationId && joinRejectDraft.applicationId
+        ? joinReviewKey(joinRejectDraft.organizationId, joinRejectDraft.applicationId)
+        : null;
+    const rejectModalBusy = busyRejectKey && respondingJoinReviewKeys.includes(busyRejectKey);
 
-          <div className="scrollbar-overlay h-[calc(100%-4.5rem)] space-y-4 overflow-y-auto pr-1">
-            {renderInvitationPanel()}
+    return (
+      <>
+        <div className="flex h-full flex-col p-6">
+          <div className="min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5">
+            <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Trang chủ tổ chức</h3>
+                <p className="text-sm text-gray-400">
+                  Tổng hợp nhanh lịch, thông báo, lời mời và đơn gia nhập từ các tổ chức
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onGoHome}
+                className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10"
+              >
+                Đang ở Home
+              </button>
+            </div>
+
+            <div className="scrollbar-overlay h-[calc(100%-4.5rem)] space-y-4 overflow-y-auto pr-1">
+              {renderJoinApplicationsToReviewPanel()}
+              {renderInvitationPanel()}
 
             {renderHomeWidget({
               icon: '🔔',
@@ -580,100 +811,146 @@ const OrganizationMainPanel = ({
           </div>
         </div>
       </div>
+
+        <Modal
+          isOpen={joinRejectDraft.open}
+          onClose={() => {
+            if (rejectModalBusy) return;
+            setJoinRejectDraft({
+              open: false,
+              organizationId: null,
+              applicationId: null,
+              reason: '',
+            });
+          }}
+          title="Từ chối đơn gia nhập"
+          size="sm"
+        >
+          <p className="mb-3 text-sm text-gray-400">Lý do từ chối (tuỳ chọn)</p>
+          <textarea
+            rows={4}
+            value={joinRejectDraft.reason}
+            onChange={(e) =>
+              setJoinRejectDraft((p) => ({ ...p, reason: e.target.value }))
+            }
+            className="mb-4 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={rejectModalBusy}
+              onClick={() => {
+                if (rejectModalBusy) return;
+                setJoinRejectDraft({
+                  open: false,
+                  organizationId: null,
+                  applicationId: null,
+                  reason: '',
+                });
+              }}
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-50"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              disabled={rejectModalBusy}
+              onClick={async () => {
+                if (
+                  !joinRejectDraft.organizationId ||
+                  !joinRejectDraft.applicationId ||
+                  rejectModalBusy
+                )
+                  return;
+                await onRejectJoinApplication?.(
+                  joinRejectDraft.organizationId,
+                  joinRejectDraft.applicationId,
+                  joinRejectDraft.reason
+                );
+                setJoinRejectDraft({
+                  open: false,
+                  organizationId: null,
+                  applicationId: null,
+                  reason: '',
+                });
+              }}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Xác nhận từ chối
+            </button>
+          </div>
+        </Modal>
+      </>
     );
   }
 
+  const orgName = selectedOrganization?.name || 'Tổ chức';
+  const deptName = selectedDepartment?.name || '—';
+  const chSlug = selectedChannel ? String(selectedChannel.name || 'chat').replace(/\s+/g, '-').toLowerCase() : '';
+  const onlinePreviewIds = (workspaceOnlineUserIds || []).slice(0, 5);
+
   return (
-    <div className="flex h-full flex-col p-6">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-        <div className="min-h-0 rounded-2xl border border-white/10 bg-black/15 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-300">
-              Phòng ban
-            </h2>
-            <button
-              type="button"
-              onClick={onCreateDepartment}
-              className="rounded-md bg-white/10 px-2 py-1 text-xs text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              + Tạo
-            </button>
-          </div>
-
-          <div className="scrollbar-overlay space-y-2 overflow-y-auto pr-1">
-            {loadingDepartments && <div className="h-9 animate-pulse rounded-lg bg-white/10" />}
-
-            {!loadingDepartments && departments.length === 0 && (
-              <div className="rounded-lg border border-dashed border-white/15 p-3 text-sm text-gray-400">
-                Chưa có phòng ban nào.
-              </div>
-            )}
-
-            {departments.map((department) => (
+    <>
+    <div className="flex h-full min-h-0 flex-col bg-[#0b0e14]">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="flex w-[252px] shrink-0 flex-col border-r border-white/[0.06] bg-[#0c0f15]">
+          <div className="border-b border-white/[0.06] px-3 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#6d7380]">Phòng ban</h2>
               <button
-                key={department._id}
                 type="button"
-                onClick={() => onSelectDepartment(department._id)}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-                  selectedDepartment?._id === department._id
-                    ? 'bg-cyan-500/20 text-cyan-200'
-                    : 'bg-white/5 text-gray-200 hover:bg-white/10'
-                }`}
+                onClick={onCreateDepartment}
+                className="rounded-lg bg-white/[0.06] px-2 py-1 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
               >
-                {department.name}
+                + Tạo
               </button>
-            ))}
+            </div>
+            <div className="scrollbar-overlay max-h-[40vh] space-y-1 overflow-y-auto pr-0.5">
+              {loadingDepartments && <div className="h-9 animate-pulse rounded-xl bg-white/10" />}
+              {!loadingDepartments && departments.length === 0 && (
+                <div className="rounded-xl border border-dashed border-white/10 p-3 text-xs text-[#8e9297]">
+                  Chưa có phòng ban.
+                </div>
+              )}
+              {departments.map((department) => (
+                <button
+                  key={department._id}
+                  type="button"
+                  onClick={() => onSelectDepartment(department._id)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                    selectedDepartment?._id === department._id
+                      ? 'bg-[#5865F2]/20 text-white ring-1 ring-[#5865F2]/40'
+                      : 'text-[#b4b8c4] hover:bg-white/[0.04]'
+                  }`}
+                >
+                  {department.name}
+                </button>
+              ))}
+            </div>
           </div>
 
           {selectedDepartment && (
-            <div className="mt-4 border-t border-white/10 pt-3">
+            <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kênh Chat</div>
-                <button
-                  type="button"
-                  onClick={() => onCreateChannel('chat')}
-                  className="text-sm text-gray-300 transition hover:text-white"
-                >
-                  +
-                </button>
-              </div>
-              <div className="space-y-1">
-                {chatChannels.map((channel) => (
-                  <button
-                    key={channel._id}
-                    type="button"
-                    onClick={() => onSelectChannel(channel._id)}
-                    className={`w-full rounded-md px-2 py-1 text-left text-sm transition ${
-                      selectedChannelId === channel._id
-                        ? 'bg-cyan-500/20 text-cyan-200'
-                        : 'text-gray-300 hover:bg-white/10'
-                    }`}
-                  >
-                    # {channel.name}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mb-2 mt-4 flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Kênh Thoại</div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#6d7380]">Kênh thoại</span>
                 <button
                   type="button"
                   onClick={() => onCreateChannel('voice')}
-                  className="text-sm text-gray-300 transition hover:text-white"
+                  className="text-lg leading-none text-[#8e9297] transition hover:text-white"
                 >
                   +
                 </button>
               </div>
-              <div className="space-y-1">
+              <div className="mb-4 space-y-0.5">
                 {voiceChannels.map((channel) => (
                   <button
                     key={channel._id}
                     type="button"
                     onClick={() => onSelectChannel(channel._id)}
-                    className={`w-full rounded-md px-2 py-1 text-left text-sm transition ${
+                    className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
                       selectedChannelId === channel._id
-                        ? 'bg-cyan-500/20 text-cyan-200'
-                        : 'text-gray-300 hover:bg-white/10'
+                        ? 'bg-white/[0.08] text-white'
+                        : 'text-[#9aa0ae] hover:bg-white/[0.04]'
                     }`}
                   >
                     🔊 {channel.name}
@@ -682,22 +959,120 @@ const OrganizationMainPanel = ({
               </div>
             </div>
           )}
-        </div>
+        </aside>
 
-        <div className="min-h-0 rounded-2xl border border-white/10 bg-black/15 p-5">
-          <div className="flex h-full flex-col">
-            <div className="mb-3 border-b border-white/10 pb-3">
-              <h3 className="text-lg font-semibold text-white">
-                {selectedDepartment ? selectedDepartment.name : 'Chưa chọn phòng ban'}
-              </h3>
-              <p className="text-sm text-gray-400">
-                {selectedOrganization
-                  ? `Tổ chức: ${selectedOrganization.name}${selectedChannel ? ` • Kênh: ${selectedChannel.name}` : ''}`
-                  : 'Đang tải dữ liệu...'}
-              </p>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#080a0f]">
+          <header className="shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <nav className="min-w-0 text-[13px] text-[#9aa0ae]">
+                <span className="font-semibold text-white">{orgName}</span>
+                <span className="mx-1.5 text-[#4e5258]">›</span>
+                <span>{deptName}</span>
+                <span className="mx-1.5 text-[#4e5258]">›</span>
+                <span className="text-[#5865F2]">#{chSlug || 'kênh'}</span>
+              </nav>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-[#12151f] py-1 pl-1 pr-2.5">
+                  <div className="flex -space-x-2">
+                    {onlinePreviewIds.map((oid, i) => (
+                      <div
+                        key={`${oid}-${i}`}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#12151f] bg-gradient-to-br from-violet-500 to-fuchsia-600 text-[10px] font-bold text-white"
+                        title={String(oid).slice(-6)}
+                      >
+                        {String(oid).slice(-2)}
+                      </div>
+                    ))}
+                  </div>
+                  <span className="text-xs font-semibold text-[#b4b8c4]">
+                    {workspaceOnlineUserIds?.length || 0} online
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  title="Lệnh nhanh"
+                  className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-[#12151f] px-3 py-2 text-xs text-[#9aa0ae] transition hover:bg-white/[0.06]"
+                  onClick={() => onSendChatOption?.({ kind: 'quick-command-placeholder' })}
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="hidden sm:inline">Lệnh nhanh</span>
+                  <kbd className="hidden rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-[#6d7380] sm:inline">
+                    ⌘K
+                  </kbd>
+                </button>
+                <button
+                  type="button"
+                  title="Thông báo"
+                  className="rounded-xl p-2 text-[#9aa0ae] transition hover:bg-white/[0.06] hover:text-white"
+                  onClick={() => onOpenNotificationsPage?.()}
+                >
+                  <Bell className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {selectedDepartment && chatChannels.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {chatChannels.map((channel, cidx) => {
+                  const active = String(selectedChannelId) === String(channel._id);
+                  const fakeBadge = (cidx % 5) + 1;
+                  return (
+                    <button
+                      key={channel._id}
+                      type="button"
+                      onClick={() => onSelectChannel(channel._id)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        active
+                          ? 'border-[#5865F2] bg-[#5865F2]/15 text-white shadow-[0_0_12px_rgba(88,101,242,0.25)]'
+                          : 'border-white/[0.08] bg-[#12151f] text-[#9aa0ae] hover:border-white/15 hover:text-white'
+                      }`}
+                    >
+                      #{String(channel.name || 'chat').replace(/\s+/g, '-').toLowerCase()}
+                      {fakeBadge > 0 && (
+                        <span className="rounded-full bg-[#5865F2]/40 px-1.5 py-0 text-[10px] text-white">
+                          {fakeBadge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => onCreateChannel('chat')}
+                  className="rounded-full border border-dashed border-white/15 px-2.5 py-1.5 text-xs text-[#6d7380] hover:text-white"
+                >
+                  + Kênh
+                </button>
+              </div>
+            )}
+          </header>
+
+          <div className="flex shrink-0 items-center justify-between border-b border-white/[0.05] bg-[#0b0e14] px-4 py-2">
+            <p className="text-xs text-[#8e9297]">
+              <span className="font-semibold text-[#b4b8c4]">{messages.length}</span> tin nhắn — cuộc trò chuyện đang diễn
+              ra
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                title="Lọc"
+                className="rounded-lg p-2 text-[#8e9297] hover:bg-white/[0.06] hover:text-white"
+                onClick={() => onSendChatOption?.({ kind: 'filter-placeholder' })}
+              >
+                <Filter className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                title="Tìm trong kênh"
+                className="rounded-lg p-2 text-[#8e9297] hover:bg-white/[0.06] hover:text-white"
+                onClick={() => onSendChatOption?.({ kind: 'search-placeholder' })}
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
               {loadingMessages && (
                 <div className="rounded-xl bg-white/5 p-4 text-sm text-gray-300">Đang tải tin nhắn...</div>
               )}
@@ -709,16 +1084,16 @@ const OrganizationMainPanel = ({
               )}
 
               {!loadingMessages &&
-                messages.map((message) => {
+                sortedWorkspaceMessages.map((message, idx) => {
                   const mid = message._id || message.id;
                   const senderId = message?.senderId?._id || message?.senderId;
                   const isMine = String(senderId || '') === String(currentUserId || '');
                   const type = message?.messageType || 'text';
                   const typeLabel =
-                    type === 'image' ? 'Hình ảnh' : type === 'file' ? 'Tệp' : type === 'system' ? 'Hệ thống' : 'Tin nhắn';
+                    type === 'image' ? 'HÌNH ẢNH' : type === 'file' ? 'TỆP' : type === 'system' ? 'HỆ THỐNG' : 'TIN';
                   const replyId = message.replyToMessageId;
                   const parentMsg = replyId
-                    ? messages.find((m) => String(m._id || m.id) === String(replyId))
+                    ? sortedWorkspaceMessages.find((m) => String(m._id || m.id) === String(replyId))
                     : null;
                   const replyPreview = parentMsg
                     ? plainTextForMessage(parentMsg).slice(0, 160)
@@ -728,112 +1103,156 @@ const OrganizationMainPanel = ({
 
                   const toolbarPlace = toolbarPlacementById[String(mid)] ?? 'above';
 
+                  const prev = idx > 0 ? sortedWorkspaceMessages[idx - 1] : null;
+                  const showDayDivider =
+                    !prev || messageDayKey(message.createdAt) !== messageDayKey(prev.createdAt);
+
+                  const displayName = isMine
+                    ? 'Bạn'
+                    : message.senderId?.displayName ||
+                      message.senderId?.username ||
+                      message.senderId?.fullName ||
+                      'Thành viên';
+                  const roleCapsule = isMine ? 'BẠN' : type === 'system' ? 'HỆ THỐNG' : 'THÀNH VIÊN';
+
+                  const bubbleMine =
+                    'border border-[#5865F2]/45 bg-gradient-to-br from-[#5865F2]/35 to-[#4752c4]/25 text-white shadow-[0_0_20px_rgba(88,101,242,0.12)]';
+                  const bubbleOther = 'border border-white/[0.07] bg-[#1a1d26] text-slate-100';
+
                   return (
-                    <div
-                      key={mid}
-                      className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                    >
+                    <Fragment key={mid}>
+                      {showDayDivider && (
+                        <div className="flex justify-center py-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-[#12151f] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e9297]">
+                            <Zap className="h-3 w-3 text-amber-400" />
+                            {formatDateDividerLabel(message.createdAt)}
+                          </span>
+                        </div>
+                      )}
                       <div
-                        className="group relative max-w-[78%]"
-                        onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
+                        className={`flex w-full items-start gap-3 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}
                       >
-                        {showToolbar && (
-                          <div
-                            className={`absolute z-20 opacity-0 transition-opacity group-hover:opacity-100 ${
-                              toolbarPlace === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
-                            } ${isMine ? 'right-0' : 'left-0'}`}
-                          >
-                            <ChannelMessageToolbar
-                              isMine={isMine}
-                              showEdit={isMine && canEditOrgMessage(message)}
-                              disabled={sendingMessage}
-                              onQuickReact={(emoji) => onQuickReactMessage?.(message, emoji)}
-                              onOpenEmojiPicker={() => {}}
-                              onMiddleAction={() => {
-                                if (isMine && canEditOrgMessage(message)) {
-                                  setEditingMessageId(mid);
-                                  setEditDraft(String(message.content || ''));
-                                } else {
-                                  onReplyToMessage?.(message);
-                                }
-                              }}
-                              onForward={() => onForwardMessage?.(message)}
-                              onMore={(e) => {
-                                const r = e?.currentTarget?.getBoundingClientRect?.();
-                                if (r) {
-                                  setMoreMenu({
-                                    open: true,
-                                    anchorRect: r,
-                                    message,
-                                  });
-                                }
-                              }}
-                            />
+                        {!isMine && (
+                          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600/80 to-fuchsia-700/80 text-xs font-bold text-white shadow-inner">
+                            {senderInitials(message)}
                           </div>
                         )}
                         <div
-                          className={`rounded-2xl px-3 py-2 text-sm ${
-                            isMine ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/10 text-white'
-                          }`}
+                          className={`group relative min-w-0 max-w-[min(100%,36rem)] flex-1 ${isMine ? 'text-right' : ''}`}
+                          onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
                         >
-                          <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-white/70">
-                            <span>{isMine ? 'Bạn' : 'Thành viên'}</span>
-                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px]">{typeLabel}</span>
-                            <span>{formatTime(message.createdAt)}</span>
+                          {showToolbar && (
+                            <div
+                              className={`absolute z-20 opacity-0 transition-opacity group-hover:opacity-100 ${
+                                toolbarPlace === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
+                              } ${isMine ? 'right-0' : 'left-0'}`}
+                            >
+                              <ChannelMessageToolbar
+                                isMine={isMine}
+                                showEdit={isMine && canEditOrgMessage(message)}
+                                disabled={sendingMessage}
+                                onQuickReact={(emoji) => onQuickReactMessage?.(message, emoji)}
+                                onOpenEmojiPicker={() => {}}
+                                onMiddleAction={() => {
+                                  if (isMine && canEditOrgMessage(message)) {
+                                    setEditingMessageId(mid);
+                                    setEditDraft(String(message.content || ''));
+                                  } else {
+                                    onReplyToMessage?.(message);
+                                  }
+                                }}
+                                onForward={() => onForwardMessage?.(message)}
+                                onMore={(e) => {
+                                  const r = e?.currentTarget?.getBoundingClientRect?.();
+                                  if (r) {
+                                    setMoreMenu({
+                                      open: true,
+                                      anchorRect: r,
+                                      message,
+                                    });
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+                          <div
+                            className={`mb-1 flex flex-wrap items-center gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <span className="text-sm font-bold text-white">{displayName}</span>
+                            <span className="rounded-md bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9aa0ae]">
+                              {roleCapsule}
+                            </span>
+                            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-medium text-[#6d7380]">
+                              {typeLabel}
+                            </span>
+                            <span className="text-[11px] tabular-nums text-[#6d7380]">
+                              {formatTime(message.createdAt)}
+                            </span>
                             {message.editedAt && (
-                              <span className="text-[10px] text-white/45">(đã chỉnh sửa)</span>
+                              <span className="text-[10px] text-[#6d7380]">(đã sửa)</span>
                             )}
                           </div>
-                          {replyId && (
-                            <div className="mb-2 border-l-2 border-cyan-400/50 pl-2 text-[11px] text-white/55">
-                              <span className="font-semibold text-cyan-200/90">
-                                @{replyToLabel(parentMsg || {})}{' '}
-                              </span>
-                              <span className="line-clamp-2">{replyPreview}</span>
-                            </div>
-                          )}
-                          {isEditing ? (
-                            <div className="space-y-2">
-                              <textarea
-                                value={editDraft}
-                                onChange={(e) => setEditDraft(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    submitEdit(mid);
-                                  }
-                                  if (e.key === 'Escape') cancelEdit();
-                                }}
-                                rows={3}
-                                className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan-500/50"
-                              />
-                              <p className="text-[11px] text-gray-400">
-                                nhấn escape để{' '}
-                                <button type="button" className="text-cyan-400 hover:underline" onClick={cancelEdit}>
-                                  hủy
-                                </button>
-                                {' • '}
-                                nhấn enter để{' '}
-                                <button
-                                  type="button"
-                                  className="text-cyan-400 hover:underline"
-                                  onClick={() => submitEdit(mid)}
-                                >
-                                  lưu
-                                </button>
-                              </p>
-                            </div>
-                          ) : (
-                            <ChatMessageAttachmentBody message={message} />
-                          )}
+                          <div
+                            className={`inline-block w-full rounded-2xl px-3.5 py-2.5 text-left text-sm ${isMine ? bubbleMine : bubbleOther}`}
+                          >
+                            {replyId && (
+                              <div
+                                className={`mb-2 border-l-2 pl-2 text-[11px] ${isMine ? 'border-white/30 text-white/80' : 'border-[#5865F2]/40 text-[#8e9297]'}`}
+                              >
+                                <span className={`font-semibold ${isMine ? 'text-white' : 'text-[#a29bfe]'}`}>
+                                  @{replyToLabel(parentMsg || {})}{' '}
+                                </span>
+                                <span className="line-clamp-2">{replyPreview}</span>
+                              </div>
+                            )}
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editDraft}
+                                  onChange={(e) => setEditDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                      e.preventDefault();
+                                      submitEdit(mid);
+                                    }
+                                    if (e.key === 'Escape') cancelEdit();
+                                  }}
+                                  rows={3}
+                                  className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-[#5865F2]/50"
+                                />
+                                <p className="text-[11px] text-[#8e9297]">
+                                  Escape{' '}
+                                  <button type="button" className="text-[#a29bfe] hover:underline" onClick={cancelEdit}>
+                                    hủy
+                                  </button>
+                                  {' · '}
+                                  Enter{' '}
+                                  <button
+                                    type="button"
+                                    className="text-[#a29bfe] hover:underline"
+                                    onClick={() => submitEdit(mid)}
+                                  >
+                                    lưu
+                                  </button>
+                                </p>
+                              </div>
+                            ) : (
+                              <ChatMessageAttachmentBody message={message} />
+                            )}
+                          </div>
                         </div>
+                        {isMine && (
+                          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#5865F2]/35 bg-[#1e2230] text-[10px] font-bold uppercase tracking-tight text-[#a29bfe]">
+                            Bạn
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </Fragment>
                   );
                 })}
             </div>
 
-            <div className="relative mt-3 shrink-0 border-t border-white/10 pt-3">
+            <div className="relative mt-auto shrink-0 border-t border-white/[0.06] bg-[#0b0e14] px-4 pb-4 pt-3">
               <ChatUploadProgressBar
                 percent={channelUploadProgress}
                 label="Đang tải lên kênh…"
@@ -852,6 +1271,11 @@ const OrganizationMainPanel = ({
                 onChange={(event) => handleFileSelected(event, 'image')}
               />
               <UnifiedChatComposer
+                richToolbar
+                showAiToggle
+                aiEnabled={false}
+                onAiToggle={() => onSendChatOption?.({ kind: 'ai-draft-toggle' })}
+                wrapperClassName="shrink-0 rounded-2xl border border-white/[0.06] bg-[#12151c] p-3"
                 topSlot={
                   replyingToMessage ? (
                     <div className="mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-slate-700/80 bg-[#1a1d21] px-3 py-2 text-sm">
@@ -873,7 +1297,11 @@ const OrganizationMainPanel = ({
                 value={messageInput}
                 onChange={onChangeMessageInput}
                 onSend={onSendMessage}
-                placeholder={selectedChannelId ? 'Nhắn #' + (selectedChannel?.name || 'chat-chung') : 'Chọn kênh để nhắn tin'}
+                placeholder={
+                  selectedChannelId
+                    ? `Nhấn vào #${chSlug || 'kênh'} — @mention — /lệnh`
+                    : 'Chọn kênh để nhắn tin'
+                }
                 disabled={!selectedChannelId || sendingMessage}
                 sendDisabled={!messageInput.trim()}
                 sendLabel="Gửi"
@@ -1182,7 +1610,7 @@ const OrganizationMainPanel = ({
         </div>
       </Modal>
 
-    </div>
+    </>
   );
 };
 
