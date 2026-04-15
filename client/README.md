@@ -114,7 +114,7 @@ Tạo file `.env` trong thư mục `client/`:
 # API Gateway chạy trên port 3000 (theo docker-compose.yml)
 VITE_API_URL=http://localhost:3000/api
 
-# Socket Realtime đi qua API Gateway (proxy tới socket-service)
+# Socket Realtime: chỉ base gateway — SocketContext tự nối namespace /chat
 VITE_SOCKET_URL=http://localhost:3000
 
 # App Configuration
@@ -397,7 +397,7 @@ server: { port: 3001 }
 Đảm bảo API Gateway có cấu hình CORS đúng với URL client.
 
 ### Kết Nối Socket Thất Bại
-Kiểm tra `VITE_SOCKET_URL` trong file `.env` (nên trỏ về gateway `http://localhost:3000`)
+Kiểm tra `VITE_SOCKET_URL` trỏ base API Gateway (vd. `http://localhost:3000`). Ứng dụng tự kết nối Socket.IO tới namespace `/chat` (khớp socket-service). Gateway proxy `/socket.io` tới socket-service.
 
 ---
 

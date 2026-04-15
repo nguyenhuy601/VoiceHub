@@ -8,6 +8,7 @@ import friendService from '../../services/friendService';
 import Avatar from '../ui/Avatar';
 import NotificationBellBadge from '../Shared/NotificationBellBadge';
 import { getUserDisplayName } from '../../utils/helpers';
+import { removeToken } from '../../utils/tokenStorage';
 import ProfileModal from '../Profile/ProfileModal';
 
 const NavigationSidebar = () => {
@@ -111,7 +112,7 @@ const NavigationSidebar = () => {
     } finally {
       // Sau khi gọi (hoặc timeout) mới xoá token và điều hướng
       try {
-        localStorage.removeItem('token');
+        removeToken();
       } catch (e) {
         // ignore storage errors
       }

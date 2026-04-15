@@ -20,6 +20,7 @@ import authService from '../services/authService';
 
 // Import userService để update user status
 import userService from '../services/userService';
+import { getToken, setToken, removeToken } from '../utils/tokenStorage';
 
 /* ========================================
    TẠO CONTEXT
@@ -88,7 +89,7 @@ function AuthProvider({ children }) {
     const checkAuth = async () => {
       try {
         // Lấy token từ localStorage (được lưu khi login)
-        const token = localStorage.getItem('token');
+        const token = getToken();
         
         // Nếu có token → nghĩa là user đã login trước đó
         if (token) {
@@ -104,7 +105,7 @@ function AuthProvider({ children }) {
         console.error('Auth check failed:', error);
         
         // Xóa token lỗi khỏi localStorage
-        localStorage.removeItem('token');
+        removeToken();
       } finally {
         // Dù thành công hay thất bại cũng set loading = false
         setLoading(false);
@@ -146,7 +147,7 @@ function AuthProvider({ children }) {
       
       // Lưu token vào localStorage để persist login
       // Token này sẽ được gửi kèm mọi API request
-      localStorage.setItem('token', token);
+      setToken(token);
 
       // Cập nhật user state: ưu tiên profile từ user-service (displayName/avatar)
       try {
@@ -333,8 +334,7 @@ function AuthProvider({ children }) {
       // authService.logout() → POST /api/auth/logout
       await authService.logout();
       
-      // Xóa token khỏi localStorage
-      localStorage.removeItem('token');
+      removeToken();
       
       // Set user = null → app sẽ redirect về login
       setUser(null);
@@ -346,7 +346,7 @@ function AuthProvider({ children }) {
       console.error('Logout error:', error);
       
       // Force logout: xóa token và user dù API fail
-      localStorage.removeItem('token');
+      removeToken();
       setUser(null);
     }
   }, []);

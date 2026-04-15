@@ -15,6 +15,7 @@
 
 // Import axios - HTTP client library
 import axios from 'axios';
+import { getToken, removeToken } from '../utils/tokenStorage';
 
 // Import toast để show error notifications
 import toast from 'react-hot-toast';
@@ -76,7 +77,7 @@ api.interceptors.request.use(
   // Success handler: modify config trước khi gửi
   (config) => {
     // Lấy token từ localStorage (được lưu khi login)
-    const token = localStorage.getItem('token');
+    const token = getToken();
     
     // Danh sách public routes không cần JWT token
     const publicRoutes = [
@@ -225,7 +226,7 @@ api.interceptors.response.use(
 
       // Trì hoãn redirect 2s để user đọc được toast và có thể mở console xem chi tiết
       setTimeout(() => {
-        localStorage.removeItem('token');
+        removeToken();
         window.location.href = '/login';
       }, 2000);
 

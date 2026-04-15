@@ -3,12 +3,17 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
+  Calendar,
   ChevronUp,
+  FileText,
   Heart,
+  LogIn,
   MessageSquare,
   Mic,
   MicOff,
+  Monitor,
   MoreHorizontal,
+  Plus,
   Share2,
   Users,
   Video,
@@ -78,6 +83,16 @@ const normalizeToken = (rawToken) => {
   return token;
 };
 
+function formatCallDuration(totalSec) {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 function VoiceRoomPage() {
   const navigate = useNavigate();
   const { roomId } = useParams();
@@ -96,7 +111,9 @@ function VoiceRoomPage() {
   const [viewStage, setViewStage] = useState('home'); // home | prejoin | inRoom
   const [activeRoomId, setActiveRoomId] = useState(null);
   const [meetingCode, setMeetingCode] = useState(safeRoomId || '');
-  const [displayNameInput, setDisplayNameInput] = useState('Huy Nguyen');
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [clockTick, setClockTick] = useState(0);
+  const [callDurationSec, setCallDurationSec] = useState(0);
   const [prejoinAudioEnabled, setPrejoinAudioEnabled] = useState(true);
   const [prejoinVideoEnabled, setPrejoinVideoEnabled] = useState(true);
 
@@ -122,6 +139,27 @@ function VoiceRoomPage() {
     [user]
   );
   const localAvatar = user?.avatar || null;
+
+  useEffect(() => {
+    setDisplayNameInput((prev) => (prev.trim() ? prev : localDisplayName));
+  }, [localDisplayName]);
+
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (viewStage !== 'inRoom') {
+      setCallDurationSec(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const id = setInterval(() => {
+      setCallDurationSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [viewStage, activeRoomId]);
 
   const totalParticipants = useMemo(() => participants.length + 1, [participants.length]);
   const currentMeetingCode = useMemo(() => activeRoomId || safeRoomId || 'room1', [activeRoomId, safeRoomId]);
@@ -746,82 +784,131 @@ function VoiceRoomPage() {
     });
   };
 
+  const clockNow = new Date();
+  const dateLine = clockNow
+    .toLocaleDateString('vi-VN', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    .toUpperCase();
+
+  const voiceNav = [
+    {
+      id: 'new',
+      label: 'Cuộc họp mới',
+      icon: Plus,
+      onClick: handleNewMeeting,
+    },
+    {
+      id: 'join',
+      label: 'Tham gia',
+      icon: LogIn,
+      onClick: () => setViewStage('prejoin'),
+    },
+    {
+      id: 'schedule',
+      label: 'Lên lịch',
+      icon: Calendar,
+      onClick: () => toast('Lên lịch — sắp có', { icon: '📅' }),
+    },
+    {
+      id: 'share',
+      label: 'Chia sẻ màn hình',
+      icon: Monitor,
+      onClick: () => toast('Chia sẻ màn hình — sắp có', { icon: '🖥️' }),
+    },
+    {
+      id: 'notes',
+      label: 'Ghi chú',
+      icon: FileText,
+      onClick: () => toast('Ghi chú — sắp có', { icon: '📝' }),
+    },
+  ];
+
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex bg-black">
       <NavigationSidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {viewStage !== 'inRoom' ? (
-          <div className="flex-1 p-6 bg-[#020817] text-slate-100 overflow-y-auto">
-            <div className="max-w-5xl mx-auto">
-              <div className="text-center mb-8">
-                <h1 className="text-4xl font-black text-white">
-                  {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                </h1>
-                <p className="text-gray-400">
-                  {new Date().toLocaleDateString('vi-VN', {
-                    weekday: 'long',
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
+          <div className="flex flex-1 min-h-0 bg-black text-slate-100">
+            {/* Cột trái: menu (hình 1) */}
+            <aside className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/10 px-3 py-6 md:w-56">
+              {voiceNav.map((item) => {
+                const active =
+                  (item.id === 'new' && viewStage === 'home') ||
+                  (item.id === 'join' && viewStage === 'prejoin');
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={item.onClick}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
+                      active
+                        ? 'border border-violet-500/50 bg-white/[0.06] text-white shadow-[0_0_28px_rgba(139,92,246,0.18)]'
+                        : 'text-gray-500 hover:bg-white/5 hover:text-gray-200'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5 shrink-0 opacity-90" strokeWidth={1.75} />
+                    <span className="text-sm font-medium leading-tight">{item.label}</span>
+                  </button>
+                );
+              })}
+            </aside>
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8">
+              {/* Đồng hồ + ngày */}
+              <div className="mb-8 text-center">
+                <div
+                  className="text-4xl font-bold tabular-nums tracking-[0.2em] text-white md:text-5xl md:tracking-[0.25em]"
+                  suppressHydrationWarning
+                  data-clock-tick={clockTick}
+                >
+                  {clockNow.toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
                   })}
+                </div>
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.2em] text-gray-500 md:text-xs">
+                  {dateLine}
                 </p>
               </div>
 
               {viewStage === 'home' && (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-                    <button
-                      type="button"
-                      onClick={handleNewMeeting}
-                      className="rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 py-4 text-white font-semibold hover:opacity-90 transition"
-                    >
-                      Cuộc họp mới
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewStage('prejoin')}
-                      className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white font-semibold hover:bg-slate-800/70 transition"
-                    >
-                      Tham gia
-                    </button>
-                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      Lên lịch
-                    </button>
-                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      Chia sẻ màn hình
-                    </button>
-                    <button type="button" className="rounded-2xl bg-[#040f2a] border border-slate-800 py-4 text-white/90 font-semibold">
-                      Ghi chú của tôi
-                    </button>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-10 text-center">
-                    <div className="text-5xl mb-4">🏖️</div>
-                    <h3 className="text-2xl font-bold text-white mb-2">Chưa có cuộc họp nào</h3>
-                    <p className="text-gray-400 mb-4">Bắt đầu cuộc họp mới hoặc nhập mã phòng để tham gia.</p>
-                    <button
-                      type="button"
-                      onClick={handleNewMeeting}
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-semibold text-white"
-                    >
-                      Tạo cuộc họp
-                    </button>
-                  </div>
-                </>
+                <div className="flex min-h-[min(520px,70vh)] flex-1 flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#121212] px-6 py-16">
+                  <p className="text-lg text-white md:text-xl">Chưa có cuộc họp nào</p>
+                  <button
+                    type="button"
+                    onClick={handleNewMeeting}
+                    className="mt-8 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 px-10 py-4 text-base font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
+                  >
+                    Tạo cuộc họp ngay
+                  </button>
+                </div>
               )}
 
               {viewStage === 'prejoin' && (
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                    <div className="relative aspect-video rounded-xl overflow-hidden bg-black/40">
+                <div className="flex flex-1 flex-col gap-8 lg:flex-row lg:justify-end lg:gap-12">
+                  <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#141414] p-4 lg:max-w-md">
+                    <div className="relative aspect-video overflow-hidden rounded-xl bg-black/50">
                       {prejoinVideoEnabled ? (
-                        <video ref={prejoinVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                        <video
+                          ref={prejoinVideoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
-                        <div className="h-full w-full flex flex-col items-center justify-center gap-3">
-                          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-2xl font-bold text-white">
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-3">
+                          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-3xl font-bold text-white">
                             {buildInitials(displayNameInput || localDisplayName)}
                           </div>
-                          <div className="text-sm text-gray-300">Camera đang tắt</div>
+                          <span className="text-sm text-gray-400">Camera đang tắt</span>
                         </div>
                       )}
                     </div>
@@ -829,176 +916,213 @@ function VoiceRoomPage() {
                       <button
                         type="button"
                         onClick={() => setPrejoinAudioEnabled((v) => !v)}
-                        className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold ${prejoinAudioEnabled ? 'bg-[#040f2a] border border-slate-800' : 'bg-red-600 text-white'}`}
+                        className={`flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold ${
+                          prejoinAudioEnabled
+                            ? 'border border-white/10 bg-black/40 text-white'
+                            : 'bg-red-600 text-white'
+                        }`}
                       >
-                        {prejoinAudioEnabled ? 'Audio bật' : 'Audio tắt'}
+                        {prejoinAudioEnabled ? 'Mic bật' : 'Mic tắt'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setPrejoinVideoEnabled((v) => !v)}
-                        className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold ${prejoinVideoEnabled ? 'bg-[#040f2a] border border-slate-800' : 'bg-red-600 text-white'}`}
+                        className={`flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold ${
+                          prejoinVideoEnabled
+                            ? 'border border-white/10 bg-black/40 text-white'
+                            : 'bg-red-600 text-white'
+                        }`}
                       >
-                        {prejoinVideoEnabled ? 'Video bật' : 'Video tắt'}
+                        {prejoinVideoEnabled ? 'Camera bật' : 'Camera tắt'}
                       </button>
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-                    <h2 className="text-3xl font-black text-white mb-5">Tham gia cuộc họp</h2>
-                    <div className="space-y-3">
-                      <input
-                        value={meetingCode}
-                        onChange={(e) => setMeetingCode(e.target.value)}
-                        placeholder="Meeting ID hoặc mã phòng"
-                        className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white"
-                      />
-                      <input
-                        value={displayNameInput}
-                        onChange={(e) => setDisplayNameInput(e.target.value)}
-                        placeholder="Tên hiển thị"
-                        className="w-full px-4 py-3 rounded-xl bg-[#040f2a] border border-slate-800 text-white"
-                      />
-                      <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#141414] p-6 md:p-8 lg:shrink-0">
+                    <h2 className="mb-8 text-3xl font-bold text-white lg:text-right">Tham gia cuộc họp</h2>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="mb-1.5 block text-sm text-gray-400">Mã phòng</label>
+                        <input
+                          value={meetingCode}
+                          onChange={(e) => setMeetingCode(e.target.value)}
+                          placeholder="vox-hacker-room"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-sm text-gray-400">Tên hiển thị</label>
+                        <input
+                          value={displayNameInput}
+                          onChange={(e) => setDisplayNameInput(e.target.value)}
+                          placeholder={localDisplayName}
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                        />
+                      </div>
+                      <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-300">
                         <input
                           type="checkbox"
                           checked={!prejoinAudioEnabled}
                           onChange={(e) => setPrejoinAudioEnabled(!e.target.checked)}
+                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-violet-600 focus:ring-violet-500"
                         />
-                        Không kết nối âm thanh
+                        Tắt mic khi vào phòng
                       </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-300">
+                      <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-300">
                         <input
                           type="checkbox"
                           checked={!prejoinVideoEnabled}
                           onChange={(e) => setPrejoinVideoEnabled(!e.target.checked)}
+                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-violet-600 focus:ring-violet-500"
                         />
-                        Tắt video trước khi vào
+                        Tắt camera khi vào phòng
                       </label>
                     </div>
-                    <div className="mt-6 flex gap-3">
-                      <button
-                        type="button"
-                        onClick={handleJoinMeeting}
-                        className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-white font-semibold"
-                      >
-                        Bắt đầu
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          stopPrejoinPreview();
-                          setViewStage('home');
-                        }}
-                        className="rounded-xl bg-[#040f2a] border border-slate-800 px-5 py-2.5 text-white font-semibold"
-                      >
-                        Hủy
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleJoinMeeting}
+                      className="mt-8 w-full rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 py-3.5 text-center text-base font-semibold text-white shadow-lg transition hover:brightness-110"
+                    >
+                      Bắt đầu
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopPrejoinPreview();
+                        setViewStage('home');
+                      }}
+                      className="mt-4 w-full py-2 text-center text-sm text-gray-500 transition hover:text-gray-300"
+                    >
+                      Hủy
+                    </button>
                   </div>
                 </div>
               )}
             </div>
           </div>
         ) : (
-          <>
-            <div className="p-4 border-b border-white/10 glass-strong flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-black text-gradient">Phòng Voice/Video</h1>
-                <p className="text-sm text-gray-400">
-                  Phòng: {currentMeetingCode} • {totalParticipants} người tham gia • {connected ? 'Đã kết nối' : 'Mất kết nối'}
-                </p>
+          <div className="relative flex min-h-0 flex-1 flex-col bg-black">
+            {error && (
+              <div className="absolute right-5 top-5 z-30 max-w-xs rounded-lg bg-red-950/90 px-3 py-2 text-xs text-red-100">
+                {error}
               </div>
-              {error && <div className="text-xs text-red-300">{error}</div>}
+            )}
+            {joining && (
+              <div className="absolute right-5 top-16 z-30 rounded-full bg-zinc-900/95 px-4 py-2 text-sm text-gray-300 shadow-lg">
+                Đang kết nối phòng…
+              </div>
+            )}
+
+            {/* Thanh trạng thái nổi (hình 3) */}
+            <div className="absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-sm text-white shadow-xl backdrop-blur-md md:left-8 md:top-6">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title={connected ? 'Đã kết nối' : 'Đang kết nối'} />
+              <span className="max-w-[140px] truncate font-semibold tracking-tight md:max-w-[220px]">
+                {currentMeetingCode}
+              </span>
+              <span className="text-white/25">|</span>
+              <Users className="h-4 w-4 shrink-0 text-white/70" aria-hidden />
+              <span className="tabular-nums">{totalParticipants}</span>
+              <span className="text-white/25">|</span>
+              <span className="tabular-nums text-white/90">{formatCallDuration(callDurationSec)}</span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-6">
-              {joining && (
-                <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm text-gray-300">Đang kết nối phòng...</div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <div
-                  className={`relative overflow-hidden rounded-2xl border aspect-video transition-all duration-200 ${
-                    isLocalSpeaking && !isMuted
-                      ? 'border-emerald-300/70 shadow-[0_0_28px_rgba(16,185,129,0.35)]'
-                      : 'border-cyan-300/30'
-                  } bg-black/30`}
-                >
-                  {hasLocalVideoTrack && !isCameraOff ? (
-                    <video
-                      ref={(node) => {
-                        localVideoRef.current = node;
-                        const stream = mediasoupRef.current.localStream;
-                        if (node && stream && node.srcObject !== stream) {
-                          node.srcObject = stream;
-                          node.play?.().catch(() => {});
-                        }
-                      }}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-900/70">
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center overflow-hidden">
-                        {localAvatar && String(localAvatar).startsWith('http') ? (
-                          <img src={localAvatar} alt={localDisplayName} className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-2xl font-bold text-white">{buildInitials(localDisplayName)}</span>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-24 md:px-8">
+              <div className="w-full max-w-5xl">
+                <div className="rounded-2xl border-2 border-violet-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(139,92,246,0.08)] md:p-6">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <div
+                      className={`relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border md:min-h-[260px] ${
+                        isLocalSpeaking && !isMuted
+                          ? 'border-emerald-400/60 shadow-[0_0_24px_rgba(52,211,153,0.25)]'
+                          : 'border-white/10'
+                      } bg-black/40`}
+                    >
+                      {hasLocalVideoTrack && !isCameraOff ? (
+                        <video
+                          ref={(node) => {
+                            localVideoRef.current = node;
+                            const stream = mediasoupRef.current.localStream;
+                            if (node && stream && node.srcObject !== stream) {
+                              node.srcObject = stream;
+                              node.play?.().catch(() => {});
+                            }
+                          }}
+                          autoPlay
+                          playsInline
+                          muted
+                          className="h-full min-h-[200px] w-full flex-1 object-cover"
+                        />
+                      ) : (
+                        <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-4 bg-gradient-to-b from-zinc-900/80 to-black/80 md:min-h-[260px]">
+                          <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-600 text-3xl font-bold text-white shadow-lg">
+                            {localAvatar && String(localAvatar).startsWith('http') ? (
+                              <img src={localAvatar} alt="" className="h-full w-full rounded-full object-cover" />
+                            ) : (
+                              buildInitials(localDisplayName)
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
+                          {displayNameInput || localDisplayName}
+                        </span>
+                        <span className="rounded-md bg-violet-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          YOU
+                        </span>
+                        {isMuted && (
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600/90">
+                            <MicOff className="h-4 w-4 text-white" aria-hidden />
+                          </span>
                         )}
                       </div>
-                      <div className="text-sm text-gray-300">{localDisplayName}</div>
                     </div>
-                  )}
-                  <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
-                    Bạn {isMuted ? '• tắt mic' : ''} {isCameraOff ? '• tắt cam' : ''}
+
+                    {participants.map((participant) => (
+                      <div
+                        key={participant.socketId}
+                        className={`relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border bg-black/40 md:min-h-[260px] ${
+                          remoteSpeakingMap[participant.socketId]
+                            ? 'border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.2)]'
+                            : 'border-white/10'
+                        }`}
+                      >
+                        {participant.stream && participant.stream.getVideoTracks().length > 0 ? (
+                          <video
+                            autoPlay
+                            playsInline
+                            ref={(node) => {
+                              if (!node) return;
+                              if (node.srcObject !== participant.stream) {
+                                node.srcObject = participant.stream;
+                              }
+                            }}
+                            className="h-full min-h-[200px] w-full flex-1 object-cover"
+                          />
+                        ) : (
+                          <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-3 bg-zinc-900/80 md:min-h-[260px]">
+                            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-xl font-bold text-white">
+                              {buildInitials(participant.displayName || participant.userId || 'P')}
+                            </div>
+                            <span className="text-xs text-gray-500">Đã tắt camera</span>
+                          </div>
+                        )}
+                        <div className="absolute bottom-3 left-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs text-white">
+                          {participant.displayName || participant.userId || 'Thành viên'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                {participants.map((participant) => (
-                  <div
-                    key={participant.socketId}
-                    className={`relative overflow-hidden rounded-2xl border aspect-video bg-black/30 transition-all duration-200 ${
-                      remoteSpeakingMap[participant.socketId]
-                        ? 'border-emerald-300/70 shadow-[0_0_22px_rgba(16,185,129,0.30)]'
-                        : 'border-white/15'
-                    }`}
-                  >
-                    {participant.stream && participant.stream.getVideoTracks().length > 0 ? (
-                      <video
-                        autoPlay
-                        playsInline
-                        ref={(node) => {
-                          if (!node) return;
-                          if (node.srcObject !== participant.stream) {
-                            node.srcObject = participant.stream;
-                          }
-                        }}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-slate-900/70">
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center text-xl font-bold text-white">
-                          {buildInitials(participant.displayName || participant.userId || 'P')}
-                        </div>
-                        <div className="text-sm text-gray-300">Đã tắt camera</div>
-                      </div>
-                    )}
-                    <div className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs text-white">
-                      {participant.displayName || participant.userId || 'Thành viên'}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
 
-            {/* Thanh điều khiển dạng meeting bar (tham chiếu hình 1): trái — Âm thanh/Video; giữa — Thành viên & công cụ; phải — Kết thúc */}
-            <div className="shrink-0 border-t border-white/10 bg-black px-3 py-3 sm:px-6">
-              <div className="mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-2 gap-y-3">
-                <div className="flex items-end gap-1 sm:gap-4">
+            {/* Thanh điều khiển nổi (hình 3) */}
+            <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-30 flex justify-center px-2 md:bottom-8">
+              <div className="pointer-events-auto flex max-w-[min(100%,56rem)] flex-wrap items-end justify-between gap-3 rounded-2xl border border-white/10 bg-black/85 px-3 py-3 shadow-2xl backdrop-blur-xl md:gap-6 md:px-6">
+                <div className="flex items-end gap-1 sm:gap-3">
                   <VoiceToolbarControl
-                    label="Âm thanh"
+                    label="ÂM THANH"
                     icon={Mic}
                     iconOff={MicOff}
                     active={!isMuted}
@@ -1006,7 +1130,7 @@ function VoiceRoomPage() {
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="Video"
+                    label="VIDEO"
                     icon={Video}
                     iconOff={VideoOff}
                     active={!isCameraOff}
@@ -1015,61 +1139,58 @@ function VoiceRoomPage() {
                   />
                 </div>
 
-                <div className="flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-3 md:gap-5">
+                <div className="flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-2 md:gap-4">
                   <VoiceToolbarControl
-                    label="Thành viên"
+                    label="THÀNH VIÊN"
                     icon={Users}
                     badge={totalParticipants}
                     onClick={() => toast(`${totalParticipants} người trong phòng`, { icon: '👥' })}
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="Cảm xúc"
+                    label="CẢM XÚC"
                     icon={Heart}
                     onClick={() => toast('Biểu cảm — sắp có', { icon: '❤️' })}
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="Chat"
+                    label="CHAT"
                     icon={MessageSquare}
                     onClick={() => toast('Chat phòng — sắp có', { icon: '💬' })}
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="Chia sẻ"
+                    label="CHIA SẺ"
                     icon={Share2}
                     onClick={() => toast('Chia sẻ màn hình — sắp có', { icon: '🖥️' })}
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="Thêm"
+                    label="THÊM"
                     icon={MoreHorizontal}
                     onClick={() => toast('Thêm tùy chọn — sắp có', { icon: '⋯' })}
                     chevron={false}
                   />
                 </div>
 
-                <div className="flex items-end pl-2">
+                <div className="flex items-end">
                   <button
                     type="button"
                     onClick={leaveRoom}
-                    className="group flex flex-col items-center gap-1 rounded-lg px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
-                    title="Rời phòng / Kết thúc cuộc gọi"
+                    className="group flex flex-col items-center gap-1 rounded-xl px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
+                    title="Kết thúc cuộc gọi"
                   >
-                    <div
-                      className="flex h-11 w-11 items-center justify-center bg-gradient-to-br from-rose-500 to-pink-600 shadow-lg transition group-hover:from-rose-600 group-hover:to-pink-700"
-                      style={{
-                        clipPath: 'polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%)',
-                      }}
-                    >
-                      <X className="h-5 w-5 text-white" strokeWidth={2.5} aria-hidden />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 shadow-lg transition group-hover:bg-red-500">
+                      <X className="h-6 w-6 text-white" strokeWidth={2.5} aria-hidden />
                     </div>
-                    <span className="text-[11px] text-white/60 group-hover:text-white/85">Kết thúc</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-white/70 group-hover:text-white">
+                      Kết thúc
+                    </span>
                   </button>
                 </div>
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

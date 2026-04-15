@@ -1,5 +1,15 @@
+const { randomUUID } = require('crypto');
 const messageService = require('../services/message.service');
-const { emitRealtimeEvent } = require('/shared');
+const { emitRealtimeEvent, firebaseStorage } = require('/shared');
+const {
+  attachSignedReadUrlsToMessages,
+  attachSignedReadUrlToMessage,
+} = require('../utils/attachSignedReadUrls');
+const {
+  ttlMsForRetentionContext,
+  MAX_UPLOAD_BYTES,
+  isMimeAllowed,
+} = require('../config/fileRetention');
 
 class MessageController {
   /**
@@ -40,10 +50,121 @@ class MessageController {
     }
   }
 
+  /**
+   * Nội bộ: lấy message kèm fileMeta (task-service / worker).
+   */
+  async getMessageInternal(req, res) {
+    try {
+      const { messageId } = req.params;
+      const message = await messageService.getMessageById(messageId);
+      if (!message) {
+        return res.status(404).json({ success: false, message: 'Message not found' });
+      }
+      return res.json({ success: true, data: message });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Nội bộ: đánh dấu file đã gắn task.
+   */
+  async promoteMessageFileInternal(req, res) {
+    try {
+      const { messageId } = req.params;
+      const { taskId } = req.body || {};
+      if (!taskId) {
+        return res.status(400).json({ success: false, message: 'taskId is required' });
+      }
+      const updated = await messageService.promoteFileForTask(messageId, taskId);
+      if (!updated) {
+        return res.status(404).json({ success: false, message: 'Message not found' });
+      }
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Client: lấy signed URL upload lên Firebase (temp), không cần Firebase Auth.
+   */
+  async createSignedUploadUrl(req, res) {
+    try {
+      if (!firebaseStorage.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Firebase Storage is not configured on server',
+        });
+      }
+
+      const userId = req.user?.id || req.user?._id;
+      const { fileName, mimeType, size, retentionContext } = req.body || {};
+
+      if (!fileName || !mimeType || size == null || !retentionContext) {
+        return res.status(400).json({
+          success: false,
+          message: 'fileName, mimeType, size, retentionContext are required',
+        });
+      }
+
+      if (!['dm', 'org_room', 'meeting'].includes(retentionContext)) {
+        return res.status(400).json({
+          success: false,
+          message: 'retentionContext must be dm | org_room | meeting',
+        });
+      }
+
+      const n = Number(size);
+      if (Number.isNaN(n) || n <= 0 || n > MAX_UPLOAD_BYTES) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid size (max ${MAX_UPLOAD_BYTES} bytes)`,
+        });
+      }
+
+      if (!isMimeAllowed(mimeType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'MIME type not allowed',
+        });
+      }
+
+      const safe = firebaseStorage.sanitizeFileName(fileName);
+      const storagePath = `temp/${String(userId)}/${randomUUID()}_${safe}`;
+
+      const { uploadUrl, expires: uploadUrlExpires } = await firebaseStorage.getSignedUploadUrl(
+        storagePath,
+        mimeType,
+        firebaseStorage.DEFAULT_UPLOAD_URL_MINUTES
+      );
+
+      const fileExpiresAt = new Date(Date.now() + ttlMsForRetentionContext(retentionContext));
+
+      res.json({
+        success: true,
+        data: {
+          uploadUrl,
+          storagePath,
+          bucket: process.env.FIREBASE_STORAGE_BUCKET,
+          uploadUrlExpiresAt: uploadUrlExpires.toISOString(),
+          fileExpiresAt: fileExpiresAt.toISOString(),
+          retentionContext,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
   // Tạo tin nhắn mới
   async createMessage(req, res) {
     try {
-      const { content, receiverId, roomId, messageType, organizationId } = req.body;
+      const { content, receiverId, roomId, messageType, organizationId, fileMeta, replyToMessageId } =
+        req.body;
       const senderId = req.user?.id || req.user?._id;
 
       if (!content || (!receiverId && !roomId)) {
@@ -68,32 +189,109 @@ class MessageController {
         messageData.roomId = roomId;
       }
 
+      if (replyToMessageId) {
+        const parent = await messageService.getMessageById(replyToMessageId);
+        if (!parent) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid reply target',
+          });
+        }
+        if (roomId) {
+          if (String(parent.roomId || '') !== String(roomId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid reply target',
+            });
+          }
+        } else if (receiverId) {
+          if (parent.roomId) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid reply target',
+            });
+          }
+          const u1 = String(senderId);
+          const u2 = String(receiverId);
+          const pSend = String(parent.senderId?._id || parent.senderId || '');
+          const pRecv = String(parent.receiverId?._id || parent.receiverId || '');
+          const sameDm =
+            (pSend === u1 && pRecv === u2) || (pSend === u2 && pRecv === u1);
+          if (!sameDm) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid reply target',
+            });
+          }
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid reply target',
+          });
+        }
+        messageData.replyToMessageId = replyToMessageId;
+      }
+
+      const mt = messageData.messageType;
+      if (fileMeta && (mt === 'image' || mt === 'file')) {
+        const sp = fileMeta.storagePath;
+        const prefix = `temp/${String(senderId)}/`;
+        if (!sp || typeof sp !== 'string' || !sp.startsWith(prefix)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid fileMeta.storagePath for this user',
+          });
+        }
+        const ctx = fileMeta.retentionContext || (receiverId ? 'dm' : 'org_room');
+        if (!['dm', 'org_room', 'meeting'].includes(ctx)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid retentionContext',
+          });
+        }
+        messageData.fileMeta = {
+          storagePath: sp,
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+          originalName: fileMeta.originalName || '',
+          mimeType: fileMeta.mimeType || '',
+          byteSize: fileMeta.byteSize,
+          retentionContext: ctx,
+          storageTier: 'temp',
+          expiresAt: new Date(Date.now() + ttlMsForRetentionContext(ctx)),
+        };
+        // content giữ tên file (req.body); signed read URL gắn khi trả API/emit.
+      }
+
       const message = await messageService.createMessage(messageData);
+      const payloadMessage =
+        (await attachSignedReadUrlToMessage(message)) || message;
 
       if (receiverId) {
-        await emitRealtimeEvent({
-          event: 'friend:new_message',
-          userId: String(receiverId),
-          payload: message,
-        });
-        await emitRealtimeEvent({
-          event: 'friend:sent',
-          userId: String(senderId),
-          payload: message,
-        });
+        await Promise.all([
+          emitRealtimeEvent({
+            event: 'friend:new_message',
+            userId: String(receiverId),
+            payload: payloadMessage,
+          }),
+          emitRealtimeEvent({
+            event: 'friend:sent',
+            userId: String(senderId),
+            payload: payloadMessage,
+          }),
+        ]);
       }
 
       if (roomId) {
         await emitRealtimeEvent({
           event: 'room:new_message',
           roomId: String(roomId),
-          payload: message,
+          payload: payloadMessage,
         });
       }
 
       res.status(201).json({
         success: true,
-        data: message,
+        data: payloadMessage,
       });
     } catch (error) {
       res.status(500).json({
@@ -115,10 +313,11 @@ class MessageController {
 
       const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
       const messages = await messageService.findUnreadOrgRoomMessages(userId, limit);
+      const enriched = await attachSignedReadUrlsToMessages(messages);
 
       res.json({
         success: true,
-        data: { messages },
+        data: { messages: enriched },
       });
     } catch (error) {
       res.status(500).json({
@@ -196,9 +395,11 @@ class MessageController {
         });
       }
 
+      const data = (await attachSignedReadUrlToMessage(message)) || message;
+
       res.json({
         success: true,
-        data: message,
+        data,
       });
     } catch (error) {
       res.status(500).json({
@@ -239,11 +440,18 @@ class MessageController {
         limit: parseInt(limit) || 50,
       };
 
+      if (receiverId && userId) {
+        const a = String(userId);
+        const b = String(receiverId);
+        options.dmCacheKey = [a, b].sort().join(':');
+      }
+
       const result = await messageService.getMessages(filter, options);
+      const messages = await attachSignedReadUrlsToMessages(result.messages || []);
 
       res.json({
         success: true,
-        data: result,
+        data: { ...result, messages },
       });
     } catch (error) {
       res.status(500).json({
@@ -268,9 +476,11 @@ class MessageController {
         });
       }
 
+      const data = (await attachSignedReadUrlToMessage(message)) || message;
+
       res.json({
         success: true,
-        data: message,
+        data,
       });
     } catch (error) {
       res.status(500).json({
@@ -322,10 +532,12 @@ class MessageController {
         });
       }
 
+      const data = (await attachSignedReadUrlToMessage(message)) || message;
+
       res.json({
         success: true,
         message: 'Message recalled successfully',
-        data: message,
+        data,
       });
     } catch (error) {
       res.status(500).json({
@@ -358,10 +570,19 @@ class MessageController {
         });
       }
 
+      const payloadMessage = (await attachSignedReadUrlToMessage(message)) || message;
+      if (message.roomId) {
+        await emitRealtimeEvent({
+          event: 'room:message_edited',
+          roomId: String(message.roomId),
+          payload: payloadMessage,
+        });
+      }
+
       res.json({
         success: true,
         message: 'Message edited successfully',
-        data: message,
+        data: payloadMessage,
       });
     } catch (error) {
       res.status(500).json({

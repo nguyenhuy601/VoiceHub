@@ -1,5 +1,6 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { getToken, removeToken } from '../../utils/tokenStorage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -30,7 +31,7 @@ const apiClient = axios.create({
 // Request interceptor - Add auth token
 apiClient.interceptors.request.use(
   (config) => {
-    const token = normalizeToken(localStorage.getItem('token'));
+    const token = normalizeToken(getToken());
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -52,7 +53,7 @@ apiClient.interceptors.response.use(
     // Handle specific error codes
     if (error.response?.status === 401) {
       // Unauthorized - clear token and redirect to login
-      localStorage.removeItem('token');
+      removeToken();
       window.location.href = '/login';
       toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
     } else if (error.response?.status === 403) {

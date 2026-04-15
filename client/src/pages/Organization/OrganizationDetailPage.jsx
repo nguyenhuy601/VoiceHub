@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { NotificationModal } from '../../components/Shared';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -71,21 +72,24 @@ const OrganizationDetailPage = () => {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="flex min-h-screen bg-[#0b0e14] text-slate-100">
+      <NavigationSidebar />
+      <main className="min-w-0 flex-1 overflow-y-auto scrollbar-overlay">
+        <div className="mx-auto max-w-7xl p-6 md:p-8">
       {/* Header */}
       <div className="mb-6">
         <Button
           variant="secondary"
           onClick={() => navigate('/organizations')}
-          className="mb-4"
+          className="mb-4 border-white/15 bg-white/5 text-[#9aa0ae] hover:bg-white/10"
         >
           ← Quay lại
         </Button>
         
-        <div className="flex items-start justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold mb-2">{organization.name}</h1>
-            <p className="text-gray-400">{organization.description}</p>
+            <h1 className="mb-2 text-3xl font-bold text-white">{organization.name}</h1>
+            <p className="text-[#9aa0ae]">{organization.description}</p>
           </div>
           <Button onClick={() => navigate(`/organizations/${orgId}/settings`)}>
             Cài đặt
@@ -194,6 +198,8 @@ const OrganizationDetailPage = () => {
           }
         }}
       />
+        </div>
+      </main>
     </div>
   );
 };

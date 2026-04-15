@@ -9,6 +9,7 @@ const {
 } = require('/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
+const { invalidateSignedReadCacheForStoragePath } = require('../utils/attachSignedReadUrls');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
@@ -81,6 +82,12 @@ class MessageService {
       if (redis) {
         const cacheKey = `message:${message._id}`;
         await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
+        if (message.receiverId && message.senderId) {
+          const a = String(message.senderId);
+          const b = String(message.receiverId);
+          const pair = [a, b].sort().join(':');
+          await redis.del(`dm:last:${pair}`);
+        }
       }
 
       return toClientMessage(message);
@@ -200,7 +207,20 @@ class MessageService {
   async getMessages(filter, options = {}) {
     try {
       await ensureMongoReady();
-      const { page = 1, limit = 50, sort = { createdAt: -1 } } = options;
+      const { page = 1, limit = 50, sort = { createdAt: -1 }, dmCacheKey } = options;
+
+      const redis = getRedisClient();
+      if (redis && dmCacheKey && page === 1 && limit <= 50) {
+        const ck = `dm:last:${dmCacheKey}`;
+        try {
+          const cached = await redis.get(ck);
+          if (cached) {
+            return JSON.parse(cached);
+          }
+        } catch {
+          /* miss */
+        }
+      }
 
       const messages = await Message.find(filter).sort(sort).limit(limit * 1).skip((page - 1) * limit);
 
@@ -210,12 +230,22 @@ class MessageService {
 
       const total = await Message.countDocuments(filter);
 
-      return {
+      const result = {
         messages: messages.map((m) => toClientMessage(m)),
         totalPages: Math.ceil(total / limit),
         currentPage: page,
         total,
       };
+
+      if (redis && dmCacheKey && page === 1 && limit <= 50) {
+        try {
+          await redis.setex(`dm:last:${dmCacheKey}`, 60, JSON.stringify(result));
+        } catch {
+          /* ignore cache write */
+        }
+      }
+
+      return result;
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error getting messages: ${err.message}`);
@@ -268,7 +298,12 @@ class MessageService {
         await redis.del(cacheKey);
       }
 
-      return toClientMessage(message);
+      const out = toClientMessage(message);
+      if (out?.fileMeta?.storagePath) {
+        await invalidateSignedReadCacheForStoragePath(out.fileMeta.storagePath);
+      }
+
+      return out;
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error deleting message: ${err.message}`);
@@ -380,6 +415,86 @@ class MessageService {
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error editing message: ${err.message}`);
+    }
+  }
+
+  /**
+   * Đánh dấu file đã promote sang task — GC chat không xóa path (worker có thể đã xóa temp).
+   */
+  async promoteFileForTask(messageId, taskId) {
+    try {
+      await ensureMongoReady();
+      const message = await Message.findByIdAndUpdate(
+        messageId,
+        {
+          $set: {
+            'fileMeta.promotedToTask': true,
+            'fileMeta.taskId': taskId,
+          },
+        },
+        { new: true }
+      );
+      const redis = getRedisClient();
+      if (redis && message) {
+        await redis.del(`message:${messageId}`);
+      }
+      return message ? toClientMessage(message) : null;
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error promoting file: ${err.message}`);
+    }
+  }
+
+  /**
+   * GC: xóa object Storage + soft-delete message có file hết hạn.
+   */
+  async runStorageGcOnce() {
+    const { firebaseStorage } = require('/shared');
+    if (!firebaseStorage.isEnabled()) {
+      return { scanned: 0, deleted: 0, skipped: true };
+    }
+    try {
+      await ensureMongoReady();
+      const now = new Date();
+      const msgs = await Message.find({
+        'fileMeta.expiresAt': { $lte: now },
+        'fileMeta.storagePath': { $exists: true, $nin: [null, ''] },
+        'fileMeta.promotedToTask': { $ne: true },
+        isDeleted: { $ne: true },
+      })
+        .limit(parseInt(process.env.STORAGE_GC_BATCH || '50', 10) || 50)
+        .lean();
+
+      let deleted = 0;
+      for (const m of msgs) {
+        const path = m.fileMeta?.storagePath;
+        if (!path) continue;
+        try {
+          await firebaseStorage.deleteObject(path);
+        } catch (e) {
+          /* vẫn cập nhật DB nếu 404 */
+        }
+        await invalidateSignedReadCacheForStoragePath(path);
+        await Message.updateOne(
+          { _id: m._id },
+          {
+            $set: {
+              isDeleted: true,
+              deletedAt: new Date(),
+              content: encryptContentIfEnabled('[Tệp đã hết hạn]'),
+              messageType: 'system',
+            },
+            $unset: { fileMeta: 1 },
+          }
+        );
+        const redis = getRedisClient();
+        if (redis) await redis.del(`message:${m._id}`);
+        deleted += 1;
+      }
+      return { scanned: msgs.length, deleted, skipped: false };
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Storage GC: ${err.message}`);
     }
   }
 }

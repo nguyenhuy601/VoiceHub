@@ -2,11 +2,11 @@
    SOCKETCONTEXT.JSX - SOCKET.IO MANAGEMENT
    Quản lý WebSocket connection cho realtime features
    - Chat realtime
-   - Online users tracking  
+   - Online users tracking
    - Voice chat signaling
    - Notifications realtime
-   
-   Kết nối đến: chat-system-service (port 4002)
+
+   Kết nối: API Gateway (VITE_SOCKET_URL) + namespace /chat → socket-service
 ======================================== */
 
 // Import hooks để build context
@@ -19,6 +19,7 @@ import { io } from 'socket.io-client';
 // Import useAuth để lấy user info và token
 // Cần token để authenticate socket connection
 import { useAuth } from './AuthContext';
+import { getToken } from '../utils/tokenStorage';
 
 // Tạo SocketContext
 const SocketContext = createContext(null);
@@ -45,18 +46,28 @@ export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
-   - Lấy từ .env file: VITE_SOCKET_URL
-   - Fallback: http://localhost:3006 (Chat Service port 3006 theo docker-compose)
-   - Production: https://your-api.com/socket
+   - VITE_SOCKET_URL: base API Gateway (vd. http://localhost:3000), không cần ghi /chat
+   - Client tự nối namespace /chat để khớp socket-service (io.of('/chat'))
 ======================================== */
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3006';
+const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+
+/** Base gateway URL → Socket.IO URL có namespace /chat (tránh trùng /chat/chat). */
+function getSocketIoUrl(baseUrl) {
+  const trimmed = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return 'http://localhost:3000/chat';
+  if (trimmed.endsWith('/chat')) return trimmed;
+  return `${trimmed}/chat`;
+}
+
+const SOCKET_IO_URL = getSocketIoUrl(SOCKET_BASE_URL);
 
 // Log URL khi app start (giúp debug)
 console.log('🔌 [Socket] Configuration:');
-console.log('   URL:', SOCKET_URL);
-console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set - using default)');
+console.log('   Base (VITE_SOCKET_URL):', SOCKET_BASE_URL);
+console.log('   Socket.IO URL (namespace /chat):', SOCKET_IO_URL);
+console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set — default http://localhost:3000)');
 if (!import.meta.env.VITE_SOCKET_URL) {
-  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3006');
+  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3000');
 }
 console.log('');
 
@@ -103,10 +114,10 @@ function SocketProvider({ children }) {
     // Chỉ connect khi user đã login
     if (isAuthenticated && user) {
       // Lấy token từ localStorage để authenticate
-      const token = localStorage.getItem('token');
+      const token = getToken();
       
       /* ----- TẠO SOCKET CONNECTION ----- */
-      const newSocket = io(SOCKET_URL, {
+      const newSocket = io(SOCKET_IO_URL, {
         // auth: gửi token lên server để xác thực
         // Server sẽ verify token và lấy user info
         auth: { token },
@@ -132,7 +143,7 @@ function SocketProvider({ children }) {
       newSocket.on('connect', () => {
         console.log('✅ [Socket] Connected successfully');
         console.log('   Socket ID:', newSocket.id);
-        console.log('   URL:', SOCKET_URL);
+        console.log('   URL:', SOCKET_IO_URL);
         console.log('   Transport:', newSocket.io.engine.transport.name);
         
         setConnected(true);
@@ -161,14 +172,14 @@ function SocketProvider({ children }) {
         console.error('❌ [Socket] Connection Error');
         console.error('   Message:', error.message);
         console.error('   Data:', error.data);
-        console.error('   Trying to connect to:', SOCKET_URL);
+        console.error('   Trying to connect to:', SOCKET_IO_URL);
         console.error('');
         console.error('   📋 Debugging checklist:');
-        console.error('   1. Is chat-service running? (Port 3006)');
-        console.error('   2. Check if VITE_SOCKET_URL is correctly set in .env');
-        console.error('   3. Try: curl http://localhost:3006/health');
+        console.error('   1. API Gateway running? (e.g. port 3000) — proxies /socket.io → socket-service');
+        console.error('   2. VITE_SOCKET_URL = gateway base only (code appends /chat)');
+        console.error('   3. Try: curl http://localhost:3000/health');
         console.error('   4. Check browser console for CORS errors');
-        console.error('   5. Check server logs for socket.io errors');
+        console.error('   5. Check socket-service logs for auth / namespace /chat');
         
         setConnectionError(error);
       });
@@ -186,21 +197,20 @@ function SocketProvider({ children }) {
       // Event: 'users:online' - server gửi list users online
       // Chạy khi connect hoặc khi có user join/leave
       newSocket.on('users:online', (users) => {
-        // users: array of user IDs ['user1', 'user2', ...]
-        setOnlineUsers(users);
+        const list = Array.isArray(users) ? users.map((id) => String(id)) : [];
+        setOnlineUsers(list);
       });
 
       // Event: 'user:connected' - có user mới online
       newSocket.on('user:connected', (userId) => {
-        // Thêm userId vào onlineUsers
-        // Set: loại bỏ duplicates
-        setOnlineUsers((prev) => [...new Set([...prev, userId])]);
+        const id = String(userId);
+        setOnlineUsers((prev) => [...new Set([...prev.map(String), id])]);
       });
 
       // Event: 'user:disconnected' - có user offline
       newSocket.on('user:disconnected', (userId) => {
-        // Remove userId khỏi onlineUsers
-        setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+        const id = String(userId);
+        setOnlineUsers((prev) => prev.map(String).filter((x) => x !== id));
       });
 
       // Lưu socket instance vào state

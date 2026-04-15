@@ -55,6 +55,7 @@ const publicRoutes = [
   '/api/auth/reset-password',
   '/api/auth/verify-email',
   '/health',
+  '/metrics',
   '/favicon.ico',
 ];
 

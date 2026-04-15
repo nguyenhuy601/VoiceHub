@@ -4,6 +4,7 @@ const Toast = ({ message, type = "success", onClose }) => {
   const colors = {
     success: "from-green-500 to-emerald-500",
     error: "from-red-500 to-orange-500",
+    fail: "from-red-500 to-orange-500",
     info: "from-blue-500 to-cyan-500",
     warning: "from-yellow-500 to-orange-500"
   };
@@ -11,6 +12,7 @@ const Toast = ({ message, type = "success", onClose }) => {
   const icons = {
     success: "✓",
     error: "✕",
+    fail: "✕",
     info: "ℹ",
     warning: "⚠"
   };
@@ -21,7 +23,7 @@ const Toast = ({ message, type = "success", onClose }) => {
   }, [onClose]);
 
   return (
-    <div className={`fixed top-6 right-6 glass-strong rounded-xl px-6 py-4 flex items-center gap-3 animate-slideDown z-50 border-l-4 ${colors[type]}`}>
+    <div className={`fixed top-6 right-6 glass-strong rounded-xl px-6 py-4 flex items-center gap-3 animate-slideDown z-[300] border-l-4 ${colors[type]}`}>
       <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${colors[type]} flex items-center justify-center text-white font-bold`}>
         {icons[type]}
       </div>
