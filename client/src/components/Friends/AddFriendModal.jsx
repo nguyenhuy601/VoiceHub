@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { GlassCard, GradientButton, Toast } from '../Shared';
+import toast from 'react-hot-toast';
+import { GlassCard, GradientButton } from '../Shared';
 import friendService from '../../services/friendService';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -13,17 +14,11 @@ function unwrapApiPayload(res) {
  */
 export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged }) {
   const { isDarkMode } = useTheme();
-  const [toast, setToast] = useState(null);
   const [searchPhone, setSearchPhone] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [pending, setPending] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [searching, setSearching] = useState(false);
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3200);
-  };
 
   const loadPending = useCallback(async () => {
     setLoadingPending(true);
@@ -66,7 +61,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
 
   const handleSearch = async () => {
     if (!searchPhone.trim()) {
-      showToast('Nhập số điện thoại', 'fail');
+      toast.error('Nhập số điện thoại');
       return;
     }
     setSearching(true);
@@ -77,10 +72,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       if (user && (user._id || user.userId || user.phone)) {
         setSearchResult(user);
       } else {
-        showToast('Không tìm thấy người dùng', 'info');
+        toast('Không tìm thấy người dùng', { icon: 'ℹ️' });
       }
     } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Lỗi khi tìm kiếm', 'fail');
+      toast.error(err.response?.data?.message || err.message || 'Lỗi khi tìm kiếm');
     } finally {
       setSearching(false);
     }
@@ -90,40 +85,40 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
 
   const sendFriendRequest = async (userId) => {
     if (!userId) {
-      showToast('Không xác định được người dùng', 'fail');
+      toast.error('Không xác định được người dùng');
       return;
     }
     try {
       await friendService.sendRequest(userId);
-      showToast('Đã gửi lời mời', 'success');
+      toast.success('Đã gửi lời mời');
       setSearchResult(null);
       setSearchPhone('');
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      showToast(err.response?.data?.message || 'Không gửi được lời mời', 'fail');
+      toast.error(err.response?.data?.message || 'Không gửi được lời mời');
     }
   };
 
   const acceptRequest = async (requestId) => {
     try {
       await friendService.acceptRequest(requestId);
-      showToast('Đã chấp nhận', 'success');
+      toast.success('Đã chấp nhận');
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      showToast(err.response?.data?.message || 'Lỗi', 'fail');
+      toast.error(err.response?.data?.message || 'Lỗi');
     }
   };
 
   const rejectRequest = async (requestId) => {
     try {
       await friendService.rejectRequest(requestId);
-      showToast('Đã từ chối', 'success');
+      toast.success('Đã từ chối');
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      showToast(err.response?.data?.message || 'Lỗi', 'fail');
+      toast.error(err.response?.data?.message || 'Lỗi');
     }
   };
 
@@ -319,7 +314,6 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
         </div>
       </div>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

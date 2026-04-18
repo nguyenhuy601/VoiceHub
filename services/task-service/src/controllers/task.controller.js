@@ -174,15 +174,23 @@ class TaskController {
         organizationId != null && organizationId !== ''
           ? String(organizationId).trim()
           : '';
-      if (!oid || !mongoose.Types.ObjectId.isValid(oid)) {
+      if (!oid || !mongoose.isValidObjectId(oid)) {
         return res.status(400).json({
           success: false,
           message: 'organizationId query parameter is required and must be a valid ObjectId',
         });
       }
 
+      if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({
+          success: false,
+          message: 'Database unavailable',
+        });
+      }
+
+      const orgOid = new mongoose.Types.ObjectId(oid);
       const stats = await Task.aggregate([
-        { $match: { organizationId: new mongoose.Types.ObjectId(oid), isActive: true } },
+        { $match: { organizationId: orgOid, isActive: true } },
         {
           $group: {
             _id: '$status',
@@ -214,6 +222,12 @@ class TaskController {
       });
     } catch (error) {
       logger.error('Get task statistics error:', error);
+      if (error.name === 'CastError' || error.name === 'BSONError') {
+        return res.status(400).json({
+          success: false,
+          message: error.message || 'Invalid organizationId',
+        });
+      }
       res.status(500).json({
         success: false,
         message: error.message,

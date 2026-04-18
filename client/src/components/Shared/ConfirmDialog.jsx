@@ -28,7 +28,7 @@ const ConfirmDialog = ({
     >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-hidden />
       <div
-        className="relative glass-strong rounded-2xl max-w-md w-full animate-scaleIn border border-white/20 shadow-2xl"
+        className="relative glass-strong rounded-2xl max-w-md w-full animate-scaleIn border border-amber-500/35 shadow-2xl shadow-amber-900/20"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -43,14 +43,14 @@ const ConfirmDialog = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold text-gray-100"
+              className="flex-1 glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold text-gray-100 border border-white/10"
             >
               {cancelText}
             </button>
             <button
               type="button"
               onClick={handleConfirm}
-              className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-3 rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all font-semibold text-white"
+              className="flex-1 bg-gradient-to-r from-amber-600 to-yellow-600 px-4 py-3 rounded-xl hover:from-amber-500 hover:to-yellow-500 transition-all font-semibold text-[#0f1218] shadow-md shadow-amber-900/30"
             >
               {confirmText}
             </button>

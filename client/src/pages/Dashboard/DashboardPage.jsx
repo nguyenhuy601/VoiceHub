@@ -1,8 +1,9 @@
 import { Bell, MoreHorizontal, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
+import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -44,7 +45,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStat, setSelectedStat] = useState(null);
   const [showActivityDetail, setShowActivityDetail] = useState(null);
-  const [toast, setToast] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
@@ -246,10 +246,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       cancelled = true;
     };
   }, [metricsTick, landingDemo, demoVariant]);
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-  };
 
   /**
    * Presence realtime: khi socket đã kết nối, danh sách `onlineUsers` từ socket-service là nguồn đúng
@@ -459,9 +455,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       a.download = 'voicehub-dashboard-snapshot.json';
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Đã tải snapshot số liệu (JSON)', 'success');
+      toast.success('Đã tải snapshot số liệu (JSON)');
     } catch {
-      showToast('Không xuất được file', 'error');
+      toast.error('Không xuất được file');
     }
   };
 
@@ -469,9 +465,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     const url = `${window.location.origin}/dashboard`;
     try {
       await navigator.clipboard.writeText(url);
-      showToast('Đã copy liên kết Dashboard', 'success');
+      toast.success('Đã copy liên kết Dashboard');
     } catch {
-      showToast(url, 'info');
+      toast(url, { icon: '🔗' });
     }
   };
 
@@ -558,7 +554,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                         className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
                         onClick={() => {
                           document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          showToast('Đã cuộn tới khu vực hoạt động', 'info');
+                          toast('Đã cuộn tới khu vực hoạt động', { icon: 'ℹ️' });
                           close();
                         }}
                       >
@@ -1096,12 +1092,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 className="flex-1 text-sm"
                 onClick={() => {
                   setShowActivityDetail(null);
-                  showToast('Đang chuyển đến chi tiết...');
+                  toast('Đang chuyển đến chi tiết...', { icon: 'ℹ️' });
                 }}
               >
                 Xem Chi Tiết
               </GradientButton>
-              <button type="button" onClick={() => showToast('Đã chia sẻ hoạt động')} className={`flex-1 ${modalSecondaryBtn}`}>
+              <button type="button" onClick={() => toast.success('Đã chia sẻ hoạt động')} className={`flex-1 ${modalSecondaryBtn}`}>
                 Chia Sẻ
               </button>
             </div>
@@ -1157,7 +1153,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               variant="primary"
               className="flex-1 text-sm"
               onClick={() => {
-                showToast('Tạo dự án thành công!', 'success');
+                toast.success('Tạo dự án thành công!');
                 setShowNewProjectModal(false);
               }}
             >
@@ -1198,14 +1194,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       </div>
     </Modal>
 
-    {/* Toast Notifications */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
   </>
   );
 }

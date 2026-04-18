@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { Dropdown, GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { ConfirmDialog, Dropdown, GlassCard, GradientButton, Modal } from '../../components/Shared';
 
 function DocumentsPage() {
   const [viewMode, setViewMode] = useState('grid');
@@ -10,24 +11,18 @@ function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [toast, setToast] = useState(null);
-  const [fileActions, setFileActions] = useState(null);
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+  const [deleteConfirmFileId, setDeleteConfirmFileId] = useState(null);
 
   const handleStarFile = (fileId) => {
-    showToast("Đã gắn dấu sao", "success");
+    toast.success('Đã gắn dấu sao');
   };
 
   const handleDownloadFile = (file) => {
-    showToast(`Đang tải ${file.name}...`, "info");
+    toast(`Đang tải ${file.name}...`, { icon: '⬇️' });
   };
 
   const handleDeleteFile = (fileId) => {
-    showToast("Đã xóa file", "success");
+    toast.success('Đã xóa file');
   };
 
   const handleShareFile = (file) => {
@@ -46,7 +41,7 @@ function DocumentsPage() {
         setTimeout(() => {
           setShowUploadModal(false);
           setUploadProgress(0);
-          showToast("Tải lên thành công!", "success");
+          toast.success('Tải lên thành công!');
         }, 500);
       }
     }, 200);
@@ -285,29 +280,25 @@ function DocumentsPage() {
                               🔗 Chia sẻ
                             </button>
                             <button
-                              onClick={() => showToast('Đã đổi tên', 'success')}
+                              onClick={() => toast.success('Đã đổi tên')}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
                               ✏️ Đổi tên
                             </button>
                             <button
-                              onClick={() => showToast('Đã di chuyển', 'success')}
+                              onClick={() => toast.success('Đã di chuyển')}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
                               📁 Di chuyển
                             </button>
                             <button
-                              onClick={() => showToast('Đã copy', 'success')}
+                              onClick={() => toast.success('Đã copy')}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
                               📋 Sao chép
                             </button>
                             <button
-                              onClick={() => {
-                                if (confirm('Bạn có chắc muốn xóa file này?')) {
-                                  handleDeleteFile(doc.id);
-                                }
-                              }}
+                              onClick={() => setDeleteConfirmFileId(doc.id)}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
                             >
                               🗑️ Xóa
@@ -389,29 +380,25 @@ function DocumentsPage() {
                                 🔗 Chia sẻ
                               </button>
                               <button
-                                onClick={() => showToast('Đã đổi tên', 'success')}
+                                onClick={() => toast.success('Đã đổi tên')}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
                                 ✏️ Đổi tên
                               </button>
                               <button
-                                onClick={() => showToast('Đã di chuyển', 'success')}
+                                onClick={() => toast.success('Đã di chuyển')}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
                                 📁 Di chuyển
                               </button>
                               <button
-                                onClick={() => showToast('Đã copy', 'success')}
+                                onClick={() => toast.success('Đã copy')}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
                                 📋 Sao chép
                               </button>
                               <button
-                                onClick={() => {
-                                  if (confirm('Bạn có chắc muốn xóa file này?')) {
-                                    handleDeleteFile(doc.id);
-                                  }
-                                }}
+                                onClick={() => setDeleteConfirmFileId(doc.id)}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
                               >
                                 🗑️ Xóa
@@ -671,7 +658,7 @@ function DocumentsPage() {
                 className="flex-1 glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm"
               />
               <button 
-                onClick={() => showToast("Đã copy link!", "success")}
+                onClick={() => toast.success('Đã copy link!')}
                 className="glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
               >
                 📋 Copy
@@ -683,7 +670,7 @@ function DocumentsPage() {
             <GradientButton 
               variant="primary" 
               onClick={() => {
-                showToast("Đã lưu thay đổi", "success");
+                toast.success('Đã lưu thay đổi');
                 setShowShareModal(null);
               }}
               className="flex-1"
@@ -701,14 +688,17 @@ function DocumentsPage() {
       )}
     </Modal>
 
-    {/* Toast */}
-      {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+    <ConfirmDialog
+      isOpen={deleteConfirmFileId != null}
+      onClose={() => setDeleteConfirmFileId(null)}
+      onConfirm={() => {
+        if (deleteConfirmFileId != null) handleDeleteFile(deleteConfirmFileId);
+      }}
+      title="Xóa file"
+      message="Bạn có chắc muốn xóa file này?"
+      confirmText="Xóa"
+      cancelText="Hủy"
+    />
     </>
   );
 }
