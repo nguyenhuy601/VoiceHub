@@ -7,6 +7,7 @@ import {
   Calendar,
   Eye,
   LayoutDashboard,
+  ListTodo,
   LogOut,
   MessageSquare,
   Mic,
@@ -47,6 +48,7 @@ const navItems = [
   { Icon: MessageSquare, label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends' },
   { Icon: Mic, label: 'Không gian', tooltip: 'Không gian', path: '/voice' },
   { Icon: Building2, label: 'Tổ chức', tooltip: 'Tổ chức', path: '/organizations' },
+  { Icon: ListTodo, label: 'Công việc', tooltip: 'Task', path: '/tasks' },
   { path: '/notifications', tooltip: 'Thông báo', bellBadge: true, label: 'Thông báo' },
   { Icon: Calendar, label: 'Lịch', tooltip: 'Lịch', path: '/calendar' },
 ];
@@ -155,16 +157,6 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       navigate('/login');
     }
   };
-
-  const navItems = [
-    { icon: '📊', label: 'Bảng Điều Khiển', tooltip: 'Bảng điều khiển', path: '/dashboard', badge: '5' },
-    { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
-    { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice', badge: null },
-    { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
-    { icon: '📋', label: 'Công Việc', tooltip: 'Task', path: '/tasks', badge: null },
-    { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: null, bellBadge: true },
-    { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
-  ];
 
   const isActivePath = (path) => {
     if (path === '/') return location.pathname === '/';
