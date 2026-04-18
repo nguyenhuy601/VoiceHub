@@ -118,43 +118,45 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 - Đặt ở đây để dùng được ở mọi nơi
                 - toast.success(), toast.error() ở bất kỳ component nào */}
             <Toaster
-              // Vị trí hiển thị toast: góc trên bên phải
               position="top-right"
-              
-              // Options cho tất cả toasts
+              containerStyle={{
+                top: 24,
+                right: 24,
+              }}
               toastOptions={{
-                // Thời gian hiển thị: 3 giây (3000ms)
                 duration: 3000,
-                
-                // Style mặc định cho toast
+                className: 'voicehub-toast',
                 style: {
-                  // Background màu slate đậm (dark mode friendly)
-                  background: '#1e293b',
-                  // Text màu trắng
-                  color: '#fff',
+                  background: '#10141c',
+                  color: '#f8fafc',
+                  border: '1px solid rgba(201, 162, 39, 0.45)',
+                  borderRadius: '12px',
+                  boxShadow:
+                    '0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 175, 55, 0.12)',
+                  fontWeight: 600,
+                  fontSize: '0.925rem',
+                  maxWidth: 'min(420px, 92vw)',
                 },
-                
-                // Style riêng cho success toast
                 success: {
                   iconTheme: {
-                    // Icon màu xanh lá (green-500)
-                    primary: '#10b981',
-                    // Background icon màu trắng
-                    secondary: '#fff',
+                    primary: '#d4af37',
+                    secondary: '#10141c',
                   },
-              },
-              
-              // Style riêng cho error toast
-              error: {
-                iconTheme: {
-                  // Icon màu đỏ (red-500)
-                  primary: '#ef4444',
-                  // Background icon màu trắng
-                  secondary: '#fff',
                 },
-              },
-            }}
-          />
+                error: {
+                  iconTheme: {
+                    primary: '#f87171',
+                    secondary: '#10141c',
+                  },
+                },
+                loading: {
+                  iconTheme: {
+                    primary: '#c9a227',
+                    secondary: '#10141c',
+                  },
+                },
+              }}
+            />
           </SocketProvider>
         </AuthProvider>
         </LocaleProvider>

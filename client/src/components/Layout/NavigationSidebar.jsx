@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { ConfirmDialog } from '../Shared';
 import api from '../../services/api';
 import friendService from '../../services/friendService';
 import Avatar from '../ui/Avatar';
@@ -62,6 +63,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const [togglingInvisible, setTogglingInvisible] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [bellBadgeCount, setBellBadgeCount] = useState(0);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -128,19 +130,19 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       setProfileOpen(false);
     } catch (error) {
       console.error('Toggle invisible mode failed:', error);
-      window.alert(error?.response?.data?.message || 'Không thể cập nhật chế độ vô hình');
+      toast.error(error?.response?.data?.message || 'Không thể cập nhật chế độ vô hình');
     } finally {
       setTogglingInvisible(false);
     }
   };
 
-  const handleLogout = async () => {
+  const performLogout = async () => {
     if (landingDemo) {
       toast('Bản demo trên trang chủ — không đăng xuất tài khoản thật.', { icon: '🔒' });
       setProfileOpen(false);
+      setLogoutConfirmOpen(false);
       return;
     }
-    if (!window.confirm('Bạn có chắc muốn đăng xuất?')) return;
 
     try {
       await Promise.race([logout(), new Promise((resolve) => setTimeout(resolve, 1500))]);
@@ -153,7 +155,17 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         // ignore
       }
       navigate('/login');
+      setLogoutConfirmOpen(false);
     }
+  };
+
+  const handleLogoutClick = () => {
+    if (landingDemo) {
+      performLogout();
+      return;
+    }
+    setLogoutConfirmOpen(true);
+    setProfileOpen(false);
   };
 
   const isActivePath = (path) => {
@@ -364,7 +376,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 </button>
                 <button
                   type="button"
-                  onClick={handleLogout}
+                  onClick={handleLogoutClick}
                   className={`flex w-full items-center justify-between px-3 py-2 text-red-500 transition-colors hover:bg-red-500/10 dark:text-red-400 ${profileMenuRow(isDarkMode)}`}
                 >
                   <span className="flex items-center gap-2">
@@ -377,6 +389,15 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
           </>,
           document.body
         )}
+      <ConfirmDialog
+        isOpen={logoutConfirmOpen}
+        onClose={() => setLogoutConfirmOpen(false)}
+        onConfirm={performLogout}
+        title="Đăng xuất"
+        message="Bạn có chắc muốn đăng xuất?"
+        confirmText="Đăng xuất"
+        cancelText="Hủy"
+      />
     </>
   );
 };

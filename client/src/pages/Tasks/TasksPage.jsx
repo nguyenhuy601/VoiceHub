@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { GlassCard, GradientButton, Modal } from '../../components/Shared';
 import { taskAPI } from '../../services/api/taskAPI';
 
 function TasksPage() {
@@ -9,7 +10,6 @@ function TasksPage() {
   const [viewMode, setViewMode] = useState('kanban'); // kanban or list
   const [selectedTask, setSelectedTask] = useState(null);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
-  const [toast, setToast] = useState(null);
   const [createTaskLoading, setCreateTaskLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -19,23 +19,18 @@ function TasksPage() {
     description: ''
   });
 
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   const handleCreateTask = async () => {
     // Validation
     if (!formData.title.trim()) {
-      showToast('Vui lòng nhập tiêu đề công việc', 'error');
+      toast.error('Vui lòng nhập tiêu đề công việc');
       return;
     }
     if (!formData.assignee) {
-      showToast('Vui lòng chọn người phụ trách', 'error');
+      toast.error('Vui lòng chọn người phụ trách');
       return;
     }
     if (!formData.dueDate) {
-      showToast('Vui lòng chọn hạn hoàn thành', 'error');
+      toast.error('Vui lòng chọn hạn hoàn thành');
       return;
     }
 
@@ -55,12 +50,12 @@ function TasksPage() {
       };
 
       await taskAPI.createTask(newTask);
-      showToast('Tạo công việc thành công!', 'success');
+      toast.success('Tạo công việc thành công!');
       setShowCreateTaskModal(false);
       setFormData({ title: '', priority: 'medium', assignee: '', dueDate: '', description: '' });
     } catch (error) {
       console.error('Lỗi tạo công việc:', error);
-      showToast(error.response?.data?.message || 'Lỗi tạo công việc', 'error');
+      toast.error(error.response?.data?.message || 'Lỗi tạo công việc');
     } finally {
       setCreateTaskLoading(false);
     }
@@ -905,14 +900,6 @@ function TasksPage() {
           </div>
         </Modal>
 
-        {/* Toast */}
-        {toast && (
-          <Toast 
-            message={toast.message} 
-            type={toast.type}
-            onClose={() => setToast(null)}
-          />
-        )}
       </div>
       }
     />

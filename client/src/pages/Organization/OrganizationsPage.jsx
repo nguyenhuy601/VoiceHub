@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
-import { Modal, NotificationModal } from '../../components/Shared';
+import { ConfirmDialog, Modal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
 import OrganizationMemberSidebar from '../../components/Organization/OrganizationMemberSidebar';
 import OrganizationMemberPeekDock from '../../components/Organization/OrganizationMemberPeekDock';
@@ -121,7 +122,7 @@ function OrganizationsPage({ landingDemo = false } = {}) {
   const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
   const [createChannelType, setCreateChannelType] = useState('chat');
   const [createChannelName, setCreateChannelName] = useState('');
-  const [notice, setNotice] = useState(null);
+  const [deleteChannelMsgConfirmId, setDeleteChannelMsgConfirmId] = useState(null);
   const [leaveOrgModalOpen, setLeaveOrgModalOpen] = useState(false);
   const [leaveOrgPendingId, setLeaveOrgPendingId] = useState(null);
   const [leaveOrgPendingName, setLeaveOrgPendingName] = useState('');
@@ -135,11 +136,9 @@ function OrganizationsPage({ landingDemo = false } = {}) {
   const [memberListRefreshKey, setMemberListRefreshKey] = useState(0);
 
   const notify = (message, type = 'success') => {
-    setNotice({
-      type,
-      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
-      message,
-    });
+    if (type === 'fail') toast.error(message);
+    else if (type === 'info') toast(message, { icon: 'ℹ️' });
+    else toast.success(message);
   };
   const notifySuccess = (message) => notify(message, 'success');
   const notifyError = (message) => notify(message, 'fail');
@@ -730,8 +729,14 @@ function OrganizationsPage({ landingDemo = false } = {}) {
     }
   };
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!messageId || !window.confirm('Xoá tin nhắn này?')) return;
+  const requestDeleteChannelMessage = (messageId) => {
+    if (!messageId) return;
+    setDeleteChannelMsgConfirmId(messageId);
+  };
+
+  const confirmDeleteChannelMessage = async () => {
+    const messageId = deleteChannelMsgConfirmId;
+    if (!messageId) return;
     try {
       await apiClient.delete(`/messages/${messageId}`);
       setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
@@ -1132,7 +1137,7 @@ function OrganizationsPage({ landingDemo = false } = {}) {
             onClearReply={() => setReplyingToMessage(null)}
             onReplyToMessage={(m) => setReplyingToMessage(m)}
             onSaveMessageEdit={handleSaveMessageEdit}
-            onDeleteMessage={handleDeleteMessage}
+            onDeleteMessage={requestDeleteChannelMessage}
             onForwardMessage={handleForwardRequest}
             onQuickReactMessage={handleQuickReactMessage}
             workspaceOnlineUserIds={onlineUsers}
@@ -1403,7 +1408,15 @@ function OrganizationsPage({ landingDemo = false } = {}) {
           </div>
         </div>
       </Modal>
-      <NotificationModal notice={notice} onClose={() => setNotice(null)} />
+      <ConfirmDialog
+        isOpen={deleteChannelMsgConfirmId != null}
+        onClose={() => setDeleteChannelMsgConfirmId(null)}
+        onConfirm={confirmDeleteChannelMessage}
+        title="Xoá tin nhắn"
+        message="Xoá tin nhắn này?"
+        confirmText="Xóa"
+        cancelText="Hủy"
+      />
     </>
   );
 }

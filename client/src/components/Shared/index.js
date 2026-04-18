@@ -8,7 +8,6 @@ export { default as GradientButton } from './GradientButton';
 export { default as Modal } from './Modal';
 export { default as NotificationModal } from './NotificationModal';
 export { default as StatusIndicator } from './StatusIndicator';
-export { default as Toast } from './Toast';
 export { default as NotificationBellBadge } from './NotificationBellBadge';
 export { NavItem } from './NavItem';
 

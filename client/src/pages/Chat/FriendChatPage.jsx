@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import toast from 'react-hot-toast';
 import { Bell, Calendar, MoreHorizontal, Phone, Video } from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import UnifiedChatComposer from '../../components/Chat/UnifiedChatComposer';
@@ -7,7 +8,7 @@ import ChannelMessageToolbar from '../../components/Organization/ChannelMessageT
 import ChannelMessageMoreMenu from '../../components/Organization/ChannelMessageMoreMenu';
 import ForwardToFriendModal from '../../components/Organization/ForwardToFriendModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
-import { Toast } from '../../components/Shared';
+import { ConfirmDialog } from '../../components/Shared';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
@@ -63,7 +64,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [deleteMsgConfirmId, setDeleteMsgConfirmId] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
@@ -91,11 +92,6 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const currentUserId = user?.userId || user?._id || user?.id;
   const currentUserName = getUserDisplayName(user) || 'Bạn';
   const currentUserAvatar = user?.avatar || '🧑';
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   // Load danh sách bạn bè từ friend-service
   const loadFriends = useCallback(async () => {
@@ -141,7 +137,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
       const list = result?.friends || result;
       setFriends(Array.isArray(list) ? list : []);
     } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Không tải được danh sách bạn bè', 'fail');
+      toast.error(err.response?.data?.message || err.message || 'Không tải được danh sách bạn bè');
       setFriends([]);
     } finally {
       setFriendsLoading(false);
@@ -293,7 +289,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
         const list = result?.messages || result || [];
         setMessages(Array.isArray(list) ? list : []);
       } catch (err) {
-        showToast(err.response?.data?.message || err.message || 'Không tải được tin nhắn', 'fail');
+        toast.error(err.response?.data?.message || err.message || 'Không tải được tin nhắn');
         setMessages([]);
       } finally {
         setLoadingMessages(false);
@@ -364,7 +360,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
       if (validReplyId) payload.replyToMessageId = validReplyId;
       emit('friend:send', payload);
     } catch (err) {
-      showToast(err.response?.data?.message || err.message || 'Gửi tin nhắn thất bại', 'fail');
+      toast.error(err.response?.data?.message || err.message || 'Gửi tin nhắn thất bại');
     }
   };
 
@@ -500,7 +496,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
         },
         (p) => setUploadProgress(p)
       );
-      showToast('Đã gửi file', 'success');
+      toast.success('Đã gửi file');
       const id = normalized?._id || normalized?.id;
       setMessages((prev) => {
         if (id && prev.some((x) => String(x._id || x.id) === String(id))) {
@@ -513,10 +509,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
         [String(selectedFriendId)]: Date.now(),
       }));
     } catch (err) {
-      showToast(
-        err.response?.data?.message || err.message || 'Gửi file thất bại',
-        'fail'
-      );
+      toast.error(err.response?.data?.message || err.message || 'Gửi file thất bại');
     } finally {
       setUploadProgress(null);
     }
@@ -590,21 +583,27 @@ function FriendChatPage({ landingDemo = false } = {}) {
       setMessages((prev) =>
         prev.map((m) => (String(m._id || m.id) === String(messageId) ? { ...m, ...updated } : m))
       );
-      showToast('Đã cập nhật tin nhắn', 'success');
+      toast.success('Đã cập nhật tin nhắn');
       cancelEdit();
     } catch {
-      showToast('Không thể chỉnh sửa', 'fail');
+      toast.error('Không thể chỉnh sửa');
     }
   };
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!messageId || !window.confirm('Xoá tin nhắn này?')) return;
+  const requestDeleteMessage = (messageId) => {
+    if (!messageId) return;
+    setDeleteMsgConfirmId(messageId);
+  };
+
+  const confirmDeleteMessage = async () => {
+    const messageId = deleteMsgConfirmId;
+    if (!messageId) return;
     try {
       await api.delete(`/messages/${messageId}`);
       setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
-      showToast('Đã xoá tin nhắn', 'success');
+      toast.success('Đã xoá tin nhắn');
     } catch {
-      showToast('Không thể xoá', 'fail');
+      toast.error('Không thể xoá');
     }
   };
 
@@ -633,7 +632,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
           messageType: 'text',
         });
       }
-      showToast('Đã chuyển tiếp', 'success');
+      toast.success('Đã chuyển tiếp');
       setForwardModalOpen(false);
       setForwardSourceMessage(null);
       const t = Date.now();
@@ -645,14 +644,14 @@ function FriendChatPage({ landingDemo = false } = {}) {
         return next;
       });
     } catch {
-      showToast('Chuyển tiếp thất bại', 'fail');
+      toast.error('Chuyển tiếp thất bại');
     } finally {
       setForwarding(false);
     }
   };
 
   const handleQuickReactMessage = (_m, _emoji) => {
-    showToast('Phản hồi nhanh (emoji) đồng bộ server sẽ bổ sung sau.', 'info');
+    toast('Phản hồi nhanh (emoji) đồng bộ server sẽ bổ sung sau.', { icon: 'ℹ️' });
   };
 
   const replyLabelForDm = (msg) => {
@@ -846,7 +845,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title="Gọi thoại"
-                      onClick={() => showToast('Gọi thoại — sẽ có trong bản sau', 'info')}
+                      onClick={() => toast('Gọi thoại — sẽ có trong bản sau', { icon: '📞' })}
                       className={iconBtn}
                     >
                       <Phone className="h-5 w-5" strokeWidth={2} />
@@ -854,7 +853,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title="Gọi video"
-                      onClick={() => showToast('Gọi video — sẽ có trong bản sau', 'info')}
+                      onClick={() => toast('Gọi video — sẽ có trong bản sau', { icon: '📹' })}
                       className={iconBtn}
                     >
                       <Video className="h-5 w-5" strokeWidth={2} />
@@ -862,7 +861,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title="Đặt lịch"
-                      onClick={() => showToast('Đặt lịch — sẽ có trong bản sau', 'info')}
+                      onClick={() => toast('Đặt lịch — sẽ có trong bản sau', { icon: '📅' })}
                       className={scheduleBtn}
                     >
                       <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -871,7 +870,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title="Thông báo"
-                      onClick={() => showToast('Thông báo cuộc trò chuyện — sẽ có trong bản sau', 'info')}
+                      onClick={() => toast('Thông báo cuộc trò chuyện — sẽ có trong bản sau', { icon: '🔔' })}
                       className={iconBtn}
                     >
                       <Bell className="h-5 w-5" strokeWidth={2} />
@@ -879,7 +878,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title="Thêm"
-                      onClick={() => showToast('Menu thêm — sẽ có trong bản sau', 'info')}
+                      onClick={() => toast('Menu thêm — sẽ có trong bản sau', { icon: '⋯' })}
                       className={iconBtn}
                     >
                       <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
@@ -1327,7 +1326,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
             }}
             onDelete={() => {
               const msg = moreMenu.message;
-              if (msg) handleDeleteMessage(msg._id || msg.id);
+              if (msg) requestDeleteMessage(msg._id || msg.id);
             }}
           />
 
@@ -1349,14 +1348,22 @@ function FriendChatPage({ landingDemo = false } = {}) {
             <FriendChatRightPanel
               friend={currentFriend}
               messages={messages}
-              onMute={() => showToast('Tắt thông báo — sẽ có trong bản sau', 'info')}
-              onPin={() => showToast('Ghim hội thoại — sẽ có trong bản sau', 'info')}
-              onCreateGroup={() => showToast('Tạo nhóm trò chuyện — sẽ có trong bản sau', 'info')}
+              onMute={() => toast('Tắt thông báo — sẽ có trong bản sau', { icon: '🔕' })}
+              onPin={() => toast('Ghim hội thoại — sẽ có trong bản sau', { icon: '📌' })}
+              onCreateGroup={() => toast('Tạo nhóm trò chuyện — sẽ có trong bản sau', { icon: '👥' })}
             />
           )}
         </div>
       </div>
-      {toast && <Toast message={toast.message} type={toast.type} />}
+      <ConfirmDialog
+        isOpen={deleteMsgConfirmId != null}
+        onClose={() => setDeleteMsgConfirmId(null)}
+        onConfirm={confirmDeleteMessage}
+        title="Xoá tin nhắn"
+        message="Xoá tin nhắn này?"
+        confirmText="Xóa"
+        cancelText="Hủy"
+      />
     </div>
   );
 }

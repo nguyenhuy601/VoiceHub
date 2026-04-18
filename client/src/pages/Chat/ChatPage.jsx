@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 
 import NavigationSidebar from "../../components/Layout/NavigationSidebar";
 import api from "../../services/api";
@@ -9,7 +10,6 @@ import {
   GradientButton,
   Modal,
   StatusIndicator,
-  Toast
 } from "../../components/Shared";
 
 const unwrapPayload = (payload) => {
@@ -66,7 +66,6 @@ function ChatPage() {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [showThreadFor, setShowThreadFor] = useState(null);
   const [showImagePreview, setShowImagePreview] = useState(null);
-  const [toast, setToast] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
 
@@ -74,11 +73,6 @@ function ChatPage() {
     "😊","😂","❤️","👍","🎉","🔥","✨","💯",
     "👏","🚀","💪","🙏","😍","🤔","😎","🎨"
   ];
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   /* ---------------- FETCH DATA ---------------- */
 
@@ -167,7 +161,7 @@ function ChatPage() {
 
       setMessages(messages.filter((m) => m.id !== msgId && m._id !== msgId));
 
-      showToast("Đã xóa tin nhắn");
+      toast.success("Đã xóa tin nhắn");
 
     } catch (err) {
       if (import.meta.env.DEV) console.warn("[ChatPage] handleDeleteMessage:", err?.message);
@@ -179,7 +173,7 @@ function ChatPage() {
 
       await api.post(`/messages/${msgId}/reaction`, { emoji });
 
-      showToast("Đã thêm reaction");
+      toast.success("Đã thêm reaction");
 
       setShowEmojiPicker(false);
 
@@ -415,23 +409,13 @@ title="Tạo Kênh"
 >
 
 <GradientButton
-onClick={()=>showToast("Tạo kênh thành công")}
+onClick={() => toast.success("Tạo kênh thành công")}
 >
 Tạo
 </GradientButton>
 
 </Modal>
 
-
-{/* TOAST */}
-
-{toast && (
-<Toast
-message={toast.message}
-type={toast.type}
-onClose={()=>setToast(null)}
-/>
-)}
 
 </>
 

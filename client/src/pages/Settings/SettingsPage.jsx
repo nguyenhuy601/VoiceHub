@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, GradientButton, Toast } from '../../components/Shared';
+import { ConfirmDialog, GlassCard, GradientButton } from '../../components/Shared';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAuth } from '../../context/AuthContext';
@@ -13,7 +14,8 @@ function SettingsPage() {
   const { user, updateUser } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('general');
-  const [toast, setToast] = useState(null);
+  const [apiKeyDeleteConfirm, setApiKeyDeleteConfirm] = useState(null);
+  const [roleDeleteConfirm, setRoleDeleteConfirm] = useState(null);
   const [userRole, setUserRole] = useState('admin'); // 'admin', 'manager', 'user'
   const [organizationForm, setOrganizationForm] = useState({
     name: 'VoiceHub Tech',
@@ -124,11 +126,6 @@ function SettingsPage() {
     }
   };
 
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   useEffect(() => {
     if (!user) return;
     setUserProfileForm({
@@ -169,28 +166,32 @@ function SettingsPage() {
 
   const handleSaveOrganization = () => {
     localStorage.setItem('settings:organization', JSON.stringify(organizationForm));
-    showToast('Đã lưu thông tin tổ chức', 'success');
+    toast.success('Đã lưu thông tin tổ chức');
   };
 
   const handleSaveUserProfile = () => {
     updateUser({ displayName: userProfileForm.fullName, phone: userProfileForm.phone });
     localStorage.setItem('settings:userProfile', JSON.stringify(userProfileForm));
-    showToast('Đã cập nhật hồ sơ cá nhân', 'success');
+    toast.success('Đã cập nhật hồ sơ cá nhân');
   };
 
   const handleCopyApiKey = async (keyValue) => {
     try {
       await navigator.clipboard.writeText(keyValue);
-      showToast('Đã sao chép API key', 'success');
+      toast.success('Đã sao chép API key');
     } catch (error) {
-      showToast('Không thể sao chép API key', 'error');
+      toast.error('Không thể sao chép API key');
     }
   };
 
-  const handleDeleteApiKey = (keyId) => {
-    if (!window.confirm('Bạn có chắc muốn xóa API key này?')) return;
-    setApiKeys((prev) => prev.filter((item) => item.id !== keyId));
-    showToast('Đã xóa API key', 'success');
+  const requestDeleteApiKey = (keyId) => {
+    setApiKeyDeleteConfirm(keyId);
+  };
+
+  const confirmDeleteApiKey = () => {
+    if (!apiKeyDeleteConfirm) return;
+    setApiKeys((prev) => prev.filter((item) => item.id !== apiKeyDeleteConfirm));
+    toast.success('Đã xóa API key');
   };
 
   const handleCreateApiKey = () => {
@@ -206,7 +207,7 @@ function SettingsPage() {
       },
       ...prev,
     ]);
-    showToast('Đã tạo API key mới', 'success');
+    toast.success('Đã tạo API key mới');
   };
 
   const handleToggleIntegration = (integrationId) => {
@@ -235,7 +236,7 @@ function SettingsPage() {
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       setAvatarUrl(result);
-      showToast('Đã cập nhật avatar', 'success');
+      toast.success('Đã cập nhật avatar');
     };
     reader.readAsDataURL(file);
     event.target.value = '';
@@ -257,7 +258,7 @@ function SettingsPage() {
     link.download = `voicehub-audit-${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
-    showToast('Đã xuất audit log', 'success');
+    toast.success('Đã xuất audit log');
   };
 
   const handleExportInvoice = () => {
@@ -276,7 +277,7 @@ function SettingsPage() {
     link.download = `voicehub-invoice-${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
-    showToast('Đã xuất hóa đơn', 'success');
+    toast.success('Đã xuất hóa đơn');
   };
 
   const handleContactBilling = () => {
@@ -329,7 +330,7 @@ function SettingsPage() {
 
   const handleSaveRole = async () => {
     if (!roleDraft.name.trim() || !roleDraft.permissions.trim()) {
-      showToast('Vui lòng nhập đầy đủ tên vai trò và quyền', 'error');
+      toast.error('Vui lòng nhập đầy đủ tên vai trò và quyền');
       return;
     }
 
@@ -348,10 +349,10 @@ function SettingsPage() {
             ? { ...role, ...roleDraft, members: Number(roleDraft.members) || 0 }
             : role
         )));
-        showToast('Đã cập nhật vai trò', 'success');
+        toast.success('Đã cập nhật vai trò');
       } else {
         if (!roleContextOrganizationId) {
-          showToast('Chưa có tổ chức hợp lệ để tạo vai trò. Hãy tham gia hoặc tạo tổ chức trước.', 'error');
+          toast.error('Chưa có tổ chức hợp lệ để tạo vai trò. Hãy tham gia hoặc tạo tổ chức trước.');
           return;
         }
         const response = await roleAPI.createRole({
@@ -375,30 +376,32 @@ function SettingsPage() {
             icon: roleDraft.icon
           }
         ]);
-        showToast('Đã tạo vai trò mới', 'success');
+        toast.success('Đã tạo vai trò mới');
       }
       setRoleEditorOpen(false);
     } catch (error) {
       console.error('Error saving role:', error);
-      showToast(error?.message || 'Lỗi khi lưu vai trò', 'error');
+      toast.error(error?.message || 'Lỗi khi lưu vai trò');
     } finally {
       setRoleLoading(false);
     }
   };
 
-  const handleDeleteRole = async (roleId) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa vai trò này?')) {
-      return;
-    }
+  const requestDeleteRole = (roleId) => {
+    setRoleDeleteConfirm(roleId);
+  };
 
+  const confirmDeleteRole = async () => {
+    const roleId = roleDeleteConfirm;
+    if (!roleId) return;
     try {
       setRoleLoading(true);
       await roleAPI.deleteRole(roleId);
       setRoles((prev) => prev.filter((role) => role.id !== roleId));
-      showToast('Đã xóa vai trò', 'success');
+      toast.success('Đã xóa vai trò');
     } catch (error) {
       console.error('Error deleting role:', error);
-      showToast(error?.message || 'Lỗi khi xóa vai trò', 'error');
+      toast.error(error?.message || 'Lỗi khi xóa vai trò');
     } finally {
       setRoleLoading(false);
     }
@@ -699,7 +702,7 @@ function SettingsPage() {
                         Sửa
                       </button>
                       <button
-                        onClick={() => handleDeleteRole(role.id)}
+                        onClick={() => requestDeleteRole(role.id)}
                         disabled={roleLoading}
                         className={`rounded-lg border px-4 py-2 text-sm transition-all disabled:opacity-50 ${
                           isDarkMode
@@ -761,7 +764,7 @@ function SettingsPage() {
                         Copy
                       </button>
                       <button
-                        onClick={() => handleDeleteApiKey(key.id)}
+                        onClick={() => requestDeleteApiKey(key.id)}
                         className={`rounded-lg border px-3 py-2 text-sm transition-all ${
                           isDarkMode
                             ? 'border-slate-700 bg-slate-900/60 text-red-400 hover:bg-slate-800/70'
@@ -795,9 +798,8 @@ function SettingsPage() {
                     <button
                       onClick={() => {
                         handleToggleIntegration(integration.id);
-                        showToast(
-                          integration.connected ? `Đã ngắt ${integration.name}` : `Đã kết nối ${integration.name}`,
-                          'success'
+                        toast.success(
+                          integration.connected ? `Đã ngắt ${integration.name}` : `Đã kết nối ${integration.name}`
                         );
                       }}
                       className={`w-full rounded-lg py-2 text-sm font-semibold transition-all ${
@@ -1051,14 +1053,14 @@ function SettingsPage() {
                           onClick={() => {
                             if (theme.id === 'dark' && !isDarkMode) toggleTheme();
                             if (theme.id === 'light' && isDarkMode) toggleTheme();
-                            showToast(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`, 'success');
+                            toast.success(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
                               if (theme.id === 'dark' && !isDarkMode) toggleTheme();
                               if (theme.id === 'light' && isDarkMode) toggleTheme();
-                              showToast(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`, 'success');
+                              toast.success(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`);
                             }
                           }}
                           className={`cursor-pointer rounded-xl p-6 transition-all ${
@@ -1086,14 +1088,24 @@ function SettingsPage() {
         }
       />
 
-    {/* Toast */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
+    <ConfirmDialog
+      isOpen={apiKeyDeleteConfirm != null}
+      onClose={() => setApiKeyDeleteConfirm(null)}
+      onConfirm={confirmDeleteApiKey}
+      title="Xóa API key"
+      message="Bạn có chắc muốn xóa API key này?"
+      confirmText="Xóa"
+      cancelText="Hủy"
+    />
+    <ConfirmDialog
+      isOpen={roleDeleteConfirm != null}
+      onClose={() => setRoleDeleteConfirm(null)}
+      onConfirm={confirmDeleteRole}
+      title="Xóa vai trò"
+      message="Bạn có chắc chắn muốn xóa vai trò này?"
+      confirmText="Xóa"
+      cancelText="Hủy"
+    />
     </>
   );
 }
