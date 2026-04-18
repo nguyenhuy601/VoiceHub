@@ -7,6 +7,7 @@ import {
   Link2,
   Sparkles,
 } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 function UnifiedChatComposer({
   value = '',
@@ -35,6 +36,7 @@ function UnifiedChatComposer({
   aiEnabled = false,
   onAiToggle,
 }) {
+  const { isDarkMode } = useTheme();
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const plusButtonRef = useRef(null);
   const plusMenuRef = useRef(null);
@@ -113,15 +115,37 @@ function UnifiedChatComposer({
     else if (kind === 'link') insertWrap('[', '](url)');
   };
 
+  const defaultWrapper = isDarkMode
+    ? 'shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5'
+    : 'shrink-0 border-t border-slate-200 bg-white p-3.5';
+  const richToolbarDivider = isDarkMode ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
+  const fmtBtn = isDarkMode
+    ? 'rounded-md p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40'
+    : 'rounded-md p-2 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-40';
+  const composerInner = isDarkMode
+    ? 'relative flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-[#12141c] px-2 py-2 shadow-inner'
+    : 'relative flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 shadow-inner';
+  const plusBtnClass = isDarkMode
+    ? 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50'
+    : 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50';
+  const plusMenuClass = isDarkMode
+    ? 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
+    : 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl';
+  const plusMenuRow = isDarkMode
+    ? 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40'
+    : 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40';
+  const textareaClass = isDarkMode
+    ? 'max-h-40 min-h-[44px] flex-1 resize-y bg-transparent px-2 py-2 text-sm leading-relaxed text-white outline-none placeholder:text-gray-500 disabled:opacity-60'
+    : 'max-h-40 min-h-[44px] flex-1 resize-y bg-transparent px-2 py-2 text-sm leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
+  const actionBtn = isDarkMode
+    ? 'h-9 rounded-md text-gray-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50'
+    : 'h-9 rounded-md text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50';
+
   return (
-    <div
-      className={
-        wrapperClassName ?? 'shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5'
-      }
-    >
+    <div className={wrapperClassName ?? defaultWrapper}>
       {topSlot}
       {richToolbar && (
-        <div className="mb-2 flex flex-wrap items-center gap-0.5 border-b border-white/[0.06] pb-2">
+        <div className={`mb-2 flex flex-wrap items-center gap-0.5 pb-2 ${richToolbarDivider}`}>
           {[
             { k: 'bold', Icon: Bold, title: 'Đậm' },
             { k: 'italic', Icon: Italic, title: 'Nghiêng' },
@@ -135,14 +159,14 @@ function UnifiedChatComposer({
               disabled={disabled}
               title={title}
               onClick={() => fmt(k)}
-              className="rounded-md p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+              className={fmtBtn}
             >
               <Icon className="h-4 w-4" strokeWidth={2} />
             </button>
           ))}
         </div>
       )}
-      <div className="relative flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-[#12141c] px-2 py-2 shadow-inner">
+      <div className={composerInner}>
         <div className="flex items-end gap-2">
         {safePlusItems.length > 0 && (
           <>
@@ -151,17 +175,14 @@ function UnifiedChatComposer({
               type="button"
               disabled={disabled}
               onClick={() => setShowPlusMenu((prev) => !prev)}
-              className="h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className={plusBtnClass}
               title="Thêm tiện ích"
             >
               +
             </button>
 
             {showPlusMenu && (
-              <div
-                ref={plusMenuRef}
-                className="absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
-              >
+              <div ref={plusMenuRef} className={plusMenuClass}>
                 {safePlusItems.map((item) => (
                   <button
                     key={item.key || item.label}
@@ -171,7 +192,7 @@ function UnifiedChatComposer({
                       item.onClick?.();
                       setShowPlusMenu(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40"
+                    className={plusMenuRow}
                   >
                     <span className="text-base">{item.icon || '•'}</span>
                     <span className="flex-1">{item.label}</span>
@@ -200,7 +221,7 @@ function UnifiedChatComposer({
           }}
           disabled={disabled}
           placeholder={placeholder}
-          className="max-h-40 min-h-[44px] flex-1 resize-y bg-transparent px-2 py-2 text-sm leading-relaxed text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
+          className={textareaClass}
         />
 
         <div className="flex shrink-0 flex-col items-end gap-2">
@@ -211,9 +232,7 @@ function UnifiedChatComposer({
                 type="button"
                 disabled={disabled || item.disabled}
                 onClick={item.onClick}
-                className={`h-9 rounded-md text-gray-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50 ${
-                  item.className || 'w-9 text-base'
-                }`}
+                className={`${actionBtn} ${item.className || 'w-9 text-base'}`}
                 title={item.title || item.label || item.key}
               >
                 {item.content}
@@ -226,8 +245,12 @@ function UnifiedChatComposer({
                 onClick={() => onAiToggle?.(!aiEnabled)}
                 className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
                   aiEnabled
-                    ? 'bg-violet-600/40 text-violet-100 ring-1 ring-violet-500/50'
-                    : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                    ? isDarkMode
+                      ? 'bg-cyan-600/35 text-cyan-50 ring-1 ring-cyan-500/45'
+                      : 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400/50'
+                    : isDarkMode
+                      ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
                 }`}
                 title="Gợi ý AI (beta)"
               >
@@ -240,7 +263,7 @@ function UnifiedChatComposer({
             type="button"
             onClick={handleSend}
             disabled={disabled || sendDisabled}
-            className="rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-fuchsia-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-900/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sendLabel}
           </button>

@@ -5,9 +5,11 @@ import { GlassCard, GradientButton, NotificationBellBadge, Toast } from '../../c
 import api from '../../services/api';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { useSocket } from '../../context/SocketContext';
+import { useTheme } from '../../context/ThemeContext';
 
 function NotificationsPage() {
   const navigate = useNavigate();
+  const { isDarkMode } = useTheme();
   const [filter, setFilter] = useState('all');
   const [notifications, setNotifications] = useState([
     { id: 1, type: 'task', icon: '✅', title: 'Task được gán', message: 'Sarah Chen đã gán bạn vào task "Thiết kế Landing Page"', time: '5 phút trước', read: false, priority: 'high', action: 'Xem Task' },
@@ -262,27 +264,33 @@ function NotificationsPage() {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  const shell = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
+  const gc = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-white shadow-sm';
+  const btnGhost = isDarkMode
+    ? 'border border-slate-800 bg-[#040f2a] font-semibold text-sm hover:bg-slate-800/70'
+    : 'border border-slate-200 bg-white font-semibold text-sm text-slate-800 hover:bg-slate-50';
+
   return (
     <>
       <ThreeFrameLayout
         center={
-          <div className="p-5 lg:p-6 bg-[#020817] text-slate-100 min-h-full">
+          <div className={`p-5 lg:p-6 min-h-full ${shell}`}>
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold text-white mb-1">Trung Tâm Thông Báo</h1>
-            <p className="text-sm text-gray-400">Theo dõi tất cả hoạt động và cập nhật quan trọng</p>
+            <h1 className={`mb-1 text-3xl font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Trung Tâm Thông Báo</h1>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Theo dõi tất cả hoạt động và cập nhật quan trọng</p>
           </div>
           <div className="flex gap-3">
             <button 
               onClick={() => navigate('/settings')}
-              className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-sm"
+              className={`rounded-xl px-4 py-2 transition-all ${btnGhost}`}
             >
               ⚙️ Cài Đặt Thông Báo
             </button>
             <button 
               onClick={handleMarkAllAsRead}
-              className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-sm"
+              className={`rounded-xl px-4 py-2 transition-all ${btnGhost}`}
             >
               ✓ Đánh Dấu Đã Đọc Tất Cả
             </button>
@@ -291,47 +299,47 @@ function NotificationsPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mb-6">
-          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
+          <GlassCard hover className={gc}>
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-2xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600 to-teal-600 text-2xl">
                 🔔
               </div>
               <div>
-                <div className="text-2xl font-black text-white">{notifications.length}</div>
-                <div className="text-xs text-gray-400">Tổng thông báo</div>
+                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.length}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Tổng thông báo</div>
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
+          <GlassCard hover className={gc}>
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-2xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-2xl">
                 ⭐
               </div>
               <div>
-                <div className="text-2xl font-black text-white">{unreadCount}</div>
-                <div className="text-xs text-gray-400">Chưa đọc</div>
+                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{unreadCount}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Chưa đọc</div>
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
+          <GlassCard hover className={gc}>
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-2xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 text-2xl">
                 ✅
               </div>
               <div>
-                <div className="text-2xl font-black text-white">{notifications.filter(n => n.type === 'task').length}</div>
-                <div className="text-xs text-gray-400">Công việc</div>
+                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.filter(n => n.type === 'task').length}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Công việc</div>
               </div>
             </div>
           </GlassCard>
-          <GlassCard hover className="border border-slate-800 bg-slate-900/60">
+          <GlassCard hover className={gc}>
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-2xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 text-2xl">
                 💬
               </div>
               <div>
-                <div className="text-2xl font-black text-white">{notifications.filter(n => n.type === 'mention').length}</div>
-                <div className="text-xs text-gray-400">Mentions</div>
+                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.filter(n => n.type === 'mention').length}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Mentions</div>
               </div>
             </div>
           </GlassCard>
@@ -353,8 +361,10 @@ function NotificationsPage() {
               onClick={() => setFilter(f.id)}
               className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                 filter === f.id
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                  : 'bg-[#040f2a] border border-slate-800 hover:bg-slate-800/70 text-gray-400'
+                  ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white'
+                  : isDarkMode
+                    ? 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
               <span className="mr-2">{f.icon}</span>
@@ -366,14 +376,14 @@ function NotificationsPage() {
         {/* Notifications List */}
         <div className="space-y-3">
           {filteredNotifications.map((notif, idx) => (
-            <GlassCard key={notif.id} hover className={`animate-slideUp border border-slate-800 bg-slate-900/60 ${!notif.read ? 'border-l-4 border-purple-500' : ''}`} style={{animationDelay: `${idx * 0.05}s`}}>
+            <GlassCard key={notif.id} hover className={`animate-slideUp ${gc} ${!notif.read ? (isDarkMode ? 'border-l-4 border-cyan-500' : 'border-l-4 border-cyan-600') : ''}`} style={{animationDelay: `${idx * 0.05}s`}}>
               <div className="flex items-start gap-4">
                 {notif.useBellCard && notif.type === 'friend' ? (
                   <div className="flex-shrink-0 pt-0.5">
                     <NotificationBellBadge
                       count={notif.read ? 0 : 1}
                       sizeClass="h-12 w-12"
-                      textSizeClass="text-2xl"
+                      isDark={isDarkMode}
                     />
                   </div>
                 ) : (
@@ -389,7 +399,7 @@ function NotificationsPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-bold text-white">{notif.title}</h3>
                     {!notif.read && (
-                      <span className="px-2 py-0.5 rounded-full bg-purple-600 text-xs font-bold">MỚI</span>
+                      <span className="rounded-full bg-cyan-600 px-2 py-0.5 text-xs font-bold text-white">MỚI</span>
                     )}
                     {notif.priority === 'high' && (
                       <span className="px-2 py-0.5 rounded-full bg-red-600 text-xs font-bold">QUAN TRỌNG</span>

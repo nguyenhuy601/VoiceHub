@@ -20,6 +20,7 @@ import { getUserDisplayName } from '../../utils/helpers';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useSocket } from '../../context/SocketContext';
+import { useTheme } from '../../context/ThemeContext';
 
 /** Chữ ký tên hiển thị trong avatar tròn (theo mockup sidebar DM). */
 function friendInitials(name) {
@@ -59,7 +60,8 @@ function formatDateDividerLabel(iso) {
   });
 }
 
-function FriendChatPage() {
+function FriendChatPage({ landingDemo = false } = {}) {
+  const { isDarkMode } = useTheme();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -127,6 +129,40 @@ function FriendChatPage() {
   }, []);
 
   const loadFriends = useCallback(async () => {
+    if (landingDemo) {
+      const fid = 'demo-friend-1';
+      setFriends([
+        {
+          friendId: {
+            _id: fid,
+            userId: fid,
+            displayName: 'Lan Anh',
+            username: 'lananh',
+            status: 'online',
+            avatar: '👩',
+          },
+        },
+      ]);
+      setFriendsLoading(false);
+      setSelectedFriendId(fid);
+      setMessages([
+        {
+          _id: 'dm1',
+          senderId: fid,
+          receiverId: currentUserId,
+          content: 'Chào bạn! Đây là demo chat VoiceHub.',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'dm2',
+          senderId: currentUserId,
+          receiverId: fid,
+          content: 'Đang xem trang giới thiệu.',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
     setFriendsLoading(true);
     try {
       const resp = await friendService.getFriends();
@@ -140,7 +176,7 @@ function FriendChatPage() {
     } finally {
       setFriendsLoading(false);
     }
-  }, []);
+  }, [landingDemo, currentUserId]);
 
   // Map friends + sắp xếp theo tin nhắn gần nhất; presence realtime khớp Dashboard (onlineUsers từ socket)
   const viewFriends = useMemo(() => {
@@ -228,6 +264,7 @@ function FriendChatPage() {
 
   // Khi có danh sách bạn: tự chọn người đã nhắn gần nhất (không ghi đè nếu user đã chọn)
   useEffect(() => {
+    if (landingDemo) return;
     if (!currentUserId) return;
     if (friends.length === 0) {
       setSelectedFriendId(null);
@@ -272,7 +309,7 @@ function FriendChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [friends, currentUserId, fetchLastDmActivity]);
+  }, [friends, currentUserId, fetchLastDmActivity, landingDemo]);
 
   // Load messages khi chọn bạn
   const loadMessages = useCallback(
@@ -300,14 +337,30 @@ function FriendChatPage() {
   }, [loadFriends]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (selectedFriendId) {
       loadMessages(selectedFriendId);
     }
-  }, [selectedFriendId, loadMessages]);
+  }, [selectedFriendId, loadMessages, landingDemo]);
 
   // Gửi tin nhắn qua socket-service (realtime) + optimistic UI
   const handleSend = async () => {
     if (!selectedFriendId || !message.trim()) return;
+
+    if (landingDemo) {
+      const text = message.trim();
+      const optimistic = {
+        _id: `demo-${Date.now()}`,
+        senderId: currentUserId,
+        receiverId: selectedFriendId,
+        content: text,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimistic]);
+      setMessage('');
+      setReplyingToMessage(null);
+      return;
+    }
 
     try {
       const text = message.trim();
@@ -347,6 +400,7 @@ function FriendChatPage() {
 
   // Lắng nghe tin nhắn realtime từ socket-service
   useEffect(() => {
+    if (landingDemo) return;
     if (!on || !off || !currentUserId) return;
 
     const myIdStr = String(currentUserId);
@@ -416,7 +470,7 @@ function FriendChatPage() {
       off('friend:new_message', handleNewMessage);
       off('friend:sent', handleSentMessage);
     };
-  }, [on, off, currentUserId, selectedFriendId]);
+  }, [on, off, currentUserId, selectedFriendId, landingDemo]);
 
   const currentFriend = viewFriends.find((f) => f.id === selectedFriendId) || null;
 
@@ -633,24 +687,69 @@ function FriendChatPage() {
     return currentFriend?.name || 'Bạn bè';
   };
 
+  const chatShell = isDarkMode
+    ? 'h-screen flex overflow-hidden bg-[#0b0e14] text-slate-100'
+    : 'h-screen flex overflow-hidden bg-[#f5f7fa] text-slate-900';
+  const friendRail = isDarkMode
+    ? 'w-[76px] shrink-0 flex h-full min-h-0 flex-col border-r border-white/[0.06] bg-[#0c0f15]'
+    : 'w-[76px] shrink-0 flex h-full min-h-0 flex-col border-r border-slate-200 bg-white';
+  const railHeadBorder = isDarkMode ? 'border-b border-white/[0.05]' : 'border-b border-slate-200';
+  const railMuted = isDarkMode ? 'text-[#6d7380]' : 'text-slate-500';
+  const railAvatarHover = isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-100';
+  const railActiveStrip = isDarkMode
+    ? 'pointer-events-none absolute left-0 top-1/2 z-10 h-9 w-[3px] -translate-y-1/2 rounded-r-full bg-cyan-500 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
+    : 'pointer-events-none absolute left-0 top-1/2 z-10 h-9 w-[3px] -translate-y-1/2 rounded-r-full bg-cyan-600 shadow-[0_0_12px_rgba(8,145,178,0.35)]';
+  const statusRingBorder = isDarkMode ? 'border-[#0c0f15]' : 'border-white';
+  const chatMainColumn = isDarkMode
+    ? 'flex h-full min-w-0 flex-1 bg-[#0b0e14]'
+    : 'flex h-full min-w-0 flex-1 bg-slate-100';
+  const chatHeader = isDarkMode
+    ? 'shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-3'
+    : 'shrink-0 border-b border-slate-200 bg-white px-4 py-3';
+  const messagesScroll = isDarkMode
+    ? 'scrollbar-overlay flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto bg-[#080a0f] px-4 py-4'
+    : 'scrollbar-overlay flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto bg-slate-50 px-4 py-4';
+  const composerShell = isDarkMode
+    ? 'shrink-0 border-t border-white/[0.06] bg-[#0b0e14] px-4 py-3'
+    : 'shrink-0 border-t border-slate-200 bg-white px-4 py-3';
+  const emptyText = isDarkMode ? 'text-[#8e9297]' : 'text-slate-500';
+  const headerTitle = isDarkMode ? 'text-white' : 'text-slate-900';
+  const headerAccent = isDarkMode ? 'text-cyan-300' : 'text-cyan-700';
+  const headerMeta = isDarkMode ? 'text-[#8e9297]' : 'text-slate-500';
+  const headerTag = isDarkMode
+    ? 'rounded-full border border-white/[0.08] bg-[#12151f] px-2.5 py-0.5 text-[11px] font-medium text-[#b4b8c4]'
+    : 'rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600';
+  const iconBtn = isDarkMode
+    ? 'rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white'
+    : 'rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900';
+  const scheduleBtn = isDarkMode
+    ? 'flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#12151f] px-2.5 py-1.5 text-xs font-semibold text-[#e3e5e8] transition hover:bg-white/[0.06]'
+    : 'flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-200/80';
+  const avatarTile = isDarkMode
+    ? 'flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/[0.08] bg-[#151923] text-sm font-bold text-white shadow-inner'
+    : 'flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 text-sm font-bold text-slate-800 shadow-inner';
+  const onlineRing = isDarkMode ? 'border-[#0b0e14]' : 'border-white';
+  const replyBanner = isDarkMode
+    ? 'mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-white/[0.08] bg-[#1a1d21] px-3 py-2 text-sm'
+    : 'mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm';
+  const emojiModalPanel = isDarkMode
+    ? 'fixed bottom-24 right-8 z-50 h-[420px] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1220] shadow-2xl'
+    : 'fixed bottom-24 right-8 z-50 h-[420px] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl';
+
   return (
-    <div className="h-screen flex overflow-hidden bg-[#0b0e14] text-slate-100">
+    <div className={chatShell}>
       {/* Khung 1: Sidebar nav chỉ icon, thanh trượt riêng */}
-      <NavigationSidebar />
-      <div className="flex-1 flex h-full min-w-0">
+      <NavigationSidebar landingDemo={landingDemo} />
+      <div className="flex h-full min-w-0 flex-1">
         {/* Khung 2: Danh sách bạn bè - thanh trượt riêng, chỉ hiện khi cần */}
         {/* Cột 2: rail avatar bạn bè (mockup — thanh chọn tím, chấm online) */}
-        <div className="w-[76px] shrink-0 flex flex-col bg-[#0c0f15] border-r border-white/[0.06] h-full min-h-0">
-          <div className="shrink-0 px-2 pt-3 pb-2 border-b border-white/[0.05]">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-center text-[#6d7380]">
-              Bạn bè
-            </p>
+        <div className={friendRail}>
+          <div className={`shrink-0 px-2 pb-2 pt-3 ${railHeadBorder}`}>
+            <p className={`text-center text-[10px] font-semibold uppercase tracking-wider ${railMuted}`}>Bạn bè</p>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-overlay px-2 py-2 flex flex-col items-stretch gap-1">
             {friendsLoading ? (
-              <div className="text-[10px] text-center text-[#6d7380] py-4 leading-relaxed">
-                Đang tải…
-              </div>
+              <div className={`py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>Đang tải…</div>
             ) : (
               viewFriends.map((f) => {
                 const active = selectedFriendId === f.id;
@@ -664,20 +763,23 @@ function FriendChatPage() {
                     title={f.name}
                     aria-label={`Mở chat với ${f.name}`}
                     aria-current={active ? 'true' : undefined}
-                    className="group relative flex w-full justify-center rounded-xl py-2 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-[#5865F2]/50"
+                    className={`group relative flex w-full justify-center rounded-xl py-2 outline-none transition ${railAvatarHover} focus-visible:ring-2 ${
+                      isDarkMode ? 'focus-visible:ring-cyan-400/50' : 'focus-visible:ring-cyan-600/35'
+                    }`}
                   >
-                    {active && (
-                      <span
-                        className="pointer-events-none absolute left-0 top-1/2 z-10 h-9 w-[3px] -translate-y-1/2 rounded-r-full bg-[#5865F2] shadow-[0_0_12px_rgba(88,101,242,0.55)]"
-                        aria-hidden
-                      />
-                    )}
+                    {active && <span className={railActiveStrip} aria-hidden />}
                     <div className="relative">
                       <div
-                        className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border text-[11px] font-bold tracking-tight text-white shadow-inner transition ${
+                        className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border text-[11px] font-bold tracking-tight shadow-inner transition ${
+                          isDarkMode ? 'text-white' : 'text-slate-800'
+                        } ${
                           active
-                            ? 'border-[#5865F2]/80 bg-[#1e2230] ring-2 ring-[#5865F2]/35'
-                            : 'border-white/[0.08] bg-[#151923] group-hover:border-white/15'
+                            ? isDarkMode
+                              ? 'border-cyan-500/80 bg-[#1e2230] ring-2 ring-cyan-500/35'
+                              : 'border-cyan-500 bg-white ring-2 ring-cyan-400/40'
+                            : isDarkMode
+                              ? 'border-white/[0.08] bg-[#151923] group-hover:border-white/15'
+                              : 'border-slate-200 bg-slate-100 group-hover:border-slate-300'
                         }`}
                       >
                         {avatarUrl ? (
@@ -687,7 +789,7 @@ function FriendChatPage() {
                         )}
                       </div>
                       <span
-                        className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0c0f15] ${
+                        className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 ${statusRingBorder} ${
                           f.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
                         }`}
                         title={f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
@@ -698,7 +800,7 @@ function FriendChatPage() {
               })
             )}
             {!friendsLoading && viewFriends.length === 0 && (
-              <div className="text-[10px] text-center text-[#6d7380] px-1 py-4 leading-relaxed">
+              <div className={`px-1 py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>
                 Chưa có bạn. Thêm ở Liên hệ.
               </div>
             )}
@@ -706,30 +808,24 @@ function FriendChatPage() {
         </div>
 
         {/* Khung 3–4: Khu vực chat + sidebar phải */}
-        <div className="flex-1 flex h-full min-w-0 bg-[#0b0e14]">
+        <div className={chatMainColumn}>
           <div className="flex-1 flex flex-col h-full min-w-0">
           {friendsLoading ? (
-            <div className="flex-1 flex items-center justify-center text-[#8e9297]">
-              Đang tải danh sách bạn…
-            </div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Đang tải danh sách bạn…</div>
           ) : viewFriends.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-[#8e9297] px-4 text-center">
+            <div className={`flex flex-1 items-center justify-center px-4 text-center ${emptyText}`}>
               Chưa có bạn bè. Hãy thêm bạn ở trang Liên hệ để bắt đầu chat.
             </div>
           ) : resolvingDefaultChat ? (
-            <div className="flex-1 flex items-center justify-center text-[#8e9297]">
-              Đang mở cuộc trò chuyện…
-            </div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Đang mở cuộc trò chuyện…</div>
           ) : !currentFriend ? (
-            <div className="flex-1 flex items-center justify-center text-[#8e9297]">
-              Chọn một người bạn để bắt đầu chat
-            </div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Chọn một người bạn để bắt đầu chat</div>
           ) : (
             <>
-              <header className="shrink-0 border-b border-white/[0.06] bg-[#0b0e14] px-4 py-3">
+              <header className={chatHeader}>
                 <div className="flex items-start gap-3">
                   <div className="relative shrink-0">
-                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/[0.08] bg-[#151923] text-sm font-bold text-white shadow-inner">
+                    <div className={avatarTile}>
                       {(() => {
                         const url =
                           typeof currentFriend.avatar === 'string' &&
@@ -745,28 +841,26 @@ function FriendChatPage() {
                       })()}
                     </div>
                     <span
-                      className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0b0e14] ${
+                      className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 ${onlineRing} ${
                         currentFriend.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
                       }`}
                     />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <h2 className="truncate text-base font-bold tracking-tight text-white">
-                        {currentFriend.name}
-                      </h2>
+                      <h2 className={`truncate text-base font-bold tracking-tight ${headerTitle}`}>{currentFriend.name}</h2>
                     </div>
-                    <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-[#a29bfe]">
+                    <p className={`truncate text-[11px] font-semibold uppercase tracking-wide ${headerAccent}`}>
                       {currentFriend.subtitle}
                     </p>
-                    <p className="mt-0.5 text-xs text-[#8e9297]">
+                    <p className={`mt-0.5 text-xs ${headerMeta}`}>
                       {currentFriend.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {['# trò-chuyện', '# tin-nhắn'].map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-full border border-white/[0.08] bg-[#12151f] px-2.5 py-0.5 text-[11px] font-medium text-[#b4b8c4]"
+                          className={headerTag}
                         >
                           {tag}
                         </span>
@@ -778,7 +872,7 @@ function FriendChatPage() {
                       type="button"
                       title="Gọi thoại"
                       onClick={() => showToast('Gọi thoại — sẽ có trong bản sau', 'info')}
-                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                      className={iconBtn}
                     >
                       <Phone className="h-5 w-5" strokeWidth={2} />
                     </button>
@@ -786,7 +880,7 @@ function FriendChatPage() {
                       type="button"
                       title="Gọi video"
                       onClick={() => showToast('Gọi video — sẽ có trong bản sau', 'info')}
-                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                      className={iconBtn}
                     >
                       <Video className="h-5 w-5" strokeWidth={2} />
                     </button>
@@ -794,7 +888,7 @@ function FriendChatPage() {
                       type="button"
                       title="Đặt lịch"
                       onClick={() => showToast('Đặt lịch — sẽ có trong bản sau', 'info')}
-                      className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#12151f] px-2.5 py-1.5 text-xs font-semibold text-[#e3e5e8] transition hover:bg-white/[0.06]"
+                      className={scheduleBtn}
                     >
                       <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
                       Đặt lịch
@@ -803,7 +897,7 @@ function FriendChatPage() {
                       type="button"
                       title="Thông báo"
                       onClick={() => showToast('Thông báo cuộc trò chuyện — sẽ có trong bản sau', 'info')}
-                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                      className={iconBtn}
                     >
                       <Bell className="h-5 w-5" strokeWidth={2} />
                     </button>
@@ -811,16 +905,16 @@ function FriendChatPage() {
                       type="button"
                       title="Thêm"
                       onClick={() => showToast('Menu thêm — sẽ có trong bản sau', 'info')}
-                      className="rounded-xl p-2.5 text-[#b4b8c4] transition hover:bg-white/[0.06] hover:text-white"
+                      className={iconBtn}
                     >
                       <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
                     </button>
                   </div>
                 </div>
               </header>
-              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 scrollbar-overlay bg-[#080a0f]">
+              <div className={messagesScroll}>
                 {loadingMessages ? (
-                  <div className="text-center text-[#8e9297]">Đang tải tin nhắn...</div>
+                  <div className={`text-center ${emptyText}`}>Đang tải tin nhắn...</div>
                 ) : (
                   sortedChatMessages.map((m, idx) => {
                     const mid = m._id || m.id;
@@ -862,14 +956,24 @@ function FriendChatPage() {
                       String(mid) === String(lastOutgoingMessageId);
 
                     const mineBubble = isMine
-                      ? 'border-[#5865F2]/35 bg-gradient-to-br from-[#5865F2] to-[#4752c4] text-white shadow-md shadow-[#5865F2]/15'
-                      : 'border-white/[0.06] bg-[#1a1d26] text-slate-100';
+                      ? isDarkMode
+                        ? 'border-cyan-500/35 bg-gradient-to-br from-cyan-600 to-teal-700 text-white shadow-md shadow-cyan-900/25'
+                        : 'border-cyan-400/45 bg-gradient-to-br from-cyan-500 to-teal-600 text-white shadow-md shadow-cyan-900/15'
+                      : isDarkMode
+                        ? 'border-white/[0.06] bg-[#1a1d26] text-slate-100'
+                        : 'border-slate-200 bg-white text-slate-800 shadow-sm';
 
                     return (
                       <Fragment key={mid}>
                         {showDayDivider && (
                           <div className="flex justify-center py-2">
-                            <span className="rounded-full border border-white/[0.06] bg-[#12151f] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e9297]">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                                isDarkMode
+                                  ? 'border-white/[0.06] bg-[#12151f] text-[#8e9297]'
+                                  : 'border-slate-200 bg-slate-100 text-slate-500'
+                              }`}
+                            >
                               {formatDateDividerLabel(m.createdAt)}
                             </span>
                           </div>
@@ -880,7 +984,13 @@ function FriendChatPage() {
                           }`}
                         >
                           {!isMine && (
-                            <div className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.08] bg-[#151923] text-[11px] font-bold text-white shadow-sm">
+                            <div
+                              className={`mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[11px] font-bold shadow-sm ${
+                                isDarkMode
+                                  ? 'border-white/[0.08] bg-[#151923] text-white'
+                                  : 'border-slate-200 bg-slate-100 text-slate-800'
+                              }`}
+                            >
                               {friendMsgAvatarUrl ? (
                                 <img src={friendMsgAvatarUrl} alt="" className="h-full w-full object-cover" />
                               ) : (
@@ -931,14 +1041,18 @@ function FriendChatPage() {
                               <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span
                                   className={`max-w-[12rem] truncate text-xs font-semibold ${
-                                    isMine ? 'text-white/95' : 'text-[#a29bfe]'
+                                    isMine
+                                      ? 'text-white/95'
+                                      : isDarkMode
+                                        ? 'text-cyan-200'
+                                        : 'text-cyan-800'
                                   }`}
                                 >
                                   {displayName}
                                 </span>
                                 <span
                                   className={`text-[11px] tabular-nums ${
-                                    isMine ? 'text-white/70' : 'text-[#8e9297]'
+                                    isMine ? 'text-white/70' : isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'
                                   }`}
                                 >
                                   {formatTime(m.createdAt)}
@@ -956,11 +1070,15 @@ function FriendChatPage() {
                                   className={`mb-2 border-l-2 pl-2 text-[11px] ${
                                     isMine
                                       ? 'border-white/40 text-white/85'
-                                      : 'border-[#a29bfe]/50 text-[#8e9297]'
+                                      : isDarkMode
+                                        ? 'border-cyan-400/40 text-[#8e9297]'
+                                        : 'border-cyan-300 text-slate-500'
                                   }`}
                                 >
                                   <span
-                                    className={`font-semibold ${isMine ? 'text-white' : 'text-[#a29bfe]'}`}
+                                    className={`font-semibold ${
+                                      isMine ? 'text-white' : isDarkMode ? 'text-cyan-200' : 'text-cyan-700'
+                                    }`}
                                   >
                                     @{replyLabelForDm(parentMsg || {})}{' '}
                                   </span>
@@ -980,13 +1098,17 @@ function FriendChatPage() {
                                       if (e.key === 'Escape') cancelEdit();
                                     }}
                                     rows={3}
-                                    className="w-full resize-y rounded-lg border border-white/20 bg-black/35 px-2 py-1.5 text-sm text-white outline-none focus:border-[#a29bfe]/50"
+                                    className={`w-full resize-y rounded-lg border px-2 py-1.5 text-sm outline-none ${
+                                      isDarkMode
+                                        ? 'border-white/20 bg-black/35 text-white focus:border-cyan-400/50'
+                                        : 'border-slate-200 bg-white text-slate-900 focus:border-cyan-500'
+                                    }`}
                                   />
-                                  <p className="text-[11px] text-[#8e9297]">
+                                  <p className={`text-[11px] ${emptyText}`}>
                                     nhấn escape để{' '}
                                     <button
                                       type="button"
-                                      className="text-[#a29bfe] hover:underline"
+                                      className={`${headerAccent} hover:underline`}
                                       onClick={cancelEdit}
                                     >
                                       hủy
@@ -995,7 +1117,7 @@ function FriendChatPage() {
                                     nhấn enter để{' '}
                                     <button
                                       type="button"
-                                      className="text-[#a29bfe] hover:underline"
+                                      className={`${headerAccent} hover:underline`}
                                       onClick={() => submitEdit(mid)}
                                     >
                                       lưu
@@ -1013,7 +1135,13 @@ function FriendChatPage() {
                             </div>
                           </div>
                           {isMine && (
-                            <div className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#5865F2]/40 bg-[#1e2230] text-[10px] font-bold uppercase tracking-tight text-[#a29bfe] shadow-sm">
+                            <div
+                              className={`mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold uppercase tracking-tight shadow-sm ${
+                                isDarkMode
+                                  ? 'border-cyan-500/40 bg-[#1e2230] text-cyan-200'
+                                  : 'border-cyan-400/60 bg-cyan-50 text-cyan-800'
+                              }`}
+                            >
                               {typeof currentUserAvatar === 'string' &&
                               /^https?:\/\//i.test(currentUserAvatar) ? (
                                 <img src={currentUserAvatar} alt="" className="h-full w-full rounded-full object-cover" />
@@ -1048,20 +1176,22 @@ function FriendChatPage() {
                 />
                 <UnifiedChatComposer
                   richToolbar
-                  wrapperClassName="shrink-0 border-t border-white/[0.06] bg-[#0b0e14] px-4 py-3"
+                  wrapperClassName={composerShell}
                   topSlot={
                     replyingToMessage ? (
-                      <div className="mb-2 flex items-center justify-between gap-2 rounded-t-xl border border-white/[0.08] bg-[#1a1d21] px-3 py-2 text-sm">
+                      <div className={replyBanner}>
                         <div className="min-w-0">
-                          <span className="text-[#8e9297]">Đang phản hồi </span>
-                          <span className="font-semibold text-[#a29bfe]">
+                          <span className={emptyText}>Đang phản hồi </span>
+                          <span className={`font-semibold ${headerAccent}`}>
                             {replyLabelForDm(replyingToMessage)}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => setReplyingToMessage(null)}
-                          className="rounded-full p-1.5 text-[#8e9297] transition hover:bg-white/10 hover:text-white"
+                          className={`rounded-full p-1.5 transition ${emptyText} ${
+                            isDarkMode ? 'hover:bg-white/10 hover:text-white' : 'hover:bg-slate-200 hover:text-slate-900'
+                          }`}
                           aria-label="Huỷ trả lời"
                         >
                           ✕
@@ -1118,8 +1248,12 @@ function FriendChatPage() {
                       onClick={() => setShowEmojiPicker(false)}
                       className="fixed inset-0 z-40 cursor-default bg-black/30"
                     />
-                    <div className="fixed bottom-24 right-8 z-50 h-[420px] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1220] shadow-2xl">
-                      <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+                    <div className={emojiModalPanel}>
+                      <div
+                        className={`flex items-center gap-2 border-b px-4 py-3 ${
+                          isDarkMode ? 'border-slate-700' : 'border-slate-200'
+                        }`}
+                      >
                         {[
                           { id: 'gif', label: 'Ảnh động' },
                           { id: 'sticker', label: 'Sticker' },
@@ -1131,8 +1265,12 @@ function FriendChatPage() {
                             onClick={() => setEmojiPickerTab(tab.id)}
                             className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                               emojiPickerTab === tab.id
-                                ? 'bg-slate-700 text-white'
-                                : 'text-gray-300 hover:bg-slate-800/70'
+                                ? isDarkMode
+                                  ? 'bg-slate-700 text-white'
+                                  : 'bg-cyan-600 text-white'
+                                : isDarkMode
+                                  ? 'text-gray-300 hover:bg-slate-800/70'
+                                  : 'text-slate-600 hover:bg-slate-100'
                             }`}
                           >
                             {tab.label}

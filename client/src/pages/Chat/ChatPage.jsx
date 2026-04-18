@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
 
 import NavigationSidebar from "../../components/Layout/NavigationSidebar";
+import api from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 import {
   Dropdown,
   GlassCard,
@@ -11,7 +12,46 @@ import {
   Toast
 } from "../../components/Shared";
 
+const unwrapPayload = (payload) => {
+  if (payload == null) return null;
+  if (Array.isArray(payload)) return payload;
+  return payload?.data ?? payload?.channels ?? payload?.items ?? payload;
+};
+
+const unwrapList = (payload) => {
+  const inner = unwrapPayload(payload);
+  return Array.isArray(inner) ? inner : [];
+};
+
+const normalizeChannel = (c) => ({
+  ...c,
+  id: c?.id ?? c?._id,
+  name: c?.name ?? "Kênh",
+  icon: c?.icon ?? "📢",
+  members: c?.members ?? c?.memberCount ?? 0,
+});
+
+const normalizeDm = (d) => ({
+  ...d,
+  id: d?.id ?? d?._id,
+  name: d?.name ?? "Người dùng",
+  avatar: d?.avatar ?? "👤",
+  status: d?.status ?? "offline",
+  lastMsg: d?.lastMsg ?? d?.lastMessage ?? "",
+});
+
+const normalizeMessage = (m) => ({
+  ...m,
+  id: m?.id ?? m?._id,
+  content: m?.content ?? m?.text ?? "",
+  user: m?.user ?? {
+    name: m?.senderName ?? "User",
+    avatar: m?.senderAvatar ?? "👤",
+  },
+});
+
 function ChatPage() {
+  const { isDarkMode } = useTheme();
 
   const [selectedChannel, setSelectedChannel] = useState(null);
   const [message, setMessage] = useState("");
@@ -55,28 +95,28 @@ function ChatPage() {
 
   const fetchChannels = async () => {
     try {
-      const res = await axios.get("/api/channels");
-      setChannels(res.data);
+      const res = await api.get("/channels");
+      setChannels(unwrapList(res).map(normalizeChannel).filter((c) => c.id));
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] fetchChannels:", err?.message);
     }
   };
 
   const fetchDirectMessages = async () => {
     try {
-      const res = await axios.get("/api/dm");
-      setDirectMessages(res.data);
+      const res = await api.get("/dm");
+      setDirectMessages(unwrapList(res).map(normalizeDm).filter((d) => d.id));
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] fetchDirectMessages:", err?.message);
     }
   };
 
   const fetchMessages = async (channelId) => {
     try {
-      const res = await axios.get(`/api/messages/${channelId}`);
-      setMessages(res.data);
+      const res = await api.get(`/messages/${channelId}`);
+      setMessages(unwrapList(res).map(normalizeMessage));
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] fetchMessages:", err?.message);
     }
   };
 
@@ -86,16 +126,17 @@ function ChatPage() {
     if (!message.trim()) return;
 
     try {
-      const res = await axios.post("/api/messages", {
+      const res = await api.post("/messages", {
         channelId: selectedChannel,
         content: message
       });
 
-      setMessages(prev => [...prev, res.data]);
+      const created = normalizeMessage(unwrapPayload(res) ?? res);
+      if (created?.id) setMessages((prev) => [...prev, created]);
       setMessage("");
 
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] sendMessage:", err?.message);
     }
   };
 
@@ -122,36 +163,40 @@ function ChatPage() {
   const handleDeleteMessage = async (msgId) => {
     try {
 
-      await axios.delete(`/api/messages/${msgId}`);
+      await api.delete(`/messages/${msgId}`);
 
-      setMessages(messages.filter(m => m.id !== msgId));
+      setMessages(messages.filter((m) => m.id !== msgId && m._id !== msgId));
 
       showToast("Đã xóa tin nhắn");
 
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] handleDeleteMessage:", err?.message);
     }
   };
 
   const handleReaction = async (msgId, emoji) => {
     try {
 
-      await axios.post(`/api/messages/${msgId}/reaction`, { emoji });
+      await api.post(`/messages/${msgId}/reaction`, { emoji });
 
       showToast("Đã thêm reaction");
 
       setShowEmojiPicker(false);
 
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) console.warn("[ChatPage] handleReaction:", err?.message);
     }
   };
 
   /* ---------------- UI ---------------- */
 
+  const chatShell = isDarkMode
+    ? "h-screen flex overflow-hidden bg-[#020817] text-slate-100"
+    : "h-screen flex overflow-hidden bg-[#f5f7fa] text-slate-900";
+
   return (
 <>
-<div className="h-screen flex overflow-hidden bg-[#020817] text-slate-100">
+<div className={chatShell}>
 
 <NavigationSidebar currentPage="Tin Nhắn"/>
 
@@ -161,7 +206,7 @@ function ChatPage() {
 
 <div className="w-72 bg-slate-900/60 border-r border-slate-800 p-4 overflow-y-auto scrollbar-overlay">
 
-<h2 className="text-xl font-extrabold text-white mb-4">
+<h2 className={`text-xl font-extrabold mb-4 ${isDarkMode ? "text-white" : "text-slate-900"}`}>
 Tin Nhắn
 </h2>
 
@@ -189,7 +234,7 @@ className="p-3 rounded-xl cursor-pointer bg-[#040f2a] border border-slate-800 ho
 
 <div className="flex-1">
 
-<div className="font-semibold text-white">
+<div className={`font-semibold ${isDarkMode ? "text-white" : "text-slate-900"}`}>
 {channel.name}
 </div>
 
@@ -228,7 +273,7 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 
 <div className="relative">
 
-<div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-base">
+<div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-base">
 {dm.avatar}
 </div>
 
@@ -238,7 +283,7 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 
 <div className="flex-1">
 
-<div className="text-white font-medium text-sm">
+<div className={`font-medium text-sm ${isDarkMode ? "text-white" : "text-slate-900"}`}>
 {dm.name}
 </div>
 
@@ -265,7 +310,7 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 
 <div className="p-3.5 bg-slate-900/60 border-b border-slate-800">
 
-<h2 className="text-lg font-bold text-white">
+<h2 className={`text-lg font-bold ${isDarkMode ? "text-white" : "text-slate-900"}`}>
 {currentChat?.name || "Chọn kênh"}
 </h2>
 
@@ -280,17 +325,17 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 
 <div key={msg.id} className="flex gap-3">
 
-<div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-sm">
+<div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-sm">
 {msg.user?.avatar}
 </div>
 
 <div>
 
-<div className="text-white font-semibold text-xs">
+<div className={`font-semibold text-xs ${isDarkMode ? "text-white" : "text-slate-900"}`}>
 {msg.user?.name}
 </div>
 
-<p className="text-sm text-gray-300">
+<p className={`text-sm ${isDarkMode ? "text-gray-300" : "text-slate-600"}`}>
 {msg.content}
 </p>
 
@@ -313,13 +358,13 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 type="text"
 value={message}
 onChange={(e)=>setMessage(e.target.value)}
-className="flex-1 px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 text-sm text-white"
+className={`flex-1 px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 text-sm ${isDarkMode ? "text-white" : "text-slate-900"}`}
 placeholder="Nhập tin nhắn..."
 />
 
 <button
 onClick={sendMessage}
-className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 text-sm font-semibold hover:from-violet-400 hover:to-indigo-400 transition-all"
+className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 text-sm font-semibold text-white hover:from-cyan-500 hover:to-teal-500 transition-all"
 >
 🚀
 </button>

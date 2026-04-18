@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Modal, NotificationModal } from '../../components/Shared';
 import DepartmentBubbleRail from '../../components/Organization/DepartmentBubbleRail';
 import OrganizationMemberSidebar from '../../components/Organization/OrganizationMemberSidebar';
@@ -8,11 +8,13 @@ import OrganizationMainPanel from '../../components/Organization/OrganizationMai
 import ForwardChannelModal from '../../components/Organization/ForwardChannelModal';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useSocket } from '../../context/SocketContext';
 import apiClient from '../../services/api/apiClient';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
 import friendService from '../../services/friendService';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 
 const unwrapData = (payload) => payload?.data ?? payload;
 const HOME_NOTIFICATION_PREVIEW = [
@@ -62,10 +64,11 @@ const HOME_CALENDAR_PREVIEW = [
   },
 ];
 
-function OrganizationsPage() {
+function OrganizationsPage({ landingDemo = false } = {}) {
   const { user } = useAuth();
+  const { isDarkMode } = useTheme();
   const { on, off, onlineUsers, connected: socketConnected } = useSocket();
-  const navigate = useNavigate();
+  const navigate = useLandingSafeNavigate(landingDemo);
   const location = useLocation();
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
@@ -858,6 +861,20 @@ function OrganizationsPage() {
   };
 
   useEffect(() => {
+    if (landingDemo) {
+      setOrganizations([
+        {
+          _id: 'demo-org-vh',
+          id: 'demo-org-vh',
+          name: 'VoiceHub Demo',
+          slug: 'voicehub-demo',
+          role: 'admin',
+        },
+      ]);
+      setOrganizationsLoaded(true);
+      setViewMode('home');
+      return;
+    }
     Promise.all([
       loadOrganizations(),
       loadPendingInvitations(),
@@ -865,7 +882,7 @@ function OrganizationsPage() {
       loadJoinApplicationsToReview(),
     ]);
     loadChatContacts();
-  }, []);
+  }, [landingDemo]);
 
   useEffect(() => {
     if (!forwardModalOpen || !selectedOrganizationId || !departments.length) {
@@ -902,6 +919,7 @@ function OrganizationsPage() {
 
   /** Mở đúng kênh tổ chức khi điều hướng từ Chat bạn bè (tin chưa đọc). */
   useEffect(() => {
+    if (landingDemo) return;
     const target = location.state?.openWorkspace;
     if (!target?.organizationId || !target?.channelId) return;
     if (!organizations.length) return;
@@ -915,9 +933,10 @@ function OrganizationsPage() {
     }
     setSelectedChannelId(String(target.channelId));
     navigate('/organizations', { replace: true, state: {} });
-  }, [organizations, location.state, navigate]);
+  }, [organizations, location.state, navigate, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     const params = new URLSearchParams(window.location.search);
     const orgIdFromUrl = params.get('orgId') || params.get('inviteOrgId');
     const tokenFromUrl = params.get('inviteToken');
@@ -964,27 +983,31 @@ function OrganizationsPage() {
     };
 
     joinOrganizationByLink();
-  }, []);
+  }, [landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (selectedOrganizationId && viewMode === 'workspace') {
       loadDepartments(selectedOrganizationId);
     }
-  }, [selectedOrganizationId, viewMode]);
+  }, [selectedOrganizationId, viewMode, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (viewMode === 'workspace') {
       loadChannels(selectedOrganizationId, selectedDepartmentId);
     }
-  }, [selectedOrganizationId, selectedDepartmentId, viewMode]);
+  }, [selectedOrganizationId, selectedDepartmentId, viewMode, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (viewMode === 'workspace') {
       loadMessages(selectedChannelId);
     }
-  }, [selectedChannelId, viewMode]);
+  }, [selectedChannelId, viewMode, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (!on || !off) return;
 
     const refreshOrgData = () => {
@@ -1019,9 +1042,10 @@ function OrganizationsPage() {
       off('organization:join_application_approved', handleOrgEvent);
       off('organization:join_application_rejected', handleOrgEvent);
     };
-  }, [on, off]);
+  }, [on, off, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     if (!location.state?.refreshPendingJoin) return;
     void loadPendingJoinApplications();
     const rest = { ...location.state };
@@ -1045,11 +1069,16 @@ function OrganizationsPage() {
     };
   }, [on, off]);
 
+  const orgCenterShell = isDarkMode
+    ? 'flex h-full min-h-0 min-w-0 flex-col bg-[#0b0e14] text-slate-100'
+    : 'flex h-full min-h-0 min-w-0 flex-col bg-[#f5f7fa] text-slate-900';
+
   return (
     <>
       <ThreeFrameLayout
+        landingDemo={landingDemo}
         center={
-          <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0b0e14]">
+          <div className={orgCenterShell}>
           <OrganizationMainPanel
             selectedOrganization={selectedOrganization}
             hasOrganizations={hasOrganizations}

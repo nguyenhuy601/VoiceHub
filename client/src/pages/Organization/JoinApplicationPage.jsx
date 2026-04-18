@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import { useTheme } from '../../context/ThemeContext';
 import JoinApplicationForm from '../../components/Organization/JoinApplicationForm';
 
 /**
@@ -9,6 +10,8 @@ import JoinApplicationForm from '../../components/Organization/JoinApplicationFo
  * Đường dẫn: /organizations/join/:orgId?name=Tên+TC
  */
 export default function JoinApplicationPage() {
+  const { isDarkMode } = useTheme();
+  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : 'flex min-h-screen bg-[#f5f7fa]';
   const { orgId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -33,9 +36,9 @@ export default function JoinApplicationPage() {
 
   if (!orgId) {
     return (
-      <div className="flex min-h-screen bg-[#0b0e14]">
+      <div className={shell}>
         <NavigationSidebar />
-        <main className="flex flex-1 items-center justify-center p-6 text-gray-400">
+        <main className={`flex flex-1 items-center justify-center p-6 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
           Thiếu mã tổ chức.
         </main>
       </div>
@@ -43,7 +46,7 @@ export default function JoinApplicationPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#0b0e14]">
+    <div className={shell}>
       <NavigationSidebar />
       <main className="flex flex-1 flex-col overflow-y-auto">
         <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 md:py-12">
