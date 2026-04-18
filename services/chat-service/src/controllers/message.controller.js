@@ -10,6 +10,7 @@ const {
   MAX_UPLOAD_BYTES,
   isMimeAllowed,
 } = require('../config/fileRetention');
+const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
 
 class MessageController {
   /**
@@ -83,6 +84,30 @@ class MessageController {
       res.json({ success: true, data: updated });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Nội bộ: tạo signed read URL từ storagePath (ai-task-worker, task-service, ...).
+   * Bảo vệ bằng header x-internal-token (CHAT_INTERNAL_TOKEN).
+   */
+  async getSignedReadUrlInternal(req, res) {
+    try {
+      if (!firebaseStorage.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Firebase Storage is not configured on server',
+        });
+      }
+      const storagePath = String(req.query?.storagePath || '').trim();
+      if (!storagePath) {
+        return res.status(400).json({ success: false, message: 'storagePath is required' });
+      }
+      const ttlMs = Number(req.query?.ttlMs || 10 * 60 * 1000);
+      const { url } = await firebaseStorage.getSignedReadUrl(storagePath, ttlMs);
+      return res.json({ success: true, data: { url } });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 
@@ -509,6 +534,19 @@ class MessageController {
         success: true,
         message: 'Message deleted successfully',
       });
+
+      try {
+        if (message?.organizationId) {
+          await publishTaskAiSyncEvent({
+            messageId: String(messageId),
+            organizationId: String(message.organizationId),
+            changeType: 'deleted',
+          });
+        }
+      } catch (e) {
+        // best-effort
+        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
+      }
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -539,6 +577,18 @@ class MessageController {
         message: 'Message recalled successfully',
         data,
       });
+
+      try {
+        if (message?.organizationId) {
+          await publishTaskAiSyncEvent({
+            messageId: String(messageId),
+            organizationId: String(message.organizationId),
+            changeType: 'recalled',
+          });
+        }
+      } catch (e) {
+        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
+      }
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -584,6 +634,18 @@ class MessageController {
         message: 'Message edited successfully',
         data: payloadMessage,
       });
+
+      try {
+        if (message?.organizationId) {
+          await publishTaskAiSyncEvent({
+            messageId: String(messageId),
+            organizationId: String(message.organizationId),
+            changeType: 'edited',
+          });
+        }
+      } catch (e) {
+        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
+      }
     } catch (error) {
       res.status(500).json({
         success: false,

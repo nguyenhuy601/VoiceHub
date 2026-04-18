@@ -49,6 +49,7 @@ import { SocketProvider } from './context/SocketContext';
 // File: ./context/ThemeContext.jsx
 // Cung cấp: theme state, toggleTheme(), theme colors
 import { ThemeProvider } from './context/ThemeContext';
+import { LocaleProvider } from './context/LocaleContext';
 
 /* ========================================
    RENDER ỨNG DỤNG VÀO DOM
@@ -95,6 +96,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           - Provide: isDark, colors, toggleTheme()
           - File: ./context/ThemeContext.jsx */}
       <ThemeProvider>
+        <LocaleProvider>
         {/* AuthProvider: quản lý authentication state
             - Provide: user, token, login(), logout()
             - Lưu token vào localStorage
@@ -155,6 +157,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           />
           </SocketProvider>
         </AuthProvider>
+        </LocaleProvider>
       </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>

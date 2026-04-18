@@ -10,6 +10,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 // Import ProtectedRoute để bảo vệ routes cần đăng nhập
 import ProtectedRoute from './components/ProtectedRoute';
+import BrandPageLoader from './components/Shared/BrandPageLoader';
 
 /* ========================================
    LAZY LOADING CÁC PAGES
@@ -82,37 +83,14 @@ const AnalyticsPage = lazy(() => import('./pages/Analytics/AnalyticsPage'));
 // Lazy load trang lịch - quản lý sự kiện và meetings
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
 
+// Trang công việc (task)
+const TasksPage = lazy(() => import('./pages/Tasks/TasksPage'));
+
 // Lazy load trang cài đặt - thay đổi preferences
 const SettingsPage = lazy(() => import('./pages/Settings/SettingsPage'));
 
 // Lazy load trang 404 - hiển thị khi route không tồn tại
 const NotFoundPage = lazy(() => import('./pages/NotFound/NotFoundPage'));
-
-/* ========================================
-   COMPONENT LOADING
-   Hiển thị khi đang load page (fallback UI)
-   - Được gọi bởi Suspense component
-   - Xuất hiện trong vài ms khi chuyển trang
-======================================== */
-const PageLoader = () => (
-  // Container fullscreen với gradient background đẹp mắt
-  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-    {/* Wrapper chứa nội dung loading, căn giữa */}
-    <div className="text-center">
-      {/* Icon rocket với animation bounce - tạo hiệu ứng nhảy */}
-      <div className="text-8xl mb-4 animate-bounce">🚀</div>
-      
-      {/* Text "Đang tải..." với gradient màu đẹp */}
-      {/* bg-clip-text + text-transparent: tạo hiệu ứng gradient trên text */}
-      <div className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent mb-2">
-        Đang tải...
-      </div>
-      
-      {/* Sub text màu xám nhạt */}
-      <div className="text-gray-400">Vui lòng đợi một chút</div>
-    </div>
-  </div>
-);
 
 /* ========================================
    MAIN APP COMPONENT
@@ -122,9 +100,8 @@ const PageLoader = () => (
 ======================================== */
 function App() {
   return (
-    // Suspense: bắt tất cả lazy components và hiển thị PageLoader khi đang load
-    // fallback: component hiển thị trong lúc chờ
-    <Suspense fallback={<PageLoader />}>
+    // Suspense: lazy routes — BrandPageLoader khi đang tải chunk
+    <Suspense fallback={<BrandPageLoader />}>
       {/* Routes: container quản lý tất cả các route */}
       <Routes>
         {/* ===== PUBLIC ROUTES =====
@@ -205,9 +182,10 @@ function App() {
         } />
         
         {/* Tasks - quản lý công việc */}
-        {/* Tạm khóa giao diện tasks */}
         <Route path="/tasks" element={
-          <Navigate to="/dashboard" replace />
+          <ProtectedRoute>
+            <TasksPage />
+          </ProtectedRoute>
         } />
         
         {/* Profile - thông tin cá nhân */}

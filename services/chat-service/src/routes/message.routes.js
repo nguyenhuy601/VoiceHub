@@ -35,6 +35,12 @@ router.patch(
   messageController.promoteMessageFileInternal.bind(messageController)
 );
 
+router.get(
+  '/internal/storage/signed-read',
+  internalServiceOnly,
+  messageController.getSignedReadUrlInternal.bind(messageController)
+);
+
 // Tất cả routes đều cần authentication
 router.use(authenticate);
 

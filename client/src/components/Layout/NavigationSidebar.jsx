@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import {
+  Building2,
+  Calendar,
+  Eye,
+  LayoutDashboard,
+  ListTodo,
+  LogOut,
+  MessageSquare,
+  Mic,
+  Moon,
+  Pencil,
+  Rocket,
+  Sun,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
@@ -10,8 +25,35 @@ import NotificationBellBadge from '../Shared/NotificationBellBadge';
 import { getUserDisplayName } from '../../utils/helpers';
 import { removeToken } from '../../utils/tokenStorage';
 import ProfileModal from '../Profile/ProfileModal';
+import {
+  navDivider,
+  navItemActive,
+  navItemInactiveHover,
+  navLogoTile,
+  navOuterStrip,
+  navSidebarRail,
+  navTimeText,
+  profileDropdownBody,
+  profileDropdownCard,
+  profileDropdownHeader,
+  profileMenuRow,
+  tooltipBubble,
+} from '../../theme/shellTheme';
 
-const NavigationSidebar = () => {
+const iconBtn =
+  'w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 flex items-center justify-center shrink-0 rounded-xl transition-all duration-200';
+
+const navItems = [
+  { Icon: LayoutDashboard, label: 'Bảng điều khiển', tooltip: 'Bảng điều khiển', path: '/dashboard' },
+  { Icon: MessageSquare, label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends' },
+  { Icon: Mic, label: 'Không gian', tooltip: 'Không gian', path: '/voice' },
+  { Icon: Building2, label: 'Tổ chức', tooltip: 'Tổ chức', path: '/organizations' },
+  { Icon: ListTodo, label: 'Công việc', tooltip: 'Task', path: '/tasks' },
+  { path: '/notifications', tooltip: 'Thông báo', bellBadge: true, label: 'Thông báo' },
+  { Icon: Calendar, label: 'Lịch', tooltip: 'Lịch', path: '/calendar' },
+];
+
+const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const [time, setTime] = useState(new Date());
   const location = useLocation();
   const navigate = useNavigate();
@@ -20,9 +62,7 @@ const NavigationSidebar = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [togglingInvisible, setTogglingInvisible] = useState(false);
-  /** Mặc định thu gọn; hover vào vạch trái để mở full */
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
-  /** Badge chuông: lời mời kết bạn chờ + thông báo chưa đọc */
   const [bellBadgeCount, setBellBadgeCount] = useState(0);
 
   useEffect(() => {
@@ -31,6 +71,10 @@ const NavigationSidebar = () => {
   }, []);
 
   useEffect(() => {
+    if (landingDemo) {
+      setBellBadgeCount(3);
+      return undefined;
+    }
     let cancelled = false;
     const loadBellBadge = async () => {
       try {
@@ -64,7 +108,7 @@ const NavigationSidebar = () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [landingDemo]);
 
   const currentTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const displayName = getUserDisplayName(user);
@@ -72,6 +116,10 @@ const NavigationSidebar = () => {
   const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
 
   const handleToggleInvisible = async () => {
+    if (landingDemo) {
+      toast('Bản demo trên trang chủ — không đổi chế độ thật.', { icon: '🔒' });
+      return;
+    }
     if (togglingInvisible) return;
     const nextInvisible = !isInvisible;
 
@@ -88,53 +136,33 @@ const NavigationSidebar = () => {
     }
   };
 
-  const getGreeting = () => {
-    const hour = time.getHours();
-    const userName = displayName || 'Bạn';
-    if (hour >= 5 && hour < 11) return `Chào buổi Sáng, ${userName}!`;
-    if (hour >= 11 && hour < 13) return `Chào buổi Trưa, ${userName}!`;
-    if (hour >= 13 && hour < 17) return `Chào buổi Chiều, ${userName}!`;
-    if (hour >= 17 && hour < 22) return `Chào buổi Tối, ${userName}!`;
-    return `Khuya rồi, ${userName}!`;
-  };
-
   const handleLogout = async () => {
+    if (landingDemo) {
+      toast('Bản demo trên trang chủ — không đăng xuất tài khoản thật.', { icon: '🔒' });
+      setProfileOpen(false);
+      return;
+    }
     if (!window.confirm('Bạn có chắc muốn đăng xuất?')) return;
 
-    // Gọi API logout nhưng giới hạn thời gian chờ để không bị cảm giác chậm
     try {
-      await Promise.race([
-        logout(), // cần token còn trong storage/header để backend xử lý đúng
-        new Promise((resolve) => setTimeout(resolve, 1500)), // timeout nhẹ 1.5s
-      ]);
+      await Promise.race([logout(), new Promise((resolve) => setTimeout(resolve, 1500))]);
     } catch (e) {
       console.error('Logout background error:', e);
     } finally {
-      // Sau khi gọi (hoặc timeout) mới xoá token và điều hướng
       try {
         removeToken();
       } catch (e) {
-        // ignore storage errors
+        // ignore
       }
       navigate('/login');
     }
   };
-
-  const navItems = [
-    { icon: '📊', label: 'Bảng Điều Khiển', tooltip: 'Bảng điều khiển', path: '/dashboard', badge: '5' },
-    { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
-    { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice', badge: null },
-    { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
-    { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: null, bellBadge: true },
-    { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
-  ];
 
   const isActivePath = (path) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 
-  /* Tooltip kiểu bong bóng: lưu thẳng toạ độ để không bị nhảy khi component re-render (vd: đồng hồ cập nhật mỗi 1s) */
   const [tooltip, setTooltip] = useState({ show: false, label: '', x: 0, y: 0 });
 
   const Tooltip = ({ label, children, className = '' }) => {
@@ -159,11 +187,15 @@ const NavigationSidebar = () => {
     );
   };
 
+  const tooltipArrowClass = isDarkMode
+    ? 'border-transparent border-r-[8px] border-r-slate-800 border-y-[6px] border-y-transparent border-l-0'
+    : 'border-transparent border-r-[8px] border-r-white border-y-[6px] border-y-transparent border-l-0';
+
   const tooltipPortal =
     tooltip.show &&
     createPortal(
       <div
-        className="fixed z-[9999] px-3 py-2 rounded-lg bg-gray-700 border border-white/10 shadow-xl text-white text-sm font-medium whitespace-nowrap pointer-events-none"
+        className={`fixed z-[9999] pointer-events-none whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${tooltipBubble(isDarkMode)}`}
         style={{
           left: tooltip.x,
           top: tooltip.y,
@@ -172,175 +204,174 @@ const NavigationSidebar = () => {
         role="tooltip"
       >
         <span className="relative z-10">{tooltip.label}</span>
-        {/* Mũi nhọn trỏ vào icon (bong bóng) */}
-        <span
-          className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-[6px] border-solid border-transparent border-r-gray-700"
-          aria-hidden
-        />
+        <span className={`absolute right-full top-1/2 -translate-y-1/2 h-0 w-0 ${tooltipArrowClass}`} aria-hidden />
       </div>,
       document.body
     );
 
+  const borderR = navOuterStrip(isDarkMode);
+  const rail = navSidebarRail(isDarkMode);
+  const inactive = navItemInactiveHover(isDarkMode);
+  const activeCls = navItemActive();
+  const timeCls = navTimeText(isDarkMode);
+  const divCls = navDivider(isDarkMode);
+
   return (
     <>
-      {/* Mặc định thu ~8px; hover để mở full — overflow-x-visible để tooltip không bị cắt */}
       <div
-        className={`relative h-screen shrink-0 overflow-hidden border-r border-white/10 transition-[width] duration-300 ease-out flex flex-col ${
+        className={`relative flex h-screen shrink-0 flex-col overflow-hidden border-r transition-[width] duration-300 ease-out ${borderR} ${
           sidebarExpanded ? 'w-14 sm:w-16 md:w-[68px]' : 'w-2'
         }`}
         onMouseEnter={() => setSidebarExpanded(true)}
         onMouseLeave={() => setSidebarExpanded(false)}
         title={sidebarExpanded ? undefined : 'Đưa chuột vào để mở menu'}
       >
-        <div className="flex h-full w-14 sm:w-16 md:w-[68px] min-w-[56px] shrink-0 glass-strong flex-col overflow-y-hidden overflow-x-visible">
-        {/* Một khối cuộn duy nhất: từ icon WebHub (VoiceHub) tới nút Đăng xuất — thanh trượt chạy suốt chiều cao */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-visible scrollbar-overlay flex flex-col items-center py-3 gap-1">
-          {/* Logo WebHub (không cần bong bóng tooltip) */}
-          <Link
-            to="/dashboard"
-            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl sm:text-2xl shrink-0"
-          >
-            🚀
-          </Link>
-
-          {/* Giờ */}
-          <div className="text-[10px] text-white/50 font-mono py-1">{currentTime}</div>
-          <div className="h-px w-8 bg-white/10 my-1" />
-
-          {/* Danh sách nav - chỉ icon, tooltip bên phải khi hover */}
-          <nav className="w-full flex flex-col items-center gap-1 py-1">
-            {navItems.map((item, idx) => (
-              <Tooltip key={idx} label={item.tooltip ?? item.label}>
-                <Link
-                  to={item.path}
-                  className={`relative flex items-center justify-center shrink-0 transition-all duration-200 rounded-xl ${
-                    item.bellBadge
-                      ? isActivePath(item.path)
-                        ? 'ring-2 ring-purple-500/80 ring-offset-2 ring-offset-transparent'
-                        : ''
-                      : `w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 ${
-                          isActivePath(item.path)
-                            ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg'
-                            : 'hover:bg-white/10'
-                        } text-xl sm:text-2xl`
-                  }`}
-                >
-                  {item.bellBadge ? (
-                    <NotificationBellBadge
-                      count={bellBadgeCount}
-                      className={
-                        isActivePath(item.path)
-                          ? 'ring-2 ring-white/30 shadow-lg'
-                          : 'opacity-95 hover:opacity-100'
-                      }
-                    />
-                  ) : (
-                    <>
-                      <span>{item.icon}</span>
-                      {item.badge != null && item.badge !== '' && (
-                        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white">
-                          {item.badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </Link>
-              </Tooltip>
-            ))}
-          </nav>
-
-          {/* Theme - chỉ icon */}
-          <Tooltip label={isDarkMode ? 'Chế độ Sáng' : 'Chế độ Tối'}>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl hover:bg-white/10 flex items-center justify-center text-lg sm:text-xl shrink-0"
+        <div className={`flex h-full min-w-[56px] shrink-0 flex-col overflow-y-hidden overflow-x-visible sm:w-16 md:w-[68px] w-14 ${rail}`}>
+          <div className="scrollbar-overlay flex flex-1 min-h-0 flex-col items-center gap-1 overflow-x-visible overflow-y-auto py-3">
+            <Link
+              to="/dashboard"
+              className={`${iconBtn} ${navLogoTile()} shrink-0`}
+              aria-label="VoiceHub — Trang chủ"
             >
-              {isDarkMode ? '🌙' : '☀️'}
-            </button>
-          </Tooltip>
+              <Rocket className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} aria-hidden />
+            </Link>
 
-          {/* Avatar xuống cuối (vị trí cũ của đăng xuất) */}
-          <div className="mt-auto pt-2 relative w-full flex justify-center">
-            <button
-              type="button"
-              onClick={() => setProfileOpen((p) => !p)}
-              className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl hover:bg-white/10 flex items-center justify-center shrink-0"
-              title={displayName || user?.email || 'Tài khoản'}
-            >
-              <Avatar user={user} size="sm" online={isOnline} className="shrink-0" />
-            </button>
+            <div className={`py-1 font-mono text-[10px] ${timeCls}`}>{currentTime}</div>
+            <div className={`my-1 h-px w-8 ${divCls}`} />
+
+            <nav className="flex w-full flex-col items-center gap-1 py-1">
+              {navItems.map((item, idx) => {
+                if (item.bellBadge) {
+                  const active = isActivePath(item.path);
+                  return (
+                    <Tooltip key={idx} label={item.tooltip}>
+                      <Link
+                        to={item.path}
+                        className={`relative flex shrink-0 items-center justify-center rounded-xl transition-all duration-200 ${
+                          active ? 'ring-2 ring-cyan-500/75 ring-offset-2 ring-offset-transparent' : ''
+                        }`}
+                      >
+                        <NotificationBellBadge
+                          count={bellBadgeCount}
+                          isDark={isDarkMode}
+                          className={
+                            active ? 'ring-2 ring-cyan-400/40 shadow-lg' : 'opacity-95 hover:opacity-100'
+                          }
+                        />
+                      </Link>
+                    </Tooltip>
+                  );
+                }
+                const Icon = item.Icon;
+                const active = isActivePath(item.path);
+                return (
+                  <Tooltip key={idx} label={item.tooltip ?? item.label}>
+                    <Link
+                      to={item.path}
+                      className={`relative ${iconBtn} ${
+                        active ? activeCls : inactive
+                      }`}
+                      aria-label={item.label}
+                    >
+                      <Icon className="h-5 w-5 sm:h-5 sm:w-5 md:h-6 md:w-6" strokeWidth={1.75} aria-hidden />
+                    </Link>
+                  </Tooltip>
+                );
+              })}
+            </nav>
+
+            <Tooltip label={isDarkMode ? 'Chế độ Sáng' : 'Chế độ Tối'}>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className={`${iconBtn} ${inactive}`}
+                aria-label={isDarkMode ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
+              >
+                {isDarkMode ? (
+                  <Sun className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <Moon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} aria-hidden />
+                )}
+              </button>
+            </Tooltip>
+
+            <div className="relative mt-auto flex w-full justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setProfileOpen((p) => !p)}
+                className={`${iconBtn} ${inactive}`}
+                title={displayName || user?.email || 'Tài khoản'}
+              >
+                <Avatar user={user} size="sm" online={isOnline} className="shrink-0" />
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
 
       <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
       {tooltipPortal}
 
-      {/* Dropdown hồ sơ dạng thẻ lớn (render qua portal để không bị cắt) */}
       {profileOpen &&
         createPortal(
           <>
             <div className="fixed inset-0 z-[998]" onClick={() => setProfileOpen(false)} />
-            <div className="fixed left-20 bottom-6 z-[999] w-[320px] rounded-2xl bg-gray-900/95 border border-white/10 shadow-2xl animate-slideUp overflow-hidden">
-              {/* Header avatar + status */}
-              <div className="relative bg-gradient-to-br from-purple-700/80 to-pink-600/60 px-4 pt-6 pb-4">
+            <div
+              className={`fixed bottom-6 left-20 z-[999] w-[320px] animate-slideUp overflow-hidden rounded-2xl ${profileDropdownCard(isDarkMode)}`}
+            >
+              <div className={`relative px-4 pb-4 pt-6 ${profileDropdownHeader()}`}>
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Avatar user={user} size="lg" online />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-gray-900 ${
-                        isOnline ? 'bg-emerald-400' : 'bg-gray-500'
-                      }`}
+                      className={`absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 ${
+                        isDarkMode ? 'border-[#151c2c]' : 'border-white'
+                      } ${isOnline ? 'bg-emerald-400' : 'bg-slate-400'}`}
                     />
                   </div>
                   <div className="min-w-0">
-                    <div className="font-bold text-white truncate text-sm">{displayName}</div>
-                    <div className="text-xs text-white/70 truncate">
-                      {user?.username || user?.email || ''}
-                    </div>
+                    <div className="truncate text-sm font-bold text-white">{displayName}</div>
+                    <div className="truncate text-xs text-white/80">{user?.username || user?.email || ''}</div>
                   </div>
                 </div>
               </div>
 
-              {/* Body actions */}
-              <div className="bg-gray-900/95 px-4 py-3 space-y-2">
+              <div className={`space-y-2 ${profileDropdownBody(isDarkMode)}`}>
                 <button
                   type="button"
                   onClick={() => {
                     setIsProfileModalOpen(true);
                     setProfileOpen(false);
                   }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-white transition-colors"
+                  className={`flex w-full items-center justify-between px-3 py-2 transition-colors ${profileMenuRow(isDarkMode)}`}
                 >
                   <span className="flex items-center gap-2">
-                    <span>✏️</span>
-                    <span>Sửa hồ sơ</span>
+                    <Pencil className="h-4 w-4 shrink-0 text-cyan-500" strokeWidth={1.75} aria-hidden />
+                    Sửa hồ sơ
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={handleToggleInvisible}
                   disabled={togglingInvisible}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-gray-200 transition-colors disabled:opacity-60"
+                  className={`flex w-full items-center justify-between px-3 py-2 transition-colors disabled:opacity-60 ${profileMenuRow(isDarkMode)}`}
                 >
                   <span className="flex items-center gap-2">
-                    <span>👁️‍🗨️</span>
-                    <span>Chế độ vô hình</span>
+                    <Eye className="h-4 w-4 shrink-0 text-cyan-500" strokeWidth={1.75} aria-hidden />
+                    Chế độ vô hình
                   </span>
-                  <span className="text-xs text-yellow-400">
+                  <span className={`text-xs ${isDarkMode ? 'text-amber-300' : 'text-amber-600'}`}>
                     {togglingInvisible ? 'Đang lưu...' : isInvisible ? 'Đang bật' : 'Đang tắt'}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-red-600/20 text-sm text-red-400 transition-colors"
+                  className={`flex w-full items-center justify-between px-3 py-2 text-red-500 transition-colors hover:bg-red-500/10 dark:text-red-400 ${profileMenuRow(isDarkMode)}`}
                 >
                   <span className="flex items-center gap-2">
-                    <span>🚪</span>
-                    <span>Đăng xuất</span>
+                    <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+                    Đăng xuất
                   </span>
                 </button>
               </div>

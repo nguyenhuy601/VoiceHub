@@ -1,5 +1,6 @@
 // Re-export components để import dễ dàng
 // VD: import { GlassCard, GradientButton } from '@components/Shared'
+export { default as BrandPageLoader } from './BrandPageLoader';
 export { default as ConfirmDialog } from './ConfirmDialog';
 export { default as Dropdown } from './Dropdown';
 export { default as GlassCard } from './GlassCard';

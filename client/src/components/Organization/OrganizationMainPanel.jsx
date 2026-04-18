@@ -1,4 +1,7 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
+import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
+import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
 import { Bell, Filter, Search, Zap } from 'lucide-react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
@@ -7,6 +10,7 @@ import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
 import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
+import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 
 function formatJoinAnswerValue(value) {
   if (value === undefined || value === null) return '—';
@@ -167,6 +171,8 @@ const OrganizationMainPanel = ({
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editDraft, setEditDraft] = useState('');
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
   const [joinRejectDraft, setJoinRejectDraft] = useState({
     open: false,
     organizationId: null,
@@ -187,6 +193,15 @@ const OrganizationMainPanel = ({
       return ta - tb;
     });
   }, [messages]);
+
+  const orgIdForTask = selectedOrganization?._id || selectedOrganization?.id || null;
+  const menuCreateTaskCheck = useMemo(
+    () =>
+      getAiTaskEligibility(moreMenu.message, {
+        organizationId: orgIdForTask ? String(orgIdForTask) : null,
+      }),
+    [moreMenu.message, orgIdForTask]
+  );
 
   const formatTime = (isoDate) => {
     if (!isoDate) return '';
@@ -299,14 +314,7 @@ const OrganizationMainPanel = ({
     return byCategory && bySearch;
   });
 
-  const composerEmojiList = [
-    '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
-    '🥳', '🤩', '😇', '🤔', '😢', '😭', '😡', '😴',
-    '👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '👀',
-    '❤️', '💜', '🧡', '💙', '🔥', '✨', '🎉', '🚀',
-  ];
-
-  const filteredComposerEmojis = composerEmojiList.filter((emoji) => {
+  const filteredComposerEmojis = COMPOSER_EMOJI_LIST.filter((emoji) => {
     const keyword = emojiSearch.trim().toLowerCase();
     if (!keyword) return true;
     return emoji.toLowerCase().includes(keyword);
@@ -1434,6 +1442,31 @@ const OrganizationMainPanel = ({
           const m = moreMenu.message;
           if (m) onDeleteMessage?.(m._id || m.id);
         }}
+        onCreateTask={() => {
+          const m = moreMenu.message;
+          if (!m) return;
+          setCreateTaskSourceMessage(m);
+          setCreateTaskModalOpen(true);
+        }}
+        createTaskDisabled={!menuCreateTaskCheck.ok}
+        createTaskHoverTitle={
+          menuCreateTaskCheck.ok ? AI_TASK_TOOLTIP_SHORT : menuCreateTaskCheck.reason
+        }
+      />
+
+      <CreateTaskFromAiModal
+        isOpen={createTaskModalOpen}
+        onClose={() => {
+          setCreateTaskModalOpen(false);
+          setCreateTaskSourceMessage(null);
+        }}
+        messageId={createTaskSourceMessage?._id || createTaskSourceMessage?.id}
+        organizationId={orgIdForTask ? String(orgIdForTask) : null}
+        currentUserId={currentUserId}
+        messagePreview={
+          createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
+        }
+        onConfirmed={() => toast.success('Đã tạo task từ AI')}
       />
 
       <Modal isOpen={isPollModalOpen} onClose={() => setIsPollModalOpen(false)} title="Tạo một khảo sát" size="md">
