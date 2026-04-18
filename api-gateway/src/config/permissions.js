@@ -18,10 +18,16 @@ const routeActionMap = {
   // Task Service
   'GET /api/tasks': 'task:read',
   'POST /api/tasks': 'task:write',
+  'PUT /api/tasks': 'task:write',
   'PATCH /api/tasks': 'task:write',
   'DELETE /api/tasks': 'task:delete',
   'GET /api/work': 'task:read',
   'POST /api/work': 'task:write',
+
+  // AI Task Service
+  'POST /api/ai/tasks/extract': 'task:write',
+  'GET /api/ai/tasks/extractions': 'task:read',
+  'POST /api/ai/tasks/confirm': 'task:write',
 
   // Document Service
   'GET /api/documents': 'document:read',

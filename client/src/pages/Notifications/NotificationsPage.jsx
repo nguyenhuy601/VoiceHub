@@ -237,9 +237,8 @@ function NotificationsPage() {
         break;
       case 'task':
       case 'deadline':
-        // Tasks page is intentionally locked, route to dashboard context instead.
-        navigate('/dashboard');
-        showToast('Trang công việc đang khóa, đã chuyển về dashboard', 'info');
+        navigate('/tasks');
+        showToast('Đang mở công việc', 'info');
         break;
       case 'file':
         // Documents page is intentionally locked, route to dashboard context instead.

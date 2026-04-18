@@ -6,7 +6,10 @@ import { ChatMessageAttachmentBody } from '../../components/Chat/ChatFileAttachm
 import ChannelMessageToolbar from '../../components/Organization/ChannelMessageToolbar';
 import ChannelMessageMoreMenu from '../../components/Organization/ChannelMessageMoreMenu';
 import ForwardToFriendModal from '../../components/Organization/ForwardToFriendModal';
+import CreateTaskFromAiModal from '../../components/Chat/CreateTaskFromAiModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
+import organizationService from '../../services/organizationService';
+import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
 import { Toast } from '../../components/Shared';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
@@ -15,6 +18,7 @@ import ChatUploadProgressBar from '../../components/Chat/ChatUploadProgressBar';
 import { useAuth } from '../../context/AuthContext';
 import { getUserDisplayName } from '../../utils/helpers';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
+import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useSocket } from '../../context/SocketContext';
 
 /** Chữ ký tên hiển thị trong avatar tròn (theo mockup sidebar DM). */
@@ -80,6 +84,9 @@ function FriendChatPage() {
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwarding, setForwarding] = useState(false);
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
+  const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const { user } = useAuth();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
@@ -96,6 +103,29 @@ function FriendChatPage() {
   };
 
   // Load danh sách bạn bè từ friend-service
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await organizationService.getMyOrganizations();
+        const payload = r?.data ?? r;
+        const list =
+          payload?.organizations ||
+          payload?.data?.organizations ||
+          (Array.isArray(payload) ? payload : []);
+        const arr = Array.isArray(list) ? list : [];
+        const first = arr[0];
+        const oid = first?._id || first?.id;
+        if (!cancelled && oid) setDefaultOrgIdForTask(String(oid));
+      } catch {
+        /* DM vẫn dùng được; tạo task cần org */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadFriends = useCallback(async () => {
     setFriendsLoading(true);
     try {
@@ -409,21 +439,11 @@ function FriendChatPage() {
     return null;
   }, [sortedChatMessages, currentUserId]);
 
-  const composerEmojiList = useMemo(
-    () => [
-      '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
-      '🥳', '🤩', '😇', '🤔', '😢', '😭', '😡', '😴',
-      '👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '👀',
-      '❤️', '💜', '🧡', '💙', '🔥', '✨', '🎉', '🚀',
-    ],
-    []
-  );
-
   const filteredComposerEmojis = useMemo(() => {
     const keyword = emojiSearch.trim().toLowerCase();
-    if (!keyword) return composerEmojiList;
-    return composerEmojiList.filter((emoji) => emoji.toLowerCase().includes(keyword));
-  }, [composerEmojiList, emojiSearch]);
+    if (!keyword) return COMPOSER_EMOJI_LIST;
+    return COMPOSER_EMOJI_LIST.filter((emoji) => emoji.toLowerCase().includes(keyword));
+  }, [emojiSearch]);
 
   const appendEmoji = (emoji) => {
     setMessage((prev) => `${prev || ''}${emoji}`);
@@ -500,6 +520,11 @@ function FriendChatPage() {
     const s = typeof raw === 'string' ? raw : String(raw);
     return s.trim().length > 0;
   };
+
+  const menuCreateTaskCheck = useMemo(
+    () => getAiTaskEligibility(moreMenu.message, { organizationId: defaultOrgIdForTask }),
+    [moreMenu.message, defaultOrgIdForTask]
+  );
 
   const handleMessageRowMouseEnter = (messageId, event) => {
     const el = event?.currentTarget;
@@ -1191,6 +1216,31 @@ function FriendChatPage() {
               const msg = moreMenu.message;
               if (msg) handleDeleteMessage(msg._id || msg.id);
             }}
+            onCreateTask={() => {
+              const msg = moreMenu.message;
+              if (!msg) return;
+              setCreateTaskSourceMessage(msg);
+              setCreateTaskModalOpen(true);
+            }}
+            createTaskDisabled={!menuCreateTaskCheck.ok}
+            createTaskHoverTitle={
+              menuCreateTaskCheck.ok ? AI_TASK_TOOLTIP_SHORT : menuCreateTaskCheck.reason
+            }
+          />
+
+          <CreateTaskFromAiModal
+            isOpen={createTaskModalOpen}
+            onClose={() => {
+              setCreateTaskModalOpen(false);
+              setCreateTaskSourceMessage(null);
+            }}
+            messageId={createTaskSourceMessage?._id || createTaskSourceMessage?.id}
+            organizationId={defaultOrgIdForTask}
+            currentUserId={currentUserId}
+            messagePreview={
+              createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
+            }
+            onConfirmed={() => showToast('Đã tạo task từ AI', 'success')}
           />
 
           <ForwardToFriendModal

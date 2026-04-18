@@ -82,6 +82,9 @@ const AnalyticsPage = lazy(() => import('./pages/Analytics/AnalyticsPage'));
 // Lazy load trang lịch - quản lý sự kiện và meetings
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
 
+// Trang công việc (task)
+const TasksPage = lazy(() => import('./pages/Tasks/TasksPage'));
+
 // Lazy load trang cài đặt - thay đổi preferences
 const SettingsPage = lazy(() => import('./pages/Settings/SettingsPage'));
 
@@ -205,9 +208,10 @@ function App() {
         } />
         
         {/* Tasks - quản lý công việc */}
-        {/* Tạm khóa giao diện tasks */}
         <Route path="/tasks" element={
-          <Navigate to="/dashboard" replace />
+          <ProtectedRoute>
+            <TasksPage />
+          </ProtectedRoute>
         } />
         
         {/* Profile - thông tin cá nhân */}

@@ -125,6 +125,7 @@ const NavigationSidebar = () => {
     { icon: '💬', label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends', badge: null },
     { icon: '🎤', label: 'Không Gian', tooltip: 'Không gian', path: '/voice', badge: null },
     { icon: '🏢', label: 'Tổ Chức', tooltip: 'Tổ chức', path: '/organizations', badge: null },
+    { icon: '📋', label: 'Công Việc', tooltip: 'Task', path: '/tasks', badge: null },
     { icon: '🔔', label: 'Thông Báo', tooltip: 'Thông báo', path: '/notifications', badge: null, bellBadge: true },
     { icon: '📅', label: 'Lịch', tooltip: 'Lịch', path: '/calendar', badge: null },
   ];

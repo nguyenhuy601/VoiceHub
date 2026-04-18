@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 
 const MENU_WIDTH = 256;
-const EST_MENU_HEIGHT = 300;
+const EST_MENU_HEIGHT = 380;
 
 function computeMenuPosition(anchorRect) {
   const pad = 8;
@@ -34,6 +34,11 @@ export default function ChannelMessageMoreMenu({
   onDelete,
   /** Tin nhắn văn bản — cho phép sao chép */
   canCopy,
+  /** Tạo task bằng AI */
+  onCreateTask,
+  createTaskDisabled = false,
+  /** Hiển thị khi hover (đặc biệt khi disabled) */
+  createTaskHoverTitle = '',
 }) {
   if (!open || !anchorRect) return null;
 
@@ -92,6 +97,30 @@ export default function ChannelMessageMoreMenu({
           Chuyển tiếp
           <span className="text-slate-400">↪️</span>
         </button>
+        {typeof onCreateTask === 'function' && (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={createTaskDisabled}
+            title={createTaskHoverTitle || 'Phân tích tin nhắn và gợi ý task (AI)'}
+            className={`flex w-full items-center justify-between px-3 py-2.5 text-left ${
+              createTaskDisabled
+                ? 'cursor-not-allowed text-slate-500'
+                : 'text-slate-100 hover:bg-white/8'
+            }`}
+            onClick={() => {
+              if (createTaskDisabled) return;
+              onCreateTask();
+              onClose();
+            }}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="shrink-0">✅</span>
+              <span className="truncate">Tạo task (AI)</span>
+            </span>
+            <span className="text-slate-400">🤖</span>
+          </button>
+        )}
         {isMine && (
           <button
             type="button"
