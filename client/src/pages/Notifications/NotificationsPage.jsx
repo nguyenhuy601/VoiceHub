@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, GradientButton, NotificationBellBadge, Toast } from '../../components/Shared';
+import { ConfirmDialog, GlassCard, GradientButton, NotificationBellBadge } from '../../components/Shared';
 import api from '../../services/api';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { useSocket } from '../../context/SocketContext';
@@ -21,7 +22,7 @@ function NotificationsPage() {
     { id: 7, type: 'task', icon: '✅', title: 'Task hoàn thành', message: 'David Kim đã hoàn thành task "Setup CI/CD Pipeline"', time: '5 giờ trước', read: true, priority: 'low', action: 'Xem Chi Tiết' },
     { id: 8, type: 'system', icon: '🔔', title: 'Cập nhật hệ thống', message: 'VoiceHub đã được cập nhật lên phiên bản 2.1.0', time: '1 ngày trước', read: true, priority: 'low', action: 'Xem Changelog' }
   ]);
-  const [toast, setToast] = useState(null);
+  const [deleteNotifConfirmId, setDeleteNotifConfirmId] = useState(null);
   const { on, off } = useSocket();
 
   const getRelativeTime = (input) => {
@@ -87,8 +88,7 @@ function NotificationsPage() {
       setNotifications(list.map(toViewNotification));
     } catch (error) {
       const msg = error?.response?.data?.message || 'Không tải được thông báo từ máy chủ';
-      setToast({ message: msg, type: 'error' });
-      setTimeout(() => setToast(null), 3000);
+      toast.error(msg);
     }
   }, []);
 
@@ -175,19 +175,14 @@ function NotificationsPage() {
     };
   }, [on, off]);
 
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   const handleMarkAsRead = async (id) => {
     if (!id) return;
     try {
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-      showToast('Đã đánh dấu đã đọc', 'success');
+      toast.success('Đã đánh dấu đã đọc');
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Không thể cập nhật trạng thái thông báo', 'error');
+      toast.error(error?.response?.data?.message || 'Không thể cập nhật trạng thái thông báo');
     }
   };
 
@@ -195,20 +190,21 @@ function NotificationsPage() {
     try {
       await api.patch('/notifications/read-all');
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-      showToast('Đã đánh dấu tất cả đã đọc', 'success');
+      toast.success('Đã đánh dấu tất cả đã đọc');
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Không thể đánh dấu tất cả thông báo', 'error');
+      toast.error(error?.response?.data?.message || 'Không thể đánh dấu tất cả thông báo');
     }
   };
 
-  const handleDeleteNotification = async (id) => {
+  const confirmDeleteNotification = async () => {
+    const id = deleteNotifConfirmId;
     if (!id) return;
     try {
       await api.delete(`/notifications/${id}`);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
-      showToast('Đã xóa thông báo', 'success');
+      toast.success('Đã xóa thông báo');
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Không thể xóa thông báo', 'error');
+      toast.error(error?.response?.data?.message || 'Không thể xóa thông báo');
     }
   };
 
@@ -223,33 +219,34 @@ function NotificationsPage() {
     switch (notif.type) {
       case 'mention':
         navigate('/chat/organization');
-        showToast('Đang mở chat tổ chức', 'info');
+        toast('Đang mở chat tổ chức', { icon: '💬' });
         break;
       case 'friend':
         navigate('/chat/friends?tab=requests');
-        showToast('Đang mở lời mời kết bạn', 'info');
+        toast('Đang mở lời mời kết bạn', { icon: '👥' });
         break;
       case 'meeting':
         navigate('/calendar');
-        showToast('Đang mở lịch họp', 'info');
+        toast('Đang mở lịch họp', { icon: '📅' });
         break;
       case 'system':
         navigate('/settings');
-        showToast('Đang mở cài đặt hệ thống', 'info');
+        toast('Đang mở cài đặt hệ thống', { icon: '⚙️' });
         break;
       case 'task':
       case 'deadline':
-        navigate('/tasks');
-        showToast('Đang mở công việc', 'info');
+        // Tasks page is intentionally locked, route to dashboard context instead.
+        navigate('/dashboard');
+        toast('Trang công việc đang khóa, đã chuyển về dashboard', { icon: 'ℹ️' });
         break;
       case 'file':
         // Documents page is intentionally locked, route to dashboard context instead.
         navigate('/dashboard');
-        showToast('Trang tài liệu đang khóa, đã chuyển về dashboard', 'info');
+        toast('Trang tài liệu đang khóa, đã chuyển về dashboard', { icon: 'ℹ️' });
         break;
       default:
         navigate('/dashboard');
-        showToast('Đang mở chi tiết thông báo', 'info');
+        toast('Đang mở chi tiết thông báo', { icon: 'ℹ️' });
     }
   };
 
@@ -438,11 +435,7 @@ function NotificationsPage() {
                     </button>
                   )}
                   <button 
-                    onClick={() => {
-                      if (window.confirm('Xóa thông báo này?')) {
-                        handleDeleteNotification(notif.id);
-                      }
-                    }}
+                    onClick={() => setDeleteNotifConfirmId(notif.id)}
                     className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-lg hover:bg-slate-800/70 transition-all text-xs text-red-400 hover:text-red-300"
                   >
                     🗑️ Xóa
@@ -463,14 +456,15 @@ function NotificationsPage() {
         }
       />
 
-    {/* Toast */}
-      {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+    <ConfirmDialog
+      isOpen={deleteNotifConfirmId != null}
+      onClose={() => setDeleteNotifConfirmId(null)}
+      onConfirm={confirmDeleteNotification}
+      title="Xóa thông báo"
+      message="Xóa thông báo này?"
+      confirmText="Xóa"
+      cancelText="Hủy"
+    />
     </>
   );
 }

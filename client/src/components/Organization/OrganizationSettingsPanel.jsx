@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
-import { Modal, GlassCard, GradientButton, Toast } from '../Shared';
+import { ConfirmDialog, Modal, GlassCard, GradientButton } from '../Shared';
 import { useAuth } from '../../context/AuthContext';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import roleAPI from '../../services/api/roleAPI';
@@ -75,7 +76,7 @@ function OrganizationSettingsPanel({
   );
 
   const [activeTab, setActiveTab] = useState('general');
-  const [toast, setToast] = useState(null);
+  const [roleDeleteConfirmId, setRoleDeleteConfirmId] = useState(null);
   const [loadingOrg, setLoadingOrg] = useState(false);
 
   const [organizationForm, setOrganizationForm] = useState({
@@ -205,7 +206,7 @@ function OrganizationSettingsPanel({
       setJoinFormDefaultRole(fd?.defaultRoleOnApprove === 'admin' ? 'admin' : 'member');
       setJoinFormFields(Array.isArray(fd?.fields) ? fd.fields : []);
     } catch {
-      showToast('Không tải được cấu hình đơn gia nhập', 'error');
+      toast.error('Không tải được cấu hình đơn gia nhập');
     } finally {
       setJoinFormLoading(false);
     }
@@ -278,7 +279,7 @@ function OrganizationSettingsPanel({
     setDeletingOrg(true);
     try {
       await organizationAPI.deleteOrganization(orgId);
-      showToast('Đã xóa tổ chức', 'success');
+      toast.success('Đã xóa tổ chức');
       setDeleteOrgModalOpen(false);
       setDeleteOrgNameInput('');
       onOrganizationUpdated?.();
@@ -290,7 +291,7 @@ function OrganizationSettingsPanel({
         e?.response?.data?.error ||
         e?.message ||
         'Không thể xóa tổ chức';
-      showToast(typeof msg === 'string' ? msg : 'Không thể xóa tổ chức', 'error');
+      toast.error(typeof msg === 'string' ? msg : 'Không thể xóa tổ chức');
     } finally {
       setDeletingOrg(false);
     }
@@ -298,7 +299,7 @@ function OrganizationSettingsPanel({
 
   const handleSaveOrganization = async () => {
     if (!orgId || !organizationForm.name?.trim()) {
-      showToast('Vui lòng nhập tên tổ chức', 'error');
+      toast.error('Vui lòng nhập tên tổ chức');
       return;
     }
     try {
@@ -308,17 +309,17 @@ function OrganizationSettingsPanel({
         description: organizationForm.description,
       });
       setServerOrgName(trimmedName);
-      showToast('Đã lưu thông tin tổ chức', 'success');
+      toast.success('Đã lưu thông tin tổ chức');
       onOrganizationUpdated?.();
     } catch {
-      showToast('Không thể cập nhật tổ chức', 'error');
+      toast.error('Không thể cập nhật tổ chức');
     }
   };
 
   const handleSaveUserProfile = () => {
     updateUser({ displayName: userProfileForm.fullName, phone: userProfileForm.phone });
     persistMemberPrefs();
-    showToast('Đã cập nhật hồ sơ', 'success');
+    toast.success('Đã cập nhật hồ sơ');
   };
 
   const handleToggleNotification = (id) => {
@@ -339,7 +340,7 @@ function OrganizationSettingsPanel({
     const reader = new FileReader();
     reader.onload = () => {
       setAvatarUrl(typeof reader.result === 'string' ? reader.result : '');
-      showToast('Đã cập nhật avatar', 'success');
+      toast.success('Đã cập nhật avatar');
     };
     reader.readAsDataURL(file);
     event.target.value = '';
@@ -371,36 +372,41 @@ function OrganizationSettingsPanel({
 
   const handleSaveRole = async () => {
     if (!roleDraft.name?.trim()) {
-      showToast('Nhập tên vai trò', 'error');
+      toast.error('Nhập tên vai trò');
       return;
     }
     try {
       setRoleLoading(true);
       if (editingRoleId) {
         await roleAPI.updateRole(editingRoleId, { ...roleDraft, organizationId: orgId });
-        showToast('Đã cập nhật vai trò', 'success');
+        toast.success('Đã cập nhật vai trò');
       } else {
         await roleAPI.createRole({ ...roleDraft, organizationId: orgId });
-        showToast('Đã tạo vai trò', 'success');
+        toast.success('Đã tạo vai trò');
       }
       setRoleEditorOpen(false);
       await loadRoles();
     } catch (e) {
-      showToast(e?.message || 'Không lưu được vai trò', 'error');
+      toast.error(e?.message || 'Không lưu được vai trò');
     } finally {
       setRoleLoading(false);
     }
   };
 
-  const handleDeleteRole = async (roleId) => {
-    if (!window.confirm('Xóa vai trò này?')) return;
+  const requestDeleteRole = (roleId) => {
+    setRoleDeleteConfirmId(roleId);
+  };
+
+  const confirmDeleteRole = async () => {
+    const roleId = roleDeleteConfirmId;
+    if (!roleId) return;
     try {
       setRoleLoading(true);
       await roleAPI.deleteRole(roleId);
-      showToast('Đã xóa vai trò', 'success');
+      toast.success('Đã xóa vai trò');
       await loadRoles();
     } catch (e) {
-      showToast(e?.message || 'Lỗi xóa vai trò', 'error');
+      toast.error(e?.message || 'Lỗi xóa vai trò');
     } finally {
       setRoleLoading(false);
     }
@@ -415,7 +421,7 @@ function OrganizationSettingsPanel({
         defaultRoleOnApprove: joinFormDefaultRole,
         fields: joinFormFields,
       });
-      showToast('Đã lưu form gia nhập', 'success');
+      toast.success('Đã lưu form gia nhập');
       onOrganizationUpdated?.();
       await loadJoinWorkspace();
     } catch (e) {
@@ -424,7 +430,7 @@ function OrganizationSettingsPanel({
         e?.response?.data?.error ||
         e?.message ||
         'Không lưu được';
-      showToast(typeof msg === 'string' ? msg : 'Không lưu được', 'error');
+      toast.error(typeof msg === 'string' ? msg : 'Không lưu được');
     } finally {
       setJoinFormSaving(false);
     }
@@ -844,7 +850,7 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           className="rounded-lg border border-slate-800 px-3 py-2 text-sm text-red-400 hover:bg-slate-800/70"
-                          onClick={() => handleDeleteRole(role.id || role._id)}
+                          onClick={() => requestDeleteRole(role.id || role._id)}
                         >
                           Xóa
                         </button>
@@ -978,7 +984,7 @@ function OrganizationSettingsPanel({
                 className="mt-3 text-sm text-indigo-400 hover:underline"
                 onClick={() => {
                   persistMemberPrefs();
-                  showToast('Đã lưu cài đặt thông báo', 'success');
+                  toast.success('Đã lưu cài đặt thông báo');
                 }}
               >
                 Lưu cài đặt thông báo
@@ -1025,7 +1031,7 @@ function OrganizationSettingsPanel({
                   className="text-sm text-indigo-400 hover:underline"
                   onClick={() => {
                     persistMemberPrefs();
-                    showToast('Đã lưu quyền riêng tư', 'success');
+                    toast.success('Đã lưu quyền riêng tư');
                   }}
                 >
                   Lưu
@@ -1048,7 +1054,7 @@ function OrganizationSettingsPanel({
                     onClick={() => {
                       setThemeMode(t.id);
                       persistMemberPrefs();
-                      showToast(`Đã chọn giao diện ${t.name.toLowerCase()}`, 'success');
+                      toast.success(`Đã chọn giao diện ${t.name.toLowerCase()}`);
                     }}
                     className={`rounded-xl p-6 text-left transition-all ${
                       themeMode === t.id
@@ -1118,9 +1124,15 @@ function OrganizationSettingsPanel({
         </div>
       </Modal>
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
+      <ConfirmDialog
+        isOpen={roleDeleteConfirmId != null}
+        onClose={() => setRoleDeleteConfirmId(null)}
+        onConfirm={confirmDeleteRole}
+        title="Xóa vai trò"
+        message="Xóa vai trò này?"
+        confirmText="Xóa"
+        cancelText="Hủy"
+      />
     </>
   );
 }

@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { ConfirmDialog, GlassCard, GradientButton, Modal } from '../../components/Shared';
 import { useCalendarFeed } from '../../hooks/useCalendarFeed';
 import { useTaskDueAlerts } from '../../hooks/useTaskDueAlerts';
 import {
@@ -41,13 +42,8 @@ function CalendarPage() {
     attendeesText: '',
   });
   const [attendeeNames, setAttendeeNames] = useState([]);
-  const [toast, setToast] = useState(null);
+  const [deleteConfirmEventId, setDeleteConfirmEventId] = useState(null);
   const jumpDateInputRef = useRef(null);
-
-  const showToast = useCallback((message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
 
   const {
     events,
@@ -61,7 +57,7 @@ function CalendarPage() {
   useTaskDueAlerts(tasksForAlerts, {
     enabled: true,
     onAlert: ({ title }) => {
-      showToast(`Deadline: ${title}`, 'info');
+      toast(`Deadline: ${title}`, { icon: '⏰' });
     },
   });
 
@@ -107,7 +103,7 @@ function CalendarPage() {
   const openEditModal = (eventData) => {
     if (!eventData) return;
     if (eventData.source === 'api') {
-      showToast('Chỉnh sửa task/meeting trên Task hoặc Voice', 'info');
+      toast('Chỉnh sửa task/meeting trên Task hoặc Voice', { icon: 'ℹ️' });
       return;
     }
     setEditingEventId(eventData.id);
@@ -132,7 +128,7 @@ function CalendarPage() {
   const handleAddAttendees = () => {
     const raw = String(eventForm.attendeesText || '').trim();
     if (!raw) {
-      showToast('Vui lòng nhập tên người tham gia', 'error');
+      toast.error('Vui lòng nhập tên người tham gia');
       return;
     }
 
@@ -142,13 +138,13 @@ function CalendarPage() {
       .filter(Boolean);
 
     if (parsed.length === 0) {
-      showToast('Vui lòng nhập tên hợp lệ', 'error');
+      toast.error('Vui lòng nhập tên hợp lệ');
       return;
     }
 
     setAttendeeNames((prev) => Array.from(new Set([...prev, ...parsed])));
     setEventForm((prev) => ({ ...prev, attendeesText: '' }));
-    showToast('Đã thêm người tham gia', 'success');
+    toast.success('Đã thêm người tham gia');
   };
 
   const handleRemoveAttendee = (name) => {
@@ -167,9 +163,9 @@ function CalendarPage() {
       localStorage.setItem(LOCAL_CUSTOM_KEY, JSON.stringify(next));
       reloadLocal();
     } catch {
-      showToast('Không lưu được dữ liệu local', 'error');
+      toast.error('Không lưu được dữ liệu local');
     }
-  }, [reloadLocal, showToast]);
+  }, [reloadLocal]);
 
   const handleSaveEvent = () => {
     const title = String(eventForm.title || '').trim();
@@ -177,7 +173,7 @@ function CalendarPage() {
     const timeRaw = String(eventForm.time || '').trim();
 
     if (!title || !date || !timeRaw) {
-      showToast('Vui lòng nhập tiêu đề, ngày và giờ', 'error');
+      toast.error('Vui lòng nhập tiêu đề, ngày và giờ');
       return;
     }
 
@@ -219,10 +215,10 @@ function CalendarPage() {
       persistLocalList((list) =>
         list.map((item) => (String(item.id) === String(editingEventId) ? nextEvent : item))
       );
-      showToast('Đã cập nhật sự kiện', 'success');
+      toast.success('Đã cập nhật sự kiện');
     } else {
       persistLocalList((list) => [nextEvent, ...list]);
-      showToast('Đã tạo sự kiện mới', 'success');
+      toast.success('Đã tạo sự kiện mới');
     }
 
     setShowCreateEventModal(false);
@@ -232,16 +228,20 @@ function CalendarPage() {
   const handleDeleteEvent = (eventId, source) => {
     if (!eventId) return;
     if (source === 'api') {
-      showToast('Xóa task/meeting trong màn Task hoặc Voice', 'info');
+      toast('Xóa task/meeting trong màn Task hoặc Voice', { icon: 'ℹ️' });
       return;
     }
-    if (!window.confirm('Xóa sự kiện này?')) return;
+    setDeleteConfirmEventId(eventId);
+  };
 
+  const confirmDeleteLocalEvent = () => {
+    const eventId = deleteConfirmEventId;
+    if (!eventId) return;
     persistLocalList((list) => list.filter((item) => String(item.id) !== String(eventId)));
     if (selectedEvent?.id === eventId) {
       setSelectedEvent(null);
     }
-    showToast('Đã xóa sự kiện', 'success');
+    toast.success('Đã xóa sự kiện');
   };
 
   const handleJoinEvent = (eventData) => {
@@ -250,27 +250,27 @@ function CalendarPage() {
       const st = getMeetingJoinState(eventData.raw, new Date());
       if (!st.joinEligible) {
         if (st.disabledReason === 'too_early') {
-          showToast('Có thể vào phòng từ 30 phút trước giờ họp', 'error');
+          toast.error('Có thể vào phòng từ 30 phút trước giờ họp');
         } else if (st.disabledReason === 'ended') {
-          showToast('Meeting đã kết thúc', 'error');
+          toast.error('Meeting đã kết thúc');
         } else {
-          showToast('Chưa thể tham gia meeting lúc này', 'error');
+          toast.error('Chưa thể tham gia meeting lúc này');
         }
         return;
       }
       navigate(`/voice/${encodeURIComponent(eventData.meetingId)}`);
-      showToast('Đang vào phòng họp…', 'success');
+      toast.success('Đang vào phòng họp…');
       return;
     }
     if (eventData.type === 'meeting' && eventData.source === 'local') {
-      showToast('Sự kiện local — tạo meeting trên Voice để có phòng', 'info');
+      toast('Sự kiện local — tạo meeting trên Voice để có phòng', { icon: 'ℹ️' });
       return;
     }
     if (eventData.kind === 'task' || eventData.type === 'deadline') {
-      showToast('Mở Task để xem deadline (trang Tasks)', 'info');
+      toast('Mở Task để xem deadline (trang Tasks)', { icon: 'ℹ️' });
       return;
     }
-    showToast('Đã mở chi tiết', 'info');
+    toast('Đã mở chi tiết', { icon: 'ℹ️' });
   };
 
   const calShell = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
@@ -330,14 +330,14 @@ function CalendarPage() {
     const v = e.target.value;
     if (!v) return;
     setSelectedDate(new Date(`${v}T12:00:00`));
-    showToast(`Đã chuyển tới ${v}`, 'success');
+    toast.success(`Đã chuyển tới ${v}`);
     e.target.value = '';
   };
 
   const handleCalendarRefresh = async () => {
     reloadLocal();
     await refetch();
-    showToast('Đã làm mới lịch', 'success');
+    toast.success('Đã làm mới lịch');
   };
 
   return (
@@ -450,7 +450,7 @@ function CalendarPage() {
                       className={iconToolBtn}
                       onClick={() => {
                         navigate('/settings');
-                        showToast('Mở trang Cài đặt', 'info');
+                        toast('Mở trang Cài đặt', { icon: 'ℹ️' });
                       }}
                     >
                       ⚙️
@@ -461,7 +461,7 @@ function CalendarPage() {
                         const newDate = new Date(selectedDate);
                         newDate.setMonth(newDate.getMonth() - 1);
                         setSelectedDate(newDate);
-                        showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, 'info');
+                        toast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, { icon: '📅' });
                       }}
                       className={calNavBtn}
                     >
@@ -471,7 +471,7 @@ function CalendarPage() {
                       type="button"
                       onClick={() => {
                         setSelectedDate(new Date());
-                        showToast('Quay về hôm nay', 'info');
+                        toast('Quay về hôm nay', { icon: '📅' });
                       }}
                       className={`${calNavBtn} font-semibold sm:px-4`}
                     >
@@ -483,7 +483,7 @@ function CalendarPage() {
                         const newDate = new Date(selectedDate);
                         newDate.setMonth(newDate.getMonth() + 1);
                         setSelectedDate(newDate);
-                        showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, 'info');
+                        toast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, { icon: '📅' });
                       }}
                       className={calNavBtn}
                     >
@@ -518,7 +518,7 @@ function CalendarPage() {
                       onClick={() => {
                         setSelectedDate(date);
                         if (dayEvents.length > 0) {
-                          showToast(`${dayEvents.length} sự kiện ngày ${day}/${date.getMonth() + 1}/${date.getFullYear()}`, 'info');
+                          toast(`${dayEvents.length} sự kiện ngày ${day}/${date.getMonth() + 1}/${date.getFullYear()}`, { icon: '📅' });
                         }
                       }}
                       onKeyDown={(ev) => {
@@ -976,14 +976,15 @@ function CalendarPage() {
       </div>
     </Modal>
 
-    {/* Toast */}
-    {toast && (
-      <Toast 
-        message={toast.message} 
-        type={toast.type}
-        onClose={() => setToast(null)}
-      />
-    )}
+    <ConfirmDialog
+      isOpen={deleteConfirmEventId != null}
+      onClose={() => setDeleteConfirmEventId(null)}
+      onConfirm={confirmDeleteLocalEvent}
+      title="Xóa sự kiện"
+      message="Xóa sự kiện này?"
+      confirmText="Xóa"
+      cancelText="Hủy"
+    />
     </>
   );
 }

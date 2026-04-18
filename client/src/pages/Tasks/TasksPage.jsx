@@ -108,7 +108,6 @@ export default function TasksPage() {
   const [detailSaving, setDetailSaving] = useState(false);
 
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
-  const [toast, setToast] = useState(null);
   const [createTaskLoading, setCreateTaskLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',

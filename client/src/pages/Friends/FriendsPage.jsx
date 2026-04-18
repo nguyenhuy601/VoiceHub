@@ -1,32 +1,27 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { Link, useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { GlassCard, GradientButton, Toast } from '../../components/Shared';
+import { GlassCard, GradientButton } from '../../components/Shared';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import friendService from '../../services/friendService';
 
 function FriendsPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('all');
-  const [toast, setToast] = useState(null);
   const [showAddFriend, setShowAddFriend] = useState(false);
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const sendFriendRequest = async (userId) => {
     const id = userId && String(userId).trim();
     if (!id) {
-      showToast('Không xác định được người dùng', 'fail');
+      toast.error('Không xác định được người dùng');
       return;
     }
     try {
       await friendService.sendRequest(id);
-      showToast('Đã gửi lời mời', 'success');
+      toast.success('Đã gửi lời mời');
     } catch (err) {
-      showToast(err.response?.data?.message || 'Lỗi khi gửi yêu cầu', 'fail');
+      toast.error(err.response?.data?.message || 'Lỗi khi gửi yêu cầu');
     }
   };
 
@@ -79,7 +74,7 @@ function FriendsPage() {
 
   const handleSearch = async () => {
     if (!searchPhone) {
-      showToast('Xin hãy nhập số điện thoại', 'fail');
+      toast.error('Xin hãy nhập số điện thoại');
       return;
     }
 
@@ -94,7 +89,7 @@ function FriendsPage() {
         setSearchResult(null);
       }
     } catch (err) {
-      showToast(err.response?.data?.message || 'Lỗi khi tìm kiếm', 'fail');
+      toast.error(err.response?.data?.message || 'Lỗi khi tìm kiếm');
       setSearchResult(null);
     }
   };
@@ -189,7 +184,7 @@ function FriendsPage() {
                     </Link>
                     <button 
                       onClick={() => {
-                        showToast(`Đang kết nối với ${friend.name}...`, "info");
+                        toast(`Đang kết nối với ${friend.name}...`, { icon: '📞' });
                         setTimeout(() => {
                           navigate('/voice/call-' + friend.name.toLowerCase().replace(' ', '-'));
                         }, 500);
@@ -345,15 +340,6 @@ function FriendsPage() {
       </div>
       
       <AddFriendModal isOpen={showAddFriend} onClose={() => setShowAddFriend(false)} />
-
-      {/* Toast */}
-      {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
     </div>
   );
 }

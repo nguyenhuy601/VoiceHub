@@ -1,15 +1,10 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, Toast } from '../../components/Shared';
+import { GlassCard } from '../../components/Shared';
 
 function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState('week');
-  const [toast, setToast] = useState(null);
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   return (
     <>
@@ -58,7 +53,7 @@ function AnalyticsPage() {
                 a.download = `analytics-report-${Date.now()}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
-                showToast("Đã xuất báo cáo thành công!", "success");
+                toast.success("Đã xuất báo cáo thành công!");
               }}
               className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all font-semibold flex items-center gap-2"
             >
@@ -247,15 +242,6 @@ function AnalyticsPage() {
       </div>
         }
       />
-      
-      {/* Toast */}
-      {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
     </>
   );
 }
