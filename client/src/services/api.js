@@ -16,6 +16,7 @@
 // Import axios - HTTP client library
 import axios from 'axios';
 import { getToken, removeToken } from '../utils/tokenStorage';
+import { isLandingEmbedActive, isWriteHttpMethod } from '../utils/landingEmbedMode';
 
 // Import toast để show error notifications
 import toast from 'react-hot-toast';
@@ -76,6 +77,14 @@ const api = axios.create({
 api.interceptors.request.use(
   // Success handler: modify config trước khi gửi
   (config) => {
+    if (isLandingEmbedActive() && isWriteHttpMethod(config.method)) {
+      toast('Chế độ demo — không ghi dữ liệu lên server.', { icon: '🔒', duration: 2800 });
+      const block = new Error('LANDING_EMBED_WRITE_BLOCKED');
+      block.code = 'LANDING_EMBED_WRITE_BLOCKED';
+      block.isLandingEmbedBlock = true;
+      return Promise.reject(block);
+    }
+
     // Lấy token từ localStorage (được lưu khi login)
     const token = getToken();
     
@@ -143,6 +152,10 @@ api.interceptors.response.use(
   /* ----- ERROR HANDLER -----
      Response lỗi (status 400+, 500+, network error) */
   (error) => {
+    if (error?.code === 'LANDING_EMBED_WRITE_BLOCKED' || error?.isLandingEmbedBlock) {
+      return Promise.reject(error);
+    }
+
     console.error('[API] Request error:', {
       message: error.message,
       code: error.code,

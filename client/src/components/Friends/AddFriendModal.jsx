@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { GlassCard, GradientButton, Toast } from '../Shared';
 import friendService from '../../services/friendService';
+import { useTheme } from '../../context/ThemeContext';
 
 function unwrapApiPayload(res) {
   if (res == null) return null;
@@ -11,6 +12,7 @@ function unwrapApiPayload(res) {
  * Modal căn giữa màn hình: tìm bạn theo SĐT, gửi lời mời, lời mời đến.
  */
 export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged }) {
+  const { isDarkMode } = useTheme();
   const [toast, setToast] = useState(null);
   const [searchPhone, setSearchPhone] = useState('');
   const [searchResult, setSearchResult] = useState(null);
@@ -147,6 +149,33 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
 
   if (!isOpen) return null;
 
+  const panel = isDarkMode
+    ? 'relative z-10 flex w-full max-w-2xl max-h-[min(90vh,760px)] flex-col overflow-hidden rounded-2xl border border-slate-700/90 bg-[#0c1428] text-white shadow-2xl'
+    : 'relative z-10 flex w-full max-w-2xl max-h-[min(90vh,760px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl';
+  const headerBar = isDarkMode ? 'border-b border-slate-800' : 'border-b border-slate-200';
+  const titleClass = isDarkMode ? 'text-lg font-bold text-white sm:text-xl' : 'text-lg font-bold text-slate-900 sm:text-xl';
+  const subtitleClass = isDarkMode ? 'text-xs text-gray-400 sm:text-sm' : 'text-xs text-slate-600 sm:text-sm';
+  const closeBtn = isDarkMode
+    ? 'shrink-0 rounded-xl border border-slate-600 bg-slate-900/90 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800'
+    : 'shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100';
+  const sectionHeading = isDarkMode
+    ? 'mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400'
+    : 'mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500';
+  const searchInput = isDarkMode
+    ? 'min-w-0 flex-1 rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white placeholder-gray-500 outline-none focus:border-cyan-500'
+    : 'min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm placeholder:text-slate-400 outline-none focus:border-cyan-500';
+  const cardBorder = isDarkMode ? 'border border-slate-800' : 'border border-slate-200 shadow-sm';
+  const nameStrong = isDarkMode ? 'font-bold text-white' : 'font-bold text-slate-900';
+  const muted = isDarkMode ? 'text-sm text-gray-400' : 'text-sm text-slate-600';
+  const relBadge = isDarkMode ? 'mt-1 text-xs text-cyan-300' : 'mt-1 text-xs text-cyan-700';
+  const countBadge = isDarkMode ? 'ml-2 font-normal normal-case text-indigo-400' : 'ml-2 font-normal normal-case text-cyan-700';
+  const emptyBox = isDarkMode
+    ? 'rounded-xl border border-dashed border-slate-700 py-8 text-center text-sm text-gray-500'
+    : 'rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500';
+  const rejectBtn = isDarkMode
+    ? 'rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800'
+    : 'rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50';
+
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4"
@@ -156,27 +185,20 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+        className={`absolute inset-0 backdrop-blur-sm ${isDarkMode ? 'bg-black/75' : 'bg-slate-900/45'}`}
         aria-label="Đóng"
         onClick={onClose}
       />
 
-      <div
-        className="relative z-10 flex w-full max-w-2xl max-h-[min(90vh,760px)] flex-col overflow-hidden rounded-2xl border border-slate-700/90 bg-[#0c1428] text-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 px-4 py-4 sm:px-6">
+      <div className={panel} onClick={(e) => e.stopPropagation()}>
+        <header className={`flex shrink-0 items-center justify-between gap-3 px-4 py-4 sm:px-6 ${headerBar}`}>
           <div className="min-w-0">
-            <h1 id="add-friend-title" className="text-lg font-bold text-white sm:text-xl">
+            <h1 id="add-friend-title" className={titleClass}>
               Kết bạn
             </h1>
-            <p className="text-xs text-gray-400 sm:text-sm">Tìm theo số điện thoại · Lời mời đang chờ</p>
+            <p className={subtitleClass}>Tìm theo số điện thoại · Lời mời đang chờ</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-xl border border-slate-600 bg-slate-900/90 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-          >
+          <button type="button" onClick={onClose} className={closeBtn}>
             Đóng
           </button>
         </header>
@@ -184,7 +206,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 scrollbar-overlay">
           <div className="space-y-6">
             <section>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Tìm bạn</h2>
+              <h2 className={sectionHeading}>Tìm bạn</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
@@ -194,7 +216,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                   value={searchPhone}
                   onChange={(e) => setSearchPhone(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                  className={searchInput}
                 />
                 <GradientButton
                   variant="primary"
@@ -208,25 +230,21 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
               </div>
 
               {searchResult && (
-                <GlassCard className="mt-4 border border-slate-800">
+                <GlassCard className={`mt-4 ${cardBorder}`}>
                   <div className="flex flex-wrap items-center gap-4">
                     <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 text-3xl">
                       {searchResult.avatar || '👤'}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-bold text-white">
+                      <h3 className={`truncate ${nameStrong}`}>
                         {searchResult.displayName ||
                           searchResult.name ||
                           searchResult.username ||
                           'Người dùng'}
                       </h3>
-                      {searchResult.phone && (
-                        <div className="text-sm text-gray-400">{searchResult.phone}</div>
-                      )}
+                      {searchResult.phone && <div className={muted}>{searchResult.phone}</div>}
                       {searchResult.relationship && (
-                        <div className="mt-1 text-xs text-indigo-300">
-                          {relationshipLabel(searchResult.relationship)}
-                        </div>
+                        <div className={relBadge}>{relationshipLabel(searchResult.relationship)}</div>
                       )}
                     </div>
                     <div className="flex shrink-0 gap-2">
@@ -248,18 +266,18 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
             </section>
 
             <section>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              <h2 className={sectionHeading}>
                 Lời mời đến
                 {loadingPending ? (
-                  <span className="ml-2 font-normal normal-case text-gray-600">Đang tải…</span>
+                  <span className={isDarkMode ? 'ml-2 font-normal normal-case text-gray-600' : 'ml-2 font-normal normal-case text-slate-500'}>
+                    Đang tải…
+                  </span>
                 ) : (
-                  <span className="ml-2 font-normal normal-case text-indigo-400">({pending.length})</span>
+                  <span className={countBadge}>({pending.length})</span>
                 )}
               </h2>
               {pending.length === 0 && !loadingPending ? (
-                <p className="rounded-xl border border-dashed border-slate-700 py-8 text-center text-sm text-gray-500">
-                  Không có lời mời chờ duyệt
-                </p>
+                <p className={emptyBox}>Không có lời mời chờ duyệt</p>
               ) : (
                 <div className="space-y-3">
                   {pending.map((row) => {
@@ -271,24 +289,22 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                       (req.email ? String(req.email).split('@')[0] : 'Người dùng');
                     const rid = row._id;
                     return (
-                      <GlassCard key={String(rid)} className="border border-slate-800">
+                      <GlassCard key={String(rid)} className={cardBorder}>
                         <div className="flex flex-wrap items-center gap-3">
                           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 text-2xl">
                             {req.avatar || '👤'}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate font-semibold text-white">{name}</div>
-                            <div className="text-xs text-gray-500">Muốn kết bạn với bạn</div>
+                            <div className={`truncate font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{name}</div>
+                            <div className={isDarkMode ? 'text-xs text-gray-500' : 'text-xs text-slate-500'}>
+                              Muốn kết bạn với bạn
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <GradientButton variant="primary" type="button" onClick={() => acceptRequest(rid)}>
                               Chấp nhận
                             </GradientButton>
-                            <button
-                              type="button"
-                              onClick={() => rejectRequest(rid)}
-                              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-800"
-                            >
+                            <button type="button" onClick={() => rejectRequest(rid)} className={rejectBtn}>
                               Từ chối
                             </button>
                           </div>

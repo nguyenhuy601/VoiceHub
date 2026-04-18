@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme } from '../../context/ThemeContext';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
 import { useCalendarFeed } from '../../hooks/useCalendarFeed';
@@ -23,6 +24,7 @@ function parseTimeInputToDisplay(hhmm) {
 
 function CalendarPage() {
   const navigate = useNavigate();
+  const { isDarkMode } = useTheme();
   const [view, setView] = useState('month');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -40,6 +42,7 @@ function CalendarPage() {
   });
   const [attendeeNames, setAttendeeNames] = useState([]);
   const [toast, setToast] = useState(null);
+  const jumpDateInputRef = useRef(null);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -52,6 +55,7 @@ function CalendarPage() {
     error,
     tasksForAlerts,
     reloadLocal,
+    refetch,
   } = useCalendarFeed(selectedDate);
 
   useTaskDueAlerts(tasksForAlerts, {
@@ -180,7 +184,7 @@ function CalendarPage() {
     const colorByType = {
       meeting: 'from-blue-500 to-cyan-500',
       deadline: 'from-red-500 to-orange-500',
-      reminder: 'from-purple-600 to-pink-600',
+      reminder: 'from-cyan-600 to-teal-600',
     };
 
     const timeLabel = parseTimeInputToDisplay(timeRaw) || timeRaw;
@@ -269,18 +273,85 @@ function CalendarPage() {
     showToast('Đã mở chi tiết', 'info');
   };
 
+  const calShell = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
+  const calHeader = isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-white';
+  const viewInactive = isDarkMode
+    ? 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
+    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50';
+
+  const calChrome = isDarkMode
+    ? 'border border-slate-600/60 bg-gradient-to-b from-[#0a1224] via-[#060d1c] to-[#030a14] shadow-[0_4px_24px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-white/[0.04]'
+    : 'border border-slate-200 bg-white shadow-md ring-1 ring-slate-900/[0.04]';
+  const calMonthHeader = isDarkMode
+    ? 'shrink-0 border-b border-slate-700/70 bg-slate-950/40 px-4 py-3 sm:px-5'
+    : 'shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5';
+  const calMonthKicker =
+    'text-[11px] font-semibold uppercase tracking-wider ' + (isDarkMode ? 'text-slate-400' : 'text-slate-500');
+  const calMonthTitle = isDarkMode ? 'text-xl font-bold text-white sm:text-2xl' : 'text-xl font-bold text-slate-900 sm:text-2xl';
+  const calNavBtn = isDarkMode
+    ? 'rounded-lg border border-slate-700 bg-[#0c1629] px-3 py-2 text-sm text-white transition hover:bg-slate-800/80'
+    : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50';
+  const iconToolBtn = isDarkMode
+    ? 'rounded-lg border border-slate-700 bg-[#0c1629] px-2.5 py-2 text-base leading-none text-white transition hover:bg-slate-800/80 sm:px-3'
+    : 'rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-base leading-none text-slate-700 shadow-sm transition hover:bg-slate-50 sm:px-3';
+  const dayHeaderCell = isDarkMode ? 'py-2 text-center text-sm font-bold text-gray-300' : 'py-2 text-center text-sm font-bold text-slate-600';
+  const sideHeading = isDarkMode
+    ? 'mb-4 flex items-center gap-2 text-lg font-bold text-white'
+    : 'mb-4 flex items-center gap-2 text-lg font-bold text-slate-900';
+  const sideCard = isDarkMode
+    ? 'cursor-pointer border border-slate-800 bg-slate-900/60'
+    : 'cursor-pointer border border-slate-200 bg-white shadow-sm';
+  const sideCardCompact = isDarkMode ? `${sideCard} p-3` : `${sideCard} p-3`;
+  const modalGlass = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-slate-50 shadow-sm';
+  const modalHeading = isDarkMode ? 'font-bold text-white' : 'font-bold text-slate-900';
+  const modalBody = isDarkMode ? 'text-sm text-gray-300' : 'text-sm text-slate-600';
+  const modalDestructive = isDarkMode
+    ? 'rounded-xl border border-slate-800 bg-[#040f2a] px-6 py-3 font-semibold text-red-400 transition-all hover:bg-slate-800/70'
+    : 'rounded-xl border border-slate-200 bg-white px-6 py-3 font-semibold text-red-600 shadow-sm transition-all hover:bg-slate-50';
+  const attendeeRow = isDarkMode
+    ? 'flex items-center gap-2 rounded-lg border border-slate-800 bg-[#040f2a] p-2'
+    : 'flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm';
+  const formShell = isDarkMode ? 'text-slate-100' : 'text-slate-900';
+  const formLabel = isDarkMode ? 'mb-2 block text-sm font-semibold text-slate-300' : 'mb-2 block text-sm font-semibold text-slate-700';
+  const formInput = isDarkMode
+    ? 'w-full rounded-xl border border-slate-600/80 bg-[#0a1628] px-4 py-3 text-white outline-none transition-all placeholder:text-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50'
+    : 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/25';
+  const formSelect = isDarkMode
+    ? 'w-full rounded-xl border border-slate-600/80 bg-[#0a1628] px-4 py-3 text-white outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40'
+    : 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-cyan-500';
+  const formBtnSecondary = isDarkMode
+    ? 'shrink-0 rounded-xl border border-slate-600 bg-[#0a1628] px-4 py-3 font-semibold text-white transition-all hover:bg-slate-700/80'
+    : 'shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 shadow-sm transition-all hover:bg-slate-50';
+  const formTypeInactive = isDarkMode
+    ? 'rounded-xl border border-slate-600 bg-[#0a1628] px-3 py-3 text-sm font-semibold text-slate-100 transition-all hover:border-slate-500 hover:bg-slate-800/90 sm:flex-row'
+    : 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:bg-white sm:flex-row';
+
+  const handleJumpDateChange = (e) => {
+    const v = e.target.value;
+    if (!v) return;
+    setSelectedDate(new Date(`${v}T12:00:00`));
+    showToast(`Đã chuyển tới ${v}`, 'success');
+    e.target.value = '';
+  };
+
+  const handleCalendarRefresh = async () => {
+    reloadLocal();
+    await refetch();
+    showToast('Đã làm mới lịch', 'success');
+  };
+
   return (
     <>
       <ThreeFrameLayout
         center={
-          <div className="flex flex-col h-full bg-[#020817] text-slate-100">
+          <div className={`flex h-full flex-col ${calShell}`}>
         {/* Header gọn — lịch là trọng tâm */}
-        <div className="shrink-0 border-b border-slate-800 bg-slate-900/40 px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className={`shrink-0 border-b px-3 py-2.5 sm:px-4 sm:py-3 ${calHeader}`}>
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
             <div className="min-w-0 flex flex-wrap items-end gap-x-4 gap-y-2">
               <div>
-                <h1 className="text-xl font-extrabold text-white sm:text-2xl">Lịch và Sự Kiện</h1>
-                <p className="text-[11px] text-gray-500 sm:text-xs">
+                <h1 className={`text-xl font-extrabold sm:text-2xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Lịch và Sự Kiện</h1>
+                <p className={`text-[11px] sm:text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
                   Meetings · Deadlines · Sự kiện
                   {loading && ' · Đang tải…'}
                   {error && ` · ${error}`}
@@ -296,14 +367,14 @@ function CalendarPage() {
                 ].map((s) => (
                   <div
                     key={s.label}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/50 bg-[#0a1322]/90 px-2 py-1 sm:px-2.5"
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 sm:px-2.5 ${isDarkMode ? 'border-slate-700/50 bg-[#0a1322]/90' : 'border-slate-200 bg-white'}`}
                     title={s.label}
                   >
                     <span className="text-sm sm:text-base leading-none" aria-hidden>
                       {s.icon}
                     </span>
-                    <span className="text-sm font-bold tabular-nums text-white leading-none">{s.value}</span>
-                    <span className="hidden text-[10px] text-gray-500 sm:inline">{s.label}</span>
+                    <span className={`text-sm font-bold tabular-nums leading-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.value}</span>
+                    <span className={`hidden text-[10px] sm:inline ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>{s.label}</span>
                   </div>
                 ))}
               </div>
@@ -317,8 +388,8 @@ function CalendarPage() {
                     onClick={() => setView(v)}
                     className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all sm:px-3 sm:text-sm ${
                       view === v
-                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                        : 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
+                        ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white'
+                        : viewInactive
                     }`}
                   >
                     {v === 'day' ? 'Ngày' : v === 'week' ? 'Tuần' : 'Tháng'}
@@ -335,16 +406,55 @@ function CalendarPage() {
         <div className="min-h-0 flex-1 grid grid-cols-1 gap-4 p-3 sm:p-4 lg:grid-cols-3 lg:gap-5 lg:p-5">
           {/* Calendar View — khung riêng, 2/3 chiều ngang trên desktop */}
           <div className="flex min-h-[38vh] lg:min-h-0 lg:col-span-2">
-            <div className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-600/60 bg-gradient-to-b from-[#0a1224] via-[#060d1c] to-[#030a14] shadow-[0_4px_24px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-white/[0.04]">
-              <div className="shrink-0 border-b border-slate-700/70 bg-slate-950/40 px-4 py-3 sm:px-5">
-                <div className="flex items-center justify-between gap-3">
+            <div className={`flex w-full min-h-0 flex-col overflow-hidden rounded-2xl ${calChrome}`}>
+              <div className={calMonthHeader}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Lịch tháng</p>
-                    <h2 className="text-xl font-bold text-white sm:text-2xl">
+                    <p className={calMonthKicker}>Lịch tháng</p>
+                    <h2 className={calMonthTitle}>
                       Tháng {selectedDate.getMonth() + 1}, {selectedDate.getFullYear()}
                     </h2>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <input
+                      ref={jumpDateInputRef}
+                      type="date"
+                      className="sr-only"
+                      aria-hidden
+                      tabIndex={-1}
+                      onChange={handleJumpDateChange}
+                    />
+                    <button
+                      type="button"
+                      title="Chọn ngày"
+                      className={iconToolBtn}
+                      onClick={() => {
+                        const el = jumpDateInputRef.current;
+                        if (el && typeof el.showPicker === 'function') {
+                          try {
+                            el.showPicker();
+                          } catch {
+                            el.click();
+                          }
+                        } else if (el) el.click();
+                      }}
+                    >
+                      🔍
+                    </button>
+                    <button type="button" title="Làm mới dữ liệu" className={iconToolBtn} onClick={handleCalendarRefresh}>
+                      🔄
+                    </button>
+                    <button
+                      type="button"
+                      title="Cài đặt"
+                      className={iconToolBtn}
+                      onClick={() => {
+                        navigate('/settings');
+                        showToast('Mở trang Cài đặt', 'info');
+                      }}
+                    >
+                      ⚙️
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -353,7 +463,7 @@ function CalendarPage() {
                         setSelectedDate(newDate);
                         showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, 'info');
                       }}
-                      className="rounded-lg border border-slate-700 bg-[#0c1629] px-3 py-2 text-sm text-white transition hover:bg-slate-800/80"
+                      className={calNavBtn}
                     >
                       ◀
                     </button>
@@ -363,7 +473,7 @@ function CalendarPage() {
                         setSelectedDate(new Date());
                         showToast('Quay về hôm nay', 'info');
                       }}
-                      className="rounded-lg border border-slate-700 bg-[#0c1629] px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800/80 sm:px-4"
+                      className={`${calNavBtn} font-semibold sm:px-4`}
                     >
                       Hôm nay
                     </button>
@@ -375,7 +485,7 @@ function CalendarPage() {
                         setSelectedDate(newDate);
                         showToast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, 'info');
                       }}
-                      className="rounded-lg border border-slate-700 bg-[#0c1629] px-3 py-2 text-sm text-white transition hover:bg-slate-800/80"
+                      className={calNavBtn}
                     >
                       ▶
                     </button>
@@ -386,8 +496,10 @@ function CalendarPage() {
               <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               {/* Calendar Grid */}
               <div className="grid grid-cols-7 gap-2">
-                {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
-                  <div key={day} className="text-center text-sm font-bold text-gray-400 py-2">{day}</div>
+                {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => (
+                  <div key={day} className={dayHeaderCell}>
+                    {day}
+                  </div>
                 ))}
                 {monthCells.map((cell) => {
                   if (cell.type === 'empty') {
@@ -415,17 +527,29 @@ function CalendarPage() {
                           setSelectedDate(date);
                         }
                       }}
-                      className={`aspect-square bg-[#040f2a] border border-slate-800 rounded-lg p-2 cursor-pointer transition-all hover:scale-105 ${
-                        isToday ? 'bg-gradient-to-br from-purple-600 to-pink-600 text-white' :
-                        hasEvent ? 'hover:bg-white/10 border border-purple-500/50' :
-                        'hover:bg-slate-800/70'
+                      className={`aspect-square cursor-pointer rounded-lg border p-2 transition-all hover:scale-105 ${
+                        isToday
+                          ? 'border-cyan-500 bg-gradient-to-br from-cyan-600 to-teal-600 text-white shadow-md'
+                          : isDarkMode
+                            ? hasEvent
+                              ? 'border-cyan-500/50 bg-[#040f2a] hover:bg-white/10'
+                              : 'border-slate-800 bg-[#040f2a] hover:bg-slate-800/70'
+                            : hasEvent
+                              ? 'border-cyan-400/80 bg-white shadow-sm hover:border-cyan-500'
+                              : 'border-slate-200 bg-slate-50 hover:bg-white hover:shadow-sm'
                       }`}
                     >
-                      <div className={`text-sm font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day}</div>
+                      <div
+                        className={`text-sm font-bold ${
+                          isToday ? 'text-white' : isDarkMode ? 'text-gray-200' : 'text-slate-800'
+                        }`}
+                      >
+                        {day}
+                      </div>
                       {hasEvent && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {dayEvents.slice(0, 3).map((e) => (
-                            <div key={e.id} className="w-1 h-1 rounded-full bg-purple-400" />
+                            <div key={e.id} className="w-1 h-1 rounded-full bg-cyan-400" />
                           ))}
                         </div>
                       )}
@@ -441,7 +565,7 @@ function CalendarPage() {
           <div className="min-h-0 space-y-4 overflow-y-auto pr-1 scrollbar-overlay lg:col-span-1 lg:max-h-[calc(100vh-8rem)]">
             {/* Today's Events */}
             <div>
-              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <h3 className={sideHeading}>
                 <span>📅</span> Hôm Nay - {todayEvents.length} sự kiện
               </h3>
               <div className="space-y-3">
@@ -458,13 +582,13 @@ function CalendarPage() {
                   <GlassCard
                     key={event.id} 
                     hover 
-                    className="animate-slideUp cursor-pointer border border-slate-800 bg-slate-900/60"
+                    className={`animate-slideUp ${sideCard}`}
                     style={{animationDelay: `${idx * 0.1}s`}}
                     onClick={() => setSelectedEvent(event)}
                   >
                     <div className={`w-full h-1 rounded-full bg-gradient-to-r ${event.color} mb-3`}></div>
-                    <h4 className="font-bold text-white mb-2">{event.title}</h4>
-                    <div className="space-y-1 text-sm text-gray-400">
+                    <h4 className={`mb-2 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{event.title}</h4>
+                    <div className={`space-y-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
                       <div className="flex items-center gap-2">
                         <span>🕐</span>
                         <span>{event.time}</span>
@@ -492,7 +616,11 @@ function CalendarPage() {
                       disabled={Boolean(
                         event.type === 'meeting' && meetingJoin && !meetingJoin.joinEligible
                       )}
-                      className="w-full mt-3 py-2 bg-[#040f2a] border border-slate-800 rounded-lg hover:bg-slate-800/70 transition-all text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                      className={`mt-3 w-full rounded-lg border py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                        isDarkMode
+                          ? 'border-slate-800 bg-[#040f2a] hover:bg-slate-800/70'
+                          : 'border-slate-200 bg-white shadow-sm hover:bg-slate-50'
+                      }`}
                     >
                       {joinLabel}
                     </button>
@@ -504,7 +632,7 @@ function CalendarPage() {
 
             {/* Upcoming Events */}
             <div>
-              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <h3 className={sideHeading}>
                 <span>🔜</span> Sắp Tới
               </h3>
               <div className="space-y-2">
@@ -512,7 +640,7 @@ function CalendarPage() {
                   <GlassCard
                     key={event.id} 
                     hover 
-                    className="p-3 cursor-pointer border border-slate-800 bg-slate-900/60"
+                    className={sideCardCompact}
                     onClick={() => setSelectedEvent(event)}
                   >
                     <div className="flex items-center gap-3">
@@ -520,8 +648,10 @@ function CalendarPage() {
                         {event.type === 'meeting' ? '🎤' : '⏰'}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white text-sm truncate">{event.title}</div>
-                        <div className="text-xs text-gray-400">{event.date} • {event.time}</div>
+                        <div className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{event.title}</div>
+                        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                          {event.date} • {event.time}
+                        </div>
                       </div>
                     </div>
                   </GlassCard>
@@ -548,22 +678,22 @@ function CalendarPage() {
           
           {/* Event Info */}
           <div className="grid grid-cols-2 gap-4">
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+            <GlassCard className={modalGlass}>
+              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
                 <span>🕐</span> Thời Gian
               </h4>
-              <div className="space-y-2 text-sm text-gray-300">
+              <div className={`space-y-2 ${modalBody}`}>
                 <div>📅 {selectedEvent.date}</div>
                 <div>⏰ {selectedEvent.time}</div>
                 {selectedEvent.duration && <div>⌛ {selectedEvent.duration}</div>}
               </div>
             </GlassCard>
 
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+            <GlassCard className={modalGlass}>
+              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
                 <span>ℹ️</span> Chi Tiết
               </h4>
-              <div className="space-y-2 text-sm text-gray-300">
+              <div className={`space-y-2 ${modalBody}`}>
                 <div>
                   📌{' '}
                   {selectedEvent.kind === 'task'
@@ -582,17 +712,17 @@ function CalendarPage() {
           {selectedEvent.type === 'meeting' &&
             Array.isArray(selectedEvent.attendeeNames) &&
             selectedEvent.attendeeNames.length > 0 && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+            <GlassCard className={modalGlass}>
+              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
                 <span>👥</span> Người tham gia ({selectedEvent.attendeeNames.length})
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 {selectedEvent.attendeeNames.map((name, idx) => (
-                  <div key={name} className="flex items-center gap-2 p-2 bg-[#040f2a] border border-slate-800 rounded-lg">
-                    <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${['from-purple-600 to-pink-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500', 'from-orange-500 to-red-500'][idx % 4]} flex items-center justify-center text-xs font-bold`}>
+                  <div key={name} className={attendeeRow}>
+                    <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${['from-cyan-600 to-teal-600', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500', 'from-orange-500 to-red-500'][idx % 4]} flex items-center justify-center text-xs font-bold`}>
                       {String(name).split(' ').map((n) => n[0]).join('')}
                     </div>
-                    <div className="text-sm font-semibold text-white">{name}</div>
+                    <div className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{name}</div>
                   </div>
                 ))}
               </div>
@@ -600,11 +730,11 @@ function CalendarPage() {
           )}
 
           {/* Description */}
-          <GlassCard className="border border-slate-800 bg-slate-900/60">
-            <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+          <GlassCard className={modalGlass}>
+            <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
               <span>📝</span> Mô Tả
             </h4>
-            <p className="text-gray-300 text-sm whitespace-pre-wrap">
+            <p className={`whitespace-pre-wrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}>
               {selectedEvent.description ||
                 (selectedEvent.raw?.description) ||
                 (selectedEvent.type === 'meeting'
@@ -653,7 +783,7 @@ function CalendarPage() {
               onClick={() => {
                 handleDeleteEvent(selectedEvent?.id, selectedEvent?.source);
               }}
-            className="bg-[#040f2a] border border-slate-800 px-6 py-3 rounded-xl hover:bg-slate-800/70 transition-all font-semibold text-red-400"
+            className={modalDestructive}
             >
               🗑️ Xóa
             </button>
@@ -670,10 +800,10 @@ function CalendarPage() {
       title={editingEventId ? 'Chỉnh Sửa Sự Kiện' : 'Tạo Sự Kiện Mới'}
       size="lg"
     >
-      <div className="space-y-4 text-slate-100">
+      <div className={`space-y-4 ${formShell}`}>
         {/* Event Title */}
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className={formLabel}>
             Tiêu Đề Sự Kiện
           </label>
           <input 
@@ -681,13 +811,13 @@ function CalendarPage() {
             placeholder="Nhập tiêu đề..."
             value={eventForm.title}
             onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
-            className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/50 text-white placeholder:text-slate-500 transition-all"
+            className={formInput}
           />
         </div>
 
         {/* Event Type — chữ sáng + nền tách khỏi glass modal */}
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className={formLabel}>
             Loại Sự Kiện
           </label>
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -702,14 +832,14 @@ function CalendarPage() {
                 key={type.id}
                 type="button"
                 onClick={() => setCreateType(type.id)}
-                className={`rounded-xl px-3 py-3 text-sm font-semibold transition-all flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2 border ${
+                className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-3 text-sm font-semibold transition-all sm:flex-row sm:gap-2 ${
                   active
-                    ? 'bg-violet-600/35 border-violet-400 text-white shadow-[inset_0_0_0_1px_rgba(167,139,250,0.5)]'
-                    : 'bg-[#0a1628] border-slate-600 text-slate-100 hover:bg-slate-800/90 hover:border-slate-500'
+                    ? 'border-cyan-400 bg-cyan-600/35 text-white shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]'
+                    : formTypeInactive
                 }`}
               >
                 <span className="text-lg leading-none" aria-hidden>{type.icon}</span>
-                <span className="text-white">{type.label}</span>
+                <span className={active ? 'text-white' : isDarkMode ? 'text-slate-100' : 'text-slate-800'}>{type.label}</span>
               </button>
               );
             })}
@@ -719,25 +849,25 @@ function CalendarPage() {
         {/* Date & Time */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">
+            <label className={formLabel}>
               Ngày
             </label>
             <input 
               type="date"
                 value={eventForm.date}
                 onChange={(e) => setEventForm((prev) => ({ ...prev, date: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none text-white [color-scheme:dark] transition-all"
+              className={`${formInput} ${isDarkMode ? '[color-scheme:dark]' : '[color-scheme:light]'}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">
+            <label className={formLabel}>
               Giờ
             </label>
             <input 
               type="time"
                 value={eventForm.time}
                 onChange={(e) => setEventForm((prev) => ({ ...prev, time: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none text-white [color-scheme:dark] transition-all"
+              className={`${formInput} ${isDarkMode ? '[color-scheme:dark]' : '[color-scheme:light]'}`}
             />
           </div>
         </div>
@@ -745,24 +875,24 @@ function CalendarPage() {
         {/* Duration & Location */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">
+            <label className={formLabel}>
               Thời Lượng
             </label>
             <select
               value={eventForm.duration}
               onChange={(e) => setEventForm((prev) => ({ ...prev, duration: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 text-white focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+              className={formSelect}
             >
-              <option className="bg-slate-900 text-white">15 phút</option>
-              <option className="bg-slate-900 text-white">30 phút</option>
-              <option className="bg-slate-900 text-white">45 phút</option>
-              <option className="bg-slate-900 text-white">1 giờ</option>
-              <option className="bg-slate-900 text-white">1.5 giờ</option>
-              <option className="bg-slate-900 text-white">2 giờ</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>15 phút</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>30 phút</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>45 phút</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>1 giờ</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>1.5 giờ</option>
+              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>2 giờ</option>
             </select>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">
+            <label className={formLabel}>
               Địa Điểm
             </label>
             <input 
@@ -770,14 +900,14 @@ function CalendarPage() {
               placeholder="Voice Room hoặc link..."
               value={eventForm.location}
               onChange={(e) => setEventForm((prev) => ({ ...prev, location: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none text-white placeholder:text-slate-500 transition-all"
+              className={formInput}
             />
           </div>
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className={formLabel}>
             Mô Tả
           </label>
           <textarea 
@@ -785,13 +915,13 @@ function CalendarPage() {
             placeholder="Nhập mô tả chi tiết..."
             value={eventForm.description}
             onChange={(e) => setEventForm((prev) => ({ ...prev, description: e.target.value }))}
-            className="w-full px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none text-white placeholder:text-slate-500 transition-all resize-none"
+            className={`${formInput} resize-none`}
           ></textarea>
         </div>
 
         {/* Attendees */}
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className={formLabel}>
             Người Tham Gia
           </label>
           <div className="flex gap-2">
@@ -800,11 +930,11 @@ function CalendarPage() {
               placeholder="Thêm người tham gia..."
               value={eventForm.attendeesText}
               onChange={(e) => setEventForm((prev) => ({ ...prev, attendeesText: e.target.value }))}
-              className="flex-1 px-4 py-3 rounded-xl bg-[#0a1628] border border-slate-600/80 focus:border-violet-500 focus:outline-none text-white placeholder:text-slate-500 transition-all"
+              className={`flex-1 ${formInput}`}
             />
             <button
               type="button"
-              className="shrink-0 border border-slate-600 bg-[#0a1628] px-4 py-3 rounded-xl hover:bg-slate-700/80 transition-all font-semibold text-white"
+              className={formBtnSecondary}
               onClick={handleAddAttendees}
             >
               ➕ Thêm
@@ -838,7 +968,7 @@ function CalendarPage() {
           <button 
             type="button"
             onClick={() => setShowCreateEventModal(false)}
-            className="border border-slate-600 bg-[#0a1628] px-6 py-3 rounded-xl hover:bg-slate-700/80 transition-all font-semibold text-white"
+            className={formBtnSecondary}
           >
             Hủy
           </button>
@@ -857,7 +987,5 @@ function CalendarPage() {
     </>
   );
 }
-
-// ============= ANALYTICS PAGE =============
 
 export default CalendarPage;

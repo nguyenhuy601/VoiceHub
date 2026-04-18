@@ -1,16 +1,18 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Bell, MoreHorizontal, Search } from 'lucide-react';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import { useEffect, useMemo, useState } from 'react';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
+import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator, Toast } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
+import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import friendService from '../../services/friendService';
+import { meetingAPI } from '../../services/api/meetingAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
-import { meetingAPI } from '../../services/api/meetingAPI';
+import friendService from '../../services/friendService';
+import { appShellBg } from '../../theme/shellTheme';
+import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 
 function initialsFromName(name) {
   if (!name || typeof name !== 'string') return '?';
@@ -35,8 +37,10 @@ function MiniSparkline({ up = true, className = '' }) {
   );
 }
 
-function DashboardPage() {
-  const [activeFilter, setActiveFilter] = useState('all');
+function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
+  const [activeFilter, setActiveFilter] = useState(() =>
+    landingDemo && demoVariant === 'tasks' ? 'tasks' : 'all',
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStat, setSelectedStat] = useState(null);
   const [showActivityDetail, setShowActivityDetail] = useState(null);
@@ -44,15 +48,16 @@ function DashboardPage() {
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [quickNavOpen, setQuickNavOpen] = useState(false);
   /** Tăng khi đổi danh sách bạn / lời mời để refetch metrics */
   const [metricsTick, setMetricsTick] = useState(0);
   const [metrics, setMetrics] = useState({
-    loading: true,
-    orgCount: null,
-    friendsTotal: null,
-    pendingCount: 0,
-    unread: 0,
-    taskDone: null,
+    loading: !landingDemo,
+    orgCount: landingDemo ? 2 : null,
+    friendsTotal: landingDemo ? 8 : null,
+    pendingCount: landingDemo ? 2 : 0,
+    unread: landingDemo ? 4 : 0,
+    taskDone: landingDemo ? 14 : null,
   });
   /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
   const [presenceFriends, setPresenceFriends] = useState([]);
@@ -60,7 +65,7 @@ function DashboardPage() {
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
   const { user } = useAuth();
   const { onlineUsers, connected: socketConnected } = useSocket();
-  const navigate = useNavigate();
+  const navigate = useLandingSafeNavigate(landingDemo);
 
   const displayName =
     user?.fullName ||
@@ -80,15 +85,46 @@ function DashboardPage() {
   };
 
   useEffect(() => {
+    if (landingDemo) return;
     // Chỉ hiển thị modal chào khi vừa đăng nhập / lần đầu vào web trong phiên này
     const seen = localStorage.getItem('vh_seen_welcome');
     if (!seen) {
       setShowWelcome(true);
       localStorage.setItem('vh_seen_welcome', '1');
     }
-  }, []);
+  }, [landingDemo]);
 
   useEffect(() => {
+    if (landingDemo && demoVariant === 'tasks') {
+      setActiveFilter('tasks');
+    }
+  }, [landingDemo, demoVariant]);
+
+  useEffect(() => {
+    if (landingDemo) {
+      setMetrics({
+        loading: false,
+        orgCount: 2,
+        friendsTotal: 8,
+        pendingCount: 2,
+        unread: 4,
+        taskDone: 14,
+      });
+      setPresenceFriends([
+        { id: 'u1', name: 'Lan Anh', avatar: null, status: 'online' },
+        { id: 'u2', name: 'Minh Tuấn', avatar: null, status: 'away' },
+      ]);
+      setUpcomingMeetings([
+        {
+          id: 'm-demo',
+          title: 'Họp nhóm VoiceHub',
+          time: '10:00',
+          attendees: 5,
+          startTime: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -209,7 +245,7 @@ function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [metricsTick]);
+  }, [metricsTick, landingDemo, demoVariant]);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -240,6 +276,49 @@ function DashboardPage() {
     [displayPresenceFriends]
   );
 
+  const { isDarkMode } = useTheme();
+  const shellBg = appShellBg(isDarkMode);
+  const dashHeader = isDarkMode
+    ? 'border-b border-white/[0.06] bg-[#0D0D0F]/95 backdrop-blur-md'
+    : 'border-b border-slate-200/90 bg-white/95 backdrop-blur-md';
+  const dashMain = isDarkMode ? '' : 'bg-[#f5f7fa]';
+  const dashAside = isDarkMode
+    ? 'border-l border-white/[0.06] bg-[#121214]'
+    : 'border-l border-slate-200/90 bg-slate-100';
+  const cardSurface = isDarkMode
+    ? 'border border-white/[0.06] bg-[#1A1A1C]'
+    : 'border border-slate-200/90 bg-white shadow-sm';
+  const inputSurface = isDarkMode
+    ? 'border border-white/[0.06] bg-[#1A1A1C] text-white placeholder:text-[#6b7280] focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/25'
+    : 'border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20';
+  const textMuted = isDarkMode ? 'text-[#9ca3af]' : 'text-slate-600';
+  const textHeading = isDarkMode ? 'text-white' : 'text-slate-900';
+  const textSub = isDarkMode ? 'text-[#6b7280]' : 'text-slate-500';
+  const accentText = isDarkMode ? 'text-cyan-300' : 'text-cyan-700';
+  const modalGlass = isDarkMode
+    ? 'border border-slate-800 bg-slate-900/60'
+    : 'border border-slate-200 bg-white shadow-sm';
+  const modalRow = isDarkMode
+    ? 'flex items-center gap-3 rounded-xl border border-slate-800 bg-[#040f2a] p-3'
+    : 'flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3';
+  const modalRowBetween = isDarkMode
+    ? 'flex cursor-pointer items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-3 transition-all hover:bg-slate-800/60'
+    : 'flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3 transition-all hover:bg-slate-100';
+  const modalHeroRow = isDarkMode
+    ? 'flex items-center gap-3 rounded-xl border border-slate-800 bg-[#040f2a] p-3.5'
+    : 'flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 shadow-sm';
+  const modalSecondaryBtn = isDarkMode
+    ? 'rounded-xl border border-slate-800 bg-[#040f2a] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-slate-800/70'
+    : 'rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:bg-slate-50';
+  const modalSecondaryBtnSm = isDarkMode
+    ? 'rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-2 text-sm text-white transition-all hover:bg-slate-800/70'
+    : 'rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 shadow-sm transition-all hover:bg-slate-50';
+  const modalLabel = isDarkMode ? 'mb-2 block text-sm font-semibold text-gray-300' : 'mb-2 block text-sm font-semibold text-slate-700';
+  const modalDetailRowBorder = isDarkMode ? 'border-b border-white/5' : 'border-b border-slate-100';
+  const modalChip = isDarkMode
+    ? 'rounded-lg border border-slate-800 bg-[#040f2a] px-3 py-2 text-sm text-white transition-all hover:bg-slate-800/70'
+    : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all hover:bg-slate-50';
+
   const stats = useMemo(() => {
     const fmt = (n) => {
       if (metrics.loading) return '…';
@@ -252,8 +331,8 @@ function DashboardPage() {
         label: 'Tổ chức',
         value: fmt(metrics.orgCount),
         change: '+1',
-        color: 'from-violet-600 to-fuchsia-600',
-        iconBg: 'from-[#7C3AED] to-[#a855f7]',
+        color: 'from-cyan-600 to-teal-600',
+        iconBg: 'from-[#0891b2] to-[#0d9488]',
         sparkClass: 'text-emerald-400',
         trend: 'up',
         detail: metrics.loading ? 'Đang tải...' : 'Không gian làm việc đã tham gia',
@@ -318,9 +397,9 @@ function DashboardPage() {
   const activities = [
     { user: 'Sarah Chen', action: 'hoàn thành', item: 'Đánh giá thiết kế UI', time: '2 phút', avatar: '👩‍💼', type: 'task', color: 'from-emerald-500 to-teal-600', detail: { project: 'VoiceHub Enterprise', duration: '2 giờ', tags: ['Thiết Kế', 'Đánh Giá'] } },
     { user: 'Mike Ross', action: 'tải lên', item: 'BaoCaoQ4.pdf', time: '15 phút', avatar: '👨‍💻', type: 'file', color: 'from-blue-500 to-sky-600', detail: { size: '2.4 MB', folder: 'Tài Liệu/Báo Cáo', downloads: 5 } },
-    { user: 'Emma Wilson', action: 'tạo kênh', item: '#y-tuong-marketing', time: '1 giờ', avatar: '👩‍🎨', type: 'message', color: 'from-violet-600 to-fuchsia-600', detail: { members: 8, category: 'Marketing', description: 'Tổng kết ý tưởng chiến dịch' } },
+    { user: 'Emma Wilson', action: 'tạo kênh', item: '#y-tuong-marketing', time: '1 giờ', avatar: '👩‍🎨', type: 'message', color: 'from-cyan-600 to-teal-600', detail: { members: 8, category: 'Marketing', description: 'Tổng kết ý tưởng chiến dịch' } },
     { user: 'David Kim', action: 'tham gia', item: 'Họp Nhóm Hàng Ngày', time: '2 giờ', avatar: '👨‍🔬', type: 'task', color: 'from-amber-500 to-orange-600', detail: { duration: '30 phút', participants: 12, recording: true } },
-    { user: 'Lisa Park', action: 'comment', item: 'Dự án Website mới', time: '3 giờ', avatar: '👩‍💼', type: 'message', color: 'from-pink-500 to-rose-600', detail: { comments: 3, mentions: ['@Mike', '@Sarah'], project: 'Thiết Kế Lại Website' } },
+    { user: 'Lisa Park', action: 'comment', item: 'Dự án Website mới', time: '3 giờ', avatar: '👩‍💼', type: 'message', color: 'from-sky-500 to-cyan-600', detail: { comments: 3, mentions: ['@Mike', '@Sarah'], project: 'Thiết Kế Lại Website' } },
     { user: 'Alex Nguyen', action: 'cập nhật', item: 'Roadmap Q3', time: '5 giờ', avatar: '🧑‍💼', type: 'file', color: 'from-cyan-500 to-blue-600', detail: { project: 'VoiceHub Enterprise' } },
   ];
 
@@ -340,48 +419,121 @@ function DashboardPage() {
   const activityTypeLabel = (t) =>
     t === 'task' ? 'Việc' : t === 'file' ? 'Tệp' : t === 'message' ? 'Tin nhắn' : 'Hoạt động';
 
+  const QUICK_NAV = useMemo(
+    () => [
+      { label: 'Tổ chức', path: '/organizations', hint: 'org organization workspace' },
+      { label: 'Bạn bè', path: '/friends', hint: 'friends chat tin nhắn' },
+      { label: 'Trò chuyện', path: '/chat', hint: 'channel guild voice' },
+      { label: 'Công việc', path: '/tasks', hint: 'task deadline việc' },
+      { label: 'Lịch', path: '/calendar', hint: 'meeting event ngày' },
+      { label: 'Thông báo', path: '/notifications', hint: 'notify bell' },
+      { label: 'Cài đặt', path: '/settings', hint: 'preferences theme' },
+      { label: 'Tài liệu', path: '/documents', hint: 'file pdf doc' },
+      { label: 'Phân tích', path: '/analytics', hint: 'analytics báo cáo' },
+    ],
+    []
+  );
+
+  const filteredQuickNav = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return QUICK_NAV;
+    return QUICK_NAV.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.hint.toLowerCase().includes(q) ||
+        item.path.toLowerCase().includes(q)
+    );
+  }, [searchQuery, QUICK_NAV]);
+
+  const exportDashboardSnapshot = () => {
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        metrics,
+        displayName,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'voicehub-dashboard-snapshot.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Đã tải snapshot số liệu (JSON)', 'success');
+    } catch {
+      showToast('Không xuất được file', 'error');
+    }
+  };
+
+  const shareDashboardLink = async () => {
+    const url = `${window.location.origin}/dashboard`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Đã copy liên kết Dashboard', 'success');
+    } catch {
+      showToast(url, 'info');
+    }
+  };
+
+  const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
+
   return (
     <>
-    <div className="flex h-screen overflow-hidden bg-[#0D0D0F]">
-      <NavigationSidebar />
+    <div className={`flex ${shellH} overflow-hidden ${shellBg}`}>
+      <NavigationSidebar landingDemo={landingDemo} />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] bg-[#0D0D0F]/95 px-4 py-3 backdrop-blur-md md:gap-4 md:px-6">
-          <p className="max-w-[40%] truncate text-sm font-medium text-white/90 md:max-w-none md:text-[15px]">
+        <header className={`flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:gap-4 md:px-6 ${dashHeader}`}>
+          <p className={`max-w-[40%] truncate text-sm font-medium md:max-w-none md:text-[15px] ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
             {getGreeting()}
           </p>
-          <div className="relative min-w-0 flex-1 md:max-w-xl md:mx-auto">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b7280]" />
+          <div className="relative min-w-0 flex-1 md:mx-auto md:max-w-xl">
+            <button
+              type="button"
+              className={`absolute left-2 top-1/2 z-[1] -translate-y-1/2 rounded-lg p-1.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
+              aria-label="Mở tìm nhanh"
+              onClick={() => setQuickNavOpen(true)}
+            >
+              <Search className="h-4 w-4" strokeWidth={2} />
+            </button>
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm toàn hệ thống..."
-              className="w-full rounded-2xl border border-white/[0.06] bg-[#1A1A1C] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-[#6b7280] focus:border-[#7C3AED]/35 focus:ring-1 focus:ring-[#7C3AED]/25"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setQuickNavOpen(true);
+                }
+              }}
+              placeholder="Tìm kiếm toàn hệ thống… (Enter)"
+              className={`w-full rounded-2xl py-2.5 pl-11 pr-4 text-sm outline-none transition ${inputSurface}`}
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
               onClick={() => navigate('/notifications')}
-              className="relative rounded-xl p-2.5 text-[#9ca3af] transition hover:bg-white/[0.06] hover:text-white"
+              className={`relative rounded-xl p-2.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
               aria-label="Thông báo"
             >
               <Bell className="h-5 w-5" strokeWidth={2} />
               {(metrics.unread > 0 || metrics.pendingCount > 0) && (
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-[#0D0D0F]" />
+                <span
+                  className={`absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ${isDarkMode ? 'ring-[#0D0D0F]' : 'ring-white'}`}
+                />
               )}
             </button>
           </div>
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <main className="min-h-0 flex-1 overflow-y-auto overflow-x-visible px-4 py-5 scrollbar-overlay md:px-6 lg:px-8">
+          <main className={`min-h-0 flex-1 overflow-y-auto overflow-x-visible px-4 py-5 scrollbar-overlay md:px-6 lg:px-8 ${dashMain}`}>
             <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[#3B82F6]">Dashboard</p>
-                <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Trung Tâm Điều Khiển</h1>
-                <p className="mt-1 text-sm text-[#9ca3af]">Giám sát không gian làm việc thời gian thực</p>
+                <p className={`mb-1 text-[11px] font-bold uppercase tracking-[0.18em] ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>Dashboard</p>
+                <h1 className={`text-2xl font-bold tracking-tight md:text-3xl ${textHeading}`}>Trung Tâm Điều Khiển</h1>
+                <p className={`mt-1 text-sm ${textMuted}`}>Giám sát không gian làm việc thời gian thực</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.12)]">
@@ -392,40 +544,59 @@ function DashboardPage() {
                   trigger={
                     <button
                       type="button"
-                      className="rounded-xl border border-white/[0.08] bg-[#1A1A1C] p-2 text-[#9ca3af] transition hover:bg-white/[0.06] hover:text-white"
+                      className={`rounded-xl border p-2 transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
                     >
                       <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
                     </button>
                   }
                   align="right"
                 >
-                  <div className="p-2">
-                    <button
-                      type="button"
-                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                    >
-                      Tùy chỉnh Dashboard
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                    >
-                      Xuất báo cáo
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                    >
-                      Chia sẻ
-                    </button>
-                    <div className="my-2 h-px bg-white/10" />
-                    <button
-                      type="button"
-                      className="w-full rounded-lg px-4 py-2 text-left text-sm text-white transition hover:bg-white/10"
-                    >
-                      Cài đặt
-                    </button>
-                  </div>
+                  {(close) => (
+                    <div className="p-2">
+                      <button
+                        type="button"
+                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
+                        onClick={() => {
+                          document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          showToast('Đã cuộn tới khu vực hoạt động', 'info');
+                          close();
+                        }}
+                      >
+                        Tùy chỉnh Dashboard
+                      </button>
+                      <button
+                        type="button"
+                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
+                        onClick={() => {
+                          exportDashboardSnapshot();
+                          close();
+                        }}
+                      >
+                        Xuất báo cáo
+                      </button>
+                      <button
+                        type="button"
+                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
+                        onClick={() => {
+                          shareDashboardLink();
+                          close();
+                        }}
+                      >
+                        Chia sẻ
+                      </button>
+                      <div className={`my-2 h-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
+                      <button
+                        type="button"
+                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
+                        onClick={() => {
+                          navigate('/settings');
+                          close();
+                        }}
+                      >
+                        Cài đặt
+                      </button>
+                    </div>
+                  )}
                 </Dropdown>
               </div>
             </div>
@@ -436,7 +607,7 @@ function DashboardPage() {
                 key={idx}
                 hover
                 onClick={() => setSelectedStat(stat)}
-                className="group relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.06] bg-[#1A1A1C] p-4 shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition duration-300 hover:border-white/[0.1] hover:shadow-[0_12px_48px_rgba(0,0,0,0.5)]"
+                className={`group relative cursor-pointer overflow-hidden rounded-2xl p-4 transition duration-300 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.35)] hover:border-white/[0.1] hover:shadow-[0_12px_48px_rgba(0,0,0,0.5)]' : 'shadow-md hover:border-cyan-200/80 hover:shadow-lg'}`}
                 style={{ animationDelay: `${idx * 0.06}s` }}
               >
                 <div
@@ -445,7 +616,7 @@ function DashboardPage() {
                 <div className="relative z-10">
                   <div className="mb-3 flex items-start justify-between gap-2">
                     <div
-                      className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${stat.iconBg || stat.color} text-lg shadow-[0_4px_20px_rgba(124,58,237,0.25)]`}
+                      className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${stat.iconBg || stat.color} text-lg shadow-[0_4px_20px_rgba(8,145,178,0.25)]`}
                     >
                       {stat.icon}
                     </div>
@@ -461,10 +632,10 @@ function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="mb-0.5 text-3xl font-bold tabular-nums tracking-tight text-white">{stat.value}</div>
-                  <div className="mb-1 text-xs font-medium text-[#9ca3af]">{stat.label}</div>
-                  <div className="text-[11px] leading-relaxed text-[#6b7280]">{stat.detail}</div>
-                  <div className="mt-3 text-[11px] font-medium text-[#7C3AED] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                  <div className={`mb-0.5 text-3xl font-bold tabular-nums tracking-tight ${textHeading}`}>{stat.value}</div>
+                  <div className={`mb-1 text-xs font-medium ${textMuted}`}>{stat.label}</div>
+                  <div className={`text-[11px] leading-relaxed ${textSub}`}>{stat.detail}</div>
+                  <div className={`mt-3 text-[11px] font-medium opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${accentText}`}>
                     Xem chi tiết →
                   </div>
                 </div>
@@ -472,16 +643,17 @@ function DashboardPage() {
             ))}
           </div>
 
-          <GlassCard className="mb-2 border border-white/[0.06] bg-[#1A1A1C] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
+          <div id="vh-dashboard-activity">
+          <GlassCard className={`mb-2 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600/80 to-indigo-600/80 text-lg shadow-lg">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600/90 to-teal-700/85 text-lg text-white shadow-lg">
                   ⚡
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-white">Hoạt động gần đây</h2>
-                  <p className="mt-0.5 text-xs text-[#6b7280]">
-                    <span className="font-semibold text-[#a78bfa]">{filteredActivities.length} sự kiện</span>
+                  <h2 className={`text-lg font-bold ${textHeading}`}>Hoạt động gần đây</h2>
+                  <p className={`mt-0.5 text-xs ${textSub}`}>
+                    <span className={`font-semibold ${accentText}`}>{filteredActivities.length} sự kiện</span>
                     <span className="mx-1.5">·</span>
                     Minh họa — feed thật sẽ nối sau
                   </p>
@@ -500,8 +672,12 @@ function DashboardPage() {
                     onClick={() => setActiveFilter(f.id)}
                     className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
                       activeFilter === f.id
-                        ? 'bg-[#7C3AED] text-white shadow-[0_0_20px_rgba(124,58,237,0.35)]'
-                        : 'border border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
+                        ? isDarkMode
+                          ? 'bg-cyan-600 text-white shadow-[0_0_20px_rgba(8,145,178,0.35)]'
+                          : 'bg-cyan-600 text-white shadow-md'
+                        : isDarkMode
+                          ? 'border border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
+                          : 'border border-slate-200 bg-slate-100 text-slate-600 hover:border-cyan-200 hover:bg-white hover:text-slate-900'
                     }`}
                   >
                     {f.label}
@@ -511,7 +687,10 @@ function DashboardPage() {
             </div>
 
             <div className="relative space-y-0">
-              <div className="absolute bottom-0 left-[19px] top-2 w-px bg-gradient-to-b from-[#7C3AED]/50 via-white/10 to-transparent" aria-hidden />
+              <div
+                className={`absolute bottom-0 left-[19px] top-2 w-px bg-gradient-to-b to-transparent ${isDarkMode ? 'from-cyan-500/50 via-white/10' : 'from-cyan-500/40 via-slate-200'}`}
+                aria-hidden
+              />
               {filteredActivities.map((activity, idx) => (
                 <div
                   key={idx}
@@ -519,11 +698,11 @@ function DashboardPage() {
                   tabIndex={0}
                   onClick={() => setShowActivityDetail(activity)}
                   onKeyDown={(e) => e.key === 'Enter' && setShowActivityDetail(activity)}
-                  className="group relative flex gap-4 border-b border-white/[0.04] py-4 pl-1 pr-2 transition-colors last:border-0 hover:bg-white/[0.02]"
+                  className={`group relative flex gap-4 border-b py-4 pl-1 pr-2 transition-colors last:border-0 ${isDarkMode ? 'border-white/[0.04] hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'}`}
                 >
                   <div className="relative z-10 flex shrink-0 flex-col items-center pt-0.5">
                     <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br ${activity.color} ring-4 ring-[#1A1A1C]`}
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br ${activity.color} ring-4 ${isDarkMode ? 'ring-[#1A1A1C]' : 'ring-white'}`}
                     />
                     <div
                       className={`mt-2 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br ${activity.color} text-xs font-bold text-white shadow-md`}
@@ -532,13 +711,13 @@ function DashboardPage() {
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-relaxed text-[#e5e7eb]">
-                      <span className="font-semibold text-white">{activity.user}</span>{' '}
-                      <span className="text-[#9ca3af]">{activity.action}</span>{' '}
-                      <span className="font-semibold text-[#a78bfa]">{activity.item}</span>
+                    <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-[#e5e7eb]' : 'text-slate-700'}`}>
+                      <span className={`font-semibold ${textHeading}`}>{activity.user}</span>{' '}
+                      <span className={textMuted}>{activity.action}</span>{' '}
+                      <span className={`font-semibold ${accentText}`}>{activity.item}</span>
                     </p>
                     {activity.detail?.project && (
-                      <p className="mt-1 text-xs text-[#6b7280]">{activity.detail.project}</p>
+                      <p className={`mt-1 text-xs ${textSub}`}>{activity.detail.project}</p>
                     )}
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
@@ -555,19 +734,20 @@ function DashboardPage() {
 
             <button
               type="button"
-              className="mt-2 w-full rounded-xl border border-white/[0.06] bg-[#141416] py-2.5 text-sm text-[#9ca3af] transition hover:border-white/10 hover:bg-white/[0.04] hover:text-white"
+              className={`mt-2 w-full rounded-xl border py-2.5 text-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-200 hover:bg-white hover:text-slate-900'}`}
             >
               Xem tất cả hoạt động →
             </button>
           </GlassCard>
+          </div>
           </main>
 
-      <aside className="flex w-80 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#121214]">
+      <aside className={`flex w-80 shrink-0 flex-col overflow-hidden ${dashAside}`}>
         <div className="flex-1 min-h-0 space-y-6 overflow-y-auto overflow-x-visible p-4 scrollbar-overlay">
           <div className="space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Truy cập nhanh</p>
+            <p className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Truy cập nhanh</p>
             {[
-              { ch: '# chat-chung', badge: '4 tin mới', color: 'bg-violet-500/20 text-violet-300' },
+              { ch: '# chat-chung', badge: '4 tin mới', color: 'bg-cyan-500/15 text-cyan-300' },
               { ch: '# thiết-kế', badge: null, color: '' },
               { ch: '# tổng-hợp', badge: '2', color: 'bg-sky-500/20 text-sky-300' },
             ].map((row, i) => (
@@ -575,7 +755,7 @@ function DashboardPage() {
                 key={i}
                 type="button"
                 onClick={() => navigate('/organizations')}
-                className="flex w-full items-center justify-between rounded-xl border border-white/[0.05] bg-[#1A1A1C] px-3 py-2.5 text-left text-sm text-[#e5e7eb] transition hover:border-[#7C3AED]/30 hover:bg-white/[0.03]"
+                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${isDarkMode ? 'border-white/[0.05] bg-[#1A1A1C] text-[#e5e7eb] hover:border-cyan-500/35 hover:bg-white/[0.03]' : 'border-slate-200 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'}`}
               >
                 <span className="font-medium">{row.ch}</span>
                 {row.badge && (
@@ -598,18 +778,18 @@ function DashboardPage() {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Cuộc họp</h3>
+              <h3 className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Cuộc họp</h3>
               <button
                 type="button"
                 onClick={() => navigate('/calendar')}
-                className="text-[11px] font-semibold text-[#7C3AED] hover:text-violet-300"
+                className={`text-[11px] font-semibold ${isDarkMode ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-600'}`}
               >
                 Xem tất cả
               </button>
             </div>
             <div className="space-y-3">
               {!metrics.loading && upcomingMeetings.length === 0 && (
-                <p className="text-xs text-[#6b7280]">Không có cuộc họp trong 7 ngày tới.</p>
+                <p className={`text-xs ${textSub}`}>Không có cuộc họp trong 7 ngày tới.</p>
               )}
               {upcomingMeetings.map((event, idx) => {
                 const borderColors = ['border-l-blue-500', 'border-l-emerald-500', 'border-l-amber-500'];
@@ -617,16 +797,16 @@ function DashboardPage() {
                 return (
                   <div
                     key={event.id != null ? String(event.id) : idx}
-                    className={`rounded-xl border border-white/[0.06] bg-[#1A1A1C] p-3 pl-3 ${bc} border-l-4 shadow-sm transition hover:bg-white/[0.02]`}
+                    className={`rounded-xl border p-3 pl-3 ${bc} border-l-4 shadow-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#1A1A1C] hover:bg-white/[0.02]' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                   >
-                    <div className="text-sm font-semibold text-white">{event.title}</div>
-                    <div className="mt-1 text-xs text-[#9ca3af]">
+                    <div className={`text-sm font-semibold ${textHeading}`}>{event.title}</div>
+                    <div className={`mt-1 text-xs ${textMuted}`}>
                       {event.time} · {event.attendees} người
                     </div>
                     <button
                       type="button"
                       onClick={() => navigate('/calendar')}
-                      className="mt-3 w-full rounded-lg bg-[#7C3AED]/20 py-2 text-xs font-semibold text-violet-200 transition hover:bg-[#7C3AED]/30"
+                      className={`mt-3 w-full rounded-lg py-2 text-xs font-semibold transition ${isDarkMode ? 'bg-cyan-600/20 text-cyan-200 hover:bg-cyan-600/30' : 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'}`}
                     >
                       Tham gia
                     </button>
@@ -638,7 +818,7 @@ function DashboardPage() {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Trạng thái nhóm</h3>
+              <h3 className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Trạng thái nhóm</h3>
               <span className="text-xs font-semibold text-emerald-400/90">{onlineFriendCount} online</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -647,7 +827,7 @@ function DashboardPage() {
                   <div className="relative">
                     <div
                       className={`flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br ${
-                        ['from-violet-600 to-fuchsia-600', 'from-blue-500 to-cyan-500', 'from-emerald-500 to-teal-600'][idx % 3]
+                        ['from-cyan-600 to-teal-600', 'from-blue-500 to-cyan-500', 'from-emerald-500 to-teal-600'][idx % 3]
                       } text-xs font-bold text-white`}
                     >
                       {pf.avatarUrl ? (
@@ -665,20 +845,20 @@ function DashboardPage() {
             <button
               type="button"
               onClick={() => navigate('/chat/friends')}
-              className="mt-3 w-full rounded-xl border border-white/[0.08] py-2 text-xs font-semibold text-[#9ca3af] transition hover:bg-white/[0.04] hover:text-white"
+              className={`mt-3 w-full rounded-xl border py-2 text-xs font-semibold transition ${isDarkMode ? 'border-white/[0.08] text-[#9ca3af] hover:bg-white/[0.04] hover:text-white' : 'border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'}`}
             >
               Mở chat bạn bè
             </button>
           </div>
 
-          <div className="rounded-2xl border border-white/[0.06] bg-[#1A1A1C] p-3">
-            <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Hoạt động tuần</h3>
+          <div className={`rounded-2xl border p-3 ${cardSurface}`}>
+            <h3 className={`mb-3 text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Hoạt động tuần</h3>
             <div className="flex h-24 items-end justify-between gap-1">
               {[45, 62, 38, 70, 55, 88, 72].map((h, idx) => (
                 <div key={idx} className="flex flex-1 flex-col items-center gap-1">
                   <div
                     className={`w-full max-w-[28px] rounded-t-md transition-all ${
-                      idx >= 5 ? 'bg-gradient-to-t from-violet-600 to-fuchsia-500' : 'bg-gradient-to-t from-slate-600 to-slate-500'
+                      idx >= 5 ? 'bg-gradient-to-t from-cyan-600 to-teal-500' : 'bg-gradient-to-t from-slate-600 to-slate-500'
                     }`}
                     style={{ height: `${h}%` }}
                   />
@@ -689,8 +869,8 @@ function DashboardPage() {
             <p className="mt-2 text-center text-[11px] text-emerald-400/90">+15% so với tuần trước</p>
           </div>
 
-          <div className="rounded-2xl border border-white/[0.06] bg-[#141416] p-3.5">
-            <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Thống kê nhanh</h3>
+          <div className={`rounded-2xl border p-3.5 ${isDarkMode ? 'border-white/[0.06] bg-[#141416]' : 'border-slate-200 bg-slate-50'}`}>
+            <h3 className={`mb-3 text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Thống kê nhanh</h3>
             <div className="space-y-2.5">
               {[
                 { label: 'Thông báo chưa đọc', value: metrics.loading ? '…' : String(metrics.unread), icon: '🔔' },
@@ -698,18 +878,18 @@ function DashboardPage() {
                 { label: 'Bạn bè', value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal), icon: '👥' },
               ].map((s, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-[#9ca3af]">
+                  <span className={`flex items-center gap-2 ${textMuted}`}>
                     <span>{s.icon}</span>
                     {s.label}
                   </span>
-                  <span className="font-bold text-violet-300">{s.value}</span>
+                  <span className={`font-bold ${accentText}`}>{s.value}</span>
                 </div>
               ))}
             </div>
             <GradientButton
               type="button"
               variant="primary"
-              className="mt-4 w-full py-3 text-sm font-semibold shadow-[0_8px_24px_rgba(124,58,237,0.25)]"
+              className="mt-4 w-full py-3 text-sm font-semibold shadow-[0_8px_24px_rgba(8,145,178,0.22)]"
               onClick={() => setShowAddFriendModal(true)}
             >
               + Kết bạn
@@ -735,16 +915,12 @@ function DashboardPage() {
       size="sm"
     >
       <div className="space-y-4">
-        <p className="text-base font-semibold text-white">{getGreeting()}</p>
-        <p className="text-sm text-gray-400">
+        <p className={`text-base font-semibold ${textHeading}`}>{getGreeting()}</p>
+        <p className={`text-sm ${textMuted}`}>
           Chúc {displayName} có một ngày làm việc hiệu quả cùng <span className="font-semibold text-gradient">VoiceHub</span>.
         </p>
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            className="bg-[#040f2a] border border-slate-800 px-4 py-2 rounded-xl text-sm hover:bg-slate-800/70 transition-all"
-            onClick={() => setShowWelcome(false)}
-          >
+          <button type="button" className={modalSecondaryBtnSm} onClick={() => setShowWelcome(false)}>
             Đóng
           </button>
           <GradientButton
@@ -768,21 +944,21 @@ function DashboardPage() {
         {selectedStat && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
+              <GlassCard className={modalGlass}>
                 <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedStat.color} flex items-center justify-center text-3xl mb-4 mx-auto`}>
                   {selectedStat.icon}
                 </div>
-                <div className="text-4xl font-black text-white text-center mb-2">{selectedStat.value}</div>
-                <div className="text-gray-400 text-center">{selectedStat.label}</div>
+                <div className={`text-4xl font-black text-center mb-2 ${textHeading}`}>{selectedStat.value}</div>
+                <div className={`${textMuted} text-center`}>{selectedStat.label}</div>
               </GlassCard>
-              
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h4 className="font-bold text-white mb-4">Thống Kê Chi Tiết</h4>
+
+              <GlassCard className={modalGlass}>
+                <h4 className={`font-bold mb-4 ${textHeading}`}>Thống Kê Chi Tiết</h4>
                 <div className="space-y-3">
                   {Object.entries(selectedStat.drilldown).filter(([key]) => !['projects', 'nguoiDongGopNhieuNhat', 'roles', 'channels'].includes(key)).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between">
-                      <span className="text-gray-400 capitalize">{key}:</span>
-                      <span className="text-white font-bold">{value}</span>
+                      <span className={`${textMuted} capitalize`}>{key}:</span>
+                      <span className={`font-bold ${textHeading}`}>{value}</span>
                     </div>
                   ))}
                 </div>
@@ -791,23 +967,23 @@ function DashboardPage() {
 
             {selectedStat.drilldown.projects && (
               <div>
-                <h4 className="font-bold text-white mb-4">Dự Án Đang Hoạt Động</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>Dự Án Đang Hoạt Động</h4>
                 <div className="space-y-3">
                   {selectedStat.drilldown.projects.map((project, idx) => (
-                    <GlassCard key={idx} hover className="border border-slate-800 bg-slate-900/60">
-                      <div className="flex items-center justify-between mb-3">
-                        <h5 className="font-bold text-white">{project.name}</h5>
-                        <span className="text-sm text-gray-400">Còn {project.deadline}</span>
+                    <GlassCard key={idx} hover className={modalGlass}>
+                      <div className="mb-3 flex items-center justify-between">
+                        <h5 className={`font-bold ${textHeading}`}>{project.name}</h5>
+                        <span className={`text-sm ${textMuted}`}>Còn {project.deadline}</span>
                       </div>
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="mb-2 flex items-center gap-3">
                         <div className="flex-1">
-                          <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-purple-600 to-pink-600" style={{width: `${project.progress}%`}}></div>
+                          <div className="h-2 w-full overflow-hidden rounded-full glass-strong">
+                            <div className="h-full bg-gradient-to-r from-cyan-600 to-teal-600" style={{ width: `${project.progress}%` }} />
                           </div>
                         </div>
-                        <span className="text-sm font-bold text-white">{project.progress}%</span>
+                        <span className={`text-sm font-bold ${textHeading}`}>{project.progress}%</span>
                       </div>
-                      <div className="text-xs text-gray-400">👥 {project.members} thành viên</div>
+                      <div className={`text-xs ${textMuted}`}>👥 {project.members} thành viên</div>
                     </GlassCard>
                   ))}
                 </div>
@@ -816,16 +992,16 @@ function DashboardPage() {
 
             {selectedStat.drilldown.nguoiDongGopNhieuNhat && (
               <div>
-                <h4 className="font-bold text-white mb-4">Người Đóng Góp Nhiều Nhất</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>Người Đóng Góp Nhiều Nhất</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.nguoiDongGopNhieuNhat.map((user, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-[#040f2a] border border-slate-800 rounded-xl">
+                    <div key={idx} className={modalRow}>
                       <div className="text-2xl">{user.avatar}</div>
                       <div className="flex-1">
-                        <div className="font-semibold text-white">{user.name}</div>
-                        <div className="text-xs text-gray-400">{user.tasks} công việc</div>
+                        <div className={`font-semibold ${textHeading}`}>{user.name}</div>
+                        <div className={`text-xs ${textMuted}`}>{user.tasks} công việc</div>
                       </div>
-                      <div className="text-green-400 font-bold">#{idx + 1}</div>
+                      <div className="font-bold text-emerald-600 dark:text-green-400">#{idx + 1}</div>
                     </div>
                   ))}
                 </div>
@@ -834,16 +1010,21 @@ function DashboardPage() {
 
             {selectedStat.drilldown.roles && (
               <div>
-                <h4 className="font-bold text-white mb-4">Phân Bổ Theo Vai Trò</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>Phân Bổ Theo Vai Trò</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.roles.map((role, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-[#040f2a] border border-slate-800 rounded-xl">
+                    <div key={idx} className={modalRow}>
                       <div className="flex-1">
-                        <div className="font-semibold text-white">{role.name}</div>
-                        <div className="text-xs text-gray-400">{role.online}/{role.count} online</div>
+                        <div className={`font-semibold ${textHeading}`}>{role.name}</div>
+                        <div className={`text-xs ${textMuted}`}>
+                          {role.online}/{role.count} online
+                        </div>
                       </div>
-                      <div className="w-24 h-2 glass-strong rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500" style={{width: `${(role.online / role.count) * 100}%`}}></div>
+                      <div className="h-2 w-24 overflow-hidden rounded-full glass-strong">
+                        <div
+                          className="h-full bg-gradient-to-r from-green-500 to-emerald-500"
+                          style={{ width: `${(role.online / role.count) * 100}%` }}
+                        />
                       </div>
                     </div>
                   ))}
@@ -853,16 +1034,16 @@ function DashboardPage() {
 
             {selectedStat.drilldown.channels && (
               <div>
-                <h4 className="font-bold text-white mb-4">Kênh Hoạt Động</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>Kênh Hoạt Động</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.channels.map((channel, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-[#040f2a] border border-slate-800 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-all">
+                    <div key={idx} className={modalRowBetween}>
                       <div>
-                        <div className="font-semibold text-white">{channel.name}</div>
-                        <div className="text-xs text-gray-400">{channel.messages} tin nhắn</div>
+                        <div className={`font-semibold ${textHeading}`}>{channel.name}</div>
+                        <div className={`text-xs ${textMuted}`}>{channel.messages} tin nhắn</div>
                       </div>
                       {channel.unread > 0 && (
-                        <div className="px-2 py-1 rounded-full bg-red-500 text-xs font-bold">{channel.unread}</div>
+                        <div className="rounded-full bg-red-500 px-2 py-1 text-xs font-bold text-white">{channel.unread}</div>
                       )}
                     </div>
                   ))}
@@ -882,32 +1063,36 @@ function DashboardPage() {
       >
         {showActivityDetail && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3.5 bg-[#040f2a] border border-slate-800 rounded-xl">
-              <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${showActivityDetail.color} flex items-center justify-center text-2xl`}>
+            <div className={modalHeroRow}>
+              <div className={`flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br text-2xl ${showActivityDetail.color}`}>
                 {showActivityDetail.avatar}
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">{showActivityDetail.user}</h3>
-                <p className="text-sm text-gray-400">{showActivityDetail.action} {showActivityDetail.item}</p>
-                <p className="text-sm text-gray-500">{showActivityDetail.time}</p>
+                <h3 className={`text-lg font-bold ${textHeading}`}>{showActivityDetail.user}</h3>
+                <p className={`text-sm ${textMuted}`}>
+                  {showActivityDetail.action} {showActivityDetail.item}
+                </p>
+                <p className={`text-sm ${textSub}`}>{showActivityDetail.time}</p>
               </div>
             </div>
 
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h4 className="font-bold text-white mb-3">Thông Tin</h4>
+            <GlassCard className={modalGlass}>
+              <h4 className={`mb-3 font-bold ${textHeading}`}>Thông Tin</h4>
               <div className="space-y-2">
                 {Object.entries(showActivityDetail.detail).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between py-2 border-b border-white/5">
-                    <span className="text-gray-400 capitalize">{key}:</span>
-                    <span className="text-white font-semibold">{Array.isArray(value) ? value.join(', ') : value}</span>
+                  <div key={key} className={`flex items-center justify-between py-2 ${modalDetailRowBorder}`}>
+                    <span className={`${textMuted} capitalize`}>{key}:</span>
+                    <span className={`font-semibold ${textHeading}`}>
+                      {Array.isArray(value) ? value.join(', ') : value}
+                    </span>
                   </div>
                 ))}
               </div>
             </GlassCard>
 
             <div className="flex gap-3">
-              <GradientButton 
-                variant="primary" 
+              <GradientButton
+                variant="primary"
                 className="flex-1 text-sm"
                 onClick={() => {
                   setShowActivityDetail(null);
@@ -916,10 +1101,7 @@ function DashboardPage() {
               >
                 Xem Chi Tiết
               </GradientButton>
-              <button 
-                onClick={() => showToast('Đã chia sẻ hoạt động')}
-                className="flex-1 bg-[#040f2a] border border-slate-800 px-5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all text-sm font-semibold"
-              >
+              <button type="button" onClick={() => showToast('Đã chia sẻ hoạt động')} className={`flex-1 ${modalSecondaryBtn}`}>
                 Chia Sẻ
               </button>
             </div>
@@ -936,71 +1118,84 @@ function DashboardPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-300">Tên Dự Án</label>
-            <input 
-              type="text" 
-              placeholder="Nhập tên dự án..."
-              className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
-            />
+            <label className={modalLabel}>Tên Dự Án</label>
+            <input type="text" placeholder="Nhập tên dự án..." className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-300">Mô Tả</label>
-            <textarea 
-              placeholder="Mô tả dự án..."
-              rows="4"
-              className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
-            ></textarea>
+            <label className={modalLabel}>Mô Tả</label>
+            <textarea placeholder="Mô tả dự án..." rows={4} className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-300">Ngày Bắt Đầu</label>
-              <input 
-                type="date"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
-              />
+              <label className={modalLabel}>Ngày Bắt Đầu</label>
+              <input type="date" className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
             </div>
             <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-300">Deadline</label>
-              <input 
-                type="date"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 focus:border-indigo-500 outline-none text-sm text-white"
-              />
+              <label className={modalLabel}>Deadline</label>
+              <input type="date" className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-300">Thành Viên</label>
-            <div className="flex flex-wrap gap-2 mb-3">
+            <label className={modalLabel}>Thành Viên</label>
+            <div className="mb-3 flex flex-wrap gap-2">
               {['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'].map((member, idx) => (
-                <button key={idx} className="bg-[#040f2a] border border-slate-800 px-3 py-2 rounded-lg text-sm hover:bg-slate-800/70 transition-all">
+                <button key={idx} type="button" className={modalChip}>
                   {member}
                 </button>
               ))}
             </div>
-            <button className="text-indigo-400 text-sm hover:text-indigo-300 transition-colors">+ Thêm thành viên</button>
+            <button type="button" className={`text-sm transition-colors ${accentText} hover:underline`}>
+              + Thêm thành viên
+            </button>
           </div>
 
           <div className="flex gap-3 pt-4">
-            <GradientButton 
-              variant="primary" 
+            <GradientButton
+              variant="primary"
               className="flex-1 text-sm"
               onClick={() => {
-                showToast("Tạo dự án thành công!", "success");
+                showToast('Tạo dự án thành công!', 'success');
                 setShowNewProjectModal(false);
               }}
             >
               Tạo Dự Án
             </GradientButton>
-            <button 
-              onClick={() => setShowNewProjectModal(false)}
-              className="flex-1 bg-[#040f2a] border border-slate-800 px-5 py-2.5 rounded-xl hover:bg-slate-800/70 transition-all text-sm font-semibold"
-            >
+            <button type="button" onClick={() => setShowNewProjectModal(false)} className={`flex-1 ${modalSecondaryBtn}`}>
               Hủy
             </button>
           </div>
         </div>
+    </Modal>
+
+    <Modal isOpen={quickNavOpen} onClose={() => setQuickNavOpen(false)} title="Tìm nhanh" size="md">
+      <p className={`mb-4 text-sm ${textMuted}`}>
+        {searchQuery.trim()
+          ? `Gợi ý theo “${searchQuery.trim()}” — chọn trang để mở:`
+          : 'Chọn trang trong hệ thống:'}
+      </p>
+      <div className="grid gap-2">
+        {filteredQuickNav.length === 0 ? (
+          <p className={`text-sm ${textMuted}`}>Không có trang khớp. Thử từ khóa khác.</p>
+        ) : (
+          filteredQuickNav.map((item) => (
+            <button
+              key={item.path}
+              type="button"
+              onClick={() => {
+                navigate(item.path);
+                setQuickNavOpen(false);
+              }}
+              className={modalRowBetween}
+            >
+              <span className={textHeading}>{item.label}</span>
+              <span className={`text-xs ${textSub}`}>Mở →</span>
+            </button>
+          ))
+        )}
+      </div>
     </Modal>
 
     {/* Toast Notifications */}

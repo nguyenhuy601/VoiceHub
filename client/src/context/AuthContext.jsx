@@ -396,8 +396,8 @@ function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// Export AuthProvider để dùng trong main.jsx
-export { AuthProvider };
+// Export AuthProvider để dùng trong main.jsx; AuthContext cho landing demo (override cục bộ)
+export { AuthProvider, AuthContext };
 
 /* ========================================
    CÁCH DÙNG TRONG COMPONENT:

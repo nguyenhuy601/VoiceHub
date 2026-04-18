@@ -20,6 +20,7 @@ import { io } from 'socket.io-client';
 // Cần token để authenticate socket connection
 import { useAuth } from './AuthContext';
 import { getToken } from '../utils/tokenStorage';
+import { isLandingEmbedActive } from '../utils/landingEmbedMode';
 
 // Tạo SocketContext
 const SocketContext = createContext(null);
@@ -244,6 +245,9 @@ function SocketProvider({ children }) {
   ======================================== */
   const emit = useCallback(
     (event, data) => {
+      if (isLandingEmbedActive()) {
+        return;
+      }
       // Chỉ emit khi socket connected
       if (socket && connected) {
         socket.emit(event, data);

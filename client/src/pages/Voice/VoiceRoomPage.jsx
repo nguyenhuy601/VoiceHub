@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
@@ -23,6 +23,8 @@ import {
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import apiClient from '../../services/api/apiClient';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 
 /** Nút thanh họp: icon + (badge) + chevron + nhãn — tham chiếu layout Zoom/Teams (hình 1) */
 function VoiceToolbarControl({
@@ -39,7 +41,7 @@ function VoiceToolbarControl({
     <button
       type="button"
       onClick={onClick}
-      className="group flex min-w-[56px] flex-col items-center gap-1 rounded-lg px-1.5 py-1 text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
+      className="group flex min-w-[56px] flex-col items-center gap-1 rounded-lg px-1.5 py-1 text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
     >
       <div className="flex items-center justify-center gap-0.5">
         {active ? (
@@ -93,11 +95,12 @@ function formatCallDuration(totalSec) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function VoiceRoomPage() {
-  const navigate = useNavigate();
+function VoiceRoomPage({ landingDemo = false } = {}) {
+  const navigate = useLandingSafeNavigate(landingDemo);
   const { roomId } = useParams();
   const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
   const { user } = useAuth();
+  const { isDarkMode } = useTheme();
 
   const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
@@ -689,6 +692,7 @@ function VoiceRoomPage() {
   };
 
   useEffect(() => {
+    if (landingDemo) return undefined;
     if (safeRoomId) {
       setMeetingCode(safeRoomId);
       setViewStage('prejoin');
@@ -714,9 +718,10 @@ function VoiceRoomPage() {
       sendTransport?.close();
       recvTransport?.close();
     };
-  }, [safeRoomId]);
+  }, [safeRoomId, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return;
     const activeRemoteKeys = new Set();
     participants.forEach((participant) => {
       const key = `remote:${participant.socketId}`;
@@ -736,19 +741,21 @@ function VoiceRoomPage() {
         stopAudioLevelMonitor(key);
       }
     }
-  }, [participants]);
+  }, [participants, landingDemo]);
 
   useEffect(() => {
+    if (landingDemo) return undefined;
     if (viewStage !== 'prejoin') return undefined;
     startPrejoinPreview(prejoinAudioEnabled, prejoinVideoEnabled);
     return () => {
       stopPrejoinPreview();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewStage, prejoinAudioEnabled, prejoinVideoEnabled]);
+  }, [viewStage, prejoinAudioEnabled, prejoinVideoEnabled, landingDemo]);
 
   /** Đảm bảo gán lại stream sau khi vào phòng (ref mount / StrictMode / re-render). */
   useEffect(() => {
+    if (landingDemo) return;
     if (viewStage !== 'inRoom') return;
     if (!hasLocalVideoTrack || isCameraOff) return;
     const stream = mediasoupRef.current.localStream;
@@ -760,7 +767,7 @@ function VoiceRoomPage() {
       el.srcObject = stream;
       el.play?.().catch(() => {});
     }
-  }, [viewStage, hasLocalVideoTrack, isCameraOff, joining]);
+  }, [viewStage, hasLocalVideoTrack, isCameraOff, joining, landingDemo]);
 
   const handleNewMeeting = () => {
     const generated = generateMeetingCode();
@@ -827,12 +834,46 @@ function VoiceRoomPage() {
     },
   ];
 
+  const voiceShell = isDarkMode ? 'min-h-screen flex bg-[#050810]' : 'min-h-screen flex bg-[#f5f7fa]';
+  const voiceLobby = isDarkMode ? 'flex flex-1 min-h-0 bg-black text-slate-100' : 'flex flex-1 min-h-0 bg-slate-100 text-slate-900';
+
+  if (landingDemo) {
+    const demoAsideBtn = (label) => (
+      <button
+        key={label}
+        type="button"
+        onClick={() => toast('Đây là bản demo — đăng nhập để dùng phòng họp thật.', { icon: '🎤' })}
+        className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-gray-500 transition hover:bg-white/5 hover:text-gray-200"
+      >
+        {label}
+      </button>
+    );
+    return (
+      <div className={`${voiceShell} min-h-[680px] h-[680px]`}>
+        <NavigationSidebar landingDemo={landingDemo} />
+        <div className={`${voiceLobby} min-h-0`}>
+          <aside className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/10 px-3 py-6 md:w-56">
+            {demoAsideBtn('Cuộc họp mới')}
+            {demoAsideBtn('Tham gia')}
+            {demoAsideBtn('Lên lịch')}
+          </aside>
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
+            <p className="text-5xl font-bold tabular-nums text-white">04:32</p>
+            <p className="mt-3 max-w-md text-center text-sm text-gray-500">
+              Phòng họp VoiceHub — bản demo, không truy cập mic hay camera.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex bg-black">
-      <NavigationSidebar />
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className={voiceShell}>
+      <NavigationSidebar landingDemo={landingDemo} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {viewStage !== 'inRoom' ? (
-          <div className="flex flex-1 min-h-0 bg-black text-slate-100">
+          <div className={voiceLobby}>
             {/* Cột trái: menu (hình 1) */}
             <aside className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/10 px-3 py-6 md:w-56">
               {voiceNav.map((item) => {
@@ -847,7 +888,7 @@ function VoiceRoomPage() {
                     onClick={item.onClick}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
                       active
-                        ? 'border border-violet-500/50 bg-white/[0.06] text-white shadow-[0_0_28px_rgba(139,92,246,0.18)]'
+                        ? 'border border-cyan-500/50 bg-white/[0.06] text-white shadow-[0_0_28px_rgba(6,182,212,0.2)]'
                         : 'text-gray-500 hover:bg-white/5 hover:text-gray-200'
                     }`}
                   >
@@ -884,7 +925,7 @@ function VoiceRoomPage() {
                   <button
                     type="button"
                     onClick={handleNewMeeting}
-                    className="mt-8 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 px-10 py-4 text-base font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
+                    className="mt-8 rounded-2xl bg-gradient-to-r from-cyan-600 via-teal-600 to-sky-500 px-10 py-4 text-base font-semibold text-white shadow-lg shadow-cyan-900/25 transition hover:brightness-110"
                   >
                     Tạo cuộc họp ngay
                   </button>
@@ -905,7 +946,7 @@ function VoiceRoomPage() {
                         />
                       ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-                          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-3xl font-bold text-white">
+                          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 text-3xl font-bold text-white">
                             {buildInitials(displayNameInput || localDisplayName)}
                           </div>
                           <span className="text-sm text-gray-400">Camera đang tắt</span>
@@ -947,7 +988,7 @@ function VoiceRoomPage() {
                           value={meetingCode}
                           onChange={(e) => setMeetingCode(e.target.value)}
                           placeholder="vox-hacker-room"
-                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
                         />
                       </div>
                       <div>
@@ -956,7 +997,7 @@ function VoiceRoomPage() {
                           value={displayNameInput}
                           onChange={(e) => setDisplayNameInput(e.target.value)}
                           placeholder={localDisplayName}
-                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
                         />
                       </div>
                       <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-300">
@@ -964,7 +1005,7 @@ function VoiceRoomPage() {
                           type="checkbox"
                           checked={!prejoinAudioEnabled}
                           onChange={(e) => setPrejoinAudioEnabled(!e.target.checked)}
-                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-violet-600 focus:ring-violet-500"
+                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-cyan-600 focus:ring-cyan-500"
                         />
                         Tắt mic khi vào phòng
                       </label>
@@ -973,7 +1014,7 @@ function VoiceRoomPage() {
                           type="checkbox"
                           checked={!prejoinVideoEnabled}
                           onChange={(e) => setPrejoinVideoEnabled(!e.target.checked)}
-                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-violet-600 focus:ring-violet-500"
+                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-cyan-600 focus:ring-cyan-500"
                         />
                         Tắt camera khi vào phòng
                       </label>
@@ -981,7 +1022,7 @@ function VoiceRoomPage() {
                     <button
                       type="button"
                       onClick={handleJoinMeeting}
-                      className="mt-8 w-full rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 py-3.5 text-center text-base font-semibold text-white shadow-lg transition hover:brightness-110"
+                      className="mt-8 w-full rounded-xl bg-gradient-to-r from-cyan-600 via-teal-600 to-sky-500 py-3.5 text-center text-base font-semibold text-white shadow-lg transition hover:brightness-110"
                     >
                       Bắt đầu
                     </button>
@@ -1028,7 +1069,7 @@ function VoiceRoomPage() {
 
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-24 md:px-8">
               <div className="w-full max-w-5xl">
-                <div className="rounded-2xl border-2 border-violet-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(139,92,246,0.08)] md:p-6">
+                <div className="rounded-2xl border-2 border-cyan-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(6,182,212,0.12)] md:p-6">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     <div
                       className={`relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border md:min-h-[260px] ${
@@ -1054,7 +1095,7 @@ function VoiceRoomPage() {
                         />
                       ) : (
                         <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-4 bg-gradient-to-b from-zinc-900/80 to-black/80 md:min-h-[260px]">
-                          <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-600 text-3xl font-bold text-white shadow-lg">
+                          <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-cyan-600 text-3xl font-bold text-white shadow-lg">
                             {localAvatar && String(localAvatar).startsWith('http') ? (
                               <img src={localAvatar} alt="" className="h-full w-full rounded-full object-cover" />
                             ) : (
@@ -1067,7 +1108,7 @@ function VoiceRoomPage() {
                         <span className="rounded-lg bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
                           {displayNameInput || localDisplayName}
                         </span>
-                        <span className="rounded-md bg-violet-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        <span className="rounded-md bg-cyan-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                           YOU
                         </span>
                         {isMuted && (

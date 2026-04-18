@@ -7,7 +7,7 @@
 ======================================== */
 
 // Import hooks để build context
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useLayoutEffect, useState } from 'react';
 
 // Tạo ThemeContext - sẽ provide isDarkMode và toggleTheme
 const ThemeContext = createContext();
@@ -47,34 +47,23 @@ function ThemeProvider({ children }) {
     // Lấy theme đã lưu từ localStorage
     const saved = localStorage.getItem('theme');
     
-    // Nếu có saved → check = 'dark' không
-    // Nếu không có → default = true (dark mode)
-    return saved ? saved === 'dark' : true;
+    // Có bản ghi → theo đó; chưa có → mặc định sáng (đồng bộ mock đăng nhập/đăng ký).
+    if (saved === 'dark') return true;
+    if (saved === 'light') return false;
+    return false;
   });
 
-  /* ========================================
-     useEffect: APPLY THEME KHI THAY ĐỔI
-     Chạy mỗi khi isDarkMode change
-     - Lưu preference vào localStorage
-     - Add/remove class 'dark' trên <html>
-     - Tailwind sẽ dùng class này để style
-  ======================================== */
-  useEffect(() => {
-    // Lưu theme vào localStorage để persist
+  useLayoutEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-    
-    // Lấy <html> element (document.documentElement)
-    // Thêm/xóa class 'dark' để Tailwind apply dark: styles
+    const root = document.documentElement;
     if (isDarkMode) {
-      // Dark mode: remove 'light', add 'dark'
-      document.documentElement.classList.remove('light');
-      document.documentElement.classList.add('dark');
+      root.classList.remove('light');
+      root.classList.add('dark');
     } else {
-      // Light mode: remove 'dark', add 'light'
-      document.documentElement.classList.remove('dark');
-      document.documentElement.classList.add('light');
+      root.classList.remove('dark');
+      root.classList.add('light');
     }
-  }, [isDarkMode]); // Re-run khi isDarkMode thay đổi
+  }, [isDarkMode]);
 
   /* ========================================
      toggleTheme: FUNCTION ĐỂ SWITCH THEME

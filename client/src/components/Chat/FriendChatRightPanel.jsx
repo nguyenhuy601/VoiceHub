@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Calendar, FileText, LayoutGrid, Link2, Phone } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 const URL_REGEX = /(https?:\/\/[^\s<>"']+)/gi;
 
@@ -72,6 +73,7 @@ export default function FriendChatRightPanel({
   onPin,
   onCreateGroup,
 }) {
+  const { isDarkMode } = useTheme();
   const [tab, setTab] = useState('chung');
   const [openMedia, setOpenMedia] = useState(true);
   const [openFiles, setOpenFiles] = useState(true);
@@ -141,6 +143,40 @@ export default function FriendChatRightPanel({
 
   if (!friend) return null;
 
+  const shell = isDarkMode
+    ? 'hidden h-full w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#0b0c14] lg:flex'
+    : 'hidden h-full w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-slate-50 lg:flex';
+  const hairline = isDarkMode ? 'border-white/[0.06]' : 'border-slate-200';
+  const hairlineT = isDarkMode ? 'border-t border-white/[0.06]' : 'border-t border-slate-200';
+  const hairlineB = isDarkMode ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
+  const panelMuted = isDarkMode ? 'bg-white/[0.03]' : 'bg-white';
+  const titleMain = isDarkMode ? 'text-white' : 'text-slate-900';
+  const subtitleMuted = isDarkMode ? 'text-cyan-300/90' : 'text-cyan-700';
+  const labelCaps = isDarkMode ? 'text-gray-500' : 'text-slate-500';
+  const bodyText = isDarkMode ? 'text-gray-200' : 'text-slate-700';
+  const linkAccent = isDarkMode ? 'text-violet-300 hover:bg-white/[0.06]' : 'text-cyan-700 hover:bg-slate-100';
+  const sectionBtn = isDarkMode
+    ? 'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-white/[0.03]'
+    : 'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-semibold text-slate-900 hover:bg-slate-100/80';
+  const thumbBg = isDarkMode ? 'border border-white/[0.06] bg-[#14151c]' : 'border border-slate-200 bg-slate-100';
+  const fileRow = isDarkMode
+    ? 'flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-2'
+    : 'flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm';
+  const dashedEmpty = isDarkMode
+    ? 'rounded-xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-xs text-gray-500'
+    : 'rounded-xl border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500';
+  const insetCard = isDarkMode
+    ? 'rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-xs text-gray-500'
+    : 'rounded-xl border border-slate-200 bg-white px-3 py-4 text-center text-xs text-slate-500 shadow-sm';
+  const statBox = isDarkMode
+    ? 'rounded-xl border border-white/[0.06] bg-white/[0.03] px-2 py-3 text-center'
+    : 'rounded-xl border border-slate-200 bg-white px-2 py-3 text-center shadow-sm';
+  const footerBtn = isDarkMode
+    ? 'rounded-lg bg-white/[0.05] px-2 py-1.5 text-[10px] text-gray-400 hover:text-white'
+    : 'rounded-lg bg-slate-100 px-2 py-1.5 text-[10px] text-slate-600 hover:bg-slate-200 hover:text-slate-900';
+  const avatarRing = isDarkMode ? 'ring-[#0b0c14]' : 'ring-slate-50';
+  const onlineDotBorder = isDarkMode ? 'border-[#0b0c14]' : 'border-slate-50';
+
   const tabs = [
     { id: 'chung', label: 'Chung', Icon: LayoutGrid },
     { id: 'files', label: 'Tệp', Icon: FileText },
@@ -149,31 +185,33 @@ export default function FriendChatRightPanel({
   ];
 
   return (
-    <aside className="hidden h-full w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#0b0c14] lg:flex">
-      <div className="shrink-0 border-b border-white/[0.06] px-4 py-4">
+    <aside className={shell}>
+      <div className={`shrink-0 px-4 py-4 ${hairlineB}`}>
         <div className="relative mx-auto flex max-w-[240px] flex-col items-center">
-          <div className="h-20 w-20 overflow-hidden rounded-full bg-gradient-to-br from-violet-700 to-fuchsia-600 ring-4 ring-[#0b0c14] shadow-xl">
+          <div
+            className={`h-20 w-20 overflow-hidden rounded-full bg-gradient-to-br from-cyan-600 to-teal-600 ring-4 shadow-xl ${avatarRing}`}
+          >
             {avatarNode(friend)}
           </div>
           <span
-            className={`absolute bottom-1 right-4 h-3.5 w-3.5 rounded-full border-2 border-[#0b0c14] ${
+            className={`absolute bottom-1 right-4 h-3.5 w-3.5 rounded-full border-2 ${onlineDotBorder} ${
               isOnline ? 'bg-emerald-500' : 'bg-gray-500'
             }`}
           />
         </div>
-        <h4 className="mt-3 text-center text-lg font-bold text-white">{friend.name}</h4>
-        <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-violet-300/80">
+        <h4 className={`mt-3 text-center text-lg font-bold ${titleMain}`}>{friend.name}</h4>
+        <p className={`text-center text-[11px] font-semibold uppercase tracking-wide ${subtitleMuted}`}>
           Thành viên VoiceHub
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-2 py-2 text-center">
-            <div className="text-[10px] uppercase tracking-wide text-gray-500">Múi giờ</div>
-            <div className="text-xs font-medium text-gray-200">GMT+7</div>
+          <div className={`rounded-xl border px-2 py-2 text-center ${hairline} ${panelMuted}`}>
+            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>Múi giờ</div>
+            <div className={`text-xs font-medium ${bodyText}`}>GMT+7</div>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-2 py-2 text-center">
-            <div className="text-[10px] uppercase tracking-wide text-gray-500">Trạng thái</div>
-            <div className="text-xs font-medium text-emerald-400/90">
+          <div className={`rounded-xl border px-2 py-2 text-center ${hairline} ${panelMuted}`}>
+            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>Trạng thái</div>
+            <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400/90">
               {isOnline ? 'Đang rảnh' : 'Ngoại tuyến'}
             </div>
           </div>
@@ -182,14 +220,18 @@ export default function FriendChatRightPanel({
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button
             type="button"
-            className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
+            className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
           >
             <Phone className="h-4 w-4" />
             Gọi
           </button>
           <button
             type="button"
-            className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.06] py-3 text-sm font-semibold text-white transition hover:bg-white/[0.1]"
+            className={
+              isDarkMode
+                ? 'flex items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.06] py-3 text-sm font-semibold text-white transition hover:bg-white/[0.1]'
+                : 'flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50'
+            }
           >
             <Calendar className="h-4 w-4" />
             Lịch
@@ -197,7 +239,7 @@ export default function FriendChatRightPanel({
         </div>
       </div>
 
-      <div className="flex shrink-0 gap-1 border-b border-white/[0.06] px-2">
+      <div className={`flex shrink-0 gap-1 px-2 ${hairlineB}`}>
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -205,8 +247,12 @@ export default function FriendChatRightPanel({
             onClick={() => setTab(id)}
             className={`flex flex-1 flex-col items-center gap-1 rounded-t-lg py-2 text-[10px] font-semibold uppercase tracking-wide transition ${
               tab === id
-                ? 'border-b-2 border-violet-500 text-white'
-                : 'text-gray-500 hover:text-gray-300'
+                ? isDarkMode
+                  ? 'border-b-2 border-cyan-400 text-white'
+                  : 'border-b-2 border-cyan-600 text-slate-900'
+                : isDarkMode
+                  ? 'text-gray-500 hover:text-gray-300'
+                  : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             <Icon className="h-4 w-4" strokeWidth={1.75} />
@@ -217,44 +263,32 @@ export default function FriendChatRightPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-overlay">
         <div className="px-3 py-3">
-          <h5 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            Đã ghim
-          </h5>
-          <p className="rounded-xl border border-dashed border-white/[0.08] px-3 py-6 text-center text-xs text-gray-500">
-            Chưa có tin hoặc liên kết được ghim.
-          </p>
+          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>Đã ghim</h5>
+          <p className={dashedEmpty}>Chưa có tin hoặc liên kết được ghim.</p>
         </div>
 
-        <div className="border-t border-white/[0.06] px-3 py-3">
-          <h5 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            Lịch hôm nay
-          </h5>
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-xs text-gray-500">
-            Không có sự kiện chung — sẽ đồng bộ khi có tích hợp lịch.
-          </p>
+        <div className={`px-3 py-3 ${hairlineT}`}>
+          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>Lịch hôm nay</h5>
+          <p className={insetCard}>Không có sự kiện chung — sẽ đồng bộ khi có tích hợp lịch.</p>
         </div>
 
         {tab === 'chung' && (
           <>
-            <section className="border-t border-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setOpenMedia((o) => !o)}
-                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-white/[0.03]"
-              >
+            <section className={hairlineT}>
+              <button type="button" onClick={() => setOpenMedia((o) => !o)} className={sectionBtn}>
                 Ảnh / video
-                <span className="text-gray-500">{openMedia ? '▾' : '▸'}</span>
+                <span className={labelCaps}>{openMedia ? '▾' : '▸'}</span>
               </button>
               {openMedia && (
                 <div className="px-3 pb-3">
                   {images.length === 0 ? (
-                    <p className="py-2 text-xs text-gray-500">Chưa có ảnh hoặc video.</p>
+                    <p className={`py-2 text-xs ${labelCaps}`}>Chưa có ảnh hoặc video.</p>
                   ) : (
                     <div className="grid grid-cols-4 gap-1.5">
                       {images.map((img) => (
                         <div
                           key={img.id}
-                          className="flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-white/[0.06] bg-[#14151c] text-[10px] text-gray-500"
+                          className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg text-[10px] ${thumbBg} ${labelCaps}`}
                         >
                           {img.preview?.startsWith('http') ? (
                             <img src={img.preview} alt="" className="h-full w-full object-cover" />
@@ -269,29 +303,22 @@ export default function FriendChatRightPanel({
               )}
             </section>
 
-            <section className="border-t border-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setOpenFiles((o) => !o)}
-                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-white/[0.03]"
-              >
+            <section className={hairlineT}>
+              <button type="button" onClick={() => setOpenFiles((o) => !o)} className={sectionBtn}>
                 Tệp
-                <span className="text-gray-500">{openFiles ? '▾' : '▸'}</span>
+                <span className={labelCaps}>{openFiles ? '▾' : '▸'}</span>
               </button>
               {openFiles && (
                 <div className="space-y-2 px-3 pb-3">
                   {files.length === 0 ? (
-                    <p className="py-2 text-xs text-gray-500">Chưa có tệp.</p>
+                    <p className={`py-2 text-xs ${labelCaps}`}>Chưa có tệp.</p>
                   ) : (
                     files.map((f) => (
-                      <div
-                        key={f.id}
-                        className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-2"
-                      >
+                      <div key={f.id} className={fileRow}>
                         <span className="text-lg">📄</span>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium text-white">{f.name}</div>
-                          <div className="text-[10px] text-gray-500">{formatShortDate(f.at)}</div>
+                          <div className={`truncate text-xs font-medium ${titleMain}`}>{f.name}</div>
+                          <div className={`text-[10px] ${labelCaps}`}>{formatShortDate(f.at)}</div>
                         </div>
                       </div>
                     ))
@@ -303,11 +330,11 @@ export default function FriendChatRightPanel({
         )}
 
         {tab === 'files' && (
-          <div className="border-t border-white/[0.06] px-3 py-3 text-xs text-gray-400">
+          <div className={`px-3 py-3 text-xs ${hairlineT} ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
             {files.length === 0 ? 'Chưa có tệp trong cuộc trò chuyện.' : (
               <ul className="space-y-2">
                 {files.map((f) => (
-                  <li key={f.id} className="truncate text-gray-200">
+                  <li key={f.id} className={`truncate ${bodyText}`}>
                     {f.name}
                   </li>
                 ))}
@@ -317,9 +344,9 @@ export default function FriendChatRightPanel({
         )}
 
         {tab === 'links' && (
-          <div className="border-t border-white/[0.06] px-3 py-3">
+          <div className={`px-3 py-3 ${hairlineT}`}>
             {links.length === 0 ? (
-              <p className="text-xs text-gray-500">Chưa có link.</p>
+              <p className={`text-xs ${labelCaps}`}>Chưa có link.</p>
             ) : (
               links.map((l) => (
                 <a
@@ -327,10 +354,12 @@ export default function FriendChatRightPanel({
                   href={l.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mb-2 block rounded-lg border border-white/[0.06] bg-white/[0.03] p-2 text-xs text-violet-300 hover:bg-white/[0.06]"
+                  className={`mb-2 block rounded-lg border p-2 text-xs ${
+                    isDarkMode ? 'border-white/[0.06] bg-white/[0.03]' : 'border-slate-200 bg-white shadow-sm'
+                  } ${linkAccent}`}
                 >
-                  <div className="truncate font-medium text-white">{l.title}</div>
-                  <div className="truncate text-[11px] text-gray-500">{hostFromUrl(l.url)}</div>
+                  <div className={`truncate font-medium ${titleMain}`}>{l.title}</div>
+                  <div className={`truncate text-[11px] ${labelCaps}`}>{hostFromUrl(l.url)}</div>
                 </a>
               ))
             )}
@@ -338,48 +367,32 @@ export default function FriendChatRightPanel({
         )}
 
         {tab === 'cal' && (
-          <div className="border-t border-white/[0.06] px-3 py-4 text-center text-xs text-gray-500">
+          <div className={`px-3 py-4 text-center text-xs ${hairlineT} ${labelCaps}`}>
             Lịch chung sẽ hiển thị khi tích hợp calendar.
           </div>
         )}
 
-        <div className="mt-auto grid grid-cols-2 gap-2 border-t border-white/[0.06] px-3 py-4">
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-2 py-3 text-center">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-              Ngày bắt đầu chat
-            </div>
-            <div className="mt-1 text-lg font-bold text-white">
+        <div className={`mt-auto grid grid-cols-2 gap-2 px-3 py-4 ${hairlineT}`}>
+          <div className={statBox}>
+            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>Ngày bắt đầu chat</div>
+            <div className={`mt-1 text-lg font-bold ${titleMain}`}>
               {daysSinceFirstMsg != null ? `${daysSinceFirstMsg}d` : '—'}
             </div>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-2 py-3 text-center">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-              Kênh chung
-            </div>
-            <div className="mt-1 text-lg font-bold text-white">1</div>
+          <div className={statBox}>
+            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>Kênh chung</div>
+            <div className={`mt-1 text-lg font-bold ${titleMain}`}>1</div>
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-center gap-2 border-t border-white/[0.06] px-2 py-3">
-          <button
-            type="button"
-            onClick={onMute}
-            className="rounded-lg bg-white/[0.05] px-2 py-1.5 text-[10px] text-gray-400 hover:text-white"
-          >
+        <div className={`flex flex-wrap justify-center gap-2 px-2 py-3 ${hairlineT}`}>
+          <button type="button" onClick={onMute} className={footerBtn}>
             Tắt thông báo
           </button>
-          <button
-            type="button"
-            onClick={onPin}
-            className="rounded-lg bg-white/[0.05] px-2 py-1.5 text-[10px] text-gray-400 hover:text-white"
-          >
+          <button type="button" onClick={onPin} className={footerBtn}>
             Ghim
           </button>
-          <button
-            type="button"
-            onClick={onCreateGroup}
-            className="rounded-lg bg-white/[0.05] px-2 py-1.5 text-[10px] text-gray-400 hover:text-white"
-          >
+          <button type="button" onClick={onCreateGroup} className={footerBtn}>
             Tạo nhóm
           </button>
         </div>
