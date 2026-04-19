@@ -21,6 +21,7 @@ import authService from '../services/authService';
 // Import userService để update user status
 import userService from '../services/userService';
 import { getToken, setToken, removeToken } from '../utils/tokenStorage';
+import { isAutoLogoutDisabled } from '../utils/devAuth';
 
 /* ========================================
    TẠO CONTEXT
@@ -101,11 +102,12 @@ function AuthProvider({ children }) {
           setUser(userData?.data || userData);
         }
       } catch (error) {
-        // Nếu có lỗi (token hết hạn, invalid, etc.)
+        // Chỉ xóa token khi server xác nhận 401 — lỗi mạng/503 không được logout oan
         console.error('Auth check failed:', error);
-        
-        // Xóa token lỗi khỏi localStorage
-        removeToken();
+        const st = error?.response?.status ?? error?.status;
+        if (st === 401 && !isAutoLogoutDisabled()) {
+          removeToken();
+        }
       } finally {
         // Dù thành công hay thất bại cũng set loading = false
         setLoading(false);

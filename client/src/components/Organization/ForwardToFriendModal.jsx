@@ -78,11 +78,13 @@ export default function ForwardToFriendModal({
           <div className="p-4 text-center text-sm text-gray-500">Không có bạn phù hợp.</div>
         )}
         {!loading &&
-          filtered.map((f) => {
-            const id = String(f.id ?? f._id);
+          filtered.map((f, idx) => {
+            const rawId = f.id ?? f._id;
+            const idStr = rawId != null && rawId !== '' ? String(rawId) : '';
+            const rowKey = f.listKey ?? (idStr || `fwd-friend-${idx}`);
             return (
               <label
-                key={id}
+                key={rowKey}
                 className="flex cursor-pointer items-center gap-3 border-b border-white/5 px-3 py-2.5 last:border-0 hover:bg-white/5"
               >
                 <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-lg">
@@ -93,9 +95,10 @@ export default function ForwardToFriendModal({
                 </div>
                 <input
                   type="checkbox"
-                  checked={!!selected[id]}
-                  onChange={() => toggle(id)}
-                  className="h-4 w-4 rounded border-gray-500"
+                  checked={idStr ? !!selected[idStr] : false}
+                  onChange={() => idStr && toggle(idStr)}
+                  disabled={!idStr}
+                  className="h-4 w-4 rounded border-gray-500 disabled:opacity-40"
                 />
               </label>
             );

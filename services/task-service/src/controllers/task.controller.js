@@ -3,10 +3,15 @@ const taskService = require('../services/task.service');
 const Task = require('../models/Task');
 const mongoose = require('../db');
 const { logger } = require('/shared');
+const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
 const { publishTaskFromFileJob } = require('../messaging/taskFromFilePublisher');
 
 const CHAT_SERVICE_URL = (process.env.CHAT_SERVICE_URL || 'http://chat-service:3006').replace(/\/$/, '');
 const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
+const ORGANIZATION_SERVICE_URL = (process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013').replace(
+  /\/$/,
+  ''
+);
 
 class TaskController {
   // Tạo task mới
@@ -59,6 +64,14 @@ class TaskController {
   // Lấy task theo ID
   async getTaskById(req, res) {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
       const { taskId } = req.params;
       const task = await taskService.getTaskById(taskId);
 
@@ -69,9 +82,35 @@ class TaskController {
         });
       }
 
-      res.json({
-        success: true,
-        data: task,
+      const isCreator = String(task.createdBy) === String(userId);
+      const isAssignee = task.assigneeId && String(task.assigneeId) === String(userId);
+      if (isCreator || isAssignee) {
+        return res.json({
+          success: true,
+          data: task,
+        });
+      }
+
+      if (task.organizationId) {
+        const orgRes = await axios.get(
+          `${ORGANIZATION_SERVICE_URL}/api/organizations/${task.organizationId}`,
+          {
+            headers: buildTrustedGatewayHeaders(userId),
+            timeout: 15000,
+            validateStatus: () => true,
+          }
+        );
+        if (orgRes.status === 200) {
+          return res.json({
+            success: true,
+            data: task,
+          });
+        }
+      }
+
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden',
       });
     } catch (error) {
       logger.error('Get task error:', error);
@@ -96,7 +135,20 @@ class TaskController {
         dueFrom,
         dueTo,
       } = req.query;
-      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
+      const userId = req.user?.id || req.userContext?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      if (assigneeId && String(assigneeId) !== String(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+      }
 
       const filter = { isActive: true };
 

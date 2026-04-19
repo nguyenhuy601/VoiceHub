@@ -1,6 +1,11 @@
 const userService = require('../services/user.service');
 const { logger, getRedisClient } = require('/shared');
 
+/** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
+function actorUserId(req) {
+  return req.userContext?.userId || req.user?.id || null;
+}
+
 class UserController {
   // Tạo user profile mới
   async createUserProfile(req, res) {
@@ -142,7 +147,7 @@ class UserController {
   // Lấy thông tin user hiện tại (userId từ gateway header x-user-id hoặc userContext)
   async getCurrentUser(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
+      const userId = actorUserId(req);
 
       if (!userId) {
         return res.status(401).json({
@@ -184,14 +189,20 @@ class UserController {
   // Cập nhật user profile
   async updateUserProfile(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'] || req.params.userId;
-
-      if (!userId) {
+      const actorId = actorUserId(req);
+      if (!actorId) {
         return res.status(401).json({
           success: false,
           message: 'Unauthorized',
         });
       }
+      if (req.params.userId && String(req.params.userId) !== String(actorId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+      }
+      const userId = actorId;
 
       const body = req.body && typeof req.body === 'object' ? req.body : {};
       const userProfile = await userService.updateUserProfile(userId, body);
@@ -212,7 +223,7 @@ class UserController {
   // Cập nhật status
   async updateStatus(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
+      const userId = actorUserId(req);
       const { status } = req.body;
 
       if (!userId) {
@@ -369,7 +380,7 @@ class UserController {
   async deleteUserProfile(req, res) {
     try {
       const { userId } = req.params;
-      const currentUserId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
+      const currentUserId = actorUserId(req);
 
       if (!currentUserId) {
         return res.status(401).json({

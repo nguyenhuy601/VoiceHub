@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { buildTrustedGatewayHeaders } = require('../../../../shared/middleware/gatewayTrust');
 const AiTaskExtraction = require('../models/AiTaskExtraction');
 const SyncSuggestion = require('../models/SyncSuggestion');
 const { publishJson } = require('../messaging/rabbit');
@@ -15,9 +16,9 @@ router.post('/extract', async (req, res) => {
   const { messageId, organizationId, titleHint } = req.body || {};
 
   // Phase 2: auth sẽ đi qua API Gateway; tạm lấy userId từ header để test nội bộ
-  const generatedBy = req.headers['x-user-id'] || req.headers['x-generated-by'];
+  const generatedBy = req.user?.id || req.headers['x-user-id'] || req.headers['x-generated-by'];
 
-  if (!generatedBy) return res.status(401).json({ success: false, message: 'Missing x-user-id' });
+  if (!generatedBy) return res.status(401).json({ success: false, message: 'Missing user context' });
   if (!messageId || !organizationId) {
     return res.status(400).json({ success: false, message: 'messageId and organizationId are required' });
   }
@@ -42,8 +43,13 @@ router.post('/extract', async (req, res) => {
 });
 
 router.get('/extractions/:id', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ success: false, message: 'Missing user context' });
   const extraction = await AiTaskExtraction.findById(req.params.id).lean();
   if (!extraction) return res.status(404).json({ success: false, message: 'Not found' });
+  if (String(extraction.generatedBy) !== String(userId)) {
+    return res.status(403).json({ success: false, message: 'Forbidden' });
+  }
   return res.json({ success: true, data: extraction });
 });
 
@@ -53,18 +59,29 @@ router.get('/extractions/:id', async (req, res) => {
  */
 router.post('/confirm', async (req, res) => {
   const { extractionId } = req.body || {};
-  const userId = req.headers['x-user-id'];
+  const userId = req.user?.id || req.headers['x-user-id'];
+  const idemKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 
-  if (!userId) return res.status(401).json({ success: false, message: 'Missing x-user-id' });
+  if (!userId) return res.status(401).json({ success: false, message: 'Missing user context' });
   if (!extractionId) return res.status(400).json({ success: false, message: 'extractionId is required' });
 
   const extraction = await AiTaskExtraction.findById(extractionId);
   if (!extraction) return res.status(404).json({ success: false, message: 'Extraction not found' });
+  if (String(extraction.generatedBy) !== String(userId)) {
+    return res.status(403).json({ success: false, message: 'Forbidden' });
+  }
   if (!['ready', 'confirmed'].includes(extraction.status)) {
     return res.status(409).json({ success: false, message: `Extraction is not ready (status=${extraction.status})` });
   }
 
   if (extraction.status === 'confirmed' && extraction.taskId) {
+    if (
+      idemKey &&
+      extraction.confirmIdempotencyKey &&
+      idemKey !== extraction.confirmIdempotencyKey
+    ) {
+      return res.status(409).json({ success: false, message: 'Idempotency key mismatch for confirmed extraction' });
+    }
     return res.json({ success: true, data: { taskId: String(extraction.taskId), extractionId: String(extraction._id) } });
   }
 
@@ -83,7 +100,7 @@ router.post('/confirm', async (req, res) => {
       assigneeId: draft.assigneeId || undefined,
     },
     {
-      headers: { 'x-user-id': String(userId) },
+      headers: buildTrustedGatewayHeaders(userId),
       timeout: 15000,
       validateStatus: () => true,
     }
@@ -103,6 +120,9 @@ router.post('/confirm', async (req, res) => {
 
   extraction.status = 'confirmed';
   extraction.taskId = createRes.data.data._id;
+  if (idemKey) {
+    extraction.confirmIdempotencyKey = idemKey;
+  }
   await extraction.save();
 
   return res.json({ success: true, data: { taskId: String(extraction.taskId), extractionId: String(extraction._id) } });
@@ -115,8 +135,8 @@ router.get('/:taskId/sync-suggestions', async (req, res) => {
 });
 
 router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
-  const userId = req.headers['x-user-id'];
-  if (!userId) return res.status(401).json({ success: false, message: 'Missing x-user-id' });
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ success: false, message: 'Missing user context' });
 
   const suggestion = await SyncSuggestion.findById(req.params.id);
   if (!suggestion || String(suggestion.taskId) !== String(req.params.taskId)) {
@@ -128,7 +148,7 @@ router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
 
   const taskServiceUrl = (process.env.TASK_SERVICE_URL || 'http://task-service:3009').replace(/\/$/, '');
   const taskRes = await axios.get(`${taskServiceUrl}/api/tasks/${suggestion.taskId}`, {
-    headers: { 'x-user-id': String(userId) },
+    headers: buildTrustedGatewayHeaders(userId),
     timeout: 15000,
     validateStatus: () => true,
   });
@@ -148,7 +168,7 @@ router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
   } else {
     const patch = suggestion.proposedPatch || {};
     const updateRes = await axios.put(`${taskServiceUrl}/api/tasks/${suggestion.taskId}`, patch, {
-      headers: { 'x-user-id': String(userId) },
+      headers: buildTrustedGatewayHeaders(userId),
       timeout: 15000,
       validateStatus: () => true,
     });

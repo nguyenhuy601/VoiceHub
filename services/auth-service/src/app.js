@@ -1,11 +1,20 @@
 const express = require('express');
-const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(createCorsMiddleware());
+
+const authRouteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX_PER_MIN || 120),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth', authRouteLimiter);
 
 // Body parser với limit và error handling
 app.use(express.json({ 

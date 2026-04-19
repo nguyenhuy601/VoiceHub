@@ -11,7 +11,8 @@ import CreateTaskFromAiModal from '../../components/Chat/CreateTaskFromAiModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
 import organizationService from '../../services/organizationService';
 import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
-import { Toast } from '../../components/Shared';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
+import Toast from '../../components/Shared/Toast';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
@@ -91,6 +92,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
   const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
+  const [toast, setToast] = useState(null);
   const { user } = useAuth();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
 
@@ -181,7 +183,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
 
   // Map friends + sắp xếp theo tin nhắn gần nhất; presence realtime khớp Dashboard (onlineUsers từ socket)
   const viewFriends = useMemo(() => {
-    const rows = friends.map((f) => {
+    const rows = friends.map((f, index) => {
       const u = f.friendId || f;
       const uname = typeof u?.username === 'string' ? u.username.trim() : '';
       const title =
@@ -195,6 +197,13 @@ function FriendChatPage({ landingDemo = false } = {}) {
         (uname ? `@${uname}` : '') ||
         'TRÒ CHUYỆN TRỰC TIẾP';
       const id = u?._id || u?.userId || u?.id || f.id;
+      /** Luôn unique để tránh cảnh báo key khi thiếu user (id trùng undefined). */
+      const listKey =
+        id != null && id !== ''
+          ? String(id)
+          : f._id != null
+            ? `friendship-${String(f._id)}`
+            : `friend-row-${index}`;
       const rawFriendId = f.friendId;
       const presenceKeys = [
         id,
@@ -209,6 +218,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
       const uniqueKeys = [...new Set(presenceKeys)];
       return {
         id,
+        listKey,
         name: u?.displayName || u?.username || 'Người dùng',
         avatar: u?.avatar || '👤',
         status: String(u?.status || 'offline').toLowerCase(),
@@ -761,7 +771,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                   typeof f.avatar === 'string' && /^https?:\/\//i.test(f.avatar) ? f.avatar : null;
                 return (
                   <button
-                    key={f.id}
+                    key={f.listKey}
                     type="button"
                     onClick={() => setSelectedFriendId(f.id)}
                     title={f.name}
@@ -968,7 +978,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                         : 'border-slate-200 bg-white text-slate-800 shadow-sm';
 
                     return (
-                      <Fragment key={mid}>
+                      <Fragment key={mid != null && mid !== '' ? String(mid) : `dm-msg-${idx}`}>
                         {showDayDivider && (
                           <div className="flex justify-center py-2">
                             <span
@@ -1419,6 +1429,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
         confirmText="Xóa"
         cancelText="Hủy"
       />
+      {toast && (
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+      )}
     </div>
   );
 }

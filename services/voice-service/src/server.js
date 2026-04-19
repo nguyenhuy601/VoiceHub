@@ -19,11 +19,17 @@ connectDB()
   })
   .then(() => {
     const server = http.createServer(app);
+    const isProd = process.env.NODE_ENV === 'production';
+    const corsList = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const voiceSocketCors =
+      corsList.length === 0 ? (isProd ? false : true) : corsList.length === 1 ? corsList[0] : corsList;
+
     const io = new Server(server, {
       cors: {
-        origin: (process.env.CORS_ORIGIN || '*')
-          .split(',')
-          .map((item) => item.trim()),
+        origin: voiceSocketCors,
         credentials: true,
       },
       path: VOICE_SIGNAL_PATH,

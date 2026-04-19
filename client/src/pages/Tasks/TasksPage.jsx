@@ -121,6 +121,7 @@ export default function TasksPage() {
   const [proofModal, setProofModal] = useState({ open: false, task: null });
   const [proofFiles, setProofFiles] = useState([]);
   const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });

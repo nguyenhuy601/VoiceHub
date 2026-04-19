@@ -424,8 +424,14 @@ class MessageService {
   async promoteFileForTask(messageId, taskId) {
     try {
       await ensureMongoReady();
-      const message = await Message.findByIdAndUpdate(
-        messageId,
+      const message = await Message.findOneAndUpdate(
+        {
+          _id: messageId,
+          $or: [
+            { 'fileMeta.promotedToTask': { $ne: true } },
+            { 'fileMeta.promotedToTask': { $exists: false } },
+          ],
+        },
         {
           $set: {
             'fileMeta.promotedToTask': true,

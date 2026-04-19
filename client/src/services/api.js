@@ -16,6 +16,7 @@
 // Import axios - HTTP client library
 import axios from 'axios';
 import { getToken, removeToken } from '../utils/tokenStorage';
+import { isAutoLogoutDisabled } from '../utils/devAuth';
 import { isLandingEmbedActive, isWriteHttpMethod } from '../utils/landingEmbedMode';
 
 // Import toast để show error notifications
@@ -233,9 +234,29 @@ api.interceptors.response.use(
         });
       }
 
+      // Request tùy chọn (vd: enrich profile sau khi đã xác thực bằng /auth/me) — không xóa token / redirect
+      if (error.config?.skipGlobalAuthFailure) {
+        return Promise.reject({
+          message,
+          status: error.response?.status,
+          data: error.response?.data,
+          code: error.code,
+        });
+      }
+
       // Hiển thị lỗi chi tiết từ server để debug (trước khi redirect)
       console.error('[API] 401 Unauthorized:', { message, url: error.config?.url, data: error.response?.data });
       toast.error(message || 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', { duration: 4000 });
+
+      if (isAutoLogoutDisabled()) {
+        console.warn('[API] VITE_DISABLE_AUTO_LOGOUT: bỏ qua xóa token và redirect /login (chỉ debug).');
+        return Promise.reject({
+          message,
+          status: error.response?.status,
+          data: error.response?.data,
+          code: error.code,
+        });
+      }
 
       // Trì hoãn redirect 2s để user đọc được toast và có thể mở console xem chi tiết
       setTimeout(() => {
@@ -258,7 +279,8 @@ api.interceptors.response.use(
     // Với /friends/search: không hiển thị toast ở đây, để trang Bạn bè tự hiển thị "Không tìm thấy người dùng"
     else if (error.response?.status === 404) {
       const isFriendSearch = requestUrl.includes('/friends/search');
-      if (!isFriendSearch) {
+      const silentOptional = error.config?.skipGlobalAuthFailure;
+      if (!isFriendSearch && !silentOptional) {
         toast.error(message || 'Không tìm thấy dữ liệu');
       }
     } 

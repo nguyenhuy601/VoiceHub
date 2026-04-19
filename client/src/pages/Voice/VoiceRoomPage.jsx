@@ -139,13 +139,12 @@ function deptMatchesMember(m, deptId) {
   return String(did || '') === String(deptId || '');
 }
 
-function VoiceRoomPage() {
+function VoiceRoomPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const [searchParams] = useSearchParams();
   const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
   const { user } = useAuth();
-  const { isDarkMode } = useTheme();
 
   const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
@@ -1332,6 +1331,10 @@ function VoiceRoomPage() {
       onClick: () => toast('Ghi chú — sắp có', { icon: '📝' }),
     },
   ];
+
+  /** Bố cục hàng: menu trái + nội dung lobby (home / prejoin). */
+  const voiceLobby =
+    'flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden bg-gradient-to-b from-[#0a0a0a] to-black';
 
   const renderMeetingTile = (tile, index) => {
     const extra = tileItemClass(layoutMode, index);

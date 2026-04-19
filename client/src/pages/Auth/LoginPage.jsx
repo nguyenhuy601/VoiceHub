@@ -7,6 +7,7 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import authService from '../../services/authService';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -17,6 +18,8 @@ function LoginPage({ landingDemo = false } = {}) {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
+  const [gatewayTrust, setGatewayTrust] = useState(null);
 
   const inputBase = authInputSurface(isDarkMode);
   const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
@@ -37,6 +40,26 @@ function LoginPage({ landingDemo = false } = {}) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  useEffect(() => {
+    if (landingDemo) {
+      setGatewayTrust({ ok: true, message: '' });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const t = await authService.checkGatewayTrust();
+      if (!cancelled) {
+        setGatewayTrust({
+          ok: t.gatewayTrustConfigured,
+          message: t.message || '',
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [landingDemo]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,6 +90,21 @@ function LoginPage({ landingDemo = false } = {}) {
     <AuthPageLayout aside={<AuthMarketingAside />}>
       <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Chào mừng quay lại</h2>
       <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>Đăng nhập để tiếp tục quản trị hệ thống của bạn.</p>
+
+      {gatewayTrust && !gatewayTrust.ok && (
+        <div
+          role="alert"
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+            isDarkMode ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
+          }`}
+        >
+          <p className="font-semibold">Không thể đăng nhập ổn định</p>
+          <p className="mt-1 opacity-95">
+            {gatewayTrust.message ||
+              'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với các microservice (xem .env.example ở root repo).'}
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
@@ -127,10 +165,10 @@ function LoginPage({ landingDemo = false } = {}) {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok)}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
-          {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
+          {loading ? 'Đang đăng nhập…' : gatewayTrust === null ? 'Đang kiểm tra cấu hình…' : 'Đăng nhập'}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>

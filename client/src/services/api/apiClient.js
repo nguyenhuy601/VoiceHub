@@ -1,6 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { getToken, removeToken } from '../../utils/tokenStorage';
+import { isAutoLogoutDisabled } from '../../utils/devAuth';
 import { isLandingEmbedActive, isWriteHttpMethod } from '../../utils/landingEmbedMode';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -65,10 +66,13 @@ apiClient.interceptors.response.use(
     
     // Handle specific error codes
     if (error.response?.status === 401) {
-      // Unauthorized - clear token and redirect to login
-      removeToken();
-      window.location.href = '/login';
-      toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+      if (isAutoLogoutDisabled()) {
+        console.warn('[apiClient] VITE_DISABLE_AUTO_LOGOUT: bỏ qua logout/redirect (chỉ debug).');
+      } else {
+        removeToken();
+        window.location.href = '/login';
+        toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+      }
     } else if (error.response?.status === 403) {
       toast.error('Bạn không có quyền thực hiện hành động này');
     } else if (error.response?.status === 404) {

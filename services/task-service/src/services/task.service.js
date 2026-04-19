@@ -1,8 +1,8 @@
 const Task = require('../models/Task');
-const { getRedisClient, taskWebhook, logger } = require('/shared');
+const { getRedisClient, taskWebhook, logger, fetchUserProfileByIdInternal } = require('/shared');
+const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
 const axios = require('axios');
 
-const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
 const ORGANIZATION_SERVICE_URL = process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013';
 
 class TaskService {
@@ -24,7 +24,7 @@ class TaskService {
       // Kiểm tra organization — organization-service yêu cầu x-user-id (protect) + membership
       if (organizationId) {
         const orgRes = await axios.get(`${ORGANIZATION_SERVICE_URL}/api/organizations/${organizationId}`, {
-          headers: { 'x-user-id': String(createdBy) },
+          headers: buildTrustedGatewayHeaders(createdBy),
           timeout: 15000,
           validateStatus: () => true,
         });
@@ -44,10 +44,7 @@ class TaskService {
 
       // Kiểm tra assigneeId nếu có
       if (assigneeId) {
-        const userRes = await axios.get(`${USER_SERVICE_URL}/api/users/${assigneeId}`, {
-          timeout: 15000,
-          validateStatus: () => true,
-        });
+        const userRes = await fetchUserProfileByIdInternal(assigneeId);
         if (userRes.status !== 200 || !userRes.data?.success) {
           throw new Error('Assignee user not found');
         }

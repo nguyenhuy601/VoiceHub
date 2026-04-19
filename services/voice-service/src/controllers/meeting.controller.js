@@ -80,12 +80,12 @@ class MeetingController {
   async addParticipant(req, res) {
     try {
       const { meetingId } = req.params;
-      const userId = req.user?.id || req.userContext?.userId || req.body.userId;
+      const userId = req.user?.id || req.userContext?.userId;
 
       if (!userId) {
-        return res.status(400).json({
+        return res.status(401).json({
           success: false,
-          message: 'userId is required',
+          message: 'Unauthorized',
         });
       }
 
@@ -108,12 +108,12 @@ class MeetingController {
   async removeParticipant(req, res) {
     try {
       const { meetingId } = req.params;
-      const userId = req.user?.id || req.userContext?.userId || req.body.userId;
+      const userId = req.user?.id || req.userContext?.userId;
 
       if (!userId) {
-        return res.status(400).json({
+        return res.status(401).json({
           success: false,
-          message: 'userId is required',
+          message: 'Unauthorized',
         });
       }
 
@@ -217,8 +217,7 @@ class MeetingController {
           });
         }
 
-        const userId =
-          req.user?.id || req.user?.userId || req.user?._id || req.headers['x-user-id'];
+        const userId = req.user?.id || req.user?.userId || req.user?._id;
         if (!userId) {
           return res.status(401).json({
             success: false,

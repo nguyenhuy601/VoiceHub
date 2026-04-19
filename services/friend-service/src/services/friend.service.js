@@ -1,7 +1,13 @@
 const { mongo } = require('/shared');
 const { mongoose } = mongo;
 const Friend = require('../models/Friend');
-const { getRedisClient, friendWebhook, logger, emitRealtimeEvent } = require('/shared');
+const {
+  getRedisClient,
+  friendWebhook,
+  logger,
+  emitRealtimeEvent,
+  fetchUserProfileByIdInternal,
+} = require('/shared');
 const axios = require('axios');
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
@@ -68,10 +74,11 @@ class FriendService {
       // Kiểm tra user và friend có tồn tại không
       try {
         await Promise.all([
-          axios.get(`${USER_SERVICE_URL}/api/users/${userId}`),
-          axios.get(`${USER_SERVICE_URL}/api/users/${friendId}`),
+          fetchUserProfileByIdInternal(userId),
+          fetchUserProfileByIdInternal(friendId),
         ]);
       } catch (error) {
+        logger.warn('sendFriendRequest user lookup:', error.message);
         throw new Error('User not found');
       }
 
@@ -185,7 +192,7 @@ class FriendService {
 
       // Gửi webhook
       try {
-        const userResponse = await axios.get(`${USER_SERVICE_URL}/api/users/${friendId}`);
+        const userResponse = await fetchUserProfileByIdInternal(friendId);
         const friendName = userResponse.data?.data?.displayName || userResponse.data?.data?.username || 'Someone';
         await friendWebhook.requestAccepted(userId, friendId, friendName);
       } catch (error) {
@@ -350,7 +357,7 @@ class FriendService {
       await Promise.all(
         friendIds.map(async (id) => {
           try {
-            const res = await axios.get(`${USER_SERVICE_URL}/api/users/${id}`);
+            const res = await fetchUserProfileByIdInternal(id);
             const data = res.data?.data || res.data;
             if (data) userMap[id] = { _id: data.userId || data._id, username: data.username, displayName: data.displayName, avatar: data.avatar, status: data.status };
           } catch (err) {
@@ -433,7 +440,7 @@ class FriendService {
       await Promise.all(
         ids.map(async (id) => {
           try {
-            const res = await axios.get(`${USER_SERVICE_URL}/api/users/${id}`);
+            const res = await fetchUserProfileByIdInternal(id);
             const data = res.data?.data || res.data;
             if (data) userMap[id] = { _id: data.userId || data._id, username: data.username, displayName: data.displayName, avatar: data.avatar };
           } catch (err) {

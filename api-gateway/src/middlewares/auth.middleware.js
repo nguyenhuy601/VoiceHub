@@ -8,11 +8,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
  * Verify JWT token và gắn req.user
  */
 const authMiddleware = (req, res, next) => {
-  // Lấy path không có query string để check public route
+  // Lấy path không có query string để check public route (Express 5 / proxy: dùng thêm originalUrl)
   const pathWithoutQuery = req.path.split('?')[0];
-  
+  const fromOriginal = String(req.originalUrl || req.url || '')
+    .split('?')[0]
+    .replace(/\/+/g, '/');
+
   // Bỏ qua các route public
-  if (isPublicRoute(pathWithoutQuery)) {
+  if (
+    isPublicRoute(pathWithoutQuery) ||
+    isPublicRoute(fromOriginal) ||
+    pathWithoutQuery === '/api/health/gateway-trust' ||
+    fromOriginal.endsWith('/api/health/gateway-trust')
+  ) {
     console.log(`[API-Gateway] Public route detected: ${pathWithoutQuery}, skipping authentication`);
     return next();
   }
@@ -70,10 +78,10 @@ const authMiddleware = (req, res, next) => {
       throw error;
     }
   } catch (error) {
+    console.error('[API-Gateway] authMiddleware:', error);
     return res.status(500).json({
       success: false,
       message: 'Authentication error',
-      error: error.message,
     });
   }
 };
