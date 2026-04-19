@@ -5,7 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
 import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
-import { Bell, Filter, Search, Zap } from 'lucide-react';
+import { Bell, Zap } from 'lucide-react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
@@ -15,6 +15,9 @@ import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
+import OrgWorkspaceSearch from '../../features/search/components/OrgWorkspaceSearch';
+import PageSearchBar from '../../features/search/components/PageSearchBar';
+import SearchFilterChips from '../../features/search/components/SearchFilterChips';
 
 function formatJoinAnswerValue(value) {
   if (value === undefined || value === null) return '—';
@@ -135,6 +138,8 @@ const OrganizationMainPanel = ({
   onQuickReactMessage,
   /** ID user đang socket online — avatar stack + số đếm ở header workspace */
   workspaceOnlineUserIds = [],
+  /** Kết quả tìm kiếm workspace: chuyển kênh / nhảy tin */
+  onWorkspaceSearchJump,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -169,6 +174,9 @@ const OrganizationMainPanel = ({
   const [pollDuration, setPollDuration] = useState('24h');
   const [allowMultiAnswer, setAllowMultiAnswer] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
+  const [orgHomeSearch, setOrgHomeSearch] = useState('');
+  /** Trang chủ tổ chức: all | notifications | calendar */
+  const [orgHomeSection, setOrgHomeSection] = useState('all');
   const [contactCategory, setContactCategory] = useState('all');
   const [selectedContactId, setSelectedContactId] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -202,6 +210,33 @@ const OrganizationMainPanel = ({
       return ta - tb;
     });
   }, [messages]);
+
+  const orgHomeFilteredNotifs = useMemo(() => {
+    const q = orgHomeSearch.trim().toLowerCase();
+    if (!q) return homeNotificationPreview;
+    return homeNotificationPreview.filter((item) => {
+      const hay = `${item?.title || ''} ${item?.message || ''} ${item?.time || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [homeNotificationPreview, orgHomeSearch]);
+
+  const orgHomeFilteredCal = useMemo(() => {
+    const q = orgHomeSearch.trim().toLowerCase();
+    if (!q) return homeCalendarPreview;
+    return homeCalendarPreview.filter((item) => {
+      const hay = `${item?.title || ''} ${item?.date || ''} ${item?.time || ''} ${item?.type || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [homeCalendarPreview, orgHomeSearch]);
+
+  const orgHomeSectionOptions = useMemo(
+    () => [
+      { id: 'all', label: t('orgPanel.homeSectionAll'), icon: '📋' },
+      { id: 'notifications', label: t('orgPanel.homeSectionNotif'), icon: '🔔' },
+      { id: 'calendar', label: t('orgPanel.homeSectionCal'), icon: '📅' },
+    ],
+    [t]
+  );
 
   const orgIdForTask = selectedOrganization?._id || selectedOrganization?.id || null;
   const menuCreateTaskCheck = useMemo(
@@ -434,7 +469,7 @@ const OrganizationMainPanel = ({
       homeShell: isDarkMode
         ? 'min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5'
         : 'min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm',
-      homeHead: isDarkMode ? 'mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-4' : 'mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-4',
+      homeHead: isDarkMode ? 'mb-4 flex items-start justify-between gap-3 border-b border-white/10 pb-4' : 'mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-4',
       homeTitle: isDarkMode ? 'text-xl font-semibold text-white' : 'text-xl font-semibold text-slate-900',
       homeSub: isDarkMode ? 'text-sm text-gray-400' : 'text-sm text-slate-600',
       homeBadgeBtn: isDarkMode
@@ -893,9 +928,27 @@ const OrganizationMainPanel = ({
         <div className="flex h-full flex-col p-6">
           <div className={homeUi.homeShell}>
             <div className={homeUi.homeHead}>
-              <div>
+              <div className="min-w-0 flex-1">
                 <h3 className={homeUi.homeTitle}>{t('orgPanel.orgHomeTitle')}</h3>
                 <p className={homeUi.homeSub}>{t('orgPanel.orgHomeHeaderSub')}</p>
+                <div className="mt-3 max-w-xl space-y-2">
+                  <PageSearchBar
+                    value={orgHomeSearch}
+                    onChange={setOrgHomeSearch}
+                    placeholder={t('orgPanel.homeSearchPlaceholder')}
+                    isDarkMode={isDarkMode}
+                    id="org-home-widgets-search"
+                    aria-label={t('orgPanel.homeSearchAria')}
+                  />
+                  <SearchFilterChips
+                    aria-label={t('orgPanel.homeSectionFilterAria')}
+                    options={orgHomeSectionOptions}
+                    value={orgHomeSection}
+                    onChange={setOrgHomeSection}
+                    isDarkMode={isDarkMode}
+                    size="sm"
+                  />
+                </div>
               </div>
               <button type="button" onClick={onGoHome} className={homeUi.homeBadgeBtn}>
                 {t('orgPanel.atHomeBadge')}
@@ -906,12 +959,13 @@ const OrganizationMainPanel = ({
               {renderJoinApplicationsToReviewPanel()}
               {renderInvitationPanel()}
 
-            {renderHomeWidget({
+            {(orgHomeSection === 'all' || orgHomeSection === 'notifications') &&
+            renderHomeWidget({
               icon: '🔔',
               title: t('orgPanel.homeNotifTitle'),
               subtitle: t('orgPanel.homeNotifSubtitle'),
               cardKey: 'notifications',
-              items: homeNotificationPreview.slice(0, 5),
+              items: orgHomeFilteredNotifs.slice(0, 5),
               expanded: !!expandedHomeCards.notifications,
               onToggle: onToggleHomeCard,
               onViewAll: onOpenNotificationsPage,
@@ -954,12 +1008,13 @@ const OrganizationMainPanel = ({
               ),
             })}
 
-            {renderHomeWidget({
+            {(orgHomeSection === 'all' || orgHomeSection === 'calendar') &&
+            renderHomeWidget({
               icon: '📅',
               title: t('orgPanel.homeCalTitle'),
               subtitle: t('orgPanel.homeCalSubtitle'),
               cardKey: 'calendar',
-              items: homeCalendarPreview.slice(0, 5),
+              items: orgHomeFilteredCal.slice(0, 5),
               expanded: !!expandedHomeCards.calendar,
               onToggle: onToggleHomeCard,
               onViewAll: onOpenCalendarPage,
@@ -1181,9 +1236,11 @@ const OrganizationMainPanel = ({
 
         <div className={workspace.main}>
           <header className={workspace.header}>
+            {/* Hàng 1: breadcrumb + trạng thái / lệnh nhanh / thông báo — tìm kiếm nằm hàng 2 để khỏi chen với đường dẫn */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <nav
                 className={`min-w-0 text-[13px] ${isDarkMode ? 'text-[#9aa0ae]' : 'text-slate-600'}`}
+                aria-label={t('orgPanel.workspaceBreadcrumbAria')}
               >
                 <span className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                   {orgName}
@@ -1234,7 +1291,7 @@ const OrganizationMainPanel = ({
                   }`}
                   onClick={() => onSendChatOption?.({ kind: 'quick-command-placeholder' })}
                 >
-                  <Search className="h-4 w-4 shrink-0" />
+                  <Zap className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">{t('orgPanel.slashCmdTitle')}</span>
                   <kbd
                     className={`hidden rounded px-1.5 py-0.5 font-mono text-[10px] sm:inline ${
@@ -1258,6 +1315,18 @@ const OrganizationMainPanel = ({
                 </button>
               </div>
             </div>
+
+            {(selectedOrganization?._id || selectedOrganization?.id) && (
+              <div className="mt-2 w-full min-w-0" role="search" aria-label={t('orgPanel.workspaceSearchAria')}>
+                <OrgWorkspaceSearch
+                  organizationId={selectedOrganization?._id || selectedOrganization?.id}
+                  serverId={selectedOrganization?.serverId}
+                  channels={chatChannels}
+                  isDarkMode={isDarkMode}
+                  onJumpToResult={onWorkspaceSearchJump}
+                />
+              </div>
+            )}
 
             {selectedDepartment && chatChannels.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1313,32 +1382,9 @@ const OrganizationMainPanel = ({
             <p className={`text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
               {t('orgPanel.msgCountLine', { n: messages.length })}
             </p>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                title={t('orgPanel.filterTitle')}
-                className={`rounded-lg p-2 ${
-                  isDarkMode
-                    ? 'text-[#8e9297] hover:bg-white/[0.06] hover:text-white'
-                    : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-900'
-                }`}
-                onClick={() => onSendChatOption?.({ kind: 'filter-placeholder' })}
-              >
-                <Filter className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                title={t('orgPanel.searchChannelTitle')}
-                className={`rounded-lg p-2 ${
-                  isDarkMode
-                    ? 'text-[#8e9297] hover:bg-white/[0.06] hover:text-white'
-                    : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-900'
-                }`}
-                onClick={() => onSendChatOption?.({ kind: 'search-placeholder' })}
-              >
-                <Search className="h-4 w-4" />
-              </button>
-            </div>
+            <p className={`hidden max-w-[min(100%,280px)] text-right text-xs sm:block ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-400'}`}>
+              {t('orgPanel.searchHintAbove')}
+            </p>
           </div>
 
           <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">

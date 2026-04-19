@@ -17,6 +17,7 @@ import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
+import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
 
 function initialsFromName(name) {
   if (!name || typeof name !== 'string') return '?';
@@ -511,32 +512,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         : type === 'message'
           ? t('dashboard.activityTypeMessage')
           : t('dashboard.activityTypeDefault');
-
-  const QUICK_NAV = useMemo(
-    () => [
-      { label: t('dashboard.quickNavOrg'), path: '/organizations', hint: 'org organization workspace' },
-      { label: t('dashboard.quickNavFriends'), path: '/friends', hint: 'friends chat tin nhắn' },
-      { label: t('dashboard.quickNavChat'), path: '/chat', hint: 'channel guild voice' },
-      { label: t('dashboard.quickNavTasks'), path: '/tasks', hint: 'task deadline việc' },
-      { label: t('dashboard.quickNavCalendar'), path: '/calendar', hint: 'meeting event ngày' },
-      { label: t('dashboard.quickNavNotifications'), path: '/notifications', hint: 'notify bell' },
-      { label: t('dashboard.quickNavSettings'), path: '/settings', hint: 'preferences theme' },
-      { label: t('dashboard.quickNavDocuments'), path: '/documents', hint: 'file pdf doc' },
-      { label: t('dashboard.quickNavAnalytics'), path: '/analytics', hint: 'analytics báo cáo' },
-    ],
-    [t]
-  );
-
-  const filteredQuickNav = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return QUICK_NAV;
-    return QUICK_NAV.filter(
-      (item) =>
-        item.label.toLowerCase().includes(q) ||
-        item.hint.toLowerCase().includes(q) ||
-        item.path.toLowerCase().includes(q)
-    );
-  }, [searchQuery, QUICK_NAV]);
 
   /** Điều hướng từ modal chỉ số — khớp `stats[].key` */
   const getStatDetailRoute = (key) => {
@@ -1449,33 +1424,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         </div>
     </Modal>
 
-    <Modal isOpen={quickNavOpen} onClose={() => setQuickNavOpen(false)} title={t('dashboard.quickSearchTitle')} size="md">
-      <p className={`mb-4 text-sm ${textMuted}`}>
-        {searchQuery.trim()
-          ? t('dashboard.quickSearchHintQuery', { q: searchQuery.trim() })
-          : t('dashboard.quickSearchHint')}
-      </p>
-      <div className="grid gap-2">
-        {filteredQuickNav.length === 0 ? (
-          <p className={`text-sm ${textMuted}`}>{t('dashboard.quickSearchEmpty')}</p>
-        ) : (
-          filteredQuickNav.map((item) => (
-            <button
-              key={item.path}
-              type="button"
-              onClick={() => {
-                navigate(item.path);
-                setQuickNavOpen(false);
-              }}
-              className={modalRowBetween}
-            >
-              <span className={textHeading}>{item.label}</span>
-              <span className={`text-xs ${textSub}`}>{t('dashboard.openArrow')}</span>
-            </button>
-          ))
-        )}
-      </div>
-    </Modal>
+    <DashboardGlobalSearchModal
+      isOpen={quickNavOpen}
+      onClose={() => setQuickNavOpen(false)}
+      layer1Query={searchQuery}
+    />
 
   </>
   );

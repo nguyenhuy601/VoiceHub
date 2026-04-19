@@ -59,6 +59,9 @@ router.get('/stats/summary', messageController.getMessageStatsSummary.bind(messa
 // Tin chưa đọc — kênh tổ chức
 router.get('/unread/org', messageController.getUnreadOrgMessagesFeed.bind(messageController));
 
+// Tìm kiếm tin kênh tổ chức (đặt trước /:messageId)
+router.get('/search', messageController.searchMessages.bind(messageController));
+
 // Lấy danh sách tin nhắn
 router.get('/', messageController.getMessages.bind(messageController));
 

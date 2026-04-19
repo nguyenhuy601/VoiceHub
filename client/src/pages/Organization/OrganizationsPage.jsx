@@ -1160,6 +1160,9 @@ function OrganizationsPage({ landingDemo = false } = {}) {
             onForwardMessage={handleForwardRequest}
             onQuickReactMessage={handleQuickReactMessage}
             workspaceOnlineUserIds={onlineUsers}
+            onWorkspaceSearchJump={({ roomId }) => {
+              if (roomId) setSelectedChannelId(String(roomId));
+            }}
           />
           </div>
         }

@@ -104,6 +104,7 @@ class TaskController {
         limit,
         dueFrom,
         dueTo,
+        q: qRaw,
       } = q;
       const assigneeId = first(assigneeIdRaw);
       const organizationId = first(organizationIdRaw);
@@ -153,6 +154,22 @@ class TaskController {
       }
       if (status) filter.status = status;
       if (priority) filter.priority = priority;
+
+      const searchQ = first(qRaw);
+      if (searchQ != null && String(searchQ).trim() !== '') {
+        const esc = String(searchQ)
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const textSearch = {
+          $or: [
+            { title: { $regex: esc, $options: 'i' } },
+            { description: { $regex: esc, $options: 'i' } },
+          ],
+        };
+        const existing = { ...filter };
+        Object.keys(filter).forEach((k) => delete filter[k]);
+        filter.$and = [existing, textSearch];
+      }
 
       let sort = { createdAt: -1 };
       if (dueFrom || dueTo) {

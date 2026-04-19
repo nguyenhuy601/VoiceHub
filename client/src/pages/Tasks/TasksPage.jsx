@@ -14,6 +14,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import userService from '../../services/userService';
 import { useLocale } from '../../context/LocaleContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { useDebouncedValue } from '../../features/search/useDebouncedValue';
 
 const PROOF_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -156,6 +157,8 @@ export default function TasksPage() {
 
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterAssignee, setFilterAssignee] = useState('all');
+  const [taskSearchInput, setTaskSearchInput] = useState('');
+  const taskSearchDebounced = useDebouncedValue(taskSearchInput, 350);
   const [viewMode, setViewMode] = useState('kanban');
   const [selectedTask, setSelectedTask] = useState(null);
 
@@ -253,7 +256,10 @@ export default function TasksPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const res = await taskAPI.getTasks({ organizationId: selectedOrgId, limit: 200 });
+      const params = { organizationId: selectedOrgId, limit: 200 };
+      const qs = taskSearchDebounced.trim();
+      if (qs) params.q = qs;
+      const res = await taskAPI.getTasks(params);
       setTasks(parseTaskListResponse(res));
     } catch (e) {
       console.error(e);
@@ -262,7 +268,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgId, t]);
+  }, [selectedOrgId, t, taskSearchDebounced]);
 
   useEffect(() => {
     loadOrganizations();
@@ -682,6 +688,20 @@ export default function TasksPage() {
                   {t('tasks.newTask')}
                 </GradientButton>
               </div>
+            </div>
+
+            <div className="mb-4">
+              <input
+                type="search"
+                value={taskSearchInput}
+                onChange={(e) => setTaskSearchInput(e.target.value)}
+                placeholder={t('tasks.searchPlaceholder')}
+                className={`w-full max-w-md rounded-xl border px-3 py-2 text-sm outline-none transition ${
+                  isDarkMode
+                    ? 'border-white/10 bg-[#12151c] text-white placeholder:text-slate-500'
+                    : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                }`}
+              />
             </div>
 
             {loadError && (

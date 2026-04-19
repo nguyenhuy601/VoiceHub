@@ -14,6 +14,7 @@ import {
 } from '../../utils/calendarUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
+import { PageSearchBar, SearchFilterChips } from '../../features/search';
 
 const LOCAL_CUSTOM_KEY = 'voicehub:calendar:localCustom';
 
@@ -49,6 +50,9 @@ function CalendarPage() {
   });
   const [attendeeNames, setAttendeeNames] = useState([]);
   const [deleteConfirmEventId, setDeleteConfirmEventId] = useState(null);
+  const [eventSearchQuery, setEventSearchQuery] = useState('');
+  /** all | meeting | deadline | local */
+  const [calendarKindFilter, setCalendarKindFilter] = useState('all');
   const jumpDateInputRef = useRef(null);
 
   const {
@@ -67,22 +71,54 @@ function CalendarPage() {
     },
   });
 
+  const eventsByKind = useMemo(() => {
+    if (calendarKindFilter === 'all') return events;
+    return events.filter((e) => {
+      if (calendarKindFilter === 'meeting') return e.kind === 'meeting' || e.type === 'meeting';
+      if (calendarKindFilter === 'deadline') return e.kind === 'task' || e.type === 'deadline';
+      if (calendarKindFilter === 'local') return e.kind === 'local' || e.source === 'local';
+      return true;
+    });
+  }, [events, calendarKindFilter]);
+
+  const calendarKindOptions = useMemo(
+    () => [
+      { id: 'all', label: t('calendar.kindAll'), icon: '📋' },
+      { id: 'meeting', label: t('calendar.kindMeetings'), icon: '🎤' },
+      { id: 'deadline', label: t('calendar.kindDeadlines'), icon: '⏰' },
+      { id: 'local', label: t('calendar.kindLocal'), icon: '📝' },
+    ],
+    [t]
+  );
+
+  const eventsForDisplay = useMemo(() => {
+    const q = eventSearchQuery.trim().toLowerCase();
+    if (!q) return eventsByKind;
+    return eventsByKind.filter((e) => {
+      const hay = [e.title, e.date, e.time, e.location, e.description, e.duration, e.type]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [eventsByKind, eventSearchQuery]);
+
   const todayEvents = useMemo(() => {
     const k = toDateKey(new Date());
-    return events.filter((e) => e.date === k);
-  }, [events]);
+    return eventsForDisplay.filter((e) => e.date === k);
+  }, [eventsForDisplay]);
 
   const upcomingEvents = useMemo(() => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    return events
+    return eventsForDisplay
       .filter((e) => {
         if (!e.date) return false;
         const d = new Date(`${e.date}T12:00:00`);
         return d > start;
       })
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  }, [events]);
+  }, [eventsForDisplay]);
 
   const monthCells = useMemo(() => getMonthGridCells(selectedDate), [selectedDate]);
 
@@ -368,8 +404,8 @@ function CalendarPage() {
                 {[
                   { icon: '📅', value: todayEvents.length, label: t('calendar.statToday') },
                   { icon: '🔜', value: upcomingEvents.length, label: t('calendar.statUpcoming') },
-                  { icon: '🎤', value: events.filter((e) => e.type === 'meeting').length, label: t('calendar.statMeetings') },
-                  { icon: '⏰', value: events.filter((e) => e.type === 'deadline').length, label: t('calendar.statDeadlines') },
+                  { icon: '🎤', value: eventsForDisplay.filter((e) => e.type === 'meeting').length, label: t('calendar.statMeetings') },
+                  { icon: '⏰', value: eventsForDisplay.filter((e) => e.type === 'deadline').length, label: t('calendar.statDeadlines') },
                 ].map((s) => (
                   <div
                     key={s.label}
@@ -389,7 +425,26 @@ function CalendarPage() {
                 ))}
               </div>
             </div>
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex min-w-0 w-full flex-col gap-2 sm:max-w-md">
+                <PageSearchBar
+                  className="w-full"
+                  value={eventSearchQuery}
+                  onChange={setEventSearchQuery}
+                  placeholder={t('calendar.searchEventsPlaceholder')}
+                  isDarkMode={isDarkMode}
+                  id="calendar-event-search"
+                  aria-label={t('calendar.searchEventsAria')}
+                />
+                <SearchFilterChips
+                  aria-label={t('calendar.kindFilterAria')}
+                  options={calendarKindOptions}
+                  value={calendarKindFilter}
+                  onChange={setCalendarKindFilter}
+                  isDarkMode={isDarkMode}
+                  size="sm"
+                />
+              </div>
               <div className="flex gap-1">
                 {['day', 'week', 'month'].map((v) => (
                   <button
@@ -521,7 +576,7 @@ function CalendarPage() {
                   const { date, day } = cell;
                   const key = toDateKey(date);
                   const isToday = key === toDateKey(new Date());
-                  const dayEvents = events.filter((e) => e.date === key);
+                  const dayEvents = eventsForDisplay.filter((e) => e.date === key);
                   const hasEvent = dayEvents.length > 0;
                   return (
                     <div

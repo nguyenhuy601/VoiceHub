@@ -182,3 +182,33 @@ exports.deleteOrganization = async (req, res, next) => {
     next(error);
   }
 };
+
+/** Kênh (roomId tin nhắn) mà user được phép xem trong tổ chức — dùng cho chat-service search. */
+exports.getAccessibleChannelIds = async (req, res, next) => {
+  try {
+    const userId = getUserId(req);
+    const { orgId } = req.params;
+    if (!userId) {
+      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    }
+    const membership = await Membership.findOne({
+      user: userId,
+      organization: orgId,
+      status: 'active',
+    });
+    if (!membership) {
+      return res.status(403).json({ status: 'fail', message: 'Access denied' });
+    }
+    const channels = await Channel.find({ organization: orgId, isActive: true }).select('_id members').lean();
+    const uid = String(userId);
+    const channelIds = channels
+      .filter((ch) => {
+        if (!ch.members || ch.members.length === 0) return true;
+        return ch.members.some((m) => String(m) === uid || String(m?._id || m) === uid);
+      })
+      .map((ch) => String(ch._id));
+    res.json({ status: 'success', data: { channelIds } });
+  } catch (error) {
+    next(error);
+  }
+};

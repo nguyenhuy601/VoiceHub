@@ -6,6 +6,7 @@ import { ConfirmDialog, Dropdown, GlassCard, GradientButton, Modal } from '../..
 import { useTheme } from '../../context/ThemeContext';
 import { threeFramePageHeader } from '../../theme/shellTheme';
 import { useAppStrings } from '../../locales/appStrings';
+import { PageSearchBar, SearchFilterChips } from '../../features/search';
 
 const DEMO_DOCS = [
   {
@@ -98,6 +99,8 @@ function DocumentsPage() {
   const [currentFolder, setCurrentFolder] = useState('root');
   /** Lọc thư mục nhanh (minh họa) */
   const [activeFolder, setActiveFolder] = useState(null);
+  /** Từ khóa tìm theo tên (minh họa — API GET /documents hỗ trợ q khi nối dữ liệu thật) */
+  const [docNameQuery, setDocNameQuery] = useState('');
   /** all | starred | shared */
   const [listFilter, setListFilter] = useState('all');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -144,6 +147,15 @@ function DocumentsPage() {
   const storageTotal = 100; // GB
   const storagePercent = (storageUsed / storageTotal) * 100;
 
+  const docListFilterOptions = useMemo(
+    () => [
+      { id: 'all', label: t('documents.listFilterAll'), icon: '📋' },
+      { id: 'starred', label: t('documents.listFilterStarred'), icon: '⭐' },
+      { id: 'shared', label: t('documents.listFilterShared'), icon: '🔗' },
+    ],
+    [t]
+  );
+
   const toastDemoNoApi = (action) => {
     toast(t('documents.toastNoApi', { action }), { icon: 'ℹ️' });
   };
@@ -155,8 +167,10 @@ function DocumentsPage() {
     else if (activeFolder === 'Ảnh & Video') list = [];
     if (listFilter === 'starred') list = list.filter((d) => d.starred);
     if (listFilter === 'shared') list = list.filter((d) => d.shared);
+    const dq = docNameQuery.trim().toLowerCase();
+    if (dq) list = list.filter((d) => String(d.name || '').toLowerCase().includes(dq));
     return list;
-  }, [activeFolder, listFilter]);
+  }, [activeFolder, listFilter, docNameQuery]);
 
   return (
     <>
@@ -183,6 +197,24 @@ function DocumentsPage() {
                     {t('documents.upload')}
                   </GradientButton>
                 </div>
+              </div>
+              <div className="mb-4 max-w-xl space-y-2">
+                <PageSearchBar
+                  value={docNameQuery}
+                  onChange={setDocNameQuery}
+                  placeholder={t('documents.searchPlaceholder')}
+                  isDarkMode={isDarkMode}
+                  id="documents-name-search"
+                  aria-label={t('documents.searchAria')}
+                />
+                <SearchFilterChips
+                  aria-label={t('documents.listFilterAria')}
+                  options={docListFilterOptions}
+                  value={listFilter}
+                  onChange={setListFilter}
+                  isDarkMode={isDarkMode}
+                  size="sm"
+                />
               </div>
               {/* Storage Bar */}
               <GlassCard>
@@ -243,28 +275,8 @@ function DocumentsPage() {
 
               {/* Recent Files */}
               <div>
-                <div className="flex items-center justify-between mb-4">
+                <div className="mb-4">
                   <h2 className="text-xl font-bold text-white flex items-center gap-2">{t('documents.recentTitle')}</h2>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setListFilter((f) => (f === 'starred' ? 'all' : 'starred'))}
-                      className={`glass px-3 py-1.5 rounded-lg transition-all text-sm ${
-                        listFilter === 'starred' ? 'ring-1 ring-amber-400/50 bg-white/10' : 'hover:bg-white/10'
-                      }`}
-                    >
-                      {t('documents.filterStarredBtn')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setListFilter((f) => (f === 'shared' ? 'all' : 'shared'))}
-                      className={`glass px-3 py-1.5 rounded-lg transition-all text-sm ${
-                        listFilter === 'shared' ? 'ring-1 ring-cyan-400/50 bg-white/10' : 'hover:bg-white/10'
-                      }`}
-                    >
-                      {t('documents.filterSharedBtn')}
-                    </button>
-                  </div>
                 </div>
 
                 {filteredDocs.length === 0 ? (

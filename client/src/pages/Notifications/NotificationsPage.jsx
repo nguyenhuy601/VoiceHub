@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
@@ -9,12 +9,14 @@ import { appShellBg } from '../../theme/shellTheme';
 import api from '../../services/api';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { useAppStrings } from '../../locales/appStrings';
+import { PageSearchBar, SearchFilterChips } from '../../features/search';
 
 function NotificationsPage() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [filter, setFilter] = useState('all');
+  const [notifSearch, setNotifSearch] = useState('');
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [deleteNotifConfirmId, setDeleteNotifConfirmId] = useState(null);
@@ -268,16 +270,37 @@ function NotificationsPage() {
     }
   };
 
-  const filteredNotifications =
-    filter === 'all'
-      ? notifications
-      : filter === 'unread'
-        ? notifications.filter((n) => !n.read)
-        : filter === 'friend'
-          ? notifications.filter((n) => n.type === 'friend')
-          : notifications.filter((n) => n.type === filter);
+  const filteredNotifications = useMemo(() => {
+    let list =
+      filter === 'all'
+        ? notifications
+        : filter === 'unread'
+          ? notifications.filter((n) => !n.read)
+          : filter === 'friend'
+            ? notifications.filter((n) => n.type === 'friend')
+            : notifications.filter((n) => n.type === filter);
+    const q = notifSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((n) => {
+      const hay = `${n.title || ''} ${n.message || ''} ${n.action || ''} ${n.type || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [notifications, filter, notifSearch]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  const notifFilterOptions = useMemo(
+    () => [
+      { id: 'all', label: t('notifications.filterAll'), icon: '📋' },
+      { id: 'unread', label: t('notifications.filterUnread'), icon: '⭐' },
+      { id: 'task', label: t('notifications.filterTasks'), icon: '✅' },
+      { id: 'mention', label: t('common.mentions'), icon: '💬' },
+      { id: 'deadline', label: t('notifications.filterDeadline'), icon: '⏰' },
+      { id: 'meeting', label: t('notifications.filterMeetings'), icon: '📅' },
+      { id: 'friend', label: t('notifications.filterFriend'), icon: '🔔' },
+    ],
+    [t]
+  );
 
   const shell = `${appShellBg(isDarkMode)} ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`;
   const gc = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-white shadow-sm';
@@ -291,14 +314,22 @@ function NotificationsPage() {
         center={
           <div className={`p-5 lg:p-6 min-h-full ${shell}`}>
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
             <h1 className={`mb-1 text-3xl font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               {t('notifications.title')}
             </h1>
             <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notifications.subtitle')}</p>
+            <PageSearchBar
+              className="mt-4 max-w-md"
+              value={notifSearch}
+              onChange={setNotifSearch}
+              placeholder={t('notifications.searchPlaceholder')}
+              isDarkMode={isDarkMode}
+              id="notifications-search"
+            />
           </div>
-          <div className="flex gap-3">
+          <div className="flex shrink-0 flex-wrap gap-3">
             <button 
               onClick={() => navigate('/settings')}
               className={`rounded-xl px-4 py-2 transition-all ${btnGhost}`}
@@ -362,32 +393,18 @@ function NotificationsPage() {
           </GlassCard>
         </div>
 
-        {/* Filters */}
-        <div className="flex gap-2 mb-6">
-          {[
-            { id: 'all', label: t('notifications.filterAll'), icon: '📋' },
-            { id: 'unread', label: t('notifications.filterUnread'), icon: '⭐' },
-            { id: 'task', label: t('notifications.filterTasks'), icon: '✅' },
-            { id: 'mention', label: t('common.mentions'), icon: '💬' },
-            { id: 'deadline', label: t('notifications.filterDeadline'), icon: '⏰' },
-            { id: 'meeting', label: t('notifications.filterMeetings'), icon: '📅' },
-            { id: 'friend', label: t('notifications.filterFriend'), icon: '🔔' },
-          ].map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                filter === f.id
-                  ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white'
-                  : isDarkMode
-                    ? 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
-                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <span className="mr-2">{f.icon}</span>
-              {f.label}
-            </button>
-          ))}
+        {/* Bộ lọc loại + từ khóa (ô tìm phía trên) */}
+        <div className="mb-6">
+          <p className={`mb-2 text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+            {t('notifications.filtersHeading')}
+          </p>
+          <SearchFilterChips
+            aria-label={t('notifications.filtersAria')}
+            options={notifFilterOptions}
+            value={filter}
+            onChange={setFilter}
+            isDarkMode={isDarkMode}
+          />
         </div>
 
         {/* Notifications List */}
