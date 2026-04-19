@@ -1,12 +1,105 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { ConfirmDialog, Dropdown, GlassCard, GradientButton, Modal } from '../../components/Shared';
+import { useTheme } from '../../context/ThemeContext';
+import { threeFramePageHeader } from '../../theme/shellTheme';
+import { useAppStrings } from '../../locales/appStrings';
+
+const DEMO_DOCS = [
+  {
+    id: 1,
+    name: 'Kế Hoạch Dự Án Q1.pdf',
+    size: '2.4 MB',
+    type: '📄',
+    color: 'from-red-500 to-orange-500',
+    category: 'Tài liệu',
+    owner: 'Sarah Chen',
+    modified: '2 giờ trước',
+    shared: true,
+    starred: true,
+  },
+  {
+    id: 2,
+    name: 'Hệ Thống Thiết Kế.fig',
+    size: '15.8 MB',
+    type: '🎨',
+    color: 'from-purple-600 to-pink-600',
+    category: 'Thiết kế',
+    owner: 'Emma Wilson',
+    modified: '1 ngày trước',
+    shared: true,
+    starred: false,
+  },
+  {
+    id: 3,
+    name: 'Biên Bản Họp.docx',
+    size: '124 KB',
+    type: '📝',
+    color: 'from-blue-500 to-cyan-500',
+    category: 'Văn bản',
+    owner: 'Mike Ross',
+    modified: '3 ngày trước',
+    shared: false,
+    starred: true,
+  },
+  {
+    id: 4,
+    name: 'Báo Cáo Phân Tích.xlsx',
+    size: '892 KB',
+    type: '📊',
+    color: 'from-green-500 to-emerald-500',
+    category: 'Bảng tính',
+    owner: 'David Kim',
+    modified: '1 tuần trước',
+    shared: true,
+    starred: false,
+  },
+  {
+    id: 5,
+    name: 'Presentation_Demo.pptx',
+    size: '5.2 MB',
+    type: '📽️',
+    color: 'from-orange-500 to-red-500',
+    category: 'Trình chiếu',
+    owner: 'Lisa Park',
+    modified: '2 tuần trước',
+    shared: true,
+    starred: false,
+  },
+  {
+    id: 6,
+    name: 'Code_Review_Notes.md',
+    size: '45 KB',
+    type: '💻',
+    color: 'from-cyan-500 to-blue-500',
+    category: 'Code',
+    owner: 'Tom Zhang',
+    modified: '4 ngày trước',
+    shared: false,
+    starred: true,
+  },
+];
+
+const DEMO_FOLDERS = [
+  { name: 'Dự Án', count: 12, icon: '📁', color: 'from-purple-600 to-pink-600' },
+  { name: 'Thiết Kế', count: 24, icon: '🎨', color: 'from-blue-500 to-cyan-500' },
+  { name: 'Tài Liệu', count: 8, icon: '📄', color: 'from-green-500 to-emerald-500' },
+  { name: 'Ảnh & Video', count: 45, icon: '🖼️', color: 'from-orange-500 to-red-500' },
+];
 
 function DocumentsPage() {
+  const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
+  const headerStrip = threeFramePageHeader(isDarkMode);
+
   const [viewMode, setViewMode] = useState('grid');
   const [currentFolder, setCurrentFolder] = useState('root');
+  /** Lọc thư mục nhanh (minh họa) */
+  const [activeFolder, setActiveFolder] = useState(null);
+  /** all | starred | shared */
+  const [listFilter, setListFilter] = useState('all');
   const [selectedFile, setSelectedFile] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(null);
@@ -14,15 +107,15 @@ function DocumentsPage() {
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState(null);
 
   const handleStarFile = (fileId) => {
-    toast.success('Đã gắn dấu sao');
+    toast.success(t('documents.toastStar'));
   };
 
   const handleDownloadFile = (file) => {
-    toast(`Đang tải ${file.name}...`, { icon: '⬇️' });
+    toast(t('documents.toastDownloading', { name: file.name }), { icon: '⬇️' });
   };
 
   const handleDeleteFile = (fileId) => {
-    toast.success('Đã xóa file');
+    toast.success(t('documents.toastDeleted'));
   };
 
   const handleShareFile = (file) => {
@@ -41,126 +134,60 @@ function DocumentsPage() {
         setTimeout(() => {
           setShowUploadModal(false);
           setUploadProgress(0);
-          toast.success('Tải lên thành công!');
+          toast.success(t('documents.toastUploadOk'));
         }, 500);
       }
     }, 200);
   };
 
-  const docs = [
-    { 
-      id: 1,
-      name: 'Kế Hoạch Dự Án Q1.pdf', 
-      size: '2.4 MB', 
-      type: '📄', 
-      color: 'from-red-500 to-orange-500',
-      category: 'Tài liệu',
-      owner: 'Sarah Chen',
-      modified: '2 giờ trước',
-      shared: true,
-      starred: true
-    },
-    { 
-      id: 2,
-      name: 'Hệ Thống Thiết Kế.fig', 
-      size: '15.8 MB', 
-      type: '🎨', 
-      color: 'from-purple-600 to-pink-600',
-      category: 'Thiết kế',
-      owner: 'Emma Wilson',
-      modified: '1 ngày trước',
-      shared: true,
-      starred: false
-    },
-    { 
-      id: 3,
-      name: 'Biên Bản Họp.docx', 
-      size: '124 KB', 
-      type: '📝', 
-      color: 'from-blue-500 to-cyan-500',
-      category: 'Văn bản',
-      owner: 'Mike Ross',
-      modified: '3 ngày trước',
-      shared: false,
-      starred: true
-    },
-    { 
-      id: 4,
-      name: 'Báo Cáo Phân Tích.xlsx', 
-      size: '892 KB', 
-      type: '📊', 
-      color: 'from-green-500 to-emerald-500',
-      category: 'Bảng tính',
-      owner: 'David Kim',
-      modified: '1 tuần trước',
-      shared: true,
-      starred: false
-    },
-    { 
-      id: 5,
-      name: 'Presentation_Demo.pptx', 
-      size: '5.2 MB', 
-      type: '📽️', 
-      color: 'from-orange-500 to-red-500',
-      category: 'Trình chiếu',
-      owner: 'Lisa Park',
-      modified: '2 tuần trước',
-      shared: true,
-      starred: false
-    },
-    { 
-      id: 6,
-      name: 'Code_Review_Notes.md', 
-      size: '45 KB', 
-      type: '💻', 
-      color: 'from-cyan-500 to-blue-500',
-      category: 'Code',
-      owner: 'Tom Zhang',
-      modified: '4 ngày trước',
-      shared: false,
-      starred: true
-    }
-  ];
-
-  const folders = [
-    { name: 'Dự Án', count: 12, icon: '📁', color: 'from-purple-600 to-pink-600' },
-    { name: 'Thiết Kế', count: 24, icon: '🎨', color: 'from-blue-500 to-cyan-500' },
-    { name: 'Tài Liệu', count: 8, icon: '📄', color: 'from-green-500 to-emerald-500' },
-    { name: 'Ảnh & Video', count: 45, icon: '🖼️', color: 'from-orange-500 to-red-500' }
-  ];
-
   const storageUsed = 45.8; // GB
   const storageTotal = 100; // GB
   const storagePercent = (storageUsed / storageTotal) * 100;
+
+  const toastDemoNoApi = (action) => {
+    toast(t('documents.toastNoApi', { action }), { icon: 'ℹ️' });
+  };
+
+  const filteredDocs = useMemo(() => {
+    let list = [...DEMO_DOCS];
+    if (activeFolder === 'Thiết Kế') list = list.filter((d) => d.category === 'Thiết kế');
+    else if (activeFolder === 'Tài Liệu') list = list.filter((d) => d.category === 'Tài liệu');
+    else if (activeFolder === 'Ảnh & Video') list = [];
+    if (listFilter === 'starred') list = list.filter((d) => d.starred);
+    if (listFilter === 'shared') list = list.filter((d) => d.shared);
+    return list;
+  }, [activeFolder, listFilter]);
 
   return (
     <>
       <ThreeFrameLayout
         center={
-          <div className="flex flex-col h-full">
+          <div className="flex h-full min-h-0 flex-col">
             {/* Header */}
-            <div className="p-6 glass-strong border-b border-white/10">
+            <div className={`p-6 ${headerStrip}`}>
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h1 className="text-4xl font-black text-gradient mb-2">Tài Liệu và File</h1>
-                  <p className="text-gray-400">Quản lý và chia sẻ tài liệu của bạn</p>
+                  <h1 className="text-4xl font-black text-gradient mb-2">{t('documents.title')}</h1>
+                  <p className={`text-base leading-relaxed ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                    {t('documents.subtitle')}
+                  </p>
                 </div>
                 <div className="flex gap-3">
                   <button 
                     onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
                     className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 font-semibold"
                   >
-                    {viewMode === 'grid' ? '📋 Danh sách' : '📊 Lưới'}
+                    {viewMode === 'grid' ? t('documents.viewList') : t('documents.viewGrid')}
                   </button>
                   <GradientButton variant="primary" onClick={handleUploadStart}>
-                    <span className="text-xl mr-2">⬆️</span> Tải Lên
+                    {t('documents.upload')}
                   </GradientButton>
                 </div>
               </div>
               {/* Storage Bar */}
               <GlassCard>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-400">Dung lượng sử dụng</span>
+                  <span className="text-sm text-gray-400">{t('documents.storageUsed')}</span>
                   <span className="text-sm font-bold text-white">{storageUsed} GB / {storageTotal} GB</span>
                 </div>
                 <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
@@ -172,44 +199,81 @@ function DocumentsPage() {
               </GlassCard>
             </div>
 
-            <div className="flex-1 p-6">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6">
               {/* Quick Access Folders */}
               <div className="mb-8">
-                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                  <span>📁</span> Thư Mục
-                </h2>
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">{t('documents.foldersTitle')}</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {folders.map((folder, idx) => (
-                    <GlassCard key={idx} hover className="cursor-pointer group animate-slideUp" style={{ animationDelay: `${idx * 0.05}s` }}>
+                  {DEMO_FOLDERS.map((folder, idx) => (
+                    <GlassCard
+                      key={idx}
+                      hover
+                      onClick={() => {
+                        setActiveFolder(folder.name);
+                        setCurrentFolder(folder.name);
+                        toast(t('documents.toastFiltered', { name: folder.name }), { icon: '📁' });
+                      }}
+                      className="cursor-pointer group animate-slideUp"
+                      style={{ animationDelay: `${idx * 0.05}s` }}
+                    >
                       <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${folder.color} flex items-center justify-center text-2xl mb-3`}>
                         {folder.icon}
                       </div>
                       <h3 className="font-bold text-white mb-1 group-hover:text-gradient transition-colors">{folder.name}</h3>
-                      <p className="text-gray-400 text-sm">{folder.count} file</p>
+                      <p className="text-gray-400 text-sm">
+                        {folder.count} {t('documents.filesSuffix')}
+                      </p>
                     </GlassCard>
                   ))}
                 </div>
+                {activeFolder && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFolder(null);
+                      setCurrentFolder('root');
+                      toast(t('documents.toastFilterClear'), { icon: '✓' });
+                    }}
+                    className="mt-3 text-sm text-cyan-400/90 underline-offset-2 hover:underline"
+                  >
+                    {t('documents.clearFolderFilter')}
+                  </button>
+                )}
               </div>
 
               {/* Recent Files */}
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                    <span>🕒</span> File Gần Đây
-                  </h2>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">{t('documents.recentTitle')}</h2>
                   <div className="flex gap-2">
-                    <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
-                      ⭐ Đã gắn dấu sao
+                    <button
+                      type="button"
+                      onClick={() => setListFilter((f) => (f === 'starred' ? 'all' : 'starred'))}
+                      className={`glass px-3 py-1.5 rounded-lg transition-all text-sm ${
+                        listFilter === 'starred' ? 'ring-1 ring-amber-400/50 bg-white/10' : 'hover:bg-white/10'
+                      }`}
+                    >
+                      {t('documents.filterStarredBtn')}
                     </button>
-                    <button className="glass px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all text-sm">
-                      🔗 Đã chia sẻ
+                    <button
+                      type="button"
+                      onClick={() => setListFilter((f) => (f === 'shared' ? 'all' : 'shared'))}
+                      className={`glass px-3 py-1.5 rounded-lg transition-all text-sm ${
+                        listFilter === 'shared' ? 'ring-1 ring-cyan-400/50 bg-white/10' : 'hover:bg-white/10'
+                      }`}
+                    >
+                      {t('documents.filterSharedBtn')}
                     </button>
                   </div>
                 </div>
 
-                {viewMode === 'grid' ? (
+                {filteredDocs.length === 0 ? (
+                  <p className="py-12 text-center text-gray-400">
+                    {t('documents.filterEmpty')}
+                  </p>
+                ) : viewMode === 'grid' ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-visible">
-                    {docs.map((doc, idx) => (
+                    {filteredDocs.map((doc, idx) => (
                       <GlassCard
                         key={doc.id}
                         hover
@@ -257,7 +321,7 @@ function DocumentsPage() {
                             onClick={() => setSelectedFile(doc)}
                             className="flex-1 py-2 glass rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
                           >
-                            Xem
+                            {t('documents.view')}
                           </button>
                           <button
                             onClick={() => handleDownloadFile(doc)}
@@ -277,31 +341,34 @@ function DocumentsPage() {
                               onClick={() => handleShareFile(doc)}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
-                              🔗 Chia sẻ
+                              {t('documents.shareAction')}
                             </button>
                             <button
-                              onClick={() => toast.success('Đã đổi tên')}
+                              type="button"
+                              onClick={() => toastDemoNoApi(t('documents.demoRename'))}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
-                              ✏️ Đổi tên
+                              {t('documents.renameAction')}
                             </button>
                             <button
-                              onClick={() => toast.success('Đã di chuyển')}
+                              type="button"
+                              onClick={() => toastDemoNoApi(t('documents.demoMove'))}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
-                              📁 Di chuyển
+                              {t('documents.moveAction')}
                             </button>
                             <button
-                              onClick={() => toast.success('Đã copy')}
+                              type="button"
+                              onClick={() => toastDemoNoApi(t('documents.demoCopy'))}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                             >
-                              📋 Sao chép
+                              {t('documents.copyAction')}
                             </button>
                             <button
                               onClick={() => setDeleteConfirmFileId(doc.id)}
                               className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
                             >
-                              🗑️ Xóa
+                              🗑️ {t('common.delete')}
                             </button>
                           </Dropdown>
                         </div>
@@ -310,7 +377,7 @@ function DocumentsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {docs.map((doc, idx) => (
+                    {filteredDocs.map((doc, idx) => (
                       <GlassCard
                         key={doc.id}
                         hover
@@ -336,7 +403,7 @@ function DocumentsPage() {
                               <span>•</span>
                               <span>{doc.category}</span>
                               <span>•</span>
-                              <span>Bởi {doc.owner}</span>
+                              <span>{t('documents.byOwner', { owner: doc.owner })}</span>
                               <span>•</span>
                               <span>{doc.modified}</span>
                             </div>
@@ -357,7 +424,7 @@ function DocumentsPage() {
                               onClick={() => setSelectedFile(doc)}
                               className="glass px-4 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold"
                             >
-                              Xem
+                              {t('documents.view')}
                             </button>
                             <button
                               onClick={() => handleDownloadFile(doc)}
@@ -377,31 +444,34 @@ function DocumentsPage() {
                                 onClick={() => handleShareFile(doc)}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
-                                🔗 Chia sẻ
+                                {t('documents.shareAction')}
                               </button>
                               <button
-                                onClick={() => toast.success('Đã đổi tên')}
+                                type="button"
+                                onClick={() => toastDemoNoApi(t('documents.demoRename'))}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
-                                ✏️ Đổi tên
+                                {t('documents.renameAction')}
                               </button>
                               <button
-                                onClick={() => toast.success('Đã di chuyển')}
+                                type="button"
+                                onClick={() => toastDemoNoApi(t('documents.demoMove'))}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
-                                📁 Di chuyển
+                                {t('documents.moveAction')}
                               </button>
                               <button
-                                onClick={() => toast.success('Đã copy')}
+                                type="button"
+                                onClick={() => toastDemoNoApi(t('documents.demoCopy'))}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2"
                               >
-                                📋 Sao chép
+                                {t('documents.copyAction')}
                               </button>
                               <button
                                 onClick={() => setDeleteConfirmFileId(doc.id)}
                                 className="w-full text-left px-4 py-2 hover:bg-white/10 transition-colors flex items-center gap-2 text-red-400"
                               >
-                                🗑️ Xóa
+                                🗑️ {t('common.delete')}
                               </button>
                             </Dropdown>
                           </div>
@@ -445,23 +515,23 @@ function DocumentsPage() {
           <div className="grid grid-cols-2 gap-4">
             <GlassCard>
               <h4 className="font-bold text-white mb-3 flex items-center gap-2">
-                <span>ℹ️</span> Thông Tin File
+                <span>ℹ️</span> {t('documents.fileInfoTitle')}
               </h4>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Loại:</span>
+                  <span className="text-gray-500">{t('documents.typeLabel')}</span>
                   <span className="text-white font-semibold">{selectedFile.category}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Kích thước:</span>
+                  <span className="text-gray-500">{t('documents.sizeLabel')}</span>
                   <span className="text-white font-semibold">{selectedFile.size}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Chủ sở hữu:</span>
+                  <span className="text-gray-500">{t('documents.ownerLabel')}</span>
                   <span className="text-white font-semibold">{selectedFile.owner}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Chỉnh sửa:</span>
+                  <span className="text-gray-500">{t('documents.editedLabel')}</span>
                   <span className="text-white font-semibold">{selectedFile.modified}</span>
                 </div>
               </div>
@@ -469,7 +539,7 @@ function DocumentsPage() {
 
             <GlassCard>
               <h4 className="font-bold text-white mb-3 flex items-center gap-2">
-                <span>👥</span> Quyền Truy Cập
+                <span>👥</span> {t('documents.accessRights')}
               </h4>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
@@ -478,7 +548,7 @@ function DocumentsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="text-white font-semibold">Sarah Chen</div>
-                    <div className="text-gray-500 text-xs">Chủ sở hữu</div>
+                    <div className="text-gray-500 text-xs">{t('documents.roleOwner')}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -487,7 +557,7 @@ function DocumentsPage() {
                   </div>
                   <div className="flex-1">
                     <div className="text-white font-semibold">Emma Wilson</div>
-                    <div className="text-gray-500 text-xs">Có thể chỉnh sửa</div>
+                    <div className="text-gray-500 text-xs">{t('documents.canEditNote')}</div>
                   </div>
                 </div>
               </div>
@@ -501,7 +571,7 @@ function DocumentsPage() {
               onClick={() => handleDownloadFile(selectedFile)}
               className="flex-1"
             >
-              ⬇️ Tải Xuống
+              {t('documents.downloadBtn')}
             </GradientButton>
             <GradientButton 
               variant="secondary" 
@@ -511,13 +581,13 @@ function DocumentsPage() {
               }}
               className="flex-1"
             >
-              🔗 Chia Sẻ
+              {t('documents.shareBtn')}
             </GradientButton>
             <button 
               onClick={() => setSelectedFile(null)}
               className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
             >
-              Đóng
+              {t('documents.close')}
             </button>
           </div>
         </div>
@@ -528,7 +598,7 @@ function DocumentsPage() {
     <Modal 
       isOpen={showUploadModal} 
       onClose={() => {}}
-      title="Đang Tải Lên..."
+      title={t('documents.uploadingTitle')}
       size="md"
     >
       <div className="space-y-4">
@@ -545,7 +615,7 @@ function DocumentsPage() {
           
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Tiến trình</span>
+              <span className="text-gray-400">{t('documents.progressLabel')}</span>
               <span className="text-white font-bold">{uploadProgress}%</span>
             </div>
             <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
@@ -559,7 +629,7 @@ function DocumentsPage() {
 
         {uploadProgress === 100 && (
           <div className="text-center text-green-400 font-semibold animate-slideUp">
-            ✅ Tải lên hoàn tất!
+            {t('documents.uploadComplete')}
           </div>
         )}
       </div>
@@ -569,7 +639,7 @@ function DocumentsPage() {
     <Modal 
       isOpen={showShareModal !== null} 
       onClose={() => setShowShareModal(null)}
-      title="Chia Sẻ File"
+      title={t('documents.shareModalTitle')}
       size="md"
     >
       {showShareModal && (
@@ -588,23 +658,27 @@ function DocumentsPage() {
 
           <div>
             <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Thêm người dùng
+              {t('documents.addUsersLabel')}
             </label>
             <div className="flex gap-2">
               <input 
                 type="email"
-                placeholder="Nhập email..."
+                placeholder={t('documents.emailPlaceholder')}
                 className="flex-1 glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-purple-500/50 focus:outline-none text-white placeholder-gray-500 transition-all"
               />
-              <GradientButton variant="primary">
-                Thêm
+              <GradientButton
+                variant="primary"
+                type="button"
+                onClick={() => toast(t('documents.toastEmailDemo'), { icon: '✉️' })}
+              >
+                {t('documents.add')}
               </GradientButton>
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Người có quyền truy cập
+              {t('documents.peopleAccess')}
             </label>
             <div className="space-y-2">
               <GlassCard>
@@ -619,9 +693,9 @@ function DocumentsPage() {
                     </div>
                   </div>
                   <select className="glass px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                    <option>Chủ sở hữu</option>
-                    <option>Chỉnh sửa</option>
-                    <option>Xem</option>
+                    <option>{t('documents.roleOwner')}</option>
+                    <option>{t('documents.roleEdit')}</option>
+                    <option>{t('documents.roleView')}</option>
                   </select>
                 </div>
               </GlassCard>
@@ -638,8 +712,8 @@ function DocumentsPage() {
                     </div>
                   </div>
                   <select className="glass px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                    <option>Chỉnh sửa</option>
-                    <option>Xem</option>
+                    <option>{t('documents.roleEdit')}</option>
+                    <option>{t('documents.roleView')}</option>
                   </select>
                 </div>
               </GlassCard>
@@ -648,7 +722,7 @@ function DocumentsPage() {
 
           <div>
             <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Link chia sẻ
+              {t('documents.shareLinkLabel')}
             </label>
             <div className="flex gap-2">
               <input 
@@ -658,10 +732,10 @@ function DocumentsPage() {
                 className="flex-1 glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm"
               />
               <button 
-                onClick={() => toast.success('Đã copy link!')}
+                onClick={() => toast.success(t('documents.toastCopyLink'))}
                 className="glass px-4 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
               >
-                📋 Copy
+                {t('documents.copyLink')}
               </button>
             </div>
           </div>
@@ -670,18 +744,18 @@ function DocumentsPage() {
             <GradientButton 
               variant="primary" 
               onClick={() => {
-                toast.success('Đã lưu thay đổi');
+                toast.success(t('documents.toastSaveShare'));
                 setShowShareModal(null);
               }}
               className="flex-1"
             >
-              Lưu Thay Đổi
+              {t('documents.saveChangesBtn')}
             </GradientButton>
             <button 
               onClick={() => setShowShareModal(null)}
               className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold"
             >
-              Hủy
+              {t('nav.cancel')}
             </button>
           </div>
         </div>
@@ -694,10 +768,10 @@ function DocumentsPage() {
       onConfirm={() => {
         if (deleteConfirmFileId != null) handleDeleteFile(deleteConfirmFileId);
       }}
-      title="Xóa file"
-      message="Bạn có chắc muốn xóa file này?"
-      confirmText="Xóa"
-      cancelText="Hủy"
+      title={t('documents.confirmFileDeleteTitle')}
+      message={t('documents.confirmFileDeleteMsg')}
+      confirmText={t('common.delete')}
+      cancelText={t('nav.cancel')}
     />
     </>
   );

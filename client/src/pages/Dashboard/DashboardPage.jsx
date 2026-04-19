@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
+import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
 import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -14,6 +15,8 @@ import { taskAPI } from '../../services/api/taskAPI';
 import friendService from '../../services/friendService';
 import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
+import { useAppStrings } from '../../locales/appStrings';
+import { useLocale } from '../../context/LocaleContext';
 
 function initialsFromName(name) {
   if (!name || typeof name !== 'string') return '?';
@@ -66,22 +69,25 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   const { user } = useAuth();
   const { onlineUsers, connected: socketConnected } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
+  const { t } = useAppStrings();
+  const { locale } = useLocale();
 
   const displayName =
     user?.fullName ||
     user?.name ||
     user?.displayName ||
     user?.email?.split('@')[0] ||
-    'bạn';
+    t('dashboard.greetingNameFallback');
 
   const getGreeting = () => {
     const now = new Date();
     const hour = now.getHours();
-    if (hour >= 5 && hour < 11) return `Chào buổi sáng, ${displayName}`;
-    if (hour >= 11 && hour < 13) return `Chào buổi trưa, ${displayName}`;
-    if (hour >= 13 && hour < 17) return `Chào buổi chiều, ${displayName}`;
-    if (hour >= 17 && hour < 22) return `Chào buổi tối, ${displayName}`;
-    return `Khuya rồi, ${displayName}`;
+    const name = displayName;
+    if (hour >= 5 && hour < 11) return t('dashboard.greetingMorning', { name });
+    if (hour >= 11 && hour < 13) return t('dashboard.greetingNoon', { name });
+    if (hour >= 13 && hour < 17) return t('dashboard.greetingAfternoon', { name });
+    if (hour >= 17 && hour < 22) return t('dashboard.greetingEvening', { name });
+    return t('dashboard.greetingLate', { name });
   };
 
   useEffect(() => {
@@ -164,7 +170,8 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         const presence = friendsRaw.slice(0, 12).map((row) => {
           const u = row.friendId && typeof row.friendId === 'object' ? row.friendId : null;
           const name =
-            u?.displayName || u?.username || (u?.email ? String(u.email).split('@')[0] : null) || 'Bạn bè';
+            u?.displayName || u?.username || (u?.email ? String(u.email).split('@')[0] : null) ||
+            t('dashboard.quickNavFriends');
           const st = String(u?.status || 'offline').toLowerCase();
           return {
             id: u?._id || u?.userId || row.friendId,
@@ -191,15 +198,18 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           const meetings = inner?.meetings ?? inner?.data?.meetings;
           if (Array.isArray(meetings)) {
             meetingsUi = meetings.slice(0, 5).map((m) => {
-              const t = m.startTime ? new Date(m.startTime) : null;
+              const startDt = m.startTime ? new Date(m.startTime) : null;
               const timeStr =
-                t && !Number.isNaN(t.getTime())
-                  ? t.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                startDt && !Number.isNaN(startDt.getTime())
+                  ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
                   : '—';
               const parts = Array.isArray(m.participants) ? m.participants.length : 0;
               return {
                 id: m._id,
-                title: m.title || 'Cuộc họp',
+                title: m.title || t('dashboard.meetingFallback'),
                 time: timeStr,
                 attendees: parts || 1,
                 startTime: m.startTime,
@@ -245,7 +255,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [metricsTick, landingDemo, demoVariant]);
+  }, [metricsTick, landingDemo, demoVariant, locale, t]);
 
   /**
    * Presence realtime: khi socket đã kết nối, danh sách `onlineUsers` từ socket-service là nguồn đúng
@@ -276,11 +286,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   const shellBg = appShellBg(isDarkMode);
   const dashHeader = isDarkMode
     ? 'border-b border-white/[0.06] bg-[#0D0D0F]/95 backdrop-blur-md'
-    : 'border-b border-slate-200/90 bg-white/95 backdrop-blur-md';
-  const dashMain = isDarkMode ? '' : 'bg-[#f5f7fa]';
+    : 'border-b border-sky-200/90 bg-sky-50/95 backdrop-blur-md';
+  const dashMain = isDarkMode ? '' : 'bg-gradient-to-b from-sky-50/90 via-transparent to-slate-200/80';
   const dashAside = isDarkMode
     ? 'border-l border-white/[0.06] bg-[#121214]'
-    : 'border-l border-slate-200/90 bg-slate-100';
+    : 'border-l border-sky-200/90 bg-sky-100/85';
   const cardSurface = isDarkMode
     ? 'border border-white/[0.06] bg-[#1A1A1C]'
     : 'border border-slate-200/90 bg-white shadow-sm';
@@ -289,7 +299,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     : 'border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20';
   const textMuted = isDarkMode ? 'text-[#9ca3af]' : 'text-slate-600';
   const textHeading = isDarkMode ? 'text-white' : 'text-slate-900';
-  const textSub = isDarkMode ? 'text-[#6b7280]' : 'text-slate-500';
+  const textSub = isDarkMode ? 'text-[#6b7280]' : 'text-slate-600';
   const accentText = isDarkMode ? 'text-cyan-300' : 'text-cyan-700';
   const modalGlass = isDarkMode
     ? 'border border-slate-800 bg-slate-900/60'
@@ -321,42 +331,44 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       if (n == null || n === '') return '—';
       return String(n);
     };
+    const loadingDetail = t('dashboard.loading');
     return [
       {
+        key: 'org',
         icon: '📊',
-        label: 'Tổ chức',
+        label: t('dashboard.statOrg'),
         value: fmt(metrics.orgCount),
         change: '+1',
         color: 'from-cyan-600 to-teal-600',
         iconBg: 'from-[#0891b2] to-[#0d9488]',
         sparkClass: 'text-emerald-400',
         trend: 'up',
-        detail: metrics.loading ? 'Đang tải...' : 'Không gian làm việc đã tham gia',
+        detail: metrics.loading ? loadingDetail : t('dashboard.detailOrg'),
         drilldown: {
           nguon: 'GET /api/organizations/my',
           soToChuc: metrics.orgCount ?? '—',
         },
       },
       {
+        key: 'tasks',
         icon: '✅',
-        label: 'Việc đã xong',
+        label: t('dashboard.statTaskDone'),
         value: fmt(metrics.taskDone),
         change: '-4',
         color: 'from-blue-500 to-cyan-500',
         iconBg: 'from-[#3B82F6] to-[#06b6d4]',
         sparkClass: 'text-rose-400',
         trend: 'down',
-        detail: metrics.loading
-          ? 'Đang tải...'
-          : 'Theo tổ chức đầu tiên của bạn',
+        detail: metrics.loading ? loadingDetail : t('dashboard.detailTask'),
         drilldown: {
           nguon: 'GET /api/tasks/statistics?organizationId=…',
           done: metrics.taskDone ?? '—',
         },
       },
       {
+        key: 'friends',
         icon: '👥',
-        label: 'Bạn bè',
+        label: t('dashboard.statFriends'),
         value: fmt(metrics.friendsTotal),
         change: '+1',
         color: 'from-emerald-500 to-teal-500',
@@ -364,8 +376,8 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         sparkClass: 'text-emerald-400',
         trend: 'up',
         detail: metrics.loading
-          ? 'Đang tải...'
-          : `${metrics.pendingCount} lời mời đang chờ`,
+          ? loadingDetail
+          : t('dashboard.detailFriends', { count: metrics.pendingCount }),
         drilldown: {
           nguon: 'GET /api/friends, /api/friends/pending',
           soBan: metrics.friendsTotal ?? '—',
@@ -373,31 +385,110 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         },
       },
       {
+        key: 'notify',
         icon: '🔔',
-        label: 'Thông báo',
+        label: t('dashboard.statNotify'),
         value: fmt(metrics.unread),
         change: '+2',
         color: 'from-amber-500 to-orange-600',
         iconBg: 'from-[#F59E0B] to-[#ea580c]',
         sparkClass: 'text-emerald-400',
         trend: 'up',
-        detail: metrics.loading ? 'Đang tải...' : 'Chưa đọc trên hệ thống',
+        detail: metrics.loading ? loadingDetail : t('dashboard.detailUnread'),
         drilldown: {
           nguon: 'GET /api/notifications',
           chuaDoc: metrics.unread,
         },
       },
     ];
-  }, [metrics]);
+  }, [metrics, t]);
 
-  const activities = [
-    { user: 'Sarah Chen', action: 'hoàn thành', item: 'Đánh giá thiết kế UI', time: '2 phút', avatar: '👩‍💼', type: 'task', color: 'from-emerald-500 to-teal-600', detail: { project: 'VoiceHub Enterprise', duration: '2 giờ', tags: ['Thiết Kế', 'Đánh Giá'] } },
-    { user: 'Mike Ross', action: 'tải lên', item: 'BaoCaoQ4.pdf', time: '15 phút', avatar: '👨‍💻', type: 'file', color: 'from-blue-500 to-sky-600', detail: { size: '2.4 MB', folder: 'Tài Liệu/Báo Cáo', downloads: 5 } },
-    { user: 'Emma Wilson', action: 'tạo kênh', item: '#y-tuong-marketing', time: '1 giờ', avatar: '👩‍🎨', type: 'message', color: 'from-cyan-600 to-teal-600', detail: { members: 8, category: 'Marketing', description: 'Tổng kết ý tưởng chiến dịch' } },
-    { user: 'David Kim', action: 'tham gia', item: 'Họp Nhóm Hàng Ngày', time: '2 giờ', avatar: '👨‍🔬', type: 'task', color: 'from-amber-500 to-orange-600', detail: { duration: '30 phút', participants: 12, recording: true } },
-    { user: 'Lisa Park', action: 'comment', item: 'Dự án Website mới', time: '3 giờ', avatar: '👩‍💼', type: 'message', color: 'from-sky-500 to-cyan-600', detail: { comments: 3, mentions: ['@Mike', '@Sarah'], project: 'Thiết Kế Lại Website' } },
-    { user: 'Alex Nguyen', action: 'cập nhật', item: 'Roadmap Q3', time: '5 giờ', avatar: '🧑‍💼', type: 'file', color: 'from-cyan-500 to-blue-600', detail: { project: 'VoiceHub Enterprise' } },
-  ];
+  const activities = useMemo(() => {
+    const rm = (n) => t('dashboard.relMinutes', { n });
+    const rh = (n) => t('dashboard.relHours', { n });
+    return [
+      {
+        user: 'Sarah Chen',
+        action: t('dashboard.demo1Action'),
+        item: t('dashboard.demo1Item'),
+        time: rm(2),
+        avatar: '👩‍💼',
+        type: 'task',
+        color: 'from-emerald-500 to-teal-600',
+        detailEntries: [
+          { label: t('dashboard.lblProject'), value: t('dashboard.demo1vProject') },
+          { label: t('dashboard.lblDuration'), value: t('dashboard.demo1vDuration') },
+          { label: t('dashboard.lblTags'), value: t('dashboard.demo1vTags') },
+        ],
+      },
+      {
+        user: 'Mike Ross',
+        action: t('dashboard.demo2Action'),
+        item: t('dashboard.demo2Item'),
+        time: rm(15),
+        avatar: '👨‍💻',
+        type: 'file',
+        color: 'from-blue-500 to-sky-600',
+        detailEntries: [
+          { label: t('dashboard.lblSize'), value: t('dashboard.demo2vSize') },
+          { label: t('dashboard.lblFolder'), value: t('dashboard.demo2vFolder') },
+          { label: t('dashboard.lblDownloads'), value: t('dashboard.demo2vDownloads') },
+        ],
+      },
+      {
+        user: 'Emma Wilson',
+        action: t('dashboard.demo3Action'),
+        item: t('dashboard.demo3Item'),
+        time: rh(1),
+        avatar: '👩‍🎨',
+        type: 'message',
+        color: 'from-cyan-600 to-teal-600',
+        detailEntries: [
+          { label: t('dashboard.lblMembers'), value: t('dashboard.demo3vMembers') },
+          { label: t('dashboard.lblCategory'), value: t('dashboard.demo3vCategory') },
+          { label: t('dashboard.lblDescription'), value: t('dashboard.demo3vDesc') },
+        ],
+      },
+      {
+        user: 'David Kim',
+        action: t('dashboard.demo4Action'),
+        item: t('dashboard.demo4Item'),
+        time: rh(2),
+        avatar: '👨‍🔬',
+        type: 'task',
+        color: 'from-amber-500 to-orange-600',
+        detailEntries: [
+          { label: t('dashboard.lblDuration'), value: t('dashboard.demo4vDuration') },
+          { label: t('dashboard.lblParticipants'), value: t('dashboard.demo4vParticipants') },
+          { label: t('dashboard.lblRecording'), value: t('dashboard.lblYes') },
+        ],
+      },
+      {
+        user: 'Lisa Park',
+        action: t('dashboard.demo5Action'),
+        item: t('dashboard.demo5Item'),
+        time: rh(3),
+        avatar: '👩‍💼',
+        type: 'message',
+        color: 'from-sky-500 to-cyan-600',
+        detailEntries: [
+          { label: t('dashboard.lblComments'), value: t('dashboard.demo5vComments') },
+          { label: t('dashboard.lblMentions'), value: t('dashboard.demo5vMentions') },
+          { label: t('dashboard.lblProject'), value: t('dashboard.demo5vProject') },
+        ],
+      },
+      {
+        user: 'Alex Nguyen',
+        action: t('dashboard.demo6Action'),
+        item: t('dashboard.demo6Item'),
+        time: rh(5),
+        avatar: '🧑‍💼',
+        type: 'file',
+        color: 'from-cyan-500 to-blue-600',
+        detailEntries: [{ label: t('dashboard.lblProject'), value: t('dashboard.demo1vProject') }],
+      },
+    ];
+  }, [t]);
 
   const filteredActivities =
     activeFilter === 'all'
@@ -412,22 +503,28 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 : true
         );
 
-  const activityTypeLabel = (t) =>
-    t === 'task' ? 'Việc' : t === 'file' ? 'Tệp' : t === 'message' ? 'Tin nhắn' : 'Hoạt động';
+  const activityTypeLabel = (type) =>
+    type === 'task'
+      ? t('dashboard.activityTypeTask')
+      : type === 'file'
+        ? t('dashboard.activityTypeFile')
+        : type === 'message'
+          ? t('dashboard.activityTypeMessage')
+          : t('dashboard.activityTypeDefault');
 
   const QUICK_NAV = useMemo(
     () => [
-      { label: 'Tổ chức', path: '/organizations', hint: 'org organization workspace' },
-      { label: 'Bạn bè', path: '/friends', hint: 'friends chat tin nhắn' },
-      { label: 'Trò chuyện', path: '/chat', hint: 'channel guild voice' },
-      { label: 'Công việc', path: '/tasks', hint: 'task deadline việc' },
-      { label: 'Lịch', path: '/calendar', hint: 'meeting event ngày' },
-      { label: 'Thông báo', path: '/notifications', hint: 'notify bell' },
-      { label: 'Cài đặt', path: '/settings', hint: 'preferences theme' },
-      { label: 'Tài liệu', path: '/documents', hint: 'file pdf doc' },
-      { label: 'Phân tích', path: '/analytics', hint: 'analytics báo cáo' },
+      { label: t('dashboard.quickNavOrg'), path: '/organizations', hint: 'org organization workspace' },
+      { label: t('dashboard.quickNavFriends'), path: '/friends', hint: 'friends chat tin nhắn' },
+      { label: t('dashboard.quickNavChat'), path: '/chat', hint: 'channel guild voice' },
+      { label: t('dashboard.quickNavTasks'), path: '/tasks', hint: 'task deadline việc' },
+      { label: t('dashboard.quickNavCalendar'), path: '/calendar', hint: 'meeting event ngày' },
+      { label: t('dashboard.quickNavNotifications'), path: '/notifications', hint: 'notify bell' },
+      { label: t('dashboard.quickNavSettings'), path: '/settings', hint: 'preferences theme' },
+      { label: t('dashboard.quickNavDocuments'), path: '/documents', hint: 'file pdf doc' },
+      { label: t('dashboard.quickNavAnalytics'), path: '/analytics', hint: 'analytics báo cáo' },
     ],
-    []
+    [t]
   );
 
   const filteredQuickNav = useMemo(() => {
@@ -440,6 +537,29 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         item.path.toLowerCase().includes(q)
     );
   }, [searchQuery, QUICK_NAV]);
+
+  /** Điều hướng từ modal chỉ số — khớp `stats[].key` */
+  const getStatDetailRoute = (key) => {
+    switch (key) {
+      case 'org':
+        return { path: '/organizations', cta: t('dashboard.statOpenOrg') };
+      case 'tasks':
+        return { path: '/tasks', cta: t('dashboard.statOpenTasks') };
+      case 'friends':
+        return { path: '/friends', cta: t('dashboard.statOpenFriends') };
+      case 'notify':
+        return { path: '/notifications', cta: t('dashboard.statOpenNotify') };
+      default:
+        return null;
+    }
+  };
+
+  const navigateFromActivityType = (type) => {
+    if (type === 'task') navigate('/tasks');
+    else if (type === 'file') navigate('/documents');
+    else if (type === 'message') navigate('/chat/friends');
+    else navigate('/notifications');
+  };
 
   const exportDashboardSnapshot = () => {
     try {
@@ -455,9 +575,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       a.download = 'voicehub-dashboard-snapshot.json';
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Đã tải snapshot số liệu (JSON)');
+      toast.success(t('dashboard.exportOk'));
     } catch {
-      toast.error('Không xuất được file');
+      toast.error(t('dashboard.exportErr'));
     }
   };
 
@@ -465,7 +585,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     const url = `${window.location.origin}/dashboard`;
     try {
       await navigator.clipboard.writeText(url);
-      toast.success('Đã copy liên kết Dashboard');
+      toast.success(t('dashboard.shareOk'));
     } catch {
       toast(url, { icon: '🔗' });
     }
@@ -475,10 +595,13 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
   return (
     <>
-    <div className={`flex ${shellH} overflow-hidden ${shellBg}`}>
-      <NavigationSidebar landingDemo={landingDemo} />
+    <div className={`relative flex ${shellH} overflow-hidden ${shellBg}`}>
+      <ShellWaveBackdrop />
+      <div className="relative z-[1] h-full shrink-0">
+        <NavigationSidebar landingDemo={landingDemo} />
+      </div>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className={`flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:gap-4 md:px-6 ${dashHeader}`}>
           <p className={`max-w-[40%] truncate text-sm font-medium md:max-w-none md:text-[15px] ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
             {getGreeting()}
@@ -487,7 +610,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             <button
               type="button"
               className={`absolute left-2 top-1/2 z-[1] -translate-y-1/2 rounded-lg p-1.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
-              aria-label="Mở tìm nhanh"
+              aria-label={t('dashboard.ariaSearch')}
               onClick={() => setQuickNavOpen(true)}
             >
               <Search className="h-4 w-4" strokeWidth={2} />
@@ -496,13 +619,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setQuickNavOpen(true)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   setQuickNavOpen(true);
                 }
               }}
-              placeholder="Tìm kiếm toàn hệ thống… (Enter)"
+              placeholder={t('dashboard.searchPlaceholder')}
               className={`w-full rounded-2xl py-2.5 pl-11 pr-4 text-sm outline-none transition ${inputSurface}`}
             />
           </div>
@@ -511,7 +635,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               type="button"
               onClick={() => navigate('/notifications')}
               className={`relative rounded-xl p-2.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
-              aria-label="Thông báo"
+              aria-label={t('dashboard.ariaNotifications')}
             >
               <Bell className="h-5 w-5" strokeWidth={2} />
               {(metrics.unread > 0 || metrics.pendingCount > 0) && (
@@ -527,14 +651,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           <main className={`min-h-0 flex-1 overflow-y-auto overflow-x-visible px-4 py-5 scrollbar-overlay md:px-6 lg:px-8 ${dashMain}`}>
             <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className={`mb-1 text-[11px] font-bold uppercase tracking-[0.18em] ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>Dashboard</p>
-                <h1 className={`text-2xl font-bold tracking-tight md:text-3xl ${textHeading}`}>Trung Tâm Điều Khiển</h1>
-                <p className={`mt-1 text-sm ${textMuted}`}>Giám sát không gian làm việc thời gian thực</p>
+                <p className={`mb-1 text-[11px] font-bold uppercase tracking-[0.18em] ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>{t('dashboard.kicker')}</p>
+                <h1 className={`text-3xl font-bold tracking-tight md:text-4xl ${textHeading}`}>{t('dashboard.heading')}</h1>
+                <p className={`mt-1 text-base leading-relaxed ${textMuted}`}>{t('dashboard.sub')}</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.12)]">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  Live
+                  {t('dashboard.live')}
                 </span>
                 <Dropdown
                   trigger={
@@ -554,11 +678,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                         className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
                         onClick={() => {
                           document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          toast('Đã cuộn tới khu vực hoạt động', { icon: 'ℹ️' });
+                          toast(t('dashboard.customizeToast'), { icon: 'ℹ️' });
                           close();
                         }}
                       >
-                        Tùy chỉnh Dashboard
+                        {t('dashboard.customize')}
                       </button>
                       <button
                         type="button"
@@ -568,7 +692,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                           close();
                         }}
                       >
-                        Xuất báo cáo
+                        {t('dashboard.exportReport')}
                       </button>
                       <button
                         type="button"
@@ -578,7 +702,17 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                           close();
                         }}
                       >
-                        Chia sẻ
+                        {t('dashboard.share')}
+                      </button>
+                      <button
+                        type="button"
+                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
+                        onClick={() => {
+                          setShowNewProjectModal(true);
+                          close();
+                        }}
+                      >
+                        {t('dashboard.newProject')}
                       </button>
                       <div className={`my-2 h-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
                       <button
@@ -589,7 +723,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                           close();
                         }}
                       >
-                        Cài đặt
+                        {t('dashboard.settings')}
                       </button>
                     </div>
                   )}
@@ -629,10 +763,10 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                     </div>
                   </div>
                   <div className={`mb-0.5 text-3xl font-bold tabular-nums tracking-tight ${textHeading}`}>{stat.value}</div>
-                  <div className={`mb-1 text-xs font-medium ${textMuted}`}>{stat.label}</div>
-                  <div className={`text-[11px] leading-relaxed ${textSub}`}>{stat.detail}</div>
+                  <div className={`mb-1 text-sm font-medium ${textMuted}`}>{stat.label}</div>
+                  <div className={`text-xs leading-relaxed ${textSub}`}>{stat.detail}</div>
                   <div className={`mt-3 text-[11px] font-medium opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${accentText}`}>
-                    Xem chi tiết →
+                    {t('dashboard.viewDetails')}
                   </div>
                 </div>
               </GlassCard>
@@ -647,20 +781,22 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                   ⚡
                 </div>
                 <div>
-                  <h2 className={`text-lg font-bold ${textHeading}`}>Hoạt động gần đây</h2>
-                  <p className={`mt-0.5 text-xs ${textSub}`}>
-                    <span className={`font-semibold ${accentText}`}>{filteredActivities.length} sự kiện</span>
+                  <h2 className={`text-lg font-bold ${textHeading}`}>{t('dashboard.activityRecent')}</h2>
+                  <p className={`mt-0.5 text-sm ${textSub}`}>
+                    <span className={`font-semibold ${accentText}`}>
+                      {t('dashboard.eventsCount', { n: filteredActivities.length })}
+                    </span>
                     <span className="mx-1.5">·</span>
-                    Minh họa — feed thật sẽ nối sau
+                    {t('dashboard.activityFeedNote')}
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  { id: 'all', label: 'Tất cả' },
-                  { id: 'tasks', label: 'Việc' },
-                  { id: 'files', label: 'Tệp' },
-                  { id: 'messages', label: 'Tin nhắn' },
+                  { id: 'all', label: t('dashboard.filterAll') },
+                  { id: 'tasks', label: t('dashboard.filterTasks') },
+                  { id: 'files', label: t('dashboard.filterFiles') },
+                  { id: 'messages', label: t('dashboard.filterMessages') },
                 ].map((f) => (
                   <button
                     key={f.id}
@@ -712,17 +848,25 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                       <span className={textMuted}>{activity.action}</span>{' '}
                       <span className={`font-semibold ${accentText}`}>{activity.item}</span>
                     </p>
-                    {activity.detail?.project && (
-                      <p className={`mt-1 text-xs ${textSub}`}>{activity.detail.project}</p>
+                    {activity.detailEntries?.[0] && (
+                      <p className={`mt-1 text-xs ${textSub}`}>{activity.detailEntries[0].value}</p>
                     )}
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     <span
-                      className={`inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#d1d5db]`}
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
+                        isDarkMode
+                          ? 'border-white/10 bg-white/[0.04] text-[#d1d5db]'
+                          : 'border-slate-300 bg-slate-200/90 text-slate-800'
+                      }`}
                     >
                       {activityTypeLabel(activity.type)}
                     </span>
-                    <span className="text-xs tabular-nums text-[#6b7280]">{activity.time}</span>
+                    <span
+                      className={`text-xs tabular-nums ${isDarkMode ? 'text-[#9ca3af]' : 'text-slate-600'}`}
+                    >
+                      {activity.time}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -730,9 +874,10 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
             <button
               type="button"
+              onClick={() => navigate('/notifications')}
               className={`mt-2 w-full rounded-xl border py-2.5 text-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-200 hover:bg-white hover:text-slate-900'}`}
             >
-              Xem tất cả hoạt động →
+              {t('dashboard.viewAll')}
             </button>
           </GlassCard>
           </div>
@@ -741,51 +886,83 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       <aside className={`flex w-80 shrink-0 flex-col overflow-hidden ${dashAside}`}>
         <div className="flex-1 min-h-0 space-y-6 overflow-y-auto overflow-x-visible p-4 scrollbar-overlay">
           <div className="space-y-2">
-            <p className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Truy cập nhanh</p>
+            <p className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.quickAccess')}</p>
             {[
-              { ch: '# chat-chung', badge: '4 tin mới', color: 'bg-cyan-500/15 text-cyan-300' },
-              { ch: '# thiết-kế', badge: null, color: '' },
-              { ch: '# tổng-hợp', badge: '2', color: 'bg-sky-500/20 text-sky-300' },
-            ].map((row, i) => (
+              {
+                ch: t('dashboard.channelChat'),
+                badge: t('dashboard.badgeNew'),
+                badgeTone: 'cyan',
+                path: '/chat/organization',
+              },
+              { ch: t('dashboard.channelDesign'), badge: null, badgeTone: null, path: '/chat' },
+              {
+                ch: t('dashboard.channelGeneral'),
+                badge: t('dashboard.badgeTwo'),
+                badgeTone: 'sky',
+                path: '/organizations',
+              },
+            ].map((row, i) => {
+              const badgeCls =
+                row.badgeTone === 'cyan'
+                  ? isDarkMode
+                    ? 'bg-cyan-500/15 text-cyan-100'
+                    : 'bg-cyan-100 text-cyan-950'
+                  : row.badgeTone === 'sky'
+                    ? isDarkMode
+                      ? 'bg-sky-500/20 text-sky-100'
+                      : 'bg-sky-100 text-sky-950'
+                    : isDarkMode
+                      ? 'bg-white/10 text-gray-200'
+                      : 'bg-slate-200 text-slate-900';
+              return (
               <button
                 key={i}
                 type="button"
-                onClick={() => navigate('/organizations')}
+                onClick={() => navigate(row.path)}
                 className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${isDarkMode ? 'border-white/[0.05] bg-[#1A1A1C] text-[#e5e7eb] hover:border-cyan-500/35 hover:bg-white/[0.03]' : 'border-slate-200 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'}`}
               >
                 <span className="font-medium">{row.ch}</span>
                 {row.badge && (
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${row.color || 'bg-white/10 text-gray-300'}`}>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeCls}`}>
                     {row.badge}
                   </span>
                 )}
               </button>
-            ))}
+              );
+            })}
           </div>
 
           <div className="space-y-2">
 
             {!metrics.loading && metrics.pendingCount > 0 && (
-              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
-                {metrics.pendingCount} lời mời kết bạn
-              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/friends')}
+                className={`w-full rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
+                  isDarkMode
+                    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                    : 'border-emerald-600/30 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                }`}
+              >
+                {t('dashboard.pendingInvites', { n: metrics.pendingCount })}
+              </button>
             )}
           </div>
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Cuộc họp</h3>
+              <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.meetingsTitle')}</h3>
               <button
                 type="button"
                 onClick={() => navigate('/calendar')}
                 className={`text-[11px] font-semibold ${isDarkMode ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-600'}`}
               >
-                Xem tất cả
+                {t('dashboard.viewAllShort')}
               </button>
             </div>
             <div className="space-y-3">
               {!metrics.loading && upcomingMeetings.length === 0 && (
-                <p className={`text-xs ${textSub}`}>Không có cuộc họp trong 7 ngày tới.</p>
+                <p className={`text-xs ${textSub}`}>{t('dashboard.noMeetingsWeek')}</p>
               )}
               {upcomingMeetings.map((event, idx) => {
                 const borderColors = ['border-l-blue-500', 'border-l-emerald-500', 'border-l-amber-500'];
@@ -793,18 +970,25 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 return (
                   <div
                     key={event.id != null ? String(event.id) : idx}
-                    className={`rounded-xl border p-3 pl-3 ${bc} border-l-4 shadow-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#1A1A1C] hover:bg-white/[0.02]' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate('/calendar')}
+                    onKeyDown={(e) => e.key === 'Enter' && navigate('/calendar')}
+                    className={`cursor-pointer rounded-xl border p-3 pl-3 ${bc} border-l-4 shadow-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#1A1A1C] hover:bg-white/[0.02]' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                   >
                     <div className={`text-sm font-semibold ${textHeading}`}>{event.title}</div>
                     <div className={`mt-1 text-xs ${textMuted}`}>
-                      {event.time} · {event.attendees} người
+                      {event.time} · {t('dashboard.peopleUnit', { n: event.attendees })}
                     </div>
                     <button
                       type="button"
-                      onClick={() => navigate('/calendar')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/calendar');
+                      }}
                       className={`mt-3 w-full rounded-lg py-2 text-xs font-semibold transition ${isDarkMode ? 'bg-cyan-600/20 text-cyan-200 hover:bg-cyan-600/30' : 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200'}`}
                     >
-                      Tham gia
+                      {t('dashboard.joinMeetingBtn')}
                     </button>
                   </div>
                 );
@@ -814,13 +998,22 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Trạng thái nhóm</h3>
-              <span className="text-xs font-semibold text-emerald-400/90">{onlineFriendCount} online</span>
+              <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.groupStatus')}</h3>
+              <span
+                className={`text-xs font-semibold ${isDarkMode ? 'text-emerald-400/90' : 'text-emerald-800'}`}
+              >
+                {onlineFriendCount} online
+              </span>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {displayPresenceFriends.slice(0, 9).map((pf, idx) => (
                 <div key={pf.id != null ? String(pf.id) : idx} className="flex flex-col items-center text-center">
-                  <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/chat/friends')}
+                    className="relative rounded-full outline-none ring-offset-2 ring-offset-transparent transition hover:ring-2 hover:ring-cyan-500/40 focus-visible:ring-2 focus-visible:ring-cyan-500/50"
+                    aria-label={t('friendChat.openChatAria', { name: pf.name })}
+                  >
                     <div
                       className={`flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br ${
                         ['from-cyan-600 to-teal-600', 'from-blue-500 to-cyan-500', 'from-emerald-500 to-teal-600'][idx % 3]
@@ -833,53 +1026,91 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                       )}
                     </div>
                     <StatusIndicator status={pf.status} />
-                  </div>
-                  <span className="mt-1 w-full truncate text-[10px] font-medium text-[#d1d5db]">{pf.name.split(' ')[0]}</span>
+                  </button>
+                  <span
+                    className={`mt-1 w-full truncate text-xs font-medium ${isDarkMode ? 'text-[#d1d5db]' : 'text-slate-800'}`}
+                  >
+                    {pf.name.split(' ')[0]}
+                  </span>
                 </div>
               ))}
             </div>
             <button
               type="button"
               onClick={() => navigate('/chat/friends')}
-              className={`mt-3 w-full rounded-xl border py-2 text-xs font-semibold transition ${isDarkMode ? 'border-white/[0.08] text-[#9ca3af] hover:bg-white/[0.04] hover:text-white' : 'border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'}`}
+              className={`mt-3 w-full rounded-xl border py-2.5 text-sm font-semibold transition ${isDarkMode ? 'border-white/[0.08] text-[#9ca3af] hover:bg-white/[0.04] hover:text-white' : 'border-slate-300 bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-900'}`}
             >
-              Mở chat bạn bè
+              {t('dashboard.openFriendChat')}
             </button>
           </div>
 
           <div className={`rounded-2xl border p-3 ${cardSurface}`}>
-            <h3 className={`mb-3 text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Hoạt động tuần</h3>
+            <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.weekActivity')}</h3>
             <div className="flex h-24 items-end justify-between gap-1">
               {[45, 62, 38, 70, 55, 88, 72].map((h, idx) => (
-                <div key={idx} className="flex flex-1 flex-col items-center gap-1">
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => navigate('/analytics')}
+                  className="flex flex-1 flex-col items-center gap-1 rounded-md outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-cyan-500/50"
+                  aria-label={`Xem phân tích — ${['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}`}
+                >
                   <div
                     className={`w-full max-w-[28px] rounded-t-md transition-all ${
                       idx >= 5 ? 'bg-gradient-to-t from-cyan-600 to-teal-500' : 'bg-gradient-to-t from-slate-600 to-slate-500'
                     }`}
                     style={{ height: `${h}%` }}
                   />
-                  <span className="text-[9px] font-medium text-[#6b7280]">{['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}</span>
-                </div>
+                  <span
+                    className={`text-[10px] font-medium sm:text-xs ${isDarkMode ? 'text-[#6b7280]' : 'text-slate-600'}`}
+                  >
+                    {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}
+                  </span>
+                </button>
               ))}
             </div>
-            <p className="mt-2 text-center text-[11px] text-emerald-400/90">+15% so với tuần trước</p>
+            <p
+              className={`mt-2 text-center text-xs ${isDarkMode ? 'text-emerald-400/90' : 'text-emerald-800'}`}
+            >
+              {t('dashboard.vsLastWeek')}
+            </p>
           </div>
 
           <div className={`rounded-2xl border p-3.5 ${isDarkMode ? 'border-white/[0.06] bg-[#141416]' : 'border-slate-200 bg-slate-50'}`}>
-            <h3 className={`mb-3 text-[10px] font-bold uppercase tracking-wider ${textSub}`}>Thống kê nhanh</h3>
+            <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.quickStats')}</h3>
             <div className="space-y-2.5">
               {[
-                { label: 'Thông báo chưa đọc', value: metrics.loading ? '…' : String(metrics.unread), icon: '🔔' },
-                { label: 'Lời mời', value: metrics.loading ? '…' : String(metrics.pendingCount), icon: '👋' },
-                { label: 'Bạn bè', value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal), icon: '👥' },
+                {
+                  label: t('dashboard.statUnread'),
+                  value: metrics.loading ? '…' : String(metrics.unread),
+                  icon: '🔔',
+                  path: '/notifications',
+                },
+                {
+                  label: t('dashboard.statInvites'),
+                  value: metrics.loading ? '…' : String(metrics.pendingCount),
+                  icon: '👋',
+                  path: '/friends',
+                },
+                {
+                  label: t('dashboard.statFriends'),
+                  value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal),
+                  icon: '👥',
+                  path: '/friends',
+                },
               ].map((s, idx) => (
-                <div key={idx} className="flex items-center justify-between text-sm">
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => navigate(s.path)}
+                  className={`flex w-full items-center justify-between rounded-lg text-left text-sm transition ${isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-100'}`}
+                >
                   <span className={`flex items-center gap-2 ${textMuted}`}>
                     <span>{s.icon}</span>
                     {s.label}
                   </span>
                   <span className={`font-bold ${accentText}`}>{s.value}</span>
-                </div>
+                </button>
               ))}
             </div>
             <GradientButton
@@ -888,7 +1119,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               className="mt-4 w-full py-3 text-sm font-semibold shadow-[0_8px_24px_rgba(8,145,178,0.22)]"
               onClick={() => setShowAddFriendModal(true)}
             >
-              + Kết bạn
+              {t('dashboard.addFriend')}
             </GradientButton>
           </div>
         </div>
@@ -907,24 +1138,22 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     <Modal
       isOpen={showWelcome}
       onClose={() => setShowWelcome(false)}
-      title="Xin chào"
+      title={t('dashboard.welcomeTitle')}
       size="sm"
     >
       <div className="space-y-4">
         <p className={`text-base font-semibold ${textHeading}`}>{getGreeting()}</p>
-        <p className={`text-sm ${textMuted}`}>
-          Chúc {displayName} có một ngày làm việc hiệu quả cùng <span className="font-semibold text-gradient">VoiceHub</span>.
-        </p>
+        <p className={`text-sm ${textMuted}`}>{t('dashboard.welcomeBody', { name: displayName })}</p>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className={modalSecondaryBtnSm} onClick={() => setShowWelcome(false)}>
-            Đóng
+            {t('dashboard.close')}
           </button>
           <GradientButton
             variant="primary"
             onClick={() => setShowWelcome(false)}
             className="px-4 py-2 text-sm"
           >
-            Bắt đầu làm việc
+            {t('dashboard.startWork')}
           </GradientButton>
         </div>
       </div>
@@ -934,7 +1163,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     <Modal
       isOpen={selectedStat !== null}
       onClose={() => setSelectedStat(null)}
-      title={selectedStat?.label || "Chi Tiết"}
+      title={selectedStat?.label || t('dashboard.statModalTitle')}
       size="lg"
     >
         {selectedStat && (
@@ -949,7 +1178,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               </GlassCard>
 
               <GlassCard className={modalGlass}>
-                <h4 className={`font-bold mb-4 ${textHeading}`}>Thống Kê Chi Tiết</h4>
+                <h4 className={`font-bold mb-4 ${textHeading}`}>{t('dashboard.modalStatsTitle')}</h4>
                 <div className="space-y-3">
                   {Object.entries(selectedStat.drilldown).filter(([key]) => !['projects', 'nguoiDongGopNhieuNhat', 'roles', 'channels'].includes(key)).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between">
@@ -961,15 +1190,35 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               </GlassCard>
             </div>
 
+            {selectedStat.key && getStatDetailRoute(selectedStat.key) && (
+              <div className="flex flex-wrap justify-center gap-2">
+                <GradientButton
+                  variant="primary"
+                  className="px-6 py-2.5 text-sm"
+                  onClick={() => {
+                    const link = getStatDetailRoute(selectedStat.key);
+                    if (link) {
+                      navigate(link.path);
+                      setSelectedStat(null);
+                    }
+                  }}
+                >
+                  {getStatDetailRoute(selectedStat.key).cta}
+                </GradientButton>
+              </div>
+            )}
+
             {selectedStat.drilldown.projects && (
               <div>
-                <h4 className={`mb-4 font-bold ${textHeading}`}>Dự Án Đang Hoạt Động</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>{t('dashboard.modalProjectsTitle')}</h4>
                 <div className="space-y-3">
                   {selectedStat.drilldown.projects.map((project, idx) => (
                     <GlassCard key={idx} hover className={modalGlass}>
                       <div className="mb-3 flex items-center justify-between">
                         <h5 className={`font-bold ${textHeading}`}>{project.name}</h5>
-                        <span className={`text-sm ${textMuted}`}>Còn {project.deadline}</span>
+                        <span className={`text-sm ${textMuted}`}>
+                          {t('dashboard.deadlineLeft', { deadline: project.deadline })}
+                        </span>
                       </div>
                       <div className="mb-2 flex items-center gap-3">
                         <div className="flex-1">
@@ -979,7 +1228,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                         </div>
                         <span className={`text-sm font-bold ${textHeading}`}>{project.progress}%</span>
                       </div>
-                      <div className={`text-xs ${textMuted}`}>👥 {project.members} thành viên</div>
+                      <div className={`text-xs ${textMuted}`}>
+                        {t('dashboard.membersCount', { n: project.members })}
+                      </div>
                     </GlassCard>
                   ))}
                 </div>
@@ -988,14 +1239,16 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
             {selectedStat.drilldown.nguoiDongGopNhieuNhat && (
               <div>
-                <h4 className={`mb-4 font-bold ${textHeading}`}>Người Đóng Góp Nhiều Nhất</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>{t('dashboard.topContributors')}</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.nguoiDongGopNhieuNhat.map((user, idx) => (
                     <div key={idx} className={modalRow}>
                       <div className="text-2xl">{user.avatar}</div>
                       <div className="flex-1">
                         <div className={`font-semibold ${textHeading}`}>{user.name}</div>
-                        <div className={`text-xs ${textMuted}`}>{user.tasks} công việc</div>
+                        <div className={`text-xs ${textMuted}`}>
+                          {t('dashboard.tasksCount', { n: user.tasks })}
+                        </div>
                       </div>
                       <div className="font-bold text-emerald-600 dark:text-green-400">#{idx + 1}</div>
                     </div>
@@ -1006,7 +1259,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
             {selectedStat.drilldown.roles && (
               <div>
-                <h4 className={`mb-4 font-bold ${textHeading}`}>Phân Bổ Theo Vai Trò</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>{t('dashboard.roleDistribution')}</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.roles.map((role, idx) => (
                     <div key={idx} className={modalRow}>
@@ -1030,13 +1283,15 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
 
             {selectedStat.drilldown.channels && (
               <div>
-                <h4 className={`mb-4 font-bold ${textHeading}`}>Kênh Hoạt Động</h4>
+                <h4 className={`mb-4 font-bold ${textHeading}`}>{t('dashboard.activeChannels')}</h4>
                 <div className="space-y-2">
                   {selectedStat.drilldown.channels.map((channel, idx) => (
                     <div key={idx} className={modalRowBetween}>
                       <div>
                         <div className={`font-semibold ${textHeading}`}>{channel.name}</div>
-                        <div className={`text-xs ${textMuted}`}>{channel.messages} tin nhắn</div>
+                        <div className={`text-xs ${textMuted}`}>
+                          {t('dashboard.messagesCount', { n: channel.messages })}
+                        </div>
                       </div>
                       {channel.unread > 0 && (
                         <div className="rounded-full bg-red-500 px-2 py-1 text-xs font-bold text-white">{channel.unread}</div>
@@ -1054,7 +1309,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     <Modal
         isOpen={showActivityDetail !== null}
         onClose={() => setShowActivityDetail(null)}
-        title="Chi Tiết Hoạt Động"
+        title={t('dashboard.activityDetailTitle')}
         size="md"
       >
         {showActivityDetail && (
@@ -1073,14 +1328,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             </div>
 
             <GlassCard className={modalGlass}>
-              <h4 className={`mb-3 font-bold ${textHeading}`}>Thông Tin</h4>
+              <h4 className={`mb-3 font-bold ${textHeading}`}>{t('dashboard.info')}</h4>
               <div className="space-y-2">
-                {Object.entries(showActivityDetail.detail).map(([key, value]) => (
-                  <div key={key} className={`flex items-center justify-between py-2 ${modalDetailRowBorder}`}>
-                    <span className={`${textMuted} capitalize`}>{key}:</span>
-                    <span className={`font-semibold ${textHeading}`}>
-                      {Array.isArray(value) ? value.join(', ') : value}
-                    </span>
+                {(showActivityDetail.detailEntries || []).map((row, i) => (
+                  <div key={i} className={`flex items-center justify-between py-2 ${modalDetailRowBorder}`}>
+                    <span className={textMuted}>{row.label}</span>
+                    <span className={`font-semibold ${textHeading}`}>{row.value}</span>
                   </div>
                 ))}
               </div>
@@ -1091,14 +1344,27 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 variant="primary"
                 className="flex-1 text-sm"
                 onClick={() => {
+                  const act = showActivityDetail;
                   setShowActivityDetail(null);
-                  toast('Đang chuyển đến chi tiết...', { icon: 'ℹ️' });
+                  navigateFromActivityType(act.type);
                 }}
               >
-                Xem Chi Tiết
+                {t('dashboard.viewDetail')}
               </GradientButton>
-              <button type="button" onClick={() => toast.success('Đã chia sẻ hoạt động')} className={`flex-1 ${modalSecondaryBtn}`}>
-                Chia Sẻ
+              <button
+                type="button"
+                onClick={async () => {
+                  const line = `${showActivityDetail.user} ${showActivityDetail.action} ${showActivityDetail.item}`;
+                  try {
+                    await navigator.clipboard.writeText(line);
+                    toast.success(t('dashboard.copyOk'));
+                  } catch {
+                    toast(line, { icon: '📋' });
+                  }
+                }}
+                className={`flex-1 ${modalSecondaryBtn}`}
+              >
+                {t('dashboard.share')}
               </button>
             </div>
           </div>
@@ -1109,42 +1375,59 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     <Modal
         isOpen={showNewProjectModal}
         onClose={() => setShowNewProjectModal(false)}
-        title="Tạo Dự Án Mới"
+        title={t('dashboard.newProjectTitle')}
         size="lg"
       >
         <div className="space-y-4">
           <div>
-            <label className={modalLabel}>Tên Dự Án</label>
-            <input type="text" placeholder="Nhập tên dự án..." className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
+            <label className={modalLabel}>{t('dashboard.projectName')}</label>
+            <input
+              type="text"
+              placeholder={t('dashboard.projectNamePh')}
+              className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`}
+            />
           </div>
 
           <div>
-            <label className={modalLabel}>Mô Tả</label>
-            <textarea placeholder="Mô tả dự án..." rows={4} className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
+            <label className={modalLabel}>{t('dashboard.projectDescLabel')}</label>
+            <textarea
+              placeholder={t('dashboard.projectDescPh')}
+              rows={4}
+              className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={modalLabel}>Ngày Bắt Đầu</label>
+              <label className={modalLabel}>{t('dashboard.projectStartDate')}</label>
               <input type="date" className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
             </div>
             <div>
-              <label className={modalLabel}>Deadline</label>
+              <label className={modalLabel}>{t('dashboard.projectDeadline')}</label>
               <input type="date" className={`w-full rounded-xl px-4 py-2.5 text-sm outline-none ${inputSurface}`} />
             </div>
           </div>
 
           <div>
-            <label className={modalLabel}>Thành Viên</label>
+            <label className={modalLabel}>{t('dashboard.membersSection')}</label>
             <div className="mb-3 flex flex-wrap gap-2">
               {['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'].map((member, idx) => (
-                <button key={idx} type="button" className={modalChip}>
+                <button
+                  key={idx}
+                  type="button"
+                  className={modalChip}
+                  onClick={() => toast(t('dashboard.toastPickMember', { member }), { icon: '✓' })}
+                >
                   {member}
                 </button>
               ))}
             </div>
-            <button type="button" className={`text-sm transition-colors ${accentText} hover:underline`}>
-              + Thêm thành viên
+            <button
+              type="button"
+              className={`text-sm transition-colors ${accentText} hover:underline`}
+              onClick={() => toast(t('dashboard.toastInviteLater'), { icon: 'ℹ️' })}
+            >
+              {t('dashboard.addMemberBtn')}
             </button>
           </div>
 
@@ -1153,28 +1436,28 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               variant="primary"
               className="flex-1 text-sm"
               onClick={() => {
-                toast.success('Tạo dự án thành công!');
+                toast.success(t('dashboard.projectCreated'));
                 setShowNewProjectModal(false);
               }}
             >
-              Tạo Dự Án
+              {t('dashboard.createProjectBtn')}
             </GradientButton>
             <button type="button" onClick={() => setShowNewProjectModal(false)} className={`flex-1 ${modalSecondaryBtn}`}>
-              Hủy
+              {t('nav.cancel')}
             </button>
           </div>
         </div>
     </Modal>
 
-    <Modal isOpen={quickNavOpen} onClose={() => setQuickNavOpen(false)} title="Tìm nhanh" size="md">
+    <Modal isOpen={quickNavOpen} onClose={() => setQuickNavOpen(false)} title={t('dashboard.quickSearchTitle')} size="md">
       <p className={`mb-4 text-sm ${textMuted}`}>
         {searchQuery.trim()
-          ? `Gợi ý theo “${searchQuery.trim()}” — chọn trang để mở:`
-          : 'Chọn trang trong hệ thống:'}
+          ? t('dashboard.quickSearchHintQuery', { q: searchQuery.trim() })
+          : t('dashboard.quickSearchHint')}
       </p>
       <div className="grid gap-2">
         {filteredQuickNav.length === 0 ? (
-          <p className={`text-sm ${textMuted}`}>Không có trang khớp. Thử từ khóa khác.</p>
+          <p className={`text-sm ${textMuted}`}>{t('dashboard.quickSearchEmpty')}</p>
         ) : (
           filteredQuickNav.map((item) => (
             <button
@@ -1187,7 +1470,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               className={modalRowBetween}
             >
               <span className={textHeading}>{item.label}</span>
-              <span className={`text-xs ${textSub}`}>Mở →</span>
+              <span className={`text-xs ${textSub}`}>{t('dashboard.openArrow')}</span>
             </button>
           ))
         )}

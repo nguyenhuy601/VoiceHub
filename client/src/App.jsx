@@ -80,6 +80,9 @@ const NotificationsPage = lazy(() => import('./pages/Notifications/Notifications
 // Lazy load trang analytics - thống kê và biểu đồ
 const AnalyticsPage = lazy(() => import('./pages/Analytics/AnalyticsPage'));
 
+// Trang tài liệu (UI demo + tương tác cục bộ)
+const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
+
 // Lazy load trang lịch - quản lý sự kiện và meetings
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
 
@@ -229,10 +232,11 @@ function App() {
           <Navigate to="/chat/friends" replace />
         } />
         
-        {/* Documents - quản lý tài liệu */}
-        {/* Tạm khóa giao diện documents */}
+        {/* Documents - quản lý tài liệu (giao diện + thao tác cục bộ) */}
         <Route path="/documents" element={
-          <Navigate to="/dashboard" replace />
+          <ProtectedRoute>
+            <DocumentsPage />
+          </ProtectedRoute>
         } />
         
         {/* Notifications - thông báo */}
@@ -251,10 +255,11 @@ function App() {
           </ProtectedRoute>
         } />
         
-        {/* Analytics - thống kê */}
-        {/* Tạm khóa giao diện analytics */}
+        {/* Analytics - thống kê & báo cáo (minh họa + liên kết tới module khác) */}
         <Route path="/analytics" element={
-          <Navigate to="/dashboard" replace />
+          <ProtectedRoute>
+            <AnalyticsPage />
+          </ProtectedRoute>
         } />
         
         {/* Settings - cài đặt */}

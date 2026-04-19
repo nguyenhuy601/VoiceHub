@@ -29,12 +29,16 @@ import {
   X,
 } from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import apiClient from '../../services/api/apiClient';
+import api from '../../services/api';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import { userAPI } from '../../services/api/userAPI';
+import userService from '../../services/userService';
 import friendService from '../../services/friendService';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
+import { appShellBg } from '../../theme/shellTheme';
+import { useLocale } from '../../context/LocaleContext';
 import {
   buildLayoutTiles,
   gridWrapperClass,
@@ -139,13 +143,16 @@ function deptMatchesMember(m, deptId) {
   return String(did || '') === String(deptId || '');
 }
 
-function VoiceRoomPage() {
+function VoiceRoomPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const [searchParams] = useSearchParams();
   const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
   const { user } = useAuth();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
+  const { locale } = useLocale();
+  const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
 
   const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
@@ -227,8 +234,8 @@ function VoiceRoomPage() {
   const pipVideoRef = useRef(null);
 
   const localDisplayName = useMemo(
-    () => user?.displayName || user?.fullName || user?.name || user?.email?.split('@')[0] || 'Bạn',
-    [user]
+    () => user?.displayName || user?.fullName || user?.name || user?.email?.split('@')[0] || t('common.you'),
+    [user, t]
   );
   const localAvatar = user?.avatar || null;
   const currentUserId = useMemo(() => String(user?._id || user?.id || user?.userId || ''), [user]);
@@ -449,9 +456,9 @@ function VoiceRoomPage() {
       }
     } catch (e) {
       console.error(e);
-      toast.error('Không bật được toàn màn hình');
+      toast.error(t('voiceRoom.fullscreenFail'));
     }
-  }, []);
+  }, [t]);
 
   const applyMicrophoneDevice = useCallback(
     async (deviceId) => {
@@ -476,13 +483,13 @@ function VoiceRoomPage() {
           setIsLocalSpeaking(speaking && !isMuted);
         });
         await audioProducer.replaceTrack({ track: nt });
-        toast.success('Đã đổi micrô');
+        toast.success(t('voiceRoom.micOk'));
       } catch (e) {
         console.error(e);
-        toast.error('Không đổi được micrô');
+        toast.error(t('voiceRoom.micFail'));
       }
     },
-    [isMuted]
+    [isMuted, t]
   );
 
   const applyCameraDevice = useCallback(async (deviceId) => {
@@ -516,12 +523,12 @@ function VoiceRoomPage() {
         localVideoRef.current.srcObject = localStream;
       }
       if (pipVideoRef.current) pipVideoRef.current.srcObject = localStream;
-      toast.success('Đã đổi camera');
+      toast.success(t('voiceRoom.camOk'));
     } catch (e) {
       console.error(e);
-      toast.error('Không đổi được camera');
+      toast.error(t('voiceRoom.camFail'));
     }
-  }, []);
+  }, [t]);
 
   const applySendResolutionPref = useCallback(async (mode) => {
     setSendResolution(mode);
@@ -539,11 +546,11 @@ function VoiceRoomPage() {
         width: { ideal: dim.width },
         height: { ideal: dim.height },
       });
-      toast.success('Đã áp dụng độ phân giải gửi');
+      toast.success(t('voiceRoom.resOk'));
     } catch (e) {
-      toast.error('Camera không hỗ trợ mức độ phân giải này');
+      toast.error(t('voiceRoom.resFail'));
     }
-  }, []);
+  }, [t]);
 
   const generateMeetingCode = () => `room-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -697,7 +704,7 @@ function VoiceRoomPage() {
 
     if (!hasAtLeastOneTrack) {
       if (hadPermissionError) {
-        toast.error('Không truy cập được camera/micro để xem trước');
+        toast.error(t('voiceRoom.previewFail'));
       }
       return;
     }
@@ -823,7 +830,7 @@ function VoiceRoomPage() {
             let subtitle = '';
             let avatar = null;
             try {
-              const ur = await userAPI.getUser(uid);
+              const ur = await userService.getProfile(uid);
               const raw = ur?.data ?? ur;
               const p = raw?.data ?? raw;
               label =
@@ -842,7 +849,7 @@ function VoiceRoomPage() {
       setInviteCandidates([]);
     } catch (e) {
       console.error(e);
-      toast.error('Không tải được danh sách mời');
+      toast.error(t('voiceRoom.inviteLoadFail'));
       setInviteCandidates([]);
     } finally {
       setInviteLoading(false);
@@ -872,7 +879,7 @@ function VoiceRoomPage() {
       currentRoomRef.current = roomTarget;
       setActiveRoomId(roomTarget);
 
-      await apiClient.get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`);
+      await api.get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`);
 
       let localStream = prejoinStreamRef.current;
       if (!localStream) {
@@ -1002,7 +1009,6 @@ function VoiceRoomPage() {
 
       const producers = await requestSocket('voice:getProducers', { roomId: roomTarget });
       for (const producerMeta of producers.producers || []) {
-        // eslint-disable-next-line no-await-in-loop
         await consumeProducer(producerMeta);
       }
 
@@ -1027,8 +1033,9 @@ function VoiceRoomPage() {
       navigate(`/voice/${encodeURIComponent(roomTarget)}?${qs.toString()}`, { replace: true });
     } catch (initError) {
       console.error(initError);
-      setError(initError.message || 'Khong the ket noi room');
-      toast.error(initError.message || 'Khong the ket noi room');
+      const msg = initError.message || t('voiceRoom.connectFail');
+      setError(msg);
+      toast.error(msg);
     } finally {
       setJoining(false);
     }
@@ -1171,7 +1178,7 @@ function VoiceRoomPage() {
       setIsCameraOff(true);
     } catch (cameraError) {
       console.error(cameraError);
-      toast.error(cameraError.message || 'Khong the bat/tat camera');
+      toast.error(cameraError.message || t('voiceRoom.cameraToggleFail'));
     }
   };
 
@@ -1236,7 +1243,6 @@ function VoiceRoomPage() {
     return () => {
       stopPrejoinPreview();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewStage, prejoinAudioEnabled, prejoinVideoEnabled, landingDemo]);
 
   /** Đảm bảo gán lại stream sau khi vào phòng (ref mount / StrictMode / re-render). */
@@ -1269,16 +1275,16 @@ function VoiceRoomPage() {
   const handleJoinMeeting = () => {
     const code = String(meetingCode || '').trim();
     if (!code) {
-      toast.error('Vui lòng nhập Meeting ID');
+      toast.error(t('voiceRoom.meetingIdRequired'));
       return;
     }
     if (roomKind === 'org') {
       if (!selectedOrgId) {
-        toast.error('Vui lòng chọn tổ chức');
+        toast.error(t('voiceRoom.selectOrg'));
         return;
       }
       if (!selectedDeptId) {
-        toast.error('Vui lòng chọn phòng ban');
+        toast.error(t('voiceRoom.selectDept'));
         return;
       }
     }
@@ -1292,7 +1298,7 @@ function VoiceRoomPage() {
 
   const clockNow = new Date();
   const dateLine = clockNow
-    .toLocaleDateString('vi-VN', {
+    .toLocaleDateString(timeLocale, {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
@@ -1300,38 +1306,50 @@ function VoiceRoomPage() {
     })
     .toUpperCase();
 
-  const voiceNav = [
-    {
-      id: 'new',
-      label: 'Cuộc họp mới',
-      icon: Plus,
-      onClick: handleNewMeeting,
-    },
-    {
-      id: 'join',
-      label: 'Tham gia',
-      icon: LogIn,
-      onClick: () => setViewStage('prejoin'),
-    },
-    {
-      id: 'schedule',
-      label: 'Lên lịch',
-      icon: Calendar,
-      onClick: () => toast('Lên lịch — sắp có', { icon: '📅' }),
-    },
-    {
-      id: 'share',
-      label: 'Chia sẻ màn hình',
-      icon: Monitor,
-      onClick: () => toast('Chia sẻ màn hình — sắp có', { icon: '🖥️' }),
-    },
-    {
-      id: 'notes',
-      label: 'Ghi chú',
-      icon: FileText,
-      onClick: () => toast('Ghi chú — sắp có', { icon: '📝' }),
-    },
-  ];
+  const voiceNav = useMemo(
+    () => [
+      {
+        id: 'new',
+        label: t('voiceRoom.newMeeting'),
+        icon: Plus,
+        onClick: handleNewMeeting,
+      },
+      {
+        id: 'join',
+        label: t('voiceRoom.joinNav'),
+        icon: LogIn,
+        onClick: () => setViewStage('prejoin'),
+      },
+      {
+        id: 'schedule',
+        label: t('voiceRoom.schedule'),
+        icon: Calendar,
+        onClick: () => toast(t('voiceRoom.scheduleSoon'), { icon: '📅' }),
+      },
+      {
+        id: 'share',
+        label: t('voiceRoom.screenShare'),
+        icon: Monitor,
+        onClick: () => toast(t('voiceRoom.screenShareSoon'), { icon: '🖥️' }),
+      },
+      {
+        id: 'notes',
+        label: t('voiceRoom.notes'),
+        icon: FileText,
+        onClick: () => toast(t('voiceRoom.notesSoon'), { icon: '📝' }),
+      },
+    ],
+    [t]
+  );
+
+  /** Khung lobby: sáng = cùng tông shell app; tối = nền đen (trước khi vào phòng) */
+  const voiceLobby = useMemo(
+    () =>
+      `flex min-h-0 flex-1 w-full flex-row overflow-hidden ${
+        isDarkMode ? 'bg-black' : 'bg-white/55 backdrop-blur-sm'
+      }`,
+    [isDarkMode]
+  );
 
   const renderMeetingTile = (tile, index) => {
     const extra = tileItemClass(layoutMode, index);
@@ -1376,7 +1394,7 @@ function VoiceRoomPage() {
               {displayNameInput || localDisplayName}
             </span>
             <span className="rounded-md bg-violet-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              YOU
+              {t('voiceRoom.youBadge')}
             </span>
             {isMuted && (
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600/90">
@@ -1414,24 +1432,28 @@ function VoiceRoomPage() {
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-xl font-bold text-white">
               {buildInitials(participant.displayName || participant.userId || 'P')}
             </div>
-            <span className="text-xs text-gray-500">Đã tắt camera</span>
+            <span className="text-xs text-gray-500">{t('voiceRoom.camOff')}</span>
           </div>
         )}
         <div className="absolute bottom-3 left-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs text-white">
-          {participant.displayName || participant.userId || 'Thành viên'}
+          {participant.displayName || participant.userId || t('voiceRoom.memberFallback')}
         </div>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen flex bg-black">
-      <NavigationSidebar />
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className={`min-h-screen flex ${isDarkMode ? 'bg-[#050810]' : appShellBg(false)}`}>
+      <NavigationSidebar landingDemo={landingDemo} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {viewStage !== 'inRoom' ? (
           <div className={voiceLobby}>
             {/* Cột trái: menu (hình 1) */}
-            <aside className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/10 px-3 py-6 md:w-56">
+            <aside
+              className={`flex w-52 shrink-0 flex-col gap-1 border-r px-3 py-6 md:w-56 ${
+                isDarkMode ? 'border-white/10' : 'border-slate-200 bg-white/50'
+              }`}
+            >
               {voiceNav.map((item) => {
                 const active =
                   (item.id === 'new' && viewStage === 'home') ||
@@ -1444,8 +1466,12 @@ function VoiceRoomPage() {
                     onClick={item.onClick}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
                       active
-                        ? 'border border-cyan-500/50 bg-white/[0.06] text-white shadow-[0_0_28px_rgba(6,182,212,0.2)]'
-                        : 'text-gray-500 hover:bg-white/5 hover:text-gray-200'
+                        ? isDarkMode
+                          ? 'border border-cyan-500/50 bg-white/[0.06] text-white shadow-[0_0_28px_rgba(6,182,212,0.2)]'
+                          : 'border border-cyan-500/60 bg-cyan-50 text-slate-900 shadow-md'
+                        : isDarkMode
+                          ? 'text-gray-500 hover:bg-white/5 hover:text-gray-200'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
                     <Icon className="h-5 w-5 shrink-0 opacity-90" strokeWidth={1.75} />
@@ -1459,39 +1485,65 @@ function VoiceRoomPage() {
               {/* Đồng hồ + ngày */}
               <div className="mb-8 text-center">
                 <div
-                  className="text-4xl font-bold tabular-nums tracking-[0.2em] text-white md:text-5xl md:tracking-[0.25em]"
+                  className={`text-4xl font-bold tabular-nums tracking-[0.2em] md:text-5xl md:tracking-[0.25em] ${
+                    isDarkMode ? 'text-white' : 'text-slate-900'
+                  }`}
                   suppressHydrationWarning
                   data-clock-tick={clockTick}
                 >
-                  {clockNow.toLocaleTimeString('vi-VN', {
+                  {clockNow.toLocaleTimeString(timeLocale, {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                     hour12: false,
                   })}
                 </div>
-                <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.2em] text-gray-500 md:text-xs">
+                <p
+                  className={`mt-3 text-[11px] font-medium uppercase tracking-[0.2em] md:text-xs ${
+                    isDarkMode ? 'text-gray-500' : 'text-slate-600'
+                  }`}
+                >
                   {dateLine}
                 </p>
               </div>
 
               {viewStage === 'home' && (
-                <div className="flex min-h-[min(520px,70vh)] flex-1 flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#121212] px-6 py-16">
-                  <p className="text-lg text-white md:text-xl">Chưa có cuộc họp nào</p>
+                <div
+                  className={`flex min-h-[min(520px,70vh)] flex-1 flex-col items-center justify-center rounded-2xl border px-6 py-16 ${
+                    isDarkMode
+                      ? 'border-white/10 bg-[#121212]'
+                      : 'border-slate-200 bg-white shadow-md'
+                  }`}
+                >
+                  <p
+                    className={`text-lg md:text-xl ${isDarkMode ? 'text-white' : 'text-slate-800'}`}
+                  >
+                    {t('voiceRoom.noMeetings')}
+                  </p>
                   <button
                     type="button"
                     onClick={handleNewMeeting}
                     className="mt-8 rounded-2xl bg-gradient-to-r from-cyan-600 via-teal-600 to-sky-500 px-10 py-4 text-base font-semibold text-white shadow-lg shadow-cyan-900/25 transition hover:brightness-110"
                   >
-                    Tạo cuộc họp ngay
+                    {t('voiceRoom.createNow')}
                   </button>
                 </div>
               )}
 
               {viewStage === 'prejoin' && (
                 <div className="flex flex-1 flex-col gap-8 lg:flex-row lg:justify-end lg:gap-12">
-                  <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#141414] p-4 lg:max-w-md">
-                    <div className="relative aspect-video overflow-hidden rounded-xl bg-black/50">
+                  <div
+                    className={`w-full max-w-xl rounded-2xl border p-4 lg:max-w-md ${
+                      isDarkMode
+                        ? 'border-white/10 bg-[#141414]'
+                        : 'border-slate-200 bg-white shadow-sm'
+                    }`}
+                  >
+                    <div
+                      className={`relative aspect-video overflow-hidden rounded-xl ${
+                        isDarkMode ? 'bg-black/50' : 'bg-slate-200'
+                      }`}
+                    >
                       {prejoinVideoEnabled ? (
                         <video
                           ref={prejoinVideoRef}
@@ -1505,7 +1557,11 @@ function VoiceRoomPage() {
                           <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 text-3xl font-bold text-white">
                             {buildInitials(displayNameInput || localDisplayName)}
                           </div>
-                          <span className="text-sm text-gray-400">Camera đang tắt</span>
+                          <span
+                            className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                          >
+                            {t('voiceRoom.camOffShort')}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -1515,41 +1571,71 @@ function VoiceRoomPage() {
                         onClick={() => setPrejoinAudioEnabled((v) => !v)}
                         className={`flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold ${
                           prejoinAudioEnabled
-                            ? 'border border-white/10 bg-black/40 text-white'
+                            ? isDarkMode
+                              ? 'border border-white/10 bg-black/40 text-white'
+                              : 'border border-slate-200 bg-white text-slate-900 shadow-sm'
                             : 'bg-red-600 text-white'
                         }`}
                       >
-                        {prejoinAudioEnabled ? 'Mic bật' : 'Mic tắt'}
+                        {prejoinAudioEnabled ? t('voiceRoom.micOn') : t('voiceRoom.micOff')}
                       </button>
                       <button
                         type="button"
                         onClick={() => setPrejoinVideoEnabled((v) => !v)}
                         className={`flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold ${
                           prejoinVideoEnabled
-                            ? 'border border-white/10 bg-black/40 text-white'
+                            ? isDarkMode
+                              ? 'border border-white/10 bg-black/40 text-white'
+                              : 'border border-slate-200 bg-white text-slate-900 shadow-sm'
                             : 'bg-red-600 text-white'
                         }`}
                       >
-                        {prejoinVideoEnabled ? 'Camera bật' : 'Camera tắt'}
+                        {prejoinVideoEnabled ? t('voiceRoom.camOn') : t('voiceRoom.camBtnOff')}
                       </button>
                     </div>
                   </div>
 
-                  <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#141414] p-6 md:p-8 lg:shrink-0">
-                    <h2 className="mb-8 text-3xl font-bold text-white lg:text-right">Tham gia cuộc họp</h2>
+                  <div
+                    className={`w-full max-w-md rounded-2xl border p-6 md:p-8 lg:shrink-0 ${
+                      isDarkMode
+                        ? 'border-white/10 bg-[#141414]'
+                        : 'border-slate-200 bg-white shadow-sm'
+                    }`}
+                  >
+                    <h2
+                      className={`mb-8 text-3xl font-bold lg:text-right ${
+                        isDarkMode ? 'text-white' : 'text-slate-900'
+                      }`}
+                    >
+                      {t('voiceRoom.joinTitle')}
+                    </h2>
                     <div className="space-y-5">
                       <div>
-                        <label className="mb-1.5 block text-sm text-gray-400">Mã phòng</label>
+                        <label
+                          className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                        >
+                          {t('voiceRoom.roomCode')}
+                        </label>
                         <input
                           value={meetingCode}
                           onChange={(e) => setMeetingCode(e.target.value)}
                           placeholder="vox-hacker-room"
-                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
+                          className={`w-full rounded-xl border px-4 py-3 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 ${
+                            isDarkMode
+                              ? 'border-white/10 bg-black/50 text-white placeholder:text-gray-600'
+                              : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                          }`}
                         />
                       </div>
                       <div>
-                        <span className="mb-2 block text-sm text-gray-400">Loại phòng</span>
-                        <div className="flex flex-wrap gap-4 text-sm text-gray-200">
+                        <span
+                          className={`mb-2 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                        >
+                          {t('voiceRoom.roomKind')}
+                        </span>
+                        <div
+                          className={`flex flex-wrap gap-4 text-sm ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}
+                        >
                           <label className="flex cursor-pointer items-center gap-2">
                             <input
                               type="radio"
@@ -1560,9 +1646,9 @@ function VoiceRoomPage() {
                                 setSelectedOrgId('');
                                 setSelectedDeptId('');
                               }}
-                              className="h-4 w-4 border-white/20 bg-black/50 text-violet-600"
+                              className={`h-4 w-4 text-violet-600 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
                             />
-                            Tự do (mời bạn bè)
+                            {t('voiceRoom.roomTypeFree')}
                           </label>
                           <label className="flex cursor-pointer items-center gap-2">
                             <input
@@ -1570,16 +1656,20 @@ function VoiceRoomPage() {
                               name="voice-room-kind"
                               checked={roomKind === 'org'}
                               onChange={() => setRoomKind('org')}
-                              className="h-4 w-4 border-white/20 bg-black/50 text-violet-600"
+                              className={`h-4 w-4 text-violet-600 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
                             />
-                            Theo tổ chức
+                            {t('voiceRoom.roomTypeOrg')}
                           </label>
                         </div>
                       </div>
                       {roomKind === 'org' && (
                         <div className="space-y-3">
                           <div>
-                            <label className="mb-1.5 block text-sm text-gray-400">Tổ chức</label>
+                            <label
+                              className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                            >
+                              {t('voiceRoom.orgLabel')}
+                            </label>
                             <select
                               value={selectedOrgId}
                               onChange={(e) => {
@@ -1587,30 +1677,42 @@ function VoiceRoomPage() {
                                 setSelectedDeptId('');
                               }}
                               disabled={orgsLoading}
-                              className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50"
+                              className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
+                                isDarkMode
+                                  ? 'border-white/10 bg-black/50 text-white'
+                                  : 'border-slate-200 bg-white text-slate-900'
+                              }`}
                             >
                               <option value="">
-                                {orgsLoading ? 'Đang tải…' : '— Chọn tổ chức —'}
+                                {orgsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectOrgPh')}
                               </option>
                               {organizations.map((o) => (
                                 <option key={String(o._id || o.id)} value={String(o._id || o.id)}>
-                                  {o.name || 'Tổ chức'}
+                                  {o.name || t('common.org')}
                                 </option>
                               ))}
                             </select>
                           </div>
                           <div>
-                            <label className="mb-1.5 block text-sm text-gray-400">Phòng ban</label>
+                            <label
+                              className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                            >
+                              {t('voiceRoom.deptLabel')}
+                            </label>
                             <select
                               value={selectedDeptId}
                               onChange={(e) => setSelectedDeptId(e.target.value)}
                               disabled={!selectedOrgId}
-                              className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50"
+                              className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
+                                isDarkMode
+                                  ? 'border-white/10 bg-black/50 text-white'
+                                  : 'border-slate-200 bg-white text-slate-900'
+                              }`}
                             >
-                              <option value="">— Chọn phòng ban —</option>
+                              <option value="">{t('voiceRoom.selectDeptPh')}</option>
                               {departments.map((d) => (
                                 <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
-                                  {d.name || 'Phòng ban'}
+                                  {d.name || t('common.department')}
                                 </option>
                               ))}
                             </select>
@@ -1618,31 +1720,43 @@ function VoiceRoomPage() {
                         </div>
                       )}
                       <div>
-                        <label className="mb-1.5 block text-sm text-gray-400">Tên hiển thị</label>
+                        <label
+                          className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                        >
+                          {t('voiceRoom.displayName')}
+                        </label>
                         <input
                           value={displayNameInput}
                           onChange={(e) => setDisplayNameInput(e.target.value)}
                           placeholder={localDisplayName}
-                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white placeholder:text-gray-600 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
+                          className={`w-full rounded-xl border px-4 py-3 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 ${
+                            isDarkMode
+                              ? 'border-white/10 bg-black/50 text-white placeholder:text-gray-600'
+                              : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                          }`}
                         />
                       </div>
-                      <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-300">
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-700'}`}
+                      >
                         <input
                           type="checkbox"
                           checked={!prejoinAudioEnabled}
                           onChange={(e) => setPrejoinAudioEnabled(!e.target.checked)}
-                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-cyan-600 focus:ring-cyan-500"
+                          className={`h-4 w-4 rounded text-cyan-600 focus:ring-cyan-500 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
                         />
-                        Tắt mic khi vào phòng
+                        {t('voiceRoom.muteJoin')}
                       </label>
-                      <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-300">
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-700'}`}
+                      >
                         <input
                           type="checkbox"
                           checked={!prejoinVideoEnabled}
                           onChange={(e) => setPrejoinVideoEnabled(!e.target.checked)}
-                          className="h-4 w-4 rounded border-white/20 bg-black/50 text-cyan-600 focus:ring-cyan-500"
+                          className={`h-4 w-4 rounded text-cyan-600 focus:ring-cyan-500 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
                         />
-                        Tắt camera khi vào phòng
+                        {t('voiceRoom.camOffJoin')}
                       </label>
                     </div>
                     <button
@@ -1650,7 +1764,7 @@ function VoiceRoomPage() {
                       onClick={handleJoinMeeting}
                       className="mt-8 w-full rounded-xl bg-gradient-to-r from-cyan-600 via-teal-600 to-sky-500 py-3.5 text-center text-base font-semibold text-white shadow-lg transition hover:brightness-110"
                     >
-                      Bắt đầu
+                      {t('voiceRoom.startBtn')}
                     </button>
                     <button
                       type="button"
@@ -1658,9 +1772,13 @@ function VoiceRoomPage() {
                         stopPrejoinPreview();
                         setViewStage('home');
                       }}
-                      className="mt-4 w-full py-2 text-center text-sm text-gray-500 transition hover:text-gray-300"
+                      className={`mt-4 w-full py-2 text-center text-sm transition ${
+                        isDarkMode
+                          ? 'text-gray-500 hover:text-gray-300'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      Hủy
+                      {t('nav.cancel')}
                     </button>
                   </div>
                 </div>
@@ -1676,13 +1794,16 @@ function VoiceRoomPage() {
             )}
             {joining && (
               <div className="absolute right-5 top-16 z-30 rounded-full bg-zinc-900/95 px-4 py-2 text-sm text-gray-300 shadow-lg">
-                Đang kết nối phòng…
+                {t('voiceRoom.connectingRoom')}
               </div>
             )}
 
             {/* Thanh trạng thái nổi (hình 3) */}
             <div className="absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-sm text-white shadow-xl backdrop-blur-md md:left-8 md:top-6">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title={connected ? 'Đã kết nối' : 'Đang kết nối'} />
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+                title={connected ? t('voiceRoom.connected') : t('voiceRoom.connecting')}
+              />
               <span className="max-w-[140px] truncate font-semibold tracking-tight md:max-w-[220px]">
                 {currentMeetingCode}
               </span>
@@ -1695,7 +1816,7 @@ function VoiceRoomPage() {
 
             <div className="pointer-events-none absolute bottom-28 left-4 z-20 text-left text-sm text-white/90 md:bottom-32 md:left-8">
               <div className="tabular-nums font-medium" suppressHydrationWarning>
-                {clockNow.toLocaleTimeString('vi-VN', {
+                {clockNow.toLocaleTimeString(timeLocale, {
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: false,
@@ -1708,13 +1829,13 @@ function VoiceRoomPage() {
               <div className="pointer-events-none absolute left-0 right-0 top-0 z-[60] flex justify-center px-4 pt-3">
                 <div className="pointer-events-auto flex max-w-lg items-center gap-3 rounded-lg bg-black/85 px-4 py-2 text-xs text-white shadow-lg backdrop-blur-md md:text-sm">
                   <span className="text-white/85">
-                    Để thoát khỏi chế độ toàn màn hình, hãy nhấn{' '}
+                    {t('voiceRoom.fullscreenExitHint')}{' '}
                     <button
                       type="button"
                       className="font-semibold text-sky-400 underline hover:text-sky-300"
                       onClick={() => document.exitFullscreen?.()}
                     >
-                      Thoát
+                      {t('voiceRoom.exitShort')}
                     </button>
                   </span>
                 </div>
@@ -1724,26 +1845,21 @@ function VoiceRoomPage() {
             <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-24 md:px-8">
               {pipOpen && (
                 <div className="pointer-events-none absolute inset-0 z-[25] flex flex-col items-center justify-center gap-4 bg-black/55 px-6 text-center backdrop-blur-sm">
-                  <p className="max-w-md text-lg text-white">Cuộc gọi hiện đang ở cửa sổ hình trong hình</p>
-                  <p className="max-w-md text-sm text-white/70">
-                    Bạn có thể kéo thả và thu phóng ô video. Nhấn đóng trên ô hoặc đưa cuộc gọi về đây.
-                  </p>
+                  <p className="max-w-md text-lg text-white">{t('voiceRoom.pipBody')}</p>
+                  <p className="max-w-md text-sm text-white/70">{t('voiceRoom.pipSecondLine')}</p>
                   <button
                     type="button"
                     className="pointer-events-auto rounded-full bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
                     onClick={() => setPipOpen(false)}
                   >
-                    Đưa cuộc gọi về đây
+                    {t('voiceRoom.pipRestore')}
                   </button>
                 </div>
               )}
               <div className="w-full max-w-5xl">
                 <div className="rounded-2xl border-2 border-violet-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(139,92,246,0.08)] md:p-6">
                   {layoutTiles.length === 0 ? (
-                    <p className="py-12 text-center text-sm text-gray-400">
-                      Không có ô video nào. Thử tắt &quot;Ẩn ô không có video&quot; trong điều chỉnh chế độ xem hoặc bật
-                      camera.
-                    </p>
+                    <p className="py-12 text-center text-sm text-gray-400">{t('voiceRoom.noVideoTiles')}</p>
                   ) : layoutMode === 'sidebar' && layoutTiles.length > 1 ? (
                     <div className={`${meetingGridClass} min-h-[200px]`}>
                       <div className="min-h-0 min-w-0 flex-1 lg:flex-[3]">{renderMeetingTile(layoutTiles[0], 0)}</div>
@@ -1783,12 +1899,12 @@ function VoiceRoomPage() {
                     };
                   }}
                 >
-                  <span className="truncate text-[11px] text-white/80">Hình trong hình</span>
+                  <span className="truncate text-[11px] text-white/80">{t('voiceRoom.pipLabel')}</span>
                   <button
                     type="button"
                     className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white"
                     onClick={() => setPipOpen(false)}
-                    aria-label="Đóng PiP"
+                    aria-label={t('voiceRoom.closePipAria')}
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -1804,13 +1920,13 @@ function VoiceRoomPage() {
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-zinc-900 text-sm text-gray-400">
-                      Camera đang tắt
+                      {t('voiceRoom.camOffShort')}
                     </div>
                   )}
                   <button
                     type="button"
                     className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-70"
-                    aria-label="Thu phóng"
+                    aria-label={t('voiceRoom.zoomAria')}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -1832,7 +1948,7 @@ function VoiceRoomPage() {
             {reactionPickerOpen && (
               <button
                 type="button"
-                aria-label="Đóng cảm xúc"
+                aria-label={t('voiceRoom.closeReactionAria')}
                 className="fixed inset-0 z-[34] cursor-default bg-black/20"
                 onClick={() => setReactionPickerOpen(false)}
               />
@@ -1840,7 +1956,7 @@ function VoiceRoomPage() {
             {reactionPickerOpen && (
               <div className="fixed bottom-28 left-1/2 z-[36] w-[min(100vw-2rem,22rem)] -translate-x-1/2 rounded-2xl border border-white/15 bg-zinc-900/98 p-3 shadow-2xl backdrop-blur-md md:bottom-32">
                 <p className="mb-2 text-center text-[11px] font-medium uppercase tracking-wide text-white/50">
-                  Cảm xúc
+                  {t('voiceRoom.reactionsTitle')}
                 </p>
                 <div className="grid max-h-48 grid-cols-8 gap-1 overflow-y-auto pr-1">
                   {COMPOSER_EMOJI_LIST.map((emoji) => (
@@ -1849,7 +1965,7 @@ function VoiceRoomPage() {
                       type="button"
                       className="rounded-lg p-1.5 text-xl transition hover:bg-white/10"
                       onClick={() => {
-                        toast(`Đã gửi ${emoji}`, { icon: emoji });
+                        toast(t('voiceRoom.reactSent', { emoji }), { icon: emoji });
                         setReactionPickerOpen(false);
                       }}
                     >
@@ -1865,7 +1981,7 @@ function VoiceRoomPage() {
               <div className="pointer-events-auto flex max-w-[min(100%,56rem)] flex-wrap items-end justify-between gap-3 rounded-2xl border border-white/10 bg-black/85 px-3 py-3 shadow-2xl backdrop-blur-xl md:gap-6 md:px-6">
                 <div className="flex items-end gap-1 sm:gap-3">
                   <VoiceToolbarControl
-                    label="ÂM THANH"
+                    label={t('voiceRoom.toolbarAudio')}
                     icon={Mic}
                     iconOff={MicOff}
                     active={!isMuted}
@@ -1873,7 +1989,7 @@ function VoiceRoomPage() {
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="VIDEO"
+                    label={t('voiceRoom.toolbarVideo')}
                     icon={Video}
                     iconOff={VideoOff}
                     active={!isCameraOff}
@@ -1884,7 +2000,7 @@ function VoiceRoomPage() {
 
                 <div className="flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-2 md:gap-4">
                   <VoiceToolbarControl
-                    label="THÀNH VIÊN"
+                    label={t('voiceRoom.toolbarMembers')}
                     icon={Users}
                     badge={totalParticipants}
                     pressed={rightPanel === 'people'}
@@ -1895,7 +2011,7 @@ function VoiceRoomPage() {
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="CẢM XÚC"
+                    label={t('voiceRoom.toolbarReact')}
                     icon={Heart}
                     pressed={reactionPickerOpen}
                     onClick={() => {
@@ -1905,7 +2021,7 @@ function VoiceRoomPage() {
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="CHAT"
+                    label={t('voiceRoom.toolbarChat')}
                     icon={MessageSquare}
                     pressed={rightPanel === 'chat'}
                     onClick={() => {
@@ -1915,14 +2031,14 @@ function VoiceRoomPage() {
                     chevron
                   />
                   <VoiceToolbarControl
-                    label="CHIA SẺ"
+                    label={t('voiceRoom.toolbarShare')}
                     icon={Share2}
-                    onClick={() => toast('Chia sẻ màn hình — sắp có', { icon: '🖥️' })}
+                    onClick={() => toast(t('voiceRoom.screenShareSoon'), { icon: '🖥️' })}
                     chevron
                   />
                   <div className="relative" ref={moreMenuWrapRef}>
                     <VoiceToolbarControl
-                      label="THÊM"
+                      label={t('voiceRoom.toolbarMore')}
                       icon={MoreHorizontal}
                       pressed={moreMenuOpen}
                       onClick={() => {
@@ -1942,7 +2058,7 @@ function VoiceRoomPage() {
                           }}
                         >
                           <LayoutGrid className="h-4 w-4 shrink-0 text-white/80" />
-                          Điều chỉnh chế độ xem
+                          {t('voiceRoom.layoutTitle')}
                         </button>
                         <button
                           type="button"
@@ -1957,7 +2073,7 @@ function VoiceRoomPage() {
                           ) : (
                             <Maximize2 className="h-4 w-4 shrink-0 text-white/80" />
                           )}
-                          {isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
+                          {isFullscreen ? t('voiceRoom.fullscreenExit') : t('voiceRoom.fullscreenEnter')}
                         </button>
                         <button
                           type="button"
@@ -1968,7 +2084,7 @@ function VoiceRoomPage() {
                           }}
                         >
                           <PictureInPicture2 className="h-4 w-4 shrink-0 text-white/80" />
-                          Mở hình trong hình
+                          {t('voiceRoom.openPip')}
                         </button>
                         <button
                           type="button"
@@ -1980,7 +2096,7 @@ function VoiceRoomPage() {
                           }}
                         >
                           <Settings className="h-4 w-4 shrink-0 text-white/80" />
-                          Cài đặt
+                          {t('voiceRoom.settingsTitle')}
                         </button>
                       </div>
                     )}
@@ -1992,13 +2108,13 @@ function VoiceRoomPage() {
                     type="button"
                     onClick={leaveRoom}
                     className="group flex flex-col items-center gap-1 rounded-xl px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
-                    title="Kết thúc cuộc gọi"
+                    title={t('voiceRoom.endCall')}
                   >
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 shadow-lg transition group-hover:bg-red-500">
                       <X className="h-6 w-6 text-white" strokeWidth={2.5} aria-hidden />
                     </div>
                     <span className="text-[10px] font-medium uppercase tracking-wide text-white/70 group-hover:text-white">
-                      Kết thúc
+                      {t('voiceRoom.endShort')}
                     </span>
                   </button>
                 </div>
@@ -2013,18 +2129,18 @@ function VoiceRoomPage() {
               {rightPanel === 'chat' && (
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-white">Tin nhắn trong cuộc gọi</h2>
+                    <h2 className="text-sm font-semibold text-white">{t('voiceRoom.inCallChatTitle')}</h2>
                     <button
                       type="button"
                       onClick={() => setRightPanel(null)}
                       className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
-                      aria-label="Đóng"
+                      aria-label={t('voiceRoom.closeAria')}
                     >
                       <X className="h-5 w-5" />
                     </button>
                   </div>
                   <div className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2 text-xs text-gray-400">
-                    <span>Cho phép người tham gia gửi tin nhắn</span>
+                    <span>{t('voiceRoom.allowChat')}</span>
                     <button
                       type="button"
                       role="switch"
@@ -2042,8 +2158,7 @@ function VoiceRoomPage() {
                     </button>
                   </div>
                   <p className="mx-4 mt-3 rounded-lg bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-gray-400">
-                    Tin nhắn chỉ hiển thị trong phiên (chưa đồng bộ server). Tính năng trò chuyện liên tục có thể bật
-                    sau.
+                    {t('voiceRoom.chatSessionNote')}
                   </p>
                   <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
                     {roomMessages.map((m) => (
@@ -2061,7 +2176,7 @@ function VoiceRoomPage() {
                         <button
                           type="button"
                           className="fixed inset-0 z-10 cursor-default"
-                          aria-label="Đóng emoji"
+                          aria-label={t('voiceRoom.emojiCloseAria')}
                           onClick={() => setRoomChatEmojiOpen(false)}
                         />
                         <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-zinc-900 p-2 shadow-xl">
@@ -2088,7 +2203,7 @@ function VoiceRoomPage() {
                         type="button"
                         className="shrink-0 rounded-xl border border-white/10 px-2 py-2 text-lg text-white/80 hover:bg-white/10"
                         onClick={() => setRoomChatEmojiOpen((v) => !v)}
-                        aria-label="Biểu cảm"
+                        aria-label={t('voiceRoom.emojiBtnAria')}
                       >
                         🙂
                       </button>
@@ -2105,7 +2220,7 @@ function VoiceRoomPage() {
                               {
                                 id: `${Date.now()}`,
                                 text: t,
-                                timeLabel: clockNow.toLocaleTimeString('vi-VN', {
+                                timeLabel: clockNow.toLocaleTimeString(timeLocale, {
                                   hour: '2-digit',
                                   minute: '2-digit',
                                   hour12: false,
@@ -2116,7 +2231,9 @@ function VoiceRoomPage() {
                           }
                         }}
                         disabled={!allowParticipantChat}
-                        placeholder={allowParticipantChat ? 'Gửi thư' : 'Chủ phòng đã tắt chat'}
+                        placeholder={
+                          allowParticipantChat ? t('voiceRoom.chatPlaceholder') : t('voiceRoom.chatDisabled')
+                        }
                         className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-violet-500/40 focus:outline-none disabled:opacity-50"
                       />
                       <button
@@ -2131,7 +2248,7 @@ function VoiceRoomPage() {
                             {
                               id: `${Date.now()}`,
                               text: t,
-                              timeLabel: clockNow.toLocaleTimeString('vi-VN', {
+                              timeLabel: clockNow.toLocaleTimeString(timeLocale, {
                                 hour: '2-digit',
                                 minute: '2-digit',
                                 hour12: false,
@@ -2141,7 +2258,7 @@ function VoiceRoomPage() {
                           setRoomChatInput('');
                         }}
                       >
-                        Gửi
+                        {t('voiceRoom.sendBtn')}
                       </button>
                     </div>
                   </div>
@@ -2151,12 +2268,12 @@ function VoiceRoomPage() {
               {rightPanel === 'people' && (
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-white">Mọi người</h2>
+                    <h2 className="text-sm font-semibold text-white">{t('voiceRoom.everyoneTitle')}</h2>
                     <button
                       type="button"
                       onClick={() => setRightPanel(null)}
                       className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
-                      aria-label="Đóng"
+                      aria-label={t('voiceRoom.closeAria')}
                     >
                       <X className="h-5 w-5" />
                     </button>
@@ -2168,19 +2285,19 @@ function VoiceRoomPage() {
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
                     >
                       <UserPlus className="h-4 w-4" />
-                      Thêm người
+                      {t('voiceRoom.addPeopleTitle')}
                     </button>
                     <div className="relative mt-3">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
                       <input
-                        placeholder="Tìm người"
+                        placeholder={t('voiceRoom.searchPeople')}
                         className="w-full rounded-xl border border-white/10 bg-black/40 py-2 pl-9 pr-3 text-sm text-white placeholder:text-gray-600 focus:border-violet-500/40 focus:outline-none"
                       />
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Trong cuộc họp
+                      {t('voiceRoom.inMeeting')}
                     </p>
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                       <div className="flex items-center gap-3">
@@ -2194,9 +2311,9 @@ function VoiceRoomPage() {
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-white">
                             {displayNameInput || localDisplayName}{' '}
-                            <span className="text-gray-500">(Bạn)</span>
+                            <span className="text-gray-500">{t('voiceRoom.you')}</span>
                           </div>
-                          <div className="text-xs text-gray-500">Người tổ chức cuộc họp</div>
+                          <div className="text-xs text-gray-500">{t('voiceRoom.host')}</div>
                         </div>
                       </div>
                     </div>
@@ -2209,7 +2326,7 @@ function VoiceRoomPage() {
                           {buildInitials(p.displayName || p.userId || 'P')}
                         </div>
                         <div className="min-w-0 flex-1 truncate text-sm text-white">
-                          {p.displayName || p.userId || 'Thành viên'}
+                          {p.displayName || p.userId || t('voiceRoom.memberFallback')}
                         </div>
                       </div>
                     ))}
@@ -2226,12 +2343,12 @@ function VoiceRoomPage() {
                   className="flex max-h-[min(90vh,520px)] w-full max-w-md flex-col rounded-2xl border border-white/10 bg-[#1e1e1e] shadow-2xl"
                 >
                   <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h3 className="text-base font-semibold text-white">Thêm người</h3>
+                    <h3 className="text-base font-semibold text-white">{t('voiceRoom.addPeopleTitle')}</h3>
                     <button
                       type="button"
                       onClick={() => setInviteModalOpen(false)}
                       className="rounded-lg p-1 text-white/60 hover:bg-white/10"
-                      aria-label="Đóng"
+                      aria-label={t('voiceRoom.closeAria')}
                     >
                       <X className="h-5 w-5" />
                     </button>
@@ -2242,21 +2359,21 @@ function VoiceRoomPage() {
                       <input
                         value={inviteSearch}
                         onChange={(e) => setInviteSearch(e.target.value)}
-                        placeholder="Nhập tên hoặc email"
+                        placeholder={t('voiceRoom.invitePh')}
                         className="w-full rounded-xl border border-white/10 bg-black/40 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-gray-600 focus:border-violet-500/40 focus:outline-none"
                       />
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
                     <p className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                      Đề xuất
-                      {roomKind === 'org' ? ' · Theo phòng ban' : ' · Bạn bè'}
+                      {t('voiceRoom.inviteSuggest')}
+                      {roomKind === 'org' ? t('voiceRoom.inviteScopeOrg') : t('voiceRoom.inviteScopeFriends')}
                     </p>
                     {inviteLoading ? (
-                      <p className="px-3 py-6 text-center text-sm text-gray-500">Đang tải…</p>
+                      <p className="px-3 py-6 text-center text-sm text-gray-500">{t('common.loadingEllipsis')}</p>
                     ) : filteredInviteRows.length === 0 ? (
                       <p className="px-3 py-6 text-center text-sm text-gray-500">
-                        Không có người phù hợp.
+                        {t('voiceRoom.inviteNoMatch')}
                       </p>
                     ) : (
                       <ul className="space-y-1">
@@ -2285,7 +2402,7 @@ function VoiceRoomPage() {
                     )}
                   </div>
                   <div className="border-t border-white/10 px-4 py-3 text-center text-xs text-gray-500">
-                    Chọn người rồi chia sẻ mã phòng hoặc gửi lời mời qua kênh khác (sắp tích hợp).
+                    {t('voiceRoom.inviteFooter')}
                   </div>
                 </div>
               </div>
@@ -2300,14 +2417,14 @@ function VoiceRoomPage() {
                 >
                   <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
                     <div>
-                      <h2 className="text-lg font-semibold">Điều chỉnh chế độ xem</h2>
-                      <p className="mt-1 text-xs text-gray-500">Đã lưu lựa chọn cho các cuộc họp về sau</p>
+                      <h2 className="text-lg font-semibold">{t('voiceRoom.layoutTitle')}</h2>
+                      <p className="mt-1 text-xs text-gray-500">{t('voiceRoom.layoutSaved')}</p>
                     </div>
                     <button
                       type="button"
                       className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
                       onClick={() => setLayoutModalOpen(false)}
-                      aria-label="Đóng"
+                      aria-label={t('voiceRoom.closeAria')}
                     >
                       <X className="h-5 w-5" />
                     </button>
@@ -2315,10 +2432,10 @@ function VoiceRoomPage() {
                   <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
                     <div className="space-y-3">
                       {[
-                        { id: 'auto', label: 'Tự động (linh động)' },
-                        { id: 'tiled', label: 'Ô (cũ)' },
-                        { id: 'spotlight', label: 'Tiêu điểm' },
-                        { id: 'sidebar', label: 'Thanh bên' },
+                        { id: 'auto', label: t('voiceRoom.layoutAuto') },
+                        { id: 'tiled', label: t('voiceRoom.layoutTiled') },
+                        { id: 'spotlight', label: t('voiceRoom.layoutSpotlight') },
+                        { id: 'sidebar', label: t('voiceRoom.layoutSidebar') },
                       ].map((opt) => (
                         <label
                           key={opt.id}
@@ -2337,7 +2454,7 @@ function VoiceRoomPage() {
                     </div>
                     <div>
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-800">Số ô</span>
+                        <span className="text-sm font-medium text-gray-800">{t('voiceRoom.tileCount')}</span>
                         <span className="text-sm tabular-nums text-gray-600">{maxTiles}</span>
                       </div>
                       <input
@@ -2349,11 +2466,11 @@ function VoiceRoomPage() {
                         className="w-full accent-blue-600"
                       />
                       <p className="mt-1 text-xs text-gray-500">
-                        Số ô tối đa được hiển thị, tùy vào kích thước cửa sổ
+                        {t('voiceRoom.tileCountHelp')}
                       </p>
                     </div>
                     <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-3">
-                      <span className="text-sm text-gray-800">Ẩn ô không có video</span>
+                      <span className="text-sm text-gray-800">{t('voiceRoom.hideNoVideo')}</span>
                       <input
                         type="checkbox"
                         checked={hideNoVideo}
@@ -2368,7 +2485,7 @@ function VoiceRoomPage() {
                       className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500"
                       onClick={() => setLayoutModalOpen(false)}
                     >
-                      Xong
+                      {t('voiceRoom.layoutDone')}
                     </button>
                   </div>
                 </div>
@@ -2393,7 +2510,7 @@ function VoiceRoomPage() {
                         }`}
                         onClick={() => setSettingsTab('audio')}
                       >
-                        Âm thanh
+                        {t('voiceRoom.settingsAudioTab')}
                       </button>
                       <button
                         type="button"
@@ -2404,17 +2521,17 @@ function VoiceRoomPage() {
                         }`}
                         onClick={() => setSettingsTab('video')}
                       >
-                        Video
+                        {t('voiceRoom.settingsVideoTab')}
                       </button>
                     </aside>
                     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                       <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-                        <h2 className="text-lg font-semibold">Cài đặt</h2>
+                        <h2 className="text-lg font-semibold">{t('voiceRoom.settingsTitle')}</h2>
                         <button
                           type="button"
                           className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
                           onClick={() => setSettingsOpen(false)}
-                          aria-label="Đóng"
+                          aria-label={t('voiceRoom.closeAria')}
                         >
                           <X className="h-5 w-5" />
                         </button>
@@ -2423,45 +2540,45 @@ function VoiceRoomPage() {
                         {settingsTab === 'audio' && (
                           <div className="space-y-6">
                             <div>
-                              <label className="mb-2 block text-sm font-medium text-blue-700">Micrô</label>
+                              <label className="mb-2 block text-sm font-medium text-blue-700">{t('voiceRoom.micLabel')}</label>
                               <select
                                 value={selectedMicId}
                                 onChange={(e) => applyMicrophoneDevice(e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
                               >
                                 {audioInputs.length === 0 ? (
-                                  <option value="">Đang tải thiết bị…</option>
+                                  <option value="">{t('voiceRoom.loadingDevices')}</option>
                                 ) : (
                                   audioInputs.map((d) => (
                                     <option key={d.deviceId || d.label} value={d.deviceId}>
-                                      {d.label || `Micrô ${d.deviceId?.slice(-6) || ''}`}
+                                      {d.label || t('voiceRoom.micFallback', { suffix: d.deviceId?.slice(-6) || '' })}
                                     </option>
                                   ))
                                 )}
                               </select>
                             </div>
                             <div>
-                              <label className="mb-2 block text-sm font-medium text-blue-700">Loa</label>
+                              <label className="mb-2 block text-sm font-medium text-blue-700">{t('voiceRoom.speakerLabel')}</label>
                               <select
                                 value={selectedSpeakerId}
                                 onChange={(e) => setSelectedSpeakerId(e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
                               >
                                 {audioOutputs.length === 0 ? (
-                                  <option value="">Mặc định hệ thống</option>
+                                  <option value="">{t('voiceRoom.systemDefault')}</option>
                                 ) : (
                                   <>
-                                    <option value="">Mặc định</option>
+                                    <option value="">{t('voiceRoom.defaultOpt')}</option>
                                     {audioOutputs.map((d) => (
                                       <option key={d.deviceId || d.label} value={d.deviceId}>
-                                        {d.label || `Loa ${d.deviceId?.slice(-6) || ''}`}
+                                        {d.label || t('voiceRoom.speakerFallback', { suffix: d.deviceId?.slice(-6) || '' })}
                                       </option>
                                     ))}
                                   </>
                                 )}
                               </select>
                               <p className="mt-1 text-xs text-gray-500">
-                                Đổi loa áp dụng cho phát âm thanh video (trình duyệt hỗ trợ setSinkId).
+                                {t('voiceRoom.speakerHint')}
                               </p>
                             </div>
                           </div>
@@ -2469,10 +2586,10 @@ function VoiceRoomPage() {
                         {settingsTab === 'video' && (
                           <div className="space-y-5">
                             <div className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">
-                              Tính năng cải tiến nền có thể bổ sung sau — hiện chỉ chọn thiết bị và độ phân giải.
+                              {t('voiceRoom.videoBetaBanner')}
                             </div>
                             <div>
-                              <label className="mb-2 block text-sm font-medium text-blue-700">Máy ảnh</label>
+                              <label className="mb-2 block text-sm font-medium text-blue-700">{t('voiceRoom.camLabel')}</label>
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                                 <select
                                   value={selectedCamId}
@@ -2480,11 +2597,11 @@ function VoiceRoomPage() {
                                   className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
                                 >
                                   {videoInputs.length === 0 ? (
-                                    <option value="">Đang tải…</option>
+                                    <option value="">{t('common.loadingEllipsis')}</option>
                                   ) : (
                                     videoInputs.map((d) => (
                                       <option key={d.deviceId || d.label} value={d.deviceId}>
-                                        {d.label || `Camera ${d.deviceId?.slice(-6) || ''}`}
+                                        {d.label || t('voiceRoom.camFallback', { suffix: d.deviceId?.slice(-6) || '' })}
                                       </option>
                                     ))
                                   )}
@@ -2507,7 +2624,7 @@ function VoiceRoomPage() {
                                     />
                                   ) : (
                                     <div className="flex h-full items-center justify-center text-xs text-gray-500">
-                                      Không có video
+                                      {t('voiceRoom.noVideoPreview')}
                                     </div>
                                   )}
                                 </div>
@@ -2515,35 +2632,35 @@ function VoiceRoomPage() {
                             </div>
                             <div>
                               <label className="mb-2 block text-sm font-medium text-blue-700">
-                                Độ phân giải khi gửi (tối đa)
+                                {t('voiceRoom.sendResLabel')}
                               </label>
                               <select
                                 value={sendResolution}
                                 onChange={(e) => applySendResolutionPref(e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
                               >
-                                <option value="auto">Tự động</option>
-                                <option value="720">Độ phân giải cao (720p)</option>
-                                <option value="360">Độ phân giải chuẩn (360p)</option>
-                                <option value="180">Độ phân giải thấp (180p)</option>
+                                <option value="auto">{t('voiceRoom.resAuto')}</option>
+                                <option value="720">{t('voiceRoom.res720')}</option>
+                                <option value="360">{t('voiceRoom.res360')}</option>
+                                <option value="180">{t('voiceRoom.res180')}</option>
                               </select>
                             </div>
                             <div>
                               <label className="mb-2 block text-sm font-medium text-blue-700">
-                                Độ phân giải khi nhận (tối đa)
+                                {t('voiceRoom.recvResLabel')}
                               </label>
                               <select
                                 value={recvResolution}
                                 onChange={(e) => setRecvResolution(e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
                               >
-                                <option value="auto">Tự động</option>
+                                <option value="auto">{t('voiceRoom.resAuto')}</option>
                                 <option value="720">720p</option>
                                 <option value="360">360p</option>
                                 <option value="180">180p</option>
                               </select>
                               <p className="mt-1 text-xs text-gray-500">
-                                Gợi ý hiển thị — tối ưu nhận từ xa sẽ tích hợp sau.
+                                {t('voiceRoom.recvQualityHint')}
                               </p>
                             </div>
                           </div>

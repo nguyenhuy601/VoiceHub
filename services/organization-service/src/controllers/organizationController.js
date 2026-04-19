@@ -6,24 +6,24 @@ const { emitRealtimeEvent } = require('/shared');
 
 const getUserId = (req) => req.user?.id || req.user?.userId || req.user?._id;
 const DEFAULT_DEPARTMENTS = [
-  { name: 'Nhân sự', description: 'Quản lý nhân sự và văn hóa doanh nghiệp' },
-  { name: 'Kế toán', description: 'Quản lý tài chính và kế toán nội bộ' },
-  { name: 'Kinh doanh', description: 'Quản lý bán hàng và phát triển khách hàng' },
-  { name: 'Vận hành', description: 'Điều phối vận hành và tối ưu quy trình' },
+  { name: 'Human Resources', description: 'HR and workplace culture' },
+  { name: 'Accounting', description: 'Finance and internal accounting' },
+  { name: 'Sales', description: 'Sales and customer growth' },
+  { name: 'Operations', description: 'Operations and process optimization' },
 ];
 
 const buildDefaultChannels = (organizationId, departmentId, ownerId) => [
   {
-    name: 'chat-chung',
-    description: 'Kênh trao đổi chung của phòng ban',
+    name: 'general',
+    description: 'Department-wide text chat',
     type: 'chat',
     organization: organizationId,
     department: departmentId,
     leader: ownerId,
   },
   {
-    name: 'voice-chung',
-    description: 'Kênh hội thoại voice của phòng ban',
+    name: 'voice',
+    description: 'Department voice channel',
     type: 'voice',
     organization: organizationId,
     department: departmentId,

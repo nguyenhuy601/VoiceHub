@@ -3,9 +3,11 @@ import { ArrowLeft, Scale } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 function TermsOfServicePage() {
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const h1 = isDarkMode ? 'text-white' : 'text-[#0f172a]';
   const h2 = isDarkMode ? 'text-white' : 'text-slate-900';
   const body = isDarkMode ? 'text-slate-300' : 'text-slate-600';
@@ -23,8 +25,8 @@ function TermsOfServicePage() {
             <Scale className="h-6 w-6" strokeWidth={1.75} aria-hidden />
           </div>
           <div>
-            <h1 className={`text-2xl font-bold tracking-tight sm:text-3xl ${h1}`}>Điều khoản dịch vụ</h1>
-            <p className={`mt-2 text-base ${body}`}>Điều kiện sử dụng nền tảng VoiceHub cho đội ngũ và doanh nghiệp.</p>
+            <h1 className={`text-2xl font-bold tracking-tight sm:text-3xl ${h1}`}>{t('termsOfService.title')}</h1>
+            <p className={`mt-2 text-base ${body}`}>{t('termsOfService.subtitle')}</p>
           </div>
         </div>
         <Link
@@ -32,63 +34,45 @@ function TermsOfServicePage() {
           className={`inline-flex shrink-0 items-center gap-2 self-start text-base font-semibold ${linkCyan}`}
         >
           <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          Quay lại đăng ký
+          {t('termsOfService.backToRegister')}
         </Link>
       </div>
 
       <div className={`space-y-6 text-base leading-relaxed ${body}`}>
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>1. Phạm vi áp dụng</h2>
-          <p>
-            Điều khoản này điều chỉnh việc truy cập và sử dụng nền tảng VoiceHub cho mục đích làm việc nhóm, giao tiếp
-            nội bộ và quản trị cộng tác doanh nghiệp.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s1h')}</h2>
+          <p>{t('termsOfService.s1p')}</p>
         </section>
 
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>2. Tài khoản người dùng</h2>
-          <p>
-            Bạn chịu trách nhiệm về thông tin đăng nhập, hoạt động phát sinh từ tài khoản và việc bảo mật mật khẩu. Mọi
-            hành vi sử dụng trái phép cần được thông báo ngay cho quản trị viên hệ thống.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s2h')}</h2>
+          <p>{t('termsOfService.s2p')}</p>
         </section>
 
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>3. Quy tắc sử dụng</h2>
-          <p>
-            Người dùng không được phát tán nội dung vi phạm pháp luật, xâm phạm quyền riêng tư, quấy rối, gây gián đoạn
-            dịch vụ hoặc khai thác lỗ hổng bảo mật của hệ thống.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s3h')}</h2>
+          <p>{t('termsOfService.s3p')}</p>
         </section>
 
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>4. Dữ liệu và quyền sở hữu</h2>
-          <p>
-            Dữ liệu công việc do tổ chức của bạn tạo ra vẫn thuộc quyền quản lý của tổ chức. VoiceHub chỉ xử lý dữ liệu
-            để cung cấp tính năng vận hành, đồng bộ và bảo mật theo phạm vi dịch vụ đã công bố.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s4h')}</h2>
+          <p>{t('termsOfService.s4p')}</p>
         </section>
 
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>5. Giới hạn trách nhiệm</h2>
-          <p>
-            VoiceHub nỗ lực duy trì tính sẵn sàng và an toàn của hệ thống, tuy nhiên không cam kết dịch vụ luôn không
-            gián đoạn trong mọi tình huống bất khả kháng, bảo trì hoặc sự cố hạ tầng bên thứ ba.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s5h')}</h2>
+          <p>{t('termsOfService.s5p')}</p>
         </section>
 
         <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>6. Chấm dứt và cập nhật điều khoản</h2>
-          <p>
-            Chúng tôi có thể tạm ngưng hoặc chấm dứt quyền truy cập khi phát hiện vi phạm nghiêm trọng. Điều khoản có thể
-            được cập nhật theo nhu cầu vận hành và sẽ được thông báo trên nền tảng.
-          </p>
+          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s6h')}</h2>
+          <p>{t('termsOfService.s6p')}</p>
         </section>
 
         <section className={callout}>
           <p className="text-base">
-            Nếu bạn có câu hỏi về điều khoản sử dụng, vui lòng liên hệ đội hỗ trợ qua email:
-            <span className="font-semibold"> support@voicehub.com</span>.
+            {t('termsOfService.callout')}
+            <span className="font-semibold">{t('termsOfService.calloutEmail')}</span>.
           </p>
         </section>
       </div>

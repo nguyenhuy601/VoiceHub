@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 
 const DEFAULT_STORAGE_KEY = 'vh_org_recent_reactions';
 
@@ -43,6 +44,7 @@ export default function ChannelMessageToolbar({
   /** Tách lịch sử emoji kênh vs DM */
   recentReactionsStorageKey = DEFAULT_STORAGE_KEY,
 }) {
+  const { isDarkMode } = useTheme();
   const [recent, setRecent] = useState(() => loadRecent(recentReactionsStorageKey));
   const [emojiOpen, setEmojiOpen] = useState(false);
 
@@ -67,12 +69,20 @@ export default function ChannelMessageToolbar({
     return r.slice(0, 3);
   }, [recent]);
 
+  const bar = isDarkMode
+    ? 'pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-[#2b2d31] px-1.5 py-1 shadow-lg'
+    : 'pointer-events-auto flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-1 shadow-md';
+  const sep = isDarkMode ? 'border-r border-white/10' : 'border-r border-slate-200';
+  const iconBtn = isDarkMode
+    ? 'flex h-8 w-8 items-center justify-center rounded-md text-slate-200 transition hover:bg-white/10'
+    : 'flex h-8 w-8 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100';
+  const emojiPanel = isDarkMode
+    ? 'absolute bottom-full right-0 z-[70] mb-1 grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-white/15 bg-[#1e1f22] p-2 shadow-xl'
+    : 'absolute bottom-full right-0 z-[70] mb-1 grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl';
+
   return (
-    <div
-      className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-[#2b2d31] px-1.5 py-1 shadow-lg"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-0.5 pr-1.5 border-r border-white/10">
+    <div className={bar} onClick={(e) => e.stopPropagation()}>
+      <div className={`flex items-center gap-0.5 pr-1.5 ${sep}`}>
         {recentSlots.map((em) => (
           <button
             key={em}
@@ -83,7 +93,9 @@ export default function ChannelMessageToolbar({
               pushRecent(em);
               onQuickReact?.(em);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-lg transition hover:bg-white/10 disabled:opacity-40"
+            className={`flex h-8 w-8 items-center justify-center rounded-md text-lg transition disabled:opacity-40 ${
+              isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
+            }`}
           >
             {em}
           </button>
@@ -96,7 +108,7 @@ export default function ChannelMessageToolbar({
           title="Thêm biểu cảm"
           disabled={disabled}
           onClick={() => setEmojiOpen((v) => !v)}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 transition hover:bg-white/10"
+          className={iconBtn}
         >
           🙂
         </button>
@@ -108,12 +120,14 @@ export default function ChannelMessageToolbar({
               className="fixed inset-0 z-[60] cursor-default bg-transparent"
               onClick={() => setEmojiOpen(false)}
             />
-            <div className="absolute bottom-full right-0 z-[70] mb-1 grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-white/15 bg-[#1e1f22] p-2 shadow-xl">
+            <div className={emojiPanel}>
               {QUICK_PICK.map((em) => (
                 <button
                   key={em}
                   type="button"
-                  className="flex h-9 items-center justify-center rounded-lg text-lg hover:bg-white/10"
+                  className={`flex h-9 items-center justify-center rounded-lg text-lg ${
+                    isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
+                  }`}
                   onClick={() => {
                     pushRecent(em);
                     onQuickReact?.(em);
@@ -133,7 +147,7 @@ export default function ChannelMessageToolbar({
           title={showEdit ? 'Chỉnh sửa' : 'Trả lời'}
           disabled={disabled}
           onClick={() => onMiddleAction?.()}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 transition hover:bg-white/10"
+          className={iconBtn}
         >
           {showEdit ? '✏️' : '↩️'}
         </button>
@@ -143,7 +157,7 @@ export default function ChannelMessageToolbar({
           title="Chuyển tiếp"
           disabled={disabled}
           onClick={() => onForward?.()}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 transition hover:bg-white/10"
+          className={iconBtn}
         >
           ↪️
         </button>
@@ -153,7 +167,7 @@ export default function ChannelMessageToolbar({
           title="Những mục khác"
           disabled={disabled}
           onClick={(e) => onMore?.(e)}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 transition hover:bg-white/10"
+          className={iconBtn}
         >
           ⋯
         </button>

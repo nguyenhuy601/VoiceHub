@@ -7,12 +7,14 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -42,7 +44,7 @@ function LoginPage({ landingDemo = false } = {}) {
     e.preventDefault();
 
     if (landingDemo) {
-      toast('Đây là bản demo trên trang chủ — đăng nhập thật từ trang Đăng nhập.', { icon: '🔒' });
+      toast(t('login.demoToast'), { icon: '🔒' });
       return;
     }
 
@@ -65,8 +67,8 @@ function LoginPage({ landingDemo = false } = {}) {
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Chào mừng quay lại</h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>Đăng nhập để tiếp tục quản trị hệ thống của bạn.</p>
+      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
+      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
@@ -87,10 +89,10 @@ function LoginPage({ landingDemo = false } = {}) {
         <div>
           <div className="mb-2.5 flex items-center justify-between gap-2">
             <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
-              Mật khẩu
+              {t('login.password')}
             </label>
             <Link to="/forgot-password" className={`text-base font-semibold transition ${linkCyan}`}>
-              Quên mật khẩu?
+              {t('login.forgot')}
             </Link>
           </div>
           <div className="relative">
@@ -100,7 +102,7 @@ function LoginPage({ landingDemo = false } = {}) {
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               className={`${inputBase} pr-14`}
-              placeholder="Mật khẩu"
+              placeholder={t('login.placeholderPwd')}
               autoComplete="current-password"
             />
             <button
@@ -108,7 +110,7 @@ function LoginPage({ landingDemo = false } = {}) {
               onClick={() => setShowPassword(!showPassword)}
               className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${showPwdBtn}`}
             >
-              {showPassword ? 'Ẩn' : 'Hiện'}
+              {showPassword ? t('login.hide') : t('login.show')}
             </button>
           </div>
         </div>
@@ -121,7 +123,7 @@ function LoginPage({ landingDemo = false } = {}) {
               onChange={(e) => setRememberMe(e.target.checked)}
               className={`rounded border focus:ring-cyan-600/30 ${chk}`}
             />
-            Ghi nhớ đăng nhập
+            {t('login.remember')}
           </label>
         </div>
 
@@ -130,7 +132,7 @@ function LoginPage({ landingDemo = false } = {}) {
           disabled={loading}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
-          {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
+          {loading ? t('login.submitting') : t('login.submit')}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>

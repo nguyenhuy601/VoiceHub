@@ -8,7 +8,8 @@
 ======================================== */
 
 // Import hooks từ React để build context
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { AuthContext } from './auth-context';
 
 // Import toast để hiển thị notifications
 // Dùng để show "Đăng nhập thành công", "Đăng xuất", etc.
@@ -23,13 +24,8 @@ import userService from '../services/userService';
 import { getToken, setToken, removeToken } from '../utils/tokenStorage';
 
 /* ========================================
-   TẠO CONTEXT
-   - createContext(null): tạo Context với giá trị mặc định null
-   - Context này sẽ được provide ở AuthProvider
-   - Các component con dùng useAuth() để access
+   CONTEXT: đối tượng React Context được tạo trong ./auth-context.js (tách file để HMR ổn định).
 ======================================== */
-const AuthContext = createContext(null);
-
 /* ========================================
    CUSTOM HOOK: useAuth()
    Cách dùng: const { user, login, logout } = useAuth();
@@ -396,7 +392,7 @@ function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// Export AuthProvider để dùng trong main.jsx; AuthContext cho landing demo (override cục bộ)
+// AuthContext: re-export từ ./auth-context.js (override cục bộ trong LandingDemoAuth)
 export { AuthProvider, AuthContext };
 
 /* ========================================

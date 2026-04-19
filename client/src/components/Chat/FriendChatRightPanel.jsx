@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Calendar, FileText, LayoutGrid, Link2, Phone } from 'lucide-react';
+import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 const URL_REGEX = /(https?:\/\/[^\s<>"']+)/gi;
 
@@ -10,10 +12,10 @@ function extractUrls(text) {
   return raw ? [...new Set(raw)] : [];
 }
 
-function formatShortDate(iso) {
+function formatShortDate(iso, localeTag) {
   if (!iso) return '';
   try {
-    return new Date(iso).toLocaleDateString('vi-VN', {
+    return new Date(iso).toLocaleDateString(localeTag === 'en' ? 'en-US' : 'vi-VN', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -31,22 +33,22 @@ function hostFromUrl(url) {
   }
 }
 
-function fileDisplayName(message) {
+function fileDisplayName(message, fileFallback) {
   const fm = message?.fileMeta;
   const original = typeof fm?.originalName === 'string' ? fm.originalName.trim() : '';
   if (original) return original;
 
   const content = String(message?.content ?? '');
-  if (!/^https?:\/\//i.test(content)) return 'Tệp đính kèm';
+  if (!/^https?:\/\//i.test(content)) return fileFallback;
   try {
     const pathOnly = content.split('?')[0];
     const u = new URL(pathOnly);
     const last = u.pathname.split('/').filter(Boolean).pop() || '';
     const decoded = decodeURIComponent(last.replace(/\+/g, ' '));
     const stripped = decoded.replace(/^[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}_/i, '');
-    return stripped || decoded || 'Tệp đính kèm';
+    return stripped || decoded || fileFallback;
   } catch {
-    return 'Tệp đính kèm';
+    return fileFallback;
   }
 }
 
@@ -73,29 +75,31 @@ export default function FriendChatRightPanel({
   onPin,
   onCreateGroup,
 }) {
+  const { t } = useAppStrings();
+  const { locale } = useLocale();
   const { isDarkMode } = useTheme();
   const [tab, setTab] = useState('chung');
   const [openMedia, setOpenMedia] = useState(true);
   const [openFiles, setOpenFiles] = useState(true);
-  const [openLinks, setOpenLinks] = useState(true);
 
   const { images, files, links } = useMemo(() => {
     const imgs = [];
     const flist = [];
     const linkItems = [];
 
+    const fileFb = t('friendChat.fileAttachment');
     for (const m of messages) {
       if (!m) continue;
-      const t = m.messageType || 'text';
+      const msgType = m.messageType || 'text';
       const content = String(m.content ?? '');
       const id = m._id || m.id;
 
-      if (t === 'image') {
+      if (msgType === 'image') {
         imgs.push({ id, preview: content, at: m.createdAt });
-      } else if (t === 'file') {
+      } else if (msgType === 'file') {
         flist.push({
           id,
-          name: fileDisplayName(m),
+          name: fileDisplayName(m, fileFb),
           at: m.createdAt,
           url: /^https?:\/\//i.test(content) ? content : null,
         });
@@ -105,10 +109,10 @@ export default function FriendChatRightPanel({
       const contentPath = content.split('?')[0];
       for (const url of urls) {
         const urlPath = url.split('?')[0];
-        if ((t === 'file' || t === 'image') && urlPath === contentPath) {
+        if ((msgType === 'file' || msgType === 'image') && urlPath === contentPath) {
           continue;
         }
-        if (t === 'file' && isStorageAttachmentUrl(url)) {
+        if (msgType === 'file' && isStorageAttachmentUrl(url)) {
           continue;
         }
         linkItems.push({
@@ -128,20 +132,18 @@ export default function FriendChatRightPanel({
       files: [...flist].sort(byTime).slice(0, 6),
       links: [...linkItems].sort(byTime).slice(0, 8),
     };
-  }, [messages]);
+  }, [messages, t]);
 
   const daysSinceFirstMsg = useMemo(() => {
     const sorted = [...messages]
       .filter((m) => m?.createdAt)
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     if (!sorted.length) return null;
-    const t = new Date(sorted[0].createdAt).getTime();
-    return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+    const startMs = new Date(sorted[0].createdAt).getTime();
+    return Math.max(0, Math.floor((Date.now() - startMs) / 86400000));
   }, [messages]);
 
   const isOnline = friend?.status === 'online';
-
-  if (!friend) return null;
 
   const shell = isDarkMode
     ? 'hidden h-full w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#0b0c14] lg:flex'
@@ -177,12 +179,17 @@ export default function FriendChatRightPanel({
   const avatarRing = isDarkMode ? 'ring-[#0b0c14]' : 'ring-slate-50';
   const onlineDotBorder = isDarkMode ? 'border-[#0b0c14]' : 'border-slate-50';
 
-  const tabs = [
-    { id: 'chung', label: 'Chung', Icon: LayoutGrid },
-    { id: 'files', label: 'Tệp', Icon: FileText },
-    { id: 'links', label: 'Link', Icon: Link2 },
-    { id: 'cal', label: 'Lịch', Icon: Calendar },
-  ];
+  const tabs = useMemo(
+    () => [
+      { id: 'chung', label: t('friendChat.tabChung'), Icon: LayoutGrid },
+      { id: 'files', label: t('friendChat.tabTep'), Icon: FileText },
+      { id: 'links', label: t('friendChat.tabLink'), Icon: Link2 },
+      { id: 'cal', label: t('friendChat.tabLich'), Icon: Calendar },
+    ],
+    [t]
+  );
+
+  if (!friend) return null;
 
   return (
     <aside className={shell}>
@@ -201,18 +208,18 @@ export default function FriendChatRightPanel({
         </div>
         <h4 className={`mt-3 text-center text-lg font-bold ${titleMain}`}>{friend.name}</h4>
         <p className={`text-center text-[11px] font-semibold uppercase tracking-wide ${subtitleMuted}`}>
-          Thành viên VoiceHub
+          {t('friendChat.rightMemberBadge')}
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className={`rounded-xl border px-2 py-2 text-center ${hairline} ${panelMuted}`}>
-            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>Múi giờ</div>
+            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>{t('friendChat.rightTz')}</div>
             <div className={`text-xs font-medium ${bodyText}`}>GMT+7</div>
           </div>
           <div className={`rounded-xl border px-2 py-2 text-center ${hairline} ${panelMuted}`}>
-            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>Trạng thái</div>
+            <div className={`text-[10px] uppercase tracking-wide ${labelCaps}`}>{t('friendChat.rightStatus')}</div>
             <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400/90">
-              {isOnline ? 'Đang rảnh' : 'Ngoại tuyến'}
+              {isOnline ? t('friendChat.statusIdle') : t('friendChat.offline')}
             </div>
           </div>
         </div>
@@ -223,7 +230,7 @@ export default function FriendChatRightPanel({
             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 py-3 text-sm font-semibold text-white shadow-lg transition hover:brightness-110"
           >
             <Phone className="h-4 w-4" />
-            Gọi
+            {t('friendChat.rightCall')}
           </button>
           <button
             type="button"
@@ -234,7 +241,7 @@ export default function FriendChatRightPanel({
             }
           >
             <Calendar className="h-4 w-4" />
-            Lịch
+            {t('friendChat.rightCalendar')}
           </button>
         </div>
       </div>
@@ -263,26 +270,26 @@ export default function FriendChatRightPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-overlay">
         <div className="px-3 py-3">
-          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>Đã ghim</h5>
-          <p className={dashedEmpty}>Chưa có tin hoặc liên kết được ghim.</p>
+          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>{t('friendChat.pinnedTitle')}</h5>
+          <p className={dashedEmpty}>{t('friendChat.pinnedEmpty')}</p>
         </div>
 
         <div className={`px-3 py-3 ${hairlineT}`}>
-          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>Lịch hôm nay</h5>
-          <p className={insetCard}>Không có sự kiện chung — sẽ đồng bộ khi có tích hợp lịch.</p>
+          <h5 className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${labelCaps}`}>{t('friendChat.todayCalTitle')}</h5>
+          <p className={insetCard}>{t('friendChat.todayCalEmpty')}</p>
         </div>
 
         {tab === 'chung' && (
           <>
             <section className={hairlineT}>
               <button type="button" onClick={() => setOpenMedia((o) => !o)} className={sectionBtn}>
-                Ảnh / video
+                {t('friendChat.mediaSection')}
                 <span className={labelCaps}>{openMedia ? '▾' : '▸'}</span>
               </button>
               {openMedia && (
                 <div className="px-3 pb-3">
                   {images.length === 0 ? (
-                    <p className={`py-2 text-xs ${labelCaps}`}>Chưa có ảnh hoặc video.</p>
+                    <p className={`py-2 text-xs ${labelCaps}`}>{t('friendChat.mediaEmpty')}</p>
                   ) : (
                     <div className="grid grid-cols-4 gap-1.5">
                       {images.map((img) => (
@@ -305,20 +312,20 @@ export default function FriendChatRightPanel({
 
             <section className={hairlineT}>
               <button type="button" onClick={() => setOpenFiles((o) => !o)} className={sectionBtn}>
-                Tệp
+                {t('friendChat.filesSection')}
                 <span className={labelCaps}>{openFiles ? '▾' : '▸'}</span>
               </button>
               {openFiles && (
                 <div className="space-y-2 px-3 pb-3">
                   {files.length === 0 ? (
-                    <p className={`py-2 text-xs ${labelCaps}`}>Chưa có tệp.</p>
+                    <p className={`py-2 text-xs ${labelCaps}`}>{t('friendChat.filesEmpty')}</p>
                   ) : (
                     files.map((f) => (
                       <div key={f.id} className={fileRow}>
                         <span className="text-lg">📄</span>
                         <div className="min-w-0 flex-1">
                           <div className={`truncate text-xs font-medium ${titleMain}`}>{f.name}</div>
-                          <div className={`text-[10px] ${labelCaps}`}>{formatShortDate(f.at)}</div>
+                          <div className={`text-[10px] ${labelCaps}`}>{formatShortDate(f.at, locale)}</div>
                         </div>
                       </div>
                     ))
@@ -331,7 +338,7 @@ export default function FriendChatRightPanel({
 
         {tab === 'files' && (
           <div className={`px-3 py-3 text-xs ${hairlineT} ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-            {files.length === 0 ? 'Chưa có tệp trong cuộc trò chuyện.' : (
+            {files.length === 0 ? t('friendChat.filesTabEmpty') : (
               <ul className="space-y-2">
                 {files.map((f) => (
                   <li key={f.id} className={`truncate ${bodyText}`}>
@@ -346,7 +353,7 @@ export default function FriendChatRightPanel({
         {tab === 'links' && (
           <div className={`px-3 py-3 ${hairlineT}`}>
             {links.length === 0 ? (
-              <p className={`text-xs ${labelCaps}`}>Chưa có link.</p>
+              <p className={`text-xs ${labelCaps}`}>{t('friendChat.linksEmpty')}</p>
             ) : (
               links.map((l) => (
                 <a
@@ -368,32 +375,32 @@ export default function FriendChatRightPanel({
 
         {tab === 'cal' && (
           <div className={`px-3 py-4 text-center text-xs ${hairlineT} ${labelCaps}`}>
-            Lịch chung sẽ hiển thị khi tích hợp calendar.
+            {t('friendChat.calTabEmpty')}
           </div>
         )}
 
         <div className={`mt-auto grid grid-cols-2 gap-2 px-3 py-4 ${hairlineT}`}>
           <div className={statBox}>
-            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>Ngày bắt đầu chat</div>
+            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>{t('friendChat.statChatStart')}</div>
             <div className={`mt-1 text-lg font-bold ${titleMain}`}>
               {daysSinceFirstMsg != null ? `${daysSinceFirstMsg}d` : '—'}
             </div>
           </div>
           <div className={statBox}>
-            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>Kênh chung</div>
+            <div className={`text-[9px] font-bold uppercase tracking-wider ${labelCaps}`}>{t('friendChat.statChannel')}</div>
             <div className={`mt-1 text-lg font-bold ${titleMain}`}>1</div>
           </div>
         </div>
 
         <div className={`flex flex-wrap justify-center gap-2 px-2 py-3 ${hairlineT}`}>
           <button type="button" onClick={onMute} className={footerBtn}>
-            Tắt thông báo
+            {t('friendChat.footerMute')}
           </button>
           <button type="button" onClick={onPin} className={footerBtn}>
-            Ghim
+            {t('friendChat.footerPin')}
           </button>
           <button type="button" onClick={onCreateGroup} className={footerBtn}>
-            Tạo nhóm
+            {t('friendChat.footerGroup')}
           </button>
         </div>
       </div>

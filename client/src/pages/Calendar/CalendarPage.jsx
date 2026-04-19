@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
+import { appShellBg } from '../../theme/shellTheme';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { ConfirmDialog, GlassCard, GradientButton, Modal } from '../../components/Shared';
 import { useCalendarFeed } from '../../hooks/useCalendarFeed';
@@ -11,21 +12,26 @@ import {
   getMonthGridCells,
   toDateKey,
 } from '../../utils/calendarUtils';
+import { useAppStrings } from '../../locales/appStrings';
+import { useLocale } from '../../context/LocaleContext';
 
 const LOCAL_CUSTOM_KEY = 'voicehub:calendar:localCustom';
 
-function parseTimeInputToDisplay(hhmm) {
+function parseTimeInputToDisplay(hhmm, loc) {
   if (!hhmm || !String(hhmm).includes(':')) return '';
   const [h, m] = String(hhmm).split(':').map(Number);
   if (Number.isNaN(h) || Number.isNaN(m)) return '';
   const d = new Date();
   d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const tag = loc === 'en' ? 'en-US' : 'vi-VN';
+  return d.toLocaleTimeString(tag, { hour: '2-digit', minute: '2-digit' });
 }
 
 function CalendarPage() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
+  const { locale } = useLocale();
   const [view, setView] = useState('month');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -57,7 +63,7 @@ function CalendarPage() {
   useTaskDueAlerts(tasksForAlerts, {
     enabled: true,
     onAlert: ({ title }) => {
-      toast(`Deadline: ${title}`, { icon: '⏰' });
+      toast(t('calendar.toastDeadlineAlert', { title }), { icon: '⏰' });
     },
   });
 
@@ -67,13 +73,13 @@ function CalendarPage() {
   }, [events]);
 
   const upcomingEvents = useMemo(() => {
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
     return events
       .filter((e) => {
         if (!e.date) return false;
         const d = new Date(`${e.date}T12:00:00`);
-        return d > t;
+        return d > start;
       })
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }, [events]);
@@ -103,7 +109,7 @@ function CalendarPage() {
   const openEditModal = (eventData) => {
     if (!eventData) return;
     if (eventData.source === 'api') {
-      toast('Chỉnh sửa task/meeting trên Task hoặc Voice', { icon: 'ℹ️' });
+      toast(t('calendar.toastEditElsewhere'), { icon: 'ℹ️' });
       return;
     }
     setEditingEventId(eventData.id);
@@ -128,7 +134,7 @@ function CalendarPage() {
   const handleAddAttendees = () => {
     const raw = String(eventForm.attendeesText || '').trim();
     if (!raw) {
-      toast.error('Vui lòng nhập tên người tham gia');
+      toast.error(t('calendar.toastParticipantName'));
       return;
     }
 
@@ -138,13 +144,13 @@ function CalendarPage() {
       .filter(Boolean);
 
     if (parsed.length === 0) {
-      toast.error('Vui lòng nhập tên hợp lệ');
+      toast.error(t('calendar.toastParticipantInvalid'));
       return;
     }
 
     setAttendeeNames((prev) => Array.from(new Set([...prev, ...parsed])));
     setEventForm((prev) => ({ ...prev, attendeesText: '' }));
-    toast.success('Đã thêm người tham gia');
+    toast.success(t('calendar.toastParticipantAdded'));
   };
 
   const handleRemoveAttendee = (name) => {
@@ -163,9 +169,9 @@ function CalendarPage() {
       localStorage.setItem(LOCAL_CUSTOM_KEY, JSON.stringify(next));
       reloadLocal();
     } catch {
-      toast.error('Không lưu được dữ liệu local');
+      toast.error(t('calendar.toastLocalSaveFail'));
     }
-  }, [reloadLocal]);
+  }, [reloadLocal, t]);
 
   const handleSaveEvent = () => {
     const title = String(eventForm.title || '').trim();
@@ -173,7 +179,7 @@ function CalendarPage() {
     const timeRaw = String(eventForm.time || '').trim();
 
     if (!title || !date || !timeRaw) {
-      toast.error('Vui lòng nhập tiêu đề, ngày và giờ');
+      toast.error(t('calendar.toastFillRequired'));
       return;
     }
 
@@ -215,10 +221,10 @@ function CalendarPage() {
       persistLocalList((list) =>
         list.map((item) => (String(item.id) === String(editingEventId) ? nextEvent : item))
       );
-      toast.success('Đã cập nhật sự kiện');
+      toast.success(t('calendar.toastUpdated'));
     } else {
       persistLocalList((list) => [nextEvent, ...list]);
-      toast.success('Đã tạo sự kiện mới');
+      toast.success(t('calendar.toastCreated'));
     }
 
     setShowCreateEventModal(false);
@@ -228,7 +234,7 @@ function CalendarPage() {
   const handleDeleteEvent = (eventId, source) => {
     if (!eventId) return;
     if (source === 'api') {
-      toast('Xóa task/meeting trong màn Task hoặc Voice', { icon: 'ℹ️' });
+      toast(t('calendar.toastDeleteTaskVoice'), { icon: 'ℹ️' });
       return;
     }
     setDeleteConfirmEventId(eventId);
@@ -241,7 +247,7 @@ function CalendarPage() {
     if (selectedEvent?.id === eventId) {
       setSelectedEvent(null);
     }
-    toast.success('Đã xóa sự kiện');
+    toast.success(t('calendar.toastDeleted'));
   };
 
   const handleJoinEvent = (eventData) => {
@@ -250,30 +256,30 @@ function CalendarPage() {
       const st = getMeetingJoinState(eventData.raw, new Date());
       if (!st.joinEligible) {
         if (st.disabledReason === 'too_early') {
-          toast.error('Có thể vào phòng từ 30 phút trước giờ họp');
+          toast.error(t('calendar.toastJoinWindow'));
         } else if (st.disabledReason === 'ended') {
-          toast.error('Meeting đã kết thúc');
+          toast.error(t('calendar.toastMeetingEnded'));
         } else {
-          toast.error('Chưa thể tham gia meeting lúc này');
+          toast.error(t('calendar.toastJoinFail'));
         }
         return;
       }
       navigate(`/voice/${encodeURIComponent(eventData.meetingId)}`);
-      toast.success('Đang vào phòng họp…');
+      toast.success(t('calendar.toastJoining'));
       return;
     }
     if (eventData.type === 'meeting' && eventData.source === 'local') {
-      toast('Sự kiện local — tạo meeting trên Voice để có phòng', { icon: 'ℹ️' });
+      toast(t('calendar.toastLocalEvent'), { icon: 'ℹ️' });
       return;
     }
     if (eventData.kind === 'task' || eventData.type === 'deadline') {
-      toast('Mở Task để xem deadline (trang Tasks)', { icon: 'ℹ️' });
+      toast(t('calendar.toastOpenTasks'), { icon: 'ℹ️' });
       return;
     }
-    toast('Đã mở chi tiết', { icon: 'ℹ️' });
+    toast(t('calendar.toastDetail'), { icon: 'ℹ️' });
   };
 
-  const calShell = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
+  const calShell = `${appShellBg(isDarkMode)} ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`;
   const calHeader = isDarkMode ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-white';
   const viewInactive = isDarkMode
     ? 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
@@ -330,14 +336,14 @@ function CalendarPage() {
     const v = e.target.value;
     if (!v) return;
     setSelectedDate(new Date(`${v}T12:00:00`));
-    toast.success(`Đã chuyển tới ${v}`);
+    toast.success(t('calendar.toastGoto', { v }));
     e.target.value = '';
   };
 
   const handleCalendarRefresh = async () => {
     reloadLocal();
     await refetch();
-    toast.success('Đã làm mới lịch');
+    toast.success(t('calendar.toastRefreshed'));
   };
 
   return (
@@ -350,20 +356,20 @@ function CalendarPage() {
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
             <div className="min-w-0 flex flex-wrap items-end gap-x-4 gap-y-2">
               <div>
-                <h1 className={`text-xl font-extrabold sm:text-2xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Lịch và Sự Kiện</h1>
-                <p className={`text-[11px] sm:text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                  Meetings · Deadlines · Sự kiện
-                  {loading && ' · Đang tải…'}
+                <h1 className={`text-xl font-extrabold sm:text-2xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('calendar.title')}</h1>
+                <p className={`text-xs sm:text-sm ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>
+                  {t('calendar.pageSubtitle')}
+                  {loading && t('calendar.loadingSuffix')}
                   {error && ` · ${error}`}
                 </p>
               </div>
               {/* Thống kê dạng chip nhỏ — không dùng GlassCard p-6 */}
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 {[
-                  { icon: '📅', value: todayEvents.length, label: 'Hôm nay' },
-                  { icon: '🔜', value: upcomingEvents.length, label: 'Sắp tới' },
-                  { icon: '🎤', value: events.filter((e) => e.type === 'meeting').length, label: 'Meetings' },
-                  { icon: '⏰', value: events.filter((e) => e.type === 'deadline').length, label: 'Deadlines' },
+                  { icon: '📅', value: todayEvents.length, label: t('calendar.statToday') },
+                  { icon: '🔜', value: upcomingEvents.length, label: t('calendar.statUpcoming') },
+                  { icon: '🎤', value: events.filter((e) => e.type === 'meeting').length, label: t('calendar.statMeetings') },
+                  { icon: '⏰', value: events.filter((e) => e.type === 'deadline').length, label: t('calendar.statDeadlines') },
                 ].map((s) => (
                   <div
                     key={s.label}
@@ -374,7 +380,11 @@ function CalendarPage() {
                       {s.icon}
                     </span>
                     <span className={`text-sm font-bold tabular-nums leading-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.value}</span>
-                    <span className={`hidden text-[10px] sm:inline ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>{s.label}</span>
+                    <span
+                      className={`max-w-[5.5rem] truncate text-[11px] font-medium leading-tight sm:max-w-none sm:text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}
+                    >
+                      {s.label}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -392,12 +402,12 @@ function CalendarPage() {
                         : viewInactive
                     }`}
                   >
-                    {v === 'day' ? 'Ngày' : v === 'week' ? 'Tuần' : 'Tháng'}
+                    {v === 'day' ? t('calendar.viewDay') : v === 'week' ? t('calendar.viewWeek') : t('calendar.viewMonth')}
                   </button>
                 ))}
               </div>
               <GradientButton variant="primary" className="!px-3 !py-2 text-sm" onClick={openCreateModal}>
-                <span className="mr-1 text-base">➕</span> Tạo
+                {t('calendar.createBtn')}
               </GradientButton>
             </div>
           </div>
@@ -410,9 +420,12 @@ function CalendarPage() {
               <div className={calMonthHeader}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className={calMonthKicker}>Lịch tháng</p>
+                    <p className={calMonthKicker}>{t('calendar.monthKicker')}</p>
                     <h2 className={calMonthTitle}>
-                      Tháng {selectedDate.getMonth() + 1}, {selectedDate.getFullYear()}
+                      {selectedDate.toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN', {
+                        month: 'long',
+                        year: 'numeric',
+                      })}
                     </h2>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -426,7 +439,7 @@ function CalendarPage() {
                     />
                     <button
                       type="button"
-                      title="Chọn ngày"
+                      title={t('calendar.ariaPickDate')}
                       className={iconToolBtn}
                       onClick={() => {
                         const el = jumpDateInputRef.current;
@@ -441,16 +454,16 @@ function CalendarPage() {
                     >
                       🔍
                     </button>
-                    <button type="button" title="Làm mới dữ liệu" className={iconToolBtn} onClick={handleCalendarRefresh}>
+                    <button type="button" title={t('calendar.ariaRefresh')} className={iconToolBtn} onClick={handleCalendarRefresh}>
                       🔄
                     </button>
                     <button
                       type="button"
-                      title="Cài đặt"
+                      title={t('calendar.ariaSettings')}
                       className={iconToolBtn}
                       onClick={() => {
                         navigate('/settings');
-                        toast('Mở trang Cài đặt', { icon: 'ℹ️' });
+                        toast(t('calendar.toastOpenSettings'), { icon: 'ℹ️' });
                       }}
                     >
                       ⚙️
@@ -461,7 +474,7 @@ function CalendarPage() {
                         const newDate = new Date(selectedDate);
                         newDate.setMonth(newDate.getMonth() - 1);
                         setSelectedDate(newDate);
-                        toast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, { icon: '📅' });
+                        toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }), { icon: '📅' });
                       }}
                       className={calNavBtn}
                     >
@@ -471,11 +484,11 @@ function CalendarPage() {
                       type="button"
                       onClick={() => {
                         setSelectedDate(new Date());
-                        toast('Quay về hôm nay', { icon: '📅' });
+                        toast(t('calendar.toastBackToday'), { icon: '📅' });
                       }}
                       className={`${calNavBtn} font-semibold sm:px-4`}
                     >
-                      Hôm nay
+                      {t('calendar.todayNavBtn')}
                     </button>
                     <button
                       type="button"
@@ -483,7 +496,7 @@ function CalendarPage() {
                         const newDate = new Date(selectedDate);
                         newDate.setMonth(newDate.getMonth() + 1);
                         setSelectedDate(newDate);
-                        toast(`Chuyển sang ${newDate.getMonth() + 1}/${newDate.getFullYear()}`, { icon: '📅' });
+                        toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }), { icon: '📅' });
                       }}
                       className={calNavBtn}
                     >
@@ -496,9 +509,9 @@ function CalendarPage() {
               <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               {/* Calendar Grid */}
               <div className="grid grid-cols-7 gap-2">
-                {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => (
-                  <div key={day} className={dayHeaderCell}>
-                    {day}
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className={dayHeaderCell}>
+                    {t(`calendar.wd${i}`)}
                   </div>
                 ))}
                 {monthCells.map((cell) => {
@@ -518,7 +531,15 @@ function CalendarPage() {
                       onClick={() => {
                         setSelectedDate(date);
                         if (dayEvents.length > 0) {
-                          toast(`${dayEvents.length} sự kiện ngày ${day}/${date.getMonth() + 1}/${date.getFullYear()}`, { icon: '📅' });
+                          toast(
+                            t('calendar.toastDayEvents', {
+                              count: dayEvents.length,
+                              day,
+                              month: date.getMonth() + 1,
+                              year: date.getFullYear(),
+                            }),
+                            { icon: '📅' }
+                          );
                         }
                       }}
                       onKeyDown={(ev) => {
@@ -566,7 +587,7 @@ function CalendarPage() {
             {/* Today's Events */}
             <div>
               <h3 className={sideHeading}>
-                <span>📅</span> Hôm Nay - {todayEvents.length} sự kiện
+                <span>📅</span> {t('calendar.sectionTodayCount', { n: todayEvents.length })}
               </h3>
               <div className="space-y-3">
                 {todayEvents.map((event, idx) => {
@@ -575,9 +596,9 @@ function CalendarPage() {
                   const joinLabel =
                     event.type === 'meeting'
                       ? meetingJoin && !meetingJoin.joinEligible
-                        ? 'Chưa mở (30 phút trước giờ)'
-                        : 'Tham gia'
-                      : 'Xem chi tiết';
+                        ? t('calendar.joinClosed')
+                        : t('calendar.joinAction')
+                      : t('calendar.viewDetail');
                   return (
                   <GlassCard
                     key={event.id} 
@@ -603,7 +624,7 @@ function CalendarPage() {
                       {event.attendees ? (
                         <div className="flex items-center gap-2">
                           <span>👥</span>
-                          <span>{event.attendees} người</span>
+                          <span>{t('calendar.peopleCount', { n: event.attendees })}</span>
                         </div>
                       ) : null}
                     </div>
@@ -633,7 +654,7 @@ function CalendarPage() {
             {/* Upcoming Events */}
             <div>
               <h3 className={sideHeading}>
-                <span>🔜</span> Sắp Tới
+                <span>🔜</span> {t('calendar.sidebarUpcomingTitle')}
               </h3>
               <div className="space-y-2">
                 {upcomingEvents.slice(0, 4).map((event, idx) => (
@@ -680,7 +701,7 @@ function CalendarPage() {
           <div className="grid grid-cols-2 gap-4">
             <GlassCard className={modalGlass}>
               <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>🕐</span> Thời Gian
+                <span>🕐</span> {t('calendar.sectionTime')}
               </h4>
               <div className={`space-y-2 ${modalBody}`}>
                 <div>📅 {selectedEvent.date}</div>
@@ -691,19 +712,21 @@ function CalendarPage() {
 
             <GlassCard className={modalGlass}>
               <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>ℹ️</span> Chi Tiết
+                <span>ℹ️</span> {t('calendar.sectionDetailBlock')}
               </h4>
               <div className={`space-y-2 ${modalBody}`}>
                 <div>
                   📌{' '}
                   {selectedEvent.kind === 'task'
-                    ? 'Task / Deadline'
+                    ? t('calendar.kindTaskDeadline')
                     : selectedEvent.type === 'meeting'
-                      ? 'Meeting'
-                      : 'Sự kiện'}
+                      ? t('calendar.kindMeeting')
+                      : t('calendar.eventOrMeeting')}
                 </div>
                 {selectedEvent.location && <div>📍 {selectedEvent.location}</div>}
-                {selectedEvent.attendees && <div>👥 {selectedEvent.attendees} người</div>}
+                {selectedEvent.attendees && (
+                  <div>👥 {t('calendar.peopleCount', { n: selectedEvent.attendees })}</div>
+                )}
               </div>
             </GlassCard>
           </div>
@@ -714,7 +737,7 @@ function CalendarPage() {
             selectedEvent.attendeeNames.length > 0 && (
             <GlassCard className={modalGlass}>
               <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>👥</span> Người tham gia ({selectedEvent.attendeeNames.length})
+                <span>👥</span> {t('calendar.attendeesSection', { n: selectedEvent.attendeeNames.length })}
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 {selectedEvent.attendeeNames.map((name, idx) => (
@@ -732,14 +755,12 @@ function CalendarPage() {
           {/* Description */}
           <GlassCard className={modalGlass}>
             <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-              <span>📝</span> Mô Tả
+              <span>📝</span> {t('calendar.sectionDescription')}
             </h4>
             <p className={`whitespace-pre-wrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}>
               {selectedEvent.description ||
                 (selectedEvent.raw?.description) ||
-                (selectedEvent.type === 'meeting'
-                  ? 'Meeting từ hệ thống — bấm Tham gia khi trong cửa sổ 30 phút trước giờ họp.'
-                  : 'Task từ hệ thống — xem chi tiết trong màn Task.')}
+                (selectedEvent.type === 'meeting' ? t('calendar.meetingHint') : t('calendar.taskHint'))}
             </p>
           </GlassCard>
 
@@ -761,7 +782,7 @@ function CalendarPage() {
                 }}
                 className="flex-1 min-w-[140px]"
               >
-                {joinDisabled ? '🎤 Chưa mở cửa phòng' : '🎤 Tham Gia Ngay'}
+                {joinDisabled ? t('calendar.joinClosedBtn') : t('calendar.joinNow')}
               </GradientButton>
               );
             })()}
@@ -774,7 +795,7 @@ function CalendarPage() {
               }}
               className="flex-1 min-w-[140px]"
             >
-              ✏️ Chỉnh Sửa
+              {t('calendar.editEventBtn')}
             </GradientButton>
             )}
             {selectedEvent.source !== 'api' && (
@@ -785,7 +806,7 @@ function CalendarPage() {
               }}
             className={modalDestructive}
             >
-              🗑️ Xóa
+              {t('calendar.deleteEventBtn')}
             </button>
             )}
           </div>
@@ -797,18 +818,18 @@ function CalendarPage() {
     <Modal 
       isOpen={showCreateEventModal} 
       onClose={() => setShowCreateEventModal(false)}
-      title={editingEventId ? 'Chỉnh Sửa Sự Kiện' : 'Tạo Sự Kiện Mới'}
+      title={editingEventId ? t('calendar.modalEditTitle') : t('calendar.modalCreateTitle')}
       size="lg"
     >
       <div className={`space-y-4 ${formShell}`}>
         {/* Event Title */}
         <div>
           <label className={formLabel}>
-            Tiêu Đề Sự Kiện
+            {t('calendar.labelEventTitle')}
           </label>
           <input 
             type="text"
-            placeholder="Nhập tiêu đề..."
+            placeholder={t('calendar.phTitle')}
             value={eventForm.title}
             onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
             className={formInput}
@@ -818,14 +839,14 @@ function CalendarPage() {
         {/* Event Type — chữ sáng + nền tách khỏi glass modal */}
         <div>
           <label className={formLabel}>
-            Loại Sự Kiện
+            {t('calendar.labelEventType')}
           </label>
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {[
-              { id: 'meeting', label: 'Meeting', icon: '🎤' },
-              { id: 'deadline', label: 'Deadline', icon: '⏰' },
-              { id: 'reminder', label: 'Nhắc Nhở', icon: '🔔' }
-            ].map(type => {
+              { id: 'meeting', label: t('calendar.kindMeeting'), icon: '🎤' },
+              { id: 'deadline', label: t('calendar.typeDeadline'), icon: '⏰' },
+              { id: 'reminder', label: t('calendar.tabReminder'), icon: '🔔' },
+            ].map((type) => {
               const active = createType === type.id;
               return (
               <button
@@ -850,7 +871,7 @@ function CalendarPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={formLabel}>
-              Ngày
+              {t('calendar.labelDate')}
             </label>
             <input 
               type="date"
@@ -861,7 +882,7 @@ function CalendarPage() {
           </div>
           <div>
             <label className={formLabel}>
-              Giờ
+              {t('calendar.labelTime')}
             </label>
             <input 
               type="time"
@@ -876,28 +897,40 @@ function CalendarPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={formLabel}>
-              Thời Lượng
+              {t('calendar.labelDuration')}
             </label>
             <select
               value={eventForm.duration}
               onChange={(e) => setEventForm((prev) => ({ ...prev, duration: e.target.value }))}
               className={formSelect}
             >
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>15 phút</option>
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>30 phút</option>
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>45 phút</option>
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>1 giờ</option>
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>1.5 giờ</option>
-              <option className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>2 giờ</option>
+              <option value="15 phút" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur15')}
+              </option>
+              <option value="30 phút" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur30')}
+              </option>
+              <option value="45 phút" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur45')}
+              </option>
+              <option value="1 giờ" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur60')}
+              </option>
+              <option value="1.5 giờ" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur90')}
+              </option>
+              <option value="2 giờ" className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}>
+                {t('calendar.dur120')}
+              </option>
             </select>
           </div>
           <div>
             <label className={formLabel}>
-              Địa Điểm
+              {t('calendar.labelLocation')}
             </label>
             <input 
               type="text"
-              placeholder="Voice Room hoặc link..."
+              placeholder={t('calendar.phVoice')}
               value={eventForm.location}
               onChange={(e) => setEventForm((prev) => ({ ...prev, location: e.target.value }))}
               className={formInput}
@@ -908,11 +941,11 @@ function CalendarPage() {
         {/* Description */}
         <div>
           <label className={formLabel}>
-            Mô Tả
+            {t('calendar.labelDesc')}
           </label>
           <textarea 
             rows={4}
-            placeholder="Nhập mô tả chi tiết..."
+            placeholder={t('calendar.phDesc')}
             value={eventForm.description}
             onChange={(e) => setEventForm((prev) => ({ ...prev, description: e.target.value }))}
             className={`${formInput} resize-none`}
@@ -922,12 +955,12 @@ function CalendarPage() {
         {/* Attendees */}
         <div>
           <label className={formLabel}>
-            Người Tham Gia
+            {t('calendar.labelAttendees')}
           </label>
           <div className="flex gap-2">
             <input 
               type="text"
-              placeholder="Thêm người tham gia..."
+              placeholder={t('calendar.phAttendees')}
               value={eventForm.attendeesText}
               onChange={(e) => setEventForm((prev) => ({ ...prev, attendeesText: e.target.value }))}
               className={`flex-1 ${formInput}`}
@@ -937,7 +970,7 @@ function CalendarPage() {
               className={formBtnSecondary}
               onClick={handleAddAttendees}
             >
-              ➕ Thêm
+              {t('calendar.addAttendeeBtn')}
             </button>
           </div>
           {attendeeNames.length > 0 && (
@@ -963,14 +996,14 @@ function CalendarPage() {
             onClick={handleSaveEvent}
             className="flex-1"
           >
-            {editingEventId ? '✅ Lưu Cập Nhật' : '✅ Tạo Sự Kiện'}
+            {editingEventId ? t('calendar.saveEvent') : t('calendar.createEvent')}
           </GradientButton>
           <button 
             type="button"
             onClick={() => setShowCreateEventModal(false)}
             className={formBtnSecondary}
           >
-            Hủy
+            {t('calendar.cancelBtn')}
           </button>
         </div>
       </div>
@@ -980,10 +1013,10 @@ function CalendarPage() {
       isOpen={deleteConfirmEventId != null}
       onClose={() => setDeleteConfirmEventId(null)}
       onConfirm={confirmDeleteLocalEvent}
-      title="Xóa sự kiện"
-      message="Xóa sự kiện này?"
-      confirmText="Xóa"
-      cancelText="Hủy"
+      title={t('calendar.confirmDeleteTitle')}
+      message={t('calendar.confirmDeleteMsg')}
+      confirmText={t('calendar.confirmDeleteOk')}
+      cancelText={t('calendar.cancelBtn')}
     />
     </>
   );

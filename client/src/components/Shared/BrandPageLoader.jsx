@@ -1,4 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
+import ShellWaveBackdrop from '../Layout/ShellWaveBackdrop';
 import { appShellBg } from '../../theme/shellTheme';
 
 /**
@@ -14,19 +15,7 @@ export default function BrandPageLoader({
     <div
       className={`relative flex min-h-screen items-center justify-center overflow-hidden ${appShellBg(isDarkMode)}`}
     >
-      <div className="pointer-events-none absolute inset-0">
-        {isDarkMode ? (
-          <>
-            <div className="absolute -top-24 -left-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
-            <div className="absolute -bottom-20 right-0 h-64 w-64 rounded-full bg-teal-600/10 blur-3xl" />
-          </>
-        ) : (
-          <>
-            <div className="absolute -top-24 -left-24 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
-            <div className="absolute -bottom-20 right-0 h-64 w-64 rounded-full bg-teal-400/12 blur-3xl" />
-          </>
-        )}
-      </div>
+      <ShellWaveBackdrop />
 
       <div className="relative z-10 px-6 text-center">
         <div
@@ -39,7 +28,7 @@ export default function BrandPageLoader({
         >
           {message}
         </p>
-        <p className={`mt-1.5 text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+        <p className={`mt-1.5 text-base leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
           {subMessage}
         </p>
       </div>

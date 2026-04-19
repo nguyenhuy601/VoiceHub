@@ -1,7 +1,3 @@
-import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import {
   Building2,
   Calendar,
@@ -16,42 +12,48 @@ import {
   Rocket,
   Sun,
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import toast from 'react-hot-toast';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
-import { ConfirmDialog } from '../Shared';
+import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
 import friendService from '../../services/friendService';
-import Avatar from '../ui/Avatar';
-import NotificationBellBadge from '../Shared/NotificationBellBadge';
+import {
+    navDivider,
+    navItemActive,
+    navItemInactiveHover,
+    navLogoTile,
+    navOuterStrip,
+    navSidebarRail,
+    navTimeText,
+    profileDropdownBody,
+    profileDropdownCard,
+    profileDropdownHeader,
+    profileMenuRow,
+    tooltipBubble,
+} from '../../theme/shellTheme';
 import { getUserDisplayName } from '../../utils/helpers';
 import { removeToken } from '../../utils/tokenStorage';
 import ProfileModal from '../Profile/ProfileModal';
-import {
-  navDivider,
-  navItemActive,
-  navItemInactiveHover,
-  navLogoTile,
-  navOuterStrip,
-  navSidebarRail,
-  navTimeText,
-  profileDropdownBody,
-  profileDropdownCard,
-  profileDropdownHeader,
-  profileMenuRow,
-  tooltipBubble,
-} from '../../theme/shellTheme';
+import { ConfirmDialog } from '../Shared';
+import NotificationBellBadge from '../Shared/NotificationBellBadge';
+import Avatar from '../ui/Avatar';
 
 const iconBtn =
   'w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 flex items-center justify-center shrink-0 rounded-xl transition-all duration-200';
 
-const navItems = [
-  { Icon: LayoutDashboard, label: 'Bảng điều khiển', tooltip: 'Bảng điều khiển', path: '/dashboard' },
-  { Icon: MessageSquare, label: 'Chat bạn bè', tooltip: 'Tin nhắn', path: '/chat/friends' },
-  { Icon: Mic, label: 'Không gian', tooltip: 'Không gian', path: '/voice' },
-  { Icon: Building2, label: 'Tổ chức', tooltip: 'Tổ chức', path: '/organizations' },
-  { Icon: ListTodo, label: 'Công việc', tooltip: 'Task', path: '/tasks' },
-  { path: '/notifications', tooltip: 'Thông báo', bellBadge: true, label: 'Thông báo' },
-  { Icon: Calendar, label: 'Lịch', tooltip: 'Lịch', path: '/calendar' },
+const NAV_DEF = [
+  { key: 'dashboard', Icon: LayoutDashboard, path: '/dashboard' },
+  { key: 'friends', Icon: MessageSquare, path: '/chat/friends' },
+  { key: 'voice', Icon: Mic, path: '/voice' },
+  { key: 'org', Icon: Building2, path: '/organizations' },
+  { key: 'tasks', Icon: ListTodo, path: '/tasks' },
+  { key: 'notifications', path: '/notifications', bellBadge: true },
+  { key: 'calendar', Icon: Calendar, path: '/calendar' },
 ];
 
 const NavigationSidebar = ({ landingDemo = false } = {}) => {
@@ -59,6 +61,8 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
+  const { locale } = useLocale();
+  const { t, dict } = useAppStrings();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -105,21 +109,37 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       }
     };
     loadBellBadge();
-    const t = setInterval(loadBellBadge, 60000);
+    const intervalId = setInterval(loadBellBadge, 60000);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      clearInterval(intervalId);
     };
   }, [landingDemo]);
 
-  const currentTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
+  const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
+
+  const navItems = useMemo(() => {
+    return NAV_DEF.map((def) => {
+      const copy = dict.nav[def.key];
+      if (def.bellBadge) {
+        return { path: def.path, tooltip: copy.tooltip, bellBadge: true, label: copy.label };
+      }
+      return {
+        Icon: def.Icon,
+        path: def.path,
+        label: copy.label,
+        tooltip: copy.tooltip,
+      };
+    });
+  }, [dict, locale]);
   const displayName = getUserDisplayName(user);
   const isInvisible = Boolean(user?.isInvisible);
   const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
 
   const handleToggleInvisible = async () => {
     if (landingDemo) {
-      toast('Bản demo trên trang chủ — không đổi chế độ thật.', { icon: '🔒' });
+      toast(t('nav.toastDemoInvisible'), { icon: '🔒' });
       return;
     }
     if (togglingInvisible) return;
@@ -132,7 +152,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       setProfileOpen(false);
     } catch (error) {
       console.error('Toggle invisible mode failed:', error);
-      toast.error(error?.response?.data?.message || 'Không thể cập nhật chế độ vô hình');
+      toast.error(error?.response?.data?.message || t('nav.toastInvisibleErr'));
     } finally {
       setTogglingInvisible(false);
     }
@@ -140,7 +160,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
 
   const performLogout = async () => {
     if (landingDemo) {
-      toast('Bản demo trên trang chủ — không đăng xuất tài khoản thật.', { icon: '🔒' });
+      toast(t('nav.toastDemoLogout'), { icon: '🔒' });
       setProfileOpen(false);
       setLogoutConfirmOpen(false);
       return;
@@ -236,14 +256,14 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         }`}
         onMouseEnter={() => setSidebarExpanded(true)}
         onMouseLeave={() => setSidebarExpanded(false)}
-        title={sidebarExpanded ? undefined : 'Đưa chuột vào để mở menu'}
+        title={sidebarExpanded ? undefined : t('nav.railHint')}
       >
         <div className={`flex h-full min-w-[56px] shrink-0 flex-col overflow-y-hidden overflow-x-visible sm:w-16 md:w-[68px] w-14 ${rail}`}>
           <div className="scrollbar-overlay flex flex-1 min-h-0 flex-col items-center gap-1 overflow-x-visible overflow-y-auto py-3">
             <Link
               to="/dashboard"
               className={`${iconBtn} ${navLogoTile()} shrink-0`}
-              aria-label="VoiceHub — Trang chủ"
+              aria-label={t('nav.brandHome')}
             >
               <Rocket className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} aria-hidden />
             </Link>
@@ -292,12 +312,12 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
               })}
             </nav>
 
-            <Tooltip label={isDarkMode ? 'Chế độ Sáng' : 'Chế độ Tối'}>
+            <Tooltip label={isDarkMode ? t('nav.themeLight') : t('nav.themeDark')}>
               <button
                 type="button"
                 onClick={toggleTheme}
                 className={`${iconBtn} ${inactive}`}
-                aria-label={isDarkMode ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
+                aria-label={isDarkMode ? t('nav.ariaThemeLight') : t('nav.ariaThemeDark')}
               >
                 {isDarkMode ? (
                   <Sun className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} aria-hidden />
@@ -312,7 +332,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 type="button"
                 onClick={() => setProfileOpen((p) => !p)}
                 className={`${iconBtn} ${inactive}`}
-                title={displayName || user?.email || 'Tài khoản'}
+                title={displayName || user?.email || t('nav.profileAccount')}
               >
                 <Avatar user={user} size="sm" online={isOnline} className="shrink-0" />
               </button>
@@ -359,7 +379,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 >
                   <span className="flex items-center gap-2">
                     <Pencil className="h-4 w-4 shrink-0 text-cyan-500" strokeWidth={1.75} aria-hidden />
-                    Sửa hồ sơ
+                    {t('nav.editProfile')}
                   </span>
                 </button>
                 <button
@@ -370,10 +390,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 >
                   <span className="flex items-center gap-2">
                     <Eye className="h-4 w-4 shrink-0 text-cyan-500" strokeWidth={1.75} aria-hidden />
-                    Chế độ vô hình
+                    {t('nav.invisible')}
                   </span>
                   <span className={`text-xs ${isDarkMode ? 'text-amber-300' : 'text-amber-600'}`}>
-                    {togglingInvisible ? 'Đang lưu...' : isInvisible ? 'Đang bật' : 'Đang tắt'}
+                    {togglingInvisible ? t('nav.saving') : isInvisible ? t('nav.on') : t('nav.off')}
                   </span>
                 </button>
                 <button
@@ -383,7 +403,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 >
                   <span className="flex items-center gap-2">
                     <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-                    Đăng xuất
+                    {t('nav.logout')}
                   </span>
                 </button>
               </div>
@@ -395,10 +415,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         isOpen={logoutConfirmOpen}
         onClose={() => setLogoutConfirmOpen(false)}
         onConfirm={performLogout}
-        title="Đăng xuất"
-        message="Bạn có chắc muốn đăng xuất?"
-        confirmText="Đăng xuất"
-        cancelText="Hủy"
+        title={t('nav.logoutTitle')}
+        message={t('nav.logoutMsg')}
+        confirmText={t('nav.logout')}
+        cancelText={t('nav.cancel')}
       />
     </>
   );

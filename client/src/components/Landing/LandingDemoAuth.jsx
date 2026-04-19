@@ -1,5 +1,5 @@
 import { useContext, useMemo } from 'react';
-import { AuthContext } from '../../context/AuthContext';
+import { AuthContext } from '../../context/auth-context';
 import { LANDING_DEMO_USER } from '../../constants/landingDemoUser';
 
 /**

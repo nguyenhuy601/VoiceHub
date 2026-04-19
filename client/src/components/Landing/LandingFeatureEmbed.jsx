@@ -1,5 +1,6 @@
 import { lazy, Suspense, useLayoutEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
+import { LandingDemoThemeProvider } from '../../context/ThemeContext';
 import { setLandingEmbedActive } from '../../utils/landingEmbedMode';
 import { LandingScaledShell } from './LandingScaledShell';
 import { LandingDemoAuth } from './LandingDemoAuth';
@@ -96,15 +97,17 @@ function EmbedInner({ featureId }) {
  * Nhúng màn hình thật (cùng mã nguồn) trong khung landing — cùng BrowserRouter,
  * không dùng MemoryRouter (React Router cấm lồng Router).
  */
-export default function LandingFeatureEmbed({ featureId, isDarkMode }) {
+export default function LandingFeatureEmbed({ featureId }) {
   useLayoutEffect(() => {
     setLandingEmbedActive(true);
     return () => setLandingEmbedActive(false);
   }, []);
 
   return (
-    <LandingScaledShell isDarkMode={isDarkMode}>
-      <EmbedInner featureId={featureId} />
-    </LandingScaledShell>
+    <LandingDemoThemeProvider>
+      <LandingScaledShell>
+        <EmbedInner featureId={featureId} />
+      </LandingScaledShell>
+    </LandingDemoThemeProvider>
   );
 }

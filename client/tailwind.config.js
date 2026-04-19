@@ -7,6 +7,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontSize: {
+        sm: ['0.9375rem', { lineHeight: '1.5' }],
+        base: ['1.0625rem', { lineHeight: '1.65' }],
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
