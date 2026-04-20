@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 import {
   DndContext,
   DragOverlay,
@@ -22,13 +24,16 @@ function overlayOptsForStatus(status) {
   return { glow: false, doneStyle: false };
 }
 
-function DroppableColumn({ id, children, className = '' }) {
+function DroppableColumn({ id, children, className = '', isDarkMode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const ringOver = isDarkMode
+    ? 'ring-purple-500/60 ring-offset-transparent'
+    : 'ring-cyan-500/45 ring-offset-sky-50/80';
   return (
     <div
       ref={setNodeRef}
       className={`min-h-[120px] rounded-xl transition-[box-shadow] ${className} ${
-        isOver ? 'ring-2 ring-purple-500/60 ring-offset-2 ring-offset-transparent' : ''
+        isOver ? `ring-2 ${ringOver} ring-offset-2` : ''
       }`}
     >
       {children}
@@ -66,7 +71,12 @@ function DraggableTaskCard({ id, task, children }) {
  * @param {(task: object, assigneeLabel: string, opts: { glow: boolean, doneStyle: boolean }) => React.ReactNode} props.renderCardInner
  */
 export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick, onDropOnColumn, renderCardInner }) {
+  const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [activeTask, setActiveTask] = useState(null);
+  const cardSurface = isDarkMode
+    ? ''
+    : '!border !border-slate-200/90 !bg-white/95 shadow-sm !backdrop-blur-sm';
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 10 },
@@ -108,7 +118,7 @@ export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick,
         <GlassCard
           hover
           glow={opts.glow}
-          className={`group animate-slideUp ${opts.doneStyle ? 'opacity-80 hover:opacity-100' : ''}`}
+          className={`group animate-slideUp ${opts.doneStyle ? 'opacity-80 hover:opacity-100' : ''} ${cardSurface}`}
           onClick={(e) => {
             e.stopPropagation();
             onCardClick(task);
@@ -132,12 +142,22 @@ export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick,
         <div className="flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-gradient-to-r from-purple-600 to-pink-600" />
-              <h2 className="text-xl font-bold text-white">Cần làm</h2>
-              <span className="px-2 py-0.5 rounded-full glass text-sm font-bold">{columns.todo.length}</span>
+              <div className="w-3 h-3 rounded-full bg-gradient-to-r from-cyan-600 to-teal-600" />
+              <h2
+                className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+              >
+                {t('tasks.statusTodo')}
+              </h2>
+              <span
+                className={`px-2 py-0.5 rounded-full text-sm font-bold ${
+                  isDarkMode ? 'glass' : 'border border-slate-200 bg-slate-100 text-slate-800'
+                }`}
+              >
+                {columns.todo.length}
+              </span>
             </div>
           </div>
-          <DroppableColumn id={COL_TODO} className="space-y-3 flex-1 pb-2">
+          <DroppableColumn id={COL_TODO} isDarkMode={isDarkMode} className="space-y-3 flex-1 pb-2">
             {columns.todo.map((t) => wrapCard(t, { glow: false, doneStyle: false }))}
           </DroppableColumn>
         </div>
@@ -146,13 +166,21 @@ export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick,
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 animate-pulse" />
-              <h2 className="text-xl font-bold text-white">Đang thực hiện</h2>
-              <span className="px-2 py-0.5 rounded-full glass text-sm font-bold">
+              <h2
+                className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+              >
+                {t('tasks.statusInProgress')}
+              </h2>
+              <span
+                className={`px-2 py-0.5 rounded-full text-sm font-bold ${
+                  isDarkMode ? 'glass' : 'border border-slate-200 bg-slate-100 text-slate-800'
+                }`}
+              >
                 {columns.inProgress.length}
               </span>
             </div>
           </div>
-          <DroppableColumn id={COL_PROGRESS} className="space-y-3 flex-1 pb-2">
+          <DroppableColumn id={COL_PROGRESS} isDarkMode={isDarkMode} className="space-y-3 flex-1 pb-2">
             {columns.inProgress.map((t) => wrapCard(t, { glow: true, doneStyle: false }))}
           </DroppableColumn>
         </div>
@@ -161,11 +189,21 @@ export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick,
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-emerald-500" />
-              <h2 className="text-xl font-bold text-white">Hoàn thành</h2>
-              <span className="px-2 py-0.5 rounded-full glass text-sm font-bold">{columns.done.length}</span>
+              <h2
+                className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+              >
+                {t('tasks.statusDone')}
+              </h2>
+              <span
+                className={`px-2 py-0.5 rounded-full text-sm font-bold ${
+                  isDarkMode ? 'glass' : 'border border-slate-200 bg-slate-100 text-slate-800'
+                }`}
+              >
+                {columns.done.length}
+              </span>
             </div>
           </div>
-          <DroppableColumn id={COL_DONE} className="space-y-3 flex-1 pb-2">
+          <DroppableColumn id={COL_DONE} isDarkMode={isDarkMode} className="space-y-3 flex-1 pb-2">
             {columns.done.map((t) => wrapCard(t, { glow: false, doneStyle: true }))}
           </DroppableColumn>
         </div>
@@ -174,7 +212,9 @@ export default function TasksKanbanDnd({ columns, getAssigneeLabel, onCardClick,
       <DragOverlay dropAnimation={{ duration: 220, easing: 'ease' }}>
         {activeTask ? (
           <div className="w-[min(100%,320px)] rotate-1 scale-[1.02] opacity-90 shadow-2xl pointer-events-none">
-            <GlassCard className="ring-2 ring-purple-500/40">
+            <GlassCard
+              className={`ring-2 ${isDarkMode ? 'ring-purple-500/40' : 'ring-cyan-500/35 border border-slate-200/90 !bg-white/95'} ${cardSurface}`}
+            >
               {renderCardInner(
                 activeTask,
                 getAssigneeLabel(activeTask),

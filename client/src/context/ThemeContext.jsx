@@ -7,31 +7,75 @@
 ======================================== */
 
 // Import hooks để build context
-import { createContext, useContext, useLayoutEffect, useState } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, useState } from 'react';
 
-// Tạo ThemeContext - sẽ provide isDarkMode và toggleTheme
+const FONT_SCALE_STORAGE_KEY = 'voicehub-font-scale';
+const FONT_SCALE_REM = {
+  normal: '100%',
+  comfortable: '112.5%',
+  large: '125%',
+};
+
+// Tạo ThemeContext — isDarkMode, toggleTheme, fontScale, setFontScale
 const ThemeContext = createContext();
+
+/** Khi nhúng trong khung demo landing: ghi đè sáng/tối cục bộ, không đổi theme toàn trang */
+const LandingDemoThemeContext = createContext(null);
 
 /* ========================================
    CUSTOM HOOK: useTheme()
    Cách dùng: const { isDarkMode, toggleTheme } = useTheme();
    
-   Component nào cần theme info → dùng hook này
-   VD: Header component muốn show dark/light icon
+   Trong khung preview landing (LandingDemoThemeProvider): theme cục bộ (đồng bộ khi app đổi; toggle trong demo không đổi app).
+   Ngoài đó: theme toàn app (localStorage + class trên <html>).
 ======================================== */
 function useTheme() {
   const context = useContext(ThemeContext);
-  
-  // Check xem có wrap trong ThemeProvider không
+  const demoOverride = useContext(LandingDemoThemeContext);
+
   if (!context) {
     throw new Error('useTheme must be used within ThemeProvider');
   }
-  
+
+  if (demoOverride) {
+    return demoOverride;
+  }
+
   return context;
 }
 
-// Export useTheme để dùng trong components
-export { useTheme };
+/**
+ * Bọc khung demo landing: theme preview tách khỏi ghi localStorage/html.
+ * - Đổi theme ở app thật → preview tự khớp theo.
+ * - Đổi theme trong preview → chỉ state cục bộ, không đổi app thật.
+ */
+function LandingDemoThemeProvider({ children }) {
+  const global = useContext(ThemeContext);
+  if (!global) {
+    throw new Error('LandingDemoThemeProvider must be used within ThemeProvider');
+  }
+
+  const { fontScale, setFontScale, isDarkMode: globalDark } = global;
+  const [demoDark, setDemoDark] = useState(() => globalDark);
+
+  useLayoutEffect(() => {
+    setDemoDark(globalDark);
+  }, [globalDark]);
+
+  const value = useMemo(
+    () => ({
+      isDarkMode: demoDark,
+      toggleTheme: () => setDemoDark((d) => !d),
+      fontScale,
+      setFontScale,
+    }),
+    [demoDark, fontScale, setFontScale]
+  );
+
+  return <LandingDemoThemeContext.Provider value={value}>{children}</LandingDemoThemeContext.Provider>;
+}
+
+export { useTheme, LandingDemoThemeProvider };
 
 /* ========================================
    THEMEPROVIDER COMPONENT
@@ -53,6 +97,12 @@ function ThemeProvider({ children }) {
     return false;
   });
 
+  const [fontScale, setFontScaleState] = useState(() => {
+    const s = localStorage.getItem(FONT_SCALE_STORAGE_KEY);
+    if (s === 'comfortable' || s === 'large' || s === 'normal') return s;
+    return 'normal';
+  });
+
   useLayoutEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     const root = document.documentElement;
@@ -64,6 +114,16 @@ function ThemeProvider({ children }) {
       root.classList.add('light');
     }
   }, [isDarkMode]);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.fontSize = FONT_SCALE_REM[fontScale] || '100%';
+    localStorage.setItem(FONT_SCALE_STORAGE_KEY, fontScale);
+  }, [fontScale]);
+
+  const setFontScale = (value) => {
+    if (FONT_SCALE_REM[value] != null) setFontScaleState(value);
+  };
 
   /* ========================================
      toggleTheme: FUNCTION ĐỂ SWITCH THEME
@@ -77,7 +137,7 @@ function ThemeProvider({ children }) {
   // Return Provider với value chứa state và function
   // Mọi component con có thể access { isDarkMode, toggleTheme }
   return (
-    <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
+    <ThemeContext.Provider value={{ isDarkMode, toggleTheme, fontScale, setFontScale }}>
       {children}
     </ThemeContext.Provider>
   );

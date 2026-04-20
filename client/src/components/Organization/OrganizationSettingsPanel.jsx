@@ -91,8 +91,7 @@ function OrganizationSettingsPanel({
     phone: '',
   });
 
-  const [apiKeys, setApiKeys] = useState([]);
-  const [integrations, setIntegrations] = useState([
+  const [integrations] = useState([
     { id: 'slack', name: 'Slack', icon: '💬', connected: false, color: 'from-purple-600 to-pink-600' },
     { id: 'gdrive', name: 'Google Drive', icon: '📁', connected: false, color: 'from-blue-500 to-cyan-500' },
   ]);
@@ -144,10 +143,6 @@ function OrganizationSettingsPanel({
   const deleteNameMatches =
     expectedOrgNameForDelete.length > 0 &&
     deleteOrgNameInput.trim() === expectedOrgNameForDelete;
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-  };
 
   const loadOrgFromApi = useCallback(async () => {
     if (!orgId) return;

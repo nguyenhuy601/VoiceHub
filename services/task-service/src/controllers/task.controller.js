@@ -124,10 +124,19 @@ class TaskController {
   // Lấy danh sách tasks
   async getTasks(req, res) {
     try {
+      if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({
+          success: false,
+          message: 'Database unavailable',
+        });
+      }
+
+      const q = req.query || {};
+      const first = (v) => (Array.isArray(v) ? v[0] : v);
       const {
-        assigneeId,
-        organizationId,
-        serverId,
+        assigneeId: assigneeIdRaw,
+        organizationId: organizationIdRaw,
+        serverId: serverIdRaw,
         status,
         priority,
         page,
@@ -152,17 +161,61 @@ class TaskController {
 
       const filter = { isActive: true };
 
+      const parseOid = (raw, label) => {
+        if (raw == null || raw === '') return null;
+        const s = String(raw).trim();
+        if (!mongoose.isValidObjectId(s)) {
+          return { error: `${label} must be a valid id` };
+        }
+        return { value: s };
+      };
+
       if (assigneeId) {
-        filter.assigneeId = assigneeId;
+        const p = parseOid(assigneeId, 'assigneeId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.assigneeId = p.value;
       } else if (userId) {
-        // Nếu không có assigneeId, lấy tasks của user
-        filter.$or = [{ assigneeId: userId }, { createdBy: userId }];
+        const p = parseOid(userId, 'user');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.$or = [{ assigneeId: p.value }, { createdBy: p.value }];
       }
 
-      if (organizationId) filter.organizationId = organizationId;
-      if (serverId) filter.serverId = serverId;
+      if (organizationId) {
+        const p = parseOid(organizationId, 'organizationId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.organizationId = p.value;
+      }
+      if (serverId) {
+        const p = parseOid(serverId, 'serverId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.serverId = p.value;
+      }
       if (status) filter.status = status;
       if (priority) filter.priority = priority;
+
+      const searchQ = first(qRaw);
+      if (searchQ != null && String(searchQ).trim() !== '') {
+        const esc = String(searchQ)
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const textSearch = {
+          $or: [
+            { title: { $regex: esc, $options: 'i' } },
+            { description: { $regex: esc, $options: 'i' } },
+          ],
+        };
+        const existing = { ...filter };
+        Object.keys(filter).forEach((k) => delete filter[k]);
+        filter.$and = [existing, textSearch];
+      }
 
       let sort = { createdAt: -1 };
       if (dueFrom || dueTo) {
@@ -209,6 +262,12 @@ class TaskController {
       });
     } catch (error) {
       logger.error('Get tasks error:', error);
+      if (error.name === 'CastError' || error.name === 'BSONError') {
+        return res.status(400).json({
+          success: false,
+          message: error.message || 'Invalid query parameter',
+        });
+      }
       res.status(500).json({
         success: false,
         message: error.message,

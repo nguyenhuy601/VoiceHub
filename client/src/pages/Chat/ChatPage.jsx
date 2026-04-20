@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 
 import NavigationSidebar from "../../components/Layout/NavigationSidebar";
 import api from "../../services/api";
 import { useTheme } from "../../context/ThemeContext";
+import { appShellBg } from "../../theme/shellTheme";
 import {
   Dropdown,
   GlassCard,
@@ -11,6 +12,7 @@ import {
   Modal,
   StatusIndicator,
 } from "../../components/Shared";
+import { useAppStrings } from "../../locales/appStrings";
 
 const unwrapPayload = (payload) => {
   if (payload == null) return null;
@@ -23,35 +25,45 @@ const unwrapList = (payload) => {
   return Array.isArray(inner) ? inner : [];
 };
 
-const normalizeChannel = (c) => ({
-  ...c,
-  id: c?.id ?? c?._id,
-  name: c?.name ?? "Kênh",
-  icon: c?.icon ?? "📢",
-  members: c?.members ?? c?.memberCount ?? 0,
-});
-
-const normalizeDm = (d) => ({
-  ...d,
-  id: d?.id ?? d?._id,
-  name: d?.name ?? "Người dùng",
-  avatar: d?.avatar ?? "👤",
-  status: d?.status ?? "offline",
-  lastMsg: d?.lastMsg ?? d?.lastMessage ?? "",
-});
-
-const normalizeMessage = (m) => ({
-  ...m,
-  id: m?.id ?? m?._id,
-  content: m?.content ?? m?.text ?? "",
-  user: m?.user ?? {
-    name: m?.senderName ?? "User",
-    avatar: m?.senderAvatar ?? "👤",
-  },
-});
-
 function ChatPage() {
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
+
+  const normalizeChannel = useCallback(
+    (c) => ({
+      ...c,
+      id: c?.id ?? c?._id,
+      name: c?.name ?? t("chat.defaultChannelName"),
+      icon: c?.icon ?? "📢",
+      members: c?.members ?? c?.memberCount ?? 0,
+    }),
+    [t]
+  );
+
+  const normalizeDm = useCallback(
+    (d) => ({
+      ...d,
+      id: d?.id ?? d?._id,
+      name: d?.name ?? t("chat.defaultUserName"),
+      avatar: d?.avatar ?? "👤",
+      status: d?.status ?? "offline",
+      lastMsg: d?.lastMsg ?? d?.lastMessage ?? "",
+    }),
+    [t]
+  );
+
+  const normalizeMessage = useCallback(
+    (m) => ({
+      ...m,
+      id: m?.id ?? m?._id,
+      content: m?.content ?? m?.text ?? "",
+      user: m?.user ?? {
+        name: m?.senderName ?? t("chat.defaultUserName"),
+        avatar: m?.senderAvatar ?? "👤",
+      },
+    }),
+    [t]
+  );
 
   const [selectedChannel, setSelectedChannel] = useState(null);
   const [message, setMessage] = useState("");
@@ -79,13 +91,13 @@ function ChatPage() {
   useEffect(() => {
     fetchChannels();
     fetchDirectMessages();
-  }, []);
+  }, [normalizeChannel, normalizeDm]);
 
   useEffect(() => {
     if (selectedChannel) {
       fetchMessages(selectedChannel);
     }
-  }, [selectedChannel]);
+  }, [selectedChannel, normalizeMessage]);
 
   const fetchChannels = async () => {
     try {
@@ -161,7 +173,7 @@ function ChatPage() {
 
       setMessages(messages.filter((m) => m.id !== msgId && m._id !== msgId));
 
-      toast.success("Đã xóa tin nhắn");
+      toast.success(t("chat.toastDeleted"));
 
     } catch (err) {
       if (import.meta.env.DEV) console.warn("[ChatPage] handleDeleteMessage:", err?.message);
@@ -173,7 +185,7 @@ function ChatPage() {
 
       await api.post(`/messages/${msgId}/reaction`, { emoji });
 
-      toast.success("Đã thêm reaction");
+      toast.success(t("chat.toastReaction"));
 
       setShowEmojiPicker(false);
 
@@ -186,13 +198,13 @@ function ChatPage() {
 
   const chatShell = isDarkMode
     ? "h-screen flex overflow-hidden bg-[#020817] text-slate-100"
-    : "h-screen flex overflow-hidden bg-[#f5f7fa] text-slate-900";
+    : `h-screen flex overflow-hidden ${appShellBg(false)} text-slate-900`;
 
   return (
 <>
 <div className={chatShell}>
 
-<NavigationSidebar currentPage="Tin Nhắn"/>
+<NavigationSidebar currentPage={t("chat.sidebarTitle")}/>
 
 <div className="flex-1 flex">
 
@@ -201,13 +213,13 @@ function ChatPage() {
 <div className="w-72 bg-slate-900/60 border-r border-slate-800 p-4 overflow-y-auto scrollbar-overlay">
 
 <h2 className={`text-xl font-extrabold mb-4 ${isDarkMode ? "text-white" : "text-slate-900"}`}>
-Tin Nhắn
+{t("chat.sidebarTitle")}
 </h2>
 
 {/* CHANNELS */}
 
 <h3 className="text-sm font-bold text-gray-400 mb-3">
-CÁC KÊNH
+{t("chat.channelsHeading")}
 </h3>
 
 <div className="space-y-2">
@@ -233,7 +245,7 @@ className="p-3 rounded-xl cursor-pointer bg-[#040f2a] border border-slate-800 ho
 </div>
 
 <div className="text-xs text-gray-400">
-{channel.members} thành viên
+{channel.members} {t("chat.membersSuffix")}
 </div>
 
 </div>
@@ -246,13 +258,13 @@ className="p-3 rounded-xl cursor-pointer bg-[#040f2a] border border-slate-800 ho
 onClick={() => setShowCreateChannelModal(true)}
 className="w-full mt-3 py-2 bg-[#040f2a] border border-slate-800 rounded-lg text-sm hover:bg-slate-800/70 transition-all"
 >
-+ Tạo kênh
+{t("chat.createChannel")}
 </button>
 
 {/* DIRECT MESSAGES */}
 
 <h3 className="text-sm font-bold text-gray-400 mt-6 mb-3">
-TIN NHẮN RIÊNG
+{t("chat.dmHeading")}
 </h3>
 
 <div className="space-y-2">
@@ -305,7 +317,7 @@ className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/60 cursor-p
 <div className="p-3.5 bg-slate-900/60 border-b border-slate-800">
 
 <h2 className={`text-lg font-bold ${isDarkMode ? "text-white" : "text-slate-900"}`}>
-{currentChat?.name || "Chọn kênh"}
+{currentChat?.name || t("chat.selectChannel")}
 </h2>
 
 </div>
@@ -353,7 +365,7 @@ type="text"
 value={message}
 onChange={(e)=>setMessage(e.target.value)}
 className={`flex-1 px-4 py-2.5 rounded-xl bg-[#040f2a] border border-slate-800 text-sm ${isDarkMode ? "text-white" : "text-slate-900"}`}
-placeholder="Nhập tin nhắn..."
+placeholder={t("chat.placeholderInput")}
 />
 
 <button
@@ -379,7 +391,7 @@ className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 tex
 <Modal
 isOpen={showEmojiPicker}
 onClose={()=>setShowEmojiPicker(false)}
-title="Emoji"
+title={t("chat.modalEmojiTitle")}
 size="sm"
 >
 
@@ -405,13 +417,13 @@ className="text-xl"
 <Modal
 isOpen={showCreateChannelModal}
 onClose={()=>setShowCreateChannelModal(false)}
-title="Tạo Kênh"
+title={t("chat.modalCreateChannelTitle")}
 >
 
 <GradientButton
-onClick={() => toast.success("Tạo kênh thành công")}
+onClick={() => toast.success(t("chat.createChannelOk"))}
 >
-Tạo
+{t("chat.create")}
 </GradientButton>
 
 </Modal>

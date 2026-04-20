@@ -7,10 +7,12 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
+import { useAppStrings } from '../../locales/appStrings';
 
 function VerifyEmailPage() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [verified, setVerified] = useState(false);
@@ -25,11 +27,10 @@ function VerifyEmailPage() {
 
   useEffect(() => {
     if (!token) {
-      toast.error('Xác thực email không thành công: Token xác thực không hợp lệ hoặc đã hết hạn.');
+      toast.error(t('verifyEmail.toastNoToken'));
       navigate('/register', {
         state: {
-          error:
-            'Token xác thực không hợp lệ hoặc đã hết hạn. Vui lòng đăng ký lại hoặc yêu cầu email xác thực mới.',
+          error: t('verifyEmail.registerFlashInvalid'),
         },
       });
       return;
@@ -44,22 +45,22 @@ function VerifyEmailPage() {
 
         if (response.success) {
           setVerified(true);
-          toast.success('Xác thực email thành công! Bạn có thể đăng nhập ngay.');
+          toast.success(t('verifyEmail.toastSuccess'));
           setTimeout(() => {
             navigate('/login', {
-              state: { message: 'Email đã được xác thực thành công. Vui lòng đăng nhập.' },
+              state: { message: t('verifyEmail.loginFlashVerified') },
             });
           }, 2000);
         } else {
-          const errorMessage = response.message || 'Xác thực email không thành công.';
-          toast.error(`Xác thực email không thành công: ${errorMessage}`);
+          const errorMessage = response.message || t('verifyEmail.verifyFailedGeneric');
+          toast.error(`${t('verifyEmail.verifyFailedPrefix')} ${errorMessage}`);
           setTimeout(() => {
             navigate('/register', { state: { error: errorMessage } });
           }, 2000);
         }
       } catch (error) {
-        const errorMessage = error?.message || 'Xác thực email không thành công.';
-        toast.error(`Xác thực email không thành công: ${errorMessage}`);
+        const errorMessage = error?.message || t('verifyEmail.verifyFailedGeneric');
+        toast.error(`${t('verifyEmail.verifyFailedPrefix')} ${errorMessage}`);
         setTimeout(() => {
           navigate('/register', { state: { error: errorMessage } });
         }, 2000);
@@ -69,7 +70,7 @@ function VerifyEmailPage() {
     };
 
     run();
-  }, [token, navigate]);
+  }, [token, navigate, t]);
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
@@ -79,17 +80,13 @@ function VerifyEmailPage() {
             <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${iconWrapSuccess}`}>
               <CheckCircle2 className="h-9 w-9" strokeWidth={1.75} aria-hidden />
             </div>
-            <h1 className={`mt-6 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>
-              Xác thực thành công
-            </h1>
-            <p className={`mt-3 max-w-md text-base leading-relaxed sm:text-lg ${mutedCls}`}>
-              Email của bạn đã được xác thực. Bạn sẽ được chuyển tới trang đăng nhập trong giây lát.
-            </p>
+            <h1 className={`mt-6 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('verifyEmail.titleSuccess')}</h1>
+            <p className={`mt-3 max-w-md text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('verifyEmail.bodySuccess')}</p>
             <Link
               to="/login"
               className={`mt-8 inline-flex items-center justify-center gap-2 rounded-2xl px-8 py-4 text-lg font-bold text-white shadow-lg transition ${btnPrimary}`}
             >
-              Đăng nhập ngay
+              {t('verifyEmail.ctaLogin')}
               <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />
             </Link>
           </div>
@@ -104,11 +101,9 @@ function VerifyEmailPage() {
                 <Sparkles className="h-8 w-8" strokeWidth={1.75} aria-hidden />
               )}
             </div>
-            <h1 className={`mt-6 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>
-              Đang xác thực email
-            </h1>
+            <h1 className={`mt-6 text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('verifyEmail.titlePending')}</h1>
             <p className={`mt-3 max-w-md text-base leading-relaxed sm:text-lg ${mutedCls}`}>
-              {loading ? 'Chúng tôi đang xác nhận liên kết của bạn, vui lòng đợi trong giây lát.' : 'Hoàn tất.'}
+              {loading ? t('verifyEmail.bodyLoading') : t('verifyEmail.bodyDone')}
             </p>
             <div
               className={`mx-auto mt-6 h-1.5 w-44 overflow-hidden rounded-full ${isDarkMode ? 'bg-slate-700' : 'bg-slate-200'}`}

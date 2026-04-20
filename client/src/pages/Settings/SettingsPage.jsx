@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { ConfirmDialog, GlassCard, GradientButton } from '../../components/Shared';
@@ -6,25 +6,44 @@ import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 const isValidMongoObjectId = (s) =>
   typeof s === 'string' && /^[a-fA-F0-9]{24}$/.test(s);
 
+const SECURITY_LABEL_KEYS = {
+  '2fa': 'sec2fa',
+  'strong-password': 'secStrongPwd',
+  'auto-logout': 'secAutoLogout',
+  'block-unknown-ip': 'secBlockIp',
+  'new-device-email': 'secNewDevice',
+};
+
+const NOTIF_LABEL_KEYS = {
+  'new-message': 'notifNewMsg',
+  mention: 'notifMention',
+  'new-task': 'notifNewTask',
+  deadline: 'notifDeadline',
+  email: 'notifEmail',
+  'mobile-push': 'notifPush',
+};
+
 function SettingsPage() {
+  const { t, locale } = useAppStrings();
   const { user, updateUser } = useAuth();
-  const { isDarkMode, toggleTheme } = useTheme();
+  const { isDarkMode, toggleTheme, fontScale, setFontScale } = useTheme();
   const [activeTab, setActiveTab] = useState('general');
   const [apiKeyDeleteConfirm, setApiKeyDeleteConfirm] = useState(null);
   const [roleDeleteConfirm, setRoleDeleteConfirm] = useState(null);
   const [userRole, setUserRole] = useState('admin'); // 'admin', 'manager', 'user'
   const [organizationForm, setOrganizationForm] = useState({
     name: 'VoiceHub Tech',
-    description: 'Công ty công nghệ hàng đầu chuyên về giải pháp truyền thông',
+    description: 'Leading technology company focused on communication solutions.',
     website: 'https://voicehub.com',
     contactEmail: 'contact@voicehub.com',
   });
   const [userProfileForm, setUserProfileForm] = useState({
-    fullName: 'Nguyễn Văn Danh',
+    fullName: 'John Doe',
     phone: '+84 123 456 789',
   });
   const [apiKeys, setApiKeys] = useState([
@@ -38,30 +57,30 @@ function SettingsPage() {
     { id: 'jira', name: 'Jira', icon: '📊', connected: false, color: 'from-orange-500 to-yellow-500' },
   ]);
   const [securitySettings, setSecuritySettings] = useState([
-    { id: '2fa', label: 'Bắt buộc 2FA cho tất cả thành viên', checked: true },
-    { id: 'strong-password', label: 'Yêu cầu mật khẩu mạnh (8+ ký tự, chữ hoa, số, ký tự đặc biệt)', checked: true },
-    { id: 'auto-logout', label: 'Tự động đăng xuất sau 30 phút không hoạt động', checked: false },
-    { id: 'block-unknown-ip', label: 'Chặn đăng nhập từ IP lạ', checked: false },
-    { id: 'new-device-email', label: 'Gửi email thông báo khi đăng nhập thiết bị mới', checked: true },
+    { id: '2fa', checked: true },
+    { id: 'strong-password', checked: true },
+    { id: 'auto-logout', checked: false },
+    { id: 'block-unknown-ip', checked: false },
+    { id: 'new-device-email', checked: true },
   ]);
   const [notificationSettings, setNotificationSettings] = useState([
-    { id: 'new-message', label: 'Thông báo tin nhắn mới', checked: true },
-    { id: 'mention', label: 'Thông báo khi được mention', checked: true },
-    { id: 'new-task', label: 'Thông báo công việc mới', checked: true },
-    { id: 'deadline', label: 'Thông báo deadline sắp đến', checked: true },
-    { id: 'email', label: 'Thông báo qua email', checked: false },
-    { id: 'mobile-push', label: 'Thông báo push trên mobile', checked: true },
+    { id: 'new-message', checked: true },
+    { id: 'mention', checked: true },
+    { id: 'new-task', checked: true },
+    { id: 'deadline', checked: true },
+    { id: 'email', checked: false },
+    { id: 'mobile-push', checked: true },
   ]);
   const [privacySettings, setPrivacySettings] = useState({
-    onlineStatus: 'Mọi người',
-    directMessagePermission: 'Mọi người',
+    onlineStatus: 'everyone',
+    directMessagePermission: 'everyone',
   });
   const [avatarUrl, setAvatarUrl] = useState('');
   const [roles, setRoles] = useState([
-    { id: 'r1', name: 'Quản Trị Viên', members: 3, permissions: 'Toàn quyền', color: 'from-red-500 to-orange-500', icon: '👑' },
-    { id: 'r2', name: 'Trưởng Phòng', members: 4, permissions: 'Quản lý phòng ban', color: 'from-cyan-600 to-teal-600', icon: '👔' },
-    { id: 'r3', name: 'Trưởng Nhóm', members: 8, permissions: 'Quản lý nhóm', color: 'from-blue-500 to-cyan-500', icon: '👨‍💼' },
-    { id: 'r4', name: 'Nhân Viên', members: 30, permissions: 'Cơ bản', color: 'from-green-500 to-emerald-500', icon: '👷' }
+    { id: 'r1', name: 'Administrator', members: 3, permissions: 'Full access', color: 'from-red-500 to-orange-500', icon: '👑' },
+    { id: 'r2', name: 'Department lead', members: 4, permissions: 'Manage department', color: 'from-cyan-600 to-teal-600', icon: '👔' },
+    { id: 'r3', name: 'Team lead', members: 8, permissions: 'Manage team', color: 'from-blue-500 to-cyan-500', icon: '👨‍💼' },
+    { id: 'r4', name: 'Member', members: 30, permissions: 'Basic', color: 'from-green-500 to-emerald-500', icon: '👷' },
   ]);
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [editingRoleId, setEditingRoleId] = useState(null);
@@ -95,9 +114,44 @@ function SettingsPage() {
     if (userProfileData) setUserProfileForm(JSON.parse(userProfileData));
     if (apiKeyData) setApiKeys(JSON.parse(apiKeyData));
     if (integrationData) setIntegrations(JSON.parse(integrationData));
-    if (securityData) setSecuritySettings(JSON.parse(securityData));
-    if (notificationData) setNotificationSettings(JSON.parse(notificationData));
-    if (privacyData) setPrivacySettings(JSON.parse(privacyData));
+    if (securityData) {
+      try {
+        const parsed = JSON.parse(securityData);
+        if (Array.isArray(parsed)) {
+          setSecuritySettings(parsed.map((x) => ({ id: x.id, checked: Boolean(x.checked) })));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (notificationData) {
+      try {
+        const parsed = JSON.parse(notificationData);
+        if (Array.isArray(parsed)) {
+          setNotificationSettings(parsed.map((x) => ({ id: x.id, checked: Boolean(x.checked) })));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (privacyData) {
+      try {
+        const p = JSON.parse(privacyData);
+        const mapPrivacy = (v, keys) => {
+          if (keys.includes(v)) return v;
+          if (v === 'Mọi người' || v === 'everyone') return 'everyone';
+          if (v === 'Chỉ đồng nghiệp' || v === 'colleagues') return 'colleagues';
+          if (v === 'Không ai' || v === 'nobody') return 'nobody';
+          return 'everyone';
+        };
+        setPrivacySettings({
+          onlineStatus: mapPrivacy(p.onlineStatus, ['everyone', 'colleagues', 'nobody']),
+          directMessagePermission: mapPrivacy(p.directMessagePermission, ['everyone', 'colleagues']),
+        });
+      } catch {
+        /* ignore */
+      }
+    }
     if (avatarData) setAvatarUrl(avatarData);
   }, []);
 
@@ -129,10 +183,10 @@ function SettingsPage() {
   useEffect(() => {
     if (!user) return;
     setUserProfileForm({
-      fullName: user?.displayName || user?.fullName || user?.name || 'Người dùng',
+      fullName: user?.displayName || user?.fullName || user?.name || t('settingsPage.userFallback'),
       phone: user?.phone || '',
     });
-  }, [user]);
+  }, [user, t]);
 
   useEffect(() => {
     localStorage.setItem('settings:apiKeys', JSON.stringify(apiKeys));
@@ -166,21 +220,21 @@ function SettingsPage() {
 
   const handleSaveOrganization = () => {
     localStorage.setItem('settings:organization', JSON.stringify(organizationForm));
-    toast.success('Đã lưu thông tin tổ chức');
+    toast.success(t('settingsPage.toastSaveOrg'));
   };
 
   const handleSaveUserProfile = () => {
     updateUser({ displayName: userProfileForm.fullName, phone: userProfileForm.phone });
     localStorage.setItem('settings:userProfile', JSON.stringify(userProfileForm));
-    toast.success('Đã cập nhật hồ sơ cá nhân');
+    toast.success(t('settingsPage.toastSaveProfile'));
   };
 
   const handleCopyApiKey = async (keyValue) => {
     try {
       await navigator.clipboard.writeText(keyValue);
-      toast.success('Đã sao chép API key');
+      toast.success(t('settingsPage.toastCopyKey'));
     } catch (error) {
-      toast.error('Không thể sao chép API key');
+      toast.error(t('settingsPage.toastCopyFail'));
     }
   };
 
@@ -191,7 +245,7 @@ function SettingsPage() {
   const confirmDeleteApiKey = () => {
     if (!apiKeyDeleteConfirm) return;
     setApiKeys((prev) => prev.filter((item) => item.id !== apiKeyDeleteConfirm));
-    toast.success('Đã xóa API key');
+    toast.success(t('settingsPage.toastDeleteKey'));
   };
 
   const handleCreateApiKey = () => {
@@ -200,14 +254,14 @@ function SettingsPage() {
     setApiKeys((prev) => [
       {
         id,
-        name: `Generated API Key ${prev.length + 1}`,
-        created: new Date().toLocaleDateString('vi-VN'),
-        lastUsed: 'Chưa sử dụng',
+        name: t('settingsPage.apiKeyGeneratedName', { n: prev.length + 1 }),
+        created: new Date().toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN'),
+        lastUsed: t('settingsPage.apiKeyNeverUsed'),
         value: keyValue,
       },
       ...prev,
     ]);
-    toast.success('Đã tạo API key mới');
+    toast.success(t('settingsPage.toastCreateKey'));
   };
 
   const handleToggleIntegration = (integrationId) => {
@@ -236,7 +290,7 @@ function SettingsPage() {
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       setAvatarUrl(result);
-      toast.success('Đã cập nhật avatar');
+      toast.success(t('settingsPage.toastAvatar'));
     };
     reader.readAsDataURL(file);
     event.target.value = '';
@@ -258,7 +312,7 @@ function SettingsPage() {
     link.download = `voicehub-audit-${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success('Đã xuất audit log');
+    toast.success(t('settingsPage.toastExportAudit'));
   };
 
   const handleExportInvoice = () => {
@@ -277,30 +331,34 @@ function SettingsPage() {
     link.download = `voicehub-invoice-${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success('Đã xuất hóa đơn');
+    toast.success(t('settingsPage.toastExportInvoice'));
   };
 
   const handleContactBilling = () => {
     window.location.href = 'mailto:billing@voicehub.com?subject=Yeu%20cau%20ho%20tro%20thanh%20toan';
   };
 
-  // Tabs dành cho Admin
-  const adminTabs = [
-    { id: 'general', label: 'Tổng Quan', icon: '⚙️' },
-    { id: 'roles', label: 'Vai Trò & Quyền', icon: '🔐' },
-    { id: 'security', label: 'Bảo Mật', icon: '🛡️' },
-    { id: 'integrations', label: 'Tích Hợp', icon: '🔗' },
-    { id: 'billing', label: 'Thanh Toán', icon: '💳' },
-    { id: 'audit', label: 'Nhật Ký', icon: '📜' }
-  ];
+  const adminTabs = useMemo(
+    () => [
+      { id: 'general', label: t('settingsPage.tabGeneral'), icon: '⚙️' },
+      { id: 'roles', label: t('settingsPage.tabRoles'), icon: '🔐' },
+      { id: 'security', label: t('settingsPage.tabSecurity'), icon: '🛡️' },
+      { id: 'integrations', label: t('settingsPage.tabIntegrations'), icon: '🔗' },
+      { id: 'billing', label: t('settingsPage.tabBilling'), icon: '💳' },
+      { id: 'audit', label: t('settingsPage.tabAudit'), icon: '📜' },
+    ],
+    [t]
+  );
 
-  // Tabs dành cho User (Nhân viên/Quản lý)
-  const userTabs = [
-    { id: 'profile', label: 'Hồ Sơ Cá Nhân', icon: '👤' },
-    { id: 'notifications', label: 'Thông Báo', icon: '🔔' },
-    { id: 'privacy', label: 'Quyền Riêng Tư', icon: '🔒' },
-    { id: 'appearance', label: 'Giao Diện', icon: '🎨' }
-  ];
+  const userTabs = useMemo(
+    () => [
+      { id: 'profile', label: t('settingsPage.tabProfile'), icon: '👤' },
+      { id: 'notifications', label: t('settingsPage.tabNotifications'), icon: '🔔' },
+      { id: 'privacy', label: t('settingsPage.tabPrivacy'), icon: '🔒' },
+      { id: 'appearance', label: t('settingsPage.tabAppearance'), icon: '🎨' },
+    ],
+    [t]
+  );
 
   const currentTabs = userRole === 'admin' ? adminTabs : userTabs;
 
@@ -330,7 +388,7 @@ function SettingsPage() {
 
   const handleSaveRole = async () => {
     if (!roleDraft.name.trim() || !roleDraft.permissions.trim()) {
-      toast.error('Vui lòng nhập đầy đủ tên vai trò và quyền');
+      toast.error(t('settingsPage.toastRoleFill'));
       return;
     }
 
@@ -349,10 +407,10 @@ function SettingsPage() {
             ? { ...role, ...roleDraft, members: Number(roleDraft.members) || 0 }
             : role
         )));
-        toast.success('Đã cập nhật vai trò');
+        toast.success(t('settingsPage.toastRoleUpdated'));
       } else {
         if (!roleContextOrganizationId) {
-          toast.error('Chưa có tổ chức hợp lệ để tạo vai trò. Hãy tham gia hoặc tạo tổ chức trước.');
+          toast.error(t('settingsPage.toastRoleNoOrg'));
           return;
         }
         const response = await roleAPI.createRole({
@@ -376,12 +434,12 @@ function SettingsPage() {
             icon: roleDraft.icon
           }
         ]);
-        toast.success('Đã tạo vai trò mới');
+        toast.success(t('settingsPage.toastRoleCreated'));
       }
       setRoleEditorOpen(false);
     } catch (error) {
       console.error('Error saving role:', error);
-      toast.error(error?.message || 'Lỗi khi lưu vai trò');
+      toast.error(error?.message || t('settingsPage.toastRoleErr'));
     } finally {
       setRoleLoading(false);
     }
@@ -398,16 +456,18 @@ function SettingsPage() {
       setRoleLoading(true);
       await roleAPI.deleteRole(roleId);
       setRoles((prev) => prev.filter((role) => role.id !== roleId));
-      toast.success('Đã xóa vai trò');
+      toast.success(t('settingsPage.toastRoleDeleted'));
     } catch (error) {
       console.error('Error deleting role:', error);
-      toast.error(error?.message || 'Lỗi khi xóa vai trò');
+      toast.error(error?.message || t('settingsPage.toastRoleDeleteErr'));
     } finally {
       setRoleLoading(false);
     }
   };
 
-  const settingsShell = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
+  const settingsShell = isDarkMode
+    ? 'bg-[#050810] text-slate-100'
+    : 'bg-gradient-to-b from-sky-100 via-cyan-50/70 to-slate-200 text-slate-900';
   const gc = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-white shadow-sm';
   /** Chuỗi class dùng chung — chế độ sáng: chữ slate, nền trắng/slate-50, viền nhạt */
   const st = {
@@ -457,6 +517,17 @@ function SettingsPage() {
       : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50',
   };
 
+  const auditEntries = useMemo(
+    () => [
+      { user: 'Admin', action: t('settingsPage.auditLog1'), time: t('settingsPage.timeMinAgo', { n: 5 }), type: 'create' },
+      { user: 'Sarah Chen', action: t('settingsPage.auditLog2'), time: t('settingsPage.timeHourAgo', { n: 1 }), type: 'update' },
+      { user: 'Mike Ross', action: t('settingsPage.auditLog3'), time: t('settingsPage.timeHourAgo', { n: 3 }), type: 'invite' },
+      { user: 'Admin', action: t('settingsPage.auditLog4'), time: t('settingsPage.timeDayAgo', { n: 1 }), type: 'security' },
+      { user: 'Emma Wilson', action: t('settingsPage.auditLog5'), time: t('settingsPage.timeDayAgo', { n: 2 }), type: 'delete' },
+    ],
+    [t]
+  );
+
   return (
     <>
       <ThreeFrameLayout
@@ -466,8 +537,8 @@ function SettingsPage() {
         <div className={`mb-6 rounded-xl border p-4 ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white shadow-sm'}`}>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className={`mb-1 text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Chế độ cài đặt</h2>
-              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Demo: Chọn vai trò để xem cài đặt tương ứng</p>
+              <h2 className={`mb-1 text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('settingsPage.demoModeTitle')}</h2>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('settingsPage.demoModeSubtitle')}</p>
             </div>
             <div className="flex gap-2">
               <button 
@@ -478,7 +549,7 @@ function SettingsPage() {
                     : st.roleTabInactive
                 }`}
               >
-                👑 Quản Trị Viên
+                {t('settingsPage.roleAdmin')}
               </button>
               <button 
                 onClick={() => setUserRole('manager')}
@@ -488,7 +559,7 @@ function SettingsPage() {
                     : st.roleTabInactive
                 }`}
               >
-                👔 Trưởng Phòng
+                {t('settingsPage.roleManager')}
               </button>
               <button 
                 onClick={() => setUserRole('user')}
@@ -498,19 +569,17 @@ function SettingsPage() {
                     : st.roleTabInactive
                 }`}
               >
-                👷 Nhân Viên
+                {t('settingsPage.roleUser')}
               </button>
             </div>
           </div>
         </div>
 
         <h1 className={`mb-1 text-3xl font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-          {userRole === 'admin' ? 'Cài Đặt Tổ Chức' : 'Cài Đặt Cá Nhân'}
+          {userRole === 'admin' ? t('settingsPage.pageTitleOrg') : t('settingsPage.pageTitleUser')}
         </h1>
         <p className={`mb-8 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-          {userRole === 'admin' 
-            ? 'Quản lý cấu hình và chính sách toàn tổ chức' 
-            : 'Tùy chỉnh trải nghiệm cá nhân của bạn'}
+          {userRole === 'admin' ? t('settingsPage.pageSubtitleOrg') : t('settingsPage.pageSubtitleUser')}
         </p>
 
         {/* Tabs */}
@@ -538,10 +607,10 @@ function SettingsPage() {
         {activeTab === 'general' && (
           <div className="max-w-3xl space-y-6">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Thông Tin Tổ Chức</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.orgInfoTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Tên Tổ Chức</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.orgName')}</label>
                   <input
                     type="text"
                     value={organizationForm.name}
@@ -550,7 +619,7 @@ function SettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Mô Tả</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.orgDesc')}</label>
                   <textarea
                     className={st.input}
                     rows="3"
@@ -560,7 +629,7 @@ function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Website</label>
+                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.website')}</label>
                     <input
                       type="url"
                       value={organizationForm.website}
@@ -569,7 +638,7 @@ function SettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Email Liên Hệ</label>
+                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.contactEmail')}</label>
                     <input
                       type="email"
                       value={organizationForm.contactEmail}
@@ -582,17 +651,17 @@ function SettingsPage() {
                   variant="primary"
                   onClick={handleSaveOrganization}
                 >
-                  💾 Lưu Thay Đổi
+                  {t('settingsPage.saveChanges')}
                 </GradientButton>
               </div>
             </GlassCard>
 
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Quota & Giới Hạn</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.quotaTitle')}</h3>
               <div className="space-y-4">
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className={`text-sm ${st.muted}`}>Số lượng thành viên</span>
+                    <span className={`text-sm ${st.muted}`}>{t('settingsPage.quotaMembersLabel')}</span>
                     <span className={`text-sm font-bold ${st.heading}`}>45 / 100</span>
                   </div>
                   <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
@@ -601,7 +670,7 @@ function SettingsPage() {
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className={`text-sm ${st.muted}`}>Dung lượng lưu trữ</span>
+                    <span className={`text-sm ${st.muted}`}>{t('settingsPage.quotaStorageLabel')}</span>
                     <span className={`text-sm font-bold ${st.heading}`}>45.8 GB / 100 GB</span>
                   </div>
                   <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
@@ -618,31 +687,31 @@ function SettingsPage() {
           <div className="max-w-4xl">
             <GlassCard className={`mb-6 ${gc}`}>
               <div className="flex items-center justify-between mb-6">
-                <h3 className={`text-xl font-bold ${st.heading}`}>Quản Lý Vai Trò (RBAC)</h3>
+                <h3 className={`text-xl font-bold ${st.heading}`}>{t('settingsPage.rbacTitle')}</h3>
                 <GradientButton 
                   variant="primary"
                   onClick={openCreateRoleEditor}
                   disabled={roleLoading}
                 >
-                  ➕ Tạo Vai Trò Mới
+                  {t('settingsPage.createRole')}
                 </GradientButton>
               </div>
               {roleEditorOpen && (
                 <div className={`mb-4 p-4 ${st.panelLoose}`}>
                   <div className={`mb-3 text-sm font-semibold ${st.label}`}>
-                    {editingRoleId ? 'Chỉnh sửa vai trò' : 'Tạo vai trò mới'}
+                    {editingRoleId ? t('settingsPage.editRolePanel') : t('settingsPage.createRolePanel')}
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <input
                       value={roleDraft.name}
                       onChange={(event) => setRoleDraft((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="Tên vai trò"
+                      placeholder={t('settingsPage.roleNamePh')}
                       className={st.inputSm}
                     />
                     <input
                       value={roleDraft.permissions}
                       onChange={(event) => setRoleDraft((prev) => ({ ...prev, permissions: event.target.value }))}
-                      placeholder="Mô tả quyền"
+                      placeholder={t('settingsPage.rolePermPh')}
                       className={st.inputSm}
                     />
                     <input
@@ -650,19 +719,19 @@ function SettingsPage() {
                       min="0"
                       value={roleDraft.members}
                       onChange={(event) => setRoleDraft((prev) => ({ ...prev, members: event.target.value }))}
-                      placeholder="Số thành viên"
+                      placeholder={t('settingsPage.roleMembersPh')}
                       className={st.inputSm}
                     />
                     <input
                       value={roleDraft.icon}
                       onChange={(event) => setRoleDraft((prev) => ({ ...prev, icon: event.target.value || '🧩' }))}
-                      placeholder="Icon (emoji)"
+                      placeholder={t('settingsPage.roleIconPh')}
                       className={st.inputSm}
                     />
                   </div>
                   <div className="mt-3 flex justify-end gap-2">
                     <button type="button" onClick={() => setRoleEditorOpen(false)} className={st.ghostBtn}>
-                      Hủy
+                      {t('settingsPage.cancel')}
                     </button>
                     <button
                       type="button"
@@ -670,7 +739,7 @@ function SettingsPage() {
                       disabled={roleLoading}
                       className="rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {roleLoading ? '⏳ Đang lưu...' : 'Lưu vai trò'}
+                      {roleLoading ? t('settingsPage.savingRole') : t('settingsPage.saveRole')}
                     </button>
                   </div>
                 </div>
@@ -685,7 +754,7 @@ function SettingsPage() {
                       <div>
                         <div className={`font-bold ${st.heading}`}>{role.name}</div>
                         <div className={`text-sm ${st.muted}`}>
-                          {role.members} thành viên • {role.permissions}
+                          {t('settingsPage.roleMeta', { n: role.members, perm: role.permissions })}
                         </div>
                       </div>
                     </div>
@@ -699,7 +768,7 @@ function SettingsPage() {
                             : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
                         }`}
                       >
-                        Sửa
+                        {t('common.edit')}
                       </button>
                       <button
                         onClick={() => requestDeleteRole(role.id)}
@@ -710,7 +779,7 @@ function SettingsPage() {
                             : 'border-slate-200 bg-white text-red-600 shadow-sm hover:bg-slate-50'
                         }`}
                       >
-                        Xóa
+                        {t('common.delete')}
                       </button>
                     </div>
                   </div>
@@ -724,13 +793,15 @@ function SettingsPage() {
         {activeTab === 'security' && (
           <div className="max-w-3xl space-y-6">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Chính Sách Bảo Mật</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.securityPolicyTitle')}</h3>
               <div className="space-y-4">
                 {[
                   ...securitySettings
                 ].map((setting) => (
                   <label key={setting.id} className={st.settingRow}>
-                    <span className={st.onSurface}>{setting.label}</span>
+                    <span className={st.onSurface}>
+                      {t(`settingsPage.${SECURITY_LABEL_KEYS[setting.id]}`)}
+                    </span>
                     <input
                       type="checkbox"
                       checked={setting.checked}
@@ -743,14 +814,16 @@ function SettingsPage() {
             </GlassCard>
 
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>API Keys</h3>
-              <p className={`mb-4 ${st.muted}`}>Quản lý API keys cho tích hợp bên ngoài</p>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.apiKeysTitle')}</h3>
+              <p className={`mb-4 ${st.muted}`}>{t('settingsPage.apiKeysDesc')}</p>
               <div className="space-y-3 mb-4">
                 {apiKeys.map((key) => (
                   <div key={key.id} className={st.listRow}>
                     <div>
                       <div className={`font-bold ${st.heading}`}>{key.name}</div>
-                      <div className={`text-sm ${st.muted}`}>Tạo: {key.created} • Sử dụng: {key.lastUsed}</div>
+                      <div className={`text-sm ${st.muted}`}>
+                        {t('settingsPage.apiCreated')}: {key.created} • {t('settingsPage.apiLastUsed')}: {key.lastUsed}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -761,7 +834,7 @@ function SettingsPage() {
                             : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
                         }`}
                       >
-                        Copy
+                        {t('settingsPage.copy')}
                       </button>
                       <button
                         onClick={() => requestDeleteApiKey(key.id)}
@@ -771,13 +844,13 @@ function SettingsPage() {
                             : 'border-slate-200 bg-white text-red-600 shadow-sm hover:bg-slate-50'
                         }`}
                       >
-                        Xóa
+                        {t('settingsPage.delete')}
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-              <GradientButton variant="secondary" onClick={handleCreateApiKey}>🔑 Tạo API Key Mới</GradientButton>
+              <GradientButton variant="secondary" onClick={handleCreateApiKey}>{t('settingsPage.createApiKey')}</GradientButton>
             </GlassCard>
           </div>
         )}
@@ -786,7 +859,7 @@ function SettingsPage() {
         {activeTab === 'integrations' && (
           <div className="max-w-4xl">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-6 ${st.heading}`}>Tích Hợp Bên Ngoài</h3>
+              <h3 className={`text-xl font-bold mb-6 ${st.heading}`}>{t('settingsPage.integrationsTitle')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 {integrations.map((integration) => (
                   <GlassCard key={integration.id} hover className={st.integrationCard}>
@@ -794,12 +867,16 @@ function SettingsPage() {
                       {integration.icon}
                     </div>
                     <h4 className={`mb-1 font-bold ${st.heading}`}>{integration.name}</h4>
-                    <p className={`mb-3 text-sm ${st.muted}`}>{integration.connected ? 'Đã kết nối' : 'Chưa kết nối'}</p>
+                    <p className={`mb-3 text-sm ${st.muted}`}>
+                      {integration.connected ? t('settingsPage.integConnected') : t('settingsPage.integDisconnected')}
+                    </p>
                     <button
                       onClick={() => {
                         handleToggleIntegration(integration.id);
                         toast.success(
-                          integration.connected ? `Đã ngắt ${integration.name}` : `Đã kết nối ${integration.name}`
+                          integration.connected
+                            ? t('settingsPage.integToastOff', { name: integration.name })
+                            : t('settingsPage.integToastOn', { name: integration.name })
                         );
                       }}
                       className={`w-full rounded-lg py-2 text-sm font-semibold transition-all ${
@@ -810,7 +887,7 @@ function SettingsPage() {
                           : 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white hover:from-cyan-700 hover:to-teal-700'
                       }`}
                     >
-                      {integration.connected ? 'Ngắt Kết Nối' : 'Kết Nối'}
+                      {integration.connected ? t('settingsPage.integDisconnect') : t('settingsPage.integConnect')}
                     </button>
                   </GlassCard>
                 ))}
@@ -823,22 +900,22 @@ function SettingsPage() {
         {activeTab === 'billing' && (
           <div className="max-w-3xl space-y-6">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Gói Hiện Tại</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.billingCurrentPlan')}</h3>
               <div className={`p-4 ${st.panel}`}>
                 <div className="mb-2 flex items-center justify-between">
-                  <div className={`text-lg font-bold ${st.heading}`}>Enterprise</div>
+                  <div className={`text-lg font-bold ${st.heading}`}>{t('settingsPage.planEnterprise')}</div>
                   <span className="rounded-full bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-1 text-xs font-bold text-white">
-                    Đang hoạt động
+                    {t('settingsPage.planActive')}
                   </span>
                 </div>
-                <div className={`text-sm ${st.muted}`}>12,500,000 VND / tháng • Thanh toán theo năm</div>
+                <div className={`text-sm ${st.muted}`}>{t('settingsPage.billingPriceLine')}</div>
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div className={st.nestedBox}>
-                    <div className={st.muted}>Thành viên</div>
+                    <div className={st.muted}>{t('settingsPage.billingMembers')}</div>
                     <div className={`font-bold ${st.heading}`}>45 / 100</div>
                   </div>
                   <div className={st.nestedBox}>
-                    <div className={st.muted}>Lưu trữ</div>
+                    <div className={st.muted}>{t('settingsPage.billingStorage')}</div>
                     <div className={`font-bold ${st.heading}`}>45.8 GB / 100 GB</div>
                   </div>
                 </div>
@@ -846,14 +923,14 @@ function SettingsPage() {
             </GlassCard>
 
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Thanh Toán & Hóa Đơn</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.billingInvoiceTitle')}</h3>
               <div className="flex flex-wrap gap-3">
-                <GradientButton variant="primary" onClick={handleExportInvoice}>📥 Xuất Hóa Đơn</GradientButton>
+                <GradientButton variant="primary" onClick={handleExportInvoice}>{t('settingsPage.exportInvoice')}</GradientButton>
                 <button
                   onClick={handleContactBilling}
                   className={st.outlineBtn}
                 >
-                  ✉️ Liên Hệ Billing
+                  {t('settingsPage.contactBilling')}
                 </button>
               </div>
             </GlassCard>
@@ -865,22 +942,16 @@ function SettingsPage() {
           <div className="max-w-4xl">
             <GlassCard className={gc}>
               <div className="flex items-center justify-between mb-6">
-                <h3 className={`text-xl font-bold ${st.heading}`}>Nhật Ký Hoạt Động (Audit Log)</h3>
+                <h3 className={`text-xl font-bold ${st.heading}`}>{t('settingsPage.auditTitle')}</h3>
                 <button
                   onClick={handleExportAuditLog}
                   className={st.outlineBtn}
                 >
-                  📥 Xuất Log
+                  {t('settingsPage.exportLog')}
                 </button>
               </div>
               <div className="space-y-2">
-                {[
-                  { user: 'Admin', action: 'Tạo vai trò "Trưởng Nhóm Mới"', time: '5 phút trước', type: 'create' },
-                  { user: 'Sarah Chen', action: 'Cập nhật thông tin tổ chức', time: '1 giờ trước', type: 'update' },
-                  { user: 'Mike Ross', action: 'Mời thành viên mới: anna@voicehub.com', time: '3 giờ trước', type: 'invite' },
-                  { user: 'Admin', action: 'Bật 2FA bắt buộc', time: '1 ngày trước', type: 'security' },
-                  { user: 'Emma Wilson', action: 'Xóa API key "Test Key"', time: '2 ngày trước', type: 'delete' }
-                ].map((log, idx) => (
+                {auditEntries.map((log, idx) => (
                   <div key={idx} className={`${st.listRow} gap-4`}>
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl ${
                       log.type === 'create' ? 'bg-green-500/20' :
@@ -916,7 +987,7 @@ function SettingsPage() {
         {activeTab === 'profile' && (
           <div className="max-w-3xl space-y-6">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Thông Tin Cá Nhân</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.profileTitle')}</h3>
               <div className="flex items-center gap-6 mb-6">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-600 to-teal-600 flex items-center justify-center text-5xl overflow-hidden">
                   {avatarUrl ? (
@@ -927,12 +998,12 @@ function SettingsPage() {
                 </div>
                 <label className="inline-flex">
                   <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-                  <span className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 font-semibold text-white cursor-pointer hover:from-cyan-700 hover:to-teal-700 transition-all">📷 Thay Đổi Avatar</span>
+                  <span className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 font-semibold text-white cursor-pointer hover:from-cyan-700 hover:to-teal-700 transition-all">{t('settingsPage.changeAvatar')}</span>
                 </label>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Họ và Tên</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.fullName')}</label>
                   <input
                     type="text"
                     value={userProfileForm.fullName}
@@ -942,11 +1013,11 @@ function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Email</label>
+                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.email')}</label>
                     <input type="email" value={user?.email || ''} className={st.input} disabled />
                   </div>
                   <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Số điện thoại</label>
+                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.phone')}</label>
                     <input
                       type="tel"
                       value={userProfileForm.phone}
@@ -956,10 +1027,10 @@ function SettingsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Chức vụ</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.jobTitle')}</label>
                   <input
                     type="text"
-                    defaultValue={userRole === 'manager' ? 'Trưởng Phòng' : 'Nhân Viên'}
+                    defaultValue={userRole === 'manager' ? t('settingsPage.jobManager') : t('settingsPage.jobStaff')}
                     className={st.inputDisabled}
                     disabled
                   />
@@ -968,7 +1039,7 @@ function SettingsPage() {
                   variant="primary"
                   onClick={handleSaveUserProfile}
                 >
-                  💾 Lưu Thay Đổi
+                  {t('settingsPage.saveChanges')}
                 </GradientButton>
               </div>
             </GlassCard>
@@ -979,11 +1050,11 @@ function SettingsPage() {
         {activeTab === 'notifications' && (
           <div className="max-w-3xl">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Cài Đặt Thông Báo</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.notifSettingsTitle')}</h3>
               <div className="space-y-4">
                 {notificationSettings.map((setting) => (
                   <label key={setting.id} className={st.settingRow}>
-                    <span className={st.onSurface}>{setting.label}</span>
+                    <span className={st.onSurface}>{t(`settingsPage.${NOTIF_LABEL_KEYS[setting.id]}`)}</span>
                     <input
                       type="checkbox"
                       checked={setting.checked}
@@ -1001,29 +1072,39 @@ function SettingsPage() {
         {activeTab === 'privacy' && (
           <div className="max-w-3xl space-y-6">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Quyền Riêng Tư</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.privacyTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Hiển thị trạng thái online</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.onlineStatusLabel')}</label>
                   <select
                     className={st.select}
                     value={privacySettings.onlineStatus}
                     onChange={(event) => setPrivacySettings((prev) => ({ ...prev, onlineStatus: event.target.value }))}
                   >
-                    <option className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>Mọi người</option>
-                    <option className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>Chỉ đồng nghiệp</option>
-                    <option className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>Không ai</option>
+                    <option value="everyone" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
+                      {t('settingsPage.privacyEveryone')}
+                    </option>
+                    <option value="colleagues" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
+                      {t('settingsPage.privacyColleagues')}
+                    </option>
+                    <option value="nobody" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
+                      {t('settingsPage.privacyNobody')}
+                    </option>
                   </select>
                 </div>
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Ai có thể nhắn tin cho tôi</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.dmPermissionLabel')}</label>
                   <select
                     className={st.select}
                     value={privacySettings.directMessagePermission}
                     onChange={(event) => setPrivacySettings((prev) => ({ ...prev, directMessagePermission: event.target.value }))}
                   >
-                    <option className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>Mọi người</option>
-                    <option className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>Chỉ đồng nghiệp</option>
+                    <option value="everyone" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
+                      {t('settingsPage.privacyEveryone')}
+                    </option>
+                    <option value="colleagues" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
+                      {t('settingsPage.privacyColleagues')}
+                    </option>
                   </select>
                 </div>
               </div>
@@ -1035,14 +1116,14 @@ function SettingsPage() {
         {activeTab === 'appearance' && (
           <div className="max-w-3xl">
             <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>Giao Diện</h3>
+              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.appearanceTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>Chủ đề</label>
+                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.themeLabel')}</label>
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      { id: 'dark', name: 'Tối', icon: '🌙' },
-                      { id: 'light', name: 'Sáng', icon: '☀️' },
+                      { id: 'dark', name: t('settingsPage.themeDark'), icon: '🌙' },
+                      { id: 'light', name: t('settingsPage.themeLight'), icon: '☀️' },
                     ].map((theme) => {
                       const selected = theme.id === 'dark' ? isDarkMode : !isDarkMode;
                       return (
@@ -1053,14 +1134,14 @@ function SettingsPage() {
                           onClick={() => {
                             if (theme.id === 'dark' && !isDarkMode) toggleTheme();
                             if (theme.id === 'light' && isDarkMode) toggleTheme();
-                            toast.success(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`);
+                            toast.success(t('settingsPage.toastTheme', { name: theme.name }));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
                               if (theme.id === 'dark' && !isDarkMode) toggleTheme();
                               if (theme.id === 'light' && isDarkMode) toggleTheme();
-                              toast.success(`Đã chuyển sang giao diện ${theme.name.toLowerCase()}`);
+                              toast.success(t('settingsPage.toastTheme', { name: theme.name }));
                             }
                           }}
                           className={`cursor-pointer rounded-xl p-6 transition-all ${
@@ -1074,6 +1155,43 @@ function SettingsPage() {
                           <div className="mb-2 text-4xl">{theme.icon}</div>
                           <div className={`font-bold ${selected ? 'text-white' : st.heading}`}>{theme.name}</div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-8">
+                  <label className={`block text-sm font-semibold mb-3 ${st.label}`}>{t('settingsPage.fontScaleLabel')}</label>
+                  <p className={`mb-3 text-sm ${st.muted}`}>
+                    {t('settingsPage.fontScaleHint')}
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {[
+                      { id: 'normal', name: t('settingsPage.fontNormal'), hint: '100%' },
+                      { id: 'comfortable', name: t('settingsPage.fontComfortable'), hint: '112.5%' },
+                      { id: 'large', name: t('settingsPage.fontLarge'), hint: '125%' },
+                    ].map((opt) => {
+                      const selected = fontScale === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setFontScale(opt.id);
+                            toast.success(t('settingsPage.toastFont', { name: opt.name }));
+                          }}
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            selected
+                              ? 'border-cyan-500 bg-cyan-500/15 ring-2 ring-cyan-500/40'
+                              : isDarkMode
+                                ? 'border-slate-700 bg-[#040f2a] hover:bg-slate-800/80'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className={`font-bold ${st.heading}`}>{opt.name}</div>
+                          <div className={`mt-1 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {opt.hint}
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1092,19 +1210,19 @@ function SettingsPage() {
       isOpen={apiKeyDeleteConfirm != null}
       onClose={() => setApiKeyDeleteConfirm(null)}
       onConfirm={confirmDeleteApiKey}
-      title="Xóa API key"
-      message="Bạn có chắc muốn xóa API key này?"
-      confirmText="Xóa"
-      cancelText="Hủy"
+      title={t('settingsPage.confirmDeleteApiKeyTitle')}
+      message={t('settingsPage.confirmDeleteApiKeyMsg')}
+      confirmText={t('settingsPage.confirmOk')}
+      cancelText={t('settingsPage.cancel')}
     />
     <ConfirmDialog
       isOpen={roleDeleteConfirm != null}
       onClose={() => setRoleDeleteConfirm(null)}
       onConfirm={confirmDeleteRole}
-      title="Xóa vai trò"
-      message="Bạn có chắc chắn muốn xóa vai trò này?"
-      confirmText="Xóa"
-      cancelText="Hủy"
+      title={t('settingsPage.confirmDeleteRoleTitle')}
+      message={t('settingsPage.confirmDeleteRoleMsg')}
+      confirmText={t('settingsPage.confirmOk')}
+      cancelText={t('settingsPage.cancel')}
     />
     </>
   );

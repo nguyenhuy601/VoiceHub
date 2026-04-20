@@ -23,6 +23,24 @@ async function ensureMongoReady() {
   throw new Error(MONGO_UNAVAILABLE_MSG);
 }
 
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function postFilterSearchMessages(messages, { qTrim, mentionTrim, hasLink, hasEmbed }) {
+  const needLink = hasLink === true || hasLink === 'true' || hasLink === '1';
+  const needEmbed = hasEmbed === true || hasEmbed === 'true' || hasEmbed === '1';
+  return messages.filter((m) => {
+    const text = String(unwrapPlaintext(m.content) || '');
+    const low = text.toLowerCase();
+    if (qTrim && !low.includes(String(qTrim).toLowerCase())) return false;
+    if (mentionTrim && !text.includes(mentionTrim)) return false;
+    if (needLink && !/https?:\/\//i.test(text)) return false;
+    if (needEmbed && !/<iframe|discord\.com\/channels|embed/i.test(text)) return false;
+    return true;
+  });
+}
+
 function normalizeMongoError(error) {
   if (
     error?.name === 'MongooseError' ||
@@ -448,6 +466,133 @@ class MessageService {
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error promoting file: ${err.message}`);
+    }
+  }
+
+  /**
+   * Tìm kiếm tin nhắn kênh tổ chức — roomId chỉ trong allowedRoomIds (từ organization-service).
+   */
+  async searchOrgMessages(params) {
+    try {
+      await ensureMongoReady();
+      const {
+        organizationId,
+        allowedRoomIds,
+        roomId,
+        senderId,
+        q,
+        createdAfter,
+        createdBefore,
+        hasAttachment,
+        hasLink,
+        hasEmbed,
+        messageType,
+        mentionText,
+        page = 1,
+        limit = 20,
+      } = params;
+
+      const oid = mongoose.Types.ObjectId.isValid(organizationId)
+        ? new mongoose.Types.ObjectId(String(organizationId))
+        : organizationId;
+
+      const toOid = (id) =>
+        mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(String(id)) : id;
+
+      let roomScope;
+      if (roomId) {
+        roomScope = toOid(roomId);
+      } else {
+        const ids = (allowedRoomIds || []).filter(Boolean);
+        if (ids.length === 0) {
+          return { messages: [], total: 0, currentPage: 1, totalPages: 0 };
+        }
+        roomScope = { $in: ids.map((id) => toOid(id)) };
+      }
+
+      const parts = [
+        { organizationId: oid },
+        { roomId: roomScope },
+        { isDeleted: { $ne: true } },
+        { isRecalled: { $ne: true } },
+      ];
+
+      if (senderId) parts.push({ senderId: toOid(senderId) });
+      if (createdAfter || createdBefore) {
+        const r = {};
+        if (createdAfter) r.$gte = new Date(createdAfter);
+        if (createdBefore) r.$lte = new Date(createdBefore);
+        parts.push({ createdAt: r });
+      }
+      if (messageType) parts.push({ messageType });
+
+      const wantAttach =
+        hasAttachment === true || hasAttachment === 'true' || hasAttachment === '1';
+      if (wantAttach) {
+        parts.push({
+          $or: [
+            { messageType: 'file' },
+            { messageType: 'image' },
+            { 'fileMeta.storagePath': { $exists: true, $nin: [null, ''] } },
+          ],
+        });
+      }
+
+      const enc = isEncryptionEnabled();
+      const qTrim = q && String(q).trim();
+      const mentionTrim = mentionText && String(mentionText).trim();
+
+      if (!enc && qTrim) {
+        parts.push({ content: { $regex: escapeRegex(qTrim), $options: 'i' } });
+      }
+      if (!enc && mentionTrim) {
+        parts.push({ content: { $regex: escapeRegex(mentionTrim), $options: 'i' } });
+      }
+
+      const filter = { $and: parts };
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const lim = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+      if (!enc) {
+        const skip = (pageNum - 1) * lim;
+        const messages = await Message.find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(lim)
+          .exec();
+        for (const m of messages) await maybeMigrateMessageContent(m);
+        let out = messages.map((m) => toClientMessage(m));
+        out = postFilterSearchMessages(out, { qTrim: null, mentionTrim: null, hasLink, hasEmbed });
+        const total = await Message.countDocuments(filter);
+        return {
+          messages: out,
+          total,
+          currentPage: pageNum,
+          totalPages: Math.max(1, Math.ceil(total / lim)),
+        };
+      }
+
+      const scanCap = Math.min(parseInt(process.env.CHAT_SEARCH_SCAN_CAP || '400', 10) || 400, 2000);
+      const raw = await Message.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(scanCap)
+        .exec();
+      for (const m of raw) await maybeMigrateMessageContent(m);
+      let out = raw.map((m) => toClientMessage(m));
+      out = postFilterSearchMessages(out, { qTrim, mentionTrim, hasLink, hasEmbed });
+      const total = out.length;
+      const skip = (pageNum - 1) * lim;
+      const paged = out.slice(skip, skip + lim);
+      return {
+        messages: paged,
+        total,
+        currentPage: pageNum,
+        totalPages: Math.max(1, Math.ceil(total / lim)),
+      };
+    } catch (error) {
+      const err = normalizeMongoError(error);
+      throw new Error(`Error searching messages: ${err.message}`);
     }
   }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { GradientButton } from '../Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useAppStrings } from '../../locales/appStrings';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -14,6 +15,7 @@ export default function JoinApplicationForm({
   onCancel,
   showCancel = true,
 }) {
+  const { t } = useAppStrings();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -40,13 +42,13 @@ export default function JoinApplicationForm({
         e?.response?.data?.message ||
         e?.response?.data?.error ||
         e?.message ||
-        'Không tải được form';
-      setError(typeof msg === 'string' ? msg : 'Không tải được form');
+        t('joinForm.loadError');
+      setError(typeof msg === 'string' ? msg : t('joinForm.loadError'));
       setFields([]);
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, t]);
 
   useEffect(() => {
     if (orgId) loadForm();
@@ -82,8 +84,8 @@ export default function JoinApplicationForm({
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
-        'Gửi đơn thất bại';
-      setError(typeof msg === 'string' ? msg : 'Gửi đơn thất bại');
+        t('joinForm.submitFail');
+      setError(typeof msg === 'string' ? msg : t('joinForm.submitFail'));
     } finally {
       setSubmitting(false);
     }
@@ -91,14 +93,14 @@ export default function JoinApplicationForm({
 
   return (
     <div className="space-y-4 text-slate-100">
-      {loading && <p className="text-sm text-gray-400">Đang tải form…</p>}
+      {loading && <p className="text-sm text-gray-400">{t('joinForm.loadingForm')}</p>}
       {error && (
         <p className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
           {error}
         </p>
       )}
       {!loading && !error && fields.length === 0 && (
-        <p className="text-sm text-gray-400">Không có trường trên form.</p>
+        <p className="text-sm text-gray-400">{t('joinForm.emptyFields')}</p>
       )}
       {!loading && fields.length > 0 && (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -123,7 +125,7 @@ export default function JoinApplicationForm({
                   onChange={(e) => handleChange(f.id, e.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-[#0b1220] px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 >
-                  <option value="">— Chọn —</option>
+                  <option value="">{t('joinForm.selectPlaceholder')}</option>
                   {(f.options || []).map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
@@ -191,7 +193,7 @@ export default function JoinApplicationForm({
           ))}
           <div className="flex flex-wrap gap-2 pt-2">
             <GradientButton type="submit" variant="primary" disabled={submitting}>
-              {submitting ? 'Đang gửi…' : 'Gửi đơn'}
+              {submitting ? t('joinForm.submitting') : t('joinForm.submit')}
             </GradientButton>
             {showCancel && onCancel && (
               <button
@@ -199,7 +201,7 @@ export default function JoinApplicationForm({
                 onClick={onCancel}
                 className="rounded-xl border border-slate-600 px-4 py-2 text-sm text-gray-300 hover:bg-slate-800"
               >
-                Quay lại
+                {t('joinForm.back')}
               </button>
             )}
           </div>

@@ -12,6 +12,7 @@ function RegisterPage() {
   const navigate = useNavigate();
   const { register } = useAuth();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
 
   const inputOk = authInputSurface(isDarkMode, { dense: true });
   const inputErr = authInputError(isDarkMode, { dense: true });
@@ -77,48 +78,42 @@ function RegisterPage() {
     return 'from-emerald-600 to-teal-600';
   };
 
-  const getStrengthText = () => {
-    if (passwordStrength === 0) return 'Rất yếu';
-    if (passwordStrength === 1) return 'Yếu';
-    if (passwordStrength === 2) return 'Trung bình';
-    if (passwordStrength === 3) return 'Mạnh';
-    return 'Rất mạnh';
-  };
+  const strengthKeys = ['register.strength0', 'register.strength1', 'register.strength2', 'register.strength3', 'register.strength4'];
+  const getStrengthText = () => t(strengthKeys[passwordStrength] ?? strengthKeys[0]);
 
   const validateForm = () => {
     const newErrors = {};
 
     if (!formData.lastName || formData.lastName.trim().length < 1) {
-      newErrors.lastName = 'Vui lòng nhập họ';
+      newErrors.lastName = t('register.errLastNameRequired');
     } else if (formData.lastName.trim().length < 2) {
-      newErrors.lastName = 'Họ phải có ít nhất 2 ký tự';
+      newErrors.lastName = t('register.errLastNameMin');
     }
 
     if (!formData.firstName || formData.firstName.trim().length < 1) {
-      newErrors.firstName = 'Vui lòng nhập tên';
+      newErrors.firstName = t('register.errFirstNameRequired');
     } else if (formData.firstName.trim().length < 2) {
-      newErrors.firstName = 'Tên phải có ít nhất 2 ký tự';
+      newErrors.firstName = t('register.errFirstNameMin');
     }
 
     if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Email không hợp lệ';
+      newErrors.email = t('register.errEmail');
     }
 
     if (!formData.password || formData.password.length < 8) {
-      newErrors.password = 'Mật khẩu phải có ít nhất 8 ký tự';
+      newErrors.password = t('register.errPasswordMin');
     } else if (passwordStrength < 3) {
-      newErrors.password =
-        'Mật khẩu phải có chữ hoa, chữ thường, số và ký tự đặc biệt (!@#$%^&*...)';
+      newErrors.password = t('register.errPasswordComplex');
     }
 
     if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Vui lòng xác nhận mật khẩu';
+      newErrors.confirmPassword = t('register.errConfirmRequired');
     } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Mật khẩu xác nhận không khớp';
+      newErrors.confirmPassword = t('register.errConfirmMismatch');
     }
 
     if (!agreedToTerms) {
-      newErrors.terms = 'Vui lòng đồng ý với điều khoản dịch vụ';
+      newErrors.terms = t('register.errTerms');
     }
 
     setErrors(newErrors);
@@ -148,7 +143,7 @@ function RegisterPage() {
       if (success) {
         navigate('/login', {
           state: {
-            message: 'Đăng ký thành công! Vui lòng kiểm tra email để xác thực tài khoản.',
+            message: t('register.successMessage'),
           },
         });
       }
@@ -184,7 +179,7 @@ function RegisterPage() {
       <form className="mt-8 space-y-5" onSubmit={handleRegister}>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div>
-            <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>Họ</label>
+            <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>{t('register.lastName')}</label>
             <input
               type="text"
               value={formData.lastName}
@@ -193,13 +188,13 @@ function RegisterPage() {
                 if (errors.lastName) setErrors({ ...errors, lastName: '' });
               }}
               className={errors.lastName ? inputErr : inputOk}
-              placeholder="Đỗ"
+              placeholder={t('register.placeholderLastName')}
             />
             {errors.lastName && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.lastName}</p>}
           </div>
 
           <div>
-            <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>Tên</label>
+            <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>{t('register.firstName')}</label>
             <input
               type="text"
               value={formData.firstName}
@@ -208,14 +203,14 @@ function RegisterPage() {
                 if (errors.firstName) setErrors({ ...errors, firstName: '' });
               }}
               className={errors.firstName ? inputErr : inputOk}
-              placeholder="Công Danh"
+              placeholder={t('register.placeholderFirstName')}
             />
             {errors.firstName && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.firstName}</p>}
           </div>
         </div>
 
         <div>
-          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>Email</label>
+          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>{t('register.email')}</label>
           <input
             type="email"
             value={formData.email}
@@ -224,19 +219,19 @@ function RegisterPage() {
               if (errors.email) setErrors({ ...errors, email: '' });
             }}
             className={errors.email ? inputErr : inputOk}
-            placeholder="dodanh@gmail.com"
+            placeholder={t('register.placeholderEmail')}
           />
           {errors.email && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.email}</p>}
         </div>
 
         <div>
-          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>Mật khẩu</label>
+          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>{t('register.password')}</label>
           <input
             type="password"
             value={formData.password}
             onChange={handlePasswordChange}
             className={inputOk}
-            placeholder="Mật khẩu"
+            placeholder={t('common.passwordPlaceholder')}
           />
           {formData.password && (
             <div className="mt-2">
@@ -261,7 +256,7 @@ function RegisterPage() {
         </div>
 
         <div>
-          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>Xác nhận mật khẩu</label>
+          <label className={`mb-2.5 block text-base font-semibold ${labelCls}`}>{t('register.confirmPassword')}</label>
           <input
             type="password"
             value={formData.confirmPassword}
@@ -270,7 +265,7 @@ function RegisterPage() {
               if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
             }}
             className={errors.confirmPassword ? inputErr : inputOk}
-            placeholder="Xác nhận mật khẩu"
+            placeholder={t('common.confirmPasswordPlaceholder')}
           />
           {errors.confirmPassword && (
             <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.confirmPassword}</p>
@@ -289,11 +284,15 @@ function RegisterPage() {
               className={`${chk} focus:ring-cyan-600/30`}
             />
             <span>
-              Tôi đồng ý với <Link to="/terms-of-service" className={linkCyan}>Điều khoản dịch vụ</Link> và{' '}
+              {t('register.agreePrefix')}{' '}
+              <Link to="/terms-of-service" className={linkCyan}>
+                {t('register.termsLink')}
+              </Link>{' '}
+              {t('register.termsAnd')}{' '}
               <Link to="/privacy-policy" className={linkCyan}>
-                Chính sách bảo mật
+                {t('register.privacyLink')}
               </Link>
-              .
+              {t('register.termsSuffix')}
             </span>
           </label>
           {errors.terms && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.terms}</p>}

@@ -6,11 +6,11 @@
    - Voice chat signaling
    - Notifications realtime
 
-   Kết nối: API Gateway (VITE_SOCKET_URL) + namespace /chat → socket-service
+   Kết nối: API Gateway (VITE_SOCKET_URL) hoặc trực tiếp socket-service (VITE_SOCKET_DIRECT_URL) + /chat
 ======================================== */
 
 // Import hooks để build context
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 // Import Socket.IO client để kết nối WebSocket
 // io: function tạo socket connection
@@ -47,12 +47,42 @@ export { useSocket };
 
 /* ========================================
    SOCKET SERVER URL
-   - VITE_SOCKET_URL: base API Gateway (vd. http://localhost:3000), không cần ghi /chat
-   - Client tự nối namespace /chat để khớp socket-service (io.of('/chat'))
+   - Dev: mặc định cùng origin Vite (5173) + proxy /socket.io → :3017 (vite.config.js). VITE_SOCKET_URL không dùng trừ khi VITE_SOCKET_USE_GATEWAY=true.
+   - VITE_SOCKET_DIRECT_URL: nối thẳng socket-service (vd. http://127.0.0.1:3017), bỏ qua proxy Vite.
+   - VITE_SOCKET_URL + VITE_SOCKET_USE_GATEWAY: test Socket qua API Gateway trong dev.
+   - Production: VITE_SOCKET_URL hoặc mặc định http://localhost:3000
+   - Namespace /chat → khớp socket-service (io.of('/chat'))
 ======================================== */
-const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+const DIRECT_RAW = import.meta.env.VITE_SOCKET_DIRECT_URL;
+const DIRECT = DIRECT_RAW && String(DIRECT_RAW).trim() ? String(DIRECT_RAW).trim() : '';
+const GATEWAY_URL_RAW = import.meta.env.VITE_SOCKET_URL;
+const GATEWAY_URL =
+  GATEWAY_URL_RAW && String(GATEWAY_URL_RAW).trim() ? String(GATEWAY_URL_RAW).trim() : '';
+const USE_GATEWAY_SOCKET =
+  import.meta.env.VITE_SOCKET_USE_GATEWAY === '1' ||
+  import.meta.env.VITE_SOCKET_USE_GATEWAY === 'true';
 
-/** Base gateway URL → Socket.IO URL có namespace /chat (tránh trùng /chat/chat). */
+/**
+ * Dev: ưu tiên cùng origin với Vite (vd. http://localhost:5173) — GET /socket.io được vite proxy → :3017,
+ * tránh 404 khi gateway :3000 chưa proxy /socket.io hoặc SOCKET_SERVICE_URL sai.
+ * Bật qua gateway trong dev: VITE_SOCKET_USE_GATEWAY=true + VITE_SOCKET_URL=http://localhost:3000
+ * Hoặc: VITE_SOCKET_DIRECT_URL=http://127.0.0.1:3017 (bỏ qua proxy Vite).
+ * Production: gateway hoặc VITE_SOCKET_URL / mặc định :3000.
+ */
+function getDevSocketBaseUrl() {
+  if (typeof window === 'undefined' || !window.location?.origin) {
+    return 'http://127.0.0.1:3017';
+  }
+  return window.location.origin;
+}
+
+const SOCKET_BASE_URL =
+  DIRECT ||
+  (import.meta.env.DEV && !USE_GATEWAY_SOCKET ? getDevSocketBaseUrl() : '') ||
+  GATEWAY_URL ||
+  (import.meta.env.DEV ? 'http://127.0.0.1:3017' : 'http://localhost:3000');
+
+/** Base URL → Socket.IO URL có namespace /chat (tránh trùng /chat/chat). */
 function getSocketIoUrl(baseUrl) {
   const trimmed = String(baseUrl || '').trim().replace(/\/+$/, '');
   if (!trimmed) return 'http://localhost:3000/chat';
@@ -62,15 +92,35 @@ function getSocketIoUrl(baseUrl) {
 
 const SOCKET_IO_URL = getSocketIoUrl(SOCKET_BASE_URL);
 
-// Log URL khi app start (giúp debug)
-console.log('🔌 [Socket] Configuration:');
-console.log('   Base (VITE_SOCKET_URL):', SOCKET_BASE_URL);
-console.log('   Socket.IO URL (namespace /chat):', SOCKET_IO_URL);
-console.log('   Env VITE_SOCKET_URL:', import.meta.env.VITE_SOCKET_URL || '(not set — default http://localhost:3000)');
-if (!import.meta.env.VITE_SOCKET_URL) {
-  console.warn('   ⚠️ VITE_SOCKET_URL not set in .env. Using default http://localhost:3000');
+if (import.meta.env.DEV) {
+  console.log('🔌 [Socket] Configuration:');
+  let socketModeLabel = 'default';
+  if (DIRECT) socketModeLabel = 'direct (VITE_SOCKET_DIRECT_URL)';
+  else if (USE_GATEWAY_SOCKET && GATEWAY_URL) {
+    socketModeLabel = 'via gateway (VITE_SOCKET_USE_GATEWAY + VITE_SOCKET_URL)';
+  } else if (typeof window !== 'undefined' && window.location?.origin === SOCKET_BASE_URL) {
+    socketModeLabel = 'same-origin + Vite proxy /socket.io → :3017';
+  } else if (import.meta.env.DEV) {
+    socketModeLabel = 'direct (dev fallback → 127.0.0.1:3017)';
+  }
+  console.log('   Mode:', socketModeLabel);
+  console.log('   Base URL:', SOCKET_BASE_URL);
+  console.log('   Socket.IO URL (namespace /chat):', SOCKET_IO_URL);
+  if (DIRECT) {
+    console.log('   VITE_SOCKET_DIRECT_URL:', DIRECT);
+  } else if (USE_GATEWAY_SOCKET && GATEWAY_URL) {
+    console.log('   VITE_SOCKET_URL:', GATEWAY_URL);
+  } else if (GATEWAY_URL && !import.meta.env.DEV) {
+    console.log('   VITE_SOCKET_URL:', GATEWAY_URL);
+  } else if (import.meta.env.DEV) {
+    console.log(
+      '   (dev: VITE_SOCKET_URL bị bỏ qua trừ khi VITE_SOCKET_USE_GATEWAY=true; cần socket-service :3017 hoặc proxy Vite)'
+    );
+  } else {
+    console.log('   VITE_SOCKET_URL:', '(default http://localhost:3000)');
+  }
+  console.log('');
 }
-console.log('');
 
 /* ========================================
    SOCKETPROVIDER COMPONENT
@@ -84,6 +134,13 @@ function SocketProvider({ children }) {
   // Cần user để gửi user info qua socket
   // Chỉ connect socket khi isAuthenticated = true
   const { user, isAuthenticated } = useAuth();
+
+  /** Chỉ id ổn định — tránh reconnect mỗi render khi object `user` đổi tham chiếu */
+  const socketUserKey = useMemo(() => {
+    if (!user) return '';
+    const v = user.userId ?? user._id ?? user.id;
+    return v != null && v !== '' ? String(v).trim() : '';
+  }, [user]);
   
   /* ----- STATE MANAGEMENT ----- */
   
@@ -112,8 +169,8 @@ function SocketProvider({ children }) {
      → Re-run khi user login/logout
   ======================================== */
   useEffect(() => {
-    // Chỉ connect khi user đã login
-    if (isAuthenticated && user) {
+    // Chỉ connect khi user đã login và đã có id ổn định
+    if (isAuthenticated && socketUserKey) {
       // Lấy token từ localStorage để authenticate
       const token = getToken();
       
@@ -123,10 +180,9 @@ function SocketProvider({ children }) {
         // Server sẽ verify token và lấy user info
         auth: { token },
         
-        // transports: thử websocket trước, fallback sang polling
-        // websocket: nhanh hơn, realtime hơn
-        // polling: backup nếu websocket bị chặn (firewall)
-        transports: ['websocket', 'polling'],
+        // Polling trước → ổn định qua API Gateway (HTTP proxy), rồi upgrade WebSocket (server.on('upgrade')).
+        // Thử websocket trước dễ gây cảnh báo Firefox khi reload / React StrictMode (socket cũ bị hủy giữa chừng).
+        transports: ['polling', 'websocket'],
         
         // reconnection: true = auto reconnect nếu disconnect
         reconnection: true,
@@ -176,11 +232,11 @@ function SocketProvider({ children }) {
         console.error('   Trying to connect to:', SOCKET_IO_URL);
         console.error('');
         console.error('   📋 Debugging checklist:');
-        console.error('   1. API Gateway running? (e.g. port 3000) — proxies /socket.io → socket-service');
-        console.error('   2. VITE_SOCKET_URL = gateway base only (code appends /chat)');
-        console.error('   3. Try: curl http://localhost:3000/health');
-        console.error('   4. Check browser console for CORS errors');
-        console.error('   5. Check socket-service logs for auth / namespace /chat');
+        console.error('   1. socket-service đang chạy? — curl http://localhost:3017/health');
+        console.error('   2. Dev: Vite proxy /socket.io → :3017 (client/.env VITE_SOCKET_PROXY_TARGET nếu cần đổi target)');
+        console.error('   3. Hoặc nối thẳng: VITE_SOCKET_DIRECT_URL=http://127.0.0.1:3017');
+        console.error('   4. Socket qua gateway (dev): VITE_SOCKET_USE_GATEWAY=true + VITE_SOCKET_URL + api-gateway SOCKET_SERVICE_URL');
+        console.error('   5. CORS / log socket-service (namespace /chat)');
         
         setConnectionError(error);
       });
@@ -229,7 +285,7 @@ function SocketProvider({ children }) {
         setConnectionError(null);
       };
     }
-  }, [isAuthenticated, user]); // Re-run khi user login/logout
+  }, [isAuthenticated, socketUserKey]); // Re-run khi login/logout hoặc đổi user id — không phụ thuộc object user
 
   /* ========================================
      HELPER FUNCTION: emit()

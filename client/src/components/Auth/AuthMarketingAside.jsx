@@ -1,10 +1,13 @@
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Cột trái auth — typography lớn hơn một bậc để dễ đọc; nền họa tiết do AuthAsideAmbient xử lý.
  */
 function AuthMarketingAside() {
   const { isDarkMode } = useTheme();
+  const { t, dict } = useAppStrings();
+  const chipLabels = dict.authMarketing.chips;
 
   const badgeOuter = isDarkMode
     ? 'border-slate-600/55 bg-slate-900/50 text-slate-200'
@@ -30,7 +33,7 @@ function AuthMarketingAside() {
           <span className={isDarkMode ? 'text-slate-500' : 'text-white/50'} aria-hidden>
             /
           </span>
-          <span className={isDarkMode ? 'text-slate-400' : 'text-white/85'}>Nền tảng giao tiếp doanh nghiệp</span>
+          <span className={isDarkMode ? 'text-slate-400' : 'text-white/85'}>{t('authMarketing.badgeSub')}</span>
         </p>
       </div>
 
@@ -38,31 +41,25 @@ function AuthMarketingAside() {
         <h1
           className={`font-semibold leading-snug tracking-tight ${h1Main} text-[1.55rem] sm:text-[1.85rem] xl:text-[2.2rem] xl:leading-[1.2]`}
         >
-          Không gian chung để đội ngũ
+          {t('authMarketing.h1a')}
           <span className={`mt-2 block font-bold ${h1Sub} text-[1.3rem] sm:text-[1.65rem] xl:text-[1.95rem]`}>
-            nói, nghe và phối hợp — một cách rõ ràng.
+            {t('authMarketing.h1b')}
           </span>
         </h1>
       </div>
 
       <div className="space-y-5">
-        <p className={`text-base leading-[1.75] sm:text-lg ${body}`}>
-          VoiceHub gắn chat, thoại và quản trị tổ chức vào cùng một trải nghiệm: ít nhảy tab, ít công cụ rời rạc, nhiều
-          thời gian cho việc thật sự cần làm cùng nhau.
-        </p>
+        <p className={`text-base leading-[1.75] sm:text-lg ${body}`}>{t('authMarketing.body')}</p>
 
         <blockquote className={`border-l-2 py-1 pl-5 text-sm font-normal italic leading-relaxed sm:text-base ${quote}`}>
-          Chúng tôi thiết kế để công nghệ đứng sau — phía trước là con người và cuộc trò chuyện của họ.
+          {t('authMarketing.quote')}
         </blockquote>
 
-        <p className={`text-sm leading-relaxed sm:text-[0.95rem] ${foot}`}>
-          Kiến trúc Voice-Chat theo mô hình tổ chức; có thể triển khai linh hoạt với Docker Swarm và môi trường Cloud AWS,
-          phù hợp chính sách nội bộ và quy mô vận hành của bạn.
-        </p>
+        <p className={`text-sm leading-relaxed sm:text-[0.95rem] ${foot}`}>{t('authMarketing.foot')}</p>
       </div>
 
       <div className="flex flex-wrap gap-2.5">
-        {['Đa tổ chức', 'Phân quyền theo vai trò', 'Thời gian thực'].map((label) => (
+        {chipLabels.map((label) => (
           <span
             key={label}
             className={`rounded-lg border px-3 py-1.5 text-xs font-medium sm:text-sm ${chips}`}

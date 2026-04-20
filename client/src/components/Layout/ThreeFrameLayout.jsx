@@ -1,6 +1,7 @@
 import { useTheme } from '../../context/ThemeContext';
 import { appShellBg, threeFrameRightPanel } from '../../theme/shellTheme';
 import NavigationSidebar from './NavigationSidebar';
+import ShellWaveBackdrop from './ShellWaveBackdrop';
 
 /**
  * Bố cục chuẩn 3 khung (dùng làm layout chính):
@@ -24,19 +25,20 @@ const ThreeFrameLayout = ({
   const navLeft = left ?? <NavigationSidebar landingDemo={landingDemo} />;
 
   return (
-    <div className={`flex h-screen overflow-hidden ${shell}`}>
-      <div className="h-full shrink-0">{navLeft}</div>
+    <div className={`relative flex h-screen overflow-hidden ${shell}`}>
+      <ShellWaveBackdrop />
+      <div className="relative z-[1] h-full shrink-0">{navLeft}</div>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="scrollbar-overlay flex-1 min-h-0 overflow-x-visible overflow-y-auto">{center}</div>
       </div>
 
       {right !== null &&
         (rightFrameClassName ? (
-          <div className={rightFrameClassName}>{right}</div>
+          <div className="relative z-[1]">{right}</div>
         ) : (
           <div
-            className={`flex h-full shrink-0 flex-col overflow-hidden ${rightWidth} ${rightPanel}`}
+            className={`relative z-[1] flex h-full shrink-0 flex-col overflow-hidden ${rightWidth} ${rightPanel}`}
           >
             <div className="scrollbar-overlay flex-1 min-h-0 overflow-x-visible overflow-y-auto">{right}</div>
           </div>

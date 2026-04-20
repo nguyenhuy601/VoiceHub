@@ -14,6 +14,7 @@ function LoginPage({ landingDemo = false } = {}) {
   const location = useLocation();
   const { login } = useAuth();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -65,7 +66,7 @@ function LoginPage({ landingDemo = false } = {}) {
     e.preventDefault();
 
     if (landingDemo) {
-      toast('Đây là bản demo trên trang chủ — đăng nhập thật từ trang Đăng nhập.', { icon: '🔒' });
+      toast(t('login.demoToast'), { icon: '🔒' });
       return;
     }
 
@@ -125,10 +126,10 @@ function LoginPage({ landingDemo = false } = {}) {
         <div>
           <div className="mb-2.5 flex items-center justify-between gap-2">
             <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
-              Mật khẩu
+              {t('login.password')}
             </label>
             <Link to="/forgot-password" className={`text-base font-semibold transition ${linkCyan}`}>
-              Quên mật khẩu?
+              {t('login.forgot')}
             </Link>
           </div>
           <div className="relative">
@@ -138,7 +139,7 @@ function LoginPage({ landingDemo = false } = {}) {
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               className={`${inputBase} pr-14`}
-              placeholder="Mật khẩu"
+              placeholder={t('login.placeholderPwd')}
               autoComplete="current-password"
             />
             <button
@@ -146,7 +147,7 @@ function LoginPage({ landingDemo = false } = {}) {
               onClick={() => setShowPassword(!showPassword)}
               className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${showPwdBtn}`}
             >
-              {showPassword ? 'Ẩn' : 'Hiện'}
+              {showPassword ? t('login.hide') : t('login.show')}
             </button>
           </div>
         </div>
@@ -159,7 +160,7 @@ function LoginPage({ landingDemo = false } = {}) {
               onChange={(e) => setRememberMe(e.target.checked)}
               className={`rounded border focus:ring-cyan-600/30 ${chk}`}
             />
-            Ghi nhớ đăng nhập
+            {t('login.remember')}
           </label>
         </div>
 

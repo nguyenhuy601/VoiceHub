@@ -7,10 +7,12 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
+import { useAppStrings } from '../../locales/appStrings';
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
 
@@ -45,27 +47,27 @@ function ResetPasswordPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!token) {
-      toast.error('Liên kết không hợp lệ hoặc đã hết hạn');
+      toast.error(t('resetPassword.toastInvalidToken'));
       return;
     }
     if (password.length < 8) {
-      toast.error('Mật khẩu phải có ít nhất 8 ký tự');
+      toast.error(t('resetPassword.toastPasswordMin'));
       return;
     }
     if (password !== confirmPassword) {
-      toast.error('Mật khẩu xác nhận không khớp');
+      toast.error(t('resetPassword.toastConfirmMismatch'));
       return;
     }
 
     setLoading(true);
     try {
       await authService.resetPassword(token, password);
-      toast.success('Đặt lại mật khẩu thành công');
+      toast.success(t('resetPassword.toastSuccess'));
       navigate('/login', {
-        state: { message: 'Mật khẩu đã được cập nhật. Bạn có thể đăng nhập ngay.' },
+        state: { message: t('resetPassword.loginFlashMessage') },
       });
     } catch (error) {
-      const message = error?.message || 'Không thể đặt lại mật khẩu';
+      const message = error?.message || t('resetPassword.toastResetErr');
       toast.error(message);
     } finally {
       setLoading(false);
@@ -80,7 +82,7 @@ function ResetPasswordPage() {
           className={`inline-flex items-center gap-2 text-base font-semibold ${isDarkMode ? 'text-cyan-400 hover:underline' : 'text-cyan-700 hover:underline'}`}
         >
           <LogIn className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          Đăng nhập
+          {t('resetPassword.loginLink')}
         </Link>
       </div>
 
@@ -93,15 +95,15 @@ function ResetPasswordPage() {
           <KeyRound className="h-6 w-6" strokeWidth={1.75} aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Đặt lại mật khẩu</h1>
-          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>Tạo mật khẩu mới để bảo vệ tài khoản của bạn.</p>
+          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('resetPassword.title')}</h1>
+          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('resetPassword.subtitle')}</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div>
           <label htmlFor="password" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
-            Mật khẩu mới
+            {t('resetPassword.newPassword')}
           </label>
           <input
             id="password"
@@ -109,7 +111,7 @@ function ResetPasswordPage() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className={inputOk}
-            placeholder="Mật khẩu"
+            placeholder={t('common.passwordPlaceholder')}
             autoComplete="new-password"
           />
           {password && (
@@ -130,7 +132,7 @@ function ResetPasswordPage() {
 
         <div>
           <label htmlFor="confirmPassword" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
-            Xác nhận mật khẩu mới
+            {t('resetPassword.confirmNewPassword')}
           </label>
           <input
             id="confirmPassword"
@@ -138,7 +140,7 @@ function ResetPasswordPage() {
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             className={inputOk}
-            placeholder="Xác nhận mật khẩu"
+            placeholder={t('common.confirmPasswordPlaceholder')}
             autoComplete="new-password"
           />
         </div>
@@ -148,7 +150,7 @@ function ResetPasswordPage() {
           disabled={loading}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
-          {loading ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
+          {loading ? t('resetPassword.updating') : t('resetPassword.update')}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>
@@ -157,7 +159,7 @@ function ResetPasswordPage() {
         to="/login"
         className={`mt-8 block text-center text-base font-medium ${mutedCls} hover:text-cyan-600 dark:hover:text-cyan-300`}
       >
-        Quay lại đăng nhập
+        {t('resetPassword.backToLogin')}
       </Link>
     </AuthPageLayout>
   );

@@ -25,7 +25,7 @@ import toast from 'react-hot-toast';
 /* ========================================
    API BASE URL
    - Production: lấy từ .env → VITE_API_URL
-   - Development: http://localhost:3000/api (API Gateway port 3000)
+   - Development: http://localhost:13000/api (API Gateway map host trong docker-compose)
    
    API Gateway sẽ route:
    /api/auth/* → auth-service (port 3001)
@@ -86,9 +86,6 @@ api.interceptors.request.use(
       return Promise.reject(block);
     }
 
-    // Lấy token từ localStorage (được lưu khi login)
-    const token = getToken();
-    
     // Danh sách public routes không cần JWT token
     const publicRoutes = [
       '/auth/register',
@@ -99,9 +96,19 @@ api.interceptors.request.use(
       '/auth/reset-password',
       '/auth/verify-email', // Verify email chỉ dùng token trong query, KHÔNG dùng JWT
     ];
-    
-    // Kiểm tra xem route có phải public route không
-    const isPublicRoute = publicRoutes.some(route => config.url?.includes(route));
+
+    const isPublicRoute = publicRoutes.some((route) => config.url?.includes(route));
+
+    /** Demo landing: không gửi request bảo vệ tới gateway — chỉ giả lập UI */
+    if (isLandingEmbedActive() && !isPublicRoute) {
+      const block = new Error('LANDING_EMBED_API_BLOCKED');
+      block.code = 'LANDING_EMBED_API_BLOCKED';
+      block.isLandingEmbedBlock = true;
+      return Promise.reject(block);
+    }
+
+    // Lấy token từ localStorage (được lưu khi login)
+    const token = getToken();
     
     // Chỉ thêm JWT token nếu:
     // 1. Token tồn tại và không rỗng
@@ -155,6 +162,17 @@ api.interceptors.response.use(
   (error) => {
     if (error?.code === 'LANDING_EMBED_WRITE_BLOCKED' || error?.isLandingEmbedBlock) {
       return Promise.reject(error);
+    }
+
+    /* Khung demo trên HomePage: không toast / không redirect — tránh "No token" khi có request lạc */
+    if (isLandingEmbedActive()) {
+      return Promise.reject({
+        message: error.response?.data?.message || error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        code: error.code,
+        isLandingEmbedSilent: true,
+      });
     }
 
     console.error('[API] Request error:', {

@@ -1,4 +1,5 @@
 const { randomUUID } = require('crypto');
+const axios = require('axios');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent, firebaseStorage } = require('/shared');
 const {
@@ -11,6 +12,20 @@ const {
   isMimeAllowed,
 } = require('../config/fileRetention');
 const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
+
+async function fetchAccessibleChannelIds(orgId, authHeader) {
+  const base = (process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013').replace(
+    /\/$/,
+    ''
+  );
+  const url = `${base}/api/organizations/${orgId}/accessible-channel-ids`;
+  const { data } = await axios.get(url, {
+    headers: authHeader ? { Authorization: authHeader } : {},
+    timeout: 12000,
+  });
+  const ids = data?.data?.channelIds;
+  return Array.isArray(ids) ? ids.map(String) : [];
+}
 
 class MessageController {
   /**
@@ -425,6 +440,74 @@ class MessageController {
       res.json({
         success: true,
         data,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  /** Tìm kiếm tin nhắn trong kênh tổ chức — organizationId bắt buộc; roomId giới trong kênh được phép. */
+  async searchMessages(req, res) {
+    try {
+      const q = req.query || {};
+      const organizationId = q.organizationId;
+      if (!organizationId) {
+        return res.status(400).json({
+          success: false,
+          message: 'organizationId is required',
+        });
+      }
+      const authHeader = req.headers.authorization;
+      let allowedRoomIds;
+      try {
+        allowedRoomIds = await fetchAccessibleChannelIds(organizationId, authHeader);
+      } catch (e) {
+        return res.status(503).json({
+          success: false,
+          message: 'Could not verify channel access',
+        });
+      }
+      if (!allowedRoomIds.length) {
+        return res.json({
+          success: true,
+          data: {
+            messages: [],
+            total: 0,
+            currentPage: 1,
+            totalPages: 0,
+          },
+        });
+      }
+      const roomId = q.roomId || null;
+      if (roomId && !allowedRoomIds.includes(String(roomId))) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot search in this channel',
+        });
+      }
+      const result = await messageService.searchOrgMessages({
+        organizationId,
+        allowedRoomIds,
+        roomId,
+        senderId: q.senderId || null,
+        q: q.q || '',
+        createdAfter: q.createdAfter || null,
+        createdBefore: q.createdBefore || null,
+        hasAttachment: q.hasAttachment,
+        hasLink: q.hasLink,
+        hasEmbed: q.hasEmbed,
+        messageType: q.messageType || null,
+        mentionText: q.mentionText || null,
+        page: parseInt(q.page, 10) || 1,
+        limit: parseInt(q.limit, 10) || 20,
+      });
+      const messages = await attachSignedReadUrlsToMessages(result.messages || []);
+      res.json({
+        success: true,
+        data: { ...result, messages },
       });
     } catch (error) {
       res.status(500).json({

@@ -5,6 +5,7 @@
 const routeActionMap = {
   // Chat Service
   'GET /api/messages': 'chat:read',
+  'GET /api/messages/search': 'chat:read',
   'POST /api/messages': 'chat:write',
   'POST /api/messages/storage/signed-upload': 'chat:write',
   'PATCH /api/messages': 'chat:write',

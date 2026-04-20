@@ -3,8 +3,36 @@ import toast from 'react-hot-toast';
 import { getToken, removeToken } from '../../utils/tokenStorage';
 import { isAutoLogoutDisabled } from '../../utils/devAuth';
 import { isLandingEmbedActive, isWriteHttpMethod } from '../../utils/landingEmbedMode';
+import { getToken, removeToken } from '../../utils/tokenStorage';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+/** Từ chối im lặng mọi lỗi HTTP khi đang xem demo landing — không đụng toast/redirect */
+function rejectLandingEmbedSilent(error) {
+  return Promise.reject({
+    message: error.response?.data?.message || error.message,
+    status: error.response?.status,
+    data: error.response?.data,
+    code: error.code,
+    isLandingEmbedSilent: true,
+  });
+}
+
+const AUTH_PUBLIC_PATHS = [
+  '/auth/register',
+  '/auth/login',
+  '/auth/refresh-token',
+  '/auth/forgot-password',
+  '/auth/resend-verification',
+  '/auth/reset-password',
+  '/auth/verify-email',
+];
+
+function isAuthPublicUrl(url) {
+  const u = url || '';
+  return AUTH_PUBLIC_PATHS.some((p) => u.includes(p));
+}
+
+// Đồng bộ với services/api.js: dev dùng '/api' → Vite proxy; prod dùng VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const normalizeToken = (rawToken) => {
   if (!rawToken) return null;
@@ -41,6 +69,13 @@ apiClient.interceptors.request.use(
       return Promise.reject(block);
     }
 
+    if (isLandingEmbedActive() && !isAuthPublicUrl(config.url)) {
+      const block = new Error('LANDING_EMBED_API_BLOCKED');
+      block.code = 'LANDING_EMBED_API_BLOCKED';
+      block.isLandingEmbedBlock = true;
+      return Promise.reject(block);
+    }
+
     const token = normalizeToken(getToken());
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -60,6 +95,10 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error?.code === 'LANDING_EMBED_WRITE_BLOCKED' || error?.isLandingEmbedBlock) {
       return Promise.reject(error);
+    }
+
+    if (isLandingEmbedActive()) {
+      return rejectLandingEmbedSilent(error);
     }
 
     const message = error.response?.data?.message || error.message || 'Đã xảy ra lỗi';
