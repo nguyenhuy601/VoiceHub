@@ -11,7 +11,8 @@ import CreateTaskFromAiModal from '../../components/Chat/CreateTaskFromAiModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
 import organizationService from '../../services/organizationService';
 import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
-import { Toast } from '../../components/Shared';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
+import Toast from '../../components/Shared/Toast';
 import friendService from '../../services/friendService';
 import api from '../../services/api';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
@@ -22,6 +23,15 @@ import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlaceme
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
+import { appShellBg } from '../../theme/shellTheme';
+import { useAppStrings } from '../../locales/appStrings';
+import { useLocale } from '../../context/LocaleContext';
+import {
+  DM_SCOPE,
+  messageMatchesDmScope,
+  PageSearchBar,
+  SearchFilterChips,
+} from '../../features/search';
 
 /** Chữ ký tên hiển thị trong avatar tròn (theo mockup sidebar DM). */
 function friendInitials(name) {
@@ -40,29 +50,10 @@ function messageDayKey(iso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function formatDateDividerLabel(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const t0 = startOf(d);
-  const now = new Date();
-  const today0 = startOf(now);
-  const y = new Date(now);
-  y.setDate(y.getDate() - 1);
-  const yesterday0 = startOf(y);
-  const dd = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-  if (t0 === today0) return `HÔM NAY — ${dd}`;
-  if (t0 === yesterday0) return `HÔM QUA — ${dd}`;
-  return d.toLocaleDateString('vi-VN', {
-    weekday: 'long',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
-
 function FriendChatPage({ landingDemo = false } = {}) {
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
+  const { locale } = useLocale();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -78,6 +69,11 @@ function FriendChatPage({ landingDemo = false } = {}) {
   /** Đang gọi API để chọn hội thoại mặc định (tránh nháy "chọn bạn") */
   const [resolvingDefaultChat, setResolvingDefaultChat] = useState(false);
   const [friendsLoading, setFriendsLoading] = useState(true);
+  /** Lọc danh sách bạn trong rail (PageSearchBar) */
+  const [friendRailSearch, setFriendRailSearch] = useState('');
+  /** Tìm trong tin DM + bộ lọc loại tin (SearchFilterChips) */
+  const [dmMessageSearch, setDmMessageSearch] = useState('');
+  const [dmScope, setDmScope] = useState(DM_SCOPE.ALL);
   /** null = không upload; 0–100 khi đang gửi file/ảnh */
   const [uploadProgress, setUploadProgress] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -91,22 +87,49 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
   const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
+  const [inlineToast, setInlineToast] = useState(null);
   const { user } = useAuth();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
+
+  const formatDateDividerLabel = useCallback(
+    (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const t0 = startOf(d);
+      const now = new Date();
+      const today0 = startOf(now);
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yesterday0 = startOf(y);
+      const loc = locale === 'en' ? 'en-US' : 'vi-VN';
+      const dd = d.toLocaleDateString(loc, { day: '2-digit', month: '2-digit' });
+      if (t0 === today0) return t('friendChat.dateToday', { date: dd });
+      if (t0 === yesterday0) return t('friendChat.dateYesterday', { date: dd });
+      return d.toLocaleDateString(loc, {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+    },
+    [locale, t]
+  );
 
   // Trong hệ thống hiện tại, ID đăng nhập lưu ở field userId (Auth service),
   // còn _id là của profile. Tin nhắn lưu senderId theo userId.
   const currentUserId = user?.userId || user?._id || user?.id;
-  const currentUserName = getUserDisplayName(user) || 'Bạn';
+  const currentUserName = getUserDisplayName(user) || t('common.you');
   const currentUserAvatar = user?.avatar || '🧑';
 
   const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    setInlineToast({ message, type });
+    setTimeout(() => setInlineToast(null), 3000);
   };
 
-  // Load danh sách bạn bè từ friend-service
+  // Load org mặc định cho tạo task — không gọi API khi nhúng landing (tránh 401 / không đụng backend)
   useEffect(() => {
+    if (landingDemo) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -127,7 +150,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [landingDemo]);
 
   const loadFriends = useCallback(async () => {
     if (landingDemo) {
@@ -151,14 +174,14 @@ function FriendChatPage({ landingDemo = false } = {}) {
           _id: 'dm1',
           senderId: fid,
           receiverId: currentUserId,
-          content: 'Chào bạn! Đây là demo chat VoiceHub.',
+          content: t('friendChat.demoMsg1'),
           createdAt: new Date().toISOString(),
         },
         {
           _id: 'dm2',
           senderId: currentUserId,
           receiverId: fid,
-          content: 'Đang xem trang giới thiệu.',
+          content: t('friendChat.demoMsg2'),
           createdAt: new Date().toISOString(),
         },
       ]);
@@ -172,16 +195,16 @@ function FriendChatPage({ landingDemo = false } = {}) {
       const list = result?.friends || result;
       setFriends(Array.isArray(list) ? list : []);
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Không tải được danh sách bạn bè');
+      toast.error(err.response?.data?.message || err.message || t('friendChat.loadFriendsFail'));
       setFriends([]);
     } finally {
       setFriendsLoading(false);
     }
-  }, [landingDemo, currentUserId]);
+  }, [landingDemo, currentUserId, t]);
 
   // Map friends + sắp xếp theo tin nhắn gần nhất; presence realtime khớp Dashboard (onlineUsers từ socket)
   const viewFriends = useMemo(() => {
-    const rows = friends.map((f) => {
+    const rows = friends.map((f, index) => {
       const u = f.friendId || f;
       const uname = typeof u?.username === 'string' ? u.username.trim() : '';
       const title =
@@ -193,8 +216,15 @@ function FriendChatPage({ landingDemo = false } = {}) {
       const subtitle =
         title ||
         (uname ? `@${uname}` : '') ||
-        'TRÒ CHUYỆN TRỰC TIẾP';
+        t('friendChat.dmSubtitle');
       const id = u?._id || u?.userId || u?.id || f.id;
+      /** Luôn unique để tránh cảnh báo key khi thiếu user (id trùng undefined). */
+      const listKey =
+        id != null && id !== ''
+          ? String(id)
+          : f._id != null
+            ? `friendship-${String(f._id)}`
+            : `friend-row-${index}`;
       const rawFriendId = f.friendId;
       const presenceKeys = [
         id,
@@ -209,6 +239,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
       const uniqueKeys = [...new Set(presenceKeys)];
       return {
         id,
+        listKey,
         name: u?.displayName || u?.username || 'Người dùng',
         avatar: u?.avatar || '👤',
         status: String(u?.status || 'offline').toLowerCase(),
@@ -233,7 +264,28 @@ function FriendChatPage({ landingDemo = false } = {}) {
         status: inLiveList ? 'online' : rest.status,
       };
     });
-  }, [friends, lastDmAtByFriendId, onlineUsers, socketConnected]);
+  }, [friends, lastDmAtByFriendId, onlineUsers, socketConnected, t]);
+
+  const filteredViewFriends = useMemo(() => {
+    const q = friendRailSearch.trim().toLowerCase();
+    if (!q) return viewFriends;
+    return viewFriends.filter((f) => {
+      const hay = `${f.name || ''} ${f.subtitle || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [viewFriends, friendRailSearch]);
+
+  const dmScopeOptions = useMemo(
+    () => [
+      { id: DM_SCOPE.ALL, label: t('friendChat.dmScopeAll'), icon: '📋' },
+      { id: DM_SCOPE.TEXT, label: t('friendChat.dmScopeMessages'), icon: '💬' },
+      { id: DM_SCOPE.FILE, label: t('friendChat.dmScopeFiles'), icon: '📎' },
+      { id: DM_SCOPE.IMAGE, label: t('friendChat.dmScopeImages'), icon: '🖼️' },
+      { id: DM_SCOPE.LINK, label: t('friendChat.dmScopeLinks'), icon: '🔗' },
+      { id: DM_SCOPE.CALENDAR, label: t('friendChat.dmScopeCalendar'), icon: '📅' },
+    ],
+    [t]
+  );
 
   /** Lấy thời gian tin DM gần nhất với mỗi bạn (từ API /messages, không receiverId) */
   const fetchLastDmActivity = useCallback(async () => {
@@ -291,7 +343,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
             const u = f.friendId || f;
             return {
               id: u?._id || u?.userId || u?.id || f.id,
-              name: u?.displayName || u?.username || 'Người dùng',
+              name: u?.displayName || u?.username || t('common.user'),
               avatar: u?.avatar || '👤',
               status: u?.status || 'offline',
             };
@@ -310,7 +362,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [friends, currentUserId, fetchLastDmActivity, landingDemo]);
+  }, [friends, currentUserId, fetchLastDmActivity, landingDemo, t]);
 
   // Load messages khi chọn bạn
   const loadMessages = useCallback(
@@ -324,13 +376,13 @@ function FriendChatPage({ landingDemo = false } = {}) {
         const list = result?.messages || result || [];
         setMessages(Array.isArray(list) ? list : []);
       } catch (err) {
-        toast.error(err.response?.data?.message || err.message || 'Không tải được tin nhắn');
+        toast.error(err.response?.data?.message || err.message || t('friendChat.loadMessagesFail'));
         setMessages([]);
       } finally {
         setLoadingMessages(false);
       }
     },
-    []
+    [t]
   );
 
   useEffect(() => {
@@ -343,6 +395,11 @@ function FriendChatPage({ landingDemo = false } = {}) {
       loadMessages(selectedFriendId);
     }
   }, [selectedFriendId, loadMessages, landingDemo]);
+
+  useEffect(() => {
+    setDmMessageSearch('');
+    setDmScope(DM_SCOPE.ALL);
+  }, [selectedFriendId]);
 
   // Gửi tin nhắn qua socket-service (realtime) + optimistic UI
   const handleSend = async () => {
@@ -395,7 +452,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
       if (validReplyId) payload.replyToMessageId = validReplyId;
       emit('friend:send', payload);
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Gửi tin nhắn thất bại');
+      toast.error(err.response?.data?.message || err.message || t('friendChat.sendFail'));
     }
   };
 
@@ -521,7 +578,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
         },
         (p) => setUploadProgress(p)
       );
-      toast.success('Đã gửi file');
+      toast.success(t('friendChat.fileOk'));
       const id = normalized?._id || normalized?.id;
       setMessages((prev) => {
         if (id && prev.some((x) => String(x._id || x.id) === String(id))) {
@@ -534,32 +591,45 @@ function FriendChatPage({ landingDemo = false } = {}) {
         [String(selectedFriendId)]: Date.now(),
       }));
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Gửi file thất bại');
+      toast.error(err.response?.data?.message || err.message || t('friendChat.fileFail'));
     } finally {
       setUploadProgress(null);
     }
   };
 
-  const formatTime = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleTimeString('vi-VN', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
+  const formatTime = useCallback(
+    (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const loc = locale === 'en' ? 'en-US' : 'vi-VN';
+      return d.toLocaleTimeString(loc, {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    },
+    [locale]
+  );
 
   const unwrapPayload = (payload) => payload?.data ?? payload;
 
   const plainTextForMessage = (msg) => {
     if (!msg) return '';
-    const t = msg.messageType || 'text';
-    if (t === 'text') return String(msg.content || '');
-    if (t === 'file' || t === 'image')
-      return msg.fileMeta?.originalName || String(msg.content || '').slice(0, 200) || '[Đính kèm]';
+    const mt = msg.messageType || 'text';
+    if (mt === 'text') return String(msg.content || '');
+    if (mt === 'file' || mt === 'image')
+      return msg.fileMeta?.originalName || String(msg.content || '').slice(0, 200) || t('friendChat.attachment');
     return String(msg.content || '');
   };
+
+  const visibleChatMessages = useMemo(() => {
+    let list = sortedChatMessages.filter((m) => messageMatchesDmScope(m, dmScope));
+    const q = dmMessageSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((m) => plainTextForMessage(m).toLowerCase().includes(q));
+    }
+    return list;
+  }, [sortedChatMessages, dmMessageSearch, dmScope, t]);
 
   /** Ảnh / file: không hiện sao chép. Còn lại: có nội dung chuỗi (kể cả link). */
   const canShowCopyTextInMenu = (msg) => {
@@ -613,10 +683,10 @@ function FriendChatPage({ landingDemo = false } = {}) {
       setMessages((prev) =>
         prev.map((m) => (String(m._id || m.id) === String(messageId) ? { ...m, ...updated } : m))
       );
-      toast.success('Đã cập nhật tin nhắn');
+      toast.success(t('friendChat.msgUpdated'));
       cancelEdit();
     } catch {
-      toast.error('Không thể chỉnh sửa');
+      toast.error(t('friendChat.editFail'));
     }
   };
 
@@ -631,9 +701,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
     try {
       await api.delete(`/messages/${messageId}`);
       setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
-      toast.success('Đã xoá tin nhắn');
+      toast.success(t('friendChat.msgDeleted'));
     } catch {
-      toast.error('Không thể xoá');
+      toast.error(t('friendChat.deleteFail'));
     }
   };
 
@@ -650,8 +720,8 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const handleForwardConfirm = async ({ friendIds, note }) => {
     if (!forwardSourceMessage || !friendIds?.length) return;
     const preview = String(forwardSourceMessage.content || '').trim().slice(0, 500);
-    const fromName = currentFriend?.name || 'Trò chuyện';
-    const header = `📎 Chuyển tiếp từ ${fromName}`;
+    const fromName = currentFriend?.name || t('friendChat.chatTitleFallback');
+    const header = t('friendChat.forwardHeader', { name: fromName });
     const body = [note, header, preview].filter(Boolean).join('\n\n');
     setForwarding(true);
     try {
@@ -662,7 +732,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
           messageType: 'text',
         });
       }
-      toast.success('Đã chuyển tiếp');
+      toast.success(t('friendChat.forwardOk'));
       setForwardModalOpen(false);
       setForwardSourceMessage(null);
       const t = Date.now();
@@ -674,29 +744,29 @@ function FriendChatPage({ landingDemo = false } = {}) {
         return next;
       });
     } catch {
-      toast.error('Chuyển tiếp thất bại');
+      toast.error(t('friendChat.forwardFail'));
     } finally {
       setForwarding(false);
     }
   };
 
   const handleQuickReactMessage = (_m, _emoji) => {
-    toast('Phản hồi nhanh (emoji) đồng bộ server sẽ bổ sung sau.', { icon: 'ℹ️' });
+    toast(t('friendChat.reactionInfo'), { icon: 'ℹ️' });
   };
 
   const replyLabelForDm = (msg) => {
-    if (!msg) return 'Bạn bè';
+    if (!msg) return t('friendChat.friendDefault');
     const sid = msg.senderId?._id || msg.senderId;
-    if (String(sid || '') === String(currentUserId || '')) return 'Bạn';
-    return currentFriend?.name || 'Bạn bè';
+    if (String(sid || '') === String(currentUserId || '')) return t('common.you');
+    return currentFriend?.name || t('friendChat.friendDefault');
   };
 
   const chatShell = isDarkMode
     ? 'h-screen flex overflow-hidden bg-[#0b0e14] text-slate-100'
-    : 'h-screen flex overflow-hidden bg-[#f5f7fa] text-slate-900';
+    : `h-screen flex overflow-hidden ${appShellBg(false)} text-slate-900`;
   const friendRail = isDarkMode
-    ? 'w-[76px] shrink-0 flex h-full min-h-0 flex-col border-r border-white/[0.06] bg-[#0c0f15]'
-    : 'w-[76px] shrink-0 flex h-full min-h-0 flex-col border-r border-slate-200 bg-white';
+    ? 'flex h-full min-h-0 w-[min(280px,92vw)] shrink-0 flex-col border-r border-white/[0.06] bg-[#0c0f15] sm:w-[260px]'
+    : 'flex h-full min-h-0 w-[min(280px,92vw)] shrink-0 flex-col border-r border-slate-200 bg-white sm:w-[260px]';
   const railHeadBorder = isDarkMode ? 'border-b border-white/[0.05]' : 'border-b border-slate-200';
   const railMuted = isDarkMode ? 'text-[#6d7380]' : 'text-slate-500';
   const railAvatarHover = isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-100';
@@ -748,33 +818,45 @@ function FriendChatPage({ landingDemo = false } = {}) {
         {/* Khung 2: Danh sách bạn bè - thanh trượt riêng, chỉ hiện khi cần */}
         {/* Cột 2: rail avatar bạn bè (mockup — thanh chọn tím, chấm online) */}
         <div className={friendRail}>
-          <div className={`shrink-0 px-2 pb-2 pt-3 ${railHeadBorder}`}>
-            <p className={`text-center text-[10px] font-semibold uppercase tracking-wider ${railMuted}`}>Bạn bè</p>
+          <div className={`shrink-0 space-y-2 px-2 pb-2 pt-3 ${railHeadBorder}`}>
+            <p className={`text-[10px] font-semibold uppercase tracking-wider ${railMuted}`}>
+              {t('friendChat.railTitle')}
+            </p>
+            <PageSearchBar
+              value={friendRailSearch}
+              onChange={setFriendRailSearch}
+              placeholder={t('friendChat.searchFriendsPlaceholder')}
+              isDarkMode={isDarkMode}
+              id="friend-rail-search"
+              aria-label={t('friendChat.searchFriendsAria')}
+            />
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-overlay px-2 py-2 flex flex-col items-stretch gap-1">
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 py-2 scrollbar-overlay">
             {friendsLoading ? (
-              <div className={`py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>Đang tải…</div>
+              <div className={`py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>
+                {t('friendChat.loadingRail')}
+              </div>
             ) : (
-              viewFriends.map((f) => {
+              filteredViewFriends.map((f) => {
                 const active = selectedFriendId === f.id;
                 const avatarUrl =
                   typeof f.avatar === 'string' && /^https?:\/\//i.test(f.avatar) ? f.avatar : null;
                 return (
                   <button
-                    key={f.id}
+                    key={f.listKey}
                     type="button"
                     onClick={() => setSelectedFriendId(f.id)}
                     title={f.name}
-                    aria-label={`Mở chat với ${f.name}`}
+                    aria-label={t('friendChat.openChatAria', { name: f.name })}
                     aria-current={active ? 'true' : undefined}
-                    className={`group relative flex w-full justify-center rounded-xl py-2 outline-none transition ${railAvatarHover} focus-visible:ring-2 ${
+                    className={`group relative flex w-full items-center gap-2 rounded-xl px-1.5 py-2 text-left outline-none transition ${railAvatarHover} focus-visible:ring-2 ${
                       isDarkMode ? 'focus-visible:ring-cyan-400/50' : 'focus-visible:ring-cyan-600/35'
                     }`}
                   >
                     {active && <span className={railActiveStrip} aria-hidden />}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                       <div
-                        className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border text-[11px] font-bold tracking-tight shadow-inner transition ${
+                        className={`flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border text-[10px] font-bold tracking-tight shadow-inner transition ${
                           isDarkMode ? 'text-white' : 'text-slate-800'
                         } ${
                           active
@@ -793,11 +875,19 @@ function FriendChatPage({ landingDemo = false } = {}) {
                         )}
                       </div>
                       <span
-                        className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 ${statusRingBorder} ${
+                        className={`pointer-events-none absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 ${statusRingBorder} ${
                           f.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
                         }`}
-                        title={f.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                        title={f.status === 'online' ? t('friendChat.online') : t('friendChat.offline')}
                       />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                      >
+                        {f.name}
+                      </div>
+                      <div className={`truncate text-[10px] ${railMuted}`}>{f.subtitle}</div>
                     </div>
                   </button>
                 );
@@ -805,7 +895,12 @@ function FriendChatPage({ landingDemo = false } = {}) {
             )}
             {!friendsLoading && viewFriends.length === 0 && (
               <div className={`px-1 py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>
-                Chưa có bạn. Thêm ở Liên hệ.
+                {t('friendChat.emptyRail')}
+              </div>
+            )}
+            {!friendsLoading && viewFriends.length > 0 && filteredViewFriends.length === 0 && (
+              <div className={`px-1 py-4 text-center text-[10px] leading-relaxed ${railMuted}`}>
+                {t('friendChat.friendSearchNoMatch')}
               </div>
             )}
           </div>
@@ -815,15 +910,17 @@ function FriendChatPage({ landingDemo = false } = {}) {
         <div className={chatMainColumn}>
           <div className="flex-1 flex flex-col h-full min-w-0">
           {friendsLoading ? (
-            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Đang tải danh sách bạn…</div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>
+              {t('friendChat.loadingFriends')}
+            </div>
           ) : viewFriends.length === 0 ? (
             <div className={`flex flex-1 items-center justify-center px-4 text-center ${emptyText}`}>
-              Chưa có bạn bè. Hãy thêm bạn ở trang Liên hệ để bắt đầu chat.
+              {t('friendChat.emptyMain')}
             </div>
           ) : resolvingDefaultChat ? (
-            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Đang mở cuộc trò chuyện…</div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>{t('friendChat.openingChat')}</div>
           ) : !currentFriend ? (
-            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>Chọn một người bạn để bắt đầu chat</div>
+            <div className={`flex flex-1 items-center justify-center ${emptyText}`}>{t('friendChat.pickFriend')}</div>
           ) : (
             <>
               <header className={chatHeader}>
@@ -858,10 +955,10 @@ function FriendChatPage({ landingDemo = false } = {}) {
                       {currentFriend.subtitle}
                     </p>
                     <p className={`mt-0.5 text-xs ${headerMeta}`}>
-                      {currentFriend.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                      {currentFriend.status === 'online' ? t('friendChat.online') : t('friendChat.offline')}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {['# trò-chuyện', '# tin-nhắn'].map((tag) => (
+                      {[t('friendChat.tagChat'), t('friendChat.tagMessages')].map((tag) => (
                         <span
                           key={tag}
                           className={headerTag}
@@ -874,53 +971,80 @@ function FriendChatPage({ landingDemo = false } = {}) {
                   <div className="flex shrink-0 items-center gap-0.5">
                     <button
                       type="button"
-                      title="Gọi thoại"
-                      onClick={() => toast('Gọi thoại — sẽ có trong bản sau', { icon: '📞' })}
+                      title={t('friendChat.callAudio')}
+                      onClick={() => toast(t('friendChat.callAudioSoon'), { icon: '📞' })}
                       className={iconBtn}
                     >
                       <Phone className="h-5 w-5" strokeWidth={2} />
                     </button>
                     <button
                       type="button"
-                      title="Gọi video"
-                      onClick={() => toast('Gọi video — sẽ có trong bản sau', { icon: '📹' })}
+                      title={t('friendChat.callVideo')}
+                      onClick={() => toast(t('friendChat.callVideoSoon'), { icon: '📹' })}
                       className={iconBtn}
                     >
                       <Video className="h-5 w-5" strokeWidth={2} />
                     </button>
                     <button
                       type="button"
-                      title="Đặt lịch"
-                      onClick={() => toast('Đặt lịch — sẽ có trong bản sau', { icon: '📅' })}
+                      title={t('friendChat.schedule')}
+                      onClick={() => toast(t('friendChat.scheduleSoon'), { icon: '📅' })}
                       className={scheduleBtn}
                     >
                       <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
-                      Đặt lịch
+                      {t('friendChat.schedule')}
                     </button>
                     <button
                       type="button"
-                      title="Thông báo"
-                      onClick={() => toast('Thông báo cuộc trò chuyện — sẽ có trong bản sau', { icon: '🔔' })}
+                      title={t('friendChat.convoNotif')}
+                      onClick={() => toast(t('friendChat.convoNotifSoon'), { icon: '🔔' })}
                       className={iconBtn}
                     >
                       <Bell className="h-5 w-5" strokeWidth={2} />
                     </button>
                     <button
                       type="button"
-                      title="Thêm"
-                      onClick={() => toast('Menu thêm — sẽ có trong bản sau', { icon: '⋯' })}
+                      title={t('friendChat.moreMenu')}
+                      onClick={() => toast(t('friendChat.moreSoon'), { icon: '⋯' })}
                       className={iconBtn}
                     >
                       <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
                     </button>
                   </div>
                 </div>
+                <div className="mt-3 space-y-2">
+                  <PageSearchBar
+                    className="max-w-xl"
+                    value={dmMessageSearch}
+                    onChange={setDmMessageSearch}
+                    placeholder={t('friendChat.searchMessagesPlaceholder')}
+                    isDarkMode={isDarkMode}
+                    id="friend-dm-message-search"
+                    aria-label={t('friendChat.searchInConversationAria')}
+                  />
+                  <SearchFilterChips
+                    aria-label={t('friendChat.dmScopeLabel')}
+                    options={dmScopeOptions}
+                    value={dmScope}
+                    onChange={setDmScope}
+                    isDarkMode={isDarkMode}
+                    size="sm"
+                  />
+                </div>
               </header>
               <div className={messagesScroll}>
                 {loadingMessages ? (
-                  <div className={`text-center ${emptyText}`}>Đang tải tin nhắn...</div>
+                  <div className={`text-center ${emptyText}`}>{t('friendChat.loadingMessages')}</div>
+                ) : visibleChatMessages.length === 0 && sortedChatMessages.length > 0 ? (
+                  <div className={`text-center ${emptyText}`}>
+                    {dmMessageSearch.trim()
+                      ? t('friendChat.searchNoMatch')
+                      : dmScope !== DM_SCOPE.ALL
+                        ? t('friendChat.emptyDmScope')
+                        : t('friendChat.searchNoMatch')}
+                  </div>
                 ) : (
-                  sortedChatMessages.map((m, idx) => {
+                  visibleChatMessages.map((m, idx) => {
                     const mid = m._id || m.id;
                     const rawSender = m.senderId?._id || m.senderId || '';
                     const senderId = String(rawSender);
@@ -930,7 +1054,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
 
                     const displayName = isMine
                       ? currentUserName
-                      : currentFriend?.name || 'Bạn bè';
+                      : currentFriend?.name || t('friendChat.friendDefault');
 
                     const friendMsgAvatarUrl =
                       typeof currentFriend?.avatar === 'string' &&
@@ -938,7 +1062,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                         ? currentFriend.avatar
                         : null;
 
-                    const prev = idx > 0 ? sortedChatMessages[idx - 1] : null;
+                    const prev = idx > 0 ? visibleChatMessages[idx - 1] : null;
                     const showDayDivider =
                       !prev || messageDayKey(m.createdAt) !== messageDayKey(prev.createdAt);
 
@@ -948,7 +1072,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                       : null;
                     const replyPreview = parentMsg
                       ? plainTextForMessage(parentMsg).slice(0, 160)
-                      : 'Tin nhắn gốc';
+                      : t('friendChat.threadRoot');
                     const isEditing = editingMessageId && String(editingMessageId) === String(mid);
                     const showToolbar = !isEditing && uploadProgress == null;
                     const toolbarPlace = toolbarPlacementById[String(mid)] ?? 'above';
@@ -968,7 +1092,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                         : 'border-slate-200 bg-white text-slate-800 shadow-sm';
 
                     return (
-                      <Fragment key={mid}>
+                      <Fragment key={mid != null && mid !== '' ? String(mid) : `dm-msg-${idx}`}>
                         {showDayDivider && (
                           <div className="flex justify-center py-2">
                             <span
@@ -1065,7 +1189,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                                   <span
                                     className={`text-[10px] ${isMine ? 'text-white/55' : 'text-[#8e9297]/70'}`}
                                   >
-                                    (đã chỉnh sửa)
+                                    {t('friendChat.edited')}
                                   </span>
                                 )}
                               </div>
@@ -1109,22 +1233,22 @@ function FriendChatPage({ landingDemo = false } = {}) {
                                     }`}
                                   />
                                   <p className={`text-[11px] ${emptyText}`}>
-                                    nhấn escape để{' '}
+                                    {t('friendChat.editEscape')}{' '}
                                     <button
                                       type="button"
                                       className={`${headerAccent} hover:underline`}
                                       onClick={cancelEdit}
                                     >
-                                      hủy
+                                      {t('friendChat.editCancel')}
                                     </button>
                                     {' • '}
-                                    nhấn enter để{' '}
+                                    {t('friendChat.editEnter')}{' '}
                                     <button
                                       type="button"
                                       className={`${headerAccent} hover:underline`}
                                       onClick={() => submitEdit(mid)}
                                     >
-                                      lưu
+                                      {t('friendChat.editSave')}
                                     </button>
                                   </p>
                                 </div>
@@ -1133,7 +1257,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                               )}
                               {showReadReceipt && (
                                 <p className="mt-1.5 text-right text-[10px] font-medium text-white/70">
-                                  Đã đọc
+                                  {t('friendChat.readReceipt')}
                                 </p>
                               )}
                             </div>
@@ -1163,7 +1287,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
               <div className="relative shrink-0">
                 <ChatUploadProgressBar
                   percent={uploadProgress}
-                  label="Đang tải tệp lên…"
+                  label={t('friendChat.uploadLabel')}
                 />
                 <input
                   ref={fileInputRef}
@@ -1185,7 +1309,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     replyingToMessage ? (
                       <div className={replyBanner}>
                         <div className="min-w-0">
-                          <span className={emptyText}>Đang phản hồi </span>
+                          <span className={emptyText}>{t('friendChat.replying')}</span>
                           <span className={`font-semibold ${headerAccent}`}>
                             {replyLabelForDm(replyingToMessage)}
                           </span>
@@ -1196,7 +1320,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                           className={`rounded-full p-1.5 transition ${emptyText} ${
                             isDarkMode ? 'hover:bg-white/10 hover:text-white' : 'hover:bg-slate-200 hover:text-slate-900'
                           }`}
-                          aria-label="Huỷ trả lời"
+                          aria-label={t('friendChat.cancelReplyAria')}
                         >
                           ✕
                         </button>
@@ -1208,32 +1332,32 @@ function FriendChatPage({ landingDemo = false } = {}) {
                   onSend={handleSend}
                   placeholder={
                     uploadProgress != null
-                      ? 'Đang gửi tệp…'
+                      ? t('friendChat.sendingFile')
                       : currentFriend
-                        ? `Nhắn ${currentFriend.name}...`
-                        : 'Chọn bạn để nhắn tin'
+                        ? t('friendChat.placeholderDm', { name: currentFriend.name })
+                        : t('friendChat.placeholderPick')
                   }
                   disabled={!selectedFriendId || uploadProgress != null}
                   sendDisabled={!message.trim()}
-                  sendLabel="Gửi"
+                  sendLabel={t('friendChat.send')}
                   plusItems={[
                     {
                       key: 'upload-file',
                       icon: '📁',
-                      label: 'Tải lên tệp',
+                      label: t('friendChat.uploadFile'),
                       onClick: () => fileInputRef.current?.click(),
                     },
                     {
                       key: 'upload-image',
                       icon: '🖼️',
-                      label: 'Gửi hình ảnh',
+                      label: t('friendChat.uploadImage'),
                       onClick: () => imageInputRef.current?.click(),
                     },
                   ]}
                   actionItems={[
                     {
                       key: 'emoji',
-                      title: 'Emoji',
+                      title: t('friendChat.emojiTab'),
                       content: '🙂',
                       className: 'w-8 text-lg',
                       onClick: () => {
@@ -1248,7 +1372,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                   <>
                     <button
                       type="button"
-                      aria-label="Đóng bảng emoji"
+                      aria-label={t('friendChat.closeEmoji')}
                       onClick={() => setShowEmojiPicker(false)}
                       className="fixed inset-0 z-40 cursor-default bg-black/30"
                     />
@@ -1259,9 +1383,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
                         }`}
                       >
                         {[
-                          { id: 'gif', label: 'Ảnh động' },
-                          { id: 'sticker', label: 'Sticker' },
-                          { id: 'emoji', label: 'Emoji' },
+                          { id: 'gif', label: t('friendChat.gif') },
+                          { id: 'sticker', label: t('friendChat.stickerTab') },
+                          { id: 'emoji', label: t('friendChat.emojiTab') },
                         ].map((tab) => (
                           <button
                             key={tab.id}
@@ -1287,7 +1411,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                           <input
                             value={emojiSearch}
                             onChange={(e) => setEmojiSearch(e.target.value)}
-                            placeholder="Tìm emoji hợp lý nhất"
+                            placeholder={t('friendChat.emojiSearchPh')}
                             className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-gray-400"
                           />
                         </div>
@@ -1296,7 +1420,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                       <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
                         {emojiPickerTab !== 'emoji' ? (
                           <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                            Mục này đang ở bản beta.
+                            {t('friendChat.emojiBetaMsg')}
                           </div>
                         ) : (
                           <div className="grid grid-cols-9 gap-2">
@@ -1312,7 +1436,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                             ))}
                             {filteredComposerEmojis.length === 0 && (
                               <div className="col-span-9 rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-gray-400">
-                                Không tìm thấy emoji phù hợp.
+                                {t('friendChat.emojiNoMatch')}
                               </div>
                             )}
                           </div>
@@ -1356,7 +1480,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
             }}
             onDelete={() => {
               const msg = moreMenu.message;
-              if (msg) handleDeleteMessage(msg._id || msg.id);
+              if (msg) requestDeleteMessage(msg._id || msg.id);
             }}
             onCreateTask={() => {
               const msg = moreMenu.message;
@@ -1382,7 +1506,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
             messagePreview={
               createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
             }
-            onConfirmed={() => showToast('Đã tạo task từ AI', 'success')}
+            onConfirmed={() => showToast(t('friendChat.taskFromAi'), 'success')}
           />
 
           <ForwardToFriendModal
@@ -1403,9 +1527,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
             <FriendChatRightPanel
               friend={currentFriend}
               messages={messages}
-              onMute={() => toast('Tắt thông báo — sẽ có trong bản sau', { icon: '🔕' })}
-              onPin={() => toast('Ghim hội thoại — sẽ có trong bản sau', { icon: '📌' })}
-              onCreateGroup={() => toast('Tạo nhóm trò chuyện — sẽ có trong bản sau', { icon: '👥' })}
+              onMute={() => toast(t('friendChat.muteSoon'), { icon: '🔕' })}
+              onPin={() => toast(t('friendChat.pinSoon'), { icon: '📌' })}
+              onCreateGroup={() => toast(t('friendChat.groupSoon'), { icon: '👥' })}
             />
           )}
         </div>
@@ -1414,11 +1538,18 @@ function FriendChatPage({ landingDemo = false } = {}) {
         isOpen={deleteMsgConfirmId != null}
         onClose={() => setDeleteMsgConfirmId(null)}
         onConfirm={confirmDeleteMessage}
-        title="Xoá tin nhắn"
-        message="Xoá tin nhắn này?"
-        confirmText="Xóa"
-        cancelText="Hủy"
+        title={t('friendChat.confirmDeleteTitle')}
+        message={t('friendChat.confirmDeleteMsg')}
+        confirmText={t('common.delete')}
+        cancelText={t('nav.cancel')}
       />
+      {inlineToast && (
+        <Toast
+          message={inlineToast.message}
+          type={inlineToast.type}
+          onClose={() => setInlineToast(null)}
+        />
+      )}
     </div>
   );
 }

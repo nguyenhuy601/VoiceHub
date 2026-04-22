@@ -3,10 +3,15 @@ const taskService = require('../services/task.service');
 const Task = require('../models/Task');
 const mongoose = require('../db');
 const { logger } = require('/shared');
+const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
 const { publishTaskFromFileJob } = require('../messaging/taskFromFilePublisher');
 
 const CHAT_SERVICE_URL = (process.env.CHAT_SERVICE_URL || 'http://chat-service:3006').replace(/\/$/, '');
 const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
+const ORGANIZATION_SERVICE_URL = (process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013').replace(
+  /\/$/,
+  ''
+);
 
 class TaskController {
   // Tạo task mới
@@ -59,6 +64,14 @@ class TaskController {
   // Lấy task theo ID
   async getTaskById(req, res) {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
       const { taskId } = req.params;
       const task = await taskService.getTaskById(taskId);
 
@@ -69,9 +82,35 @@ class TaskController {
         });
       }
 
-      res.json({
-        success: true,
-        data: task,
+      const isCreator = String(task.createdBy) === String(userId);
+      const isAssignee = task.assigneeId && String(task.assigneeId) === String(userId);
+      if (isCreator || isAssignee) {
+        return res.json({
+          success: true,
+          data: task,
+        });
+      }
+
+      if (task.organizationId) {
+        const orgRes = await axios.get(
+          `${ORGANIZATION_SERVICE_URL}/api/organizations/${task.organizationId}`,
+          {
+            headers: buildTrustedGatewayHeaders(userId),
+            timeout: 15000,
+            validateStatus: () => true,
+          }
+        );
+        if (orgRes.status === 200) {
+          return res.json({
+            success: true,
+            data: task,
+          });
+        }
+      }
+
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden',
       });
     } catch (error) {
       logger.error('Get task error:', error);
@@ -85,10 +124,19 @@ class TaskController {
   // Lấy danh sách tasks
   async getTasks(req, res) {
     try {
+      if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({
+          success: false,
+          message: 'Database unavailable',
+        });
+      }
+
+      const q = req.query || {};
+      const first = (v) => (Array.isArray(v) ? v[0] : v);
       const {
-        assigneeId,
-        organizationId,
-        serverId,
+        assigneeId: assigneeIdRaw,
+        organizationId: organizationIdRaw,
+        serverId: serverIdRaw,
         status,
         priority,
         page,
@@ -96,21 +144,81 @@ class TaskController {
         dueFrom,
         dueTo,
       } = req.query;
-      const userId = req.user?.id || req.userContext?.userId || req.headers['x-user-id'];
+      const assigneeId = first(assigneeIdRaw);
+      const organizationId = first(organizationIdRaw);
+      const serverId = first(serverIdRaw);
+      const userId = req.user?.id || req.userContext?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      if (assigneeId && String(assigneeId) !== String(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+      }
 
       const filter = { isActive: true };
 
+      const parseOid = (raw, label) => {
+        if (raw == null || raw === '') return null;
+        const s = String(raw).trim();
+        if (!mongoose.isValidObjectId(s)) {
+          return { error: `${label} must be a valid id` };
+        }
+        return { value: s };
+      };
+
       if (assigneeId) {
-        filter.assigneeId = assigneeId;
+        const p = parseOid(assigneeId, 'assigneeId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.assigneeId = p.value;
       } else if (userId) {
-        // Nếu không có assigneeId, lấy tasks của user
-        filter.$or = [{ assigneeId: userId }, { createdBy: userId }];
+        const p = parseOid(userId, 'user');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.$or = [{ assigneeId: p.value }, { createdBy: p.value }];
       }
 
-      if (organizationId) filter.organizationId = organizationId;
-      if (serverId) filter.serverId = serverId;
+      if (organizationId) {
+        const p = parseOid(organizationId, 'organizationId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.organizationId = p.value;
+      }
+      if (serverId) {
+        const p = parseOid(serverId, 'serverId');
+        if (p.error) {
+          return res.status(400).json({ success: false, message: p.error });
+        }
+        filter.serverId = p.value;
+      }
       if (status) filter.status = status;
       if (priority) filter.priority = priority;
+
+      const searchQ = first(q.q);
+      if (searchQ != null && String(searchQ).trim() !== '') {
+        const esc = String(searchQ)
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const textSearch = {
+          $or: [
+            { title: { $regex: esc, $options: 'i' } },
+            { description: { $regex: esc, $options: 'i' } },
+          ],
+        };
+        const existing = { ...filter };
+        Object.keys(filter).forEach((k) => delete filter[k]);
+        filter.$and = [existing, textSearch];
+      }
 
       let sort = { createdAt: -1 };
       if (dueFrom || dueTo) {
@@ -157,6 +265,12 @@ class TaskController {
       });
     } catch (error) {
       logger.error('Get tasks error:', error);
+      if (error.name === 'CastError' || error.name === 'BSONError') {
+        return res.status(400).json({
+          success: false,
+          message: error.message || 'Invalid query parameter',
+        });
+      }
       res.status(500).json({
         success: false,
         message: error.message,
@@ -396,6 +510,22 @@ class TaskController {
         success: false,
         message: error.message,
       });
+    }
+  }
+
+  /** Gọi nội bộ — xóa mọi task thuộc tổ chức */
+  async purgeOrganizationTasks(req, res) {
+    try {
+      const { organizationId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
+        return res.status(400).json({ success: false, message: 'Invalid organizationId' });
+      }
+      const oid = new mongoose.Types.ObjectId(String(organizationId));
+      const result = await Task.deleteMany({ organizationId: oid });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      logger.error('purgeOrganizationTasks error:', error);
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 }

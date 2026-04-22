@@ -47,6 +47,8 @@ router.patch(
   joinApplicationController.reviewJoinApplication
 );
 
+router.get('/:orgId/accessible-channel-ids', organizationController.getAccessibleChannelIds);
+
 router.get('/:id', organizationController.getOrganization);
 router.put('/:id', authorize(['owner', 'admin']), organizationController.updateOrganization);
 router.delete('/:id', authorize(['owner']), organizationController.deleteOrganization);

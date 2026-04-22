@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { ChevronDown } from 'lucide-react';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { Dropdown, GlassCard, GradientButton, Modal, Toast } from '../../components/Shared';
+import { useTheme } from '../../context/ThemeContext';
+import { tasksFilterTrigger, threeFramePageHeader } from '../../theme/shellTheme';
 import TasksKanbanDnd, {
   COL_TODO,
   COL_PROGRESS,
@@ -8,7 +11,10 @@ import TasksKanbanDnd, {
 } from '../../components/Tasks/TasksKanbanDnd';
 import { taskAPI } from '../../services/api/taskAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import apiClient from '../../services/api/apiClient';
+import userService from '../../services/userService';
+import { useLocale } from '../../context/LocaleContext';
+import { useAppStrings } from '../../locales/appStrings';
+import { useDebouncedValue } from '../../features/search/useDebouncedValue';
 
 const PROOF_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -23,11 +29,15 @@ function initialsFromName(name) {
   return name.slice(0, 2).toUpperCase();
 }
 
-function formatDueDate(value) {
-  if (value == null) return 'Không hạn';
+function formatDueDate(value, locale) {
+  if (value == null) return null;
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 function columnForStatus(status) {
@@ -68,28 +78,76 @@ function getPriorityColor(priority) {
   return colors[priority] || colors.medium;
 }
 
-function getPriorityLabel(priority) {
-  const labels = {
-    urgent: 'Khẩn cấp',
-    high: 'Cao',
-    medium: 'Trung bình',
-    low: 'Thấp',
-  };
-  return labels[priority] || priority;
-}
-
-function statusLabelVi(status) {
-  const m = {
-    todo: 'Cần làm',
-    in_progress: 'Đang làm',
-    review: 'Đang review',
-    done: 'Hoàn thành',
-    cancelled: 'Đã hủy',
-  };
-  return m[status] || status;
+function dropdownMenuItemClass(isDark) {
+  return isDark
+    ? 'w-full rounded-lg px-3 py-2.5 text-left text-sm text-slate-100 transition-colors hover:bg-white/10'
+    : 'w-full rounded-lg px-3 py-2.5 text-left text-sm text-slate-800 transition-colors hover:bg-slate-100';
 }
 
 export default function TasksPage() {
+  const { isDarkMode } = useTheme();
+  const { locale } = useLocale();
+  const { t } = useAppStrings();
+  const headerStrip = threeFramePageHeader(isDarkMode);
+  const filterTrigger = tasksFilterTrigger(isDarkMode);
+
+  const PRIORITY_FILTER_OPTS = useMemo(
+    () => [
+      { value: 'all', label: t('tasks.filterAllPriority') },
+      { value: 'urgent', label: t('tasks.priorityUrgent') },
+      { value: 'high', label: t('tasks.priorityHigh') },
+      { value: 'medium', label: t('tasks.priorityMedium') },
+      { value: 'low', label: t('tasks.priorityLow') },
+    ],
+    [t],
+  );
+  const PRIORITY_FORM_OPTS = useMemo(
+    () => [
+      { value: 'urgent', label: t('tasks.priorityUrgent') },
+      { value: 'high', label: t('tasks.priorityHigh') },
+      { value: 'medium', label: t('tasks.priorityMedium') },
+      { value: 'low', label: t('tasks.priorityLow') },
+    ],
+    [t],
+  );
+  const PRIORITY_DETAIL_OPTS = useMemo(
+    () => [
+      { value: 'low', label: t('tasks.priorityLow') },
+      { value: 'medium', label: t('tasks.priorityMedium') },
+      { value: 'high', label: t('tasks.priorityHigh') },
+      { value: 'urgent', label: t('tasks.priorityUrgent') },
+    ],
+    [t],
+  );
+
+  const getPriorityLabel = useCallback(
+    (priority) =>
+      ({
+        urgent: t('tasks.priorityUrgent'),
+        high: t('tasks.priorityHigh'),
+        medium: t('tasks.priorityMedium'),
+        low: t('tasks.priorityLow'),
+      })[priority] || priority,
+    [t],
+  );
+
+  const statusLabel = useCallback(
+    (status) =>
+      ({
+        todo: t('tasks.statusTodo'),
+        in_progress: t('tasks.statusInProgress'),
+        review: t('tasks.statusReview'),
+        done: t('tasks.statusDone'),
+        cancelled: t('tasks.statusCancelled'),
+      })[status] || status,
+    [t],
+  );
+
+  const dueLabel = useCallback(
+    (value) => formatDueDate(value, locale) ?? t('tasks.noDeadline'),
+    [locale, t],
+  );
+
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [userNameMap, setUserNameMap] = useState({});
@@ -99,6 +157,8 @@ export default function TasksPage() {
 
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterAssignee, setFilterAssignee] = useState('all');
+  const [taskSearchInput, setTaskSearchInput] = useState('');
+  const taskSearchDebounced = useDebouncedValue(taskSearchInput, 350);
   const [viewMode, setViewMode] = useState('kanban');
   const [selectedTask, setSelectedTask] = useState(null);
 
@@ -121,6 +181,7 @@ export default function TasksPage() {
   const [proofModal, setProofModal] = useState({ open: false, task: null });
   const [proofFiles, setProofFiles] = useState([]);
   const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -139,9 +200,9 @@ export default function TasksPage() {
       });
     } catch (e) {
       console.error(e);
-      setLoadError('Không tải được danh sách tổ chức.');
+      setLoadError(t('tasks.loadOrgFail'));
     }
-  }, []);
+  }, [t]);
 
   const resolveUserNames = useCallback(async (memberRows) => {
     const ids = [
@@ -155,18 +216,22 @@ export default function TasksPage() {
     await Promise.all(
       ids.map(async (uid) => {
         try {
-          const u = await apiClient.get(`/users/${uid}`);
+          const u = await userService.getProfile(uid);
           const profile = u?.data ?? u;
           const p = profile?.data ?? profile;
           next[uid] =
-            p?.displayName || p?.fullName || p?.username || p?.name || `Thành viên …${uid.slice(-6)}`;
+            p?.displayName ||
+            p?.fullName ||
+            p?.username ||
+            p?.name ||
+            t('tasks.memberFallback', { id: uid.slice(-6) });
         } catch {
-          next[uid] = `Thành viên …${uid.slice(-6)}`;
+          next[uid] = t('tasks.memberFallback', { id: uid.slice(-6) });
         }
       })
     );
     setUserNameMap((prev) => ({ ...prev, ...next }));
-  }, []);
+  }, [t]);
 
   const loadMembers = useCallback(
     async (orgId) => {
@@ -191,16 +256,19 @@ export default function TasksPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const res = await taskAPI.getTasks({ organizationId: selectedOrgId, limit: 200 });
+      const params = { organizationId: selectedOrgId, limit: 200 };
+      const qs = taskSearchDebounced.trim();
+      if (qs) params.q = qs;
+      const res = await taskAPI.getTasks(params);
       setTasks(parseTaskListResponse(res));
     } catch (e) {
       console.error(e);
-      setLoadError(e?.response?.data?.message || e?.message || 'Không tải được danh sách task.');
+      setLoadError(e?.response?.data?.message || e?.message || t('tasks.loadTaskFail'));
       setTasks([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgId]);
+  }, [selectedOrgId, t, taskSearchDebounced]);
 
   useEffect(() => {
     loadOrganizations();
@@ -224,10 +292,10 @@ export default function TasksPage() {
   const assigneeName = useCallback(
     (task) => {
       const id = task?.assigneeId ? String(task.assigneeId) : '';
-      if (!id) return 'Chưa gán';
+      if (!id) return t('tasks.unassigned');
       return userNameMap[id] || `…${id.slice(-6)}`;
     },
-    [userNameMap]
+    [userNameMap, t]
   );
 
   /** Gateway đọc organizationId từ query — bắt buộc khi middleware cần ngữ cảnh org */
@@ -269,11 +337,11 @@ export default function TasksPage() {
 
   const handleCreateTask = async () => {
     if (!selectedOrgId) {
-      showToast('Chọn tổ chức trước khi tạo task.', 'error');
+      showToast(t('tasks.selectOrgFirst'), 'error');
       return;
     }
     if (!formData.title.trim()) {
-      showToast('Vui lòng nhập tiêu đề công việc', 'error');
+      showToast(t('tasks.titleRequired'), 'error');
       return;
     }
 
@@ -292,7 +360,7 @@ export default function TasksPage() {
       }
 
       await taskAPI.createTask(body);
-      showToast('Tạo công việc thành công!', 'success');
+      showToast(t('tasks.createOk'), 'success');
       setShowCreateTaskModal(false);
       setFormData({
         title: '',
@@ -304,7 +372,7 @@ export default function TasksPage() {
       await fetchTasks();
     } catch (error) {
       console.error('Lỗi tạo công việc:', error);
-      showToast(error.response?.data?.message || error.message || 'Lỗi tạo công việc', 'error');
+      showToast(error.response?.data?.message || error.message || t('tasks.createErr'), 'error');
     } finally {
       setCreateTaskLoading(false);
     }
@@ -323,11 +391,11 @@ export default function TasksPage() {
         },
         taskApiOpts
       );
-      showToast('Đã lưu thay đổi', 'success');
+      showToast(t('tasks.saved'), 'success');
       await fetchTasks();
       setSelectedTask(null);
     } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Lưu thất bại', 'error');
+      showToast(e?.response?.data?.message || e?.message || t('tasks.saveFail'), 'error');
     } finally {
       setDetailSaving(false);
     }
@@ -342,11 +410,11 @@ export default function TasksPage() {
     setDetailSaving(true);
     try {
       await taskAPI.updateTask(String(selectedTask._id), { status: 'done' }, taskApiOpts);
-      showToast('Đã đánh dấu hoàn thành', 'success');
+      showToast(t('tasks.markedDone'), 'success');
       await fetchTasks();
       setSelectedTask(null);
     } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Thao tác thất bại', 'error');
+      showToast(e?.response?.data?.message || e?.message || t('tasks.opFail'), 'error');
     } finally {
       setDetailSaving(false);
     }
@@ -354,15 +422,15 @@ export default function TasksPage() {
 
   const handleDeleteTask = async () => {
     if (!selectedTask?._id) return;
-    if (!window.confirm('Xóa task này?')) return;
+    if (!window.confirm(t('tasks.confirmDelete'))) return;
     setDetailSaving(true);
     try {
       await taskAPI.deleteTask(String(selectedTask._id), taskApiOpts);
-      showToast('Đã xóa task', 'success');
+      showToast(t('tasks.deleted'), 'success');
       await fetchTasks();
       setSelectedTask(null);
     } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Xóa thất bại', 'error');
+      showToast(e?.response?.data?.message || e?.message || t('tasks.deleteFail'), 'error');
     } finally {
       setDetailSaving(false);
     }
@@ -386,25 +454,25 @@ export default function TasksPage() {
 
       try {
         await taskAPI.updateTask(String(task._id), { status: next }, taskApiOpts);
-        showToast('Đã cập nhật trạng thái', 'success');
+        showToast(t('tasks.statusUpdated'), 'success');
         await fetchTasks();
       } catch (e) {
-        showToast(e?.response?.data?.message || e?.message || 'Không thể di chuyển task', 'error');
+        showToast(e?.response?.data?.message || e?.message || t('tasks.moveFail'), 'error');
       }
     },
-    [fetchTasks, taskApiOpts]
+    [fetchTasks, taskApiOpts, t]
   );
 
   const submitProofAndDone = async () => {
-    const t = proofModal.task;
-    if (!t?._id) return;
+    const taskRow = proofModal.task;
+    if (!taskRow?._id) return;
     if (!proofFiles.length) {
-      showToast('Chọn ít nhất một file minh chứng (ảnh, tài liệu…)', 'error');
+      showToast(t('tasks.proofRequired'), 'error');
       return;
     }
     for (const f of proofFiles) {
       if (f.size > PROOF_MAX_BYTES) {
-        showToast(`File "${f.name}" vượt quá 5MB`, 'error');
+        showToast(t('tasks.fileTooBig', { name: f.name }), 'error');
         return;
       }
     }
@@ -421,15 +489,15 @@ export default function TasksPage() {
             })
         )
       );
-      const merged = [...(t.attachments || []), ...newAtt];
-      await taskAPI.updateTask(String(t._id), { status: 'done', attachments: merged }, taskApiOpts);
-      showToast('Đã hoàn thành với minh chứng đính kèm', 'success');
+      const merged = [...(taskRow.attachments || []), ...newAtt];
+      await taskAPI.updateTask(String(taskRow._id), { status: 'done', attachments: merged }, taskApiOpts);
+      showToast(t('tasks.proofOk'), 'success');
       setProofModal({ open: false, task: null });
       setProofFiles([]);
       await fetchTasks();
-      setSelectedTask((prev) => (prev && String(prev._id) === String(t._id) ? null : prev));
+      setSelectedTask((prev) => (prev && String(prev._id) === String(taskRow._id) ? null : prev));
     } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Lỗi khi lưu', 'error');
+      showToast(e?.response?.data?.message || e?.message || t('tasks.proofErr'), 'error');
     } finally {
       setProofSubmitting(false);
     }
@@ -440,6 +508,15 @@ export default function TasksPage() {
     const commentsCount = Array.isArray(task.comments) ? task.comments.length : 0;
     const attachmentsCount = Array.isArray(task.attachments) ? task.attachments.length : 0;
     const initial = initialsFromName(name);
+    const titleCls = isDarkMode
+      ? `font-bold text-white flex-1 group-hover:text-purple-200 transition-colors ${doneStyle ? 'line-through' : ''}`
+      : `font-bold text-slate-900 flex-1 group-hover:text-cyan-800 transition-colors ${doneStyle ? 'line-through' : ''}`;
+    const tagCls = isDarkMode
+      ? 'px-2 py-0.5 rounded-full glass text-xs text-gray-300'
+      : 'px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-xs text-slate-700';
+    const avatarCls = isDarkMode
+      ? 'from-purple-600 to-pink-600'
+      : 'from-cyan-600 to-teal-600';
 
     return (
       <>
@@ -447,36 +524,38 @@ export default function TasksPage() {
 
         <div className="flex items-start gap-2 mb-2">
           {task.status === 'cancelled' && (
-            <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-amber-200 shrink-0">Đã hủy</span>
+            <span
+              className={`text-xs px-2 py-0.5 rounded shrink-0 ${
+                isDarkMode ? 'bg-white/10 text-amber-200' : 'bg-amber-100 text-amber-900'
+              }`}
+            >
+              {t('tasks.cancelledBadge')}
+            </span>
           )}
-          <h3
-            className={`font-bold text-white flex-1 group-hover:text-purple-200 transition-colors ${
-              doneStyle ? 'line-through' : ''
-            }`}
-          >
-            {task.title}
-          </h3>
+          <h3 className={titleCls}>{task.title}</h3>
         </div>
 
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-3">
             {tags.map((tag, idx) => (
-              <span key={idx} className="px-2 py-0.5 rounded-full glass text-xs text-gray-300">
+              <span key={idx} className={tagCls}>
                 {tag}
               </span>
             ))}
           </div>
         )}
 
-        <div className="flex items-center justify-between text-xs text-gray-400">
+        <div
+          className={`flex items-center justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+        >
           <div className="flex items-center gap-2 min-w-0">
             <span
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+              className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarCls} flex items-center justify-center text-[10px] font-bold text-white shrink-0`}
               title={name}
             >
               {initial}
             </span>
-            <span className="truncate text-gray-300">{name}</span>
+            <span className={`truncate ${isDarkMode ? 'text-gray-300' : 'text-slate-700'}`}>{name}</span>
           </div>
           <span
             className={`px-2 py-1 rounded-lg text-[10px] font-bold bg-gradient-to-r ${getPriorityColor(
@@ -487,8 +566,10 @@ export default function TasksPage() {
           </span>
         </div>
 
-        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-          <span className="flex items-center gap-1">📅 {formatDueDate(task.dueDate)}</span>
+        <div
+          className={`mt-2 flex items-center justify-between text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}
+        >
+          <span className="flex items-center gap-1">📅 {dueLabel(task.dueDate)}</span>
           <span className="flex items-center gap-2">
             {commentsCount > 0 && <span>💬 {commentsCount}</span>}
             {attachmentsCount > 0 && <span>📎 {attachmentsCount}</span>}
@@ -507,59 +588,130 @@ export default function TasksPage() {
 
   const orgSelectDisabled = organizations.length === 0;
 
+  const selectedOrgLabel = useMemo(() => {
+    if (organizations.length === 0) return t('tasks.noOrgInList');
+    if (!selectedOrgId) return t('tasks.selectOrgPlaceholder');
+    const o = organizations.find((x) => String(x._id || x.id) === selectedOrgId);
+    return o ? o.name || selectedOrgId : selectedOrgId;
+  }, [organizations, selectedOrgId, t]);
+
+  const priorityFilterLabel = useMemo(
+    () => PRIORITY_FILTER_OPTS.find((o) => o.value === filterPriority)?.label || filterPriority,
+    [filterPriority, PRIORITY_FILTER_OPTS],
+  );
+
+  const assigneeFilterLabel = useMemo(() => {
+    if (filterAssignee === 'all') return t('tasks.allAssignees');
+    if (filterAssignee === 'unassigned') return t('tasks.unassigned');
+    return userNameMap[filterAssignee] || filterAssignee;
+  }, [filterAssignee, userNameMap, t]);
+
   return (
     <ThreeFrameLayout
       center={
-        <div className="flex flex-col h-full">
-          <div className="p-6 glass-strong border-b border-white/10">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className={`p-6 ${headerStrip}`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
               <div>
-                <h1 className="text-4xl font-black text-gradient mb-2">Bảng Công Việc</h1>
-                <p className="text-gray-400">Task theo tổ chức — dữ liệu từ server</p>
+                <h1
+                  className={`text-4xl font-black mb-2 ${
+                    isDarkMode ? 'text-gradient' : 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 to-teal-700'
+                  }`}
+                >
+                  {t('tasks.pageTitle')}
+                </h1>
+                <p className={`text-base leading-relaxed ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                  {t('tasks.pageSubtitle')}
+                </p>
               </div>
               <div className="flex flex-wrap gap-3 items-center">
-                <label className="flex items-center gap-2 text-sm text-gray-400">
-                  <span>Tổ chức</span>
-                  <select
-                    value={selectedOrgId}
-                    onChange={(e) => setSelectedOrgId(e.target.value)}
-                    disabled={orgSelectDisabled}
-                    className="px-3 py-2 rounded-xl glass border border-white/20 text-white text-sm min-w-[180px] disabled:opacity-50"
-                  >
-                    {organizations.length === 0 ? (
-                      <option value="">Chưa có tổ chức</option>
-                    ) : (
-                      organizations.map((o) => {
-                        const id = String(o._id || o.id);
-                        return (
-                          <option key={id} value={id}>
-                            {o.name || id}
-                          </option>
-                        );
-                      })
-                    )}
-                  </select>
-                </label>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={isDarkMode ? 'text-gray-400' : 'text-slate-600'}>{t('tasks.orgLabel')}</span>
+                  <div className="min-w-[180px]">
+                    <Dropdown
+                      align="left"
+                      trigger={
+                        <button
+                          type="button"
+                          disabled={orgSelectDisabled}
+                          className={`${filterTrigger} min-w-[180px] disabled:pointer-events-none disabled:opacity-50`}
+                        >
+                          <span className="truncate">{selectedOrgLabel}</span>
+                          <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                        </button>
+                      }
+                    >
+                      {(close) => (
+                        <div className="max-h-64 overflow-y-auto py-1">
+                          {organizations.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-slate-400">{t('tasks.noOrgInList')}</div>
+                          ) : (
+                            organizations.map((o) => {
+                              const id = String(o._id || o.id);
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  className={dropdownMenuItemClass(isDarkMode)}
+                                  onClick={() => {
+                                    setSelectedOrgId(id);
+                                    close();
+                                  }}
+                                >
+                                  {o.name || id}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </Dropdown>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setViewMode(viewMode === 'kanban' ? 'list' : 'kanban')}
-                  className="glass px-4 py-2 rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 font-semibold"
+                  className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 font-semibold ${
+                    isDarkMode
+                      ? 'glass hover:bg-white/10 text-slate-200'
+                      : 'border border-slate-200 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
+                  }`}
                 >
-                  <span>{viewMode === 'kanban' ? '📋' : '📊'}</span>
-                  {viewMode === 'kanban' ? 'Danh sách' : 'Kanban'}
+                  <span>                  {viewMode === 'kanban' ? '📋' : '📊'}</span>
+                  {viewMode === 'kanban' ? t('tasks.viewList') : t('tasks.viewKanban')}
                 </button>
                 <GradientButton
-                  variant="primary"
+                  variant="shell"
                   onClick={() => setShowCreateTaskModal(true)}
                   disabled={!selectedOrgId}
                 >
-                  <span className="text-xl mr-2">➕</span> Công Việc Mới
+                  {t('tasks.newTask')}
                 </GradientButton>
               </div>
             </div>
 
+            <div className="mb-4">
+              <input
+                type="search"
+                value={taskSearchInput}
+                onChange={(e) => setTaskSearchInput(e.target.value)}
+                placeholder={t('tasks.searchPlaceholder')}
+                className={`w-full max-w-md rounded-xl border px-3 py-2 text-sm outline-none transition ${
+                  isDarkMode
+                    ? 'border-white/10 bg-[#12151c] text-white placeholder:text-slate-500'
+                    : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                }`}
+              />
+            </div>
+
             {loadError && (
-              <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              <div
+                className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+                  isDarkMode
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                    : 'border-amber-300 bg-amber-50 text-amber-900'
+                }`}
+              >
                 {loadError}
               </div>
             )}
@@ -567,75 +719,147 @@ export default function TasksPage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex gap-6 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xl">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-600 to-teal-600 flex items-center justify-center text-xl shadow-sm">
                     📊
                   </div>
                   <div>
-                    <div className="text-sm text-gray-400">Tổng (đang lọc)</div>
-                    <div className="text-lg font-bold text-white">{totalTasks}</div>
+                    <div className={`text-base ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                      {t('tasks.statTotal')}
+                    </div>
+                    <div className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      {totalTasks}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xl">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xl shadow-sm">
                     ⏳
                   </div>
                   <div>
-                    <div className="text-sm text-gray-400">Đang làm + review</div>
-                    <div className="text-lg font-bold text-white">{columns.inProgress.length}</div>
+                    <div className={`text-base ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                      {t('tasks.statActive')}
+                    </div>
+                    <div className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      {columns.inProgress.length}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-xl">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-xl shadow-sm">
                     ✅
                   </div>
                   <div>
-                    <div className="text-sm text-gray-400">Hoàn thành</div>
-                    <div className="text-lg font-bold text-gradient">
+                    <div className={`text-base ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                      {t('tasks.statDone')}
+                    </div>
+                    <div
+                      className={`text-lg font-bold ${
+                        isDarkMode
+                          ? 'text-gradient'
+                          : 'text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-700'
+                      }`}
+                    >
                       {completedTasks} ({completionRate}%)
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-2 flex-wrap">
-                <select
-                  value={filterPriority}
-                  onChange={(e) => setFilterPriority(e.target.value)}
-                  className="px-4 py-2 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white text-sm"
-                >
-                  <option value="all">Tất cả ưu tiên</option>
-                  <option value="urgent">Khẩn cấp</option>
-                  <option value="high">Cao</option>
-                  <option value="medium">Trung bình</option>
-                  <option value="low">Thấp</option>
-                </select>
-                <select
-                  value={filterAssignee}
-                  onChange={(e) => setFilterAssignee(e.target.value)}
-                  className="px-4 py-2 rounded-xl glass border border-white/20 focus:border-purple-500 outline-none text-white text-sm max-w-[240px]"
-                >
-                  <option value="all">Tất cả người làm</option>
-                  <option value="unassigned">Chưa gán</option>
-                  {Object.entries(userNameMap).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap gap-2">
+                <div className="min-w-[200px] max-w-[min(100%,280px)]">
+                  <Dropdown
+                    align="left"
+                    trigger={
+                      <button type="button" className={`${filterTrigger} w-full`}>
+                        <span className="min-w-0 flex-1 truncate text-left">{priorityFilterLabel}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                      </button>
+                    }
+                  >
+                    {(close) => (
+                      <div className="max-h-64 overflow-y-auto py-1">
+                        {PRIORITY_FILTER_OPTS.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            className={dropdownMenuItemClass(isDarkMode)}
+                            onClick={() => {
+                              setFilterPriority(o.value);
+                              close();
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Dropdown>
+                </div>
+                <div className="min-w-[200px] max-w-[min(100%,280px)]">
+                  <Dropdown
+                    align="left"
+                    trigger={
+                      <button type="button" className={`${filterTrigger} w-full`}>
+                        <span className="min-w-0 flex-1 truncate text-left">{assigneeFilterLabel}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                      </button>
+                    }
+                  >
+                    {(close) => (
+                      <div className="max-h-64 overflow-y-auto py-1">
+                        <button
+                          type="button"
+                          className={dropdownMenuItemClass(isDarkMode)}
+                          onClick={() => {
+                            setFilterAssignee('all');
+                            close();
+                          }}
+                        >
+                          {t('tasks.allAssignees')}
+                        </button>
+                        <button
+                          type="button"
+                          className={dropdownMenuItemClass(isDarkMode)}
+                          onClick={() => {
+                            setFilterAssignee('unassigned');
+                            close();
+                          }}
+                        >
+                          {t('tasks.unassigned')}
+                        </button>
+                        {Object.entries(userNameMap).map(([id, label]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={dropdownMenuItemClass(isDarkMode)}
+                            onClick={() => {
+                              setFilterAssignee(id);
+                              close();
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Dropdown>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="flex-1 p-6">
+          <div className="flex-1 min-h-0 overflow-y-auto p-6">
             {loading ? (
-              <div className="py-20 text-center text-gray-400">Đang tải task…</div>
+              <div className={`py-20 text-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                {t('tasks.loadingTasks')}
+              </div>
             ) : !selectedOrgId ? (
-              <div className="py-20 text-center text-gray-400">
-                Tham gia một tổ chức để xem và tạo công việc.
+              <div className={`py-20 text-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                {t('tasks.joinOrgHint')}
               </div>
             ) : filteredTasks.length === 0 ? (
-              <div className="py-20 text-center text-gray-400">
-                Chưa có task nào (hoặc không khớp bộ lọc).
+              <div className={`py-20 text-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                {t('tasks.emptyFiltered')}
               </div>
             ) : viewMode === 'kanban' ? (
               <div className="space-y-3">
@@ -650,29 +874,43 @@ export default function TasksPage() {
                   <button
                     type="button"
                     onClick={() => setShowCreateTaskModal(true)}
-                    className="w-full py-3 glass rounded-xl hover:bg-white/10 transition-all text-gray-400 hover:text-white flex items-center justify-center gap-2"
+                    className={`w-full py-3 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                      isDarkMode
+                        ? 'glass hover:bg-white/10 text-gray-400 hover:text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900'
+                    }`}
                   >
-                    <span>➕</span> Thêm công việc
+                    <span>➕</span> {t('tasks.addTask')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowCreateTaskModal(true)}
-                    className="w-full py-3 glass rounded-xl hover:bg-white/10 transition-all text-gray-400 hover:text-white flex items-center justify-center gap-2"
+                    className={`w-full py-3 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                      isDarkMode
+                        ? 'glass hover:bg-white/10 text-gray-400 hover:text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900'
+                    }`}
                   >
-                    <span>➕</span> Thêm công việc
+                    <span>➕</span> {t('tasks.addTask')}
                   </button>
                   <div className="hidden md:block" aria-hidden />
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
-                <GlassCard className="mb-4">
-                  <div className="grid grid-cols-12 gap-4 text-sm font-bold text-gray-400 px-2">
-                    <div className="col-span-4">Tiêu đề</div>
-                    <div className="col-span-2">Người làm</div>
-                    <div className="col-span-2">Trạng thái</div>
-                    <div className="col-span-2">Ưu tiên</div>
-                    <div className="col-span-2">Hạn</div>
+                <GlassCard
+                  className={`mb-4 ${isDarkMode ? '' : '!border-slate-200/90 !bg-white/95 shadow-sm'}`}
+                >
+                  <div
+                    className={`grid grid-cols-12 gap-4 text-sm font-bold px-2 ${
+                      isDarkMode ? 'text-gray-400' : 'text-slate-600'
+                    }`}
+                  >
+                    <div className="col-span-4">{t('tasks.colTitle')}</div>
+                    <div className="col-span-2">{t('tasks.colAssignee')}</div>
+                    <div className="col-span-2">{t('tasks.colStatus')}</div>
+                    <div className="col-span-2">{t('tasks.colPriority')}</div>
+                    <div className="col-span-2">{t('tasks.colDue')}</div>
                   </div>
                 </GlassCard>
                 {listRows.map((task) => {
@@ -682,12 +920,12 @@ export default function TasksPage() {
                       ? 'from-green-500 to-emerald-500'
                       : col === 'inProgress'
                         ? 'from-blue-500 to-cyan-500'
-                        : 'from-purple-600 to-pink-600';
+                        : 'from-cyan-600 to-teal-600';
                   return (
                     <GlassCard
                       key={String(task._id)}
                       hover
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${isDarkMode ? '' : '!border-slate-200/90 !bg-white/95 shadow-sm'}`}
                       onClick={() => setSelectedTask(task)}
                     >
                       <div className="grid grid-cols-12 gap-4 items-center">
@@ -698,30 +936,41 @@ export default function TasksPage() {
                             )} mb-2`}
                           />
                           <h3
-                            className={`font-bold text-white truncate ${
-                              task.status === 'done' ? 'line-through opacity-75' : ''
-                            }`}
+                            className={`font-bold truncate ${
+                              isDarkMode ? 'text-white' : 'text-slate-900'
+                            } ${task.status === 'done' ? 'line-through opacity-75' : ''}`}
                           >
                             {task.title}
                           </h3>
                           {Array.isArray(task.tags) && task.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {task.tags.map((tag, idx) => (
-                                <span key={idx} className="px-2 py-0.5 rounded-full glass text-xs text-gray-400">
+                                <span
+                                  key={idx}
+                                  className={`px-2 py-0.5 rounded-full text-xs ${
+                                    isDarkMode
+                                      ? 'glass text-gray-400'
+                                      : 'border border-slate-200 bg-slate-50 text-slate-600'
+                                  }`}
+                                >
                                   {tag}
                                 </span>
                               ))}
                             </div>
                           )}
                         </div>
-                        <div className="col-span-2 text-sm text-gray-300 truncate">
+                        <div
+                          className={`col-span-2 text-sm truncate ${
+                            isDarkMode ? 'text-gray-300' : 'text-slate-700'
+                          }`}
+                        >
                           {assigneeName(task)}
                         </div>
                         <div className="col-span-2">
                           <span
                             className={`px-3 py-1 rounded-lg text-xs font-bold bg-gradient-to-r ${statusColor} text-white inline-block`}
                           >
-                            {statusLabelVi(task.status)}
+                            {statusLabel(task.status)}
                           </span>
                         </div>
                         <div className="col-span-2">
@@ -733,8 +982,10 @@ export default function TasksPage() {
                             {getPriorityLabel(task.priority)}
                           </span>
                         </div>
-                        <div className="col-span-2 text-sm text-gray-400">
-                          📅 {formatDueDate(task.dueDate)}
+                        <div
+                          className={`col-span-2 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                        >
+                          📅 {dueLabel(task.dueDate)}
                         </div>
                       </div>
                     </GlassCard>
@@ -747,8 +998,9 @@ export default function TasksPage() {
           <Modal
             isOpen={selectedTask !== null}
             onClose={() => setSelectedTask(null)}
-            title={detailTitle || 'Chi tiết công việc'}
+            title={detailTitle || t('tasks.detailTitle')}
             size="lg"
+            layerClassName="z-[10040]"
           >
             {selectedTask && (
               <div className="space-y-6">
@@ -775,11 +1027,11 @@ export default function TasksPage() {
                       >
                         {getPriorityLabel(detailPriority)}
                       </span>
-                      <span className="text-sm text-gray-400">{statusLabelVi(selectedTask.status)}</span>
-                      <span className="text-sm text-gray-400">📅 {formatDueDate(selectedTask.dueDate)}</span>
+                      <span className="text-sm text-gray-400">{statusLabel(selectedTask.status)}</span>
+                      <span className="text-sm text-gray-400">📅 {dueLabel(selectedTask.dueDate)}</span>
                       {selectedTask.completedAt && (
                         <span className="text-sm text-green-400">
-                          ✓ Hoàn thành lúc {formatDueDate(selectedTask.completedAt)}
+                          ✓ {t('tasks.completedAt')} {dueLabel(selectedTask.completedAt)}
                         </span>
                       )}
                     </div>
@@ -789,31 +1041,48 @@ export default function TasksPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <GlassCard>
                     <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
-                      <span>👤</span> Người phụ trách
+                      <span>👤</span> {t('tasks.assigneeLead')}
                     </h4>
                     <p className="text-white">{assigneeName(selectedTask)}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Đổi người nhận có thể bổ sung sau (API assign).
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{t('tasks.assigneeApiNote')}</p>
                   </GlassCard>
                   <GlassCard>
-                    <h4 className="font-semibold text-white mb-3">Ưu tiên</h4>
-                    <select
-                      value={detailPriority}
-                      onChange={(e) => setDetailPriority(e.target.value)}
-                      className="w-full glass px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white"
+                    <h4 className="font-semibold text-white mb-3">{t('tasks.prioritySection')}</h4>
+                    <Dropdown
+                      align="left"
+                      trigger={
+                        <button type="button" className={`${filterTrigger} w-full`} disabled={detailSaving}>
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {PRIORITY_DETAIL_OPTS.find((o) => o.value === detailPriority)?.label || detailPriority}
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                        </button>
+                      }
                     >
-                      <option value="low">Thấp</option>
-                      <option value="medium">Trung bình</option>
-                      <option value="high">Cao</option>
-                      <option value="urgent">Khẩn cấp</option>
-                    </select>
+                      {(close) => (
+                        <div className="py-1">
+                          {PRIORITY_DETAIL_OPTS.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              className={dropdownMenuItemClass(isDarkMode)}
+                              onClick={() => {
+                                setDetailPriority(o.value);
+                                close();
+                              }}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </Dropdown>
                   </GlassCard>
                 </div>
 
                 <GlassCard>
                   <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
-                    <span>📝</span> Mô tả
+                    <span>📝</span> {t('tasks.descriptionLabel')}
                   </h4>
                   <textarea
                     value={detailDescription}
@@ -826,14 +1095,14 @@ export default function TasksPage() {
                 {Array.isArray(selectedTask.comments) && selectedTask.comments.length > 0 && (
                   <GlassCard>
                     <h4 className="font-semibold text-white mb-3">
-                      💬 Bình luận ({selectedTask.comments.length})
+                      💬 {t('tasks.commentsTitle')} ({selectedTask.comments.length})
                     </h4>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {selectedTask.comments.map((c, idx) => (
                         <div key={idx} className="p-3 glass-strong rounded-lg text-sm text-gray-300">
                           <div className="text-xs text-gray-500 mb-1">
-                            User {String(c.userId || '').slice(-6)} ·{' '}
-                            {c.createdAt ? formatDueDate(c.createdAt) : ''}
+                            {t('tasks.userComment')} {String(c.userId || '').slice(-6)} ·{' '}
+                            {c.createdAt ? dueLabel(c.createdAt) : ''}
                           </div>
                           {c.content}
                         </div>
@@ -845,11 +1114,11 @@ export default function TasksPage() {
                 <div className="flex gap-3 pt-4 border-t border-white/10 flex-wrap">
                   {selectedTask.status !== 'done' && (
                     <GradientButton variant="success" className="flex-1 min-w-[120px]" onClick={handleMarkDone} disabled={detailSaving}>
-                      ✓ Hoàn thành
+                      ✓ {t('tasks.markDoneBtn')}
                     </GradientButton>
                   )}
                   <GradientButton variant="primary" className="flex-1 min-w-[120px]" onClick={handleSaveDetail} disabled={detailSaving}>
-                    {detailSaving ? 'Đang lưu…' : 'Lưu thay đổi'}
+                    {detailSaving ? t('tasks.saving') : t('tasks.saveChanges')}
                   </GradientButton>
                   <button
                     type="button"
@@ -857,7 +1126,7 @@ export default function TasksPage() {
                     disabled={detailSaving}
                     className="glass px-4 py-3 rounded-xl hover:bg-red-500/20 text-red-400"
                   >
-                    🗑️ Xóa
+                    🗑️ {t('common.delete')}
                   </button>
                 </div>
               </div>
@@ -872,20 +1141,21 @@ export default function TasksPage() {
                 setProofFiles([]);
               }
             }}
-            title="Minh chứng hoàn thành"
+            title={t('tasks.proofTitle')}
             size="lg"
+            layerClassName="z-[10040]"
           >
             <p className="text-sm text-slate-400 mb-4">
-              Để chuyển task sang <strong className="text-white">Hoàn thành</strong>, cần đính kèm ít nhất một
-              file minh chứng (ảnh chụp màn hình, PDF, báo cáo…). File được lưu kèm task (data URL, phù hợp file
-              nhỏ).
+              {t('tasks.proofLine1')}{' '}
+              <strong className="text-white">{t('tasks.proofDoneWord')}</strong>
+              {t('tasks.proofLine2')}
             </p>
             {proofModal.task && (
               <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white mb-4">
                 {proofModal.task.title}
               </div>
             )}
-            <label className="block text-sm font-semibold text-gray-400 mb-2">Chọn file</label>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">{t('tasks.proofPick')}</label>
             <input
               type="file"
               multiple
@@ -913,10 +1183,10 @@ export default function TasksPage() {
                 }}
                 className="glass px-4 py-2 rounded-xl text-slate-200 hover:bg-white/10"
               >
-                Hủy
+                {t('nav.cancel')}
               </button>
               <GradientButton variant="primary" disabled={proofSubmitting} onClick={submitProofAndDone}>
-                {proofSubmitting ? 'Đang lưu…' : 'Xác nhận hoàn thành'}
+                {proofSubmitting ? t('tasks.saving') : t('tasks.proofSubmit')}
               </GradientButton>
             </div>
           </Modal>
@@ -924,17 +1194,18 @@ export default function TasksPage() {
           <Modal
             isOpen={showCreateTaskModal}
             onClose={() => setShowCreateTaskModal(false)}
-            title="Tạo công việc mới"
+            title={t('tasks.modalCreateTitle')}
             size="lg"
+            layerClassName="z-[10040]"
           >
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-400 mb-2">
-                  Tiêu đề <span className="text-red-400">*</span>
+                  {t('tasks.titleLabel')} <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Nhập tiêu đề..."
+                  placeholder={t('tasks.phTaskTitle')}
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   disabled={createTaskLoading}
@@ -942,41 +1213,96 @@ export default function TasksPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-400 mb-2">Ưu tiên</label>
-                  <select
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                    disabled={createTaskLoading}
-                    className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white disabled:opacity-50"
+                  <label className="block text-sm font-semibold text-gray-400 mb-2">{t('tasks.prioritySection')}</label>
+                  <Dropdown
+                    align="left"
+                    trigger={
+                      <button
+                        type="button"
+                        disabled={createTaskLoading}
+                        className={`${filterTrigger} w-full disabled:pointer-events-none disabled:opacity-50`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-left">
+                          {PRIORITY_FORM_OPTS.find((o) => o.value === formData.priority)?.label ||
+                            formData.priority}
+                        </span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                      </button>
+                    }
                   >
-                    <option value="urgent">Khẩn cấp</option>
-                    <option value="high">Cao</option>
-                    <option value="medium">Trung bình</option>
-                    <option value="low">Thấp</option>
-                  </select>
+                    {(close) => (
+                      <div className="py-1">
+                        {PRIORITY_FORM_OPTS.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            className={dropdownMenuItemClass(isDarkMode)}
+                            onClick={() => {
+                              setFormData((fd) => ({ ...fd, priority: o.value }));
+                              close();
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Dropdown>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-400 mb-2">Người làm (tuỳ chọn)</label>
-                  <select
-                    value={formData.assigneeId}
-                    onChange={(e) => setFormData({ ...formData, assigneeId: e.target.value })}
-                    disabled={createTaskLoading}
-                    className="w-full glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white disabled:opacity-50"
+                  <label className="block text-sm font-semibold text-gray-400 mb-2">{t('tasks.assigneeOptional')}</label>
+                  <Dropdown
+                    align="left"
+                    trigger={
+                      <button
+                        type="button"
+                        disabled={createTaskLoading}
+                        className={`${filterTrigger} w-full disabled:pointer-events-none disabled:opacity-50`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-left">
+                          {formData.assigneeId === ''
+                            ? t('tasks.unassignedDash')
+                            : userNameMap[formData.assigneeId] || formData.assigneeId}
+                        </span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                      </button>
+                    }
                   >
-                    <option value="">— Chưa gán —</option>
-                    {Object.entries(userNameMap).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                    {(close) => (
+                      <div className="max-h-64 overflow-y-auto py-1">
+                        <button
+                          type="button"
+                          className={dropdownMenuItemClass(isDarkMode)}
+                          onClick={() => {
+                            setFormData((fd) => ({ ...fd, assigneeId: '' }));
+                            close();
+                          }}
+                        >
+                          {t('tasks.unassignedDash')}
+                        </button>
+                        {Object.entries(userNameMap).map(([id, label]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={dropdownMenuItemClass(isDarkMode)}
+                            onClick={() => {
+                              setFormData((fd) => ({ ...fd, assigneeId: id }));
+                              close();
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Dropdown>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-400 mb-2">Hạn hoàn thành (tuỳ chọn)</label>
+                <label className="block text-sm font-semibold text-gray-400 mb-2">{t('tasks.dueOptional')}</label>
                 <input
                   type="date"
                   value={formData.dueDate}
@@ -987,10 +1313,10 @@ export default function TasksPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-400 mb-2">Mô tả</label>
+                <label className="block text-sm font-semibold text-gray-400 mb-2">{t('tasks.descriptionLabel')}</label>
                 <textarea
                   rows={4}
-                  placeholder="Mô tả chi tiết..."
+                  placeholder={t('tasks.phDescDetail')}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   disabled={createTaskLoading}
@@ -1000,12 +1326,12 @@ export default function TasksPage() {
 
               <div className="flex gap-3">
                 <GradientButton
-                  variant="primary"
+                  variant="shell"
                   onClick={handleCreateTask}
                   disabled={createTaskLoading || !selectedOrgId}
                   className="flex-1 disabled:opacity-50"
                 >
-                  {createTaskLoading ? '⏳ Đang tạo...' : '✅ Tạo công việc'}
+                  {createTaskLoading ? `⏳ ${t('tasks.creatingTask')}` : `✅ ${t('tasks.createTaskBtn')}`}
                 </GradientButton>
                 <button
                   type="button"
@@ -1022,7 +1348,7 @@ export default function TasksPage() {
                   disabled={createTaskLoading}
                   className="glass px-6 py-3 rounded-xl hover:bg-white/10 transition-all font-semibold disabled:opacity-50"
                 >
-                  Hủy
+                  {t('nav.cancel')}
                 </button>
               </div>
             </div>

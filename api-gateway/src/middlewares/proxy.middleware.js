@@ -2,8 +2,27 @@ const httpProxy = require('http-proxy');
 const { getServiceByPath } = require('../config/services');
 const { URL } = require('url');
 
+const isProd = process.env.NODE_ENV === 'production';
+
 // Cache proxy instances để tránh tạo lại mỗi request
 const proxyCache = new Map();
+
+/** Phản hồi lỗi proxy an toàn — không lộ stack cho client (production). */
+function sendProxyError(res, statusCode, message, err = null, meta = {}) {
+  if (res.headersSent) return;
+  const body = { success: false, message };
+  if (meta.serviceName) {
+    body.service = meta.serviceName;
+  }
+  if (!isProd && err) {
+    body.debug = {
+      code: err.code,
+      detail: err.message,
+      ...(meta.upstreamUrl ? { upstreamUrl: meta.upstreamUrl } : {}),
+    };
+  }
+  return res.status(statusCode).json(body);
+}
 
 /**
  * Middleware proxy request đến microservice
@@ -29,10 +48,8 @@ const proxyMiddleware = (req, res, next) => {
   if (!service.url || service.url.includes('localhost:3000') || service.url.includes(':3000')) {
     console.error(`[API-Gateway] ❌ Invalid service URL detected: ${service.url}`);
     console.error(`[API-Gateway] This would cause proxy loop!`);
-    return res.status(500).json({
-      success: false,
-      message: 'Invalid service configuration',
-      error: `Service URL cannot be ${service.url}`,
+    return sendProxyError(res, 500, 'Invalid service configuration', new Error('gateway loop'), {
+      serviceName: service.name,
     });
   }
 
@@ -91,16 +108,11 @@ const proxyMiddleware = (req, res, next) => {
       console.error(`[API-Gateway] Request URL:`, req.url);
       
       // Xử lý timeout error
+      const errMeta = { serviceName: svcName, upstreamUrl: svcUrl };
       if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.message?.includes('timeout')) {
         console.error(`[API-Gateway] ❌ Timeout connecting to ${svcUrl}`);
         if (res && !res.headersSent) {
-          return res.status(504).json({
-            success: false,
-            message: 'Gateway Timeout - Backend service did not respond in time',
-            error: err.message,
-            service: svcName,
-            targetUrl: svcUrl,
-          });
+          return sendProxyError(res, 504, 'Gateway timeout', err, errMeta);
         }
       }
       
@@ -108,25 +120,12 @@ const proxyMiddleware = (req, res, next) => {
       if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
         console.error(`[API-Gateway] ❌ Connection refused to ${svcUrl}`);
         if (res && !res.headersSent) {
-          return res.status(503).json({
-            success: false,
-            message: `Cannot connect to ${svcName} at ${svcUrl}. Please check if the service is running.`,
-            error: err.message,
-            service: svcName,
-            targetUrl: svcUrl,
-          });
+          return sendProxyError(res, 503, 'Service unavailable', err, errMeta);
         }
       }
       
       if (res && !res.headersSent) {
-        res.status(503).json({
-          success: false,
-          message: 'Service unavailable',
-          error: err.message,
-          errorCode: err.code,
-          service: svcName,
-          targetUrl: svcUrl,
-        });
+        sendProxyError(res, 503, 'Service unavailable', err, errMeta);
       }
     });
     
@@ -147,7 +146,11 @@ const proxyMiddleware = (req, res, next) => {
   console.log(`[API-Gateway] ✅ ========== PROXY REQUEST STARTED ==========`);
   console.log(`[API-Gateway] Proxying ${req.method} ${req.path} to ${fullTargetUrl}`);
   
-  // Forward user info trong header (nếu có)
+  // Forward user info trong header (nếu có) + bằng chứng gateway cho microservice
+  const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (gatewayToken) {
+    req.headers['x-gateway-internal-token'] = gatewayToken;
+  }
   if (req.user) {
     req.headers['x-user-id'] = req.user.id;
     req.headers['x-user-email'] = req.user.email;
@@ -167,12 +170,9 @@ const proxyMiddleware = (req, res, next) => {
     console.error(`[API-Gateway] ❌ Response error:`, err);
   });
   
-  res.on('close', () => {
-    if (!res.headersSent) {
-      console.error(`[API-Gateway] ❌ Response closed without sending headers!`);
-    } else {
-      console.log(`[API-Gateway] Response closed (headers were sent)`);
-    }
+  // `close` có thể fire trước khi `headersSent` được set với proxy/304 — không dùng để báo lỗi giả
+  res.on('finish', () => {
+    console.log(`[API-Gateway] Response finished ${req.method} ${req.path} status=${res.statusCode}`);
   });
   
   // Proxy response handler - dùng once để chỉ listen một lần cho request này
@@ -201,27 +201,15 @@ const proxyMiddleware = (req, res, next) => {
           console.error(`[API-Gateway] ❌ Cannot connect to ${serviceName} at ${targetUrl}`);
           console.error(`[API-Gateway] Please check if ${serviceName} is running on port ${new URL(targetUrl).port}`);
           if (!res.headersSent) {
-            return res.status(503).json({
-              success: false,
-              message: `Cannot connect to ${serviceName}. Please check if the service is running on ${targetUrl}`,
-              error: err.message,
-              errorCode: err.code,
-              service: serviceName,
-              targetUrl: targetUrl,
-              suggestion: `Make sure ${serviceName} is running. Try: cd services/${serviceName} && npm run dev`,
+            return sendProxyError(res, 503, 'Service unavailable', err, {
+              serviceName,
+              upstreamUrl: targetUrl,
             });
           }
         }
         
         if (!res.headersSent) {
-          return res.status(500).json({
-            success: false,
-            message: 'Proxy error',
-            error: err.message,
-            errorCode: err.code,
-            service: serviceName,
-            targetUrl: targetUrl,
-          });
+          return sendProxyError(res, 500, 'Service error', err, { serviceName, upstreamUrl: targetUrl });
         }
       }
     });
@@ -231,11 +219,7 @@ const proxyMiddleware = (req, res, next) => {
     console.error(`[API-Gateway] ❌ Error executing proxy:`, error);
     console.error(`[API-Gateway] Error stack:`, error.stack);
     if (!res.headersSent) {
-      return res.status(500).json({
-        success: false,
-        message: 'Proxy execution error',
-        error: error.message,
-      });
+      return sendProxyError(res, 500, 'Service error', error, { serviceName, upstreamUrl: targetUrl });
     }
   }
 };

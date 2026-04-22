@@ -1,3 +1,4 @@
+const { mongoose } = require('/shared/config/mongo');
 const Role = require('../models/Role');
 const UserRole = require('../models/UserRole');
 const { getRedisClient, roleWebhook, logger } = require('/shared');
@@ -243,6 +244,26 @@ class RoleService {
     } catch (error) {
       logger.error('Error deleting role:', error);
       throw new Error(`Error deleting role: ${error.message}`);
+    }
+  }
+
+  /**
+   * Xóa toàn bộ UserRole + vô hiệu hóa Role theo ngữ cảnh server/org (serverId = organizationId).
+   * Gọi nội bộ khi owner xóa tổ chức.
+   */
+  async purgeByServerContext(serverId) {
+    try {
+      const sid = new mongoose.Types.ObjectId(String(serverId));
+      await UserRole.deleteMany({ serverId: sid });
+      const r = await Role.updateMany(
+        { $or: [{ serverId: sid }, { organizationId: sid }] },
+        { $set: { isActive: false } }
+      );
+      logger.info(`purgeByServerContext: serverId=${serverId} rolesModified=${r.modifiedCount}`);
+      return { modifiedCount: r.modifiedCount };
+    } catch (error) {
+      logger.error('Error purgeByServerContext:', error);
+      throw new Error(`Error purgeByServerContext: ${error.message}`);
     }
   }
 }

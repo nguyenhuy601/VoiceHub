@@ -333,12 +333,7 @@ class AuthController {
   // Xác thực email
   async verifyEmail(req, res) {
     try {
-      console.log('[AuthController] ========== VERIFY EMAIL REQUEST ==========');
-      console.log('[AuthController] Request method:', req.method);
-      console.log('[AuthController] Request path:', req.path);
-      console.log('[AuthController] Request body:', req.body);
-      console.log('[AuthController] Request query:', req.query);
-      console.log('[AuthController] Request headers:', JSON.stringify(req.headers, null, 2));
+      console.log('[AuthController] verifyEmail:', req.method, req.path);
 
       // GET request: token chỉ có trong query string, KHÔNG có body
       // Lấy token từ query string (ưu tiên) hoặc body (nếu là POST)

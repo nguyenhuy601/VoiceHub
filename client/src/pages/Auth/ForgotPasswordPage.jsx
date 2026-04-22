@@ -7,9 +7,11 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
+import { useAppStrings } from '../../locales/appStrings';
 
 function ForgotPasswordPage() {
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -31,7 +33,7 @@ function ForgotPasswordPage() {
     event.preventDefault();
     const normalizedEmail = String(email || '').trim();
     if (!normalizedEmail) {
-      toast.error('Vui lòng nhập email');
+      toast.error(t('forgotPassword.toastEmailRequired'));
       return;
     }
 
@@ -46,12 +48,12 @@ function ForgotPasswordPage() {
       }
       setSubmitted(true);
       if (result?.data?.emailScheduled) {
-        toast.success('Đã gửi hướng dẫn đặt lại mật khẩu đến email của bạn');
+        toast.success(t('forgotPassword.toastSent'));
       } else {
-        toast('Email service chưa cấu hình SMTP, đang dùng chế độ local.', { icon: 'ℹ️' });
+        toast(t('forgotPassword.toastNoSmtp'), { icon: 'ℹ️' });
       }
     } catch (error) {
-      const message = error?.message || 'Không thể gửi email đặt lại mật khẩu';
+      const message = error?.message || t('forgotPassword.toastSendErr');
       toast.error(message);
     } finally {
       setLoading(false);
@@ -66,7 +68,7 @@ function ForgotPasswordPage() {
           className={`inline-flex items-center gap-2 text-base font-semibold transition ${linkCyan}`}
         >
           <LogIn className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          Đăng nhập
+          {t('forgotPassword.loginLink')}
         </Link>
       </div>
 
@@ -79,10 +81,8 @@ function ForgotPasswordPage() {
           <Mail className="h-6 w-6" strokeWidth={1.75} aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Quên mật khẩu</h1>
-          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>
-            Nhập email đã đăng ký, chúng tôi sẽ gửi liên kết để bạn đặt lại mật khẩu.
-          </p>
+          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('forgotPassword.title')}</h1>
+          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('forgotPassword.subtitle')}</p>
         </div>
       </div>
 
@@ -90,7 +90,7 @@ function ForgotPasswordPage() {
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div>
             <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
-              Email
+              {t('common.email')}
             </label>
             <input
               id="email"
@@ -98,7 +98,7 @@ function ForgotPasswordPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className={inputBase}
-              placeholder="dodanh@gmail.com"
+              placeholder={t('forgotPassword.placeholderEmail')}
               autoComplete="email"
             />
           </div>
@@ -108,7 +108,7 @@ function ForgotPasswordPage() {
             disabled={loading}
             className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
           >
-            {loading ? 'Đang gửi yêu cầu…' : 'Gửi liên kết đặt lại'}
+            {loading ? t('forgotPassword.sending') : t('forgotPassword.sendLink')}
             {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
           </button>
         </form>
@@ -120,15 +120,11 @@ function ForgotPasswordPage() {
               strokeWidth={2}
               aria-hidden
             />
-            <p className="text-base leading-relaxed">
-              Yêu cầu đã được gửi. Vui lòng kiểm tra email và làm theo hướng dẫn để đặt lại mật khẩu.
-            </p>
+            <p className="text-base leading-relaxed">{t('forgotPassword.successBody')}</p>
           </div>
           {devResetUrl && (
             <div className={devBox}>
-              <p className={`mb-2 text-sm ${isDarkMode ? 'text-cyan-200/90' : 'text-slate-700'}`}>
-                Môi trường local chưa cấu hình SMTP. Bạn có thể dùng link test sau:
-              </p>
+              <p className={`mb-2 text-sm ${isDarkMode ? 'text-cyan-200/90' : 'text-slate-700'}`}>{t('forgotPassword.devSmtpHint')}</p>
               <a href={devResetUrl} className={`break-all text-sm font-semibold ${linkCyan}`}>
                 {devResetUrl}
               </a>
@@ -141,7 +137,7 @@ function ForgotPasswordPage() {
         to="/"
         className={`mt-8 flex items-center justify-center gap-2 text-base font-medium transition ${mutedCls} hover:text-cyan-600 dark:hover:text-cyan-300`}
       >
-        Về trang chủ
+        {t('common.backHome')}
       </Link>
     </AuthPageLayout>
   );

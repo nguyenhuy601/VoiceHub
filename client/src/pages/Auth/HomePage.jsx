@@ -7,6 +7,7 @@ import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { HOME_LOCALES } from '../../locales/homePage';
 import LandingFeatureEmbed from '../../components/Landing/LandingFeatureEmbed';
+import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
 
 const TECH_STACK = ['React', 'Node.js', 'Socket.io', 'WebRTC', 'MongoDB', 'Redis', 'Docker', 'JWT'];
 
@@ -120,17 +121,18 @@ function HomePage() {
   return (
     <div
       className={`relative min-h-screen overflow-hidden ${
-        isDarkMode ? 'bg-[#020817] text-slate-100' : 'bg-[#f5f7fa] text-slate-900'
+        isDarkMode
+          ? 'bg-[#020817] text-slate-100'
+          : 'bg-gradient-to-b from-sky-300/95 via-sky-100 to-indigo-100 text-slate-900'
       }`}
     >
-      <div className="pointer-events-none absolute inset-0">
-        <div className={`absolute -top-24 left-1/4 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full blur-3xl ${isDarkMode ? 'bg-cyan-600/12' : 'bg-cyan-400/15'}`} />
-        <div className={`absolute bottom-0 right-0 h-80 w-80 rounded-full blur-3xl ${isDarkMode ? 'bg-teal-700/10' : 'bg-teal-300/20'}`} />
-      </div>
+      <ShellWaveBackdrop />
 
       <header
         className={`sticky top-0 z-30 border-b backdrop-blur-xl ${
-          isDarkMode ? 'border-slate-800/80 bg-[#020817]/85' : 'border-slate-200/90 bg-white/85'
+          isDarkMode
+            ? 'border-slate-800/80 bg-[#020817]/85'
+            : 'border-sky-300/70 bg-sky-100/90'
         }`}
       >
         <div className={`${pageMax} flex items-center justify-between py-3.5`}>
@@ -140,7 +142,7 @@ function HomePage() {
             </div>
             <div>
               <p className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>VoiceHub</p>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{copy.nav.tagline}</p>
+              <p className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>{copy.nav.tagline}</p>
             </div>
           </Link>
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -217,13 +219,19 @@ function HomePage() {
                 }`}
               >
                 {copy.hero.titleBefore}{' '}
-                <span className="bg-gradient-to-r from-cyan-300 via-cyan-200 to-teal-300 bg-clip-text text-transparent">
+                <span
+                  className={
+                    isDarkMode
+                      ? 'bg-gradient-to-r from-cyan-200 via-teal-200 to-cyan-300 bg-clip-text text-transparent'
+                      : 'bg-gradient-to-r from-teal-900 via-cyan-900 to-teal-800 bg-clip-text text-transparent'
+                  }
+                >
                   {copy.hero.titleGradient}
                 </span>{' '}
                 {copy.hero.titleAfter}
               </h1>
               <p
-                className={`mt-6 max-w-xl text-lg leading-[1.7] sm:text-xl ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}
+                className={`mt-6 max-w-xl text-lg leading-[1.75] sm:text-[1.35rem] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}
               >
                 {copy.hero.desc}
               </p>
@@ -247,7 +255,9 @@ function HomePage() {
                   {copy.hero.ctaSecondary}
                 </button>
               </div>
-              <p className={`mt-6 max-w-lg text-sm leading-relaxed ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+              <p
+                className={`mt-6 max-w-lg text-sm leading-relaxed sm:text-base ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}
+              >
                 {copy.hero.footnote}
               </p>
             </div>
@@ -289,13 +299,15 @@ function HomePage() {
         {/* 3) FEATURE STORY — timeline + preview */}
         <section id="features-story" className={`scroll-mt-28 py-20 sm:py-24 lg:py-28 ${pageMax}`}>
           <div className="mb-12 max-w-3xl">
-            <p className={`text-xs font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <p className={`text-xs font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-600'}`}>
               {copy.featuresSection.kicker}
             </p>
             <h2 className={`mt-2 text-3xl font-bold tracking-tight sm:text-4xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               {copy.featuresSection.title}
             </h2>
-            <p className={`mt-3 text-base leading-relaxed sm:text-lg ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+            <p
+              className={`mt-4 max-w-2xl whitespace-pre-line text-[15px] leading-[1.65] sm:text-[17px] sm:leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-800'}`}
+            >
               {copy.featuresSection.subtitle}
             </p>
           </div>
@@ -341,7 +353,7 @@ function HomePage() {
               })}
             </div>
             <div className="lg:sticky lg:top-28">
-              <LandingFeatureEmbed featureId={storyFocusId} isDarkMode={isDarkMode} />
+              <LandingFeatureEmbed featureId={storyFocusId} />
             </div>
           </div>
         </section>

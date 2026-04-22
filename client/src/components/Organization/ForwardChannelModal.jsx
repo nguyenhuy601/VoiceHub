@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocale } from '../../context/LocaleContext';
+import { channelNameToDisplaySlug, displayDepartmentName } from '../../utils/orgEntityDisplay';
 import { Modal } from '../Shared';
 
 /**
@@ -16,6 +18,7 @@ export default function ForwardChannelModal({
   loading = false,
   onConfirm,
 }) {
+  const { locale } = useLocale();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(() => ({ ...initialSelected }));
   const [note, setNote] = useState('');
@@ -36,14 +39,14 @@ export default function ForwardChannelModal({
         rows.push({
           key: `${dept.departmentId}:${ch._id}`,
           departmentId: dept.departmentId,
-          departmentName: dept.departmentName,
+          departmentName: displayDepartmentName(dept.departmentName, locale),
           channelId: String(ch._id),
-          channelName: ch.name || 'kênh',
+          channelName: channelNameToDisplaySlug(ch.name || 'chat', locale),
         });
       }
     }
     return rows;
-  }, [targets]);
+  }, [targets, locale]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

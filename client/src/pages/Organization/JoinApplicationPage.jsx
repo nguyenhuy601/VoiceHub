@@ -3,7 +3,9 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { useTheme } from '../../context/ThemeContext';
+import { appShellBg } from '../../theme/shellTheme';
 import JoinApplicationForm from '../../components/Organization/JoinApplicationForm';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Trang điền đơn gia nhập tổ chức (thay cho modal).
@@ -11,7 +13,8 @@ import JoinApplicationForm from '../../components/Organization/JoinApplicationFo
  */
 export default function JoinApplicationPage() {
   const { isDarkMode } = useTheme();
-  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : 'flex min-h-screen bg-[#f5f7fa]';
+  const { t } = useAppStrings();
+  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : `flex min-h-screen ${appShellBg(false)}`;
   const { orgId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -26,7 +29,7 @@ export default function JoinApplicationPage() {
   }, [searchParams]);
 
   const handleSubmitted = () => {
-    toast.success('Đã gửi đơn gia nhập. Bạn sẽ nhận thông báo khi được duyệt.');
+    toast.success(t('joinApplication.toastSent'));
     navigate('/organizations', { replace: true, state: { refreshPendingJoin: true } });
   };
 
@@ -39,7 +42,7 @@ export default function JoinApplicationPage() {
       <div className={shell}>
         <NavigationSidebar />
         <main className={`flex flex-1 items-center justify-center p-6 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-          Thiếu mã tổ chức.
+          {t('joinApplication.missingOrgId')}
         </main>
       </div>
     );
@@ -55,16 +58,14 @@ export default function JoinApplicationPage() {
             onClick={handleCancel}
             className="mb-6 text-sm text-cyan-400/90 hover:text-cyan-300 hover:underline"
           >
-            ← Quay lại Tổ chức
+            {t('joinApplication.backToOrgs')}
           </button>
           <div className="rounded-2xl border border-white/[0.08] bg-[#12151c] p-6 shadow-xl md:p-8">
-            <h1 className="mb-1 text-2xl font-bold text-white">Đơn gia nhập tổ chức</h1>
+            <h1 className="mb-1 text-2xl font-bold text-white">{t('joinApplication.title')}</h1>
             {organizationName ? (
               <p className="mb-2 text-lg font-semibold text-[#a29bfe]">{organizationName}</p>
             ) : null}
-            <p className="mb-6 text-sm text-gray-400">
-              Điền các thông tin bên dưới. Quản trị viên sẽ xem xét đơn của bạn.
-            </p>
+            <p className="mb-6 text-sm text-gray-400">{t('joinApplication.hint')}</p>
             <JoinApplicationForm
               orgId={orgId}
               organizationName={organizationName}

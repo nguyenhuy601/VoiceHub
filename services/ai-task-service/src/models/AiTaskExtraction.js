@@ -31,12 +31,21 @@ const aiTaskExtractionSchema = new mongoose.Schema(
     confidence: { type: Number, default: null },
     rawModelOutput: { type: mongoose.Schema.Types.Mixed, default: null },
     error: { type: String, default: '' },
+    /** Khóa idempotent cho POST /confirm (header Idempotency-Key) */
+    confirmIdempotencyKey: { type: String, default: null },
   },
   { timestamps: true }
 );
 
 aiTaskExtractionSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
 aiTaskExtractionSchema.index({ 'sourceRef.messageId': 1 });
+aiTaskExtractionSchema.index(
+  { generatedBy: 1, confirmIdempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { confirmIdempotencyKey: { $type: 'string', $ne: '' } },
+  }
+);
 
 module.exports = mongoose.model('AiTaskExtraction', aiTaskExtractionSchema);
 

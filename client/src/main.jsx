@@ -31,9 +31,7 @@ import './index.css';
    cho tất cả components con qua Context API
 ======================================== */
 
-// Import Toaster để hiển thị toast notifications
-// Library: react-hot-toast - nhẹ, đẹp, dễ dùng
-import { Toaster } from 'react-hot-toast';
+import VoiceHubToaster from './components/Shared/VoiceHubToaster';
 
 // Import AuthProvider để quản lý authentication state
 // File: ./context/AuthContext.jsx
@@ -117,46 +115,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             {/* Toaster: hiển thị toast notifications
                 - Đặt ở đây để dùng được ở mọi nơi
                 - toast.success(), toast.error() ở bất kỳ component nào */}
-            <Toaster
-              position="top-right"
-              containerStyle={{
-                top: 24,
-                right: 24,
-              }}
-              toastOptions={{
-                duration: 3000,
-                className: 'voicehub-toast',
-                style: {
-                  background: '#10141c',
-                  color: '#f8fafc',
-                  border: '1px solid rgba(201, 162, 39, 0.45)',
-                  borderRadius: '12px',
-                  boxShadow:
-                    '0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 175, 55, 0.12)',
-                  fontWeight: 600,
-                  fontSize: '0.925rem',
-                  maxWidth: 'min(420px, 92vw)',
-                },
-                success: {
-                  iconTheme: {
-                    primary: '#d4af37',
-                    secondary: '#10141c',
-                  },
-                },
-                error: {
-                  iconTheme: {
-                    primary: '#f87171',
-                    secondary: '#10141c',
-                  },
-                },
-                loading: {
-                  iconTheme: {
-                    primary: '#c9a227',
-                    secondary: '#10141c',
-                  },
-                },
-              }}
-            />
+            <VoiceHubToaster />
           </SocketProvider>
         </AuthProvider>
         </LocaleProvider>

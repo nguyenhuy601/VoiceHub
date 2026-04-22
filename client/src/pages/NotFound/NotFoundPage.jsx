@@ -2,12 +2,15 @@ import { Link } from 'react-router-dom';
 import { Rocket } from 'lucide-react';
 import { GradientButton } from '../../components/Shared';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
+import { appShellBg } from '../../theme/shellTheme';
 
 function NotFoundPage() {
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const shell = isDarkMode
     ? 'min-h-screen flex items-center justify-center bg-[#050810] px-6'
-    : 'min-h-screen flex items-center justify-center bg-[#f5f7fa] px-6';
+    : `min-h-screen flex items-center justify-center px-6 ${appShellBg(false)}`;
 
   return (
     <div className={shell}>
@@ -18,9 +21,9 @@ function NotFoundPage() {
         <h1 className="mb-4 bg-gradient-to-r from-cyan-500 to-teal-600 bg-clip-text text-6xl font-black text-transparent">
           404
         </h1>
-        <p className={`mb-8 text-2xl ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Trang không tồn tại</p>
+        <p className={`mb-8 text-2xl ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notFound.title')}</p>
         <Link to="/dashboard">
-          <GradientButton variant="primary">Quay về Dashboard</GradientButton>
+          <GradientButton variant="primary">{t('notFound.cta')}</GradientButton>
         </Link>
       </div>
     </div>

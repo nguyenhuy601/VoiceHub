@@ -3,6 +3,7 @@ const axios = require('axios');
 const friendService = require('../services/friend.service');
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3004';
+const USER_SERVICE_INTERNAL_TOKEN = process.env.USER_SERVICE_INTERNAL_TOKEN || '';
 
 exports.getFriends = async (req, res, next) => {
   try {
@@ -147,7 +148,17 @@ exports.searchByPhone = async (req, res, next) => {
       return res.status(400).json({ status: 'fail', message: 'Phone parameter is required' });
     }
 
-    const response = await axios.get(`${USER_SERVICE_URL}/api/users/phone/${encodeURIComponent(phone)}`);
+    const token = String(USER_SERVICE_INTERNAL_TOKEN || '').trim();
+    if (!token) {
+      return res.status(503).json({
+        status: 'fail',
+        message: 'User service internal lookup not configured',
+      });
+    }
+    const response = await axios.get(
+      `${USER_SERVICE_URL}/api/users/internal/phone/${encodeURIComponent(phone)}`,
+      { headers: { 'x-internal-token': token }, timeout: 10000 }
+    );
     const userData = response.data?.data;
     if (!userData) {
       return res.status(404).json({ status: 'fail', message: 'User not found' });

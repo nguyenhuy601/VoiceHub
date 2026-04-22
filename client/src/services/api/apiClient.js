@@ -1,9 +1,38 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { getToken, removeToken } from '../../utils/tokenStorage';
+import { mapAuthSessionMessageForLogout } from '../../utils/authErrorMessages';
+import { isAutoLogoutDisabled } from '../../utils/devAuth';
 import { isLandingEmbedActive, isWriteHttpMethod } from '../../utils/landingEmbedMode';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+/** Từ chối im lặng mọi lỗi HTTP khi đang xem demo landing — không đụng toast/redirect */
+function rejectLandingEmbedSilent(error) {
+  return Promise.reject({
+    message: error.response?.data?.message || error.message,
+    status: error.response?.status,
+    data: error.response?.data,
+    code: error.code,
+    isLandingEmbedSilent: true,
+  });
+}
+
+const AUTH_PUBLIC_PATHS = [
+  '/auth/register',
+  '/auth/login',
+  '/auth/refresh-token',
+  '/auth/forgot-password',
+  '/auth/resend-verification',
+  '/auth/reset-password',
+  '/auth/verify-email',
+];
+
+function isAuthPublicUrl(url) {
+  const u = url || '';
+  return AUTH_PUBLIC_PATHS.some((p) => u.includes(p));
+}
+
+// Đồng bộ với services/api.js: dev dùng '/api' → Vite proxy; prod dùng VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const normalizeToken = (rawToken) => {
   if (!rawToken) return null;
@@ -40,6 +69,13 @@ apiClient.interceptors.request.use(
       return Promise.reject(block);
     }
 
+    if (isLandingEmbedActive() && !isAuthPublicUrl(config.url)) {
+      const block = new Error('LANDING_EMBED_API_BLOCKED');
+      block.code = 'LANDING_EMBED_API_BLOCKED';
+      block.isLandingEmbedBlock = true;
+      return Promise.reject(block);
+    }
+
     const token = normalizeToken(getToken());
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -61,14 +97,21 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (isLandingEmbedActive()) {
+      return rejectLandingEmbedSilent(error);
+    }
+
     const message = error.response?.data?.message || error.message || 'Đã xảy ra lỗi';
     
     // Handle specific error codes
     if (error.response?.status === 401) {
-      // Unauthorized - clear token and redirect to login
-      removeToken();
-      window.location.href = '/login';
-      toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+      if (isAutoLogoutDisabled()) {
+        console.warn('[apiClient] VITE_DISABLE_AUTO_LOGOUT: bỏ qua logout/redirect (chỉ debug).');
+      } else {
+        removeToken();
+        window.location.href = '/login';
+        toast.error(mapAuthSessionMessageForLogout(error.response?.data?.message || error.message));
+      }
     } else if (error.response?.status === 403) {
       toast.error('Bạn không có quyền thực hiện hành động này');
     } else if (error.response?.status === 404) {

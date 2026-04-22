@@ -1,8 +1,11 @@
 import { Link, NavLink } from 'react-router-dom';
-import { Cloud, Home, Mic, Moon, Shield, Sun } from 'lucide-react';
+import { Cloud, Home, Languages, Mic, Moon, Shield, Sun } from 'lucide-react';
 import AuthAsideAmbient from './AuthAsideAmbient';
 import AuthMainAmbient from './AuthMainAmbient';
+import ShellWaveBackdrop from '../Layout/ShellWaveBackdrop';
+import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 
 function FeatureTile({ icon: Icon, label, isDark }) {
   if (isDark) {
@@ -11,7 +14,7 @@ function FeatureTile({ icon: Icon, label, isDark }) {
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/[0.12] text-cyan-300 transition group-hover:bg-cyan-500/20 group-hover:text-cyan-200">
           <Icon className="h-5 w-5" strokeWidth={1.5} aria-hidden />
         </div>
-        <span className="text-sm font-semibold tracking-wide text-slate-200 sm:text-base">{label}</span>
+        <span className="text-base font-semibold tracking-wide text-slate-200">{label}</span>
       </div>
     );
   }
@@ -20,16 +23,20 @@ function FeatureTile({ icon: Icon, label, isDark }) {
       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/20 text-white transition group-hover:bg-white/30">
         <Icon className="h-5 w-5" strokeWidth={1.5} aria-hidden />
       </div>
-      <span className="text-sm font-semibold tracking-wide text-white sm:text-base">{label}</span>
+      <span className="text-base font-semibold tracking-wide text-white">{label}</span>
     </div>
   );
 }
 
 function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAlign = 'center' }) {
+  const { locale, toggleLocale } = useLocale();
+  const { t } = useAppStrings();
   const { isDarkMode, toggleTheme } = useTheme();
   const mainJustify = mainAlign === 'start' ? 'justify-start' : 'justify-center';
 
-  const shellBg = isDarkMode ? 'bg-[#050810] text-slate-100' : 'bg-[#f5f7fa] text-slate-900';
+  const shellBg = isDarkMode
+    ? 'bg-[#050810] text-slate-100'
+    : 'bg-gradient-to-b from-sky-100 via-cyan-50/80 to-slate-200 text-slate-900';
 
   const asideClass = isDarkMode
     ? 'bg-[#101827] text-white shadow-inner'
@@ -37,7 +44,7 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
 
   const headerClass = isDarkMode
     ? 'border-slate-800/60 bg-[#050810]/95 text-slate-100'
-    : 'border-slate-200/90 bg-[#f5f7fa]/95 text-slate-900';
+    : 'border-sky-200/90 bg-sky-50/95 text-slate-900';
 
   const homeBtn = isDarkMode
     ? 'border-slate-600 bg-slate-900 text-white hover:bg-slate-800'
@@ -55,10 +62,11 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
 
   return (
     <div
-      className={`flex min-h-screen flex-col font-sans lg:grid lg:min-h-screen lg:grid-cols-[minmax(0,40%)_minmax(0,1fr)] ${shellBg}`}
+      className={`relative flex min-h-screen flex-col font-sans lg:grid lg:min-h-screen lg:grid-cols-[minmax(0,40%)_minmax(0,1fr)] ${shellBg}`}
     >
+      <ShellWaveBackdrop />
       <aside
-        className={`relative order-1 flex min-h-[min(44vh,340px)] flex-col justify-between overflow-hidden px-8 py-10 sm:px-10 lg:order-none lg:min-h-screen lg:px-10 lg:py-12 xl:px-12 ${asideClass}`}
+        className={`relative z-[1] order-1 flex min-h-[min(44vh,340px)] flex-col justify-between overflow-hidden px-8 py-10 sm:px-10 lg:order-none lg:min-h-screen lg:px-10 lg:py-12 xl:px-12 ${asideClass}`}
       >
         {!isDarkMode && (
           <>
@@ -84,14 +92,14 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
         <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-between gap-10 lg:gap-12">
           <div className="shrink-0">{aside}</div>
           <div className="grid shrink-0 grid-cols-3 gap-2.5 sm:gap-3 lg:gap-4">
-            <FeatureTile icon={Cloud} label="Cloud" isDark={isDarkMode} />
-            <FeatureTile icon={Mic} label="Voice" isDark={isDarkMode} />
-            <FeatureTile icon={Shield} label="Bảo mật" isDark={isDarkMode} />
+            <FeatureTile icon={Cloud} label={t('authLayout.featureCloud')} isDark={isDarkMode} />
+            <FeatureTile icon={Mic} label={t('authLayout.featureVoice')} isDark={isDarkMode} />
+            <FeatureTile icon={Shield} label={t('authLayout.featureSecurity')} isDark={isDarkMode} />
           </div>
         </div>
       </aside>
 
-      <div className="order-2 flex min-h-0 flex-1 flex-col lg:min-h-screen">
+      <div className="relative z-[1] order-2 flex min-h-0 flex-1 flex-col lg:min-h-screen">
         <header
           className={`flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3.5 backdrop-blur-md sm:gap-3 sm:px-6 ${headerClass}`}
         >
@@ -104,7 +112,7 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
               strokeWidth={1.75}
               aria-hidden
             />
-            <span className="truncate">Quay về trang chủ</span>
+            <span className="truncate">{t('authLayout.home')}</span>
           </Link>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -123,7 +131,7 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
                   }`
                 }
               >
-                Đăng nhập
+                {t('authLayout.login')}
               </NavLink>
               <NavLink
                 to="/register"
@@ -137,7 +145,7 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
                   }`
                 }
               >
-                Đăng ký
+                {t('authLayout.register')}
               </NavLink>
             </div>
 
@@ -145,9 +153,19 @@ function AuthPageLayout({ aside, children, contentMaxWidth = 'max-w-lg', mainAli
               type="button"
               onClick={toggleTheme}
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm transition ${themeBtn}`}
-              aria-label={isDarkMode ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối'}
+              aria-label={isDarkMode ? t('authLayout.ariaThemeLight') : t('authLayout.ariaThemeDark')}
             >
               {isDarkMode ? <Sun className="h-4 w-4" strokeWidth={1.75} /> : <Moon className="h-4 w-4" strokeWidth={1.75} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleLocale}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm transition ${themeBtn}`}
+              aria-label={t('nav.ariaLang')}
+              title={locale === 'vi' ? t('nav.langTitleToEn') : t('nav.langTitleToVi')}
+            >
+              <Languages className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </header>

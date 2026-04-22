@@ -8,7 +8,8 @@
 ======================================== */
 
 // Import hooks từ React để build context
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { AuthContext } from './auth-context';
 
 // Import toast để hiển thị notifications
 // Dùng để show "Đăng nhập thành công", "Đăng xuất", etc.
@@ -21,15 +22,11 @@ import authService from '../services/authService';
 // Import userService để update user status
 import userService from '../services/userService';
 import { getToken, setToken, removeToken } from '../utils/tokenStorage';
+import { isAutoLogoutDisabled } from '../utils/devAuth';
 
 /* ========================================
-   TẠO CONTEXT
-   - createContext(null): tạo Context với giá trị mặc định null
-   - Context này sẽ được provide ở AuthProvider
-   - Các component con dùng useAuth() để access
+   CONTEXT: đối tượng React Context được tạo trong ./auth-context.js (tách file để HMR ổn định).
 ======================================== */
-const AuthContext = createContext(null);
-
 /* ========================================
    CUSTOM HOOK: useAuth()
    Cách dùng: const { user, login, logout } = useAuth();
@@ -101,11 +98,12 @@ function AuthProvider({ children }) {
           setUser(userData?.data || userData);
         }
       } catch (error) {
-        // Nếu có lỗi (token hết hạn, invalid, etc.)
+        // Chỉ xóa token khi server xác nhận 401 — lỗi mạng/503 không được logout oan
         console.error('Auth check failed:', error);
-        
-        // Xóa token lỗi khỏi localStorage
-        removeToken();
+        const st = error?.response?.status ?? error?.status;
+        if (st === 401 && !isAutoLogoutDisabled()) {
+          removeToken();
+        }
       } finally {
         // Dù thành công hay thất bại cũng set loading = false
         setLoading(false);
@@ -396,7 +394,7 @@ function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// Export AuthProvider để dùng trong main.jsx; AuthContext cho landing demo (override cục bộ)
+// AuthContext: re-export từ ./auth-context.js (override cục bộ trong LandingDemoAuth)
 export { AuthProvider, AuthContext };
 
 /* ========================================

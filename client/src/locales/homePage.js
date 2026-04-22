@@ -320,8 +320,9 @@ export const HOME_LOCALES = {
     featuresSection: {
       kicker: 'Luồng trải nghiệm',
       title: 'Khám phá từng lớp giá trị',
-      subtitle:
-        'Di chuột qua từng bước để xem giao diện thật (thu nhỏ) từ cùng mã nguồn trang app — có thể bấm và nhập thử; khung preview không đổi địa chỉ trang và không lưu dữ liệu server. Nhấn để đọc chi tiết trong cửa sổ.',
+      subtitle: `Di chuột từng bước để xem giao diện thật (thu nhỏ) từ cùng mã nguồn ứng dụng — có thể tương tác trong khung xem trước.
+
+Địa chỉ trang không đổi; không ghi dữ liệu lên máy chủ. Nhấn bước để xem chi tiết trong cửa sổ.`,
       clickHint: 'Nhấn để đọc chi tiết →',
     },
     storySteps: [
@@ -414,8 +415,9 @@ export const HOME_LOCALES = {
     featuresSection: {
       kicker: 'Product story',
       title: 'Explore each layer of value',
-      subtitle:
-        'Hover a step to preview the real UI (scaled) from the same page source — click and type in the sandbox; the preview does not change the browser URL or persist server data. Click for details in the modal.',
+      subtitle: `Hover a step to preview the real UI (scaled) from the same app source — you can interact inside the preview frame.
+
+The page URL does not change; nothing is persisted on the server. Click a step for details in the modal.`,
       clickHint: 'Click for details →',
     },
     storySteps: [

@@ -1,11 +1,14 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { services } = require('./config/services');
 require('dotenv').config();
 
 const app = express();
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -62,6 +65,18 @@ app.use(
     logLevel: 'warn',
   })
 );
+
+/** Public — phải khai báo trước router + auth để Express 5 không rơi vào 401 (client gọi không có JWT). */
+app.get('/api/health/gateway-trust', (req, res) => {
+  const configured = Boolean(String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim());
+  res.json({
+    success: true,
+    gatewayTrustConfigured: configured,
+    message: configured
+      ? 'Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN).'
+      : 'API Gateway chưa đặt GATEWAY_INTERNAL_TOKEN — đăng nhập sẽ không ổn định. Thêm biến này vào api-gateway/.env và đồng bộ với các microservice.',
+  });
+});
 
 // Routes
 const routes = require('./routes');

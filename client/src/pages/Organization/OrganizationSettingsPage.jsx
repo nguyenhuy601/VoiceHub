@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { useTheme } from '../../context/ThemeContext';
+import { appShellBg } from '../../theme/shellTheme';
 import OrganizationSettingsPanel from '../../components/Organization/OrganizationSettingsPanel';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useAppStrings } from '../../locales/appStrings';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -13,7 +15,8 @@ const unwrap = (payload) => payload?.data ?? payload;
  */
 export default function OrganizationSettingsPage() {
   const { isDarkMode } = useTheme();
-  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : 'flex min-h-screen bg-[#f5f7fa]';
+  const { t } = useAppStrings();
+  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : `flex min-h-screen ${appShellBg(false)}`;
   const { orgId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -62,7 +65,9 @@ export default function OrganizationSettingsPage() {
     return (
       <div className={shell}>
         <NavigationSidebar />
-        <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Thiếu mã tổ chức.</main>
+        <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+          {t('organizationSettings.missingOrgId')}
+        </main>
       </div>
     );
   }
@@ -71,7 +76,9 @@ export default function OrganizationSettingsPage() {
     return (
       <div className={shell}>
         <NavigationSidebar />
-        <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>Đang tải cài đặt…</main>
+        <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+          {t('organizationSettings.loading')}
+        </main>
       </div>
     );
   }
@@ -81,13 +88,13 @@ export default function OrganizationSettingsPage() {
       <div className={shell}>
         <NavigationSidebar />
         <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-          <p className={isDarkMode ? 'text-gray-400' : 'text-slate-600'}>Không tìm thấy tổ chức hoặc bạn không có quyền truy cập.</p>
+          <p className={isDarkMode ? 'text-gray-400' : 'text-slate-600'}>{t('organizationSettings.notFound')}</p>
           <button
             type="button"
             onClick={() => navigate('/organizations')}
             className="text-cyan-400 hover:underline"
           >
-            Quay lại Tổ chức
+            {t('organizationSettings.backOrgs')}
           </button>
         </main>
       </div>

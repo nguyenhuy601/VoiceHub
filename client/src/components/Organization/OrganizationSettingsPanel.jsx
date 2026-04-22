@@ -8,6 +8,58 @@ import roleAPI from '../../services/api/roleAPI';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
+/** API role-permission: permissions = [{ resource, actions[], _id? }] — không render trực tiếp object trong React. */
+function formatPermissionsPlain(permissions) {
+  if (permissions == null || permissions === '') return '';
+  if (typeof permissions === 'string') return permissions;
+  if (!Array.isArray(permissions)) return '';
+  return permissions
+    .map((p) => {
+      const res = p?.resource ?? '';
+      const acts = Array.isArray(p?.actions) ? p.actions.join(', ') : '';
+      return acts ? `${res}: ${acts}` : String(res);
+    })
+    .join(' · ');
+}
+
+function RolePermissionsSummary({ permissions }) {
+  if (permissions == null || permissions === '') return <span className="text-gray-500">—</span>;
+  if (typeof permissions === 'string') {
+    return <span className="whitespace-pre-wrap">{permissions}</span>;
+  }
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    return <span className="text-gray-500">Không có quyền gán</span>;
+  }
+  return (
+    <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-gray-400">
+      {permissions.map((p, i) => (
+        <li key={p?._id || `${p?.resource}-${i}`}>
+          <span className="font-medium text-gray-300">{p?.resource}</span>
+          {Array.isArray(p?.actions) && p.actions.length > 0 ? `: ${p.actions.join(', ')}` : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function resolvePermissionsForApi(draftPermissions, editingRoleId, rolesList) {
+  if (Array.isArray(draftPermissions)) return draftPermissions;
+  const s = String(draftPermissions ?? '').trim();
+  if (!s) {
+    return editingRoleId
+      ? rolesList.find((r) => String(r.id || r._id) === String(editingRoleId))?.permissions ?? []
+      : [];
+  }
+  try {
+    const parsed = JSON.parse(s);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return editingRoleId
+      ? rolesList.find((r) => String(r.id || r._id) === String(editingRoleId))?.permissions ?? []
+      : [];
+  }
+}
+
 const ADMIN_TABS = [
   { id: 'general', label: 'Tổng quan', icon: '⚙️' },
   { id: 'join', label: 'Đơn gia nhập', icon: '📋' },
@@ -91,8 +143,7 @@ function OrganizationSettingsPanel({
     phone: '',
   });
 
-  const [apiKeys, setApiKeys] = useState([]);
-  const [integrations, setIntegrations] = useState([
+  const [integrations] = useState([
     { id: 'slack', name: 'Slack', icon: '💬', connected: false, color: 'from-purple-600 to-pink-600' },
     { id: 'gdrive', name: 'Google Drive', icon: '📁', connected: false, color: 'from-blue-500 to-cyan-500' },
   ]);
@@ -144,10 +195,6 @@ function OrganizationSettingsPanel({
   const deleteNameMatches =
     expectedOrgNameForDelete.length > 0 &&
     deleteOrgNameInput.trim() === expectedOrgNameForDelete;
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-  };
 
   const loadOrgFromApi = useCallback(async () => {
     if (!orgId) return;
@@ -362,7 +409,7 @@ function OrganizationSettingsPanel({
     setEditingRoleId(role.id || role._id);
     setRoleDraft({
       name: role.name,
-      permissions: role.permissions,
+      permissions: formatPermissionsPlain(role.permissions),
       members: role.members,
       color: role.color || 'from-purple-600 to-pink-600',
       icon: role.icon || '🧩',
@@ -377,11 +424,22 @@ function OrganizationSettingsPanel({
     }
     try {
       setRoleLoading(true);
+      const permissionsPayload = resolvePermissionsForApi(
+        roleDraft.permissions,
+        editingRoleId,
+        roles
+      );
+      const payload = {
+        ...roleDraft,
+        permissions: permissionsPayload,
+        organizationId: orgId,
+        serverId: orgId,
+      };
       if (editingRoleId) {
-        await roleAPI.updateRole(editingRoleId, { ...roleDraft, organizationId: orgId });
+        await roleAPI.updateRole(editingRoleId, payload);
         toast.success('Đã cập nhật vai trò');
       } else {
-        await roleAPI.createRole({ ...roleDraft, organizationId: orgId });
+        await roleAPI.createRole(payload);
         toast.success('Đã tạo vai trò');
       }
       setRoleEditorOpen(false);
@@ -803,11 +861,12 @@ function OrganizationSettingsPanel({
                         placeholder="Tên vai trò"
                         className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-white"
                       />
-                      <input
+                      <textarea
+                        rows={3}
                         value={roleDraft.permissions}
                         onChange={(e) => setRoleDraft((p) => ({ ...p, permissions: e.target.value }))}
-                        placeholder="Mô tả quyền"
-                        className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-white"
+                        placeholder='Tùy chọn: JSON mảng quyền, ví dụ [{"resource":"chat","actions":["read","write"]}]'
+                        className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-white"
                       />
                     </div>
                     <div className="mt-3 flex justify-end gap-2">
@@ -837,7 +896,7 @@ function OrganizationSettingsPanel({
                     >
                       <div>
                         <div className="font-bold text-white">{role.name}</div>
-                        <div className="text-sm text-gray-400">{role.permissions}</div>
+                        <RolePermissionsSummary permissions={role.permissions} />
                       </div>
                       <div className="flex gap-2">
                         <button

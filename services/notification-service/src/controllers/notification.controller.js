@@ -72,8 +72,7 @@ class NotificationController {
   // Lấy notifications của user
   async getUserNotifications(req, res) {
     try {
-      const userId =
-        req.headers['x-user-id'] || req.user?.id || req.userContext?.userId || req.params.userId;
+      const userId = req.user?.id || req.userContext?.userId || req.params.userId;
       const { isRead, type, page, limit } = req.query;
 
       if (!userId) {
@@ -106,8 +105,7 @@ class NotificationController {
   // Đánh dấu đã đọc mọi thông báo kết bạn liên quan tới một user (sau accept/reject)
   async markFriendRelatedRead(req, res) {
     try {
-      const userId =
-        req.headers['x-user-id'] || req.user?.id || req.userContext?.userId;
+      const userId = req.user?.id || req.userContext?.userId;
       const { counterpartyId } = req.body || {};
 
       if (!userId) {

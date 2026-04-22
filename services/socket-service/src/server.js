@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { socketAuth } = require('/shared/middleware/auth');
-const { connectRedis } = require('/shared');
+const { connectRedis, disconnectRedis } = require('/shared');
 const registerChatNamespace = require('./socket/chat.namespace');
 const { setChatNamespace, publishRealtimeEvent } = require('./socket/realtimeHub');
 
@@ -37,7 +37,11 @@ app.get('/health', (req, res) => {
 
 app.post('/internal/realtime/publish', (req, res) => {
   const token = req.headers['x-realtime-token'];
-  if (INTERNAL_REALTIME_TOKEN && token !== INTERNAL_REALTIME_TOKEN) {
+  const expected = String(INTERNAL_REALTIME_TOKEN || '').trim();
+  if (!expected) {
+    return res.status(503).json({ ok: false, message: 'REALTIME_INTERNAL_TOKEN not configured' });
+  }
+  if (token !== expected) {
     return res.status(401).json({ ok: false, message: 'Unauthorized realtime publish' });
   }
 
@@ -115,4 +119,18 @@ function startListen() {
   registerChatNamespace(chatNamespace);
 
   startListen();
+
+  process.on('SIGTERM', () => {
+    console.log('[socket-service] SIGTERM: closing Socket.IO and HTTP');
+    io.close(() => {
+      server.close(async () => {
+        try {
+          await disconnectRedis();
+        } catch (e) {
+          /* ignore */
+        }
+        process.exit(0);
+      });
+    });
+  });
 })();

@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { GradientButton, NotificationModal } from '../../components/Shared';
 import { getUserDisplayName, getInitials, getAvatarColor, formatBirthDateSafe } from '../../utils/helpers';
+import { useAppStrings } from '../../locales/appStrings';
 
 function ProfileModal({ isOpen, onClose }) {
   const { user: authUser } = useAuth();
   const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -78,13 +81,18 @@ function ProfileModal({ isOpen, onClose }) {
     ? 'absolute inset-0 flex cursor-pointer flex-col items-center justify-center rounded-full bg-black/50 text-center text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100'
     : 'absolute inset-0 flex cursor-pointer flex-col items-center justify-center rounded-full bg-slate-900/45 text-center text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100';
 
-  const showNotice = (message, type = 'success') => {
+  const showNotice = useCallback((message, type = 'success') => {
     setNotice({
       type,
-      title: type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo',
+      title:
+        type === 'fail'
+          ? t('profileModal.noticeFailTitle')
+          : type === 'info'
+            ? t('profileModal.noticeInfoTitle')
+            : t('profileModal.noticeSuccessTitle'),
       message,
     });
-  };
+  }, [t]);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -100,12 +108,12 @@ function ProfileModal({ isOpen, onClose }) {
         isInvisible: data?.isInvisible ?? false,
       });
     } catch (err) {
-      showNotice(err?.message || 'Không tải được hồ sơ', 'fail');
+      showNotice(err?.message || t('profileModal.loadFail'), 'fail');
       setProfile(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showNotice, t]);
 
   useEffect(() => {
     if (isOpen) {
@@ -125,10 +133,10 @@ function ProfileModal({ isOpen, onClose }) {
       });
       const updated = res?.data ?? res;
       setProfile(updated);
-      showNotice('Đã lưu thay đổi', 'success');
+      showNotice(t('profileModal.saveOk'), 'success');
       if (onClose) onClose();
     } catch (err) {
-      showNotice(err?.message || 'Lưu thất bại', 'fail');
+      showNotice(err?.message || t('profileModal.saveFail'), 'fail');
     } finally {
       setSaving(false);
     }
@@ -144,7 +152,7 @@ function ProfileModal({ isOpen, onClose }) {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      showNotice('Vui lòng chọn một file hình ảnh hợp lệ', 'fail');
+      showNotice(t('profileModal.imageOnly'), 'fail');
       return;
     }
 
@@ -163,14 +171,14 @@ function ProfileModal({ isOpen, onClose }) {
       const avatarUrl = data?.avatarUrl || data?.data?.avatarUrl;
 
       if (!avatarUrl) {
-        showNotice('Không nhận được đường dẫn avatar mới từ server', 'fail');
+        showNotice(t('profileModal.avatarUrlMissing'), 'fail');
         return;
       }
 
       setProfile((prev) => (prev ? { ...prev, avatar: avatarUrl } : prev));
-      showNotice('Đã cập nhật ảnh đại diện', 'success');
+      showNotice(t('profileModal.avatarOk'), 'success');
     } catch (error) {
-      showNotice(error?.message || 'Lỗi khi tải lên avatar', 'fail');
+      showNotice(error?.message || t('profileModal.avatarUploadFail'), 'fail');
     } finally {
       setAvatarUploading(false);
       event.target.value = '';
@@ -179,13 +187,27 @@ function ProfileModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${overlayClass}`}>
-      <div className={`flex flex-col ${shellClass}`}>
+  /** Portal → body: tránh bị đè bởi cột giữa ThreeFrameLayout (sibling z-[1] vẽ sau sidebar). */
+  const modalTree = (
+    <div
+      className={`fixed inset-0 z-[99990] flex items-center justify-center p-4 ${overlayClass}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label={t('profileModal.closeOverlayAria')}
+        onClick={onClose}
+      />
+      <div className={`relative z-[99991] flex flex-col ${shellClass}`}>
         <div className={headerClass}>
           <div>
-            <h2 className={`text-xl font-bold ${headingClass}`}>Chỉnh sửa hồ sơ</h2>
-            <p className={`text-xs ${mutedClass}`}>Tùy chỉnh cách người khác nhìn thấy bạn trong hệ thống.</p>
+            <h2 id="profile-modal-title" className={`text-xl font-bold ${headingClass}`}>
+              {t('profileModal.title')}
+            </h2>
+            <p className={`text-xs ${mutedClass}`}>{t('profileModal.subtitle')}</p>
           </div>
           <button
             type="button"
@@ -202,11 +224,11 @@ function ProfileModal({ isOpen, onClose }) {
 
         <div className={tabsBarClass}>
           {[
-            { id: 'main', label: 'Hồ sơ chính' },
-            { id: 'organization', label: 'Hồ sơ theo tổ chức' },
-            { id: 'account', label: 'Tài khoản' },
-            { id: 'security', label: 'Bảo mật' },
-            { id: 'notifications', label: 'Thông báo' },
+            { id: 'main', label: t('profileModal.tabMain') },
+            { id: 'organization', label: t('profileModal.tabOrg') },
+            { id: 'account', label: t('profileModal.tabAccount') },
+            { id: 'security', label: t('profileModal.tabSecurity') },
+            { id: 'notifications', label: t('profileModal.tabNotifications') },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -226,23 +248,23 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'main' && (
               <>
                 <div>
-                  <label className={labelClass}>Tên hiển thị</label>
+                  <label className={labelClass}>{t('profileModal.displayName')}</label>
                   <input
                     type="text"
                     value={form.displayName}
                     onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
                     className={inputClass}
-                    placeholder="Tên hiển thị"
+                    placeholder={t('profileModal.displayNamePh')}
                     maxLength={100}
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Tiểu sử</label>
+                  <label className={labelClass}>{t('profileModal.bio')}</label>
                   <textarea
                     value={form.bio}
                     onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
                     className={`${inputClass} min-h-[100px] resize-y`}
-                    placeholder="Giới thiệu ngắn gọn về bạn..."
+                    placeholder={t('profileModal.bioPh')}
                     rows={4}
                     maxLength={500}
                   />
@@ -251,13 +273,13 @@ function ProfileModal({ isOpen, onClose }) {
                   </p>
                 </div>
                 <div>
-                  <label className={labelClass}>Số điện thoại</label>
+                  <label className={labelClass}>{t('profileModal.phone')}</label>
                   <input
                     type="tel"
                     value={form.phone}
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     className={inputClass}
-                    placeholder="+84 ..."
+                    placeholder={t('profileModal.phonePh')}
                   />
                 </div>
               </>
@@ -266,35 +288,37 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'organization' && (
               <>
                 <div className={infoBoxClass}>
-                  <p className={`mb-2 font-semibold ${headingClass}`}>Hồ sơ theo tổ chức</p>
-                  <p className={mutedClass}>
-                    Tính năng này cho phép bạn hiển thị hồ sơ khác nhau cho từng tổ chức (tương tự hồ sơ theo
-                    máy chủ trên Discord). Hiện tại phần này mới chỉ là giao diện mẫu, backend chưa được kết nối.
-                  </p>
+                  <p className={`mb-2 font-semibold ${headingClass}`}>{t('profileModal.orgIntroTitle')}</p>
+                  <p className={mutedClass}>{t('profileModal.orgIntroBody')}</p>
                 </div>
                 <div>
-                  <label className={labelClass}>Chọn tổ chức</label>
+                  <label className={labelClass}>{t('profileModal.selectOrg')}</label>
                   <select
                     className={inputClass}
                     defaultValue=""
                     style={{ colorScheme: isDarkMode ? 'dark' : 'light' }}
                   >
                     <option className={optionClass} value="" disabled>
-                      Chọn tổ chức (demo)
+                      {t('profileModal.selectOrgPh')}
                     </option>
                     <option className={optionClass} value="org-1">
-                      Tổ chức A
+                      {t('profileModal.orgDemoA')}
                     </option>
                     <option className={optionClass} value="org-2">
-                      Tổ chức B
+                      {t('profileModal.orgDemoB')}
                     </option>
                   </select>
                 </div>
                 <div>
-                  <label className={labelClass}>Biệt danh trong tổ chức</label>
-                  <input type="text" className={`${inputClass} cursor-not-allowed opacity-70`} placeholder="Nhập biệt danh (demo UI)" disabled />
+                  <label className={labelClass}>{t('profileModal.orgNickname')}</label>
+                  <input
+                    type="text"
+                    className={`${inputClass} cursor-not-allowed opacity-70`}
+                    placeholder={t('profileModal.orgNicknamePh')}
+                    disabled
+                  />
                   <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                    Đây là giao diện mẫu. Cần triển khai API tổ chức để lưu cấu hình riêng cho từng tổ chức.
+                    {t('profileModal.orgNicknameHint')}
                   </p>
                 </div>
               </>
@@ -303,30 +327,34 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'account' && (
               <>
                 <div>
-                  <label className={labelClass}>Email</label>
+                  <label className={labelClass}>{t('settingsPage.email')}</label>
                   <input type="email" value={email || ''} readOnly className={`${inputClass} cursor-not-allowed opacity-80`} />
-                  <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>Email không thể thay đổi tại đây.</p>
-                </div>
-                <div>
-                  <label className={labelClass}>Ngày sinh</label>
-                  <p className={`${inputClass} cursor-default py-2.5 opacity-90`}>{formatBirthDateSafe(profile?.dateOfBirth)}</p>
                   <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                    Tài khoản cũ có thể chưa có ngày sinh — hiển thị &quot;Chưa cập nhật&quot;.
+                    {t('profileModal.emailReadonlyHint')}
                   </p>
                 </div>
                 <div>
-                  <label className={labelClass}>Số điện thoại</label>
+                  <label className={labelClass}>{t('profileModal.birthDate')}</label>
+                  <p className={`${inputClass} cursor-default py-2.5 opacity-90`}>
+                    {formatBirthDateSafe(profile?.dateOfBirth, t('profileModal.birthNotSet'))}
+                  </p>
+                  <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                    {t('profileModal.birthDateHint')}
+                  </p>
+                </div>
+                <div>
+                  <label className={labelClass}>{t('profileModal.phone')}</label>
                   <input
                     type="tel"
                     value={form.phone}
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     className={inputClass}
-                    placeholder="+84 ..."
+                    placeholder={t('profileModal.phonePh')}
                   />
                 </div>
                 <div className={infoBoxClass}>
-                  <p className={`mb-1 font-semibold ${headingClass}`}>Đổi mật khẩu</p>
-                  <p className={mutedClass}>Chức năng đổi mật khẩu sẽ được cấu hình tại mục bảo mật/đăng nhập an toàn.</p>
+                  <p className={`mb-1 font-semibold ${headingClass}`}>{t('profileModal.changePasswordTitle')}</p>
+                  <p className={mutedClass}>{t('profileModal.changePasswordHint')}</p>
                 </div>
               </>
             )}
@@ -334,21 +362,23 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'security' && (
               <>
                 <div className={panelClass}>
-                  <p className={`text-sm font-semibold ${headingClass}`}>Trạng thái & Quyền riêng tư</p>
+                  <p className={`text-sm font-semibold ${headingClass}`}>{t('profileModal.securityPrivacyTitle')}</p>
                   <div>
-                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>Trạng thái hiện tại</label>
+                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>
+                      {t('profileModal.currentStatus')}
+                    </label>
                     <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className={inputClass}>
                       <option className={optionClass} value="online">
-                        🟢 Trực tuyến
+                        {t('profileModal.statusOnline')}
                       </option>
                       <option className={optionClass} value="away">
-                        🟡 Vắng mặt
+                        {t('profileModal.statusAway')}
                       </option>
                       <option className={optionClass} value="busy">
-                        🔴 Đang bận
+                        {t('profileModal.statusBusy')}
                       </option>
                       <option className={optionClass} value="offline">
-                        ⚪ Ngoại tuyến
+                        {t('profileModal.statusOffline')}
                       </option>
                     </select>
                   </div>
@@ -367,35 +397,37 @@ function ProfileModal({ isOpen, onClose }) {
                         className="h-4 w-4 rounded"
                       />
                       <div>
-                        <p className={`text-xs font-semibold ${subheadingClass}`}>👻 Chế độ vô hình</p>
+                        <p className={`text-xs font-semibold ${subheadingClass}`}>{t('profileModal.invisibleTitle')}</p>
                         <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                          Người khác sẽ không thấy bạn ngoại tuyến
+                          {t('profileModal.invisibleHint')}
                         </p>
                       </div>
                     </label>
                   </div>
                   <div>
-                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>Hiển thị trạng thái online</label>
+                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>
+                      {t('profileModal.showOnlineLabel')}
+                    </label>
                     <select className={inputClass}>
-                      <option className={optionClass}>Mọi người</option>
-                      <option className={optionClass}>Chỉ đồng nghiệp</option>
-                      <option className={optionClass}>Không ai</option>
+                      <option className={optionClass}>{t('profileModal.privacyEveryone')}</option>
+                      <option className={optionClass}>{t('profileModal.privacyColleagues')}</option>
+                      <option className={optionClass}>{t('profileModal.privacyNobody')}</option>
                     </select>
                   </div>
                   <div>
-                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>Ai có thể nhắn tin cho tôi</label>
+                    <label className={`mb-1 block text-xs font-semibold ${subheadingClass}`}>
+                      {t('profileModal.whoCanDmLabel')}
+                    </label>
                     <select className={inputClass}>
-                      <option className={optionClass}>Mọi người</option>
-                      <option className={optionClass}>Chỉ đồng nghiệp</option>
+                      <option className={optionClass}>{t('profileModal.privacyEveryone')}</option>
+                      <option className={optionClass}>{t('profileModal.privacyColleagues')}</option>
                     </select>
                   </div>
                 </div>
                 <div className={panelClass}>
-                  <p className={`text-sm font-semibold ${headingClass}`}>Xác thực hai yếu tố (2FA)</p>
-                  <p className={`text-xs ${mutedClass}`}>
-                    Tăng cường bảo mật tài khoản với mã xác thực khi đăng nhập trên thiết bị mới.
-                  </p>
-                  <GradientButton variant="success">🔐 Bật 2FA (demo)</GradientButton>
+                  <p className={`text-sm font-semibold ${headingClass}`}>{t('profileModal.twoFactorTitle')}</p>
+                  <p className={`text-xs ${mutedClass}`}>{t('profileModal.twoFactorBody')}</p>
+                  <GradientButton variant="success">{t('profileModal.enable2faDemo')}</GradientButton>
                 </div>
               </>
             )}
@@ -403,14 +435,14 @@ function ProfileModal({ isOpen, onClose }) {
             {activeProfileTab === 'notifications' && (
               <>
                 <div className={panelClass}>
-                  <p className={`text-sm font-semibold ${headingClass}`}>Cài đặt thông báo</p>
+                  <p className={`text-sm font-semibold ${headingClass}`}>{t('settingsPage.notifSettingsTitle')}</p>
                   {[
-                    { label: 'Thông báo tin nhắn mới', checked: true },
-                    { label: 'Thông báo khi được mention', checked: true },
-                    { label: 'Thông báo công việc mới', checked: true },
-                    { label: 'Thông báo deadline sắp đến', checked: true },
-                    { label: 'Thông báo qua email', checked: false },
-                    { label: 'Thông báo push trên mobile', checked: true },
+                    { label: t('profileModal.notif1'), checked: true },
+                    { label: t('profileModal.notif2'), checked: true },
+                    { label: t('profileModal.notif3'), checked: true },
+                    { label: t('profileModal.notif4'), checked: true },
+                    { label: t('profileModal.notif5'), checked: false },
+                    { label: t('profileModal.notif6'), checked: true },
                   ].map((setting, idx) => (
                     <label key={idx} className={rowHoverClass}>
                       <span className={`text-xs ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{setting.label}</span>
@@ -427,7 +459,9 @@ function ProfileModal({ isOpen, onClose }) {
           </div>
 
           <div className="w-full md:w-80">
-            <div className={`mb-3 text-xs font-semibold uppercase tracking-wide ${mutedClass}`}>Xem trước</div>
+            <div className={`mb-3 text-xs font-semibold uppercase tracking-wide ${mutedClass}`}>
+              {t('profileModal.previewLabel')}
+            </div>
             <div className={previewCardClass}>
               <div className="flex items-center gap-4">
                 <div className="group relative cursor-pointer">
@@ -435,22 +469,22 @@ function ProfileModal({ isOpen, onClose }) {
                     {profile?.avatar ? <img src={profile.avatar} alt="" className="h-full w-full rounded-full object-cover" /> : initials}
                   </div>
                   <span className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 ${avatarRing} bg-green-500`} />
-                  <label className={avatarOverlay}>
-                    {avatarUploading ? 'Đang tải...' : 'Thay đổi\navatar'}
+                  <label className={`${avatarOverlay} whitespace-pre-line`}>
+                    {avatarUploading ? t('profileModal.changeAvatarUploading') : t('profileModal.changeAvatarCta')}
                     <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                   </label>
                 </div>
                 <div className="min-w-0">
                   <div className={`truncate font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                    {form.displayName || displayName || 'Tên hiển thị'}
+                    {form.displayName || displayName || t('profileModal.previewNameFallback')}
                   </div>
-                  <div className={`truncate text-xs ${mutedClass}`}>{email || 'email@example.com'}</div>
+                  <div className={`truncate text-xs ${mutedClass}`}>
+                    {email || t('profileModal.emailPlaceholder')}
+                  </div>
                 </div>
               </div>
               <div className={previewBioClass}>
-                {form.bio?.trim()
-                  ? form.bio
-                  : 'Thêm tiểu sử để mọi người biết thêm về bạn. Đây là khu vực hiển thị mô tả ngắn trên hồ sơ.'}
+                {form.bio?.trim() ? form.bio : t('profileModal.previewBioPlaceholder')}
               </div>
             </div>
           </div>
@@ -458,22 +492,29 @@ function ProfileModal({ isOpen, onClose }) {
 
         <div className={footerClass}>
           <button type="button" className={ghostFooterBtn} onClick={onClose}>
-            Hủy
+            {t('nav.cancel')}
           </button>
           {activeProfileTab === 'organization' ? (
             <GradientButton type="button" variant="secondary" disabled>
-              Coming soon
+              {t('profileModal.comingSoon')}
             </GradientButton>
           ) : (
             <GradientButton type="button" variant="primary" disabled={saving || loading} onClick={handleSaveProfile}>
-              {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+              {saving ? t('profileModal.saving') : t('profileModal.saveChanges')}
             </GradientButton>
           )}
         </div>
       </div>
-      <NotificationModal notice={notice} onClose={() => setNotice(null)} />
+      <NotificationModal
+        notice={notice}
+        onClose={() => setNotice(null)}
+        layerClassName="z-[99999]"
+      />
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modalTree, document.body);
 }
 
 export default ProfileModal;

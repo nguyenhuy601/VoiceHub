@@ -6,7 +6,16 @@ const { emitRealtimeEvent } = require('/shared');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:3003';
+const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+
+function notificationServiceAxiosOpts() {
+  const opts = { timeout: 8000 };
+  if (NOTIFICATION_INTERNAL_TOKEN) {
+    opts.headers = { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN };
+  }
+  return opts;
+}
 
 const MAX_FIELDS = 20;
 const MAX_SHORT = 500;
@@ -116,7 +125,7 @@ async function notifyModeratorsNewApplication({ orgId, orgName, applicationId })
           String(orgId)
         )}/settings?tab=join`,
       },
-      { timeout: 8000 }
+      notificationServiceAxiosOpts()
     );
   } catch (e) {
     console.warn('[joinApplication] notify moderators failed:', e.message);
@@ -135,7 +144,7 @@ async function notifyApplicant({ userId, title, content, data, actionUrl }) {
         data: data || {},
         actionUrl: actionUrl || null,
       },
-      { timeout: 8000 }
+      notificationServiceAxiosOpts()
     );
   } catch (e) {
     console.warn('[joinApplication] notify applicant failed:', e.message);

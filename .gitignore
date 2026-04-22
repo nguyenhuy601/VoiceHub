@@ -3,7 +3,7 @@
 # ========================
 node_modules/
 */node_modules/
-package-lock.json
+# Giữ package-lock.json trong git — cài đặt tái lập được sau pull / npm ci trong Docker.
 yarn.lock
 pnpm-lock.yaml
 

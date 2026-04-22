@@ -597,25 +597,33 @@ class AuthService {
         const username = rawName || userAuth.email.split('@')[0];
         const displayName = rawName || username;
 
-        const response = await axios.post(
-          `${userServiceUrl}/api/users`,
-          {
-            userId: userId.toString(),
-            username,
-            email: userAuth.email,
-            displayName,
-            dateOfBirth: userAuth.dateOfBirth,
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
+        const internalToken = String(process.env.USER_SERVICE_INTERNAL_TOKEN || '').trim();
+        if (!internalToken) {
+          console.error(
+            'USER_SERVICE_INTERNAL_TOKEN not set; cannot bootstrap UserProfile. Set in root .env / auth-service env.'
+          );
+        } else {
+          const response = await axios.post(
+            `${userServiceUrl}/api/users/internal/bootstrap`,
+            {
+              userId: userId.toString(),
+              username,
+              email: userAuth.email,
+              displayName,
+              dateOfBirth: userAuth.dateOfBirth,
             },
-            timeout: 5000,
-          }
-        );
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'x-internal-token': internalToken,
+              },
+              timeout: 5000,
+            }
+          );
 
-        if (response) {
-          console.log('UserProfile created successfully:', response.data);
+          if (response) {
+            console.log('UserProfile created successfully:', response.data);
+          }
         }
       } catch (error) {
         // Log lỗi nhưng không throw - user đã verify email thành công

@@ -7,7 +7,7 @@ const EXCHANGE = process.env.RABBITMQ_EXCHANGE || 'voicehub.topic';
 const QUEUE = process.env.RABBITMQ_FRIEND_DM_QUEUE || 'voicehub.friend.dm';
 const ROUTING_KEY = process.env.RABBITMQ_FRIEND_DM_ROUTING_KEY || 'friend.dm';
 
-let consumerTag = null;
+let dmConsumer = null;
 
 async function isDuplicate(correlationId) {
   if (!correlationId) return false;
@@ -86,12 +86,32 @@ async function startFriendDmConsumer() {
     },
     { noAck: false }
   );
-  consumerTag = tag;
 
   conn.on('error', (err) => console.error('[friendDmConsumer] conn error', err.message));
   console.log(`[friendDmConsumer] listening on ${QUEUE}`);
 
-  return { conn, ch };
+  dmConsumer = { conn, ch, tag };
+  return dmConsumer;
 }
 
-module.exports = { startFriendDmConsumer };
+async function stopFriendDmConsumer() {
+  if (!dmConsumer) return;
+  try {
+    await dmConsumer.ch.cancel(dmConsumer.tag);
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    await dmConsumer.ch.close();
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    await dmConsumer.conn.close();
+  } catch (e) {
+    /* ignore */
+  }
+  dmConsumer = null;
+}
+
+module.exports = { startFriendDmConsumer, stopFriendDmConsumer };
