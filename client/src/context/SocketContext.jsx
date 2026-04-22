@@ -62,6 +62,9 @@ const USE_GATEWAY_SOCKET =
   import.meta.env.VITE_SOCKET_USE_GATEWAY === '1' ||
   import.meta.env.VITE_SOCKET_USE_GATEWAY === 'true';
 
+const SOCKET_NAMESPACE = '/chat';
+const SOCKET_IO_PATH = '/socket.io';
+
 /**
  * Dev: ưu tiên cùng origin với Vite (vd. http://localhost:5173) — GET /socket.io được vite proxy → :3017,
  * tránh 404 khi gateway :3000 chưa proxy /socket.io hoặc SOCKET_SERVICE_URL sai.
@@ -82,15 +85,23 @@ const SOCKET_BASE_URL =
   GATEWAY_URL ||
   (import.meta.env.DEV ? 'http://127.0.0.1:3017' : 'http://localhost:3000');
 
-/** Base URL → Socket.IO URL có namespace /chat (tránh trùng /chat/chat). */
-function getSocketIoUrl(baseUrl) {
+/** Base URL (origin) + namespace `/chat` cho socket-service. */
+function toNamespaceUrl(baseUrl, namespace) {
   const trimmed = String(baseUrl || '').trim().replace(/\/+$/, '');
-  if (!trimmed) return 'http://localhost:3000/chat';
-  if (trimmed.endsWith('/chat')) return trimmed;
-  return `${trimmed}/chat`;
+  if (!trimmed) return namespace;
+  return `${trimmed}${namespace.startsWith('/') ? '' : '/'}${namespace}`;
 }
 
-const SOCKET_IO_URL = getSocketIoUrl(SOCKET_BASE_URL);
+/**
+ * IMPORTANT:
+ * - `namespace` là `/chat`
+ * - `path` của Engine.IO phải luôn là `/socket.io`
+ * Nếu nhét `/chat` vào pathname mà không set `path`, client có thể gọi `/chat/socket.io` → 404.
+ */
+const SOCKET_NAMESPACE_URL =
+  import.meta.env.DEV && !DIRECT && !USE_GATEWAY_SOCKET
+    ? SOCKET_NAMESPACE // same-origin (Vite proxy /socket.io)
+    : toNamespaceUrl(SOCKET_BASE_URL, SOCKET_NAMESPACE);
 
 if (import.meta.env.DEV) {
   console.log('🔌 [Socket] Configuration:');
@@ -105,7 +116,8 @@ if (import.meta.env.DEV) {
   }
   console.log('   Mode:', socketModeLabel);
   console.log('   Base URL:', SOCKET_BASE_URL);
-  console.log('   Socket.IO URL (namespace /chat):', SOCKET_IO_URL);
+  console.log('   Namespace URL:', SOCKET_NAMESPACE_URL);
+  console.log('   Engine.IO path:', SOCKET_IO_PATH);
   if (DIRECT) {
     console.log('   VITE_SOCKET_DIRECT_URL:', DIRECT);
   } else if (USE_GATEWAY_SOCKET && GATEWAY_URL) {
@@ -175,7 +187,7 @@ function SocketProvider({ children }) {
       const token = getToken();
       
       /* ----- TẠO SOCKET CONNECTION ----- */
-      const newSocket = io(SOCKET_IO_URL, {
+      const newSocket = io(SOCKET_NAMESPACE_URL, {
         // auth: gửi token lên server để xác thực
         // Server sẽ verify token và lấy user info
         auth: { token },
@@ -183,6 +195,9 @@ function SocketProvider({ children }) {
         // Polling trước → ổn định qua API Gateway (HTTP proxy), rồi upgrade WebSocket (server.on('upgrade')).
         // Thử websocket trước dễ gây cảnh báo Firefox khi reload / React StrictMode (socket cũ bị hủy giữa chừng).
         transports: ['polling', 'websocket'],
+
+        // Engine.IO path (phải là /socket.io) — giúp chạy đúng khi URL là /chat (namespace)
+        path: SOCKET_IO_PATH,
         
         // reconnection: true = auto reconnect nếu disconnect
         reconnection: true,
@@ -200,7 +215,8 @@ function SocketProvider({ children }) {
       newSocket.on('connect', () => {
         console.log('✅ [Socket] Connected successfully');
         console.log('   Socket ID:', newSocket.id);
-        console.log('   URL:', SOCKET_IO_URL);
+        console.log('   URL:', SOCKET_NAMESPACE_URL);
+        console.log('   Path:', SOCKET_IO_PATH);
         console.log('   Transport:', newSocket.io.engine.transport.name);
         
         setConnected(true);
@@ -229,7 +245,8 @@ function SocketProvider({ children }) {
         console.error('❌ [Socket] Connection Error');
         console.error('   Message:', error.message);
         console.error('   Data:', error.data);
-        console.error('   Trying to connect to:', SOCKET_IO_URL);
+        console.error('   Trying to connect to:', SOCKET_NAMESPACE_URL);
+        console.error('   Path:', SOCKET_IO_PATH);
         console.error('');
         console.error('   📋 Debugging checklist:');
         console.error('   1. socket-service đang chạy? — curl http://localhost:3017/health');

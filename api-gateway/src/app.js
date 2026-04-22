@@ -51,6 +51,11 @@ app.use(
     ws: false,
     xfwd: true,
     logLevel: 'warn',
+    /**
+     * Express mount `/socket.io` sẽ làm req.url trong middleware chỉ còn `/?EIO=...`
+     * nhưng socket-service cần path `/socket.io`.
+     */
+    pathRewrite: (path) => `/socket.io${path}`,
   })
 );
 
@@ -63,6 +68,10 @@ app.use(
     ws: false,
     xfwd: true,
     logLevel: 'warn',
+    /**
+     * Tương tự `/socket.io`: khi mount theo `VOICE_SIGNAL_PATH`, req.url bị strip prefix.
+     */
+    pathRewrite: (path) => `${VOICE_SIGNAL_PATH}${path}`,
   })
 );
 
