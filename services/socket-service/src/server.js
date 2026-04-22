@@ -15,7 +15,10 @@ app.use(express.json({ limit: '1mb' }));
 const INTERNAL_REALTIME_TOKEN = process.env.REALTIME_INTERNAL_TOKEN || '';
 
 const isProd = process.env.NODE_ENV === 'production';
-const corsOrigin = process.env.CORS_ORIGIN || (isProd ? '' : 'http://localhost:5173,http://localhost:3000');
+// Dev: khi chạy Vite bằng `--host 0.0.0.0`, người dùng thường truy cập bằng IP LAN (vd 192.168.x.x)
+// => Origin sẽ KHÔNG phải localhost. Nếu không set CORS_ORIGIN thì mặc định cho phép mọi origin trong dev.
+const corsOriginRaw = String(process.env.CORS_ORIGIN || '').trim();
+const corsOrigin = corsOriginRaw || (isProd ? '' : '');
 const parsedOrigins = corsOrigin
   .split(',')
   .map((origin) => origin.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
