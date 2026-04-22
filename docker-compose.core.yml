@@ -36,7 +36,7 @@ services:
       - ./api-gateway:/app
       - /app/node_modules
     # Đồng bộ node_modules trong volume với package.json (tránh MODULE_NOT_FOUND sau khi thêm dependency)
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   auth-service:
     build: ./services/auth-service
@@ -55,7 +55,7 @@ services:
       - ./services/auth-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   user-service:
     build: ./services/user-service
@@ -75,7 +75,7 @@ services:
       - ./shared:/shared
       - /app/node_modules
     # Đồng bộ node_modules trong volume với package.json (axios, v.v.) — tránh MODULE_NOT_FOUND
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   organization-service:
     build: ./services/organization-service
@@ -94,7 +94,7 @@ services:
       - ./services/organization-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   friend-service:
     build: ./services/friend-service
@@ -119,7 +119,7 @@ services:
       - ./services/friend-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   role-permission-service:
     build: ./services/role-permission-service
@@ -137,7 +137,7 @@ services:
       - ./services/role-permission-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   chat-service:
     build: ./services/chat-service
@@ -167,7 +167,7 @@ services:
       - ./services/chat-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   task-service:
     build: ./services/task-service
@@ -196,7 +196,7 @@ services:
       - ./services/task-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   ai-task-service:
     build: ./services/ai-task-service
@@ -223,12 +223,11 @@ services:
       - ./services/ai-task-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   ai-task-worker:
     build: ./services/ai-task-worker
     container_name: enterprise-ai-task-worker
-    restart: unless-stopped
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -258,7 +257,7 @@ services:
       - ./services/ai-task-worker:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/worker.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/worker.js"]
 
   document-service:
     build: ./services/document-service
@@ -275,7 +274,7 @@ services:
       - ./services/document-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   voice-service:
     build: ./services/voice-service
@@ -296,7 +295,7 @@ services:
       - ./services/voice-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: sh -c "npm install && node src/server.js"
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   notification-service:
     build: ./services/notification-service
@@ -315,7 +314,7 @@ services:
       - ./services/notification-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   # Webhook từ bên ngoài (Stripe, …) cần route public — thêm ports: ["3016:3016"] tạm nếu không dùng reverse proxy.
   webhook-service:
@@ -366,7 +365,7 @@ services:
       - ./services/socket-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm install && node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
 networks:
   enterprise-network:

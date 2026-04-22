@@ -1,5 +1,7 @@
 const { randomUUID } = require('crypto');
 const axios = require('axios');
+const { mongoose } = require('/shared/config/mongo');
+const Message = require('../models/Message');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent, firebaseStorage } = require('/shared');
 const {
@@ -12,19 +14,92 @@ const {
   isMimeAllowed,
 } = require('../config/fileRetention');
 const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
+const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
 
-async function fetchAccessibleChannelIds(orgId, authHeader) {
+/** Header gọi organization-service: tin cậy gateway (giống proxy) hoặc Bearer để /auth/me. */
+function headersForOrganizationForward(req) {
+  const headers = {};
+  const uid = String(req.user?.id || req.user?.userId || req.user?._id || '').trim();
+  const gwTok = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (uid && gwTok) {
+    Object.assign(headers, buildTrustedGatewayHeaders(uid));
+  } else {
+    const fx = req.headers['x-user-id'];
+    const fgw = String(req.headers['x-gateway-internal-token'] || '').trim();
+    if (fx && fgw) {
+      headers['x-user-id'] = String(fx).trim();
+      headers['x-gateway-internal-token'] = fgw;
+      const em = req.headers['x-user-email'];
+      if (em) headers['x-user-email'] = em;
+    }
+  }
+  const auth = req.headers?.authorization;
+  if (auth) headers.Authorization = auth;
+  return headers;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Chỉ retry lỗi tạm (mạng / 5xx org); không retry 401/403/404. */
+function shouldRetryAccessibleChannelFetch(err, attempt, maxAttempts) {
+  if (attempt >= maxAttempts) return false;
+  const st = err.response?.status;
+  if (st === 401 || st === 403 || st === 404) return false;
+  if (st >= 500) return true;
+  if (!err.response) return true;
+  const c = err.code;
+  return (
+    c === 'ECONNREFUSED' ||
+    c === 'ENOTFOUND' ||
+    c === 'ETIMEDOUT' ||
+    c === 'ECONNRESET' ||
+    String(err.message || '').toLowerCase().includes('timeout')
+  );
+}
+
+async function fetchAccessibleChannelIds(orgId, req) {
   const base = (process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013').replace(
     /\/$/,
     ''
   );
   const url = `${base}/api/organizations/${orgId}/accessible-channel-ids`;
-  const { data } = await axios.get(url, {
-    headers: authHeader ? { Authorization: authHeader } : {},
-    timeout: 12000,
-  });
-  const ids = data?.data?.channelIds;
-  return Array.isArray(ids) ? ids.map(String) : [];
+  const timeoutMs = Number(process.env.ORG_ACCESSIBLE_CHANNELS_TIMEOUT_MS || 12000);
+  const maxAttempts = Math.max(1, Math.min(5, Number(process.env.ORG_ACCESSIBLE_CHANNELS_RETRY_ATTEMPTS || 3)));
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const { data } = await axios.get(url, {
+        headers: headersForOrganizationForward(req),
+        timeout: timeoutMs,
+      });
+      const ids = data?.data?.channelIds;
+      if (!Array.isArray(ids)) {
+        // eslint-disable-next-line no-console
+        console.warn('[fetchAccessibleChannelIds] response không có channelIds[], coi như rỗng', {
+          orgId,
+          attempt,
+        });
+        return [];
+      }
+      return ids.map(String);
+    } catch (e) {
+      lastErr = e;
+      if (shouldRetryAccessibleChannelFetch(e, attempt, maxAttempts)) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[fetchAccessibleChannelIds] lần ${attempt}/${maxAttempts} lỗi, thử lại:`,
+          e.response?.status,
+          e.code
+        );
+        await sleep(350 * attempt);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 class MessageController {
@@ -460,14 +535,63 @@ class MessageController {
           message: 'organizationId is required',
         });
       }
-      const authHeader = req.headers.authorization;
       let allowedRoomIds;
       try {
-        allowedRoomIds = await fetchAccessibleChannelIds(organizationId, authHeader);
+        allowedRoomIds = await fetchAccessibleChannelIds(organizationId, req);
       } catch (e) {
-        return res.status(503).json({
+        const upstream = e.response?.status;
+        const body = e.response?.data || {};
+        const upstreamMsg =
+          (typeof body === 'string' && body) ||
+          body.message ||
+          body.error ||
+          (body.status === 'fail' && body.message) ||
+          '';
+        // eslint-disable-next-line no-console
+        console.error(
+          '[searchMessages] accessible-channel-ids failed:',
+          upstream,
+          e.code,
+          e.message
+        );
+        if (upstream === 401) {
+          return res.status(401).json({
+            success: false,
+            code: 'ORG_CHANNEL_AUTH_REQUIRED',
+            message: upstreamMsg || 'Unauthorized',
+          });
+        }
+        if (upstream === 403) {
+          return res.status(403).json({
+            success: false,
+            code: 'ORG_CHANNEL_ACCESS_DENIED',
+            message: upstreamMsg || 'Access denied',
+          });
+        }
+        if (upstream >= 500) {
+          return res.status(502).json({
+            success: false,
+            code: 'CHANNEL_ACCESS_ORG_ERROR',
+            message: 'Organization service error while verifying channels',
+          });
+        }
+        const transient =
+          e.code === 'ECONNREFUSED' ||
+          e.code === 'ENOTFOUND' ||
+          e.code === 'ETIMEDOUT' ||
+          e.code === 'ECONNRESET' ||
+          e.message?.toLowerCase().includes('timeout');
+        if (transient || !upstream) {
+          return res.status(503).json({
+            success: false,
+            code: 'CHANNEL_ACCESS_VERIFY_FAILED',
+            message: 'Could not verify channel access',
+          });
+        }
+        return res.status(502).json({
           success: false,
-          message: 'Could not verify channel access',
+          code: 'CHANNEL_ACCESS_ORG_ERROR',
+          message: upstreamMsg || 'Could not verify channel access',
         });
       }
       if (!allowedRoomIds.length) {
@@ -734,6 +858,21 @@ class MessageController {
         success: false,
         message: error.message,
       });
+    }
+  }
+
+  /** Service-to-service: xóa mọi tin nhắn kênh tổ chức (organization-service khi owner xóa org) */
+  async purgeOrganizationMessagesInternal(req, res) {
+    try {
+      const { organizationId } = req.body || {};
+      if (!organizationId || !mongoose.Types.ObjectId.isValid(String(organizationId))) {
+        return res.status(400).json({ success: false, message: 'organizationId is required and must be valid' });
+      }
+      const oid = new mongoose.Types.ObjectId(String(organizationId));
+      const result = await Message.deleteMany({ organizationId: oid });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 }

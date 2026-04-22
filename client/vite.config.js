@@ -1,12 +1,18 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 const analyze = process.env.ANALYZE === '1' || process.env.ANALYZE === 'true';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // .env / .env.local chỉ có trong import.meta.env cho mã app; config cần loadEnv.
+  const env = loadEnv(mode, __dirname, '');
+  const apiProxyTarget = (env.VITE_API_URL || '').replace(/\/api\/?$/, '') || 'http://localhost:3000';
+  const socketProxyTarget = env.VITE_SOCKET_PROXY_TARGET || 'http://127.0.0.1:3017';
+
+  return {
   plugins: [
     react({
       // Bật Fast Refresh với cấu hình tối ưu
@@ -42,13 +48,13 @@ export default defineConfig({
     port: 5173, // Vite dev server port (tránh conflict với API Gateway port 3000)
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3000',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
-      // Dev: proxy /socket.io → socket-service trực tiếp (tránh 404 khi gateway chưa proxy /socket.io đúng).
-      // Override: VITE_SOCKET_PROXY_TARGET=http://localhost:3000 nếu cần test qua gateway.
+      // Dev: mặc định proxy /socket.io → socket-service :3017 (host phải publish port).
+      // Khi socket chỉ trong Docker: đặt VITE_SOCKET_PROXY_TARGET=http://localhost:3000 (api-gateway).
       '/socket.io': {
-        target: process.env.VITE_SOCKET_PROXY_TARGET || 'http://127.0.0.1:3017',
+        target: socketProxyTarget,
         changeOrigin: true,
         ws: true,
       },
@@ -73,4 +79,5 @@ export default defineConfig({
       },
     },
   },
+};
 });

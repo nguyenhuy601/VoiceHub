@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const documentService = require('../services/document.service');
+const Document = require('../models/Document');
 const { logger } = require('/shared');
 
 class DocumentController {
@@ -234,6 +236,22 @@ class DocumentController {
         success: false,
         message: error.message,
       });
+    }
+  }
+
+  /** Gọi nội bộ — xóa mọi document thuộc tổ chức */
+  async purgeOrganizationDocuments(req, res) {
+    try {
+      const { organizationId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
+        return res.status(400).json({ success: false, message: 'Invalid organizationId' });
+      }
+      const oid = new mongoose.Types.ObjectId(String(organizationId));
+      const result = await Document.deleteMany({ organizationId: oid });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      logger.error('purgeOrganizationDocuments error:', error);
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 }

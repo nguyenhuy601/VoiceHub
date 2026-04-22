@@ -2,6 +2,7 @@ const Membership = require('../models/Membership');
 const Organization = require('../models/Organization');
 const jwt = require('jsonwebtoken');
 const { emitRealtimeEvent } = require('/shared');
+const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'member'];
 const INVITE_LINK_SECRET = process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || 'org-invite-secret';
@@ -128,6 +129,13 @@ exports.respondToInvitation = async (req, res, next) => {
       invitation.joinedAt = new Date();
       await invitation.save();
 
+      await ensureDefaultOrgRoles(invitation.organization);
+      await syncUserOrgRole(
+        userId,
+        invitation.organization,
+        Membership.normalizeRole(invitation.role || 'member')
+      );
+
       await emitRealtimeEvent({
         event: 'organization:invitation_accepted',
         userIds: [String(userId), String(invitation.invitedBy || '')].filter(Boolean),
@@ -250,6 +258,9 @@ exports.joinViaLink = async (req, res, next) => {
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
+    await ensureDefaultOrgRoles(req.params.orgId);
+    await syncUserOrgRole(userId, req.params.orgId, 'member');
+
     await emitRealtimeEvent({
       event: 'organization:member_joined',
       userId: String(userId),
@@ -285,6 +296,11 @@ exports.updateMemberRole = async (req, res, next) => {
       { new: true }
     );
 
+    if (membership) {
+      await ensureDefaultOrgRoles(req.params.orgId);
+      await syncUserOrgRole(req.params.userId, req.params.orgId, normalizedRole);
+    }
+
     await emitRealtimeEvent({
       event: 'organization:member_role_updated',
       userId: String(req.params.userId),
@@ -308,6 +324,8 @@ exports.removeMember = async (req, res, next) => {
       user: req.params.userId,
       organization: req.params.orgId,
     });
+
+    await stripUserOrgRoles(req.params.userId, req.params.orgId);
 
     await emitRealtimeEvent({
       event: 'organization:member_removed',
@@ -361,6 +379,8 @@ exports.leaveOrganization = async (req, res, next) => {
     }
 
     await Membership.findOneAndDelete({ _id: membership._id });
+
+    await stripUserOrgRoles(userId, orgId);
 
     await emitRealtimeEvent({
       event: 'organization:member_removed',

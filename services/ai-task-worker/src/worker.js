@@ -361,39 +361,6 @@ function isTransientJobError(err) {
   return false;
 }
 
-/** RabbitMQ đôi khi chưa lắng nghe ngay sau healthcheck Docker — tránh fatal ECONNREFUSED. */
-async function connectAmqpWithRetry(url) {
-  const maxAttempts = parseInt(process.env.RABBITMQ_CONNECT_MAX_ATTEMPTS || '40', 10) || 40;
-  let delayMs = parseInt(process.env.RABBITMQ_CONNECT_RETRY_MS || '2000', 10) || 2000;
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const conn = await amqp.connect(url);
-      if (attempt > 1) {
-        console.log(`[ai-task-worker] RabbitMQ connected after ${attempt} attempt(s)`);
-      }
-      return conn;
-    } catch (e) {
-      lastErr = e;
-      const code = e && e.code;
-      const retryable =
-        code === 'ECONNREFUSED' ||
-        code === 'ETIMEDOUT' ||
-        code === 'ENOTFOUND' ||
-        (e && /ECONNREFUSED|ETIMEDOUT|getaddrinfo/i.test(String(e.message || '')));
-      if (!retryable || attempt >= maxAttempts) {
-        throw e;
-      }
-      console.warn(
-        `[ai-task-worker] RabbitMQ not ready (${code || e.message}), attempt ${attempt}/${maxAttempts}, wait ${delayMs}ms`
-      );
-      await new Promise((r) => setTimeout(r, delayMs));
-      delayMs = Math.min(Math.floor(delayMs * 1.35), 30000);
-    }
-  }
-  throw lastErr;
-}
-
 async function start() {
   const mongoUri = (process.env.AI_TASK_MONGODB_URI || '').trim() || process.env.MONGODB_URI;
   await connectDB(mongoUri);
@@ -401,7 +368,7 @@ async function start() {
   const url = process.env.RABBITMQ_URL;
   if (!url) throw new Error('RABBITMQ_URL is not set');
 
-  const conn = await connectAmqpWithRetry(url);
+  const conn = await amqp.connect(url);
   const ch = await conn.createChannel();
   await ch.assertQueue(EXTRACT_QUEUE, { durable: true });
   await ch.assertQueue(SYNC_QUEUE, { durable: true });

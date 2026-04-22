@@ -5,6 +5,17 @@ require('dotenv').config();
 
 const app = express();
 
+// Sau reverse proxy / API Gateway request thường có X-Forwarded-For.
+// express-rate-limit v7+ bắt buộc trust proxy khớp, nếu không sẽ ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+function resolveTrustProxy() {
+  const v = process.env.TRUST_PROXY;
+  if (v === '0' || v === 'false') return false;
+  if (v === 'true' || v === '1') return true;
+  if (v != null && String(v).trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+  return 1; // mặc định: một hop (gateway → service)
+}
+app.set('trust proxy', resolveTrustProxy());
+
 // Middleware
 app.use(createCorsMiddleware());
 

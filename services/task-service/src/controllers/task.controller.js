@@ -144,6 +144,9 @@ class TaskController {
         dueFrom,
         dueTo,
       } = req.query;
+      const assigneeId = first(assigneeIdRaw);
+      const organizationId = first(organizationIdRaw);
+      const serverId = first(serverIdRaw);
       const userId = req.user?.id || req.userContext?.userId;
       if (!userId) {
         return res.status(401).json({
@@ -201,7 +204,7 @@ class TaskController {
       if (status) filter.status = status;
       if (priority) filter.priority = priority;
 
-      const searchQ = first(qRaw);
+      const searchQ = first(q.q);
       if (searchQ != null && String(searchQ).trim() !== '') {
         const esc = String(searchQ)
           .trim()
@@ -507,6 +510,22 @@ class TaskController {
         success: false,
         message: error.message,
       });
+    }
+  }
+
+  /** Gọi nội bộ — xóa mọi task thuộc tổ chức */
+  async purgeOrganizationTasks(req, res) {
+    try {
+      const { organizationId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
+        return res.status(400).json({ success: false, message: 'Invalid organizationId' });
+      }
+      const oid = new mongoose.Types.ObjectId(String(organizationId));
+      const result = await Task.deleteMany({ organizationId: oid });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      logger.error('purgeOrganizationTasks error:', error);
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 }

@@ -7,6 +7,7 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 
 function LoginPage({ landingDemo = false } = {}) {

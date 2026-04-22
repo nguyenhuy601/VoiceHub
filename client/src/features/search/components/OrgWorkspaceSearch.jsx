@@ -21,7 +21,7 @@ import {
   pushSearchHistory,
   serializeQueryState,
 } from '../searchTypes';
-import { fetchOrgMessageSearch } from '../orgChatSearchConfig';
+import { fetchOrgMessageSearch, formatOrgMessageSearchError } from '../orgChatSearchConfig';
 import { organizationAPI } from '../../../services/api/organizationAPI';
 import { enrichMembershipsForSearch } from '../enrichOrgMembers';
 
@@ -116,7 +116,7 @@ export default function OrgWorkspaceSearch({
       pushSearchHistory(scopeKey, serializeQueryState(inputValue.trim(), tokens));
     } catch (e) {
       if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') return;
-      setSearchError(e?.response?.data?.message || e?.message || 'Error');
+      setSearchError(formatOrgMessageSearchError(e) || 'Error');
       setResults([]);
     } finally {
       setSearchLoading(false);

@@ -1,5 +1,6 @@
 const mongoose = require('../db');
 const meetingService = require('../services/meeting.service');
+const Meeting = require('../models/Meeting');
 const { logger } = require('/shared');
 
 class MeetingController {
@@ -328,6 +329,22 @@ class MeetingController {
         success: false,
         message: error.message,
       });
+    }
+  }
+
+  /** Gọi nội bộ — xóa mọi meeting liên quan tổ chức */
+  async purgeOrganizationMeetings(req, res) {
+    try {
+      const { organizationId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
+        return res.status(400).json({ success: false, message: 'Invalid organizationId' });
+      }
+      const oid = new mongoose.Types.ObjectId(String(organizationId));
+      const result = await Meeting.deleteMany({ organizationId: oid });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      logger.error('purgeOrganizationMeetings error:', error);
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
 }

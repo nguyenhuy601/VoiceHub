@@ -3,6 +3,8 @@ const Membership = require('../models/Membership');
 const Department = require('../models/Department');
 const Channel = require('../models/Channel');
 const { emitRealtimeEvent } = require('/shared');
+const { ensureDefaultOrgRoles, syncUserOrgRole } = require('../services/rolePermissionOrgSync');
+const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
 
 const getUserId = (req) => req.user?.id || req.user?.userId || req.user?._id;
 const DEFAULT_DEPARTMENTS = [
@@ -93,6 +95,10 @@ exports.createOrganization = async (req, res, next) => {
       status: 'active',
     });
 
+    // RBAC: tạo 2 role mặc định (Quản trị viên / Thành viên) + gán chủ tổ chức — chạy trước seed phòng ban để không phụ thuộc seed
+    await ensureDefaultOrgRoles(organization._id);
+    await syncUserOrgRole(userId, organization._id, 'owner');
+
     // Seed cấu trúc mặc định: phòng ban bắt buộc + 1 chat/1 voice cho mỗi phòng ban
     await seedDefaultStructure(organization._id, userId);
 
@@ -167,17 +173,27 @@ exports.updateOrganization = async (req, res, next) => {
 
 exports.deleteOrganization = async (req, res, next) => {
   try {
-    await Organization.findByIdAndUpdate(req.params.id, { isActive: false });
+    const orgId = req.params.id;
+    const userId = getUserId(req);
+    const organization = await Organization.findById(orgId);
+    if (!organization) {
+      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+    }
+    if (String(organization.ownerId) !== String(userId)) {
+      return res.status(403).json({ status: 'fail', message: 'Only the organization owner can delete the organization' });
+    }
+
+    await purgeOrganizationEverywhere(orgId);
 
     await emitRealtimeEvent({
       event: 'organization:deleted',
-      userId: String(getUserId(req) || ''),
+      userId: String(userId || ''),
       payload: {
-        organizationId: String(req.params.id),
+        organizationId: String(orgId),
         timestamp: new Date().toISOString(),
       },
     });
-    res.json({ status: 'success', message: 'Organization deactivated' });
+    res.json({ status: 'success', message: 'Organization and related data have been removed' });
   } catch (error) {
     next(error);
   }

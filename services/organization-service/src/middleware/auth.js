@@ -25,9 +25,10 @@ exports.protect = async (req, res, next) => {
       return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
     }
 
-    // Verify token with auth service
+    // Verify token with auth service (timeout tránh treo cả chuỗi search → chat-service 503)
     const response = await axios.get(`${AUTH_SERVICE_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      timeout: Number(process.env.AUTH_HTTP_TIMEOUT_MS || 8000),
     });
 
     const user = response.data?.data?.user || response.data?.user || {};

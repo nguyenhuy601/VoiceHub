@@ -69,6 +69,11 @@ function FriendChatPage({ landingDemo = false } = {}) {
   /** Đang gọi API để chọn hội thoại mặc định (tránh nháy "chọn bạn") */
   const [resolvingDefaultChat, setResolvingDefaultChat] = useState(false);
   const [friendsLoading, setFriendsLoading] = useState(true);
+  /** Lọc danh sách bạn trong rail (PageSearchBar) */
+  const [friendRailSearch, setFriendRailSearch] = useState('');
+  /** Tìm trong tin DM + bộ lọc loại tin (SearchFilterChips) */
+  const [dmMessageSearch, setDmMessageSearch] = useState('');
+  const [dmScope, setDmScope] = useState(DM_SCOPE.ALL);
   /** null = không upload; 0–100 khi đang gửi file/ảnh */
   const [uploadProgress, setUploadProgress] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -82,7 +87,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
   const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
-  const [toast, setToast] = useState(null);
+  const [inlineToast, setInlineToast] = useState(null);
   const { user } = useAuth();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
 
@@ -1538,8 +1543,12 @@ function FriendChatPage({ landingDemo = false } = {}) {
         confirmText={t('common.delete')}
         cancelText={t('nav.cancel')}
       />
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+      {inlineToast && (
+        <Toast
+          message={inlineToast.message}
+          type={inlineToast.type}
+          onClose={() => setInlineToast(null)}
+        />
       )}
     </div>
   );

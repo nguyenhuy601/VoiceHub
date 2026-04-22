@@ -41,6 +41,12 @@ router.get(
   messageController.getSignedReadUrlInternal.bind(messageController)
 );
 
+router.post(
+  '/internal/purge-organization-messages',
+  internalServiceOnly,
+  messageController.purgeOrganizationMessagesInternal.bind(messageController)
+);
+
 // Tất cả routes đều cần authentication
 router.use(authenticate);
 

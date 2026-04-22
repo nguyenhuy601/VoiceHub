@@ -7,7 +7,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import { meetingAPI } from '../../services/api/meetingAPI';
 import friendService from '../../services/friendService';
-import { fetchOrgMessageSearch } from '../search/orgChatSearchConfig';
+import { fetchOrgMessageSearch, formatOrgMessageSearchError } from '../search/orgChatSearchConfig';
 import { DM_SCOPE, messageMatchesDmScope } from '../search/dmConversationSearch';
 import {
   endOfMonth,
@@ -380,7 +380,12 @@ export async function fetchDashboardSearchResults({
 
     return { items, truncated };
   } catch (e) {
-    const msg = e?.response?.data?.message || e?.message || t('dashboard.globalSearch.loadError');
+    const msg =
+      formatOrgMessageSearchError(e) ||
+      e?.data?.message ||
+      e?.response?.data?.message ||
+      e?.message ||
+      t('dashboard.globalSearch.loadError');
     return { items: [], truncated: false, error: msg };
   }
 }

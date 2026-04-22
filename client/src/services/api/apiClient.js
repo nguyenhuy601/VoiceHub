@@ -1,9 +1,9 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { getToken, removeToken } from '../../utils/tokenStorage';
+import { mapAuthSessionMessageForLogout } from '../../utils/authErrorMessages';
 import { isAutoLogoutDisabled } from '../../utils/devAuth';
 import { isLandingEmbedActive, isWriteHttpMethod } from '../../utils/landingEmbedMode';
-import { getToken, removeToken } from '../../utils/tokenStorage';
 
 /** Từ chối im lặng mọi lỗi HTTP khi đang xem demo landing — không đụng toast/redirect */
 function rejectLandingEmbedSilent(error) {
@@ -110,7 +110,7 @@ apiClient.interceptors.response.use(
       } else {
         removeToken();
         window.location.href = '/login';
-        toast.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        toast.error(mapAuthSessionMessageForLogout(error.response?.data?.message || error.message));
       }
     } else if (error.response?.status === 403) {
       toast.error('Bạn không có quyền thực hiện hành động này');
