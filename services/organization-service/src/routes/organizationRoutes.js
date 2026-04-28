@@ -8,6 +8,7 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect); // All routes require authentication
 
 router.get('/my', organizationController.getMyOrganizations);
+router.get('/by-slug/:slug', organizationController.getOrganizationBySlug);
 router.get(
   '/my/pending-join-applications',
   joinApplicationController.listMyPendingJoinApplications

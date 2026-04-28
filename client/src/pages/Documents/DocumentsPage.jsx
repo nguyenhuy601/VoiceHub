@@ -8,87 +8,8 @@ import { threeFramePageHeader } from '../../theme/shellTheme';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchBar, SearchFilterChips } from '../../features/search';
 
-const DEMO_DOCS = [
-  {
-    id: 1,
-    name: 'Kế Hoạch Dự Án Q1.pdf',
-    size: '2.4 MB',
-    type: '📄',
-    color: 'from-red-500 to-orange-500',
-    category: 'Tài liệu',
-    owner: 'Sarah Chen',
-    modified: '2 giờ trước',
-    shared: true,
-    starred: true,
-  },
-  {
-    id: 2,
-    name: 'Hệ Thống Thiết Kế.fig',
-    size: '15.8 MB',
-    type: '🎨',
-    color: 'from-purple-600 to-pink-600',
-    category: 'Thiết kế',
-    owner: 'Emma Wilson',
-    modified: '1 ngày trước',
-    shared: true,
-    starred: false,
-  },
-  {
-    id: 3,
-    name: 'Biên Bản Họp.docx',
-    size: '124 KB',
-    type: '📝',
-    color: 'from-blue-500 to-cyan-500',
-    category: 'Văn bản',
-    owner: 'Mike Ross',
-    modified: '3 ngày trước',
-    shared: false,
-    starred: true,
-  },
-  {
-    id: 4,
-    name: 'Báo Cáo Phân Tích.xlsx',
-    size: '892 KB',
-    type: '📊',
-    color: 'from-green-500 to-emerald-500',
-    category: 'Bảng tính',
-    owner: 'David Kim',
-    modified: '1 tuần trước',
-    shared: true,
-    starred: false,
-  },
-  {
-    id: 5,
-    name: 'Presentation_Demo.pptx',
-    size: '5.2 MB',
-    type: '📽️',
-    color: 'from-orange-500 to-red-500',
-    category: 'Trình chiếu',
-    owner: 'Lisa Park',
-    modified: '2 tuần trước',
-    shared: true,
-    starred: false,
-  },
-  {
-    id: 6,
-    name: 'Code_Review_Notes.md',
-    size: '45 KB',
-    type: '💻',
-    color: 'from-cyan-500 to-blue-500',
-    category: 'Code',
-    owner: 'Tom Zhang',
-    modified: '4 ngày trước',
-    shared: false,
-    starred: true,
-  },
-];
-
-const DEMO_FOLDERS = [
-  { name: 'Dự Án', count: 12, icon: '📁', color: 'from-purple-600 to-pink-600' },
-  { name: 'Thiết Kế', count: 24, icon: '🎨', color: 'from-blue-500 to-cyan-500' },
-  { name: 'Tài Liệu', count: 8, icon: '📄', color: 'from-green-500 to-emerald-500' },
-  { name: 'Ảnh & Video', count: 45, icon: '🖼️', color: 'from-orange-500 to-red-500' },
-];
+const DEMO_DOCS = [];
+const DEMO_FOLDERS = [];
 
 function DocumentsPage() {
   const { isDarkMode } = useTheme();

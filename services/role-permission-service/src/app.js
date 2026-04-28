@@ -16,6 +16,8 @@ app.get('/health', (req, res) => {
 // Role routes
 const roleRoutes = require('./routes/role.routes');
 app.use('/api/roles', roleRoutes);
+const internalRoleRoutes = require('./routes/internalRole.routes');
+app.use('/api/internal/roles', internalRoleRoutes);
 
 // Permission routes
 const permissionRoutes = require('./routes/permission.routes');

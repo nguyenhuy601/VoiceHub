@@ -50,6 +50,31 @@ const organizationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    slug: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'ACTIVE', 'SUSPENDED', 'ARCHIVED'],
+      default: 'ACTIVE',
+    },
+    type: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    teamSize: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    industry: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     settings: {
       allowPublicJoin: {
         type: Boolean,
@@ -78,6 +103,8 @@ const organizationSchema = new mongoose.Schema(
 organizationSchema.index({ ownerId: 1 });
 organizationSchema.index({ name: 1 });
 organizationSchema.index({ isActive: 1 });
+organizationSchema.index({ slug: 1 }, { unique: true, sparse: true });
+organizationSchema.index({ status: 1 });
 
 const Organization = mongoose.model('Organization', organizationSchema);
 

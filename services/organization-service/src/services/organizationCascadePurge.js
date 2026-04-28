@@ -21,6 +21,8 @@ const ROLE_PERMISSION_SERVICE_URL = (process.env.ROLE_PERMISSION_SERVICE_URL || 
   /\/$/,
   ''
 );
+const PURGE_MAX_RETRIES = 5;
+const PURGE_RETRY_DELAY_MS = 2000;
 
 function gatewayHeaders() {
   const h = { 'Content-Type': 'application/json' };
@@ -34,56 +36,114 @@ function chatHeaders() {
   return h;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryStatus = (status) => [500, 502, 503, 504].includes(Number(status));
+
+const shouldRetryNetworkError = (error) => {
+  const code = String(error?.code || '').toUpperCase();
+  return ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND'].includes(code);
+};
+
+async function requestWithRetry(requestFn, errorPrefix, { maxRetries = PURGE_MAX_RETRIES } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      const res = await requestFn();
+      if (res.status === 200) {
+        return res;
+      }
+      const err = new Error(`${errorPrefix}: HTTP ${res.status} ${JSON.stringify(res.data)}`);
+      err.status = res.status;
+      lastError = err;
+      if (!shouldRetryStatus(res.status) || attempt === maxRetries) {
+        throw err;
+      }
+      logger.warn(`${errorPrefix} retry ${attempt}/${maxRetries} (status=${res.status})`);
+      await sleep(PURGE_RETRY_DELAY_MS * attempt);
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryNetworkError(error) || attempt === maxRetries) {
+        throw error;
+      }
+      logger.warn(`${errorPrefix} retry ${attempt}/${maxRetries} (network=${error.code || 'unknown'})`);
+      await sleep(PURGE_RETRY_DELAY_MS * attempt);
+    }
+  }
+  throw lastError || new Error(`${errorPrefix}: unknown error`);
+}
+
 async function purgeRemoteTasks(organizationId) {
   const url = `${TASK_SERVICE_URL}/api/tasks/internal/purge-organization/${encodeURIComponent(organizationId)}`;
-  const res = await axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true });
-  if (res.status !== 200) {
-    throw new Error(`task-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
-  }
+  await requestWithRetry(
+    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
+    'task-service purge'
+  );
 }
 
 async function purgeRemoteDocuments(organizationId) {
   const url = `${DOCUMENT_SERVICE_URL}/internal/documents/purge-organization/${encodeURIComponent(organizationId)}`;
-  const res = await axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true });
-  if (res.status !== 200) {
-    throw new Error(`document-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
-  }
+  await requestWithRetry(
+    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
+    'document-service purge'
+  );
 }
 
 async function purgeRemoteMeetings(organizationId) {
   const url = `${VOICE_SERVICE_URL}/api/meetings/internal/purge-organization/${encodeURIComponent(organizationId)}`;
-  const res = await axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true });
-  if (res.status !== 200) {
-    throw new Error(`voice-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
-  }
+  await requestWithRetry(
+    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
+    'voice-service purge'
+  );
 }
 
 async function purgeRemoteChatMessages(organizationId) {
   const url = `${CHAT_SERVICE_URL}/api/messages/internal/purge-organization-messages`;
-  const res = await axios.post(
-    url,
-    { organizationId },
-    { headers: chatHeaders(), timeout: 120000, validateStatus: () => true }
+  await requestWithRetry(
+    () =>
+      axios.post(
+        url,
+        { organizationId },
+        { headers: chatHeaders(), timeout: 120000, validateStatus: () => true }
+      ),
+    'chat-service purge'
   );
-  if (res.status !== 200) {
-    throw new Error(`chat-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
-  }
 }
 
 async function purgeRemoteAiTaskData(organizationId) {
   const url = `${AI_TASK_SERVICE_URL}/api/ai/tasks/internal/purge-organization/${encodeURIComponent(organizationId)}`;
-  const res = await axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true });
-  if (res.status !== 200) {
-    throw new Error(`ai-task-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
-  }
+  await requestWithRetry(
+    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
+    'ai-task-service purge'
+  );
 }
 
 async function purgeRemoteRoles(organizationId) {
-  const url = `${ROLE_PERMISSION_SERVICE_URL}/api/internal/roles/purge-by-server/${encodeURIComponent(organizationId)}`;
-  const res = await axios.post(url, {}, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true });
-  if (res.status !== 200) {
-    throw new Error(`role-permission-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
+  const candidates = [
+    `${ROLE_PERMISSION_SERVICE_URL}/api/internal/roles/purge-by-server/${encodeURIComponent(organizationId)}`,
+    `${ROLE_PERMISSION_SERVICE_URL}/api/roles/internal/purge-by-server/${encodeURIComponent(organizationId)}`,
+  ];
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      const res = await requestWithRetry(
+        () => axios.post(url, {}, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
+        'role-permission-service purge'
+      );
+      if (res.status === 200) {
+        return;
+      }
+      lastError = new Error(`role-permission-service purge: HTTP ${res.status} ${JSON.stringify(res.data)}`);
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      if (status === 404) {
+        continue;
+      }
+      throw error;
+    }
   }
+  throw lastError || new Error('role-permission-service purge failed');
 }
 
 async function purgeLocalOrganizationRecords(organizationId) {

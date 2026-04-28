@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const axios = require('axios');
 const { mongoose } = require('/shared/config/mongo');
 const Message = require('../models/Message');
+const Conversation = require('../models/Conversation');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent, firebaseStorage } = require('/shared');
 const {
@@ -650,10 +651,48 @@ class MessageController {
       const filter = {};
 
       if (receiverId) {
-        filter.$or = [
-          { senderId: userId, receiverId },
-          { senderId: receiverId, receiverId: userId },
-        ];
+        if (!mongoose.Types.ObjectId.isValid(String(userId)) || !mongoose.Types.ObjectId.isValid(String(receiverId))) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid user id',
+          });
+        }
+        const me = new mongoose.Types.ObjectId(String(userId));
+        const peer = new mongoose.Types.ObjectId(String(receiverId));
+        const orgFilter = organizationId && mongoose.Types.ObjectId.isValid(String(organizationId))
+          ? new mongoose.Types.ObjectId(String(organizationId))
+          : null;
+        const dmConversation = await Conversation.findOne({
+          type: 'dm',
+          members: { $all: [me, peer], $size: 2 },
+          organizationId: orgFilter,
+        }).select('_id');
+
+        if (dmConversation?._id) {
+          // Ưu tiên query theo conversationId mới; vẫn giữ fallback dữ liệu cũ chưa có conversationId.
+          filter.$or = [
+            { conversationId: dmConversation._id },
+            {
+              conversationId: { $exists: false },
+              $or: [
+                { senderId: userId, receiverId },
+                { senderId: receiverId, receiverId: userId },
+              ],
+            },
+            {
+              conversationId: null,
+              $or: [
+                { senderId: userId, receiverId },
+                { senderId: receiverId, receiverId: userId },
+              ],
+            },
+          ];
+        } else {
+          filter.$or = [
+            { senderId: userId, receiverId },
+            { senderId: receiverId, receiverId: userId },
+          ];
+        }
       } else if (roomId) {
         filter.roomId = roomId;
       } else {

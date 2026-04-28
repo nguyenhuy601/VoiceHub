@@ -1,8 +1,10 @@
 import {
+  BarChart3,
   Building2,
   Calendar,
+  Home,
   Eye,
-  LayoutDashboard,
+  FileText,
   ListTodo,
   LogOut,
   MessageSquare,
@@ -19,9 +21,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
 import friendService from '../../services/friendService';
+import { organizationAPI } from '../../services/api/organizationAPI';
 import {
     navDivider,
     navItemActive,
@@ -45,15 +49,23 @@ import Avatar from '../ui/Avatar';
 
 const iconBtn =
   'w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 flex items-center justify-center shrink-0 rounded-xl transition-all duration-200';
+const orgAvatarBtn =
+  'relative flex h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold uppercase tracking-wide transition-all duration-200';
 
-const NAV_DEF = [
-  { key: 'dashboard', Icon: LayoutDashboard, path: '/dashboard' },
+const PUBLIC_NAV_DEF = [
+  { key: 'dashboard', Icon: Home, path: '/dashboard' },
   { key: 'friends', Icon: MessageSquare, path: '/chat/friends' },
   { key: 'voice', Icon: Mic, path: '/voice' },
-  { key: 'org', Icon: Building2, path: '/organizations' },
-  { key: 'tasks', Icon: ListTodo, path: '/tasks' },
   { key: 'notifications', path: '/notifications', bellBadge: true },
   { key: 'calendar', Icon: Calendar, path: '/calendar' },
+];
+
+const ORG_NAV_DEF = [
+  { key: 'org', Icon: Building2, path: '/workspaces', isWorkspaceEntry: true },
+  { key: 'friends', Icon: MessageSquare, path: '/chat/friends' },
+  { key: 'tasks', Icon: ListTodo, path: '/tasks' },
+  { key: 'documents', Icon: FileText, path: '/documents' },
+  { key: 'notifications', path: '/notifications', bellBadge: true },
 ];
 
 const NavigationSidebar = ({ landingDemo = false } = {}) => {
@@ -61,6 +73,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
+  const { getLastWorkspacePath } = useWorkspace();
   const { locale } = useLocale();
   const { t, dict } = useAppStrings();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -70,6 +83,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [bellBadgeCount, setBellBadgeCount] = useState(0);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [myOrganizations, setMyOrganizations] = useState([]);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -116,23 +130,71 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     };
   }, [landingDemo]);
 
+  useEffect(() => {
+    if (profileOpen) setSidebarExpanded(true);
+  }, [profileOpen]);
+
+  useEffect(() => {
+    if (!sidebarExpanded && profileOpen) {
+      setProfileOpen(false);
+    }
+  }, [sidebarExpanded, profileOpen]);
+
+  useEffect(() => {
+    if (landingDemo) {
+      setMyOrganizations([
+        { _id: 'demo-org-1', name: 'Alpha Corp', slug: 'alpha-corp' },
+        { _id: 'demo-org-2', name: 'BetaLabs', slug: 'betalabs' },
+      ]);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadMyOrganizations = async () => {
+      try {
+        const payload = await organizationAPI.getOrganizations();
+        const list = Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.data?.data)
+            ? payload.data.data
+            : Array.isArray(payload)
+              ? payload
+              : [];
+        if (!cancelled) setMyOrganizations(list.slice(0, 8));
+      } catch {
+        if (!cancelled) setMyOrganizations([]);
+      }
+    };
+    loadMyOrganizations();
+    return () => {
+      cancelled = true;
+    };
+  }, [landingDemo]);
+
   const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
+  const inOrganizationContext = location.pathname.startsWith('/w/');
   const navItems = useMemo(() => {
-    return NAV_DEF.map((def) => {
-      const copy = dict.nav[def.key];
+    const base = inOrganizationContext
+      ? ORG_NAV_DEF
+      : PUBLIC_NAV_DEF;
+    return base.map((def) => {
+      const copy = dict?.nav?.[def.key] || {};
+      const fallbackLabel = def.key === 'org' ? 'Workspace' : def.key;
+      const label = copy.label || fallbackLabel;
+      const tooltip = copy.tooltip || label;
       if (def.bellBadge) {
-        return { path: def.path, tooltip: copy.tooltip, bellBadge: true, label: copy.label };
+        return { path: def.path, tooltip, bellBadge: true, label, isWorkspaceEntry: false };
       }
       return {
         Icon: def.Icon,
         path: def.path,
-        label: copy.label,
-        tooltip: copy.tooltip,
+        label,
+        tooltip,
+        isWorkspaceEntry: Boolean(def.isWorkspaceEntry),
       };
     });
-  }, [dict, locale]);
+  }, [dict, inOrganizationContext, locale]);
   const displayName = getUserDisplayName(user);
   const isInvisible = Boolean(user?.isInvisible);
   const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
@@ -191,6 +253,9 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   };
 
   const isActivePath = (path) => {
+    if (path === '/workspaces') {
+      return location.pathname.startsWith('/workspaces') || location.pathname.startsWith('/w/');
+    }
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
@@ -255,7 +320,9 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
           sidebarExpanded ? 'w-14 sm:w-16 md:w-[68px]' : 'w-2'
         }`}
         onMouseEnter={() => setSidebarExpanded(true)}
-        onMouseLeave={() => setSidebarExpanded(false)}
+        onMouseLeave={() => {
+          if (!profileOpen) setSidebarExpanded(false);
+        }}
         title={sidebarExpanded ? undefined : t('nav.railHint')}
       >
         <div className={`flex h-full min-w-[56px] shrink-0 flex-col overflow-y-hidden overflow-x-visible sm:w-16 md:w-[68px] w-14 ${rail}`}>
@@ -296,10 +363,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 }
                 const Icon = item.Icon;
                 const active = isActivePath(item.path);
+                const targetPath = item.isWorkspaceEntry ? getLastWorkspacePath() : item.path;
                 return (
                   <Tooltip key={idx} label={item.tooltip ?? item.label}>
                     <Link
-                      to={item.path}
+                      to={targetPath}
                       className={`relative ${iconBtn} ${
                         active ? activeCls : inactive
                       }`}
@@ -311,6 +379,67 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 );
               })}
             </nav>
+
+            {myOrganizations.length > 0 && (
+              <>
+                <div className={`my-1 h-px w-8 ${divCls}`} />
+                <div className="flex w-full flex-col items-center gap-1.5">
+                  {myOrganizations.map((org) => {
+                    const orgPath = org?.slug
+                      ? `/w/${encodeURIComponent(org.slug)}`
+                      : '/workspaces';
+                    const active =
+                      (org?.slug && location.pathname.startsWith(`/w/${encodeURIComponent(org.slug)}`)) ||
+                      (location.pathname === '/workspaces' && !org?.slug);
+                    return (
+                      <Tooltip key={String(org?._id || org?.slug || org?.name)} label={org?.name || 'Workspace'}>
+                        <Link
+                          to={orgPath}
+                          className={`${orgAvatarBtn} ${
+                            active
+                              ? isDarkMode
+                                ? 'border-cyan-400/80 bg-cyan-500/20 text-white shadow-[0_0_16px_rgba(34,211,238,0.28)]'
+                                : 'border-cyan-400 bg-cyan-100 text-slate-900 shadow-sm'
+                              : isDarkMode
+                                ? 'border-white/15 bg-white/5 text-slate-200 hover:border-white/30 hover:bg-white/10'
+                                : 'border-slate-300 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'
+                          }`}
+                          aria-label={org?.name || 'Workspace'}
+                        >
+                          {active && (
+                            <span className="absolute -left-2 h-5 w-1 rounded-r-full bg-cyan-400" aria-hidden />
+                          )}
+                          <span>
+                            {(org?.name || 'W').slice(0, 2)}
+                          </span>
+                          {Number(org?.onlineMembers || 0) > 0 && (
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 ${
+                                isDarkMode ? 'border-[#10131b] bg-emerald-400' : 'border-white bg-emerald-500'
+                              }`}
+                              aria-hidden
+                            />
+                          )}
+                        </Link>
+                      </Tooltip>
+                    );
+                  })}
+                  <Tooltip label={t('organizations.createOrgShort')}>
+                    <Link
+                      to="/workspaces"
+                      className={`${orgAvatarBtn} ${
+                        isDarkMode
+                          ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                      aria-label={t('organizations.createOrgShort')}
+                    >
+                      <span className="text-xl leading-none">+</span>
+                    </Link>
+                  </Tooltip>
+                </div>
+              </>
+            )}
 
             <Tooltip label={isDarkMode ? t('nav.themeLight') : t('nav.themeDark')}>
               <button

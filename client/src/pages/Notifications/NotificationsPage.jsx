@@ -82,6 +82,24 @@ function NotificationsPage() {
               : rawType === 'org_join_application'
                 ? 'system'
                 : rawType;
+    const orgLabel =
+      item?.data?.workspaceName ||
+      item?.data?.organizationName ||
+      item?.workspaceName ||
+      item?.organizationName ||
+      '';
+    const orgSlug =
+      item?.data?.workspaceSlug ||
+      item?.data?.organizationSlug ||
+      item?.workspaceSlug ||
+      item?.organizationSlug ||
+      '';
+    const orgId =
+      item?.data?.workspaceId ||
+      item?.data?.organizationId ||
+      item?.workspaceId ||
+      item?.organizationId ||
+      '';
     return {
       id,
       type,
@@ -93,6 +111,9 @@ function NotificationsPage() {
       read: Boolean(item?.isRead),
       priority: item?.data?.priority || 'low',
       action: getActionLabel(rawType, type),
+      organizationLabel: orgLabel,
+      organizationSlug: orgSlug,
+      organizationId: orgId,
       /** Chuông + badge đỏ giống sidebar (chủ yếu lời mời kết bạn) */
       useBellCard: rawType === 'friend_request' || type === 'friend',
     };
@@ -238,9 +259,15 @@ function NotificationsPage() {
       handleMarkAsRead(notif.id);
     }
 
+    const targetWorkspacePath = notif.organizationSlug
+      ? `/w/${encodeURIComponent(notif.organizationSlug)}`
+      : notif.organizationId
+        ? `/workspaces?orgId=${encodeURIComponent(notif.organizationId)}`
+        : null;
+
     switch (notif.type) {
       case 'mention':
-        navigate('/chat/organization');
+        navigate(targetWorkspacePath || '/chat/organization');
         toast(t('notifications.toastOpenOrgChat'), { icon: '💬' });
         break;
       case 'friend':
@@ -252,7 +279,7 @@ function NotificationsPage() {
         toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
         break;
       case 'system':
-        navigate('/settings');
+        navigate(targetWorkspacePath || '/settings');
         toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
         break;
       case 'task':
@@ -265,7 +292,7 @@ function NotificationsPage() {
         toast(t('notifications.toastOpenDocs'), { icon: '📁' });
         break;
       default:
-        navigate('/dashboard');
+        navigate(targetWorkspacePath || '/dashboard');
         toast(t('notifications.toastOpenDetail'), { icon: 'ℹ️' });
     }
   };
@@ -448,6 +475,14 @@ function NotificationsPage() {
                     <span>🕐 {notif.time}</span>
                     <span>•</span>
                     <span className="capitalize">{notif.type}</span>
+                    {notif.organizationLabel ? (
+                      <>
+                        <span>•</span>
+                        <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-cyan-300">
+                          {notif.organizationLabel}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">

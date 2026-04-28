@@ -101,12 +101,6 @@ function OrganizationMemberSidebar({
   refreshKey = 0,
   currentUserId = null,
   myRole = 'member',
-  canReviewJoinApplications = false,
-  joinApplicationsToReview = [],
-  loadingJoinApplicationsToReview = false,
-  respondingJoinReviewKeys = [],
-  onApproveJoinApplication,
-  onRejectJoinApplication,
   onMentionUser,
   onMemberRemoved,
   /** Khi bọc trong OrganizationMemberPeekDock: false = panel đang thu → đóng menu portal */
@@ -134,8 +128,6 @@ function OrganizationMemberSidebar({
   const [memberConfirm, setMemberConfirm] = useState(null);
   /** Tab panel phải — khớp mockup workspace tổ chức */
   const [sidebarTab, setSidebarTab] = useState('context');
-  const pendingReviewCount = canReviewJoinApplications ? joinApplicationsToReview.length : 0;
-  const joinReviewKey = (orgId, applicationId) => `${orgId}:${applicationId}`;
 
   useEffect(() => {
     if (!organizationId) return;
@@ -530,7 +522,7 @@ function OrganizationMemberSidebar({
       document.body
     );
 
-  const tabBtn = (id, label, badgeCount = 0) => (
+  const tabBtn = (id, label) => (
     <button
       key={id}
       type="button"
@@ -545,18 +537,7 @@ function OrganizationMemberSidebar({
             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
       }`}
     >
-      <span className="inline-flex items-center gap-1">
-        <span>{label}</span>
-        {badgeCount > 0 && (
-          <span
-            className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
-              isDarkMode ? 'bg-rose-500/25 text-rose-100' : 'bg-rose-100 text-rose-800'
-            }`}
-          >
-            {badgeCount > 99 ? '99+' : badgeCount}
-          </span>
-        )}
-      </span>
+      {label}
     </button>
   );
 
@@ -582,29 +563,90 @@ function OrganizationMemberSidebar({
 
       <div
         className={`grid shrink-0 grid-cols-2 gap-1 border-b px-2 py-2 sm:grid-cols-4 ${
-          isDarkMode ? 'border-white/[0.06] bg-[#0d1118]' : 'border-sky-200/80 bg-sky-50/70'
+          isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/80'
         }`}
       >
         {tabBtn('context', t('organizations.memberSidebarTabContext'))}
         {tabBtn('tasks', t('organizations.memberSidebarTabTasks'))}
         {tabBtn('files', t('organizations.memberSidebarTabFiles'))}
-        {tabBtn('people', 'Người', pendingReviewCount)}
+        {tabBtn('stats', t('organizations.memberSidebarTabStats'))}
       </div>
 
       <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sidebarTab === 'context' && (
-          <div
-            className={`mb-4 rounded-xl border p-3 text-xs ${
-              isDarkMode ? 'border-white/[0.08] bg-white/[0.02] text-[#b4b8c4]' : 'border-slate-200 bg-white text-slate-700'
-            }`}
-          >
-            <div className={`text-[11px] font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              Bối cảnh tổ chức
+          <div className="mb-4 space-y-3">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { k: t('organizations.memberSidebarStatCandidates'), v: '47', t: '+15%' },
+                { k: t('organizations.memberSidebarStatOffer'), v: '68%', t: '+3%' },
+                { k: t('organizations.memberSidebarStatTth'), v: '18d', t: '-2d' },
+              ].map((s) => (
+                <div
+                  key={s.k}
+                  className={`rounded-xl border p-2 shadow-inner ${
+                    isDarkMode
+                      ? 'border-white/[0.06] bg-[#12151f]'
+                      : 'border-slate-200 bg-white shadow-sm'
+                  }`}
+                >
+                  <div
+                    className={`text-[9px] font-medium uppercase leading-tight ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+                  >
+                    {s.k}
+                  </div>
+                  <div
+                    className={`mt-1 text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                  >
+                    {s.v}
+                  </div>
+                  <div
+                    className={`text-[10px] font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}
+                  >
+                    {s.t}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="mt-2 space-y-1">
-              <div>Tổ chức: {organizationName || t('organizations.memberSidebarOrgFallback')}</div>
-              <div>Vai trò của bạn: {roleLabelMap[String(myRole || '').toLowerCase()] || myRole || 'member'}</div>
-              <div>Trạng thái socket: {socketConnected ? t('organizations.presenceOnline') : t('organizations.presenceOffline')}</div>
+            <div>
+              <div
+                className={`mb-1.5 text-[10px] font-bold uppercase tracking-wide ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+              >
+                {t('organizations.memberSidebarPinned')}
+              </div>
+              <div className="space-y-2">
+                <div
+                  className={`rounded-xl border-l-4 border-[#5865F2] px-2.5 py-2 ${
+                    isDarkMode ? 'bg-white/[0.03]' : 'bg-white shadow-sm'
+                  }`}
+                >
+                  <p
+                    className={`text-[11px] leading-snug ${isDarkMode ? 'text-[#b4b8c4]' : 'text-slate-700'}`}
+                  >
+                    {t('organizations.memberSidebarPinBody1')}
+                  </p>
+                  <p
+                    className={`mt-1 text-[10px] ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+                  >
+                    {t('organizations.memberSidebarPinMeta1')}
+                  </p>
+                </div>
+                <div
+                  className={`rounded-xl border-l-4 border-sky-500 px-2.5 py-2 ${
+                    isDarkMode ? 'bg-white/[0.03]' : 'bg-white shadow-sm'
+                  }`}
+                >
+                  <p
+                    className={`text-[11px] leading-snug ${isDarkMode ? 'text-[#b4b8c4]' : 'text-slate-700'}`}
+                  >
+                    {t('organizations.memberSidebarPinBody2')}
+                  </p>
+                  <p
+                    className={`mt-1 text-[10px] ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+                  >
+                    {t('organizations.memberSidebarPinMeta2')}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -623,8 +665,12 @@ function OrganizationMemberSidebar({
             {t('organizations.memberSidebarFilesEmpty')}
           </p>
         )}
-        {sidebarTab === 'people' && (
-          <div className="mb-2" />
+        {sidebarTab === 'stats' && (
+          <p
+            className={`px-1 py-6 text-center text-xs ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+          >
+            {t('organizations.memberSidebarStatsEmpty')}
+          </p>
         )}
 
         {loading && (
@@ -646,7 +692,7 @@ function OrganizationMemberSidebar({
         )}
         {!loading &&
           !error &&
-          sidebarTab === 'people' &&
+          sidebarTab === 'context' &&
           sections.map((section) => (
             <div key={section.key} className="mb-4">
               <div
@@ -656,14 +702,7 @@ function OrganizationMemberSidebar({
                     : 'bg-sky-50/95 text-slate-500'
                 }`}
               >
-                {section.key === 'on'
-                  ? `ĐANG ONLINE - ${section.items.length}`
-                  : section.key === 'off'
-                    ? `NGOẠI TUYẾN - ${section.items.length}`
-                    : t('organizations.memberSidebarMemberLine', {
-                        title: section.title,
-                        count: section.items.length,
-                      })}
+                {t('organizations.memberSidebarMemberLine', { title: section.title, count: section.items.length })}
               </div>
               <ul className="space-y-0.5">
                 {section.items.map((m) => {
@@ -722,69 +761,6 @@ function OrganizationMemberSidebar({
               </ul>
             </div>
           ))}
-        {!loading && !error && sidebarTab === 'people' && canReviewJoinApplications && (
-          <div className="mb-4">
-            <div
-              className={`sticky top-0 z-[1] px-1 pb-1 pt-1 text-[11px] font-bold uppercase tracking-wide backdrop-blur-sm ${
-                isDarkMode ? 'bg-[#0a0c12]/95 text-[#6d7380]' : 'bg-sky-50/95 text-slate-500'
-              }`}
-            >
-              Danh sách đang chờ xét duyệt ({pendingReviewCount})
-            </div>
-            {loadingJoinApplicationsToReview ? (
-              <div className="space-y-2">
-                <div className={`h-10 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-                <div className={`h-10 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`} />
-              </div>
-            ) : pendingReviewCount === 0 ? (
-              <p className={`px-1 py-2 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                Không có đơn chờ xét duyệt.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {joinApplicationsToReview.map((app) => {
-                  const key = joinReviewKey(app.organizationId, app.applicationId);
-                  const busy = respondingJoinReviewKeys.includes(key);
-                  return (
-                    <li
-                      key={key}
-                      className={`rounded-lg border px-2 py-2 ${
-                        isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white'
-                      }`}
-                    >
-                      <div className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        {app.applicantUser || 'Unknown'}
-                      </div>
-                      <div className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                        {app.submittedAt ? new Date(app.submittedAt).toLocaleString() : ''}
-                      </div>
-                      <div className="mt-2 flex gap-1.5">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => onApproveJoinApplication?.(app.organizationId, app.applicationId)}
-                          className="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
-                        >
-                          Duyệt
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            onRejectJoinApplication?.(app.organizationId, app.applicationId, '')
-                          }
-                          className="rounded-md border border-rose-500/60 px-2 py-1 text-[10px] font-semibold text-rose-300 disabled:opacity-50"
-                        >
-                          Từ chối
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
       </div>
       {menuPortal}
       <ConfirmDialog
