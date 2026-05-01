@@ -14,6 +14,10 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Room',
     },
+    conversationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Conversation',
+    },
     content: {
       type: String,
       required: true,
@@ -98,6 +102,7 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ senderId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, createdAt: -1 });
 messageSchema.index({ roomId: 1, createdAt: -1 });
+messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1 });
 messageSchema.index({ 'fileMeta.expiresAt': 1 });
 messageSchema.index({ 'fileMeta.storagePath': 1 });

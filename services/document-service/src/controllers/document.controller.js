@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const { mongoose } = require('/shared/config/mongo');
 const documentService = require('../services/document.service');
 const Document = require('../models/Document');
 const { logger } = require('/shared');
@@ -242,6 +242,12 @@ class DocumentController {
   /** Gọi nội bộ — xóa mọi document thuộc tổ chức */
   async purgeOrganizationDocuments(req, res) {
     try {
+      if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is not ready in document-service',
+        });
+      }
       const { organizationId } = req.params;
       if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
         return res.status(400).json({ success: false, message: 'Invalid organizationId' });

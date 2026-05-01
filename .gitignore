@@ -10,7 +10,16 @@ pnpm-lock.yaml
 # ========================
 # Environment Variables
 # ========================
-
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.env
+client/.env
+client/.env.local
+services/**/.env
+services/**/.env.local
 
 # ========================
 # Build Outputs

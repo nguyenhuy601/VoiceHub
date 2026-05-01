@@ -8,6 +8,7 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect); // All routes require authentication
 
 router.get('/my', organizationController.getMyOrganizations);
+router.get('/by-slug/:slug', organizationController.getOrganizationBySlug);
 router.get(
   '/my/pending-join-applications',
   joinApplicationController.listMyPendingJoinApplications
@@ -47,7 +48,23 @@ router.patch(
   joinApplicationController.reviewJoinApplication
 );
 
+router.get('/:orgId/structure', organizationController.getOrganizationStructure);
 router.get('/:orgId/accessible-channel-ids', organizationController.getAccessibleChannelIds);
+router.get(
+  '/:orgId/channels/:channelId/access',
+  authorize(['owner', 'admin']),
+  organizationController.listChannelAccess
+);
+router.post(
+  '/:orgId/channels/:channelId/access/grant',
+  authorize(['owner', 'admin']),
+  organizationController.grantChannelAccess
+);
+router.post(
+  '/:orgId/channels/:channelId/access/revoke',
+  authorize(['owner', 'admin']),
+  organizationController.revokeChannelAccess
+);
 
 router.get('/:id', organizationController.getOrganization);
 router.put('/:id', authorize(['owner', 'admin']), organizationController.updateOrganization);

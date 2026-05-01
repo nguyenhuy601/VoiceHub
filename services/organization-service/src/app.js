@@ -24,6 +24,7 @@ const departmentRoutes = require('./routes/departmentRoutes');
 const memberRoutes = require('./routes/memberRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const channelRoutes = require('./routes/channelRoutes');
+const hierarchyRoutes = require('./routes/hierarchyRoutes');
 
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/organizations/:orgId/departments', departmentRoutes);
@@ -31,6 +32,7 @@ app.use('/api/organizations/:orgId/members', memberRoutes);
 app.use('/api/organizations/:orgId/departments/:deptId/channels', channelRoutes);
 // Legacy compatibility while FE migrates from teams -> channels.
 app.use('/api/organizations/:orgId/departments/:deptId/teams', teamRoutes);
+app.use('/api/organizations/:orgId/hierarchy', hierarchyRoutes);
 
 app.use(errorHandler);
 

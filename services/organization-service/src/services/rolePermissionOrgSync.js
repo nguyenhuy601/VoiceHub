@@ -6,11 +6,18 @@ const ROLE_PERMISSION_BASE =
 const GATEWAY_INTERNAL_TOKEN = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
 
 const ORG_ROLE_ADMIN = 'Quản trị viên';
+const ORG_ROLE_HR = 'Nhân sự';
 const ORG_ROLE_MEMBER = 'Thành viên';
 
 const PERMS_MEMBER = [
   { resource: 'chat', actions: ['read', 'write'] },
   { resource: 'task', actions: ['read'] },
+];
+
+const PERMS_HR = [
+  { resource: 'chat', actions: ['read', 'write'] },
+  { resource: 'task', actions: ['read'] },
+  { resource: 'organization_member', actions: ['read', 'write'] },
 ];
 
 const PERMS_ADMIN = [
@@ -61,7 +68,7 @@ async function ensureDefaultOrgRoles(organizationId) {
         organizationId: oid,
         permissions,
         isDefault: name === ORG_ROLE_MEMBER,
-        priority: name === ORG_ROLE_ADMIN ? 100 : 10,
+        priority: name === ORG_ROLE_ADMIN ? 100 : name === ORG_ROLE_HR ? 50 : 10,
         ...extra,
       };
       const res = await axios.post(`${ROLE_PERMISSION_BASE}/api/roles`, body, {
@@ -85,6 +92,7 @@ async function ensureDefaultOrgRoles(organizationId) {
     }
 
     await createIfMissing(ORG_ROLE_ADMIN, PERMS_ADMIN);
+    await createIfMissing(ORG_ROLE_HR, PERMS_HR);
     await createIfMissing(ORG_ROLE_MEMBER, PERMS_MEMBER);
   } catch (e) {
     logger.warn('[rolePermissionOrgSync] ensureDefaultOrgRoles', e.message);
@@ -98,11 +106,14 @@ async function fetchRoleTemplates(organizationId) {
     timeout: 8000,
     validateStatus: () => true,
   });
-  if (res.status !== 200 || !Array.isArray(res.data?.data)) return { adminId: null, memberId: null };
+  if (res.status !== 200 || !Array.isArray(res.data?.data)) {
+    return { adminId: null, hrId: null, memberId: null };
+  }
   const list = res.data.data;
   const admin = list.find((r) => r.name === ORG_ROLE_ADMIN);
+  const hr = list.find((r) => r.name === ORG_ROLE_HR);
   const member = list.find((r) => r.name === ORG_ROLE_MEMBER);
-  return { adminId: admin?._id || null, memberId: member?._id || null };
+  return { adminId: admin?._id || null, hrId: hr?._id || null, memberId: member?._id || null };
 }
 
 /** Gỡ mọi UserRole của user trong ngữ cảnh org (serverId = organizationId). */
@@ -141,12 +152,13 @@ async function syncUserOrgRole(userId, organizationId, membershipRole) {
 
   const normalized = String(membershipRole || 'member').toLowerCase();
   const useAdmin = normalized === 'owner' || normalized === 'admin';
+  const useHr = normalized === 'hr';
 
   try {
     await ensureDefaultOrgRoles(oid);
     await stripUserOrgRoles(uid, oid);
-    const { adminId, memberId } = await fetchRoleTemplates(oid);
-    const chosen = useAdmin ? adminId : memberId;
+    const { adminId, hrId, memberId } = await fetchRoleTemplates(oid);
+    const chosen = useAdmin ? adminId : useHr ? hrId : memberId;
     const roleId = chosen != null ? String(chosen) : '';
     if (!roleId || roleId === 'null' || roleId === 'undefined') {
       logger.warn('[rolePermissionOrgSync] syncUserOrgRole: no template role id', { oid, useAdmin });
@@ -171,5 +183,6 @@ module.exports = {
   stripUserOrgRoles,
   syncUserOrgRole,
   ORG_ROLE_ADMIN,
+  ORG_ROLE_HR,
   ORG_ROLE_MEMBER,
 };

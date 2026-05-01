@@ -9,6 +9,7 @@ const {
 } = require('/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
+const Conversation = require('../models/Conversation');
 const { invalidateSignedReadCacheForStoragePath } = require('../utils/attachSignedReadUrls');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
@@ -84,10 +85,43 @@ async function maybeMigrateMessageContent(doc) {
 }
 
 class MessageService {
+  async ensureDmConversation(senderId, receiverId, organizationId = null) {
+    const a = String(senderId);
+    const b = String(receiverId);
+    const memberIds = [a, b]
+      .sort()
+      .map((id) => new mongoose.Types.ObjectId(id));
+    const orgFilter = organizationId
+      ? new mongoose.Types.ObjectId(String(organizationId))
+      : null;
+
+    let conversation = await Conversation.findOne({
+      type: 'dm',
+      members: { $all: memberIds, $size: 2 },
+      organizationId: orgFilter,
+    }).select('_id');
+
+    if (!conversation) {
+      conversation = await Conversation.create({
+        type: 'dm',
+        members: memberIds,
+        organizationId: orgFilter,
+      });
+    }
+    return conversation._id;
+  }
+
   async createMessage(messageData) {
     try {
       await ensureMongoReady();
       const payload = { ...messageData };
+      if (payload.receiverId && !payload.roomId) {
+        payload.conversationId = await this.ensureDmConversation(
+          payload.senderId,
+          payload.receiverId,
+          payload.organizationId || null
+        );
+      }
       if (payload.content !== undefined) {
         payload.content = encryptContentIfEnabled(payload.content);
         if (isEncryptionEnabled()) payload.encV = 1;

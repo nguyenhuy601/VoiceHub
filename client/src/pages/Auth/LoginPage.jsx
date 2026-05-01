@@ -119,7 +119,7 @@ function LoginPage({ landingDemo = false } = {}) {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className={inputBase}
-            placeholder="dodanh@gmail.com"
+            placeholder="acbxyz@gmail.com"
             autoComplete="email"
           />
         </div>

@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const axios = require('axios');
 const { mongoose } = require('/shared/config/mongo');
 const Message = require('../models/Message');
+const Conversation = require('../models/Conversation');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent, firebaseStorage } = require('/shared');
 const {
@@ -100,6 +101,24 @@ async function fetchAccessibleChannelIds(orgId, req) {
     }
   }
   throw lastErr;
+}
+
+async function fetchAccessibleChannelPermissionMatrix(orgId, req) {
+  const base = (process.env.ORGANIZATION_SERVICE_URL || 'http://organization-service:3013').replace(
+    /\/$/,
+    ''
+  );
+  const url = `${base}/api/organizations/${orgId}/accessible-channel-ids`;
+  const { data } = await axios.get(url, {
+    headers: headersForOrganizationForward(req),
+    timeout: Number(process.env.ORG_ACCESSIBLE_CHANNELS_TIMEOUT_MS || 12000),
+  });
+  const ids = Array.isArray(data?.data?.channelIds) ? data.data.channelIds.map(String) : [];
+  const matrix =
+    data?.data?.permissionsByChannelId && typeof data.data.permissionsByChannelId === 'object'
+      ? data.data.permissionsByChannelId
+      : {};
+  return { ids, matrix };
 }
 
 class MessageController {
@@ -302,6 +321,16 @@ class MessageController {
 
       if (roomId) {
         messageData.roomId = roomId;
+        if (organizationId) {
+          const { matrix } = await fetchAccessibleChannelPermissionMatrix(organizationId, req);
+          const perms = matrix[String(roomId)] || {};
+          if (!Boolean(perms.canWrite)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Bạn không có quyền chat trong kênh này',
+            });
+          }
+        }
       }
 
       if (replyToMessageId) {
@@ -650,11 +679,59 @@ class MessageController {
       const filter = {};
 
       if (receiverId) {
-        filter.$or = [
-          { senderId: userId, receiverId },
-          { senderId: receiverId, receiverId: userId },
-        ];
+        if (!mongoose.Types.ObjectId.isValid(String(userId)) || !mongoose.Types.ObjectId.isValid(String(receiverId))) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid user id',
+          });
+        }
+        const me = new mongoose.Types.ObjectId(String(userId));
+        const peer = new mongoose.Types.ObjectId(String(receiverId));
+        const orgFilter = organizationId && mongoose.Types.ObjectId.isValid(String(organizationId))
+          ? new mongoose.Types.ObjectId(String(organizationId))
+          : null;
+        const dmConversation = await Conversation.findOne({
+          type: 'dm',
+          members: { $all: [me, peer], $size: 2 },
+          organizationId: orgFilter,
+        }).select('_id');
+
+        if (dmConversation?._id) {
+          // Ưu tiên query theo conversationId mới; vẫn giữ fallback dữ liệu cũ chưa có conversationId.
+          filter.$or = [
+            { conversationId: dmConversation._id },
+            {
+              conversationId: { $exists: false },
+              $or: [
+                { senderId: userId, receiverId },
+                { senderId: receiverId, receiverId: userId },
+              ],
+            },
+            {
+              conversationId: null,
+              $or: [
+                { senderId: userId, receiverId },
+                { senderId: receiverId, receiverId: userId },
+              ],
+            },
+          ];
+        } else {
+          filter.$or = [
+            { senderId: userId, receiverId },
+            { senderId: receiverId, receiverId: userId },
+          ];
+        }
       } else if (roomId) {
+        if (organizationId) {
+          const { matrix } = await fetchAccessibleChannelPermissionMatrix(organizationId, req);
+          const perms = matrix[String(roomId)] || {};
+          if (!Boolean(perms.canRead)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Bạn không có quyền đọc kênh này',
+            });
+          }
+        }
         filter.roomId = roomId;
       } else {
         filter.$or = [

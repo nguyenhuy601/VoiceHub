@@ -25,11 +25,18 @@ const FIELD_ID_RE = /^[a-z0-9_]{1,64}$/i;
 const CHOICE_TYPES = ['single_choice', 'radio', 'checkbox'];
 
 const getUserId = (req) => req.user?.id || req.user?.userId || req.user?._id;
+const getApplicantSnapshot = (req) => ({
+  userId: String(req.user?.id || req.user?.userId || req.user?._id || ''),
+  username: String(req.user?.username || '').trim(),
+  fullName: String(req.user?.fullName || req.user?.displayName || req.user?.name || '').trim(),
+  email: String(req.user?.email || '').trim(),
+  avatar: String(req.user?.avatar || '').trim(),
+});
 
 function normalizeJoinFormFromBody(body) {
   const enabled = Boolean(body?.enabled);
-  const defaultRoleOnApprove =
-    body?.defaultRoleOnApprove === 'admin' ? 'admin' : 'member';
+  // Luôn mặc định member khi duyệt đơn gia nhập thành công.
+  const defaultRoleOnApprove = 'member';
   const rawFields = Array.isArray(body?.fields) ? body.fields : [];
   const fields = rawFields.slice(0, MAX_FIELDS).map((f, idx) => {
     const id = String(f?.id || `field_${idx + 1}`).trim();
@@ -164,7 +171,7 @@ exports.getJoinApplicationForm = async (req, res, next) => {
       data: {
         enabled: Boolean(jf.enabled),
         formVersion: jf.formVersion || 1,
-        defaultRoleOnApprove: jf.defaultRoleOnApprove === 'admin' ? 'admin' : 'member',
+        defaultRoleOnApprove: 'member',
         fields: Array.isArray(jf.fields) ? jf.fields : [],
       },
     });
@@ -289,12 +296,6 @@ exports.submitJoinApplication = async (req, res, next) => {
     }
 
     const formFields = Array.isArray(jf.fields) ? jf.fields : [];
-    if (formFields.length === 0) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Chưa có trường nào trên form. Vui lòng liên hệ quản trị viên.',
-      });
-    }
 
     const existingMember = await Membership.findOne({
       user: userId,
@@ -320,10 +321,12 @@ exports.submitJoinApplication = async (req, res, next) => {
       });
     }
 
-    const answers = req.body?.answers;
-    const errs = validateAnswersAgainstForm(formFields, answers);
-    if (errs.length) {
-      return res.status(400).json({ status: 'fail', message: errs.join('; ') });
+    const answers = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+    if (formFields.length > 0) {
+      const errs = validateAnswersAgainstForm(formFields, answers);
+      if (errs.length) {
+        return res.status(400).json({ status: 'fail', message: errs.join('; ') });
+      }
     }
 
     const formVersion = jf.formVersion || 1;
@@ -341,11 +344,18 @@ exports.submitJoinApplication = async (req, res, next) => {
     const doc = await JoinApplication.create({
       organization: orgId,
       applicantUser: userId,
+      applicantSnapshot: getApplicantSnapshot(req),
       status: 'pending',
       formVersion,
       formSnapshot,
       answers,
       submittedAt: new Date(),
+    });
+
+    await Membership.deleteMany({
+      organization: orgId,
+      user: userId,
+      status: 'pending',
     });
 
     await notifyModeratorsNewApplication({
@@ -475,6 +485,7 @@ exports.listJoinApplicationsToReview = async (req, res, next) => {
         organizationName: o.name || 'Tổ chức',
         logo: o.logo || null,
         applicantUser: String(a.applicantUser),
+        applicantSnapshot: a.applicantSnapshot || {},
         answers: a.answers || {},
         formSnapshot: a.formSnapshot ?? null,
         submittedAt: a.submittedAt,
@@ -509,6 +520,7 @@ exports.listJoinApplications = async (req, res, next) => {
       data: rows.map((r) => ({
         ...r,
         applicantUser: String(r.applicantUser),
+        applicantSnapshot: r.applicantSnapshot || {},
         organization: String(r.organization),
         reviewedBy: r.reviewedBy ? String(r.reviewedBy) : null,
       })),
@@ -547,9 +559,7 @@ exports.reviewJoinApplication = async (req, res, next) => {
     const applicantId = String(appDoc.applicantUser);
 
     if (action === 'approve') {
-      const jf = org.settings?.joinApplicationForm || {};
-      const role =
-        jf.defaultRoleOnApprove === 'admin' ? 'admin' : 'member';
+      const role = 'member';
 
       await Membership.findOneAndUpdate(
         { user: applicantId, organization: orgId },

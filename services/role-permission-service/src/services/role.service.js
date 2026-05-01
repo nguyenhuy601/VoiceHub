@@ -83,7 +83,8 @@ class RoleService {
       // Kiểm tra đã có role chưa
       const existing = await UserRole.findOne({ userId, serverId, roleId });
       if (existing) {
-        throw new Error('User already has this role');
+        logger.info(`Role already assigned (idempotent): user ${userId}, role ${roleId}, server ${serverId}`);
+        return existing;
       }
 
       const userRole = new UserRole({
@@ -254,13 +255,17 @@ class RoleService {
   async purgeByServerContext(serverId) {
     try {
       const sid = new mongoose.Types.ObjectId(String(serverId));
-      await UserRole.deleteMany({ serverId: sid });
-      const r = await Role.updateMany(
-        { $or: [{ serverId: sid }, { organizationId: sid }] },
-        { $set: { isActive: false } }
+      const userRolesResult = await UserRole.deleteMany({ serverId: sid });
+      const rolesResult = await Role.deleteMany({
+        $or: [{ serverId: sid }, { organizationId: sid }],
+      });
+      logger.info(
+        `purgeByServerContext: serverId=${serverId} rolesDeleted=${rolesResult.deletedCount} userRolesDeleted=${userRolesResult.deletedCount}`
       );
-      logger.info(`purgeByServerContext: serverId=${serverId} rolesModified=${r.modifiedCount}`);
-      return { modifiedCount: r.modifiedCount };
+      return {
+        deletedRoles: rolesResult.deletedCount || 0,
+        deletedUserRoles: userRolesResult.deletedCount || 0,
+      };
     } catch (error) {
       logger.error('Error purgeByServerContext:', error);
       throw new Error(`Error purgeByServerContext: ${error.message}`);

@@ -8,60 +8,107 @@ import roleAPI from '../../services/api/roleAPI';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
-/** API role-permission: permissions = [{ resource, actions[], _id? }] — không render trực tiếp object trong React. */
-function formatPermissionsPlain(permissions) {
-  if (permissions == null || permissions === '') return '';
-  if (typeof permissions === 'string') return permissions;
-  if (!Array.isArray(permissions)) return '';
+const PERMISSION_EDITOR_OPTIONS = [
+  { resource: 'chat', label: 'Chat', actions: ['read', 'write', 'delete'] },
+  { resource: 'task', label: 'Công việc', actions: ['read', 'write', 'delete'] },
+  { resource: 'document', label: 'Tài liệu', actions: ['read', 'write', 'delete'] },
+  { resource: 'voice', label: 'Voice', actions: ['read', 'write', 'delete'] },
+];
+
+const ACTION_LABEL = {
+  read: 'Xem',
+  write: 'Viết',
+  delete: 'Xóa',
+};
+
+function normalizeRoleDisplayName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return 'Vai trò';
+  return raw
+    .replace(/\s*[•·]\s*(div|dep|team|branch)_[a-z0-9_-]+$/i, '')
+    .replace(
+      /^\s*(khối|khoi|phòng ban|phong ban|team|chi nhánh|chi nhanh|division|department|branch)\s*:\s*/i,
+      ''
+    )
+    .trim();
+}
+
+function normalizePermissionEntries(permissions) {
+  if (!Array.isArray(permissions)) return [];
   return permissions
+    .map((p) => ({
+      resource: String(p?.resource || '').trim(),
+      actions: Array.isArray(p?.actions)
+        ? [...new Set(p.actions.map((a) => String(a || '').trim()).filter(Boolean))]
+        : [],
+    }))
+    .filter((p) => p.resource && p.actions.length > 0);
+}
+
+function permissionStateFromEntries(permissions) {
+  const out = {};
+  for (const p of normalizePermissionEntries(permissions)) {
+    for (const action of p.actions) {
+      out[`${p.resource}:${action}`] = true;
+    }
+  }
+  return out;
+}
+
+function permissionEntriesFromState(state) {
+  const grouped = new Map();
+  for (const key of Object.keys(state || {})) {
+    if (!state[key]) continue;
+    const [resource, action] = String(key).split(':');
+    if (!resource || !action) continue;
+    if (!grouped.has(resource)) grouped.set(resource, new Set());
+    grouped.get(resource).add(action);
+  }
+  return Array.from(grouped.entries())
+    .map(([resource, actionsSet]) => ({
+      resource,
+      actions: Array.from(actionsSet),
+    }))
+    .filter((p) => p.resource && p.actions.length > 0);
+}
+
+function summarizePermissions(permissions) {
+  const normalized = normalizePermissionEntries(permissions);
+  if (!normalized.length) return 'Không có quyền';
+  return normalized
     .map((p) => {
-      const res = p?.resource ?? '';
-      const acts = Array.isArray(p?.actions) ? p.actions.join(', ') : '';
-      return acts ? `${res}: ${acts}` : String(res);
+      const label = PERMISSION_EDITOR_OPTIONS.find((x) => x.resource === p.resource)?.label || p.resource;
+      const acts = p.actions.map((a) => ACTION_LABEL[a] || a).join(', ');
+      return `${label}: ${acts}`;
     })
     .join(' · ');
 }
 
 function RolePermissionsSummary({ permissions }) {
-  if (permissions == null || permissions === '') return <span className="text-gray-500">—</span>;
-  if (typeof permissions === 'string') {
-    return <span className="whitespace-pre-wrap">{permissions}</span>;
-  }
-  if (!Array.isArray(permissions) || permissions.length === 0) {
+  const normalized = normalizePermissionEntries(permissions);
+  if (!normalized.length) {
     return <span className="text-gray-500">Không có quyền gán</span>;
   }
   return (
-    <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-gray-400">
-      {permissions.map((p, i) => (
-        <li key={p?._id || `${p?.resource}-${i}`}>
-          <span className="font-medium text-gray-300">{p?.resource}</span>
-          {Array.isArray(p?.actions) && p.actions.length > 0 ? `: ${p.actions.join(', ')}` : null}
+    <ul className="mt-2 flex flex-wrap gap-1.5 text-xs text-gray-300">
+      {normalized.map((p, i) => (
+        <li
+          key={`${p.resource}-${i}`}
+          className="rounded-full border border-slate-700/80 bg-slate-800/70 px-2.5 py-1"
+        >
+          <span className="font-medium text-gray-100">
+            {PERMISSION_EDITOR_OPTIONS.find((x) => x.resource === p.resource)?.label || p.resource}
+          </span>
+          {`: ${p.actions.map((a) => ACTION_LABEL[a] || a).join(', ')}`}
         </li>
       ))}
     </ul>
   );
 }
 
-function resolvePermissionsForApi(draftPermissions, editingRoleId, rolesList) {
-  if (Array.isArray(draftPermissions)) return draftPermissions;
-  const s = String(draftPermissions ?? '').trim();
-  if (!s) {
-    return editingRoleId
-      ? rolesList.find((r) => String(r.id || r._id) === String(editingRoleId))?.permissions ?? []
-      : [];
-  }
-  try {
-    const parsed = JSON.parse(s);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return editingRoleId
-      ? rolesList.find((r) => String(r.id || r._id) === String(editingRoleId))?.permissions ?? []
-      : [];
-  }
-}
-
 const ADMIN_TABS = [
   { id: 'general', label: 'Tổng quan', icon: '⚙️' },
+  { id: 'structure', label: 'Cấu trúc tổ chức', icon: '🏢' },
   { id: 'join', label: 'Đơn gia nhập', icon: '📋' },
   { id: 'roles', label: 'Vai trò & quyền', icon: '🔐' },
   { id: 'security', label: 'Bảo mật', icon: '🛡️' },
@@ -166,13 +213,14 @@ function OrganizationSettingsPanel({
   const [roleLoading, setRoleLoading] = useState(false);
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [editingRoleId, setEditingRoleId] = useState(null);
+  const [editingRoleOriginalName, setEditingRoleOriginalName] = useState('');
   const [roleDraft, setRoleDraft] = useState({
     name: '',
-    permissions: '',
     members: 0,
     color: 'from-purple-600 to-pink-600',
     icon: '🧩',
   });
+  const [rolePermissionState, setRolePermissionState] = useState({});
 
   /** Tên tổ chức từ API — dùng để so khớp khi xóa (không phụ thuộc chỉnh sửa form chưa lưu). */
   const [serverOrgName, setServerOrgName] = useState('');
@@ -185,6 +233,43 @@ function OrganizationSettingsPanel({
   const [joinFormEnabled, setJoinFormEnabled] = useState(false);
   const [joinFormDefaultRole, setJoinFormDefaultRole] = useState('member');
   const [joinFormFields, setJoinFormFields] = useState([]);
+  const [structureLoading, setStructureLoading] = useState(false);
+  const [structureBranches, setStructureBranches] = useState([]);
+  const [manageBranchId, setManageBranchId] = useState('');
+  const [manageDivisionId, setManageDivisionId] = useState('');
+  const [manageDepartmentId, setManageDepartmentId] = useState('');
+  const [manageTeamId, setManageTeamId] = useState('');
+  const [createDivisionName, setCreateDivisionName] = useState('');
+  const [createDivisionBranchId, setCreateDivisionBranchId] = useState('');
+  const [createDivisionModalOpen, setCreateDivisionModalOpen] = useState(false);
+  const [createDepartmentName, setCreateDepartmentName] = useState('');
+  const [createDepartmentBranchId, setCreateDepartmentBranchId] = useState('');
+  const [createDepartmentDivisionId, setCreateDepartmentDivisionId] = useState('');
+  const [createDepartmentModalOpen, setCreateDepartmentModalOpen] = useState(false);
+  const [createTeamName, setCreateTeamName] = useState('');
+  const [createTeamBranchId, setCreateTeamBranchId] = useState('');
+  const [createTeamDivisionId, setCreateTeamDivisionId] = useState('');
+  const [createTeamDepartmentId, setCreateTeamDepartmentId] = useState('');
+  const [createTeamModalOpen, setCreateTeamModalOpen] = useState(false);
+  const [createChannelName, setCreateChannelName] = useState('');
+  const [createChannelType, setCreateChannelType] = useState('chat');
+  const [createChannelLevel, setCreateChannelLevel] = useState('team');
+  const [createChannelBranchId, setCreateChannelBranchId] = useState('');
+  const [createChannelDivisionId, setCreateChannelDivisionId] = useState('');
+  const [createChannelDepartmentId, setCreateChannelDepartmentId] = useState('');
+  const [createChannelTeamId, setCreateChannelTeamId] = useState('');
+  const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
+  const [renameDivisionName, setRenameDivisionName] = useState('');
+  const [renameDepartmentName, setRenameDepartmentName] = useState('');
+  const [renameTeamName, setRenameTeamName] = useState('');
+  const [renameChannelId, setRenameChannelId] = useState('');
+  const [renameChannelName, setRenameChannelName] = useState('');
+  const [orgMembers, setOrgMembers] = useState([]);
+  const [accessRows, setAccessRows] = useState([]);
+  const [accessUserId, setAccessUserId] = useState('');
+  const [accessCanRead, setAccessCanRead] = useState(true);
+  const [accessCanWrite, setAccessCanWrite] = useState(false);
+  const [accessCanVoice, setAccessCanVoice] = useState(false);
 
   const expectedOrgNameForDelete = useMemo(() => {
     const fromServer = serverOrgName?.trim();
@@ -259,10 +344,44 @@ function OrganizationSettingsPanel({
     }
   }, [orgId, isFullAccess]);
 
+  const loadStructure = useCallback(async () => {
+    if (!orgId || !isFullAccess) return;
+    setStructureLoading(true);
+    try {
+      const payload = await organizationAPI.getStructure(orgId);
+      const raw = unwrap(payload);
+      const branches = Array.isArray(raw?.branches) ? raw.branches : Array.isArray(raw) ? raw : [];
+      setStructureBranches(branches);
+      const firstBranchId = branches[0]?._id ? String(branches[0]._id) : '';
+      const firstDivisionId = branches[0]?.divisions?.[0]?._id
+        ? String(branches[0].divisions[0]._id)
+        : '';
+      const firstDepartmentId = branches[0]?.divisions?.[0]?.departments?.[0]?._id
+        ? String(branches[0].divisions[0].departments[0]._id)
+        : '';
+      const firstTeamId = branches[0]?.divisions?.[0]?.departments?.[0]?.teams?.[0]?._id
+        ? String(branches[0].divisions[0].departments[0].teams[0]._id)
+        : '';
+      setManageBranchId((prev) => prev || firstBranchId);
+      setManageDivisionId((prev) => prev || firstDivisionId);
+      setManageDepartmentId((prev) => prev || firstDepartmentId);
+      setManageTeamId((prev) => prev || firstTeamId);
+    } catch {
+      setStructureBranches([]);
+    } finally {
+      setStructureLoading(false);
+    }
+  }, [orgId, isFullAccess]);
+
   useEffect(() => {
     if (!orgId || !isFullAccess || activeTab !== 'join') return;
     loadJoinWorkspace();
   }, [orgId, isFullAccess, activeTab, loadJoinWorkspace]);
+
+  useEffect(() => {
+    if (!orgId || !isFullAccess || activeTab !== 'structure') return;
+    loadStructure();
+  }, [orgId, isFullAccess, activeTab, loadStructure]);
 
   useEffect(() => {
     if (!orgId) return;
@@ -329,9 +448,7 @@ function OrganizationSettingsPanel({
       toast.success('Đã xóa tổ chức');
       setDeleteOrgModalOpen(false);
       setDeleteOrgNameInput('');
-      onOrganizationUpdated?.();
       onOrganizationDeleted?.(orgId);
-      onBack();
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
@@ -393,27 +510,354 @@ function OrganizationSettingsPanel({
     event.target.value = '';
   };
 
+  const manageBranch = useMemo(
+    () => structureBranches.find((b) => String(b._id) === String(manageBranchId)) || null,
+    [structureBranches, manageBranchId]
+  );
+  const manageDivisions = Array.isArray(manageBranch?.divisions) ? manageBranch.divisions : [];
+  const manageDivision =
+    manageDivisions.find((d) => String(d._id) === String(manageDivisionId)) || null;
+  const manageDepartments = Array.isArray(manageDivision?.departments) ? manageDivision.departments : [];
+  const manageDepartment =
+    manageDepartments.find((d) => String(d._id) === String(manageDepartmentId)) || null;
+  const manageTeams = Array.isArray(manageDepartment?.teams) ? manageDepartment.teams : [];
+  const manageTeam = manageTeams.find((t) => String(t._id) === String(manageTeamId)) || null;
+  const manageDivisionChannels = Array.isArray(manageDivision?.channels) ? manageDivision.channels : [];
+  const manageDepartmentChannels = Array.isArray(manageDepartment?.channels) ? manageDepartment.channels : [];
+  const manageTeamChannels = Array.isArray(manageTeam?.channels) ? manageTeam.channels : [];
+  const manageChannels = [
+    ...manageDivisionChannels.map((ch) => ({ ...ch, __scope: 'division' })),
+    ...manageDepartmentChannels.map((ch) => ({ ...ch, __scope: 'department' })),
+    ...manageTeamChannels.map((ch) => ({ ...ch, __scope: 'team' })),
+  ];
+
+  const resolveBranchById = (branchId) =>
+    structureBranches.find((b) => String(b._id) === String(branchId)) || null;
+  const resolveDivisionById = (branchId, divisionId) =>
+    (resolveBranchById(branchId)?.divisions || []).find(
+      (d) => String(d._id) === String(divisionId)
+    ) || null;
+  const resolveDepartmentById = (branchId, divisionId, departmentId) =>
+    (resolveDivisionById(branchId, divisionId)?.departments || []).find(
+      (d) => String(d._id) === String(departmentId)
+    ) || null;
+  const createDepartmentBranch = resolveBranchById(createDepartmentBranchId);
+  const createDepartmentDivisions = Array.isArray(createDepartmentBranch?.divisions)
+    ? createDepartmentBranch.divisions
+    : [];
+  const createTeamBranch = resolveBranchById(createTeamBranchId);
+  const createTeamDivisions = Array.isArray(createTeamBranch?.divisions) ? createTeamBranch.divisions : [];
+  const createTeamDivision =
+    createTeamDivisions.find((d) => String(d._id) === String(createTeamDivisionId)) || null;
+  const createTeamDepartments = Array.isArray(createTeamDivision?.departments)
+    ? createTeamDivision.departments
+    : [];
+  const createChannelBranch = resolveBranchById(createChannelBranchId);
+  const createChannelDivisions = Array.isArray(createChannelBranch?.divisions)
+    ? createChannelBranch.divisions
+    : [];
+  const createChannelDivision =
+    createChannelDivisions.find((d) => String(d._id) === String(createChannelDivisionId)) || null;
+  const createChannelDepartments = Array.isArray(createChannelDivision?.departments)
+    ? createChannelDivision.departments
+    : [];
+  const createChannelDepartment =
+    createChannelDepartments.find((d) => String(d._id) === String(createChannelDepartmentId)) || null;
+  const createChannelTeams = Array.isArray(createChannelDepartment?.teams)
+    ? createChannelDepartment.teams
+    : [];
+
+  const openCreateDivisionModal = () => {
+    const fallbackBranchId =
+      manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
+    if (!fallbackBranchId) {
+      toast.error('Chưa có chi nhánh để tạo khối');
+      return;
+    }
+    setCreateDivisionBranchId(fallbackBranchId);
+    setCreateDivisionName('');
+    setCreateDivisionModalOpen(true);
+  };
+
+  const handleCreateDivision = async () => {
+    if (!orgId || !createDivisionBranchId || !createDivisionName.trim()) return;
+    try {
+      await organizationAPI.createDivision(orgId, createDivisionBranchId, {
+        name: createDivisionName.trim(),
+      });
+      setCreateDivisionName('');
+      setCreateDivisionModalOpen(false);
+      await loadStructure();
+      toast.success('Đã tạo khối');
+    } catch {
+      toast.error('Không tạo được khối');
+    }
+  };
+
+  const openCreateDepartmentModal = () => {
+    const fallbackBranchId =
+      manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
+    const branch = resolveBranchById(fallbackBranchId);
+    const fallbackDivisionId =
+      manageDivisionId || (branch?.divisions?.[0]?._id ? String(branch.divisions[0]._id) : '');
+    if (!fallbackBranchId || !fallbackDivisionId) {
+      toast.error('Cần có chi nhánh và khối trước khi tạo phòng ban');
+      return;
+    }
+    setCreateDepartmentBranchId(fallbackBranchId);
+    setCreateDepartmentDivisionId(fallbackDivisionId);
+    setCreateDepartmentName('');
+    setCreateDepartmentModalOpen(true);
+  };
+
+  const handleCreateDepartment = async () => {
+    if (!orgId || !createDepartmentDivisionId || !createDepartmentName.trim()) return;
+    try {
+      await organizationAPI.createDepartmentByDivision(orgId, createDepartmentDivisionId, {
+        name: createDepartmentName.trim(),
+      });
+      setCreateDepartmentName('');
+      setCreateDepartmentModalOpen(false);
+      await loadStructure();
+      toast.success('Đã tạo phòng ban');
+    } catch {
+      toast.error('Không tạo được phòng ban');
+    }
+  };
+
+  const openCreateTeamModal = () => {
+    const fallbackBranchId =
+      manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
+    const branch = resolveBranchById(fallbackBranchId);
+    const fallbackDivisionId =
+      manageDivisionId || (branch?.divisions?.[0]?._id ? String(branch.divisions[0]._id) : '');
+    const division = resolveDivisionById(fallbackBranchId, fallbackDivisionId);
+    const fallbackDepartmentId =
+      manageDepartmentId ||
+      (division?.departments?.[0]?._id ? String(division.departments[0]._id) : '');
+    if (!fallbackBranchId || !fallbackDivisionId || !fallbackDepartmentId) {
+      toast.error('Cần có đủ chi nhánh, khối và phòng ban trước khi tạo team');
+      return;
+    }
+    setCreateTeamBranchId(fallbackBranchId);
+    setCreateTeamDivisionId(fallbackDivisionId);
+    setCreateTeamDepartmentId(fallbackDepartmentId);
+    setCreateTeamName('');
+    setCreateTeamModalOpen(true);
+  };
+
+  const handleCreateTeam = async () => {
+    if (!orgId || !createTeamDepartmentId || !createTeamName.trim()) return;
+    try {
+      await organizationAPI.createTeamByDepartment(orgId, createTeamDepartmentId, {
+        name: createTeamName.trim(),
+      });
+      setCreateTeamName('');
+      setCreateTeamModalOpen(false);
+      await loadStructure();
+      toast.success('Đã tạo team');
+    } catch {
+      toast.error('Không tạo được team');
+    }
+  };
+
+  const openCreateChannelModal = () => {
+    const fallbackBranchId =
+      manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
+    const branch = resolveBranchById(fallbackBranchId);
+    const fallbackDivisionId =
+      manageDivisionId || (branch?.divisions?.[0]?._id ? String(branch.divisions[0]._id) : '');
+    const division = resolveDivisionById(fallbackBranchId, fallbackDivisionId);
+    const fallbackDepartmentId =
+      manageDepartmentId ||
+      (division?.departments?.[0]?._id ? String(division.departments[0]._id) : '');
+    const department = resolveDepartmentById(
+      fallbackBranchId,
+      fallbackDivisionId,
+      fallbackDepartmentId
+    );
+    const fallbackTeamId =
+      manageTeamId || (department?.teams?.[0]?._id ? String(department.teams[0]._id) : '');
+    if (!fallbackBranchId || !fallbackDivisionId) {
+      toast.error('Cần có ít nhất chi nhánh và khối trước khi tạo kênh');
+      return;
+    }
+    setCreateChannelLevel('team');
+    setCreateChannelBranchId(fallbackBranchId);
+    setCreateChannelDivisionId(fallbackDivisionId);
+    setCreateChannelDepartmentId(fallbackDepartmentId);
+    setCreateChannelTeamId(fallbackTeamId);
+    setCreateChannelType('chat');
+    setCreateChannelName('');
+    setCreateChannelModalOpen(true);
+  };
+
+  const handleCreateChannel = async () => {
+    if (!orgId || !createChannelName.trim()) return;
+    if (createChannelLevel === 'division' && !createChannelDivisionId) {
+      toast.error('Vui lòng chọn khối');
+      return;
+    }
+    if (createChannelLevel === 'department' && !createChannelDepartmentId) {
+      toast.error('Vui lòng chọn phòng ban');
+      return;
+    }
+    if (createChannelLevel === 'team' && !createChannelTeamId) {
+      toast.error('Vui lòng chọn team');
+      return;
+    }
+    try {
+      await organizationAPI.createChannelByScope(orgId, {
+        level: createChannelLevel,
+        branchId: createChannelBranchId || null,
+        divisionId: createChannelDivisionId || null,
+        departmentId: createChannelDepartmentId || null,
+        teamId: createChannelTeamId || null,
+        name: createChannelName.trim(),
+        type: createChannelType,
+      });
+      setCreateChannelName('');
+      setCreateChannelModalOpen(false);
+      await loadStructure();
+      toast.success('Đã tạo kênh');
+    } catch {
+      toast.error('Không tạo được kênh');
+    }
+  };
+  const handleRenameDivision = async () => {
+    if (!orgId || !manageDivisionId || !renameDivisionName.trim()) return;
+    try {
+      await organizationAPI.updateDivision(orgId, manageDivisionId, { name: renameDivisionName.trim() });
+      await loadStructure();
+      toast.success('Đã đổi tên khối');
+    } catch {
+      toast.error('Không đổi được tên khối');
+    }
+  };
+  const handleRenameDepartment = async () => {
+    if (!orgId || !manageDepartmentId || !renameDepartmentName.trim()) return;
+    try {
+      await organizationAPI.updateDepartment(orgId, manageDepartmentId, {
+        name: renameDepartmentName.trim(),
+      });
+      await loadStructure();
+      toast.success('Đã đổi tên phòng ban');
+    } catch {
+      toast.error('Không đổi được tên phòng ban');
+    }
+  };
+  const handleRenameTeam = async () => {
+    if (!orgId || !manageTeamId || !renameTeamName.trim()) return;
+    try {
+      await organizationAPI.updateTeamByHierarchy(orgId, manageTeamId, { name: renameTeamName.trim() });
+      await loadStructure();
+      toast.success('Đã đổi tên team');
+    } catch {
+      toast.error('Không đổi được tên team');
+    }
+  };
+  const handleRenameChannel = async () => {
+    if (!orgId || !renameChannelId || !renameChannelName.trim()) return;
+    try {
+      await organizationAPI.updateChannelByScope(orgId, renameChannelId, {
+        name: renameChannelName.trim(),
+      });
+      await loadStructure();
+      toast.success('Đã đổi tên kênh');
+    } catch {
+      toast.error('Không đổi được tên kênh');
+    }
+  };
+
+  const loadOrgMembers = useCallback(async () => {
+    if (!orgId || !isFullAccess) return;
+    try {
+      const payload = await organizationAPI.getMembers(orgId);
+      const raw = unwrap(payload);
+      const rows = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+      setOrgMembers(rows);
+    } catch {
+      setOrgMembers([]);
+    }
+  }, [orgId, isFullAccess]);
+
+  const loadChannelAccessRows = useCallback(async () => {
+    if (!orgId || !renameChannelId) {
+      setAccessRows([]);
+      return;
+    }
+    try {
+      const payload = await organizationAPI.listChannelAccess(orgId, renameChannelId);
+      const raw = unwrap(payload);
+      const data = raw?.data ?? raw;
+      setAccessRows(Array.isArray(data?.accesses) ? data.accesses : []);
+    } catch {
+      setAccessRows([]);
+    }
+  }, [orgId, renameChannelId]);
+
+  useEffect(() => {
+    if (!orgId || !isFullAccess || activeTab !== 'structure') return;
+    loadOrgMembers();
+  }, [orgId, isFullAccess, activeTab, loadOrgMembers]);
+
+  useEffect(() => {
+    if (!orgId || !isFullAccess || activeTab !== 'structure') return;
+    loadChannelAccessRows();
+  }, [orgId, isFullAccess, activeTab, loadChannelAccessRows]);
+
+  const handleGrantChannelAccess = async () => {
+    if (!orgId || !renameChannelId || !accessUserId) return;
+    try {
+      await organizationAPI.grantChannelAccess(orgId, renameChannelId, {
+        userId: accessUserId,
+        permissions: {
+          canRead: accessCanRead,
+          canWrite: accessCanWrite,
+          canVoice: accessCanVoice,
+        },
+      });
+      await loadChannelAccessRows();
+      toast.success('Đã cấp quyền kênh');
+    } catch {
+      toast.error('Không thể cấp quyền kênh');
+    }
+  };
+
+  const handleRevokeChannelAccess = async (userId) => {
+    if (!orgId || !renameChannelId || !userId) return;
+    try {
+      await organizationAPI.revokeChannelAccess(orgId, renameChannelId, { userId });
+      await loadChannelAccessRows();
+      toast.success('Đã gỡ quyền kênh');
+    } catch {
+      toast.error('Không thể gỡ quyền kênh');
+    }
+  };
+
   const openCreateRole = () => {
     setEditingRoleId(null);
+    setEditingRoleOriginalName('');
     setRoleDraft({
       name: '',
-      permissions: '',
       members: 0,
       color: 'from-purple-600 to-pink-600',
       icon: '🧩',
     });
+    setRolePermissionState({});
     setRoleEditorOpen(true);
   };
 
   const openEditRole = (role) => {
     setEditingRoleId(role.id || role._id);
+    setEditingRoleOriginalName(String(role.name || ''));
     setRoleDraft({
-      name: role.name,
-      permissions: formatPermissionsPlain(role.permissions),
+      name: normalizeRoleDisplayName(role.name),
       members: role.members,
       color: role.color || 'from-purple-600 to-pink-600',
       icon: role.icon || '🧩',
     });
+    setRolePermissionState(permissionStateFromEntries(role.permissions));
     setRoleEditorOpen(true);
   };
 
@@ -424,13 +868,16 @@ function OrganizationSettingsPanel({
     }
     try {
       setRoleLoading(true);
-      const permissionsPayload = resolvePermissionsForApi(
-        roleDraft.permissions,
-        editingRoleId,
-        roles
-      );
+      const permissionsPayload = permissionEntriesFromState(rolePermissionState);
+      const fallbackHierarchyName =
+        editingRoleId &&
+        editingRoleOriginalName &&
+        normalizeRoleDisplayName(editingRoleOriginalName) === roleDraft.name?.trim()
+          ? editingRoleOriginalName
+          : '';
       const payload = {
         ...roleDraft,
+        name: fallbackHierarchyName || roleDraft.name,
         permissions: permissionsPayload,
         organizationId: orgId,
         serverId: orgId,
@@ -443,6 +890,7 @@ function OrganizationSettingsPanel({
         toast.success('Đã tạo vai trò');
       }
       setRoleEditorOpen(false);
+      setEditingRoleOriginalName('');
       await loadRoles();
     } catch (e) {
       toast.error(e?.message || 'Không lưu được vai trò');
@@ -543,6 +991,8 @@ function OrganizationSettingsPanel({
                 ? 'Chủ sở hữu'
                 : myRole === 'admin'
                   ? 'Quản trị viên'
+                  : myRole === 'hr'
+                    ? 'Nhân sự'
                   : 'Thành viên'}
             </span>
             {!isFullAccess && ' — chỉ xem các mục cá nhân trong tổ chức'}
@@ -650,6 +1100,171 @@ function OrganizationSettingsPanel({
                   </button>
                 </GlassCard>
               )}
+            </div>
+          )}
+
+          {isFullAccess && activeTab === 'structure' && (
+            <div className="mx-auto max-w-6xl space-y-4">
+              <GlassCard className="border border-slate-800 bg-slate-900/60">
+                <h3 className="mb-3 text-xl font-bold text-white">Quản trị cấu trúc tổ chức</h3>
+                {structureLoading ? (
+                  <p className="text-sm text-gray-400">Đang tải cấu trúc…</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <label className="text-sm text-gray-300">Chi nhánh
+                        <select value={manageBranchId} onChange={(e) => {
+                          const nextBranchId = e.target.value;
+                          const nextBranch = structureBranches.find((b) => String(b._id) === String(nextBranchId)) || null;
+                          const nextDivisionId = nextBranch?.divisions?.[0]?._id ? String(nextBranch.divisions[0]._id) : '';
+                          const nextDepartmentId = nextBranch?.divisions?.[0]?.departments?.[0]?._id ? String(nextBranch.divisions[0].departments[0]._id) : '';
+                          const nextTeamId = nextBranch?.divisions?.[0]?.departments?.[0]?.teams?.[0]?._id ? String(nextBranch.divisions[0].departments[0].teams[0]._id) : '';
+                          setManageBranchId(nextBranchId); setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
+                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                          {structureBranches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm text-gray-300">Khối
+                        <select value={manageDivisionId} onChange={(e) => {
+                          const nextDivisionId = e.target.value;
+                          const nextDivision = manageDivisions.find((d) => String(d._id) === String(nextDivisionId)) || null;
+                          const nextDepartmentId = nextDivision?.departments?.[0]?._id ? String(nextDivision.departments[0]._id) : '';
+                          const nextTeamId = nextDivision?.departments?.[0]?.teams?.[0]?._id ? String(nextDivision.departments[0].teams[0]._id) : '';
+                          setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
+                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                          {manageDivisions.map((division) => <option key={division._id} value={division._id}>{division.name}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm text-gray-300">Phòng ban
+                        <select value={manageDepartmentId} onChange={(e) => {
+                          const nextDepartmentId = e.target.value;
+                          const nextDepartment = manageDepartments.find((d) => String(d._id) === String(nextDepartmentId)) || null;
+                          const nextTeamId = nextDepartment?.teams?.[0]?._id ? String(nextDepartment.teams[0]._id) : '';
+                          setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
+                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                          {manageDepartments.map((department) => <option key={department._id} value={department._id}>{department.name}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm text-gray-300">Team
+                        <select value={manageTeamId} onChange={(e) => setManageTeamId(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                          {manageTeams.map((team) => <option key={team._id} value={team._id}>{team.name}</option>)}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                        <button
+                          type="button"
+                          onClick={openCreateDivisionModal}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                        >
+                          Tạo khối
+                        </button>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                        <button
+                          type="button"
+                          onClick={openCreateDepartmentModal}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                        >
+                          Tạo phòng ban
+                        </button>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                        <button
+                          type="button"
+                          onClick={openCreateTeamModal}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                        >
+                          Mở form tạo team
+                        </button>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                        <button
+                          type="button"
+                          onClick={openCreateChannelModal}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                        >
+                          Mở form tạo kênh
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên khối</div><div className="flex gap-2"><input value={renameDivisionName} onChange={(e) => setRenameDivisionName(e.target.value)} placeholder={manageDivision?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameDivision} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên phòng ban</div><div className="flex gap-2"><input value={renameDepartmentName} onChange={(e) => setRenameDepartmentName(e.target.value)} placeholder={manageDepartment?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameDepartment} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên team</div><div className="flex gap-2"><input value={renameTeamName} onChange={(e) => setRenameTeamName(e.target.value)} placeholder={manageTeam?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameTeam} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
+                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên kênh</div><div className="mb-2 flex gap-2"><select value={renameChannelId} onChange={(e) => { const nextId = e.target.value; const ch = manageChannels.find((c) => String(c._id) === String(nextId)); setRenameChannelId(nextId); setRenameChannelName(ch?.name || ''); }} className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"><option value="">Chọn kênh</option>{manageChannels.map((channel) => <option key={`${channel._id}-${channel.__scope || 'team'}`} value={channel._id}>[{channel.__scope === 'division' ? 'Khối' : channel.__scope === 'department' ? 'Phòng' : 'Team'}] {channel.name}</option>)}</select><input value={renameChannelName} onChange={(e) => setRenameChannelName(e.target.value)} placeholder="Tên mới" className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameChannel} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                      <div className="mb-2 text-sm font-semibold text-white">Phân quyền kênh liên phòng (ACL)</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <select
+                          value={accessUserId}
+                          onChange={(e) => setAccessUserId(e.target.value)}
+                          className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+                        >
+                          <option value="">Chọn thành viên</option>
+                          {orgMembers.map((member) => (
+                            <option key={member._id} value={member?.user?._id || member?.user}>
+                              {member?.user?.displayName ||
+                                member?.user?.fullName ||
+                                member?.user?.username ||
+                                String(member.user)}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-4 text-xs text-gray-300">
+                          <label className="flex items-center gap-1">
+                            <input type="checkbox" checked={accessCanRead} onChange={(e) => setAccessCanRead(e.target.checked)} />
+                            Read
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input type="checkbox" checked={accessCanWrite} onChange={(e) => setAccessCanWrite(e.target.checked)} />
+                            Write
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input type="checkbox" checked={accessCanVoice} onChange={(e) => setAccessCanVoice(e.target.checked)} />
+                            Voice
+                          </label>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleGrantChannelAccess}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                        >
+                          Cấp quyền
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {accessRows.map((row) => (
+                          <div
+                            key={`${row.user}-${row.channel || 'c'}`}
+                            className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs text-gray-200"
+                          >
+                            <span>
+                              {String(row.user)} — R:{row.permissions?.canRead ? 'Y' : 'N'} W:
+                              {row.permissions?.canWrite ? 'Y' : 'N'} V:
+                              {row.permissions?.canVoice ? 'Y' : 'N'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeChannelAccess(row.user)}
+                              className="text-red-300 hover:text-red-200"
+                            >
+                              Gỡ
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </GlassCard>
             </div>
           )}
 
@@ -854,26 +1469,64 @@ function OrganizationSettingsPanel({
                 </div>
                 {roleEditorOpen && (
                   <div className="mb-4 rounded-xl border border-slate-700 bg-[#040f2a] p-4">
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-3">
                       <input
                         value={roleDraft.name}
                         onChange={(e) => setRoleDraft((p) => ({ ...p, name: e.target.value }))}
                         placeholder="Tên vai trò"
-                        className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-white"
+                        className="w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-white"
                       />
-                      <textarea
-                        rows={3}
-                        value={roleDraft.permissions}
-                        onChange={(e) => setRoleDraft((p) => ({ ...p, permissions: e.target.value }))}
-                        placeholder='Tùy chọn: JSON mảng quyền, ví dụ [{"resource":"chat","actions":["read","write"]}]'
-                        className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-white"
-                      />
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Quyền cho vai trò
+                        </div>
+                        <div className="space-y-2">
+                          {PERMISSION_EDITOR_OPTIONS.map((group) => (
+                            <div
+                              key={group.resource}
+                              className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800/80 bg-slate-950/40 px-3 py-2"
+                            >
+                              <span className="min-w-24 text-sm font-semibold text-white">{group.label}</span>
+                              {group.actions.map((action) => {
+                                const key = `${group.resource}:${action}`;
+                                const checked = Boolean(rolePermissionState[key]);
+                                return (
+                                  <label
+                                    key={key}
+                                    className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-gray-300"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) =>
+                                        setRolePermissionState((prev) => ({
+                                          ...prev,
+                                          [key]: e.target.checked,
+                                        }))
+                                      }
+                                      className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-900"
+                                    />
+                                    {ACTION_LABEL[action] || action}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-xs text-cyan-300/90">
+                        Quyền hiện tại: {summarizePermissions(permissionEntriesFromState(rolePermissionState))}
+                      </div>
                     </div>
                     <div className="mt-3 flex justify-end gap-2">
                       <button
                         type="button"
                         className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-gray-300"
-                        onClick={() => setRoleEditorOpen(false)}
+                        onClick={() => {
+                          setRoleEditorOpen(false);
+                          setRolePermissionState({});
+                          setEditingRoleOriginalName('');
+                        }}
                       >
                         Hủy
                       </button>
@@ -892,13 +1545,15 @@ function OrganizationSettingsPanel({
                   {roles.map((role) => (
                     <div
                       key={role.id || role._id}
-                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-4"
+                      className="flex items-start justify-between gap-3 rounded-xl border border-slate-800 bg-[#040f2a] p-4"
                     >
-                      <div>
-                        <div className="font-bold text-white">{role.name}</div>
+                      <div className="min-w-0">
+                        <div className="truncate font-bold text-white">
+                          {normalizeRoleDisplayName(role.name)}
+                        </div>
                         <RolePermissionsSummary permissions={role.permissions} />
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex shrink-0 gap-2">
                         <button
                           type="button"
                           className="rounded-lg border border-slate-800 px-3 py-2 text-sm hover:bg-slate-800/70"
@@ -1132,6 +1787,388 @@ function OrganizationSettingsPanel({
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={createDivisionModalOpen}
+        onClose={() => setCreateDivisionModalOpen(false)}
+        title="Tạo khối"
+        size="sm"
+        layerClassName="z-[250]"
+      >
+        <div className="space-y-3 text-slate-100">
+          <label className="block text-sm text-gray-300">
+            Chi nhánh
+            <select
+              value={createDivisionBranchId}
+              onChange={(e) => setCreateDivisionBranchId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {structureBranches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Tên khối
+            <input
+              value={createDivisionName}
+              onChange={(e) => setCreateDivisionName(e.target.value)}
+              placeholder="Tên khối"
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateDivisionModalOpen(false)}
+              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateDivision}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={createDepartmentModalOpen}
+        onClose={() => setCreateDepartmentModalOpen(false)}
+        title="Tạo phòng ban"
+        size="sm"
+        layerClassName="z-[250]"
+      >
+        <div className="space-y-3 text-slate-100">
+          <label className="block text-sm text-gray-300">
+            Chi nhánh
+            <select
+              value={createDepartmentBranchId}
+              onChange={(e) => {
+                const nextBranchId = e.target.value;
+                const nextBranch = resolveBranchById(nextBranchId);
+                const nextDivisionId = nextBranch?.divisions?.[0]?._id
+                  ? String(nextBranch.divisions[0]._id)
+                  : '';
+                setCreateDepartmentBranchId(nextBranchId);
+                setCreateDepartmentDivisionId(nextDivisionId);
+              }}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {structureBranches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Khối
+            <select
+              value={createDepartmentDivisionId}
+              onChange={(e) => setCreateDepartmentDivisionId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {createDepartmentDivisions.map((division) => (
+                <option key={division._id} value={division._id}>
+                  {division.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Tên phòng ban
+            <input
+              value={createDepartmentName}
+              onChange={(e) => setCreateDepartmentName(e.target.value)}
+              placeholder="Tên phòng ban"
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateDepartmentModalOpen(false)}
+              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateDepartment}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={createTeamModalOpen}
+        onClose={() => setCreateTeamModalOpen(false)}
+        title="Tạo team"
+        size="sm"
+        layerClassName="z-[250]"
+      >
+        <div className="space-y-3 text-slate-100">
+          <label className="block text-sm text-gray-300">
+            Chi nhánh
+            <select
+              value={createTeamBranchId}
+              onChange={(e) => {
+                const nextBranchId = e.target.value;
+                const nextBranch = resolveBranchById(nextBranchId);
+                const nextDivisionId = nextBranch?.divisions?.[0]?._id
+                  ? String(nextBranch.divisions[0]._id)
+                  : '';
+                const nextDepartmentId = nextBranch?.divisions?.[0]?.departments?.[0]?._id
+                  ? String(nextBranch.divisions[0].departments[0]._id)
+                  : '';
+                setCreateTeamBranchId(nextBranchId);
+                setCreateTeamDivisionId(nextDivisionId);
+                setCreateTeamDepartmentId(nextDepartmentId);
+              }}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {structureBranches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Khối
+            <select
+              value={createTeamDivisionId}
+              onChange={(e) => {
+                const nextDivisionId = e.target.value;
+                const nextDivision = createTeamDivisions.find(
+                  (d) => String(d._id) === String(nextDivisionId)
+                );
+                const nextDepartmentId = nextDivision?.departments?.[0]?._id
+                  ? String(nextDivision.departments[0]._id)
+                  : '';
+                setCreateTeamDivisionId(nextDivisionId);
+                setCreateTeamDepartmentId(nextDepartmentId);
+              }}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {createTeamDivisions.map((division) => (
+                <option key={division._id} value={division._id}>
+                  {division.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Phòng ban
+            <select
+              value={createTeamDepartmentId}
+              onChange={(e) => setCreateTeamDepartmentId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {createTeamDepartments.map((department) => (
+                <option key={department._id} value={department._id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Tên team
+            <input
+              value={createTeamName}
+              onChange={(e) => setCreateTeamName(e.target.value)}
+              placeholder="Tên team"
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateTeamModalOpen(false)}
+              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateTeam}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={createChannelModalOpen}
+        onClose={() => setCreateChannelModalOpen(false)}
+        title="Tạo kênh"
+        size="sm"
+        layerClassName="z-[250]"
+      >
+        <div className="space-y-3 text-slate-100">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm text-gray-300">
+              Loại kênh
+              <select
+                value={createChannelType}
+                onChange={(e) => setCreateChannelType(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              >
+                <option value="chat">Chat</option>
+                <option value="voice">Voice</option>
+              </select>
+            </label>
+            <label className="block text-sm text-gray-300">
+              Cấp tạo
+              <select
+                value={createChannelLevel}
+                onChange={(e) => setCreateChannelLevel(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              >
+                <option value="division">Khối</option>
+                <option value="department">Phòng ban</option>
+                <option value="team">Team</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="block text-sm text-gray-300">
+            Chi nhánh
+            <select
+              value={createChannelBranchId}
+              onChange={(e) => {
+                const nextBranchId = e.target.value;
+                const nextBranch = resolveBranchById(nextBranchId);
+                const nextDivisionId = nextBranch?.divisions?.[0]?._id
+                  ? String(nextBranch.divisions[0]._id)
+                  : '';
+                const nextDepartmentId = nextBranch?.divisions?.[0]?.departments?.[0]?._id
+                  ? String(nextBranch.divisions[0].departments[0]._id)
+                  : '';
+                const nextTeamId = nextBranch?.divisions?.[0]?.departments?.[0]?.teams?.[0]?._id
+                  ? String(nextBranch.divisions[0].departments[0].teams[0]._id)
+                  : '';
+                setCreateChannelBranchId(nextBranchId);
+                setCreateChannelDivisionId(nextDivisionId);
+                setCreateChannelDepartmentId(nextDepartmentId);
+                setCreateChannelTeamId(nextTeamId);
+              }}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {structureBranches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Khối
+            <select
+              value={createChannelDivisionId}
+              onChange={(e) => {
+                const nextDivisionId = e.target.value;
+                const nextDivision = createChannelDivisions.find(
+                  (d) => String(d._id) === String(nextDivisionId)
+                );
+                const nextDepartmentId = nextDivision?.departments?.[0]?._id
+                  ? String(nextDivision.departments[0]._id)
+                  : '';
+                const nextTeamId = nextDivision?.departments?.[0]?.teams?.[0]?._id
+                  ? String(nextDivision.departments[0].teams[0]._id)
+                  : '';
+                setCreateChannelDivisionId(nextDivisionId);
+                setCreateChannelDepartmentId(nextDepartmentId);
+                setCreateChannelTeamId(nextTeamId);
+              }}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            >
+              {createChannelDivisions.map((division) => (
+                <option key={division._id} value={division._id}>
+                  {division.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Phòng ban
+            <select
+              value={createChannelDepartmentId}
+              onChange={(e) => {
+                const nextDepartmentId = e.target.value;
+                const nextDepartment = createChannelDepartments.find(
+                  (d) => String(d._id) === String(nextDepartmentId)
+                );
+                const nextTeamId = nextDepartment?.teams?.[0]?._id
+                  ? String(nextDepartment.teams[0]._id)
+                  : '';
+                setCreateChannelDepartmentId(nextDepartmentId);
+                setCreateChannelTeamId(nextTeamId);
+              }}
+              disabled={createChannelLevel === 'division'}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white disabled:opacity-50"
+            >
+              {createChannelDepartments.map((department) => (
+                <option key={department._id} value={department._id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Team
+            <select
+              value={createChannelTeamId}
+              onChange={(e) => setCreateChannelTeamId(e.target.value)}
+              disabled={createChannelLevel !== 'team'}
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white disabled:opacity-50"
+            >
+              {createChannelTeams.map((team) => (
+                <option key={team._id} value={team._id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-gray-300">
+            Tên kênh
+            <input
+              value={createChannelName}
+              onChange={(e) => setCreateChannelName(e.target.value)}
+              placeholder="Tên kênh"
+              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateChannelModalOpen(false)}
+              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateChannel}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+            >
+              Tạo
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={deleteOrgModalOpen}

@@ -163,6 +163,23 @@ class MeetingController {
   async getMeetings(req, res) {
     try {
       const { serverId, organizationId, status, page, limit, startFrom, startTo } = req.query;
+      const pageNum = Number.parseInt(page, 10) || 1;
+
+      // Dashboard gọi /api/meetings khi load trang. Nếu Mongo chưa ready (Atlas reconnect),
+      // trả danh sách rỗng thay vì để Gateway nhận ECONNREFUSED/500.
+      if (mongoose.connection.readyState !== 1) {
+        logger.warn('getMeetings requested while MongoDB is not ready, returning empty meetings list');
+        return res.json({
+          success: true,
+          data: {
+            meetings: [],
+            totalPages: 0,
+            currentPage: pageNum,
+            total: 0,
+            degraded: true,
+          },
+        });
+      }
 
       const filter = {};
       // Tránh CastError → 500 khi client gửi id không phải ObjectId hợp lệ
@@ -248,7 +265,7 @@ class MeetingController {
       }
 
       const result = await meetingService.getMeetings(filter, {
-        page: parseInt(page) || 1,
+        page: pageNum,
         limit: parseInt(limit) || 50,
         sort,
       });

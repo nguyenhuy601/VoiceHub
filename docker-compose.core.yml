@@ -295,7 +295,7 @@ services:
       - ./services/voice-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "[ -f node_modules/mediasoup/worker/out/Release/mediasoup-worker ] || npm ci || npm install; node src/server.js"]
 
   notification-service:
     build: ./services/notification-service

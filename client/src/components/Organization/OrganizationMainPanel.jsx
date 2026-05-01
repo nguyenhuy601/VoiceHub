@@ -1,39 +1,23 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
 import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
-import { Bell, Zap } from 'lucide-react';
+import { Bell, CheckSquare2, Filter, Hash, Home, LayoutGrid, List, Plus, Search, Settings, Zap } from 'lucide-react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
 import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
 import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
+import TasksKanbanDnd, { COL_DONE, COL_PROGRESS, COL_TODO } from '../Tasks/TasksKanbanDnd';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
 import OrgWorkspaceSearch from '../../features/search/components/OrgWorkspaceSearch';
-import PageSearchBar from '../../features/search/components/PageSearchBar';
-import SearchFilterChips from '../../features/search/components/SearchFilterChips';
 
-function formatJoinAnswerValue(value) {
-  if (value === undefined || value === null) return '—';
-  if (Array.isArray(value)) {
-    const parts = value.filter((v) => v != null && String(v).trim() !== '');
-    return parts.length ? parts.join(', ') : '—';
-  }
-  if (typeof value === 'object') return JSON.stringify(value);
-  const s = String(value).trim();
-  return s || '—';
-}
-
-/**
- * Bản rõ: nhãn từ formSnapshot (lúc nộp đơn), giá trị từ answers.
- * Không có snapshot (đơn cũ) → trả mode raw.
- */
 function messageDayKey(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -53,41 +37,21 @@ function senderInitials(message) {
   return 'TV';
 }
 
-function buildJoinAnswerDisplayRows(answers, formSnapshot) {
-  const raw = answers && typeof answers === 'object' ? answers : {};
-  const fields = formSnapshot?.fields;
-  if (!Array.isArray(fields) || fields.length === 0) {
-    return { mode: 'raw', rows: [] };
-  }
-  const rows = fields.map((f) => {
-    const id = f.id;
-    return {
-      id: String(id),
-      label: String(f.label || id || '').trim() || String(id),
-      value: formatJoinAnswerValue(raw[id]),
-    };
-  });
-  const seen = new Set(fields.map((f) => String(f.id)));
-  for (const k of Object.keys(raw)) {
-    if (seen.has(k)) continue;
-    rows.push({
-      id: k,
-      label: k,
-      value: formatJoinAnswerValue(raw[k]),
-    });
-  }
-  return { mode: 'labeled', rows };
-}
-
 const OrganizationMainPanel = ({
+  workspaceTabView = 'chat',
   selectedOrganization,
-  hasOrganizations = true,
-  /** false: chưa biết user có tổ chức hay không — không hiển thị màn empty/home để tránh nháy UI */
-  organizationsLoaded = false,
-  viewMode = 'home',
   departments = [],
   selectedDepartment,
+  branches = [],
+  selectedBranchId = '',
+  selectedDivisionId = '',
+  onSelectBranch,
+  onSelectDivision,
   channels = [],
+  channelPermissionMatrix = {},
+  membershipScope = null,
+  teams = [],
+  selectedTeamId = '',
   selectedChannelId,
   messages = [],
   messageInput = '',
@@ -98,28 +62,8 @@ const OrganizationMainPanel = ({
   currentUserId,
   onSelectChannel,
   onSelectDepartment,
-  onCreateOrganization,
-  onJoinQuickInvite,
-  quickInviteInput = '',
-  onChangeQuickInviteInput,
-  joiningQuickInvite = false,
-  invitations = [],
-  loadingInvitations = false,
-  respondingInvitationIds = [],
-  onRespondInvitation,
-  /** Đơn gia nhập cần duyệt (owner/admin) — Trang chủ tổ chức */
-  joinApplicationsToReview = [],
-  loadingJoinApplicationsToReview = false,
-  respondingJoinReviewKeys = [],
-  onApproveJoinApplication,
-  onRejectJoinApplication,
-  homeNotificationPreview = [],
-  homeCalendarPreview = [],
-  expandedHomeCards = { notifications: false, calendar: false },
-  onToggleHomeCard,
+  onSelectTeam,
   onOpenNotificationsPage,
-  onOpenCalendarPage,
-  onGoHome,
   onCreateDepartment,
   onCreateChannel,
   onSendChatOption,
@@ -140,6 +84,13 @@ const OrganizationMainPanel = ({
   workspaceOnlineUserIds = [],
   /** Kết quả tìm kiếm workspace: chuyển kênh / nhảy tin */
   onWorkspaceSearchJump,
+  workspaceTasks = [],
+  loadingWorkspaceTasks = false,
+  onMoveWorkspaceTask,
+  onOpenOrganizationSettings,
+  onInviteOrganization,
+  canInviteMembers = false,
+  onWorkspaceTabChange,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -174,9 +125,6 @@ const OrganizationMainPanel = ({
   const [pollDuration, setPollDuration] = useState('24h');
   const [allowMultiAnswer, setAllowMultiAnswer] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
-  const [orgHomeSearch, setOrgHomeSearch] = useState('');
-  /** Trang chủ tổ chức: all | notifications | calendar */
-  const [orgHomeSection, setOrgHomeSection] = useState('all');
   const [contactCategory, setContactCategory] = useState('all');
   const [selectedContactId, setSelectedContactId] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -190,18 +138,52 @@ const OrganizationMainPanel = ({
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
   const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
   const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
-  const [joinRejectDraft, setJoinRejectDraft] = useState({
-    open: false,
-    organizationId: null,
-    applicationId: null,
-    reason: '',
-  });
   /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
+  const [workspaceTab, setWorkspaceTab] = useState(workspaceTabView === 'tasks' ? 'tasks' : 'chat');
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [taskDepartmentFilter, setTaskDepartmentFilter] = useState('all');
+  const [sidebarOpen, setSidebarOpen] = useState({
+    departments: true,
+    teams: true,
+    textChannels: true,
+    voiceChannels: true,
+  });
 
-  const chatChannels = channels.filter((channel) => channel.type !== 'voice');
-  const voiceChannels = channels.filter((channel) => channel.type === 'voice');
-  const selectedChannel = channels.find((channel) => channel._id === selectedChannelId) || null;
+  const openWorkspaceChat = () => {
+    setWorkspaceTab('chat');
+    onWorkspaceTabChange?.('chat');
+  };
+
+  useEffect(() => {
+    onWorkspaceTabChange?.(workspaceTab);
+  }, [workspaceTab, onWorkspaceTabChange]);
+
+  useEffect(() => {
+    const nextTab = workspaceTabView === 'tasks' ? 'tasks' : 'chat';
+    setWorkspaceTab((prev) => (prev === nextTab ? prev : nextTab));
+  }, [workspaceTabView]);
+
+  const scopedChannels = selectedTeamId
+    ? channels.filter((channel) => String(channel.team || '') === String(selectedTeamId))
+    : channels;
+  const chatChannels = scopedChannels.filter((channel) => channel.type !== 'voice');
+  const voiceChannels = scopedChannels.filter((channel) => channel.type === 'voice');
+  const selectedChannel = scopedChannels.find((channel) => channel._id === selectedChannelId) || null;
+  const selectedTeam = teams.find((team) => String(team._id) === String(selectedTeamId)) || null;
+  const getChannelPerm = (channelId) => {
+    const row = channelPermissionMatrix?.[String(channelId)] || null;
+    return {
+      canRead: Boolean(row?.canRead),
+      canWrite: Boolean(row?.canWrite),
+      canVoice: Boolean(row?.canVoice),
+    };
+  };
+  const canTeamReadAnyChannel = (teamId) =>
+    channels.some(
+      (channel) =>
+        String(channel.team || '') === String(teamId) && getChannelPerm(channel._id).canRead
+    );
 
   const sortedWorkspaceMessages = useMemo(() => {
     return [...messages].sort((a, b) => {
@@ -211,32 +193,45 @@ const OrganizationMainPanel = ({
     });
   }, [messages]);
 
-  const orgHomeFilteredNotifs = useMemo(() => {
-    const q = orgHomeSearch.trim().toLowerCase();
-    if (!q) return homeNotificationPreview;
-    return homeNotificationPreview.filter((item) => {
-      const hay = `${item?.title || ''} ${item?.message || ''} ${item?.time || ''}`.toLowerCase();
-      return hay.includes(q);
+  const filteredWorkspaceTasks = useMemo(() => {
+    const q = String(taskSearchQuery || '').trim().toLowerCase();
+    return (workspaceTasks || []).filter((task) => {
+      const byQuery =
+        !q ||
+        `${task?.title || ''} ${task?.description || ''} ${task?.departmentName || ''}`
+          .toLowerCase()
+          .includes(q);
+      const taskDeptId = String(task?.departmentId || task?.department?._id || '');
+      const byDepartment = taskDepartmentFilter === 'all' || taskDeptId === taskDepartmentFilter;
+      return byQuery && byDepartment;
     });
-  }, [homeNotificationPreview, orgHomeSearch]);
+  }, [workspaceTasks, taskSearchQuery, taskDepartmentFilter]);
 
-  const orgHomeFilteredCal = useMemo(() => {
-    const q = orgHomeSearch.trim().toLowerCase();
-    if (!q) return homeCalendarPreview;
-    return homeCalendarPreview.filter((item) => {
-      const hay = `${item?.title || ''} ${item?.date || ''} ${item?.time || ''} ${item?.type || ''}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [homeCalendarPreview, orgHomeSearch]);
+  const taskColumns = useMemo(() => {
+    const todo = [];
+    const inProgress = [];
+    const done = [];
+    for (const task of filteredWorkspaceTasks) {
+      const status = String(task?.status || 'todo');
+      if (status === 'done') done.push(task);
+      else if (status === 'in_progress' || status === 'review') inProgress.push(task);
+      else todo.push(task);
+    }
+    return { todo, inProgress, done };
+  }, [filteredWorkspaceTasks]);
 
-  const orgHomeSectionOptions = useMemo(
-    () => [
-      { id: 'all', label: t('orgPanel.homeSectionAll'), icon: '📋' },
-      { id: 'notifications', label: t('orgPanel.homeSectionNotif'), icon: '🔔' },
-      { id: 'calendar', label: t('orgPanel.homeSectionCal'), icon: '📅' },
-    ],
-    [t]
-  );
+  const taskSummary = useMemo(() => {
+    const total = (workspaceTasks || []).length;
+    const inProgressCount = (workspaceTasks || []).filter((t) => {
+      const status = String(t?.status || '');
+      return status === 'in_progress' || status === 'review';
+    }).length;
+    const reviewCount = (workspaceTasks || []).filter((t) => String(t?.status || '') === 'review').length;
+    const doneCount = (workspaceTasks || []).filter((t) => String(t?.status || '') === 'done').length;
+    const progressPercent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+    return { total, inProgressCount, reviewCount, doneCount, progressPercent };
+  }, [workspaceTasks]);
+
 
   const orgIdForTask = selectedOrganization?._id || selectedOrganization?.id || null;
   const menuCreateTaskCheck = useMemo(
@@ -442,796 +437,345 @@ const OrganizationMainPanel = ({
     setEmojiSearch('');
   };
 
-  const joinReviewKey = (organizationId, applicationId) => `${organizationId}:${applicationId}`;
-
-  const homeUi = useMemo(
-    () => ({
-      joinOuter: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-gradient-to-br from-[#1a1528]/90 to-[#111422]/80 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-4'
-        : 'rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm',
-      inviteOuter: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-gradient-to-br from-[#181b2a]/80 to-[#111422]/80 shadow-[0_8px_30px_rgba(0,0,0,0.25)]'
-        : 'rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 shadow-sm',
-      widgetCard: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-white/[0.03] p-4'
-        : 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm',
-      widgetTitle: isDarkMode ? 'truncate text-sm font-semibold text-white' : 'truncate text-sm font-semibold text-slate-900',
-      widgetSub: isDarkMode ? 'mt-1 text-xs text-gray-400' : 'mt-1 text-xs text-slate-600',
-      widgetMeta: isDarkMode
-        ? 'rounded-full border border-white/15 px-2 py-0.5 text-xs text-gray-300'
-        : 'rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700',
-      widgetToggle: isDarkMode
-        ? 'rounded-md border border-white/15 px-2 py-1 text-xs text-gray-200 transition hover:bg-white/10'
-        : 'rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50',
-      widgetViewAll: isDarkMode
-        ? 'rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/20'
-        : 'rounded-lg border border-cyan-600/35 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-900 transition hover:bg-cyan-100',
-      homeShell: isDarkMode
-        ? 'min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5'
-        : 'min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm',
-      homeHead: isDarkMode ? 'mb-4 flex items-start justify-between gap-3 border-b border-white/10 pb-4' : 'mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-4',
-      homeTitle: isDarkMode ? 'text-xl font-semibold text-white' : 'text-xl font-semibold text-slate-900',
-      homeSub: isDarkMode ? 'text-sm text-gray-400' : 'text-sm text-slate-600',
-      homeBadgeBtn: isDarkMode
-        ? 'rounded-lg border border-white/15 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10'
-        : 'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50',
-    }),
-    [isDarkMode]
-  );
-
-  const renderJoinApplicationsToReviewPanel = () => (
-    <div className={homeUi.joinOuter}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm ${isDarkMode ? 'bg-violet-500/20' : 'bg-violet-100'}`}
-            >
-              📋
-            </span>
-            <h4
-              className={`truncate text-sm font-semibold tracking-wide ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            >
-              {t('orgPanel.joinReviewTitle')}
-            </h4>
-          </div>
-          <p className={homeUi.widgetSub}>{t('orgPanel.joinReviewSubtitle')}</p>
-        </div>
-        <span
-          className={`inline-flex min-w-[30px] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
-            isDarkMode
-              ? 'border-violet-300/30 bg-violet-400/15 text-violet-200'
-              : 'border-violet-300 bg-violet-100 text-violet-900'
-          }`}
-        >
-          {joinApplicationsToReview.length}
-        </span>
-      </div>
-
-      {loadingJoinApplicationsToReview && (
-        <div className="space-y-2">
-          <div className={`h-16 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-          <div className={`h-16 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`} />
-        </div>
-      )}
-
-      {!loadingJoinApplicationsToReview && joinApplicationsToReview.length === 0 && (
-        <div
-          className={`rounded-xl border border-dashed px-3 py-3 text-center ${isDarkMode ? 'border-white/15 bg-white/[0.02]' : 'border-slate-300 bg-slate-50'}`}
-        >
-          <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>
-            {t('orgPanel.noJoinApps')}
-          </div>
-          <div className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>
-            {t('orgPanel.joinAppsEmptySub')}
-          </div>
-        </div>
-      )}
-
-      {!loadingJoinApplicationsToReview && joinApplicationsToReview.length > 0 && (
-        <ul className="space-y-3">
-          {joinApplicationsToReview.map((app) => {
-            const oid = app.organizationId;
-            const aid = app.applicationId;
-            const key = joinReviewKey(oid, aid);
-            const busy = respondingJoinReviewKeys.includes(key);
-            return (
-              <li
-                key={key}
-                className={`rounded-xl border p-3 text-sm ${
-                  isDarkMode
-                    ? 'border-white/10 bg-black/25 text-gray-200'
-                    : 'border-slate-200 bg-white text-slate-700 shadow-sm'
-                }`}
-              >
-                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div
-                      className={`truncate font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                    >
-                      {app.organizationName}
-                    </div>
-                    <div
-                      className={`mt-0.5 font-mono text-[11px] ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}
-                    >
-                      {t('orgPanel.applicantLine', { name: app.applicantUser })}
-                    </div>
-                  </div>
-                  <span
-                    className={`shrink-0 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}
-                  >
-                    {app.submittedAt
-                      ? new Date(app.submittedAt).toLocaleString(locale === 'en' ? 'en-US' : 'vi-VN')
-                      : ''}
-                  </span>
-                </div>
-                {(() => {
-                  const { mode, rows } = buildJoinAnswerDisplayRows(app.answers, app.formSnapshot);
-                  if (mode === 'labeled' && rows.length > 0) {
-                    return (
-                      <div
-                        className={`mb-3 max-h-48 space-y-2.5 overflow-y-auto rounded-lg border p-3 ${
-                          isDarkMode ? 'border-white/10 bg-black/35' : 'border-slate-200 bg-slate-50'
-                        }`}
-                      >
-                        {rows.map((row) => (
-                          <div key={row.id}>
-                            <div
-                              className={`text-[11px] font-semibold ${isDarkMode ? 'text-cyan-100/90' : 'text-cyan-800'}`}
-                            >
-                              {row.label}
-                            </div>
-                            <div
-                              className={`mt-0.5 whitespace-pre-wrap break-words text-sm ${isDarkMode ? 'text-gray-100' : 'text-slate-800'}`}
-                            >
-                              {row.value}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  }
-                  return (
-                    <pre
-                      className={`mb-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg p-2 text-xs ${
-                        isDarkMode ? 'bg-black/40 text-amber-100/90' : 'border border-slate-200 bg-amber-50 text-amber-900'
-                      }`}
-                    >
-                      {JSON.stringify(app.answers || {}, null, 2)}
-                    </pre>
-                  );
-                })()}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onApproveJoinApplication?.(oid, aid)}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('orgPanel.approveBtn')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      setJoinRejectDraft({
-                        open: true,
-                        organizationId: oid,
-                        applicationId: aid,
-                        reason: '',
-                      })
-                    }
-                    className="rounded-lg border border-red-500/50 px-3 py-1.5 text-xs text-red-300 transition hover:bg-red-950/30 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('orgPanel.rejectBtnShort')}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-
-  const renderInvitationPanel = (compact = false) => (
-    <div className={`${homeUi.inviteOuter} ${compact ? 'p-3.5' : 'p-4'}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm ${isDarkMode ? 'bg-white/10' : 'bg-slate-100'}`}
-            >
-              📨
-            </span>
-            <h4
-              className={`truncate text-sm font-semibold tracking-wide ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            >
-              {t('orgPanel.invitesPanelTitle')}
-            </h4>
-          </div>
-          <p className={homeUi.widgetSub}>{t('orgPanel.invitesPanelSubtitle')}</p>
-        </div>
-        <span
-          className={`inline-flex min-w-[30px] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
-            isDarkMode
-              ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-200'
-              : 'border-cyan-400 bg-cyan-50 text-cyan-900'
-          }`}
-        >
-          {invitations.length}
-        </span>
-      </div>
-
-      {loadingInvitations && (
-        <div className="space-y-2">
-          <div className={`h-11 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-          <div className={`h-11 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`} />
-        </div>
-      )}
-
-      {!loadingInvitations && invitations.length === 0 && (
-        <div
-          className={`rounded-xl border border-dashed px-3 py-3 text-center ${isDarkMode ? 'border-white/15 bg-white/[0.02]' : 'border-slate-300 bg-slate-50'}`}
-        >
-          <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>
-            {t('orgPanel.noInvites')}
-          </div>
-          <div className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>
-            {t('orgPanel.invitesEmptySub')}
-          </div>
-        </div>
-      )}
-
-      {!loadingInvitations && invitations.length > 0 && (
-        <div className="space-y-2">
-          {invitations.map((invite) => {
-            const invitationId = invite.invitationId || invite._id;
-            const orgName = invite.organization?.name || t('orgPanel.orgFallback');
-            const isResponding = respondingInvitationIds.includes(invitationId);
-            const createdAt = invite.createdAt
-              ? new Date(invite.createdAt).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')
-              : '';
-
-            return (
-              <div
-                key={invitationId}
-                className={`rounded-xl border p-3 transition ${
-                  isDarkMode
-                    ? 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
-                    : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
-                }`}
-              >
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div
-                      className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                    >
-                      {orgName}
-                    </div>
-                    <div
-                      className={`mt-0.5 flex flex-wrap items-center gap-2 text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
-                    >
-                      <span
-                        className={`rounded-md px-1.5 py-0.5 ${isDarkMode ? 'bg-white/10' : 'bg-white'}`}
-                      >
-                        {t('orgPanel.roleBadge', { role: invite.role || 'member' })}
-                      </span>
-                      {createdAt && <span>{t('orgPanel.invitedDay', { date: createdAt })}</span>}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={isResponding}
-                    onClick={() => onRespondInvitation?.(invitationId, 'reject')}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      isDarkMode
-                        ? 'border-white/20 text-gray-200 hover:bg-white/10'
-                        : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
-                    }`}
-                  >
-                    {t('orgPanel.rejectBtnShort')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isResponding}
-                    onClick={() => onRespondInvitation?.(invitationId, 'accept')}
-                    className="rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(99,102,241,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('orgPanel.acceptInvite')}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderHomeWidget = ({
-    icon,
-    title,
-    subtitle,
-    cardKey,
-    items = [],
-    expanded = false,
-    onToggle,
-    onViewAll,
-    emptyMessage,
-    renderItem,
-  }) => (
-    <div className={homeUi.widgetCard}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm ${isDarkMode ? 'bg-white/10' : 'bg-slate-100'}`}
-            >
-              {icon}
-            </span>
-            <h4 className={homeUi.widgetTitle}>{title}</h4>
-          </div>
-          <p className={homeUi.widgetSub}>{subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={homeUi.widgetMeta}>{items.length}</span>
-          <button type="button" onClick={() => onToggle?.(cardKey)} className={homeUi.widgetToggle}>
-            {expanded ? t('orgPanel.collapseHide') : t('orgPanel.collapseShow')}
-          </button>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="mt-3 space-y-2">
-          {items.length === 0 && (
-            <div
-              className={`rounded-lg border border-dashed px-3 py-2 text-sm ${isDarkMode ? 'border-white/15 text-gray-400' : 'border-slate-300 text-slate-600'}`}
-            >
-              {emptyMessage}
-            </div>
-          )}
-          {items.map((item, idx) => (
-            <div key={item.id || idx}>{renderItem(item)}</div>
-          ))}
-        </div>
-      )}
-
-      <div className="mt-3 flex justify-end">
-        <button type="button" onClick={onViewAll} className={homeUi.widgetViewAll}>
-          {t('orgPanel.viewAll')}
-        </button>
-      </div>
-    </div>
-  );
-
-  if (!organizationsLoaded) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-6">
-        <div
-          className={`rounded-2xl border px-12 py-14 text-center shadow-sm ${
-            isDarkMode
-              ? 'border-white/10 bg-black/20 shadow-[0_0_40px_rgba(0,0,0,0.35)]'
-              : 'border-slate-200 bg-white'
-          }`}
-        >
-          <div
-            className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-cyan-400/20 border-t-cyan-400"
-            role="status"
-            aria-label={t('orgPanel.loadingWorkspaceAria')}
-          />
-          <p className={`mt-5 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-            {t('orgPanel.loadingWorkspace')}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasOrganizations) {
-    return (
-      <div className="flex h-full flex-col p-6">
-        <div
-          className={`min-h-0 flex-1 rounded-2xl border p-5 ${
-            isDarkMode ? 'border-white/10 bg-black/15' : 'border-slate-200 bg-white shadow-sm'
-          }`}
-        >
-          <div className="flex h-full items-center justify-center">
-            <div className="mx-auto w-full max-w-xl text-center">
-              <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-cyan-600/90 to-teal-600/80 text-4xl shadow-lg shadow-cyan-900/15">
-                🏢
-              </div>
-              <h3
-                className={`mt-4 text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-              >
-                {t('orgPanel.emptyOrgsTitle')}
-              </h3>
-              <p
-                className={`mt-2 text-sm leading-7 ${isDarkMode ? 'text-[#A0A0B2]' : 'text-slate-600'}`}
-              >
-                {t('orgPanel.emptyPitch1')}
-                <br />
-                {t('orgPanel.emptyPitch2')}
-                <br />
-                {t('orgPanel.emptyPitch3')}
-              </p>
-
-              <div className="mt-6 flex items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={onCreateOrganization}
-                  className="h-10 rounded-[10px] bg-gradient-to-r from-cyan-600 to-teal-600 px-5 text-sm font-semibold text-white shadow-md transition hover:brightness-110"
-                >
-                  {t('orgPanel.createOrgEmpty')}
-                </button>
-                <button
-                  type="button"
-                  onClick={onJoinQuickInvite}
-                  disabled={joiningQuickInvite}
-                  className={`h-10 rounded-[10px] border px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isDarkMode
-                      ? 'border-white/20 bg-transparent text-white hover:bg-white/5'
-                      : 'border-slate-300 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
-                  }`}
-                >
-                  {joiningQuickInvite ? t('orgPanel.joining') : t('orgPanel.joinBtn')}
-                </button>
-              </div>
-
-              <div className="mx-auto mt-5 flex max-w-lg items-center gap-2">
-                <input
-                  value={quickInviteInput}
-                  onChange={(event) => onChangeQuickInviteInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      onJoinQuickInvite();
-                    }
-                  }}
-                  placeholder={t('orgPanel.quickInvitePh')}
-                  className={`h-10 flex-1 rounded-lg border px-3 text-sm outline-none ${
-                    isDarkMode
-                      ? 'border-white/10 bg-white/5 text-white placeholder:text-[#6B6B80] focus:border-cyan-500/50 focus:shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                      : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={onJoinQuickInvite}
-                  disabled={joiningQuickInvite}
-                  className="h-10 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 px-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t('orgPanel.joinBtn')}
-                </button>
-              </div>
-
-              <div className="mx-auto mt-6 max-w-xl text-left">{renderInvitationPanel()}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (viewMode === 'home') {
-    const busyRejectKey =
-      joinRejectDraft.open && joinRejectDraft.organizationId && joinRejectDraft.applicationId
-        ? joinReviewKey(joinRejectDraft.organizationId, joinRejectDraft.applicationId)
-        : null;
-    const rejectModalBusy = busyRejectKey && respondingJoinReviewKeys.includes(busyRejectKey);
-
-    return (
-      <>
-        <div className="flex h-full flex-col p-6">
-          <div className={homeUi.homeShell}>
-            <div className={homeUi.homeHead}>
-              <div className="min-w-0 flex-1">
-                <h3 className={homeUi.homeTitle}>{t('orgPanel.orgHomeTitle')}</h3>
-                <p className={homeUi.homeSub}>{t('orgPanel.orgHomeHeaderSub')}</p>
-                <div className="mt-3 max-w-xl space-y-2">
-                  <PageSearchBar
-                    value={orgHomeSearch}
-                    onChange={setOrgHomeSearch}
-                    placeholder={t('orgPanel.homeSearchPlaceholder')}
-                    isDarkMode={isDarkMode}
-                    id="org-home-widgets-search"
-                    aria-label={t('orgPanel.homeSearchAria')}
-                  />
-                  <SearchFilterChips
-                    aria-label={t('orgPanel.homeSectionFilterAria')}
-                    options={orgHomeSectionOptions}
-                    value={orgHomeSection}
-                    onChange={setOrgHomeSection}
-                    isDarkMode={isDarkMode}
-                    size="sm"
-                  />
-                </div>
-              </div>
-              <button type="button" onClick={onGoHome} className={homeUi.homeBadgeBtn}>
-                {t('orgPanel.atHomeBadge')}
-              </button>
-            </div>
-
-            <div className="scrollbar-overlay h-[calc(100%-4.5rem)] space-y-4 overflow-y-auto pr-1">
-              {renderJoinApplicationsToReviewPanel()}
-              {renderInvitationPanel()}
-
-            {(orgHomeSection === 'all' || orgHomeSection === 'notifications') &&
-            renderHomeWidget({
-              icon: '🔔',
-              title: t('orgPanel.homeNotifTitle'),
-              subtitle: t('orgPanel.homeNotifSubtitle'),
-              cardKey: 'notifications',
-              items: orgHomeFilteredNotifs.slice(0, 5),
-              expanded: !!expandedHomeCards.notifications,
-              onToggle: onToggleHomeCard,
-              onViewAll: onOpenNotificationsPage,
-              emptyMessage: t('orgPanel.homeNotifEmpty'),
-              renderItem: (item) => (
-                <div
-                  className={`rounded-lg border px-3 py-2 ${isDarkMode ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div
-                        className={`truncate text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                      >
-                        {item.title}
-                      </div>
-                      <div className={`mt-0.5 text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-                        {item.message}
-                      </div>
-                    </div>
-                    <span
-                      className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
-                        item.priority === 'high'
-                          ? isDarkMode
-                            ? 'bg-red-500/20 text-red-200'
-                            : 'bg-red-100 text-red-800'
-                          : isDarkMode
-                            ? 'bg-blue-500/20 text-blue-200'
-                            : 'bg-blue-100 text-blue-800'
-                      }`}
-                    >
-                      {item.priority === 'high'
-                        ? t('orgPanel.priorityHigh')
-                        : t('orgPanel.priorityNormal')}
-                    </span>
-                  </div>
-                  <div className={`mt-1 text-[11px] ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                    {item.time}
-                  </div>
-                </div>
-              ),
-            })}
-
-            {(orgHomeSection === 'all' || orgHomeSection === 'calendar') &&
-            renderHomeWidget({
-              icon: '📅',
-              title: t('orgPanel.homeCalTitle'),
-              subtitle: t('orgPanel.homeCalSubtitle'),
-              cardKey: 'calendar',
-              items: orgHomeFilteredCal.slice(0, 5),
-              expanded: !!expandedHomeCards.calendar,
-              onToggle: onToggleHomeCard,
-              onViewAll: onOpenCalendarPage,
-              emptyMessage: t('orgPanel.homeCalEmpty'),
-              renderItem: (item) => (
-                <div
-                  className={`rounded-lg border px-3 py-2 ${isDarkMode ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div
-                        className={`truncate text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                      >
-                        {item.title}
-                      </div>
-                      <div className={`mt-0.5 text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-                        {item.date} - {item.time}
-                      </div>
-                    </div>
-                    <span
-                      className={`rounded-md px-1.5 py-0.5 text-[10px] ${isDarkMode ? 'bg-white/10 text-gray-200' : 'bg-slate-200 text-slate-800'}`}
-                    >
-                      {item.type}
-                    </span>
-                  </div>
-                </div>
-              ),
-            })}
-          </div>
-        </div>
-      </div>
-
-        <Modal
-          isOpen={joinRejectDraft.open}
-          onClose={() => {
-            if (rejectModalBusy) return;
-            setJoinRejectDraft({
-              open: false,
-              organizationId: null,
-              applicationId: null,
-              reason: '',
-            });
-          }}
-          title={t('orgPanel.rejectJoinTitle')}
-          size="sm"
-        >
-          <p className="mb-3 text-sm text-gray-400">{t('orgPanel.rejectJoinReason')}</p>
-          <textarea
-            rows={4}
-            value={joinRejectDraft.reason}
-            onChange={(e) =>
-              setJoinRejectDraft((p) => ({ ...p, reason: e.target.value }))
-            }
-            className="mb-4 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-          />
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              disabled={rejectModalBusy}
-              onClick={() => {
-                if (rejectModalBusy) return;
-                setJoinRejectDraft({
-                  open: false,
-                  organizationId: null,
-                  applicationId: null,
-                  reason: '',
-                });
-              }}
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-50"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              disabled={rejectModalBusy}
-              onClick={async () => {
-                if (
-                  !joinRejectDraft.organizationId ||
-                  !joinRejectDraft.applicationId ||
-                  rejectModalBusy
-                )
-                  return;
-                await onRejectJoinApplication?.(
-                  joinRejectDraft.organizationId,
-                  joinRejectDraft.applicationId,
-                  joinRejectDraft.reason
-                );
-                setJoinRejectDraft({
-                  open: false,
-                  organizationId: null,
-                  applicationId: null,
-                  reason: '',
-                });
-              }}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t('orgPanel.rejectConfirmBtn')}
-            </button>
-          </div>
-        </Modal>
-      </>
-    );
-  }
-
   const orgName = selectedOrganization?.name || t('orgPanel.orgFallback');
   const deptName = selectedDepartment?.name
     ? displayDepartmentName(selectedDepartment.name, locale)
     : '—';
+  const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
+  const selectedDivision = selectedBranch?.divisions?.find((d) => String(d._id) === String(selectedDivisionId)) || null;
+  const branchName = selectedBranch?.name ? displayDepartmentName(selectedBranch.name, locale) : '—';
+  const divisionName = selectedDivision?.name ? displayDepartmentName(selectedDivision.name, locale) : '—';
+  const teamName = selectedTeam?.name || '—';
   const chSlug = selectedChannel
     ? channelNameToDisplaySlug(selectedChannel.name || 'chat', locale)
     : '';
   const onlinePreviewIds = (workspaceOnlineUserIds || []).slice(0, 5);
+  const mapDropColumnToStatus = (colId) => {
+    if (colId === COL_DONE) return 'done';
+    if (colId === COL_PROGRESS) return 'in_progress';
+    return 'todo';
+  };
 
   return (
     <>
     <div className={workspace.shell}>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className={workspace.aside}>
-          <div
-            className={`border-b px-3 py-3 ${isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70'}`}
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <h2
-                className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
-              >
-                {t('orgPanel.deptHeading')}
-              </h2>
-              <button
-                type="button"
-                onClick={onCreateDepartment}
-                className={`rounded-lg px-2 py-1 text-xs font-semibold transition disabled:opacity-50 ${
-                  isDarkMode
-                    ? 'bg-white/[0.06] text-white hover:bg-white/10'
-                    : 'bg-sky-100 text-slate-800 hover:bg-sky-200/80'
-                }`}
-              >
-                {t('orgPanel.createDeptShort')}
-              </button>
-            </div>
-            <div className="scrollbar-overlay max-h-[40vh] space-y-1 overflow-y-auto pr-0.5">
-              {loadingDepartments && (
-                <div
-                  className={`h-9 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-slate-200/80'}`}
-                />
-              )}
-              {!loadingDepartments && departments.length === 0 && (
-                <div
-                  className={`rounded-xl border border-dashed p-3 text-xs ${
-                    isDarkMode
-                      ? 'border-white/10 text-[#8e9297]'
-                      : 'border-slate-300 text-slate-600'
-                  }`}
-                >
-                  {t('orgPanel.noDeptYet')}
-                </div>
-              )}
-              {departments.map((department) => (
+          <div className={`flex min-h-0 flex-1 flex-col border-b px-3 py-3 ${isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70'}`}>
+            <div
+              className={`mb-3 rounded-xl border p-3 ${isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
                 <button
-                  key={department._id}
                   type="button"
-                  onClick={() => onSelectDepartment(department._id)}
-                  className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                    selectedDepartment?._id === department._id
+                  onClick={() => {
+                    if (!canInviteMembers) return;
+                    if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
+                  }}
+                  className="min-w-0 text-left"
+                  title={canInviteMembers ? 'Mời vào tổ chức' : 'Bạn không có quyền mời thành viên'}
+                >
+                  <div className={`truncate text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                    {orgName}
+                  </div>
+                  <div className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                    ● {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
+                  </div>
+                </button>
+                {canInviteMembers ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
+                    }}
+                    className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                      isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    Mời
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+          
+
+            <div className={`mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
+              <span>Chi nhánh</span>
+              <span className={isDarkMode ? 'text-[#8b91a0]' : 'text-slate-500'}>
+                + Thêm
+              </span>
+            </div>
+            <div className="mb-3 grid grid-cols-3 gap-1.5">
+              {branches?.map((branch) => (
+                <button
+                  key={branch._id}
+                  type="button"
+                  onClick={() => onSelectBranch?.(branch._id)}
+                  className={`rounded-lg border px-1.5 py-1 text-left transition ${
+                    String(selectedBranchId) === String(branch._id)
                       ? isDarkMode
-                        ? 'bg-[#5865F2]/20 text-white ring-1 ring-[#5865F2]/40'
-                        : 'bg-cyan-100 text-cyan-950 ring-1 ring-cyan-300/70'
+                        ? 'border-[#5865F2]/40 bg-[#5865F2]/20 text-white'
+                        : 'border-sky-300 bg-sky-100 text-slate-900'
                       : isDarkMode
-                        ? 'text-[#b4b8c4] hover:bg-white/[0.04]'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        ? 'border-white/10 bg-white/[0.03] text-[#b4b8c4] hover:bg-white/[0.05]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  {displayDepartmentName(department.name, locale)}
+                  <div className="truncate text-[11px] font-bold">{branch.name}</div>
+                  <div className={`text-[10px] ${isDarkMode ? 'text-[#7d8392]' : 'text-slate-500'}`}>
+                    {Array.isArray(branch?.divisions) ? branch.divisions.length : 0} khối
+                  </div>
                 </button>
               ))}
             </div>
+
+            <div className={`mb-1 flex w-full items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen((prev) => ({ ...prev, departments: !prev.departments }))}
+                className="text-left"
+              >
+                Cấu trúc
+              </button>
+              <span className={isDarkMode ? 'text-[#8b91a0]' : 'text-slate-500'}>Quản trị trong Cài đặt</span>
+            </div>
+            <div className={`mb-2 flex items-center gap-2 px-1 text-[9px] font-semibold uppercase ${isDarkMode ? 'text-[#7d8392]' : 'text-slate-500'}`}>
+              <span>Khối</span>
+              <span>◆ Phòng</span>
+              <span>● Nhóm</span>
+              <span># Kênh</span>
+            </div>
+            <div className={`${sidebarOpen.departments ? 'scrollbar-overlay min-h-0 flex-1 overflow-y-auto pr-0.5' : 'hidden'}`}>
+              {loadingDepartments && (
+                <div className={`h-9 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-slate-200/80'}`} />
+              )}
+              {(selectedBranch?.divisions || []).map((division) => {
+                const divisionDepartments = Array.isArray(division?.departments) ? division.departments : [];
+                const divisionActive = String(selectedDivisionId) === String(division._id);
+                return (
+                  <div key={division._id} className="mb-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onSelectDivision?.(division._id)}
+                      className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                        divisionActive
+                          ? isDarkMode
+                            ? 'bg-white/[0.07] text-white'
+                            : 'bg-slate-100 text-slate-900'
+                          : isDarkMode
+                            ? 'text-[#a9afbc] hover:bg-white/[0.04]'
+                            : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="text-[10px]">▸</span>
+                      <span className="truncate font-semibold">{division.name}</span>
+                    </button>
+
+                    <div className="mt-1 space-y-1 pl-4">
+                      {divisionDepartments.map((department) => {
+                        const departmentActive = String(selectedDepartment?._id) === String(department._id);
+                        return (
+                          <div key={department._id}>
+                            <button
+                              type="button"
+                              onClick={() => onSelectDepartment(department._id)}
+                              className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                departmentActive
+                                  ? isDarkMode
+                                    ? 'bg-white/[0.07] text-white'
+                                    : 'bg-slate-100 text-slate-900'
+                                  : isDarkMode
+                                    ? 'text-[#a9afbc] hover:bg-white/[0.04]'
+                                    : 'text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              <span className="text-[10px]">◆</span>
+                              <span className="truncate">{displayDepartmentName(department.name, locale)}</span>
+                            </button>
+
+                            {departmentActive ? (
+                              <div className="mt-1 space-y-1 pl-4">
+                                {teams.map((team) => {
+                                  const teamActive = String(selectedTeamId) === String(team._id);
+                                  const isPrimaryTeam =
+                                    String(membershipScope?.teamId || '') === String(team._id);
+                                  const canReadTeam = isPrimaryTeam || canTeamReadAnyChannel(team._id);
+                                  return (
+                                    <div key={team._id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!canReadTeam) return;
+                                          onSelectTeam?.(team._id);
+                                        }}
+                                        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                          !canReadTeam
+                                            ? isDarkMode
+                                              ? 'text-[#5f6572]'
+                                              : 'text-slate-400'
+                                            : teamActive
+                                            ? isDarkMode
+                                              ? 'bg-[#5865F2]/20 text-white'
+                                              : 'bg-cyan-100 text-slate-900'
+                                            : isDarkMode
+                                              ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <span className="text-[10px]">●</span>
+                                        <span className="truncate">{team.name}</span>
+                                        {!canReadTeam ? <span className="ml-auto text-[10px]">🔒</span> : null}
+                                      </button>
+
+                                      {teamActive && canReadTeam ? (
+                                        <div className="mt-1 space-y-0.5 pl-4">
+                                          {chatChannels.map((channel) => (
+                                            getChannelPerm(channel._id).canRead ? (
+                                            <button
+                                              key={channel._id}
+                                              type="button"
+                                              onClick={() => onSelectChannel(channel._id)}
+                                              className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                String(selectedChannelId) === String(channel._id)
+                                                  ? isDarkMode
+                                                    ? 'bg-[#5865F2]/20 text-white'
+                                                    : 'bg-cyan-100 text-slate-900'
+                                                  : isDarkMode
+                                                    ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                                    : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <Hash className="h-3 w-3" />
+                                              <span className="truncate">
+                                                {channelNameToDisplaySlug(channel.name || 'chat', locale)}
+                                              </span>
+                                            </button>
+                                            ) : (
+                                              <div
+                                                key={channel._id}
+                                                className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                  isDarkMode ? 'text-[#5f6572]' : 'text-slate-400'
+                                                }`}
+                                              >
+                                                <Hash className="h-3 w-3" />
+                                                <span className="truncate">
+                                                  {channelNameToDisplaySlug(channel.name || 'chat', locale)}
+                                                </span>
+                                                <span className="ml-auto text-[10px]">🔒</span>
+                                              </div>
+                                            )
+                                          ))}
+                                          {voiceChannels.map((channel) => (
+                                            getChannelPerm(channel._id).canRead ? (
+                                            <button
+                                              key={channel._id}
+                                              type="button"
+                                              onClick={() => onSelectChannel(channel._id)}
+                                              className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                String(selectedChannelId) === String(channel._id)
+                                                  ? isDarkMode
+                                                    ? 'bg-[#5865F2]/20 text-white'
+                                                    : 'bg-cyan-100 text-slate-900'
+                                                  : isDarkMode
+                                                    ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                                    : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <span>🔊</span>
+                                              <span className="truncate">
+                                                {channelNameToDisplaySlug(channel.name || 'voice', locale)}
+                                              </span>
+                                            </button>
+                                            ) : (
+                                              <div
+                                                key={channel._id}
+                                                className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                  isDarkMode ? 'text-[#5f6572]' : 'text-slate-400'
+                                                }`}
+                                              >
+                                                <span>🔊</span>
+                                                <span className="truncate">
+                                                  {channelNameToDisplaySlug(channel.name || 'voice', locale)}
+                                                </span>
+                                                <span className="ml-auto text-[10px]">🔒</span>
+                                              </div>
+                                            )
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          {selectedDepartment && (
-            <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span
-                  className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
-                >
-                  {t('orgPanel.voiceChannels')}
-                </span>
+
+          <div
+            className={`shrink-0 border-t px-3 py-2 ${
+              isDarkMode ? 'border-white/10 bg-emerald-500/10' : 'border-slate-200 bg-emerald-50'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className={`truncate text-xs font-semibold ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                  ● Đã kết nối
+                </div>
+                <div className={`truncate text-[10px] ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                  {selectedOrganization?.name ? `Phòng họp 1 - ${selectedOrganization.name}` : 'Phòng họp 1'}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => onCreateChannel('voice')}
-                  className={`text-lg leading-none transition ${
-                    isDarkMode ? 'text-[#8e9297] hover:text-white' : 'text-slate-500 hover:text-slate-800'
+                  className={`rounded-md p-1 transition ${
+                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
                   }`}
+                  aria-label="Mic"
+                  title="Mic"
                 >
-                  +
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z" />
+                    <path d="M19 11a7 7 0 0 1-14 0" />
+                    <path d="M12 18v3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-md p-1 transition ${
+                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
+                  }`}
+                  aria-label="Headset"
+                  title="Headset"
+                >
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 12a8 8 0 0 1 16 0v6a2 2 0 0 1-2 2h-1v-6h3" />
+                    <path d="M4 12v8h3v-6H6a2 2 0 0 0-2 2" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-md p-1 transition ${
+                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
+                  }`}
+                  aria-label="Cài đặt tổ chức"
+                  title="Cài đặt tổ chức"
+                  onClick={() => onOpenOrganizationSettings?.(selectedOrganization)}
+                >
+                  <Settings className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="mb-4 space-y-0.5">
-                {voiceChannels.map((channel) => (
-                  <button
-                    key={channel._id}
-                    type="button"
-                    onClick={() => onSelectChannel(channel._id)}
-                    className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                      selectedChannelId === channel._id
-                        ? isDarkMode
-                          ? 'bg-white/[0.08] text-white'
-                          : 'bg-sky-100 text-slate-900'
-                        : isDarkMode
-                          ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                          : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    🔊 {channelNameToDisplaySlug(channel.name, locale)}
-                  </button>
-                ))}
-              </div>
             </div>
-          )}
+          </div>
         </aside>
 
         <div className={workspace.main}>
@@ -1246,12 +790,20 @@ const OrganizationMainPanel = ({
                   {orgName}
                 </span>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{branchName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{divisionName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
                 <span>{deptName}</span>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{teamName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
                 <span className="text-[#5865F2]">
-                  {t('orgPanel.channelHash', {
-                    name: chSlug || t('organizations.channelNameFallback'),
-                  })}
+                  {workspaceTab === 'tasks'
+                    ? '#cong-viec'
+                    : t('orgPanel.channelHash', {
+                        name: chSlug || t('organizations.channelNameFallback'),
+                      })}
                 </span>
               </nav>
               <div className="flex flex-wrap items-center gap-2">
@@ -1283,26 +835,6 @@ const OrganizationMainPanel = ({
                 </div>
                 <button
                   type="button"
-                  title={t('orgPanel.slashCmdTitle')}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs transition ${
-                    isDarkMode
-                      ? 'border-white/[0.08] bg-[#12151f] text-[#9aa0ae] hover:bg-white/[0.06]'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                  onClick={() => onSendChatOption?.({ kind: 'quick-command-placeholder' })}
-                >
-                  <Zap className="h-4 w-4 shrink-0" />
-                  <span className="hidden sm:inline">{t('orgPanel.slashCmdTitle')}</span>
-                  <kbd
-                    className={`hidden rounded px-1.5 py-0.5 font-mono text-[10px] sm:inline ${
-                      isDarkMode ? 'bg-black/40 text-[#6d7380]' : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    ⌘K
-                  </kbd>
-                </button>
-                <button
-                  type="button"
                   title={t('orgPanel.notifTitle')}
                   className={`rounded-xl p-2 transition ${
                     isDarkMode
@@ -1316,7 +848,7 @@ const OrganizationMainPanel = ({
               </div>
             </div>
 
-            {(selectedOrganization?._id || selectedOrganization?.id) && (
+            {workspaceTab !== 'tasks' && (selectedOrganization?._id || selectedOrganization?.id) && (
               <div className="mt-2 w-full min-w-0" role="search" aria-label={t('orgPanel.workspaceSearchAria')}>
                 <OrgWorkspaceSearch
                   organizationId={selectedOrganization?._id || selectedOrganization?.id}
@@ -1328,59 +860,14 @@ const OrganizationMainPanel = ({
               </div>
             )}
 
-            {selectedDepartment && chatChannels.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {chatChannels.map((channel, cidx) => {
-                  const active = String(selectedChannelId) === String(channel._id);
-                  const fakeBadge = (cidx % 5) + 1;
-                  return (
-                    <button
-                      key={channel._id}
-                      type="button"
-                      onClick={() => onSelectChannel(channel._id)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                        active
-                          ? isDarkMode
-                            ? 'border-[#5865F2] bg-[#5865F2]/15 text-white shadow-[0_0_12px_rgba(88,101,242,0.25)]'
-                            : 'border-cyan-400 bg-cyan-50 text-slate-900 shadow-sm ring-1 ring-cyan-200/80'
-                          : isDarkMode
-                            ? 'border-white/[0.08] bg-[#12151f] text-[#9aa0ae] hover:border-white/15 hover:text-white'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
-                      }`}
-                    >
-                      #{channelNameToDisplaySlug(channel.name || 'chat', locale)}
-                      {fakeBadge > 0 && (
-                        <span
-                          className={`rounded-full px-1.5 py-0 text-[10px] ${
-                            isDarkMode
-                              ? 'bg-[#5865F2]/40 text-white'
-                              : 'bg-cyan-200/80 text-slate-900'
-                          }`}
-                        >
-                          {fakeBadge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => onCreateChannel('chat')}
-                  className={`rounded-full border border-dashed px-2.5 py-1.5 text-xs ${
-                    isDarkMode
-                      ? 'border-white/15 text-[#6d7380] hover:text-white'
-                      : 'border-slate-300 text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {t('orgPanel.addChatChannel')}
-                </button>
-              </div>
-            )}
+            
           </header>
 
           <div className={workspace.metaBar}>
             <p className={`text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-              {t('orgPanel.msgCountLine', { n: messages.length })}
+              {workspaceTab === 'tasks'
+                ? `${workspaceTasks.length} tasks`
+                : t('orgPanel.msgCountLine', { n: messages.length })}
             </p>
             <p className={`hidden max-w-[min(100%,280px)] text-right text-xs sm:block ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-400'}`}>
               {t('orgPanel.searchHintAbove')}
@@ -1388,6 +875,122 @@ const OrganizationMainPanel = ({
           </div>
 
           <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+              {workspaceTab === 'tasks' ? (
+                <div className="min-h-0">
+                  <div className={`mb-4 rounded-2xl border px-4 py-3 ${isDarkMode ? 'border-white/[0.08] bg-[#0d1119]' : 'border-slate-200 bg-white shadow-sm'}`}>
+                    <p className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
+                      Workspace - {orgName}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <CheckSquare2 className={`h-5 w-5 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`} />
+                      <h2 className={`text-[30px] leading-none font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                        Công việc
+                      </h2>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isDarkMode ? 'bg-amber-400/20 text-amber-200' : 'bg-amber-100 text-amber-800'}`}>
+                        {taskSummary.total} task
+                      </span>
+                    </div>
+                    <p className={`mt-1 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
+                      Quản lý công việc theo phòng ban - kéo thả để chuyển trạng thái
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-1 text-xs ${isDarkMode ? 'bg-[#5865F2]/20 text-[#c6cbff]' : 'bg-indigo-100 text-indigo-800'}`}>Tổng {taskSummary.total}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs ${isDarkMode ? 'bg-cyan-400/15 text-cyan-200' : 'bg-cyan-100 text-cyan-800'}`}>Đang làm {taskSummary.inProgressCount}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs ${isDarkMode ? 'bg-orange-400/15 text-orange-200' : 'bg-orange-100 text-orange-800'}`}>Review {taskSummary.reviewCount}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs ${isDarkMode ? 'bg-emerald-400/15 text-emerald-200' : 'bg-emerald-100 text-emerald-800'}`}>Xong {taskSummary.progressPercent}%</span>
+                    </div>
+                  </div>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button type="button" className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ${isDarkMode ? 'bg-[#5865F2]/25 text-white' : 'bg-indigo-100 text-indigo-800'}`}>
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                        Bảng
+                      </button>
+                      <button type="button" className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ${isDarkMode ? 'bg-white/[0.05] text-[#aab0bf]' : 'bg-slate-100 text-slate-600'}`}>
+                        <List className="h-3.5 w-3.5" />
+                        Danh sách
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className={`flex items-center gap-2 rounded-xl px-3 py-2 ${isDarkMode ? 'bg-white/[0.04] text-[#9aa0ae]' : 'bg-white border border-slate-200 text-slate-600'}`}>
+                        <Search className="h-3.5 w-3.5" />
+                        <input
+                          value={taskSearchQuery}
+                          onChange={(e) => setTaskSearchQuery(e.target.value)}
+                          placeholder="Tìm task..."
+                          className={`w-40 bg-transparent text-xs outline-none ${isDarkMode ? 'placeholder:text-[#6d7380]' : 'placeholder:text-slate-400'}`}
+                        />
+                      </div>
+                      <div className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs ${isDarkMode ? 'bg-white/[0.04] text-[#aab0bf]' : 'bg-white border border-slate-200 text-slate-600'}`}>
+                        <Filter className="h-3.5 w-3.5" />
+                        <select
+                          value={taskDepartmentFilter}
+                          onChange={(e) => setTaskDepartmentFilter(e.target.value)}
+                          className="bg-transparent outline-none"
+                        >
+                          <option value="all">Tất cả phòng ban</option>
+                          {departments.map((department) => (
+                            <option key={department._id} value={String(department._id)}>
+                              {displayDepartmentName(department.name, locale)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toast('Tạo task mới sẽ mở ở bước tiếp theo.')}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#5865F2] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Tạo task mới
+                      </button>
+                    </div>
+                  </div>
+                  {loadingWorkspaceTasks ? (
+                    <div className={`rounded-xl p-4 text-sm ${isDarkMode ? 'bg-white/5 text-gray-300' : 'bg-white/80 text-slate-600 shadow-sm'}`}>
+                      Loading tasks...
+                    </div>
+                  ) : taskSummary.total === 0 ? (
+                    <div className={`rounded-xl border border-dashed p-6 text-sm ${isDarkMode ? 'border-white/10 bg-white/[0.03] text-[#9aa0ae]' : 'border-slate-300 bg-slate-50 text-slate-600'}`}>
+                      Chưa có task nào trong workspace này.
+                    </div>
+                  ) : (
+                    <TasksKanbanDnd
+                      columns={taskColumns}
+                      getAssigneeLabel={(task) => task?.assignedTo?.displayName || task?.assignedTo?.username || 'Unassigned'}
+                      onCardClick={() => {}}
+                      onDropOnColumn={(task, _fromCol, toCol) =>
+                        onMoveWorkspaceTask?.(task, mapDropColumnToStatus(toCol))
+                      }
+                      renderCardInner={(task, assigneeLabel) => (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className={`text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
+                              {String(task?.departmentName || task?.department || 'General')}
+                            </div>
+                            <span className={`h-2 w-2 rounded-full ${String(task?.status || 'todo') === 'done' ? 'bg-emerald-400' : String(task?.status || 'todo') === 'review' ? 'bg-orange-400' : String(task?.status || 'todo') === 'in_progress' ? 'bg-cyan-400' : 'bg-slate-400'}`} />
+                          </div>
+                          <div className={`text-sm font-semibold leading-snug line-clamp-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                            {task?.title || 'Untitled task'}
+                          </div>
+                          <div className={`text-xs line-clamp-3 ${isDarkMode ? 'text-[#9aa0ae]' : 'text-slate-600'}`}>
+                            {task?.description || ''}
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className={`text-[10px] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`}>
+                              {assigneeLabel}
+                            </div>
+                            <div className={`text-[10px] ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
+                              {task?.dueDate ? new Date(task.dueDate).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN') : ''}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    />
+                  )}
+                </div>
+              ) : (
+              <>
               {loadingMessages && (
                 <div
                   className={`rounded-xl p-4 text-sm ${
@@ -1626,8 +1229,11 @@ const OrganizationMainPanel = ({
                     </Fragment>
                   );
                 })}
+              </>
+              )}
             </div>
 
+            {workspaceTab !== 'tasks' && (
             <div className={workspace.composerBar}>
               <ChatUploadProgressBar
                 percent={channelUploadProgress}
@@ -1792,7 +1398,6 @@ const OrganizationMainPanel = ({
                         </button>
                       </div>
                     </div>
-
                     <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
                       {emojiPickerTab !== 'emoji' ? (
                         <div className="flex h-full items-center justify-center text-sm text-gray-400">
@@ -1822,6 +1427,7 @@ const OrganizationMainPanel = ({
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
       </div>

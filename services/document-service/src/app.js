@@ -2,6 +2,7 @@ const express = require('express');
 const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
 require('dotenv').config();
 const { gatewayUserFromTrustedHeaders } = require('/shared/middleware/gatewayTrust');
+const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
 
 const app = express();
 
@@ -17,8 +18,10 @@ app.get('/health', (req, res) => {
 
 // Document routes
 const documentRoutes = require('./routes/document.routes');
+const internalDocumentRoutes = require('./routes/internal.document.routes');
 app.use('/api/documents', gatewayUserFromTrustedHeaders);
 app.use('/api/documents', documentRoutes);
+app.use('/internal/documents', internalGatewayAuth, internalDocumentRoutes);
 
 module.exports = app;
 

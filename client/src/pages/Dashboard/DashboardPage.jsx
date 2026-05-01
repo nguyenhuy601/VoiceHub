@@ -67,6 +67,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   const [presenceFriends, setPresenceFriends] = useState([]);
   /** Cuộc họp sắp tới (từ GET /api/meetings + startFrom/startTo) */
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
+  const [workspaceEntries, setWorkspaceEntries] = useState([]);
   const { user } = useAuth();
   const { onlineUsers, connected: socketConnected } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
@@ -130,6 +131,10 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           startTime: new Date().toISOString(),
         },
       ]);
+      setWorkspaceEntries([
+        { id: 'demo-org-1', name: 'Alpha Corp', slug: 'alpha-corp', myRole: 'admin' },
+        { id: 'demo-org-2', name: 'BetaLabs', slug: 'betalabs', myRole: 'member' },
+      ]);
       return;
     }
     let cancelled = false;
@@ -142,6 +147,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         } else if (Array.isArray(orgPayload)) {
           orgList = orgPayload;
         }
+        setWorkspaceEntries(
+          orgList.slice(0, 6).map((org) => ({
+            id: org?._id || org?.id,
+            name: org?.name || t('dashboard.orgFallback'),
+            slug: org?.slug || '',
+            myRole: org?.myRole || org?.role || 'member',
+          }))
+        );
         const orgCount = orgList.length;
         const rawOrgId = orgList[0]?._id ?? orgList[0]?.id;
         const firstOrgId = rawOrgId != null ? String(rawOrgId) : null;
@@ -249,6 +262,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         if (!cancelled) {
           setMetrics((m) => ({ ...m, loading: false }));
           setPresenceFriends([]);
+          setWorkspaceEntries([]);
           setUpcomingMeetings([]);
         }
       }
@@ -405,6 +419,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   }, [metrics, t]);
 
   const activities = useMemo(() => {
+    if (!landingDemo) return [];
     const rm = (n) => t('dashboard.relMinutes', { n });
     const rh = (n) => t('dashboard.relHours', { n });
     return [
@@ -489,7 +504,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         detailEntries: [{ label: t('dashboard.lblProject'), value: t('dashboard.demo1vProject') }],
       },
     ];
-  }, [t]);
+  }, [landingDemo, t]);
 
   const filteredActivities =
     activeFilter === 'all'
@@ -503,6 +518,21 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 ? a.type === 'file'
                 : true
         );
+
+  const myOverviewItems = useMemo(
+    () =>
+      workspaceEntries
+        .filter((row) => row?.slug)
+        .map((row) => ({
+          id: String(row.id || row.slug),
+          title: String(row.myRole || 'member').toUpperCase(),
+          detail: t('dashboard.detailTask'),
+          workspaceName: row.name,
+          workspaceSlug: row.slug,
+          route: '/workspaces',
+        })),
+    [workspaceEntries, t]
+  );
 
   const activityTypeLabel = (type) =>
     type === 'task'
@@ -748,113 +778,102 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             ))}
           </div>
 
-          <div id="vh-dashboard-activity">
-          <GlassCard className={`mb-2 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600/90 to-teal-700/85 text-lg text-white shadow-lg">
-                  ⚡
-                </div>
-                <div>
-                  <h2 className={`text-lg font-bold ${textHeading}`}>{t('dashboard.activityRecent')}</h2>
-                  <p className={`mt-0.5 text-sm ${textSub}`}>
-                    <span className={`font-semibold ${accentText}`}>
-                      {t('dashboard.eventsCount', { n: filteredActivities.length })}
-                    </span>
-                    <span className="mx-1.5">·</span>
-                    {t('dashboard.activityFeedNote')}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { id: 'all', label: t('dashboard.filterAll') },
-                  { id: 'tasks', label: t('dashboard.filterTasks') },
-                  { id: 'files', label: t('dashboard.filterFiles') },
-                  { id: 'messages', label: t('dashboard.filterMessages') },
-                ].map((f) => (
+          <div id="vh-dashboard-activity" className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className={`text-base font-bold ${textHeading}`}>Tin nhắn riêng</h2>
                   <button
-                    key={f.id}
                     type="button"
-                    onClick={() => setActiveFilter(f.id)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
-                      activeFilter === f.id
-                        ? isDarkMode
-                          ? 'bg-cyan-600 text-white shadow-[0_0_20px_rgba(8,145,178,0.35)]'
-                          : 'bg-cyan-600 text-white shadow-md'
-                        : isDarkMode
-                          ? 'border border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
-                          : 'border border-slate-200 bg-slate-100 text-slate-600 hover:border-cyan-200 hover:bg-white hover:text-slate-900'
+                    onClick={() => navigate('/chat/friends')}
+                    className={`text-xs font-semibold ${accentText}`}
+                  >
+                    Xem tất cả
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {filteredActivities
+                    .filter((a) => a.type === 'message')
+                    .slice(0, 4)
+                    .map((activity, idx) => (
+                      <button
+                        key={`dm-${idx}`}
+                        type="button"
+                        onClick={() => navigate('/chat/friends')}
+                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                          isDarkMode ? 'border-white/[0.08] bg-[#141416] hover:bg-white/[0.05]' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className={`text-sm font-semibold ${textHeading}`}>{activity.user}</div>
+                        <div className={`mt-0.5 truncate text-xs ${textMuted}`}>{activity.item}</div>
+                      </button>
+                    ))}
+                </div>
+              </GlassCard>
+
+              <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className={`text-base font-bold ${textHeading}`}>Thông báo</h2>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/notifications')}
+                    className={`text-xs font-semibold ${accentText}`}
+                  >
+                    Tất cả
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {filteredActivities.slice(0, 4).map((activity, idx) => (
+                    <button
+                      key={`noti-${idx}`}
+                      type="button"
+                      onClick={() => navigate('/notifications')}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                        isDarkMode ? 'border-white/[0.08] bg-[#141416] hover:bg-white/[0.05]' : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className={`text-sm font-semibold ${textHeading}`}>{activity.user}</div>
+                      <div className={`mt-0.5 truncate text-xs ${textMuted}`}>{activity.action}</div>
+                    </button>
+                  ))}
+                </div>
+              </GlassCard>
+            </div>
+
+            <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className={`text-lg font-bold ${textHeading}`}>Vào workspace</h2>
+                <button
+                  type="button"
+                  onClick={() => navigate('/workspaces', { state: { openCreateWorkspace: true } })}
+                  className={`text-xs font-semibold ${accentText}`}
+                >
+                  + Tạo tổ chức
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {myOverviewItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navigate(`/w/${encodeURIComponent(item.workspaceSlug)}`)}
+                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                      isDarkMode ? 'border-white/[0.08] bg-[#141416] hover:bg-white/[0.05]' : 'border-slate-200 bg-white hover:bg-slate-50'
                     }`}
                   >
-                    {f.label}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className={`text-base font-semibold ${textHeading}`}>{item.workspaceName}</div>
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                        isDarkMode ? 'border-cyan-500/40 text-cyan-300' : 'border-cyan-300 text-cyan-700'
+                      }`}>
+                        {item.title}
+                      </span>
+                    </div>
+                    <div className={`mt-1 text-xs ${textMuted}`}>{item.detail}</div>
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="relative space-y-0">
-              <div
-                className={`absolute bottom-0 left-[19px] top-2 w-px bg-gradient-to-b to-transparent ${isDarkMode ? 'from-cyan-500/50 via-white/10' : 'from-cyan-500/40 via-slate-200'}`}
-                aria-hidden
-              />
-              {filteredActivities.map((activity, idx) => (
-                <div
-                  key={idx}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setShowActivityDetail(activity)}
-                  onKeyDown={(e) => e.key === 'Enter' && setShowActivityDetail(activity)}
-                  className={`group relative flex gap-4 border-b py-4 pl-1 pr-2 transition-colors last:border-0 ${isDarkMode ? 'border-white/[0.04] hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'}`}
-                >
-                  <div className="relative z-10 flex shrink-0 flex-col items-center pt-0.5">
-                    <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br ${activity.color} ring-4 ${isDarkMode ? 'ring-[#1A1A1C]' : 'ring-white'}`}
-                    />
-                    <div
-                      className={`mt-2 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br ${activity.color} text-xs font-bold text-white shadow-md`}
-                    >
-                      {initialsFromName(activity.user)}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-[#e5e7eb]' : 'text-slate-700'}`}>
-                      <span className={`font-semibold ${textHeading}`}>{activity.user}</span>{' '}
-                      <span className={textMuted}>{activity.action}</span>{' '}
-                      <span className={`font-semibold ${accentText}`}>{activity.item}</span>
-                    </p>
-                    {activity.detailEntries?.[0] && (
-                      <p className={`mt-1 text-xs ${textSub}`}>{activity.detailEntries[0].value}</p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
-                        isDarkMode
-                          ? 'border-white/10 bg-white/[0.04] text-[#d1d5db]'
-                          : 'border-slate-300 bg-slate-200/90 text-slate-800'
-                      }`}
-                    >
-                      {activityTypeLabel(activity.type)}
-                    </span>
-                    <span
-                      className={`text-xs tabular-nums ${isDarkMode ? 'text-[#9ca3af]' : 'text-slate-600'}`}
-                    >
-                      {activity.time}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => navigate('/notifications')}
-              className={`mt-2 w-full rounded-xl border py-2.5 text-sm transition ${isDarkMode ? 'border-white/[0.06] bg-[#141416] text-[#9ca3af] hover:border-white/10 hover:bg-white/[0.04] hover:text-white' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-200 hover:bg-white hover:text-slate-900'}`}
-            >
-              {t('dashboard.viewAll')}
-            </button>
-          </GlassCard>
+            </GlassCard>
           </div>
           </main>
 
@@ -867,14 +886,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 ch: t('dashboard.channelChat'),
                 badge: t('dashboard.badgeNew'),
                 badgeTone: 'cyan',
-                path: '/chat/organization',
+                path: '/workspaces',
               },
-              { ch: t('dashboard.channelDesign'), badge: null, badgeTone: null, path: '/chat' },
+              { ch: t('dashboard.channelDesign'), badge: null, badgeTone: null, path: '/chat/friends' },
               {
                 ch: t('dashboard.channelGeneral'),
                 badge: t('dashboard.badgeTwo'),
                 badgeTone: 'sky',
-                path: '/organizations',
+                path: '/workspaces',
               },
             ].map((row, i) => {
               const badgeCls =
