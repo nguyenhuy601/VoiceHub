@@ -89,6 +89,18 @@ const organizationSchema = new mongoose.Schema(
         default: () => ({}),
       },
     },
+    provisioning: {
+      structure: {
+        status: {
+          type: String,
+          enum: ['pending', 'running', 'ready', 'failed'],
+          default: 'ready',
+        },
+        startedAt: { type: Date, default: null },
+        completedAt: { type: Date, default: null },
+        error: { type: String, default: '' },
+      },
+    },
     isActive: {
       type: Boolean,
       default: true,

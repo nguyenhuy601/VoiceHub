@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import toast from 'react-hot-toast';
 import { Bell, Calendar, MoreHorizontal, Phone, Video } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import UnifiedChatComposer from '../../components/Chat/UnifiedChatComposer';
 import { ChatMessageAttachmentBody } from '../../components/Chat/ChatFileAttachment';
@@ -54,6 +55,8 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -90,6 +93,12 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [inlineToast, setInlineToast] = useState(null);
   const { user } = useAuth();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
+  const routedDmUserId = location.state?.openDmUserId
+    ? String(location.state.openDmUserId)
+    : '';
+  const routedComposeText = location.state?.composeText
+    ? String(location.state.composeText)
+    : '';
 
   const formatDateDividerLabel = useCallback(
     (iso) => {
@@ -388,6 +397,32 @@ function FriendChatPage({ landingDemo = false } = {}) {
   useEffect(() => {
     loadFriends();
   }, [loadFriends]);
+
+  useEffect(() => {
+    if (!routedDmUserId) return;
+    const pickFriendId = () => {
+      for (const f of friends) {
+        const u = f.friendId || f;
+        const candidates = [u?._id, u?.userId, u?.id, f?.userId, f?.id].filter(Boolean).map(String);
+        if (candidates.includes(routedDmUserId)) {
+          return String(u?._id || u?.userId || u?.id || f?.userId || f?.id);
+        }
+      }
+      return null;
+    };
+
+    const matched = pickFriendId();
+    if (matched) {
+      setSelectedFriendId(matched);
+      if (routedComposeText) setMessage(routedComposeText);
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    if (!friendsLoading) {
+      toast.error('Không tìm thấy người bạn này trong danh sách bạn bè');
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [friends, friendsLoading, location.pathname, navigate, routedComposeText, routedDmUserId]);
 
   useEffect(() => {
     if (landingDemo) return;

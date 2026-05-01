@@ -5,9 +5,12 @@ const Membership = require('../models/Membership');
 const JoinApplication = require('../models/JoinApplication');
 const Channel = require('../models/Channel');
 const Department = require('../models/Department');
+const Branch = require('../models/Branch');
+const Division = require('../models/Division');
 const Team = require('../models/Team');
 const Server = require('../models/Server');
 const Organization = require('../models/Organization');
+const ChannelAccess = require('../models/ChannelAccess');
 
 const GATEWAY_INTERNAL_TOKEN = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
 const CHAT_INTERNAL_TOKEN = String(process.env.CHAT_INTERNAL_TOKEN || '').trim();
@@ -152,8 +155,11 @@ async function purgeLocalOrganizationRecords(organizationId) {
   await Team.deleteMany({ organization: oid });
   await Channel.deleteMany({ organization: oid });
   await Department.deleteMany({ organization: oid });
+  await Division.deleteMany({ organization: oid });
+  await Branch.deleteMany({ organization: oid });
   await Server.deleteMany({ organizationId: oid });
   await JoinApplication.deleteMany({ organization: oid });
+  await ChannelAccess.deleteMany({ organization: oid });
   await Membership.deleteMany({ organization: oid });
 
   const redis = getRedisClient();

@@ -30,11 +30,11 @@ export default function JoinApplicationPage() {
 
   const handleSubmitted = () => {
     toast.success(t('joinApplication.toastSent'));
-    navigate('/workspaces', { replace: true, state: { refreshPendingJoin: true } });
+    navigate('/dashboard', { replace: true });
   };
 
   const handleCancel = () => {
-    navigate('/workspaces');
+    navigate('/dashboard');
   };
 
   if (!orgId) {

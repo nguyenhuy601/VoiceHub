@@ -845,7 +845,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 <h2 className={`text-lg font-bold ${textHeading}`}>Vào workspace</h2>
                 <button
                   type="button"
-                  onClick={() => navigate('/workspaces')}
+                  onClick={() => navigate('/workspaces', { state: { openCreateWorkspace: true } })}
                   className={`text-xs font-semibold ${accentText}`}
                 >
                   + Tạo tổ chức

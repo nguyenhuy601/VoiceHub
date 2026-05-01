@@ -329,9 +329,7 @@ function OrganizationSettingsPanel({
       toast.success('Đã xóa tổ chức');
       setDeleteOrgModalOpen(false);
       setDeleteOrgNameInput('');
-      onOrganizationUpdated?.();
       onOrganizationDeleted?.(orgId);
-      onBack();
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
@@ -834,7 +832,7 @@ function OrganizationSettingsPanel({
                   Home) để xem và duyệt thống nhất từ mọi tổ chức bạn quản trị.
                 </p>
                 <Link
-                  to="/workspaces"
+                  to={organization?.slug ? `/w/${encodeURIComponent(organization.slug)}` : '/dashboard'}
                   className="mt-3 inline-block text-sm font-medium text-cyan-400 hover:text-cyan-300 hover:underline"
                 >
                   Mở Trang chủ tổ chức →

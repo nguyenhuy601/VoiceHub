@@ -494,7 +494,7 @@ function OrganizationMemberSidebar({
             onClick={() => {
               closeMenu();
               if (organizationId) {
-                navigate(`/workspaces/${encodeURIComponent(organizationId)}/settings?tab=roles`);
+                navigate(`/workspaces/${encodeURIComponent(organizationId)}/settings`);
               }
             }}
           >

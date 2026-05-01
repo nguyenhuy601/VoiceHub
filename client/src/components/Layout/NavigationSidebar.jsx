@@ -61,8 +61,8 @@ const PUBLIC_NAV_DEF = [
 ];
 
 const ORG_NAV_DEF = [
+  { key: 'dashboard', Icon: Home, path: '/dashboard' },
   { key: 'org', Icon: Building2, path: '/workspaces', isWorkspaceEntry: true },
-  { key: 'friends', Icon: MessageSquare, path: '/chat/friends' },
   { key: 'tasks', Icon: ListTodo, path: '/tasks' },
   { key: 'documents', Icon: FileText, path: '/documents' },
   { key: 'notifications', path: '/notifications', bellBadge: true },
@@ -73,7 +73,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
-  const { getLastWorkspacePath } = useWorkspace();
+  const { activeWorkspace, getLastWorkspacePath, lastWorkspaceSlug } = useWorkspace();
   const { locale } = useLocale();
   const { t, dict } = useAppStrings();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -84,6 +84,9 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const [bellBadgeCount, setBellBadgeCount] = useState(0);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [myOrganizations, setMyOrganizations] = useState([]);
+  const [createOrgMenuOpen, setCreateOrgMenuOpen] = useState(false);
+  const [joinByLinkOpen, setJoinByLinkOpen] = useState(false);
+  const [joinLinkInput, setJoinLinkInput] = useState('');
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -131,14 +134,15 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   }, [landingDemo]);
 
   useEffect(() => {
-    if (profileOpen) setSidebarExpanded(true);
-  }, [profileOpen]);
+    if (profileOpen || createOrgMenuOpen || joinByLinkOpen) setSidebarExpanded(true);
+  }, [profileOpen, createOrgMenuOpen, joinByLinkOpen]);
 
   useEffect(() => {
-    if (!sidebarExpanded && profileOpen) {
-      setProfileOpen(false);
-    }
-  }, [sidebarExpanded, profileOpen]);
+    if (sidebarExpanded) return;
+    if (profileOpen) setProfileOpen(false);
+    if (createOrgMenuOpen) setCreateOrgMenuOpen(false);
+    if (joinByLinkOpen) setJoinByLinkOpen(false);
+  }, [sidebarExpanded, profileOpen, createOrgMenuOpen, joinByLinkOpen]);
 
   useEffect(() => {
     if (landingDemo) {
@@ -173,7 +177,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
-  const inOrganizationContext = location.pathname.startsWith('/w/');
+  const hasWorkspaceContext = Boolean(activeWorkspace?.slug || String(lastWorkspaceSlug || '').trim());
+  const inOrganizationContext = location.pathname.startsWith('/w/') || (
+    hasWorkspaceContext && (location.pathname.startsWith('/documents') || location.pathname.startsWith('/notifications'))
+  );
   const navItems = useMemo(() => {
     const base = inOrganizationContext
       ? ORG_NAV_DEF
@@ -184,9 +191,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       const label = copy.label || fallbackLabel;
       const tooltip = copy.tooltip || label;
       if (def.bellBadge) {
-        return { path: def.path, tooltip, bellBadge: true, label, isWorkspaceEntry: false };
+        return { key: def.key, path: def.path, tooltip, bellBadge: true, label, isWorkspaceEntry: false };
       }
       return {
+        key: def.key,
         Icon: def.Icon,
         path: def.path,
         label,
@@ -252,6 +260,53 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     setProfileOpen(false);
   };
 
+  const extractInvitePayloadFromInput = (raw) => {
+    if (!raw) return { orgId: '', token: '' };
+    const input = raw.trim();
+    if (!input) return { orgId: '', token: '' };
+
+    try {
+      const url = new URL(input);
+      return {
+        orgId: url.searchParams.get('orgId') || url.searchParams.get('inviteOrgId') || '',
+        token: url.searchParams.get('inviteToken') || '',
+      };
+    } catch {
+      const tokenRaw = (input.includes('inviteToken=') && input.split('inviteToken=')[1]?.split('&')[0]) || '';
+      const token = tokenRaw ? decodeURIComponent(tokenRaw) : '';
+      const orgIdRaw = (input.includes('orgId=') && input.split('orgId=')[1]?.split('&')[0]) ||
+        (input.includes('inviteOrgId=') && input.split('inviteOrgId=')[1]?.split('&')[0]) || '';
+      const orgId = orgIdRaw ? decodeURIComponent(orgIdRaw) : '';
+      return { orgId, token };
+    }
+  };
+
+  const handleOpenCreateWorkspace = () => {
+    setCreateOrgMenuOpen(false);
+    setJoinByLinkOpen(false);
+    navigate('/workspaces', { state: { openCreateWorkspace: true } });
+  };
+
+  const handleOpenJoinByLink = () => {
+    setCreateOrgMenuOpen(false);
+    setJoinByLinkOpen(true);
+  };
+
+  const handleJoinByLinkSubmit = () => {
+    const { orgId, token } = extractInvitePayloadFromInput(joinLinkInput);
+    if (!orgId || !token) {
+      toast.error('Link mời không hợp lệ');
+      return;
+    }
+    const params = new URLSearchParams({
+      inviteOrgId: orgId,
+      inviteToken: token,
+    });
+    setJoinByLinkOpen(false);
+    setJoinLinkInput('');
+    navigate(`/workspaces?${params.toString()}`);
+  };
+
   const isActivePath = (path) => {
     if (path === '/workspaces') {
       return location.pathname.startsWith('/workspaces') || location.pathname.startsWith('/w/');
@@ -260,10 +315,35 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     return location.pathname.startsWith(path);
   };
 
+  const workspaceTab = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = String(params.get('tab') || '').trim().toLowerCase();
+    return tab;
+  }, [location.search]);
+
+  const getOrgNavTargetPath = (item) => {
+    const workspacePath = getLastWorkspacePath();
+    if (!inOrganizationContext) return item.path;
+    if (item.key === 'org') return workspacePath;
+    if (item.key === 'tasks') return `${workspacePath}?tab=tasks`;
+    return item.path;
+  };
+
+  const isNavItemActive = (item) => {
+    if (inOrganizationContext && item.key === 'org') {
+      return location.pathname.startsWith('/w/') && workspaceTab !== 'tasks';
+    }
+    if (inOrganizationContext && item.key === 'tasks') {
+      return location.pathname.startsWith('/w/') && workspaceTab === 'tasks';
+    }
+    return isActivePath(item.path);
+  };
+
   const [tooltip, setTooltip] = useState({ show: false, label: '', x: 0, y: 0 });
 
   const Tooltip = ({ label, children, className = '' }) => {
     const handleEnter = (e) => {
+      if (createOrgMenuOpen || joinByLinkOpen) return;
       const rect = e.currentTarget.getBoundingClientRect();
       setTooltip({
         show: true,
@@ -283,6 +363,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
       </div>
     );
   };
+
+  useEffect(() => {
+    if (!createOrgMenuOpen && !joinByLinkOpen) return;
+    setTooltip((prev) => (prev.show ? { ...prev, show: false } : prev));
+  }, [createOrgMenuOpen, joinByLinkOpen]);
 
   const tooltipArrowClass = isDarkMode
     ? 'border-transparent border-r-[8px] border-r-slate-800 border-y-[6px] border-y-transparent border-l-0'
@@ -312,6 +397,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const activeCls = navItemActive();
   const timeCls = navTimeText(isDarkMode);
   const divCls = navDivider(isDarkMode);
+  const createOrgShortLabelRaw = t('organizations.createOrgShort');
+  const createOrgShortLabel = String(createOrgShortLabelRaw || '').includes('.')
+    ? 'Tạo tổ chức'
+    : createOrgShortLabelRaw;
 
   return (
     <>
@@ -321,7 +410,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         }`}
         onMouseEnter={() => setSidebarExpanded(true)}
         onMouseLeave={() => {
-          if (!profileOpen) setSidebarExpanded(false);
+          if (!profileOpen && !createOrgMenuOpen && !joinByLinkOpen) setSidebarExpanded(false);
         }}
         title={sidebarExpanded ? undefined : t('nav.railHint')}
       >
@@ -341,11 +430,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
             <nav className="flex w-full flex-col items-center gap-1 py-1">
               {navItems.map((item, idx) => {
                 if (item.bellBadge) {
-                  const active = isActivePath(item.path);
+                  const active = isNavItemActive(item);
                   return (
                     <Tooltip key={idx} label={item.tooltip}>
                       <Link
-                        to={item.path}
+                        to={getOrgNavTargetPath(item)}
                         className={`relative flex shrink-0 items-center justify-center rounded-xl transition-all duration-200 ${
                           active ? 'ring-2 ring-cyan-500/75 ring-offset-2 ring-offset-transparent' : ''
                         }`}
@@ -362,8 +451,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                   );
                 }
                 const Icon = item.Icon;
-                const active = isActivePath(item.path);
-                const targetPath = item.isWorkspaceEntry ? getLastWorkspacePath() : item.path;
+                const active = isNavItemActive(item);
+                const targetPath = item.isWorkspaceEntry
+                  ? getLastWorkspacePath()
+                  : getOrgNavTargetPath(item);
                 return (
                   <Tooltip key={idx} label={item.tooltip ?? item.label}>
                     <Link
@@ -380,66 +471,68 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
               })}
             </nav>
 
-            {myOrganizations.length > 0 && (
-              <>
-                <div className={`my-1 h-px w-8 ${divCls}`} />
-                <div className="flex w-full flex-col items-center gap-1.5">
-                  {myOrganizations.map((org) => {
-                    const orgPath = org?.slug
-                      ? `/w/${encodeURIComponent(org.slug)}`
-                      : '/workspaces';
-                    const active =
-                      (org?.slug && location.pathname.startsWith(`/w/${encodeURIComponent(org.slug)}`)) ||
-                      (location.pathname === '/workspaces' && !org?.slug);
-                    return (
-                      <Tooltip key={String(org?._id || org?.slug || org?.name)} label={org?.name || 'Workspace'}>
-                        <Link
-                          to={orgPath}
-                          className={`${orgAvatarBtn} ${
-                            active
-                              ? isDarkMode
-                                ? 'border-cyan-400/80 bg-cyan-500/20 text-white shadow-[0_0_16px_rgba(34,211,238,0.28)]'
-                                : 'border-cyan-400 bg-cyan-100 text-slate-900 shadow-sm'
-                              : isDarkMode
-                                ? 'border-white/15 bg-white/5 text-slate-200 hover:border-white/30 hover:bg-white/10'
-                                : 'border-slate-300 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'
-                          }`}
-                          aria-label={org?.name || 'Workspace'}
-                        >
-                          {active && (
-                            <span className="absolute -left-2 h-5 w-1 rounded-r-full bg-cyan-400" aria-hidden />
-                          )}
-                          <span>
-                            {(org?.name || 'W').slice(0, 2)}
-                          </span>
-                          {Number(org?.onlineMembers || 0) > 0 && (
-                            <span
-                              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 ${
-                                isDarkMode ? 'border-[#10131b] bg-emerald-400' : 'border-white bg-emerald-500'
-                              }`}
-                              aria-hidden
-                            />
-                          )}
-                        </Link>
-                      </Tooltip>
-                    );
-                  })}
-                  <Tooltip label={t('organizations.createOrgShort')}>
-                    <Link
-                      to="/workspaces"
-                      className={`${orgAvatarBtn} ${
-                        isDarkMode
-                          ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
-                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      }`}
-                      aria-label={t('organizations.createOrgShort')}
-                    >
-                      <span className="text-xl leading-none">+</span>
-                    </Link>
-                  </Tooltip>
-                </div>
-              </>
-            )}
+            <>
+              <div className={`my-1 h-px w-8 ${divCls}`} />
+              <div className="flex w-full flex-col items-center gap-1.5">
+                {myOrganizations.map((org) => {
+                  const orgPath = org?.slug
+                    ? `/w/${encodeURIComponent(org.slug)}`
+                    : '/workspaces';
+                  const active =
+                    (org?.slug && location.pathname.startsWith(`/w/${encodeURIComponent(org.slug)}`)) ||
+                    (location.pathname === '/workspaces' && !org?.slug);
+                  return (
+                    <Tooltip key={String(org?._id || org?.slug || org?.name)} label={org?.name || 'Workspace'}>
+                      <Link
+                        to={orgPath}
+                        className={`${orgAvatarBtn} ${
+                          active
+                            ? isDarkMode
+                              ? 'border-cyan-400/80 bg-cyan-500/20 text-white shadow-[0_0_16px_rgba(34,211,238,0.28)]'
+                              : 'border-cyan-400 bg-cyan-100 text-slate-900 shadow-sm'
+                            : isDarkMode
+                              ? 'border-white/15 bg-white/5 text-slate-200 hover:border-white/30 hover:bg-white/10'
+                              : 'border-slate-300 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'
+                        }`}
+                        aria-label={org?.name || 'Workspace'}
+                      >
+                        {active && (
+                          <span className="absolute -left-2 h-5 w-1 rounded-r-full bg-cyan-400" aria-hidden />
+                        )}
+                        <span>
+                          {(org?.name || 'W').slice(0, 2)}
+                        </span>
+                        {Number(org?.onlineMembers || 0) > 0 && (
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 ${
+                              isDarkMode ? 'border-[#10131b] bg-emerald-400' : 'border-white bg-emerald-500'
+                            }`}
+                            aria-hidden
+                          />
+                        )}
+                      </Link>
+                    </Tooltip>
+                  );
+                })}
+                <Tooltip label={createOrgShortLabel}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJoinByLinkOpen(false);
+                      setCreateOrgMenuOpen(true);
+                    }}
+                    className={`${orgAvatarBtn} ${
+                      isDarkMode
+                        ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                        : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    }`}
+                    aria-label={createOrgShortLabel}
+                  >
+                    <span className="text-xl leading-none">+</span>
+                  </button>
+                </Tooltip>
+              </div>
+            </>
 
             <Tooltip label={isDarkMode ? t('nav.themeLight') : t('nav.themeDark')}>
               <button
@@ -472,6 +565,97 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
 
       <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
       {tooltipPortal}
+      {createOrgMenuOpen &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[998]" onClick={() => setCreateOrgMenuOpen(false)} />
+            <div
+              className={`fixed left-20 top-1/2 z-[999] w-[280px] -translate-y-1/2 rounded-2xl border p-4 shadow-xl ${
+                isDarkMode
+                  ? 'border-white/10 bg-[#111622] text-slate-100'
+                  : 'border-slate-200 bg-white text-slate-900'
+              }`}
+            >
+              <div className="mb-3 text-sm font-bold">Thêm tổ chức</div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleOpenCreateWorkspace}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${
+                    isDarkMode
+                      ? 'bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30'
+                      : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'
+                  }`}
+                >
+                  Tạo tổ chức
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenJoinByLink}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    isDarkMode
+                      ? 'bg-white/5 text-slate-200 hover:bg-white/10'
+                      : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                  }`}
+                >
+                  Tham gia bằng link
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
+      {joinByLinkOpen &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[998]" onClick={() => setJoinByLinkOpen(false)} />
+            <div
+              className={`fixed left-1/2 top-1/2 z-[999] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border p-4 shadow-xl ${
+                isDarkMode
+                  ? 'border-white/10 bg-[#111622] text-slate-100'
+                  : 'border-slate-200 bg-white text-slate-900'
+              }`}
+            >
+              <div className="mb-1 text-base font-bold">Tham gia tổ chức</div>
+              <div className={`mb-3 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Dán link mời có `inviteToken` để tham gia nhanh.
+              </div>
+              <input
+                value={joinLinkInput}
+                onChange={(event) => setJoinLinkInput(event.target.value)}
+                placeholder="Dán link mời (inviteToken)"
+                className={`w-full rounded-lg border px-3 py-2 text-sm outline-none ${
+                  isDarkMode
+                    ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-400 focus:border-cyan-400/60'
+                    : 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500'
+                }`}
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJoinByLinkOpen(false)}
+                  className={`rounded-lg px-3 py-2 text-sm transition ${
+                    isDarkMode ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                  }`}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleJoinByLinkSubmit}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    isDarkMode
+                      ? 'bg-cyan-500/25 text-cyan-100 hover:bg-cyan-500/35'
+                      : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'
+                  }`}
+                >
+                  Tham gia
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
 
       {profileOpen &&
         createPortal(

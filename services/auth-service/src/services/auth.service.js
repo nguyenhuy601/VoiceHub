@@ -8,6 +8,18 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const axios = require('axios');
 
+async function ensureMongoReady(scope = 'AUTH') {
+  const readyState = mongoose.connection.readyState;
+  console.log(
+    `[AuthService] [${scope}] MongoDB readyState:`,
+    readyState,
+    '(1=connected, 2=connecting, 0=disconnected)'
+  );
+  if (readyState === 1) return;
+  // Không reconnect trong request để tránh reset connection pool cạnh tranh với background reconnect.
+  throw new Error('Database temporarily unavailable. Please retry.');
+}
+
 class AuthService {
   // Đăng ký user mới
   async register(userData) {
@@ -28,46 +40,8 @@ class AuthService {
         throw new Error(dobCheck.message);
       }
 
-      // Kiểm tra MongoDB connection trước khi query
-      const readyState = mongoose.connection.readyState;
-      console.log('[AuthService] MongoDB readyState:', readyState, '(1=connected, 2=connecting, 0=disconnected)');
-      console.log('[AuthService] MongoDB host:', mongoose.connection.host);
-      console.log('[AuthService] MongoDB name:', mongoose.connection.name);
-      
-      // Nếu không connected, thử reconnect hoặc ping
-      if (readyState !== 1) {
-        console.warn('[AuthService] ⚠️ MongoDB readyState is not 1, attempting to reconnect...');
-        
-        // Nếu disconnected, thử reconnect
-        if (readyState === 0) {
-          console.warn('[AuthService] ⚠️ MongoDB disconnected, attempting to reconnect...');
-          try {
-            // Thử reconnect với mongoose
-            if (!mongoose.connection.readyState) {
-              await mongoose.connect(process.env.MONGODB_URI, {
-                serverSelectionTimeoutMS: 10000,
-              });
-              console.log('[AuthService] ✅ Reconnected to MongoDB');
-            }
-          } catch (reconnectError) {
-            console.error('[AuthService] ❌ Reconnection failed:', reconnectError.message);
-            throw new Error('Database connection lost and reconnection failed. Please try again.');
-          }
-        }
-        
-        // Verify với ping (nếu có connection object)
-        if (mongoose.connection.db) {
-          try {
-            await mongoose.connection.db.admin().ping();
-            console.log('[AuthService] ✅ MongoDB ping successful, connection is ready');
-          } catch (pingError) {
-            console.error('[AuthService] ❌ MongoDB ping failed:', pingError.message);
-            throw new Error('Database connection not ready. Please try again.');
-          }
-        } else {
-          throw new Error('Database connection object not available. Please try again.');
-        }
-      }
+      // Kiểm tra trạng thái kết nối theo fail-fast, không reconnect trong request.
+      await ensureMongoReady('REGISTER');
 
       // Kiểm tra email đã tồn tại chưa
       console.log('[AuthService] Checking if email exists:', email);
@@ -199,42 +173,8 @@ class AuthService {
   // Đăng nhập
   async login(email, password) {
     try {
-      // Kiểm tra MongoDB connection trước khi query (tránh lỗi buffering timeout)
-      const readyState = mongoose.connection.readyState;
-      console.log('[AuthService] [LOGIN] MongoDB readyState:', readyState, '(1=connected, 2=connecting, 0=disconnected)');
-      console.log('[AuthService] [LOGIN] MongoDB host:', mongoose.connection.host);
-      console.log('[AuthService] [LOGIN] MongoDB name:', mongoose.connection.name);
-
-      if (readyState !== 1) {
-        console.warn('[AuthService] [LOGIN] ⚠️ MongoDB readyState is not 1, attempting to reconnect...');
-
-        if (readyState === 0) {
-          console.warn('[AuthService] [LOGIN] ⚠️ MongoDB disconnected, attempting to reconnect...');
-          try {
-            if (!mongoose.connection.readyState) {
-              await mongoose.connect(process.env.MONGODB_URI, {
-                serverSelectionTimeoutMS: 10000,
-              });
-              console.log('[AuthService] [LOGIN] ✅ Reconnected to MongoDB');
-            }
-          } catch (reconnectError) {
-            console.error('[AuthService] [LOGIN] ❌ Reconnection failed:', reconnectError.message);
-            throw new Error('Database connection lost and reconnection failed. Please try again.');
-          }
-        }
-
-        if (mongoose.connection.db) {
-          try {
-            await mongoose.connection.db.admin().ping();
-            console.log('[AuthService] [LOGIN] ✅ MongoDB ping successful, connection is ready');
-          } catch (pingError) {
-            console.error('[AuthService] [LOGIN] ❌ MongoDB ping failed:', pingError.message);
-            throw new Error('Database connection not ready. Please try again.');
-          }
-        } else {
-          throw new Error('Database connection object not available. Please try again.');
-        }
-      }
+      // Kiểm tra trạng thái kết nối theo fail-fast, không reconnect trong request.
+      await ensureMongoReady('LOGIN');
 
       const userAuth = await UserAuth.findOne({ email })
         .maxTimeMS(15000)
@@ -342,38 +282,8 @@ class AuthService {
   // Đăng xuất
   async logout(userId) {
     try {
-      // Kiểm tra MongoDB connection trước khi query (tránh buffering timeout)
-      const readyState = mongoose.connection.readyState;
-      console.log('[AuthService] [LOGOUT] MongoDB readyState:', readyState, '(1=connected, 2=connecting, 0=disconnected)');
-
-      if (readyState !== 1) {
-        console.warn('[AuthService] [LOGOUT] ⚠️ MongoDB readyState is not 1, attempting to reconnect...');
-
-        if (readyState === 0) {
-          console.warn('[AuthService] [LOGOUT] ⚠️ MongoDB disconnected, attempting to reconnect...');
-          try {
-            if (!mongoose.connection.readyState) {
-              await mongoose.connect(process.env.MONGODB_URI, {
-                serverSelectionTimeoutMS: 10000,
-              });
-              console.log('[AuthService] [LOGOUT] ✅ Reconnected to MongoDB');
-            }
-          } catch (reconnectError) {
-            console.error('[AuthService] [LOGOUT] ❌ Reconnection failed:', reconnectError.message);
-            throw new Error('Database connection lost and reconnection failed. Please try again.');
-          }
-        }
-
-        if (mongoose.connection.db) {
-          try {
-            await mongoose.connection.db.admin().ping();
-            console.log('[AuthService] [LOGOUT] ✅ MongoDB ping successful, connection is ready');
-          } catch (pingError) {
-            console.error('[AuthService] [LOGOUT] ❌ MongoDB ping failed:', pingError.message);
-            throw new Error('Database is currently unavailable. Please try again later.');
-          }
-        }
-      }
+      // Kiểm tra trạng thái kết nối theo fail-fast, không reconnect trong request.
+      await ensureMongoReady('LOGOUT');
 
       const userAuth = await UserAuth.findOne({ userId }).maxTimeMS(5000);
       if (userAuth) {

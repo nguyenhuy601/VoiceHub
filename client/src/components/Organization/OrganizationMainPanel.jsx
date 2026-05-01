@@ -38,13 +38,20 @@ function senderInitials(message) {
 }
 
 const OrganizationMainPanel = ({
+  workspaceTabView = 'chat',
   selectedOrganization,
-  hasOrganizations = true,
-  /** false: chưa biết user có tổ chức hay không — không hiển thị màn empty/home để tránh nháy UI */
-  organizationsLoaded = false,
   departments = [],
   selectedDepartment,
+  branches = [],
+  selectedBranchId = '',
+  selectedDivisionId = '',
+  onSelectBranch,
+  onSelectDivision,
   channels = [],
+  channelPermissionMatrix = {},
+  membershipScope = null,
+  teams = [],
+  selectedTeamId = '',
   selectedChannelId,
   messages = [],
   messageInput = '',
@@ -55,15 +62,7 @@ const OrganizationMainPanel = ({
   currentUserId,
   onSelectChannel,
   onSelectDepartment,
-  onCreateOrganization,
-  onJoinQuickInvite,
-  quickInviteInput = '',
-  onChangeQuickInviteInput,
-  joiningQuickInvite = false,
-  invitations = [],
-  loadingInvitations = false,
-  respondingInvitationIds = [],
-  onRespondInvitation,
+  onSelectTeam,
   onOpenNotificationsPage,
   onCreateDepartment,
   onCreateChannel,
@@ -89,6 +88,8 @@ const OrganizationMainPanel = ({
   loadingWorkspaceTasks = false,
   onMoveWorkspaceTask,
   onOpenOrganizationSettings,
+  onInviteOrganization,
+  canInviteMembers = false,
   onWorkspaceTabChange,
 }) => {
   const { locale } = useLocale();
@@ -139,23 +140,50 @@ const OrganizationMainPanel = ({
   const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
   /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
-  const [workspaceTab, setWorkspaceTab] = useState('chat');
+  const [workspaceTab, setWorkspaceTab] = useState(workspaceTabView === 'tasks' ? 'tasks' : 'chat');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [taskDepartmentFilter, setTaskDepartmentFilter] = useState('all');
   const [sidebarOpen, setSidebarOpen] = useState({
     departments: true,
+    teams: true,
     textChannels: true,
     voiceChannels: true,
-    workspace: true,
   });
+
+  const openWorkspaceChat = () => {
+    setWorkspaceTab('chat');
+    onWorkspaceTabChange?.('chat');
+  };
 
   useEffect(() => {
     onWorkspaceTabChange?.(workspaceTab);
   }, [workspaceTab, onWorkspaceTabChange]);
 
-  const chatChannels = channels.filter((channel) => channel.type !== 'voice');
-  const voiceChannels = channels.filter((channel) => channel.type === 'voice');
-  const selectedChannel = channels.find((channel) => channel._id === selectedChannelId) || null;
+  useEffect(() => {
+    const nextTab = workspaceTabView === 'tasks' ? 'tasks' : 'chat';
+    setWorkspaceTab((prev) => (prev === nextTab ? prev : nextTab));
+  }, [workspaceTabView]);
+
+  const scopedChannels = selectedTeamId
+    ? channels.filter((channel) => String(channel.team || '') === String(selectedTeamId))
+    : channels;
+  const chatChannels = scopedChannels.filter((channel) => channel.type !== 'voice');
+  const voiceChannels = scopedChannels.filter((channel) => channel.type === 'voice');
+  const selectedChannel = scopedChannels.find((channel) => channel._id === selectedChannelId) || null;
+  const selectedTeam = teams.find((team) => String(team._id) === String(selectedTeamId)) || null;
+  const getChannelPerm = (channelId) => {
+    const row = channelPermissionMatrix?.[String(channelId)] || null;
+    return {
+      canRead: Boolean(row?.canRead),
+      canWrite: Boolean(row?.canWrite),
+      canVoice: Boolean(row?.canVoice),
+    };
+  };
+  const canTeamReadAnyChannel = (teamId) =>
+    channels.some(
+      (channel) =>
+        String(channel.team || '') === String(teamId) && getChannelPerm(channel._id).canRead
+    );
 
   const sortedWorkspaceMessages = useMemo(() => {
     return [...messages].sort((a, b) => {
@@ -409,271 +437,15 @@ const OrganizationMainPanel = ({
     setEmojiSearch('');
   };
 
-  const homeUi = useMemo(
-    () => ({
-      joinOuter: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-gradient-to-br from-[#1a1528]/90 to-[#111422]/80 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-4'
-        : 'rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm',
-      inviteOuter: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-gradient-to-br from-[#181b2a]/80 to-[#111422]/80 shadow-[0_8px_30px_rgba(0,0,0,0.25)]'
-        : 'rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 shadow-sm',
-      widgetCard: isDarkMode
-        ? 'rounded-2xl border border-white/10 bg-white/[0.03] p-4'
-        : 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm',
-      widgetTitle: isDarkMode ? 'truncate text-sm font-semibold text-white' : 'truncate text-sm font-semibold text-slate-900',
-      widgetSub: isDarkMode ? 'mt-1 text-xs text-gray-400' : 'mt-1 text-xs text-slate-600',
-      widgetMeta: isDarkMode
-        ? 'rounded-full border border-white/15 px-2 py-0.5 text-xs text-gray-300'
-        : 'rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700',
-      widgetToggle: isDarkMode
-        ? 'rounded-md border border-white/15 px-2 py-1 text-xs text-gray-200 transition hover:bg-white/10'
-        : 'rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50',
-      widgetViewAll: isDarkMode
-        ? 'rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/20'
-        : 'rounded-lg border border-cyan-600/35 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-900 transition hover:bg-cyan-100',
-      homeShell: isDarkMode
-        ? 'min-h-0 flex-1 rounded-2xl border border-white/10 bg-black/15 p-5'
-        : 'min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm',
-      homeHead: isDarkMode ? 'mb-4 flex items-start justify-between gap-3 border-b border-white/10 pb-4' : 'mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-4',
-      homeTitle: isDarkMode ? 'text-xl font-semibold text-white' : 'text-xl font-semibold text-slate-900',
-      homeSub: isDarkMode ? 'text-sm text-gray-400' : 'text-sm text-slate-600',
-      homeBadgeBtn: isDarkMode
-        ? 'rounded-lg border border-white/15 px-3 py-1.5 text-xs text-gray-200 transition hover:bg-white/10'
-        : 'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50',
-    }),
-    [isDarkMode]
-  );
-
-  const renderInvitationPanel = (compact = false) => (
-    <div className={`${homeUi.inviteOuter} ${compact ? 'p-3.5' : 'p-4'}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-sm ${isDarkMode ? 'bg-white/10' : 'bg-slate-100'}`}
-            >
-              📨
-            </span>
-            <h4
-              className={`truncate text-sm font-semibold tracking-wide ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            >
-              {t('orgPanel.invitesPanelTitle')}
-            </h4>
-          </div>
-          <p className={homeUi.widgetSub}>{t('orgPanel.invitesPanelSubtitle')}</p>
-        </div>
-        <span
-          className={`inline-flex min-w-[30px] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
-            isDarkMode
-              ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-200'
-              : 'border-cyan-400 bg-cyan-50 text-cyan-900'
-          }`}
-        >
-          {invitations.length}
-        </span>
-      </div>
-
-      {loadingInvitations && (
-        <div className="space-y-2">
-          <div className={`h-11 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-          <div className={`h-11 animate-pulse rounded-xl ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`} />
-        </div>
-      )}
-
-      {!loadingInvitations && invitations.length === 0 && (
-        <div
-          className={`rounded-xl border border-dashed px-3 py-3 text-center ${isDarkMode ? 'border-white/15 bg-white/[0.02]' : 'border-slate-300 bg-slate-50'}`}
-        >
-          <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>
-            {t('orgPanel.noInvites')}
-          </div>
-          <div className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>
-            {t('orgPanel.invitesEmptySub')}
-          </div>
-        </div>
-      )}
-
-      {!loadingInvitations && invitations.length > 0 && (
-        <div className="space-y-2">
-          {invitations.map((invite) => {
-            const invitationId = invite.invitationId || invite._id;
-            const orgName = invite.organization?.name || t('orgPanel.orgFallback');
-            const isResponding = respondingInvitationIds.includes(invitationId);
-            const createdAt = invite.createdAt
-              ? new Date(invite.createdAt).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')
-              : '';
-
-            return (
-              <div
-                key={invitationId}
-                className={`rounded-xl border p-3 transition ${
-                  isDarkMode
-                    ? 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
-                    : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
-                }`}
-              >
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div
-                      className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                    >
-                      {orgName}
-                    </div>
-                    <div
-                      className={`mt-0.5 flex flex-wrap items-center gap-2 text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
-                    >
-                      <span
-                        className={`rounded-md px-1.5 py-0.5 ${isDarkMode ? 'bg-white/10' : 'bg-white'}`}
-                      >
-                        {t('orgPanel.roleBadge', { role: invite.role || 'member' })}
-                      </span>
-                      {createdAt && <span>{t('orgPanel.invitedDay', { date: createdAt })}</span>}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={isResponding}
-                    onClick={() => onRespondInvitation?.(invitationId, 'reject')}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      isDarkMode
-                        ? 'border-white/20 text-gray-200 hover:bg-white/10'
-                        : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
-                    }`}
-                  >
-                    {t('orgPanel.rejectBtnShort')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isResponding}
-                    onClick={() => onRespondInvitation?.(invitationId, 'accept')}
-                    className="rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_0_12px_rgba(99,102,241,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('orgPanel.acceptInvite')}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-
-  if (!organizationsLoaded) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-6">
-        <div
-          className={`rounded-2xl border px-12 py-14 text-center shadow-sm ${
-            isDarkMode
-              ? 'border-white/10 bg-black/20 shadow-[0_0_40px_rgba(0,0,0,0.35)]'
-              : 'border-slate-200 bg-white'
-          }`}
-        >
-          <div
-            className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-cyan-400/20 border-t-cyan-400"
-            role="status"
-            aria-label={t('orgPanel.loadingWorkspaceAria')}
-          />
-          <p className={`mt-5 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-            {t('orgPanel.loadingWorkspace')}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasOrganizations) {
-    return (
-      <div className="flex h-full flex-col p-6">
-        <div
-          className={`min-h-0 flex-1 rounded-2xl border p-5 ${
-            isDarkMode ? 'border-white/10 bg-black/15' : 'border-slate-200 bg-white shadow-sm'
-          }`}
-        >
-          <div className="flex h-full items-center justify-center">
-            <div className="mx-auto w-full max-w-xl text-center">
-              <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-cyan-600/90 to-teal-600/80 text-4xl shadow-lg shadow-cyan-900/15">
-                🏢
-              </div>
-              <h3
-                className={`mt-4 text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-              >
-                {t('orgPanel.emptyOrgsTitle')}
-              </h3>
-              <p
-                className={`mt-2 text-sm leading-7 ${isDarkMode ? 'text-[#A0A0B2]' : 'text-slate-600'}`}
-              >
-                {t('orgPanel.emptyPitch1')}
-                <br />
-                {t('orgPanel.emptyPitch2')}
-                <br />
-                {t('orgPanel.emptyPitch3')}
-              </p>
-
-              <div className="mt-6 flex items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={onCreateOrganization}
-                  className="h-10 rounded-[10px] bg-gradient-to-r from-cyan-600 to-teal-600 px-5 text-sm font-semibold text-white shadow-md transition hover:brightness-110"
-                >
-                  {t('orgPanel.createOrgEmpty')}
-                </button>
-                <button
-                  type="button"
-                  onClick={onJoinQuickInvite}
-                  disabled={joiningQuickInvite}
-                  className={`h-10 rounded-[10px] border px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isDarkMode
-                      ? 'border-white/20 bg-transparent text-white hover:bg-white/5'
-                      : 'border-slate-300 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
-                  }`}
-                >
-                  {joiningQuickInvite ? t('orgPanel.joining') : t('orgPanel.joinBtn')}
-                </button>
-              </div>
-
-              <div className="mx-auto mt-5 flex max-w-lg items-center gap-2">
-                <input
-                  value={quickInviteInput}
-                  onChange={(event) => onChangeQuickInviteInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      onJoinQuickInvite();
-                    }
-                  }}
-                  placeholder={t('orgPanel.quickInvitePh')}
-                  className={`h-10 flex-1 rounded-lg border px-3 text-sm outline-none ${
-                    isDarkMode
-                      ? 'border-white/10 bg-white/5 text-white placeholder:text-[#6B6B80] focus:border-cyan-500/50 focus:shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                      : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={onJoinQuickInvite}
-                  disabled={joiningQuickInvite}
-                  className="h-10 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 px-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t('orgPanel.joinBtn')}
-                </button>
-              </div>
-
-              <div className="mx-auto mt-6 max-w-xl text-left">{renderInvitationPanel()}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const orgName = selectedOrganization?.name || t('orgPanel.orgFallback');
   const deptName = selectedDepartment?.name
     ? displayDepartmentName(selectedDepartment.name, locale)
     : '—';
+  const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
+  const selectedDivision = selectedBranch?.divisions?.find((d) => String(d._id) === String(selectedDivisionId)) || null;
+  const branchName = selectedBranch?.name ? displayDepartmentName(selectedBranch.name, locale) : '—';
+  const divisionName = selectedDivision?.name ? displayDepartmentName(selectedDivision.name, locale) : '—';
+  const teamName = selectedTeam?.name || '—';
   const chSlug = selectedChannel
     ? channelNameToDisplaySlug(selectedChannel.name || 'chat', locale)
     : '';
@@ -689,39 +461,74 @@ const OrganizationMainPanel = ({
     <div className={workspace.shell}>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className={workspace.aside}>
-          <div className={`border-b px-3 py-3 ${isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70'}`}>
+          <div className={`flex min-h-0 flex-1 flex-col border-b px-3 py-3 ${isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70'}`}>
             <div
               className={`mb-3 rounded-xl border p-3 ${isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canInviteMembers) return;
+                    if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
+                  }}
+                  className="min-w-0 text-left"
+                  title={canInviteMembers ? 'Mời vào tổ chức' : 'Bạn không có quyền mời thành viên'}
+                >
                   <div className={`truncate text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     {orgName}
                   </div>
                   <div className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
                     ● {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
                   </div>
-                </div>
-                <button
-                  type="button"
-                  className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
-                    isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  Xem
                 </button>
+                {canInviteMembers ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
+                    }}
+                    className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                      isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    Mời
+                  </button>
+                ) : null}
               </div>
             </div>
 
-            <button
-              type="button"
-              className={`mb-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-semibold ${
-                isDarkMode ? 'bg-[#5865F2]/20 text-white' : 'bg-cyan-100 text-slate-900'
-              }`}
-            >
-              <Home className="h-4 w-4" />
-              Bảng điều khiển
-            </button>
+          
+
+            <div className={`mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
+              <span>Chi nhánh</span>
+              <span className={isDarkMode ? 'text-[#8b91a0]' : 'text-slate-500'}>
+                + Thêm
+              </span>
+            </div>
+            <div className="mb-3 grid grid-cols-3 gap-1.5">
+              {branches?.map((branch) => (
+                <button
+                  key={branch._id}
+                  type="button"
+                  onClick={() => onSelectBranch?.(branch._id)}
+                  className={`rounded-lg border px-1.5 py-1 text-left transition ${
+                    String(selectedBranchId) === String(branch._id)
+                      ? isDarkMode
+                        ? 'border-[#5865F2]/40 bg-[#5865F2]/20 text-white'
+                        : 'border-sky-300 bg-sky-100 text-slate-900'
+                      : isDarkMode
+                        ? 'border-white/10 bg-white/[0.03] text-[#b4b8c4] hover:bg-white/[0.05]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="truncate text-[11px] font-bold">{branch.name}</div>
+                  <div className={`text-[10px] ${isDarkMode ? 'text-[#7d8392]' : 'text-slate-500'}`}>
+                    {Array.isArray(branch?.divisions) ? branch.divisions.length : 0} khối
+                  </div>
+                </button>
+              ))}
+            </div>
 
             <div className={`mb-1 flex w-full items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
               <button
@@ -729,168 +536,189 @@ const OrganizationMainPanel = ({
                 onClick={() => setSidebarOpen((prev) => ({ ...prev, departments: !prev.departments }))}
                 className="text-left"
               >
-                Phòng ban
+                Cấu trúc
               </button>
-              <button type="button" onClick={onCreateDepartment} className="text-xs">+</button>
+              <span className={isDarkMode ? 'text-[#8b91a0]' : 'text-slate-500'}>Quản trị trong Cài đặt</span>
             </div>
-            <div className={`${sidebarOpen.departments ? 'scrollbar-overlay max-h-[26vh] space-y-1 overflow-y-auto pr-0.5' : 'hidden'}`}>
+            <div className={`mb-2 flex items-center gap-2 px-1 text-[9px] font-semibold uppercase ${isDarkMode ? 'text-[#7d8392]' : 'text-slate-500'}`}>
+              <span>Khối</span>
+              <span>◆ Phòng</span>
+              <span>● Nhóm</span>
+              <span># Kênh</span>
+            </div>
+            <div className={`${sidebarOpen.departments ? 'scrollbar-overlay min-h-0 flex-1 overflow-y-auto pr-0.5' : 'hidden'}`}>
               {loadingDepartments && (
                 <div className={`h-9 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-slate-200/80'}`} />
               )}
-              {departments.map((department) => (
-                <button
-                  key={department._id}
-                  type="button"
-                  onClick={() => onSelectDepartment(department._id)}
-                  className={`w-full rounded-lg px-2.5 py-1.5 text-left text-sm transition ${
-                    selectedDepartment?._id === department._id
-                      ? isDarkMode
-                        ? 'bg-white/[0.08] text-white'
-                        : 'bg-slate-100 text-slate-900'
-                      : isDarkMode
-                        ? 'text-[#b4b8c4] hover:bg-white/[0.04]'
-                        : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {displayDepartmentName(department.name, locale)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-            <div>
-              <div className={`mb-1 flex w-full items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen((prev) => ({ ...prev, textChannels: !prev.textChannels }))}
-                  className="text-left"
-                >
-                  Kênh văn bản
-                </button>
-                <button type="button" onClick={() => onCreateChannel('chat')} className="text-xs">+</button>
-              </div>
-              <div className={`${sidebarOpen.textChannels ? 'space-y-0.5' : 'hidden'}`}>
-                {chatChannels.map((channel) => {
-                  const active = String(selectedChannelId) === String(channel._id);
-                  const unreadBadge = Number(channel?.unreadCount || 0);
-                  return (
+              {(selectedBranch?.divisions || []).map((division) => {
+                const divisionDepartments = Array.isArray(division?.departments) ? division.departments : [];
+                const divisionActive = String(selectedDivisionId) === String(division._id);
+                return (
+                  <div key={division._id} className="mb-1.5">
                     <button
-                      key={channel._id}
                       type="button"
-                      onClick={() => onSelectChannel(channel._id)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm ${
-                        active
+                      onClick={() => onSelectDivision?.(division._id)}
+                      className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                        divisionActive
                           ? isDarkMode
-                            ? 'bg-[#5865F2]/20 text-white'
-                            : 'bg-cyan-100 text-slate-900'
+                            ? 'bg-white/[0.07] text-white'
+                            : 'bg-slate-100 text-slate-900'
                           : isDarkMode
-                            ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                            : 'text-slate-600 hover:bg-slate-100'
+                            ? 'text-[#a9afbc] hover:bg-white/[0.04]'
+                            : 'text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      <span className="flex items-center gap-1.5">
-                        <Hash className="h-3.5 w-3.5" />
-                        {channelNameToDisplaySlug(channel.name || 'chat', locale)}
-                      </span>
-                      {unreadBadge > 0 && (
-                        <span className={`rounded-full px-1.5 text-[10px] ${isDarkMode ? 'bg-[#5865F2]/40 text-white' : 'bg-cyan-200 text-slate-900'}`}>
-                          {unreadBadge > 99 ? '99+' : unreadBadge}
-                        </span>
-                      )}
+                      <span className="text-[10px]">▸</span>
+                      <span className="truncate font-semibold">{division.name}</span>
                     </button>
-                  );
-                })}
-              </div>
-            </div>
 
-            <div>
-              <div className={`mb-1 flex w-full items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen((prev) => ({ ...prev, voiceChannels: !prev.voiceChannels }))}
-                  className="text-left"
-                >
-                  {t('orgPanel.voiceChannels')}
-                </button>
-                <button type="button" onClick={() => onCreateChannel('voice')} className="text-xs">+</button>
-              </div>
-              <div className={`${sidebarOpen.voiceChannels ? 'space-y-0.5' : 'hidden'}`}>
-                {voiceChannels.map((channel) => (
-                  <button
-                    key={channel._id}
-                    type="button"
-                    onClick={() => onSelectChannel(channel._id)}
-                    className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                      selectedChannelId === channel._id
-                        ? isDarkMode
-                          ? 'bg-white/[0.08] text-white'
-                          : 'bg-sky-100 text-slate-900'
-                        : isDarkMode
-                          ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                          : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    🔊 {channelNameToDisplaySlug(channel.name, locale)}
-                  </button>
-                ))}
-              </div>
-            </div>
+                    <div className="mt-1 space-y-1 pl-4">
+                      {divisionDepartments.map((department) => {
+                        const departmentActive = String(selectedDepartment?._id) === String(department._id);
+                        return (
+                          <div key={department._id}>
+                            <button
+                              type="button"
+                              onClick={() => onSelectDepartment(department._id)}
+                              className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                departmentActive
+                                  ? isDarkMode
+                                    ? 'bg-white/[0.07] text-white'
+                                    : 'bg-slate-100 text-slate-900'
+                                  : isDarkMode
+                                    ? 'text-[#a9afbc] hover:bg-white/[0.04]'
+                                    : 'text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              <span className="text-[10px]">◆</span>
+                              <span className="truncate">{displayDepartmentName(department.name, locale)}</span>
+                            </button>
 
-            <div className={`border-t pt-2 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen((prev) => ({ ...prev, workspace: !prev.workspace }))}
-                className={`mb-1 flex w-full items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
-              >
-                <span>WORKSPACE</span>
-                <span>{sidebarOpen.workspace ? '−' : '+'}</span>
-              </button>
-              <div className={`${sidebarOpen.workspace ? 'space-y-0.5' : 'hidden'}`}>
-                <button
-                  type="button"
-                  onClick={() => setWorkspaceTab('chat')}
-                  className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                    workspaceTab === 'chat'
-                      ? isDarkMode
-                        ? 'bg-[#5865F2]/20 text-white'
-                        : 'bg-cyan-100 text-slate-900'
-                      : isDarkMode
-                        ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                        : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Bảng điều khiển
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWorkspaceTab('tasks')}
-                  className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                    workspaceTab === 'tasks'
-                      ? isDarkMode
-                        ? 'bg-[#5865F2]/20 text-white'
-                        : 'bg-cyan-100 text-slate-900'
-                      : isDarkMode
-                        ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                        : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Công việc
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenOrganizationSettings?.(selectedOrganization)}
-                  className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                    isDarkMode
-                      ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Cài đặt tổ chức
-                </button>
-              </div>
+                            {departmentActive ? (
+                              <div className="mt-1 space-y-1 pl-4">
+                                {teams.map((team) => {
+                                  const teamActive = String(selectedTeamId) === String(team._id);
+                                  const isPrimaryTeam =
+                                    String(membershipScope?.teamId || '') === String(team._id);
+                                  const canReadTeam = isPrimaryTeam || canTeamReadAnyChannel(team._id);
+                                  return (
+                                    <div key={team._id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!canReadTeam) return;
+                                          onSelectTeam?.(team._id);
+                                        }}
+                                        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                          !canReadTeam
+                                            ? isDarkMode
+                                              ? 'text-[#5f6572]'
+                                              : 'text-slate-400'
+                                            : teamActive
+                                            ? isDarkMode
+                                              ? 'bg-[#5865F2]/20 text-white'
+                                              : 'bg-cyan-100 text-slate-900'
+                                            : isDarkMode
+                                              ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <span className="text-[10px]">●</span>
+                                        <span className="truncate">{team.name}</span>
+                                        {!canReadTeam ? <span className="ml-auto text-[10px]">🔒</span> : null}
+                                      </button>
+
+                                      {teamActive && canReadTeam ? (
+                                        <div className="mt-1 space-y-0.5 pl-4">
+                                          {chatChannels.map((channel) => (
+                                            getChannelPerm(channel._id).canRead ? (
+                                            <button
+                                              key={channel._id}
+                                              type="button"
+                                              onClick={() => onSelectChannel(channel._id)}
+                                              className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                String(selectedChannelId) === String(channel._id)
+                                                  ? isDarkMode
+                                                    ? 'bg-[#5865F2]/20 text-white'
+                                                    : 'bg-cyan-100 text-slate-900'
+                                                  : isDarkMode
+                                                    ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                                    : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <Hash className="h-3 w-3" />
+                                              <span className="truncate">
+                                                {channelNameToDisplaySlug(channel.name || 'chat', locale)}
+                                              </span>
+                                            </button>
+                                            ) : (
+                                              <div
+                                                key={channel._id}
+                                                className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                  isDarkMode ? 'text-[#5f6572]' : 'text-slate-400'
+                                                }`}
+                                              >
+                                                <Hash className="h-3 w-3" />
+                                                <span className="truncate">
+                                                  {channelNameToDisplaySlug(channel.name || 'chat', locale)}
+                                                </span>
+                                                <span className="ml-auto text-[10px]">🔒</span>
+                                              </div>
+                                            )
+                                          ))}
+                                          {voiceChannels.map((channel) => (
+                                            getChannelPerm(channel._id).canRead ? (
+                                            <button
+                                              key={channel._id}
+                                              type="button"
+                                              onClick={() => onSelectChannel(channel._id)}
+                                              className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                String(selectedChannelId) === String(channel._id)
+                                                  ? isDarkMode
+                                                    ? 'bg-[#5865F2]/20 text-white'
+                                                    : 'bg-cyan-100 text-slate-900'
+                                                  : isDarkMode
+                                                    ? 'text-[#9aa0ae] hover:bg-white/[0.04]'
+                                                    : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <span>🔊</span>
+                                              <span className="truncate">
+                                                {channelNameToDisplaySlug(channel.name || 'voice', locale)}
+                                              </span>
+                                            </button>
+                                            ) : (
+                                              <div
+                                                key={channel._id}
+                                                className={`flex min-w-0 w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs ${
+                                                  isDarkMode ? 'text-[#5f6572]' : 'text-slate-400'
+                                                }`}
+                                              >
+                                                <span>🔊</span>
+                                                <span className="truncate">
+                                                  {channelNameToDisplaySlug(channel.name || 'voice', locale)}
+                                                </span>
+                                                <span className="ml-auto text-[10px]">🔒</span>
+                                              </div>
+                                            )
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
+
 
           <div
             className={`shrink-0 border-t px-3 py-2 ${
@@ -962,7 +790,13 @@ const OrganizationMainPanel = ({
                   {orgName}
                 </span>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{branchName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{divisionName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
                 <span>{deptName}</span>
+                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                <span>{teamName}</span>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
                 <span className="text-[#5865F2]">
                   {workspaceTab === 'tasks'

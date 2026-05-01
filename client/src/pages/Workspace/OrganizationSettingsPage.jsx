@@ -24,6 +24,9 @@ export default function OrganizationSettingsPage() {
 
   const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
+  const organizationHomePath = organization?.slug
+    ? `/w/${encodeURIComponent(organization.slug)}`
+    : '/dashboard';
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +94,7 @@ export default function OrganizationSettingsPage() {
           <p className={isDarkMode ? 'text-gray-400' : 'text-slate-600'}>{t('organizationSettings.notFound')}</p>
           <button
             type="button"
-            onClick={() => navigate('/workspaces')}
+            onClick={() => navigate('/dashboard')}
             className="text-cyan-400 hover:underline"
           >
             {t('organizationSettings.backOrgs')}
@@ -107,9 +110,9 @@ export default function OrganizationSettingsPage() {
       <OrganizationSettingsPanel
         organization={organization}
         initialTab={initialTab}
-        onBack={() => navigate('/workspaces')}
+        onBack={() => navigate(organizationHomePath)}
         onOrganizationUpdated={handleOrganizationUpdated}
-        onOrganizationDeleted={() => navigate('/workspaces')}
+        onOrganizationDeleted={() => navigate('/dashboard')}
       />
     </div>
   );
