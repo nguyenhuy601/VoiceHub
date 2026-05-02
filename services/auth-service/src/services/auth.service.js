@@ -108,7 +108,7 @@ class AuthService {
       
       if (emailService.isAvailable()) {
         console.log('[AuthService] 📧 Email service is available, scheduling verification email to:', email);
-        console.log('[AuthService] Verification token:', emailVerificationToken.substring(0, 20) + '...');
+        console.log('[AuthService] Verification token: REDACTED');
         console.log('[AuthService] Email will be sent in background to avoid timeout');
         
         // Gửi email trong background - không await
