@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { isPublicRoute } = require('../config/services');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 
 /**
  * Middleware xác thực JWT
@@ -28,6 +28,14 @@ const authMiddleware = (req, res, next) => {
   console.log(`[API-Gateway] Protected route: ${req.path}, checking authentication...`);
 
   try {
+    const jwtSecret = getJwtSecret();
+    if (!jwtSecret) {
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication service misconfigured',
+      });
+    }
+
     // Lấy token từ header
     const authHeader = req.headers.authorization;
 
@@ -50,7 +58,7 @@ const authMiddleware = (req, res, next) => {
 
     // Verify token
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, jwtSecret);
       
       // Gắn user info vào request
       req.user = {

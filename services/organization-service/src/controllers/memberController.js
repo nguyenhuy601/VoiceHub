@@ -9,7 +9,7 @@ const { emitRealtimeEvent } = require('/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'hr', 'member'];
-const INVITE_LINK_SECRET = process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || 'org-invite-secret';
+const INVITE_LINK_SECRET = String(process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || '').trim();
 const INVITE_LINK_EXPIRES_IN = process.env.INVITE_LINK_EXPIRES_IN || '7d';
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 const NOTIFICATION_SERVICE_URL =
@@ -371,6 +371,10 @@ exports.respondToInvitation = async (req, res, next) => {
 
 exports.createInviteLink = async (req, res, next) => {
   try {
+    if (!INVITE_LINK_SECRET) {
+      return res.status(500).json({ status: 'error', message: 'INVITE_LINK_SECRET is not configured' });
+    }
+
     const orgId = req.params.orgId;
     const userId = req.user?.id || req.user?._id || req.user?.userId;
     const branchIdRaw = req.body?.branchId || null;
@@ -456,6 +460,10 @@ exports.createInviteLink = async (req, res, next) => {
 
 exports.joinViaLink = async (req, res, next) => {
   try {
+    if (!INVITE_LINK_SECRET) {
+      return res.status(500).json({ status: 'error', message: 'INVITE_LINK_SECRET is not configured' });
+    }
+
     const { token } = req.body || {};
     if (!token) {
       return res.status(400).json({ status: 'fail', message: 'Invite token is required' });

@@ -339,7 +339,7 @@ class AuthController {
       // Lấy token từ query string (ưu tiên) hoặc body (nếu là POST)
       const verificationToken = req.query.token || req.body?.verificationToken || req.body?.token;
 
-      console.log('[AuthController] Extracted token:', verificationToken ? `${verificationToken.substring(0, 20)}...` : 'NOT FOUND');
+      console.log('[AuthController] Extracted token:', verificationToken ? 'REDACTED' : 'NOT FOUND');
 
       if (!verificationToken) {
         console.error('[AuthController] ❌ No verification token provided');
