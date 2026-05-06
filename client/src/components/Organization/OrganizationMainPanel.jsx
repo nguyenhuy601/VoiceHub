@@ -173,6 +173,35 @@ const OrganizationMainPanel = ({
     toggleSpeaker: null,
   });
 
+  // Sidebar trái (cấu trúc): cho phép nới rộng thêm tối đa +20px bằng kéo chuột.
+  const LEFT_ASIDE_BASE_W = 252;
+  const [leftAsideW, setLeftAsideW] = useState(LEFT_ASIDE_BASE_W);
+  const leftAsideResizeRef = useRef(null);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const st = leftAsideResizeRef.current;
+      if (!st || !st.active) return;
+      const x = e?.clientX ?? 0;
+      const dx = x - st.startX; // kéo sang phải => tăng width
+      const next = Math.round(st.startW + dx);
+      const clamped = Math.max(st.minW, Math.min(st.maxW, next));
+      setLeftAsideW(clamped);
+      e?.preventDefault?.();
+    };
+    const onUp = () => {
+      const st = leftAsideResizeRef.current;
+      if (!st || !st.active) return;
+      leftAsideResizeRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   const openWorkspaceChat = () => {
     setWorkspaceTab('chat');
     onWorkspaceTabChange?.('chat');
@@ -290,8 +319,8 @@ const OrganizationMainPanel = ({
         ? 'flex h-full min-h-0 flex-col bg-[#0b0e14]'
         : 'flex h-full min-h-0 flex-col bg-sky-50/40',
       aside: isDarkMode
-        ? 'flex w-[252px] shrink-0 flex-col border-r border-white/[0.06] bg-[#0c0f15]'
-        : 'flex w-[252px] shrink-0 flex-col border-r border-sky-200/70 bg-white/95',
+        ? 'flex shrink-0 flex-col border-r border-white/[0.06] bg-[#0c0f15]'
+        : 'flex shrink-0 flex-col border-r border-sky-200/70 bg-white/95',
       main: isDarkMode
         ? 'flex min-h-0 min-w-0 flex-1 flex-col bg-[#080a0f]'
         : 'flex min-h-0 min-w-0 flex-1 flex-col bg-sky-50/25',
@@ -501,7 +530,22 @@ const OrganizationMainPanel = ({
     <>
     <div className={workspace.shell}>
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className={workspace.aside}>
+        <aside className={`${workspace.aside} relative`} style={{ width: leftAsideW }}>
+          <div
+            className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize"
+            title="Kéo để nới sidebar (tối đa +20px)"
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              leftAsideResizeRef.current = {
+                active: true,
+                startX: e.clientX,
+                startW: leftAsideW,
+                minW: LEFT_ASIDE_BASE_W,
+                maxW: LEFT_ASIDE_BASE_W + 20,
+              };
+              e.preventDefault();
+            }}
+          />
           <div className={`flex min-h-0 flex-1 flex-col border-b px-3 py-3 ${isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70'}`}>
             <div
               className={`mb-3 rounded-xl border p-3 ${isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white'}`}
@@ -910,29 +954,55 @@ const OrganizationMainPanel = ({
                 className={`min-w-0 text-[13px] ${isDarkMode ? 'text-[#9aa0ae]' : 'text-slate-600'}`}
                 aria-label={t('orgPanel.workspaceBreadcrumbAria')}
               >
-                <span className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  {orgName}
-                </span>
-                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{branchName}</span>
-                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{divisionName}</span>
-                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{deptName}</span>
-                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{teamName}</span>
-                <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span className="text-[#5865F2]">
-                  {workspaceTab === 'tasks'
-                    ? '#cong-viec'
-                    : t('orgPanel.channelHash', {
-                        name: isVoiceChannel
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={`min-w-0 max-w-[10rem] truncate font-semibold ${
+                      isDarkMode ? 'text-white' : 'text-slate-900'
+                    }`}
+                    title={orgName}
+                  >
+                    {orgName}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                  <span className="min-w-0 max-w-[9rem] truncate" title={branchName}>
+                    {branchName}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                  <span className="min-w-0 max-w-[9rem] truncate" title={divisionName}>
+                    {divisionName}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                  <span className="min-w-0 max-w-[9rem] truncate" title={deptName}>
+                    {deptName}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                  <span className="min-w-0 max-w-[9rem] truncate" title={teamName}>
+                    {teamName}
+                  </span>
+                  <span className={`${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
+                  <span
+                    className="min-w-0 max-w-[12rem] truncate text-[#5865F2]"
+                    title={
+                      workspaceTab === 'tasks'
+                        ? '#cong-viec'
+                        : isVoiceChannel
                           ? chSlug
                             ? `🔊 ${chSlug}`
                             : t('organizations.channelNameFallback')
-                          : chSlug || t('organizations.channelNameFallback'),
-                      })}
-                </span>
+                          : chSlug || t('organizations.channelNameFallback')
+                    }
+                  >
+                    {workspaceTab === 'tasks'
+                      ? '#cong-viec'
+                      : t('orgPanel.channelHash', {
+                          name: isVoiceChannel
+                            ? chSlug
+                              ? `🔊 ${chSlug}`
+                              : t('organizations.channelNameFallback')
+                            : chSlug || t('organizations.channelNameFallback'),
+                        })}
+                  </span>
+                </div>
               </nav>
               <div className="flex flex-wrap items-center gap-2">
                 <div

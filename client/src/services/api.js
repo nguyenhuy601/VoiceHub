@@ -41,7 +41,8 @@ import toast from 'react-hot-toast';
    /api/friends/* → friend-service (port 3014)
 ======================================== */
 // Dev: dùng '/api' để request cùng origin → Vite proxy forward tới API Gateway (port 3000)
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+// Tránh hardcode http://localhost:3000 khi mở UI qua IP LAN.
+const API_URL = import.meta.env.DEV ? '/api' : import.meta.env.VITE_API_URL || '/api';
 
 /* ========================================
    TẠO AXIOS INSTANCE

@@ -34,18 +34,50 @@ function guessNameFromUrl(url) {
   }
 }
 
-function resolveDisplayFileName(fileMeta, url) {
-  let raw = fileMeta?.originalName;
-  if (raw && String(raw).trim()) {
-    try {
-      if (/%[0-9a-f]{2}/i.test(raw)) {
-        raw = decodeURIComponent(String(raw));
-      }
-    } catch {
-      /* giữ nguyên */
-    }
-    return String(raw).trim();
+function guessNameFromStoragePath(storagePath) {
+  const p = String(storagePath || '').trim();
+  if (!p) return '';
+  const parts = p.split('/').filter(Boolean);
+  const last = parts[parts.length - 1] || '';
+  if (!last) return '';
+  let out = last.replace(/\+/g, ' ');
+  try {
+    out = decodeURIComponent(out);
+  } catch {
+    /* keep original */
   }
+  out = out.replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_/i, '');
+  return out;
+}
+
+function decodeFileNameCandidate(raw) {
+  let out = String(raw || '').trim();
+  if (!out) return '';
+  // Một số payload có kiểu query-string: space là '+'
+  out = out.replace(/\+/g, ' ');
+  // Decode tối đa 2 lần để xử lý trường hợp double-encoded.
+  for (let i = 0; i < 2; i++) {
+    if (!/%[0-9a-f]{2}/i.test(out)) break;
+    try {
+      out = decodeURIComponent(out);
+    } catch {
+      break;
+    }
+  }
+  return out.trim();
+}
+
+function resolveDisplayFileName(fileMeta, url) {
+  const fromMeta = decodeFileNameCandidate(fileMeta?.originalName);
+  if (fromMeta) {
+    return fromMeta;
+  }
+
+  const fromStoragePath = decodeFileNameCandidate(guessNameFromStoragePath(fileMeta?.storagePath));
+  if (fromStoragePath) {
+    return fromStoragePath;
+  }
+
   return guessNameFromUrl(url);
 }
 
