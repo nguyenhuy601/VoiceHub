@@ -15,8 +15,8 @@ app.use(express.json({ limit: '1mb' }));
 const INTERNAL_REALTIME_TOKEN = process.env.REALTIME_INTERNAL_TOKEN || '';
 
 const isProd = process.env.NODE_ENV === 'production';
-// Dev: khi chạy Vite bằng `--host 0.0.0.0`, người dùng thường truy cập bằng IP LAN (vd 192.168.x.x)
-// => Origin sẽ KHÔNG phải localhost. Nếu không set CORS_ORIGIN thì mặc định cho phép mọi origin trong dev.
+// Dev: luôn cho phép mọi origin để FE truy cập được qua IP LAN và port bất kỳ.
+// Production: chỉ whitelist theo CORS_ORIGIN.
 const corsOriginRaw = String(process.env.CORS_ORIGIN || '').trim();
 const corsOrigin = corsOriginRaw || (isProd ? '' : '');
 const parsedOrigins = corsOrigin
@@ -24,8 +24,13 @@ const parsedOrigins = corsOrigin
   .map((origin) => origin.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
   .filter(Boolean);
 
-const socketCorsOrigin =
-  parsedOrigins.length === 0 ? (isProd ? false : true) : parsedOrigins.length === 1 ? parsedOrigins[0] : parsedOrigins;
+const socketCorsOrigin = !isProd
+  ? true
+  : parsedOrigins.length === 0
+    ? false
+    : parsedOrigins.length === 1
+      ? parsedOrigins[0]
+      : parsedOrigins;
 
 app.use(
   cors({

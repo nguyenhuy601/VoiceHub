@@ -9,8 +9,16 @@ const analyze = process.env.ANALYZE === '1' || process.env.ANALYZE === 'true';
 export default defineConfig(({ mode }) => {
   // .env / .env.local chỉ có trong import.meta.env cho mã app; config cần loadEnv.
   const env = loadEnv(mode, __dirname, '');
-  const apiProxyTarget = (env.VITE_API_URL || '').replace(/\/api\/?$/, '') || 'http://localhost:3000';
-  const socketProxyTarget = env.VITE_SOCKET_PROXY_TARGET || 'http://127.0.0.1:3017';
+  const defaultBackendOrigin = env.VITE_BACKEND_ORIGIN || 'http://127.0.0.1:3000';
+  const apiFromEnv = String(env.VITE_API_URL || '').trim();
+  const apiProxyTarget =
+    String(env.VITE_API_PROXY_TARGET || '').trim() ||
+    (apiFromEnv.startsWith('http://') || apiFromEnv.startsWith('https://')
+      ? apiFromEnv.replace(/\/api\/?$/, '')
+      : defaultBackendOrigin);
+  const socketProxyTarget = String(env.VITE_SOCKET_PROXY_TARGET || '').trim() || defaultBackendOrigin;
+  const devHost = String(env.VITE_HOST || '0.0.0.0').trim();
+  const fixedDevPort = 5173;
 
   return {
   plugins: [
@@ -45,7 +53,9 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
-    port: 5173, // Vite dev server port (tránh conflict với API Gateway port 3000)
+    host: devHost,
+    port: fixedDevPort,
+    strictPort: true,
     proxy: {
       '/api': {
         target: apiProxyTarget,

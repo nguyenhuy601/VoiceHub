@@ -23,6 +23,8 @@ import { getUserDisplayName } from '../../utils/helpers';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useSocket } from '../../context/SocketContext';
+import { useFriendCallSession } from '../../context/FriendCallSessionContext';
+import friendCallService from '../../services/friendCallService';
 import { useTheme } from '../../context/ThemeContext';
 import { appShellBg } from '../../theme/shellTheme';
 import { useAppStrings } from '../../locales/appStrings';
@@ -92,7 +94,11 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [inlineToast, setInlineToast] = useState(null);
   const { user } = useAuth();
+  const { openFriendCall } = useFriendCallSession();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
+  /** Cuộc gọi đi: chờ accept / reject / timeout */
+  const [outboundCall, setOutboundCall] = useState(null);
+  const outboundCallRef = useRef(null);
   const routedDmUserId = location.state?.openDmUserId
     ? String(location.state.openDmUserId)
     : '';
@@ -135,6 +141,70 @@ function FriendChatPage({ landingDemo = false } = {}) {
     setInlineToast({ message, type });
     setTimeout(() => setInlineToast(null), 3000);
   };
+
+  const clearOutboundCall = useCallback(() => {
+    setOutboundCall(null);
+    outboundCallRef.current = null;
+  }, []);
+
+  const cancelOutboundCall = useCallback(async () => {
+    const id = outboundCallRef.current;
+    if (!id) return;
+    outboundCallRef.current = null;
+    setOutboundCall(null);
+    try {
+      await friendCallService.cancel(id);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    outboundCallRef.current = outboundCall?.callId || null;
+  }, [outboundCall?.callId]);
+
+  useEffect(() => {
+    return () => {
+      const id = outboundCallRef.current;
+      if (!id || landingDemo) return;
+      friendCallService.cancel(id).catch(() => {});
+      outboundCallRef.current = null;
+    };
+  }, [landingDemo]);
+
+  const startFriendCall = useCallback(
+    async (media) => {
+      if (landingDemo) {
+        toast(t('friendChat.callVideoSoon'), { icon: '📞' });
+        return;
+      }
+      if (!selectedFriendId) return;
+      if (outboundCall?.callId) {
+        toast.error(t('friendChat.callConflict'));
+        return;
+      }
+      const calleeId = String(selectedFriendId);
+      try {
+        const res = await friendCallService.initiate({ calleeId, media });
+        const data = res?.data?.data ?? res?.data;
+        const callId = data?.callId;
+        const roomId = data?.roomId;
+        if (!callId || !roomId) {
+          toast.error(t('friendChat.callStartFail'));
+          return;
+        }
+        setOutboundCall({ callId, roomId, media });
+        toast.success(t('friendChat.callRinging'));
+      } catch (err) {
+        const status = err.response?.status;
+        const msg = err.response?.data?.message || err.message;
+        if (status === 409) toast.error(t('friendChat.callConflict'));
+        else if (status === 403) toast.error(t('friendChat.callDenied'));
+        else toast.error(msg || t('friendChat.callStartFail'));
+      }
+    },
+    [landingDemo, selectedFriendId, outboundCall?.callId, t]
+  );
 
   // Load org mặc định cho tạo task — không gọi API khi nhúng landing (tránh 401 / không đụng backend)
   useEffect(() => {
@@ -566,6 +636,70 @@ function FriendChatPage({ landingDemo = false } = {}) {
   }, [on, off, currentUserId, selectedFriendId, landingDemo]);
 
   const currentFriend = viewFriends.find((f) => f.id === selectedFriendId) || null;
+
+  useEffect(() => {
+    if (landingDemo || !socketConnected || !outboundCall?.callId) return undefined;
+    const id = outboundCall.callId;
+    const match = (p) => String(p?.callId || '') === id;
+
+    const onAccepted = (p) => {
+      if (!match(p)) return;
+      clearOutboundCall();
+      const room = p?.roomId;
+      const media = p?.media === 'audio' ? 'audio' : 'video';
+      if (room) {
+        openFriendCall({
+          roomId: room,
+          callId: id,
+          media,
+          peerLabel: currentFriend?.name || '',
+        });
+      }
+    };
+    const onRejected = (p) => {
+      if (!match(p)) return;
+      clearOutboundCall();
+      toast(t('friendChat.callRejected'));
+    };
+    const onCancelled = (p) => {
+      if (!match(p)) return;
+      clearOutboundCall();
+      toast(t('friendChat.callCancelled'));
+    };
+    const onTimeout = (p) => {
+      if (!match(p)) return;
+      clearOutboundCall();
+      toast(t('friendChat.callTimeout'));
+    };
+    const onEnded = (p) => {
+      if (!match(p)) return;
+      clearOutboundCall();
+    };
+
+    on('call:accepted', onAccepted);
+    on('call:rejected', onRejected);
+    on('call:cancelled', onCancelled);
+    on('call:timeout', onTimeout);
+    on('call:ended', onEnded);
+
+    return () => {
+      off('call:accepted', onAccepted);
+      off('call:rejected', onRejected);
+      off('call:cancelled', onCancelled);
+      off('call:timeout', onTimeout);
+      off('call:ended', onEnded);
+    };
+  }, [
+    landingDemo,
+    socketConnected,
+    outboundCall?.callId,
+    on,
+    off,
+    openFriendCall,
+    clearOutboundCall,
+    t,
+    currentFriend?.name,
+  ]);
 
   const sortedChatMessages = useMemo(() => {
     return [...messages].sort((a, b) => {
@@ -1007,7 +1141,8 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.callAudio')}
-                      onClick={() => toast(t('friendChat.callAudioSoon'), { icon: '📞' })}
+                      onClick={() => startFriendCall('audio')}
+                      disabled={Boolean(outboundCall?.callId)}
                       className={iconBtn}
                     >
                       <Phone className="h-5 w-5" strokeWidth={2} />
@@ -1015,7 +1150,8 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.callVideo')}
-                      onClick={() => toast(t('friendChat.callVideoSoon'), { icon: '📹' })}
+                      onClick={() => startFriendCall('video')}
+                      disabled={Boolean(outboundCall?.callId)}
                       className={iconBtn}
                     >
                       <Video className="h-5 w-5" strokeWidth={2} />
@@ -1047,6 +1183,26 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     </button>
                   </div>
                 </div>
+                {outboundCall?.callId && (
+                  <div
+                    className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      isDarkMode
+                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                        : 'border-amber-300 bg-amber-50 text-amber-950'
+                    }`}
+                  >
+                    <span>{t('friendChat.callRinging')}</span>
+                    <button
+                      type="button"
+                      onClick={cancelOutboundCall}
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                        isDarkMode ? 'bg-zinc-800 text-amber-100 hover:bg-zinc-700' : 'bg-white text-amber-900 hover:bg-amber-100'
+                      }`}
+                    >
+                      {t('friendChat.cancelCall')}
+                    </button>
+                  </div>
+                )}
                 <div className="mt-3 space-y-2">
                   <PageSearchBar
                     className="max-w-xl"

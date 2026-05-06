@@ -2,6 +2,7 @@ const express = require('express');
 const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
 const gatewayUserMiddleware = require('./middlewares/gatewayUser');
 const { mongoose } = require('/shared/config/mongo');
+require('./models/CallSession');
 
 const app = express();
 

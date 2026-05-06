@@ -5,7 +5,7 @@ const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = requir
 const { getRedisClient } = require('/shared');
 const emailService = require('../utils/email');
 const crypto = require('crypto');
-const mongoose = require('mongoose');
+const { mongoose } = require('/shared/config/mongo');
 const axios = require('axios');
 
 async function ensureMongoReady(scope = 'AUTH') {

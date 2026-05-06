@@ -253,6 +253,14 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
     if (did) setSelectedDeptId(did);
   }, [searchParams]);
 
+  /** Cuộc gọi bạn bè: gọi thoại → tắt video ở prejoin */
+  useEffect(() => {
+    const m = searchParams.get('friendCallMedia');
+    if (m === 'audio') {
+      setPrejoinVideoEnabled(false);
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     if (viewStage !== 'prejoin' || roomKind !== 'org') return undefined;
     let cancelled = false;
@@ -1030,6 +1038,10 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
         if (selectedOrgId) qs.set('orgId', selectedOrgId);
         if (selectedDeptId) qs.set('deptId', selectedDeptId);
       }
+      const cid = searchParams.get('callId');
+      if (cid) qs.set('callId', cid);
+      const fcm = searchParams.get('friendCallMedia');
+      if (fcm) qs.set('friendCallMedia', fcm);
       navigate(`/voice/${encodeURIComponent(roomTarget)}?${qs.toString()}`, { replace: true });
     } catch (initError) {
       console.error(initError);
@@ -1043,6 +1055,15 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
 
   const leaveRoom = async () => {
     try {
+      const friendCallId = searchParams.get('callId');
+      if (friendCallId && !landingDemo) {
+        try {
+          await api.post(`/voice/calls/${encodeURIComponent(friendCallId)}/end`);
+        } catch {
+          /* ignore — vẫn rời phòng */
+        }
+      }
+
       const { socket, audioProducer, videoProducer, sendTransport, recvTransport, consumers, localStream } =
         mediasoupRef.current;
 

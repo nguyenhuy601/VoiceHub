@@ -12,9 +12,9 @@ const DEPENDENCY_RETRY_MS = Math.max(2000, Number(process.env.VOICE_DEPENDENCY_R
 
 const server = http.createServer(app);
 const isProd = process.env.NODE_ENV === 'production';
-const corsList = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000')
+const corsList = String(process.env.CORS_ORIGIN || '')
   .split(',')
-  .map((item) => item.trim())
+  .map((item) => item.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
   .filter(Boolean);
 const voiceSocketCors =
   corsList.length === 0 ? (isProd ? false : true) : corsList.length === 1 ? corsList[0] : corsList;

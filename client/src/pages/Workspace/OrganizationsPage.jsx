@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import toast from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
@@ -187,6 +187,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
   const [workspaceTasks, setWorkspaceTasks] = useState([]);
   const [loadingWorkspaceTasks, setLoadingWorkspaceTasks] = useState(false);
   const [workspaceTabView, setWorkspaceTabView] = useState('chat');
+  const previousVoiceChannelIdRef = useRef('');
   const hasInviteQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return Boolean(params.get('orgId') || params.get('inviteOrgId') || params.get('inviteToken'));
@@ -238,6 +239,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     () => channels.find((ch) => String(ch._id) === String(selectedChannelId)) || null,
     [channels, selectedChannelId]
   );
+  const selectedChannelType = String(selectedChannel?.type || '').toLowerCase();
   const selectedBranch = useMemo(
     () => workspaceStructure.find((branch) => String(branch._id) === String(selectedBranchId)) || null,
     [workspaceStructure, selectedBranchId]
@@ -1707,10 +1709,58 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
 
   useEffect(() => {
     if (landingDemo) return;
-    if (selectedOrganizationId) {
-      loadMessages(selectedChannelId);
+    if (!selectedOrganizationId) return;
+    if (!selectedChannelId) {
+      setMessages([]);
+      return;
     }
-  }, [selectedOrganizationId, selectedChannelId, landingDemo]);
+    if (selectedChannel?.type === 'voice') {
+      setLoadingMessages(false);
+      setMessages([]);
+      return;
+    }
+    loadMessages(selectedChannelId);
+  }, [selectedOrganizationId, selectedChannelId, selectedChannel?.type, landingDemo]);
+
+  useEffect(() => {
+    if (landingDemo) return;
+    if (selectedChannelType !== 'voice') {
+      previousVoiceChannelIdRef.current = '';
+      return;
+    }
+    const currentVoiceId = String(selectedChannelId || '');
+    const previousVoiceId = String(previousVoiceChannelIdRef.current || '');
+    if (previousVoiceId && previousVoiceId !== currentVoiceId) {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const now = ctx.currentTime;
+          const o1 = ctx.createOscillator();
+          const o2 = ctx.createOscillator();
+          const gain = ctx.createGain();
+          o1.type = 'sine';
+          o2.type = 'sine';
+          o1.frequency.setValueAtTime(740, now);
+          o2.frequency.setValueAtTime(980, now + 0.06);
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+          o1.connect(gain);
+          o2.connect(gain);
+          gain.connect(ctx.destination);
+          o1.start(now);
+          o1.stop(now + 0.08);
+          o2.start(now + 0.06);
+          o2.stop(now + 0.18);
+          window.setTimeout(() => ctx.close().catch(() => {}), 260);
+        }
+      } catch {
+        // Không chặn luồng đổi kênh nếu âm báo thất bại.
+      }
+    }
+    previousVoiceChannelIdRef.current = currentVoiceId;
+  }, [selectedChannelType, selectedChannelId, landingDemo]);
 
   useEffect(() => {
     if (landingDemo) return;
@@ -1853,6 +1903,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         center={
           <div className={orgCenterShell}>
           <OrganizationMainPanel
+            landingDemo={landingDemo}
             workspaceTabView={workspaceTabView}
             selectedOrganization={selectedOrganization}
             departments={sidebarDepartments}
@@ -1875,6 +1926,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             loadingMessages={loadingMessages}
             sendingMessage={sendingMessage}
             currentUserId={user?.userId || user?._id || user?.id}
+            currentUser={user}
             onSelectChannel={handleSelectChannel}
             onSelectDepartment={handleSelectDepartment}
             onSelectTeam={setSelectedTeamId}
@@ -1913,6 +1965,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
               String(selectedOrganization?.myRole || '').toLowerCase()
             )}
             onWorkspaceTabChange={setWorkspaceTabView}
+            onDisconnectVoice={() => setSelectedChannelId('')}
           />
           </div>
         }

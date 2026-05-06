@@ -3,7 +3,11 @@ import toast from 'react-hot-toast';
 import { getToken, removeToken } from '../../utils/tokenStorage';
 import { mapAuthSessionMessageForLogout } from '../../utils/authErrorMessages';
 import { isAutoLogoutDisabled } from '../../utils/devAuth';
-import { isLandingEmbedActive, isWriteHttpMethod } from '../../utils/landingEmbedMode';
+import {
+  isLandingEmbedActive,
+  isLandingEmbedWriteGuardActive,
+  isWriteHttpMethod,
+} from '../../utils/landingEmbedMode';
 
 /** Từ chối im lặng mọi lỗi HTTP khi đang xem demo landing — không đụng toast/redirect */
 function rejectLandingEmbedSilent(error) {
@@ -61,7 +65,7 @@ const apiClient = axios.create({
 // Request interceptor - Add auth token
 apiClient.interceptors.request.use(
   (config) => {
-    if (isLandingEmbedActive() && isWriteHttpMethod(config.method)) {
+    if (isLandingEmbedWriteGuardActive() && isWriteHttpMethod(config.method)) {
       toast('Chế độ demo — không ghi dữ liệu lên server.', { icon: '🔒', duration: 2800 });
       const block = new Error('LANDING_EMBED_WRITE_BLOCKED');
       block.code = 'LANDING_EMBED_WRITE_BLOCKED';
