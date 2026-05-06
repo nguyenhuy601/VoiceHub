@@ -20,18 +20,35 @@ const apiLimiter = rateLimit({
 app.use(apiLimiter);
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function toOriginMatcher(rule) {
+  const normalized = String(rule || '').replace(/\/+$/, '').trim();
+  if (!normalized) return null;
+  if (normalized === '*') return () => true;
+  if (!normalized.includes('*')) {
+    return (origin) => origin.replace(/\/+$/, '') === normalized;
+  }
+  const pattern = '^' + escapeRegExp(normalized).replace(/\\\*/g, '.*') + '$';
+  const regex = new RegExp(pattern);
+  return (origin) => regex.test(origin.replace(/\/+$/, ''));
+}
+
 const isProd = process.env.NODE_ENV === 'production';
-const corsAllowList = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000')
+const corsAllowList = String(process.env.CORS_ORIGIN || '')
   .split(',')
   .map((o) => o.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
   .filter(Boolean);
+const corsMatchers = corsAllowList.map(toOriginMatcher).filter(Boolean);
 
 // Middleware — production: chỉ origin trong whitelist; dev: cho phép không có Origin (mobile/curl)
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (corsAllowList.includes(origin)) return callback(null, true);
+      if (corsMatchers.some((match) => match(origin))) return callback(null, true);
       if (!isProd) return callback(null, true);
       return callback(new Error('CORS blocked'));
     },

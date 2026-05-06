@@ -270,7 +270,7 @@ function AuthProvider({ children }) {
       // Xử lý timeout - request vượt quá 60 giây
       if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
         const duration = Date.now() - startTime;
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+        const API_URL = import.meta.env.VITE_API_URL || '/api';
         const message = `Yêu cầu quá thời gian chờ (60s). Backend không phản hồi.\n\nVui lòng kiểm tra:\n1. API Gateway có đang chạy tại ${API_URL}?\n2. Auth Service có đang chạy không?\n3. Kiểm tra logs backend để xem có lỗi không`;
         toast.error(message, { duration: 7000 });
         console.error('[AuthContext] ❌ Request timeout - backend may be slow or unresponsive');

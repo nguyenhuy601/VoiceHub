@@ -18,7 +18,11 @@ import axios from 'axios';
 import { getToken, removeToken } from '../utils/tokenStorage';
 import { mapAuthSessionMessageForLogout } from '../utils/authErrorMessages';
 import { isAutoLogoutDisabled } from '../utils/devAuth';
-import { isLandingEmbedActive, isWriteHttpMethod } from '../utils/landingEmbedMode';
+import {
+  isLandingEmbedActive,
+  isLandingEmbedWriteGuardActive,
+  isWriteHttpMethod,
+} from '../utils/landingEmbedMode';
 
 // Import toast để show error notifications
 import toast from 'react-hot-toast';
@@ -79,7 +83,7 @@ const api = axios.create({
 api.interceptors.request.use(
   // Success handler: modify config trước khi gửi
   (config) => {
-    if (isLandingEmbedActive() && isWriteHttpMethod(config.method)) {
+    if (isLandingEmbedWriteGuardActive() && isWriteHttpMethod(config.method)) {
       toast('Chế độ demo — không ghi dữ liệu lên server.', { icon: '🔒', duration: 2800 });
       const block = new Error('LANDING_EMBED_WRITE_BLOCKED');
       block.code = 'LANDING_EMBED_WRITE_BLOCKED';

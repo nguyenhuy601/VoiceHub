@@ -12,6 +12,10 @@ router.delete(
 
 router.use(authenticate);
 
+// Cuộc gọi 1-1 bạn bè — đặt trước route động `/:meetingId`
+const callRoutes = require('./call.routes');
+router.use(callRoutes);
+
 // Tạo meeting mới
 router.post('/', meetingController.createMeeting.bind(meetingController));
 

@@ -5,7 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
 import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
-import { Bell, CheckSquare2, Filter, Hash, Home, LayoutGrid, List, Plus, Search, Settings, Zap } from 'lucide-react';
+import { Bell, CheckSquare2, Filter, Hash, Home, LayoutGrid, List, Mic, MicOff, PhoneOff, Plus, Search, Settings, Volume2, VolumeX, Zap } from 'lucide-react';
 import { Modal } from '../Shared';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
@@ -17,6 +17,7 @@ import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlaceme
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
 import OrgWorkspaceSearch from '../../features/search/components/OrgWorkspaceSearch';
+import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
 
 function messageDayKey(iso) {
   if (!iso) return '';
@@ -37,7 +38,17 @@ function senderInitials(message) {
   return 'TV';
 }
 
+function userInitialsFromProfile(user) {
+  const name =
+    user?.displayName || user?.fullName || user?.username || user?.email?.split?.('@')?.[0] || '';
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'U';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+}
+
 const OrganizationMainPanel = ({
+  landingDemo = false,
   workspaceTabView = 'chat',
   selectedOrganization,
   departments = [],
@@ -60,6 +71,7 @@ const OrganizationMainPanel = ({
   loadingMessages = false,
   sendingMessage = false,
   currentUserId,
+  currentUser = null,
   onSelectChannel,
   onSelectDepartment,
   onSelectTeam,
@@ -91,6 +103,7 @@ const OrganizationMainPanel = ({
   onInviteOrganization,
   canInviteMembers = false,
   onWorkspaceTabChange,
+  onDisconnectVoice,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -149,6 +162,16 @@ const OrganizationMainPanel = ({
     textChannels: true,
     voiceChannels: true,
   });
+  const [voiceConnectionState, setVoiceConnectionState] = useState('idle'); // idle | connecting | connected | error
+  const [voiceAudioState, setVoiceAudioState] = useState({
+    isMuted: false,
+    isSpeakerOff: false,
+    canToggleMute: false,
+  });
+  const voiceControlActionsRef = useRef({
+    toggleMute: null,
+    toggleSpeaker: null,
+  });
 
   const openWorkspaceChat = () => {
     setWorkspaceTab('chat');
@@ -169,8 +192,6 @@ const OrganizationMainPanel = ({
     : channels;
   const chatChannels = scopedChannels.filter((channel) => channel.type !== 'voice');
   const voiceChannels = scopedChannels.filter((channel) => channel.type === 'voice');
-  const selectedChannel = scopedChannels.find((channel) => channel._id === selectedChannelId) || null;
-  const selectedTeam = teams.find((team) => String(team._id) === String(selectedTeamId)) || null;
   const getChannelPerm = (channelId) => {
     const row = channelPermissionMatrix?.[String(channelId)] || null;
     return {
@@ -179,6 +200,26 @@ const OrganizationMainPanel = ({
       canVoice: Boolean(row?.canVoice),
     };
   };
+  const selectedChannel = scopedChannels.find((channel) => channel._id === selectedChannelId) || null;
+  const isVoiceChannel = selectedChannel?.type === 'voice';
+  const canVoiceChannel = Boolean(getChannelPerm(selectedChannelId).canVoice);
+  const selectedTeam = teams.find((team) => String(team._id) === String(selectedTeamId)) || null;
+  const voiceConnVisible = isVoiceChannel && canVoiceChannel;
+  const voiceConnConnected = voiceConnectionState === 'connected';
+  const currentUserName =
+    currentUser?.displayName ||
+    currentUser?.fullName ||
+    currentUser?.username ||
+    currentUser?.email?.split?.('@')?.[0] ||
+    t('orgPanel.you');
+  const currentUserAvatar = currentUser?.avatar || currentUser?.profile?.avatar || null;
+  useEffect(() => {
+    if (!isVoiceChannel || !canVoiceChannel) {
+      setVoiceConnectionState('idle');
+      setVoiceAudioState({ isMuted: false, isSpeakerOff: false, canToggleMute: false });
+      voiceControlActionsRef.current = { toggleMute: null, toggleSpeaker: null };
+    }
+  }, [isVoiceChannel, canVoiceChannel, selectedChannelId]);
   const canTeamReadAnyChannel = (teamId) =>
     channels.some(
       (channel) =>
@@ -720,62 +761,145 @@ const OrganizationMainPanel = ({
           </div>
 
 
-          <div
-            className={`shrink-0 border-t px-3 py-2 ${
-              isDarkMode ? 'border-white/10 bg-emerald-500/10' : 'border-slate-200 bg-emerald-50'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className={`truncate text-xs font-semibold ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                  ● Đã kết nối
+          {voiceConnVisible ? (
+            <div
+              className={`shrink-0 border-t px-3 py-2 ${
+                isDarkMode ? 'border-white/10 bg-emerald-500/10' : 'border-slate-200 bg-emerald-50'
+              }`}
+            >
+              <div className="rounded-xl border border-white/10 bg-black/20 p-2.5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className={`truncate text-xs font-semibold ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                      ●{' '}
+                      {voiceConnConnected
+                        ? t('orgPanel.voiceConnectedNow')
+                        : voiceConnectionState === 'connecting'
+                          ? t('orgPanel.voiceConnecting')
+                          : t('orgPanel.voiceDisconnected')}
+                    </div>
+                    <div className={`truncate text-[10px] ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                      {selectedChannel?.name
+                        ? channelNameToDisplaySlug(selectedChannel.name, locale)
+                        : t('organizations.channelNameFallback')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`rounded-full p-2 transition ${
+                      isDarkMode
+                        ? 'bg-white/10 text-slate-100 hover:bg-rose-500/25 hover:text-rose-200'
+                        : 'bg-white text-slate-700 shadow-sm hover:bg-rose-100 hover:text-rose-700'
+                    }`}
+                    aria-label={t('orgPanel.voiceDisconnect')}
+                    title={t('orgPanel.voiceDisconnect')}
+                    onClick={() => {
+                      setVoiceConnectionState('idle');
+                      onDisconnectVoice?.();
+                    }}
+                  >
+                    <PhoneOff className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className={`truncate text-[10px] ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                  {selectedOrganization?.name ? `Phòng họp 1 - ${selectedOrganization.name}` : 'Phòng họp 1'}
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.04] px-2 py-1.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="h-8 w-8 overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600">
+                      {currentUserAvatar && String(currentUserAvatar).startsWith('http') ? (
+                        <img src={currentUserAvatar} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
+                          {userInitialsFromProfile(currentUser)}
+                        </div>
+                      )}
+                    </div>
+                    <div className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      {currentUserName}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={!voiceAudioState.canToggleMute}
+                      onClick={() => voiceControlActionsRef.current.toggleMute?.()}
+                      title={voiceAudioState.isMuted ? t('orgPanel.voiceUnmute') : t('orgPanel.voiceMute')}
+                      className={`rounded-md p-1.5 transition ${
+                        voiceAudioState.isMuted
+                          ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
+                          : isDarkMode
+                            ? 'text-slate-200 hover:bg-white/10'
+                            : 'text-slate-600 hover:bg-slate-200'
+                      } disabled:opacity-40`}
+                    >
+                      {voiceAudioState.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => voiceControlActionsRef.current.toggleSpeaker?.()}
+                      title={voiceAudioState.isSpeakerOff ? t('orgPanel.voiceSpeakerOn') : t('orgPanel.voiceSpeakerOff')}
+                      className={`rounded-md p-1.5 transition ${
+                        voiceAudioState.isSpeakerOff
+                          ? 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                          : isDarkMode
+                            ? 'text-slate-200 hover:bg-white/10'
+                            : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {voiceAudioState.isSpeakerOff ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-md p-1.5 transition ${
+                        isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                      aria-label="Cài đặt tổ chức"
+                      title="Cài đặt tổ chức"
+                      onClick={() => onOpenOrganizationSettings?.(selectedOrganization)}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className={`rounded-md p-1 transition ${
-                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
-                  }`}
-                  aria-label="Mic"
-                  title="Mic"
-                >
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z" />
-                    <path d="M19 11a7 7 0 0 1-14 0" />
-                    <path d="M12 18v3" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-md p-1 transition ${
-                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
-                  }`}
-                  aria-label="Headset"
-                  title="Headset"
-                >
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 12a8 8 0 0 1 16 0v6a2 2 0 0 1-2 2h-1v-6h3" />
-                    <path d="M4 12v8h3v-6H6a2 2 0 0 0-2 2" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-md p-1 transition ${
-                    isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
-                  }`}
-                  aria-label="Cài đặt tổ chức"
-                  title="Cài đặt tổ chức"
-                  onClick={() => onOpenOrganizationSettings?.(selectedOrganization)}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className={`shrink-0 border-t px-3 py-2 ${isDarkMode ? 'border-white/10 bg-[#0f1218]' : 'border-slate-200 bg-slate-50'}`}>
+              <div className={`flex items-center justify-between rounded-xl px-2 py-1.5 ${isDarkMode ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="h-8 w-8 overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600">
+                    {currentUserAvatar && String(currentUserAvatar).startsWith('http') ? (
+                      <img src={currentUserAvatar} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
+                        {userInitialsFromProfile(currentUser)}
+                      </div>
+                    )}
+                  </div>
+                  <div className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                    {currentUserName}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button type="button" className={`rounded-md p-1.5 ${isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'}`}>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z" /><path d="M19 11a7 7 0 0 1-14 0" /></svg>
+                  </button>
+                  <button type="button" className={`rounded-md p-1.5 ${isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'}`}>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12a8 8 0 0 1 16 0v6a2 2 0 0 1-2 2h-1v-6h3" /><path d="M4 12v8h3v-6H6a2 2 0 0 0-2 2" /></svg>
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-md p-1.5 transition ${
+                      isDarkMode ? 'text-slate-200 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'
+                    }`}
+                    aria-label="Cài đặt tổ chức"
+                    title="Cài đặt tổ chức"
+                    onClick={() => onOpenOrganizationSettings?.(selectedOrganization)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </aside>
 
         <div className={workspace.main}>
@@ -802,7 +926,11 @@ const OrganizationMainPanel = ({
                   {workspaceTab === 'tasks'
                     ? '#cong-viec'
                     : t('orgPanel.channelHash', {
-                        name: chSlug || t('organizations.channelNameFallback'),
+                        name: isVoiceChannel
+                          ? chSlug
+                            ? `🔊 ${chSlug}`
+                            : t('organizations.channelNameFallback')
+                          : chSlug || t('organizations.channelNameFallback'),
                       })}
                 </span>
               </nav>
@@ -867,10 +995,12 @@ const OrganizationMainPanel = ({
             <p className={`text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
               {workspaceTab === 'tasks'
                 ? `${workspaceTasks.length} tasks`
-                : t('orgPanel.msgCountLine', { n: messages.length })}
+                : isVoiceChannel
+                  ? t('orgPanel.voiceChannelSubtitle')
+                  : t('orgPanel.msgCountLine', { n: messages.length })}
             </p>
             <p className={`hidden max-w-[min(100%,280px)] text-right text-xs sm:block ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-400'}`}>
-              {t('orgPanel.searchHintAbove')}
+              {isVoiceChannel ? '\u00a0' : t('orgPanel.searchHintAbove')}
             </p>
           </div>
 
@@ -989,6 +1119,28 @@ const OrganizationMainPanel = ({
                     />
                   )}
                 </div>
+              ) : isVoiceChannel ? (
+                selectedChannelId && (
+                  <OrganizationVoiceChannelView
+                    channelId={String(selectedChannelId)}
+                    channelDisplayName={
+                      selectedChannel?.name
+                        ? channelNameToDisplaySlug(selectedChannel.name, locale)
+                        : ''
+                    }
+                    isDarkMode={isDarkMode}
+                    canVoice={canVoiceChannel}
+                    landingDemo={landingDemo}
+                    onConnectionStateChange={setVoiceConnectionState}
+                    onAudioStateChange={setVoiceAudioState}
+                    onControlActionsReady={(actions) => {
+                      voiceControlActionsRef.current = actions || {
+                        toggleMute: null,
+                        toggleSpeaker: null,
+                      };
+                    }}
+                  />
+                )
               ) : (
               <>
               {loadingMessages && (
@@ -1233,7 +1385,7 @@ const OrganizationMainPanel = ({
               )}
             </div>
 
-            {workspaceTab !== 'tasks' && (
+            {workspaceTab !== 'tasks' && !isVoiceChannel && (
             <div className={workspace.composerBar}>
               <ChatUploadProgressBar
                 percent={channelUploadProgress}
