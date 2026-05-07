@@ -1,3 +1,5 @@
+import friendService from '../../services/friendService';
+
 /**
  * Hiển thị tin nhắn file/hình: thẻ tệp thay vì chuỗi URL Firebase dài.
  */
@@ -189,6 +191,50 @@ export function ChatMessageAttachmentBody({ message }) {
   const content = message?.content;
   const fm = message?.fileMeta;
   const mt = message?.messageType || 'text';
+
+  if (mt === 'business_card') {
+    let card = {};
+    try {
+      card = typeof content === 'string' ? JSON.parse(content) : content || {};
+    } catch {
+      card = { fullName: String(content || '') };
+    }
+    const targetUserId = card.userId || card.id || card.memberId || '';
+    const title = card.fullName || card.name || 'Business card';
+    const subtitle = card.phone || card.email || 'VoiceHub contact';
+    return (
+      <div className="min-w-[220px] rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-sm font-bold text-white">
+            {String(title).slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">{title}</div>
+            <div className="truncate text-xs text-cyan-100/75">{subtitle}</div>
+          </div>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            disabled={!targetUserId}
+            onClick={() => targetUserId && friendService.sendRequest(targetUserId).catch(() => {})}
+            className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-cyan-500 disabled:opacity-50"
+          >
+            Kết bạn
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/chat/friends';
+            }}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+          >
+            Nhắn tin
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (mt === 'image' && isHttpUrl(content)) {
     const alt = resolveDisplayFileName(fm, content) || 'Hình ảnh';

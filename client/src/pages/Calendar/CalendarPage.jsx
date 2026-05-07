@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { appShellBg } from '../../theme/shellTheme';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
@@ -30,6 +30,8 @@ function parseTimeInputToDisplay(hhmm, loc) {
 
 function CalendarPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const organizationId = searchParams.get('organizationId') || '';
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
@@ -62,7 +64,7 @@ function CalendarPage() {
     tasksForAlerts,
     reloadLocal,
     refetch,
-  } = useCalendarFeed(selectedDate);
+  } = useCalendarFeed(selectedDate, organizationId);
 
   useTaskDueAlerts(tasksForAlerts, {
     enabled: true,
@@ -137,8 +139,16 @@ function CalendarPage() {
     });
   };
 
-  const openCreateModal = () => {
+  const openCreateModal = (prefilledTitle = null) => {
     resetEventForm();
+    const dateStr = toDateKey(selectedDate);
+    const title = prefilledTitle || `${t('calendar.newEventDefault', { date: dateStr })}`;
+    setEventForm((prev) => ({
+      ...prev,
+      date: dateStr,
+      time: '09:00',
+      title: title,
+    }));
     setShowCreateEventModal(true);
   };
 
@@ -585,6 +595,10 @@ function CalendarPage() {
                       tabIndex={0}
                       onClick={() => {
                         setSelectedDate(date);
+                        // When clicking a date cell, open create modal with pre-filled event name
+                        const dateStr = toDateKey(date);
+                        const eventTitle = `${t('calendar.newEventDefault', { date: dateStr })}`;
+                        openCreateModal(eventTitle);
                         if (dayEvents.length > 0) {
                           toast(
                             t('calendar.toastDayEvents', {

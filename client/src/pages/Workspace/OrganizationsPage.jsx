@@ -22,6 +22,17 @@ import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/org
 
 const unwrapData = (payload) => payload?.data ?? payload;
 
+const parseNotificationData = (item) => {
+  if (!item || typeof item !== 'object') return { data: {} };
+  if (item.data && typeof item.data === 'object') return item;
+  if (typeof item.data !== 'string') return { ...item, data: {} };
+  try {
+    return { ...item, data: JSON.parse(item.data) };
+  } catch {
+    return { ...item, data: {} };
+  }
+};
+
 function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = {}) {
   const { t, locale } = useAppStrings();
   const { user } = useAuth();
@@ -187,6 +198,9 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
   const [workspaceTasks, setWorkspaceTasks] = useState([]);
   const [loadingWorkspaceTasks, setLoadingWorkspaceTasks] = useState(false);
   const [workspaceTabView, setWorkspaceTabView] = useState('chat');
+  const [workspaceNotificationsOpen, setWorkspaceNotificationsOpen] = useState(false);
+  const [workspaceNotifications, setWorkspaceNotifications] = useState([]);
+  const [loadingWorkspaceNotifications, setLoadingWorkspaceNotifications] = useState(false);
   const previousVoiceChannelIdRef = useRef('');
   const hasInviteQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -753,6 +767,26 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
   };
 
+  const openWorkspaceNotifications = async () => {
+    if (!selectedOrganizationId) return;
+    setWorkspaceNotificationsOpen(true);
+    setLoadingWorkspaceNotifications(true);
+    try {
+      const response = await api.get('/notifications', {
+        params: { organizationId: selectedOrganizationId, limit: 50 },
+      });
+      const body = response?.data ?? response;
+      const inner = body?.data ?? body;
+      const list = Array.isArray(inner?.notifications) ? inner.notifications : [];
+      setWorkspaceNotifications(list.map(parseNotificationData));
+    } catch (error) {
+      setWorkspaceNotifications([]);
+      notifyError(error?.response?.data?.message || t('notifications.loadFail'));
+    } finally {
+      setLoadingWorkspaceNotifications(false);
+    }
+  };
+
   const handleMoveWorkspaceTask = async (task, nextStatus) => {
     if (!task?._id || !selectedOrganizationId) return;
     const taskId = String(task._id);
@@ -771,6 +805,29 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         prev.map((t) => (String(t._id) === taskId ? { ...t, status: previousStatus } : t))
       );
       notifyError(t('tasks.toastMoveFail'));
+    }
+  };
+
+  const handleCreateWorkspaceTask = async (taskData) => {
+    if (!selectedOrganizationId) return;
+    try {
+      const payload = {
+        ...taskData,
+        organizationId: selectedOrganizationId,
+        serverId: selectedOrganizationId,
+      };
+      const created = await taskAPI.createTask(payload);
+      const body = created?.data ?? created;
+      const task = body?.data ?? body;
+      if (task && (task._id || task.id)) {
+        setWorkspaceTasks((prev) => [task, ...prev]);
+      } else {
+        await loadWorkspaceTasks(selectedOrganizationId);
+      }
+      notifySuccess(t('tasks.toastCreated') || 'Task created');
+    } catch (error) {
+      notifyError(error?.response?.data?.message || error?.message || t('tasks.toastCreateFail'));
+      throw error;
     }
   };
 
@@ -1473,11 +1530,12 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       }
       return;
     } else if (kind === 'contact') {
-      messageType = 'system';
-      content = t('organizations.contactCard', {
-        fullName: payload?.fullName || '-',
-        phone: payload?.phone || '-',
-        email: payload?.email || '-',
+      messageType = 'business_card';
+      content = JSON.stringify({
+        userId: payload?.userId || '',
+        fullName: payload?.fullName || '',
+        phone: payload?.phone || '',
+        email: payload?.email || '',
       });
     } else if (kind === 'poll') {
       messageType = 'system';
@@ -1486,6 +1544,9 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         q: payload?.question || '',
         options: options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n'),
       });
+    } else if (kind === 'topic') {
+      messageType = 'system';
+      content = `Topic: ${messageInput?.trim() || selectedChannel?.name || selectedOrganization?.name || ''}`;
     } else {
       return;
     }
@@ -1930,7 +1991,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             onSelectChannel={handleSelectChannel}
             onSelectDepartment={handleSelectDepartment}
             onSelectTeam={setSelectedTeamId}
-            onOpenNotificationsPage={() => navigate('/notifications')}
+            onOpenNotificationsPage={openWorkspaceNotifications}
             onCreateDivision={handleCreateDivision}
             onCreateDepartment={handleCreateDepartment}
             onCreateTeam={handleCreateTeam}
@@ -1959,9 +2020,13 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             workspaceTasks={workspaceTasks}
             loadingWorkspaceTasks={loadingWorkspaceTasks}
             onMoveWorkspaceTask={handleMoveWorkspaceTask}
+            onCreateWorkspaceTask={handleCreateWorkspaceTask}
             onOpenOrganizationSettings={handleOpenOrganizationSettingsModal}
             onInviteOrganization={handleInviteOrganization}
             canInviteMembers={['owner', 'admin', 'hr'].includes(
+              String(selectedOrganization?.myRole || '').toLowerCase()
+            )}
+            canManageWorkspaceStructure={['owner', 'admin'].includes(
               String(selectedOrganization?.myRole || '').toLowerCase()
             )}
             onWorkspaceTabChange={setWorkspaceTabView}
@@ -1998,6 +2063,64 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         }
         rightWidth="w-[280px]"
       />
+      {workspaceNotificationsOpen && (
+        <Modal
+          isOpen={workspaceNotificationsOpen}
+          onClose={() => setWorkspaceNotificationsOpen(false)}
+          title={`Thong bao - ${selectedOrganization?.name || ''}`}
+          size="lg"
+        >
+          <div className="space-y-3">
+            {loadingWorkspaceNotifications ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-gray-300">
+                Dang tai thong bao...
+              </div>
+            ) : workspaceNotifications.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-5 text-sm text-gray-400">
+                Chua co thong bao trong to chuc nay.
+              </div>
+            ) : (
+              workspaceNotifications.map((item) => (
+                <button
+                  key={item._id || item.id}
+                  type="button"
+                  onClick={() => {
+                    const data = item.data || {};
+                    if (item.type === 'document' || data.documentId) {
+                      navigate(`/documents?organizationId=${encodeURIComponent(selectedOrganizationId)}`);
+                    } else if (item.type === 'task_assigned' || item.type === 'task_completed' || data.taskId) {
+                      navigate(`/w/${encodeURIComponent(selectedOrganization?.slug || selectedOrganizationId)}?tab=tasks`);
+                    } else {
+                      navigate(`/w/${encodeURIComponent(selectedOrganization?.slug || selectedOrganizationId)}`);
+                    }
+                    setWorkspaceNotificationsOpen(false);
+                  }}
+                  className="block w-full rounded-xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.07]"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">
+                        {item.title || t('notifications.defaultTitle')}
+                      </div>
+                      {(item.organizationName || item.data?.organizationName || item.data?.workspaceName) && (
+                        <div className="mt-1 truncate text-[11px] uppercase tracking-wide text-cyan-300">
+                          {item.organizationName || item.data?.workspaceName || item.data?.organizationName}
+                        </div>
+                      )}
+                      <div className="mt-1 line-clamp-2 text-sm text-gray-400">
+                        {item.content || item.message || ''}
+                      </div>
+                    </div>
+                    {!item.isRead ? (
+                      <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-400" />
+                    ) : null}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </Modal>
+      )}
       {leaveOrgModalOpen && (
         <Modal
           isOpen={leaveOrgModalOpen}

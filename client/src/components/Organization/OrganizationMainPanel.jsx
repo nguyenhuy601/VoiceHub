@@ -99,9 +99,11 @@ const OrganizationMainPanel = ({
   workspaceTasks = [],
   loadingWorkspaceTasks = false,
   onMoveWorkspaceTask,
+  onCreateWorkspaceTask,
   onOpenOrganizationSettings,
   onInviteOrganization,
   canInviteMembers = false,
+  canManageWorkspaceStructure = false,
   onWorkspaceTabChange,
   onDisconnectVoice,
 }) => {
@@ -140,6 +142,10 @@ const OrganizationMainPanel = ({
   const [contactSearch, setContactSearch] = useState('');
   const [contactCategory, setContactCategory] = useState('all');
   const [selectedContactId, setSelectedContactId] = useState('');
+  const [useManualContactEntry, setUseManualContactEntry] = useState(false);
+  const [manualContactFullName, setManualContactFullName] = useState('');
+  const [manualContactPhone, setManualContactPhone] = useState('');
+  const [manualContactEmail, setManualContactEmail] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
@@ -156,6 +162,16 @@ const OrganizationMainPanel = ({
   const [workspaceTab, setWorkspaceTab] = useState(workspaceTabView === 'tasks' ? 'tasks' : 'chat');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [taskDepartmentFilter, setTaskDepartmentFilter] = useState('all');
+  const [taskCreateOpen, setTaskCreateOpen] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    dueDate: '',
+    priority: 'medium',
+    assigneeId: '',
+    departmentId: '',
+  });
   const [sidebarOpen, setSidebarOpen] = useState({
     departments: true,
     teams: true,
@@ -382,6 +398,10 @@ const OrganizationMainPanel = ({
     setContactSearch('');
     setContactCategory('all');
     setSelectedContactId('');
+    setUseManualContactEntry(false);
+    setManualContactFullName('');
+    setManualContactPhone('');
+    setManualContactEmail('');
     setIsContactModalOpen(true);
   };
 
@@ -459,17 +479,76 @@ const OrganizationMainPanel = ({
   };
 
   const handleSubmitContact = () => {
-    const selected = normalizedContacts.find((item) => item.id === selectedContactId);
-    if (!selected) return;
-    onSendChatOption?.({
-      kind: 'contact',
-      payload: {
+    let payload = {};
+    
+    if (useManualContactEntry) {
+      // Manual entry mode
+      const fullName = manualContactFullName.trim();
+      if (!fullName) return;
+      payload = {
+        userId: `manual-${Date.now()}`, // Generate a temporary ID for manual entries
+        fullName,
+        phone: manualContactPhone.trim(),
+        email: manualContactEmail.trim(),
+      };
+    } else {
+      // List selection mode
+      const selected = normalizedContacts.find((item) => item.id === selectedContactId);
+      if (!selected) return;
+      payload = {
+        userId: selected.id,
         fullName: selected.name,
         phone: selected.phone,
         email: selected.email,
-      },
+      };
+    }
+    
+    onSendChatOption?.({
+      kind: 'contact',
+      payload,
     });
     setIsContactModalOpen(false);
+  };
+
+  const openTaskCreateModal = () => {
+    const firstDepartmentId =
+      taskDepartmentFilter !== 'all'
+        ? taskDepartmentFilter
+        : String(selectedDepartment?._id || departments?.[0]?._id || '');
+    setTaskForm({
+      title: '',
+      description: '',
+      dueDate: '',
+      priority: 'medium',
+      assigneeId: '',
+      departmentId: firstDepartmentId,
+    });
+    setTaskCreateOpen(true);
+  };
+
+  const submitWorkspaceTask = async () => {
+    const title = String(taskForm.title || '').trim();
+    if (!title || creatingTask) return;
+    setCreatingTask(true);
+    try {
+      const department = departments.find(
+        (item) => String(item._id) === String(taskForm.departmentId)
+      );
+      await onCreateWorkspaceTask?.({
+        title,
+        description: String(taskForm.description || '').trim(),
+        dueDate: taskForm.dueDate
+          ? new Date(`${taskForm.dueDate}T23:59:00`).toISOString()
+          : undefined,
+        priority: taskForm.priority || 'medium',
+        assigneeId: taskForm.assigneeId || undefined,
+        departmentId: taskForm.departmentId || undefined,
+        departmentName: department?.name || undefined,
+      });
+      setTaskCreateOpen(false);
+    } finally {
+      setCreatingTask(false);
+    }
   };
 
   const appendEmoji = (emoji) => {
@@ -543,9 +622,11 @@ const OrganizationMainPanel = ({
 
             <div className={`mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
               <span>Chi nhánh</span>
+              {canManageWorkspaceStructure ? (
               <span className={isDarkMode ? 'text-[#8b91a0]' : 'text-slate-500'}>
                 + Thêm
               </span>
+              ) : null}
             </div>
             <div className="mb-3 grid grid-cols-3 gap-1.5">
               {branches?.map((branch) => (
@@ -1068,7 +1149,13 @@ const OrganizationMainPanel = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => toast('Tạo task mới sẽ mở ở bước tiếp theo.')}
+                        onClickCapture={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          event.nativeEvent?.stopImmediatePropagation?.();
+                          openTaskCreateModal();
+                        }}
+                        onClick={() => openTaskCreateModal()}
                         className="inline-flex items-center gap-1 rounded-lg bg-[#5865F2] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110"
                       >
                         <Plus className="h-3.5 w-3.5" />
@@ -1409,6 +1496,11 @@ const OrganizationMainPanel = ({
                 showAiToggle
                 aiEnabled={false}
                 onAiToggle={() => onSendChatOption?.({ kind: 'ai-draft-toggle' })}
+                mentionItems={normalizedContacts.slice(0, 30).map((contact) => ({
+                  value: contact.id,
+                  label: contact.name,
+                  avatar: contact.avatar,
+                }))}
                 wrapperClassName={workspace.composerWrap}
                 topSlot={
                   replyingToMessage ? (
@@ -1639,6 +1731,107 @@ const OrganizationMainPanel = ({
       />
 
       <Modal
+        isOpen={taskCreateOpen}
+        onClose={() => setTaskCreateOpen(false)}
+        title="Tạo task mới"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1 text-sm font-semibold text-white">Tên task</div>
+            <input
+              value={taskForm.title}
+              maxLength={180}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
+              placeholder="Nhập tên task"
+              className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-sm font-semibold text-white">Mô tả</div>
+            <textarea
+              value={taskForm.description}
+              rows={3}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))}
+              placeholder="Nội dung công việc"
+              className="w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-white">Hạn xử lý</span>
+              <input
+                type="date"
+                value={taskForm.dueDate}
+                onChange={(event) => setTaskForm((prev) => ({ ...prev, dueDate: event.target.value }))}
+                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-white">Ưu tiên</span>
+              <select
+                value={taskForm.priority}
+                onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value }))}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-white">Phòng ban</span>
+              <select
+                value={taskForm.departmentId}
+                onChange={(event) => setTaskForm((prev) => ({ ...prev, departmentId: event.target.value }))}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+              >
+                <option value="">General</option>
+                {departments.map((department) => (
+                  <option key={department._id} value={String(department._id)}>
+                    {displayDepartmentName(department.name, locale)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-white">Gán cho</span>
+              <select
+                value={taskForm.assigneeId}
+                onChange={(event) => setTaskForm((prev) => ({ ...prev, assigneeId: event.target.value }))}
+                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+              >
+                <option value="">Chưa gán</option>
+                {normalizedContacts.map((contact) => (
+                  <option key={contact.id} value={String(contact.id)}>
+                    {contact.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setTaskCreateOpen(false)}
+              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={submitWorkspaceTask}
+              disabled={!taskForm.title.trim() || creatingTask}
+              className="rounded-xl bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+            >
+              {creatingTask ? 'Đang tạo...' : 'Tạo task'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={isPollModalOpen}
         onClose={() => setIsPollModalOpen(false)}
         title={t('orgPanel.pollModalTitle')}
@@ -1740,67 +1933,137 @@ const OrganizationMainPanel = ({
         size="lg"
       >
         <div className="space-y-3">
-          <input
-            value={contactSearch}
-            onChange={(event) => setContactSearch(event.target.value)}
-            placeholder={t('orgPanel.contactSearchPh')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-          />
-
-          <div className="flex flex-wrap gap-2">
-            {[
-              { key: 'all', label: t('orgPanel.catAll') },
-              { key: 'friend', label: t('orgPanel.catFriend') },
-              { key: 'work', label: t('orgPanel.catWork') },
-              { key: 'family', label: t('orgPanel.catFamily') },
-            ].map((category) => (
-              <button
-                key={category.key}
-                type="button"
-                onClick={() => setContactCategory(category.key)}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                  contactCategory === category.key
-                    ? 'bg-blue-500 text-white'
-                    : 'border border-white/15 text-gray-300 hover:bg-white/10'
-                }`}
-              >
-                {category.label}
-              </button>
-            ))}
+          {/* Toggle between list and manual entry */}
+          <div className="flex gap-2 border-b border-white/10 pb-3">
+            <button
+              type="button"
+              onClick={() => {
+                setUseManualContactEntry(false);
+                setSelectedContactId('');
+              }}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                !useManualContactEntry
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-white/15 text-gray-300 hover:bg-white/10'
+              }`}
+            >
+              Chọn từ danh sách
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setUseManualContactEntry(true);
+                setContactSearch('');
+                setContactCategory('all');
+              }}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                useManualContactEntry
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-white/15 text-gray-300 hover:bg-white/10'
+              }`}
+            >
+              Nhập thủ công
+            </button>
           </div>
 
-          <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.02] p-2">
-            {loadingChatContacts && (
-              <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">{t('orgPanel.loadingContacts')}</div>
-            )}
-            {!loadingChatContacts && filteredContacts.length === 0 && (
-              <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-gray-400">
-                {t('orgPanel.contactNoMatch')}
+          {!useManualContactEntry ? (
+            <>
+              <input
+                value={contactSearch}
+                onChange={(event) => setContactSearch(event.target.value)}
+                placeholder={t('orgPanel.contactSearchPh')}
+                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+              />
+
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'all', label: t('orgPanel.catAll') },
+                  { key: 'friend', label: t('orgPanel.catFriend') },
+                  { key: 'work', label: t('orgPanel.catWork') },
+                  { key: 'family', label: t('orgPanel.catFamily') },
+                ].map((category) => (
+                  <button
+                    key={category.key}
+                    type="button"
+                    onClick={() => setContactCategory(category.key)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      contactCategory === category.key
+                        ? 'bg-blue-500 text-white'
+                        : 'border border-white/15 text-gray-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {category.label}
+                  </button>
+                ))}
               </div>
-            )}
-            {!loadingChatContacts &&
-              filteredContacts.map((contact) => (
-                <label
-                  key={contact.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/5"
-                >
-                  <input
-                    type="radio"
-                    name="contact-card"
-                    checked={selectedContactId === contact.id}
-                    onChange={() => setSelectedContactId(contact.id)}
-                    className="h-4 w-4"
-                  />
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/60 to-violet-500/60 text-xs font-bold text-white">
-                    {(contact.name || 'U').charAt(0)}
+
+              <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.02] p-2">
+                {loadingChatContacts && (
+                  <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">{t('orgPanel.loadingContacts')}</div>
+                )}
+                {!loadingChatContacts && filteredContacts.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-gray-400">
+                    {t('orgPanel.contactNoMatch')}
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white">{contact.name}</div>
-                    <div className="truncate text-xs text-gray-400">{contact.phone || contact.email || '-'}</div>
-                  </div>
-                </label>
-              ))}
-          </div>
+                )}
+                {!loadingChatContacts &&
+                  filteredContacts.map((contact) => (
+                    <label
+                      key={contact.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/5"
+                    >
+                      <input
+                        type="radio"
+                        name="contact-card"
+                        checked={selectedContactId === contact.id}
+                        onChange={() => setSelectedContactId(contact.id)}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/60 to-violet-500/60 text-xs font-bold text-white">
+                        {(contact.name || 'U').charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-white">{contact.name}</div>
+                        <div className="truncate text-xs text-gray-400">{contact.phone || contact.email || '-'}</div>
+                      </div>
+                    </label>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Tên *</label>
+                <input
+                  type="text"
+                  value={manualContactFullName}
+                  onChange={(e) => setManualContactFullName(e.target.value)}
+                  placeholder="Ví dụ: danh cong do"
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Số điện thoại</label>
+                <input
+                  type="text"
+                  value={manualContactPhone}
+                  onChange={(e) => setManualContactPhone(e.target.value)}
+                  placeholder="Ví dụ: 0123456789 hoặc -"
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Email</label>
+                <input
+                  type="text"
+                  value={manualContactEmail}
+                  onChange={(e) => setManualContactEmail(e.target.value)}
+                  placeholder="Ví dụ: user@example.com hoặc -"
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <button
@@ -1813,7 +2076,7 @@ const OrganizationMainPanel = ({
             <button
               type="button"
               onClick={handleSubmitContact}
-              disabled={!selectedContactId}
+              disabled={useManualContactEntry ? !manualContactFullName.trim() : !selectedContactId}
               className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
               {t('orgPanel.menuContact')}

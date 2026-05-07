@@ -1,10 +1,10 @@
-import { Bell, MoreHorizontal, Search } from 'lucide-react';
+import { Bell, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
-import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
+import { GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -42,6 +42,13 @@ function MiniSparkline({ up = true, className = '' }) {
   );
 }
 
+function truncateText(value, maxLength = 56) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   const [activeFilter, setActiveFilter] = useState(() =>
     landingDemo && demoVariant === 'tasks' ? 'tasks' : 'all',
@@ -68,11 +75,15 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
   /** Cuộc họp sắp tới (từ GET /api/meetings + startFrom/startTo) */
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
   const [workspaceEntries, setWorkspaceEntries] = useState([]);
+  const [personalActivityDays, setPersonalActivityDays] = useState([]);
+  const [weeklyActivityDays, setWeeklyActivityDays] = useState([]);
+  const [weeklyActivityNotes, setWeeklyActivityNotes] = useState([]);
   const { user } = useAuth();
   const { onlineUsers, connected: socketConnected } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
   const { t } = useAppStrings();
   const { locale } = useLocale();
+  const currentUserKey = String(user?.userId || user?._id || user?.id || '').trim();
 
   const displayName =
     user?.fullName ||
@@ -134,6 +145,35 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       setWorkspaceEntries([
         { id: 'demo-org-1', name: 'Alpha Corp', slug: 'alpha-corp', myRole: 'admin' },
         { id: 'demo-org-2', name: 'BetaLabs', slug: 'betalabs', myRole: 'member' },
+      ]);
+      setPersonalActivityDays(
+        Array.from({ length: 35 }, (_, index) => ({
+          key: `demo-${index}`,
+          tasks: index % 4 === 0 ? 2 : index % 3 === 0 ? 1 : 0,
+          messages: index % 5 === 0 ? 4 : index % 2 === 0 ? 1 : 0,
+          total: index % 4 === 0 ? 6 : index % 3 === 0 ? 2 : index % 2 === 0 ? 1 : 0,
+        }))
+      );
+      const demoWeekLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+      setWeeklyActivityDays(
+        demoWeekLabels.map((label, index) => ({
+          key: `demo-week-${index}`,
+          dayLabel: label,
+          tasks: index % 3 === 0 ? 1 : 0,
+          messages: index % 2 === 0 ? 2 : 1,
+          total: index % 3 === 0 ? 3 : index % 2 === 0 ? 2 : 1,
+          note:
+            index % 3 === 0
+              ? 'Hoàn thành task UI'
+              : index % 2 === 0
+                ? 'Trao đổi với team'
+                : 'Cập nhật trạng thái công việc',
+        }))
+      );
+      setWeeklyActivityNotes([
+        { icon: '✅', title: 'Hoàn thành task UI', detail: '2 task đã hoàn tất trong tuần này', path: '/tasks' },
+        { icon: '💬', title: 'Tin nhắn công việc', detail: '3 đoạn trao đổi quan trọng được gửi', path: '/chat/friends' },
+        { icon: '📝', title: 'Cập nhật tiến độ', detail: '1 task được cập nhật trạng thái', path: '/tasks' },
       ]);
       return;
     }
@@ -248,6 +288,134 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           unread = Number(nd?.unreadCount) || 0;
         }
 
+        const dayKey = (value) => {
+          const d = value ? new Date(value) : null;
+          if (!d || Number.isNaN(d.getTime())) return '';
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const getRowId = (value) => String(value?._id || value?.id || value || '').trim();
+        const weekDayLabels = locale === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+        const daily = {};
+        const taskListRes = await taskAPI.getTasks({ limit: 200 }).catch(() => null);
+        const taskBody = taskListRes?.data?.data ?? taskListRes?.data ?? taskListRes;
+        const taskRows = Array.isArray(taskBody?.tasks) ? taskBody.tasks : [];
+        const weeklyDayMap = new Map();
+        const weeklyNotes = [];
+        const weekStart = new Date();
+        weekStart.setHours(0, 0, 0, 0);
+        weekStart.setDate(weekStart.getDate() - 6);
+        const weekStartTs = weekStart.getTime();
+        Array.from({ length: 7 }, (_, index) => {
+          const dayDate = new Date(weekStart);
+          dayDate.setDate(weekStart.getDate() + index);
+          const key = dayKey(dayDate);
+          const entry = {
+            key,
+            dayLabel: weekDayLabels[index],
+            date: dayDate,
+            tasks: 0,
+            messages: 0,
+            total: 0,
+            note: '',
+            noteTs: 0,
+          };
+          weeklyDayMap.set(key, entry);
+          return entry;
+        });
+        const registerWeekItem = ({ when, kind, icon, title, detail, path }) => {
+          const ts = new Date(when).getTime();
+          if (!Number.isFinite(ts) || ts < weekStartTs) return;
+          const key = dayKey(when);
+          const day = weeklyDayMap.get(key);
+          if (!day) return;
+          if (kind === 'task') day.tasks += 1;
+          else day.messages += 1;
+          day.total += 1;
+          if (ts >= day.noteTs) {
+            day.noteTs = ts;
+            day.note = detail;
+            day.icon = icon;
+            day.path = path;
+            day.title = title;
+          }
+          weeklyNotes.push({ key: `${kind}:${ts}:${title}`, ts, icon, title, detail, path, dayKey: key });
+        };
+        taskRows.forEach((task) => {
+          const taskMatchesUser =
+            !currentUserKey ||
+            [task.createdBy, task.assigneeId, task.completedBy].some((value) => getRowId(value) === currentUserKey);
+          if (!taskMatchesUser) return;
+          const key = dayKey(task.completedAt || task.updatedAt || task.createdAt);
+          if (key) daily[key] = { tasks: (daily[key]?.tasks || 0) + 1, messages: daily[key]?.messages || 0 };
+          const title = truncateText(task.title || task.name || t('dashboard.taskFallback') || 'Task', 40);
+          const status = String(task.status || '').toLowerCase();
+          const note = task.completedAt
+            ? `Đã hoàn thành task: ${title}`
+            : status && status !== 'todo'
+              ? `Đã cập nhật task: ${title}`
+              : `Tạo task: ${title}`;
+          const when = task.completedAt || task.updatedAt || task.createdAt;
+          if (when) {
+            registerWeekItem({
+              when,
+              kind: 'task',
+              icon: task.completedAt ? '✅' : '📝',
+              title,
+              detail: note,
+              path: '/tasks',
+            });
+          }
+        });
+        const msgRes = await api.get('/messages', { params: { limit: 300, page: 1 } }).catch(() => null);
+        const msgBody = msgRes?.data?.data ?? msgRes?.data ?? msgRes;
+        const msgRows = Array.isArray(msgBody?.messages) ? msgBody.messages : [];
+        msgRows.forEach((msg) => {
+          const senderId = getRowId(msg.senderId);
+          if (currentUserKey && senderId !== currentUserKey) return;
+          const key = dayKey(msg.createdAt);
+          if (key) daily[key] = { tasks: daily[key]?.tasks || 0, messages: (daily[key]?.messages || 0) + 1 };
+          const messageType = String(msg.messageType || 'text');
+          const previewText =
+            messageType === 'file'
+              ? truncateText(msg.fileMeta?.originalName || msg.content || 'Tệp đính kèm', 40)
+              : messageType === 'image'
+                ? 'Hình ảnh'
+                : messageType === 'business_card'
+                  ? 'Danh thiếp'
+                  : truncateText(msg.content || 'Tin nhắn', 48);
+          const detail =
+            messageType === 'file'
+              ? `Đã gửi file: ${previewText}`
+              : messageType === 'image'
+                ? `Đã gửi ảnh: ${previewText}`
+                : messageType === 'business_card'
+                  ? `Đã chia sẻ danh thiếp: ${previewText}`
+                  : `Đã nhắn: ${previewText}`;
+          if (msg.createdAt) {
+            registerWeekItem({
+              when: msg.createdAt,
+              kind: 'message',
+              icon: messageType === 'file' ? '📎' : messageType === 'image' ? '🖼️' : '💬',
+              title: previewText,
+              detail,
+              path: '/chat/friends',
+            });
+          }
+        });
+        const today = new Date();
+        const activityGrid = Array.from({ length: 35 }, (_, index) => {
+          const d = new Date(today);
+          d.setDate(today.getDate() - (34 - index));
+          const key = dayKey(d);
+          const row = daily[key] || { tasks: 0, messages: 0 };
+          return { key, ...row, total: row.tasks + row.messages };
+        });
+        const weekActivityGrid = Array.from(weeklyDayMap.values()).map((day) => ({
+          ...day,
+          note: day.note || 'Chưa có hoạt động',
+        }));
+        const weekActivityNotes = weeklyNotes.sort((a, b) => b.ts - a.ts).slice(0, 3);
+
         if (!cancelled) {
           setMetrics({
             loading: false,
@@ -257,6 +425,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             unread,
             taskDone,
           });
+          setPersonalActivityDays(activityGrid);
+          setWeeklyActivityDays(weekActivityGrid);
+          setWeeklyActivityNotes(weekActivityNotes);
         }
       } catch {
         if (!cancelled) {
@@ -264,13 +435,15 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           setPresenceFriends([]);
           setWorkspaceEntries([]);
           setUpcomingMeetings([]);
+          setWeeklyActivityDays([]);
+          setWeeklyActivityNotes([]);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [metricsTick, landingDemo, demoVariant, locale, t]);
+  }, [currentUserKey, metricsTick, landingDemo, demoVariant, locale, t]);
 
   /**
    * Presence realtime: khi socket đã kết nối, danh sách `onlineUsers` từ socket-service là nguồn đúng
@@ -566,6 +739,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     else navigate('/notifications');
   };
 
+  const activityCellClass = (total) => {
+    if (total >= 8) return 'bg-emerald-400';
+    if (total >= 4) return 'bg-emerald-500/80';
+    if (total >= 2) return 'bg-emerald-600/55';
+    if (total >= 1) return 'bg-emerald-700/35';
+    return isDarkMode ? 'bg-white/[0.06]' : 'bg-slate-200';
+  };
+
   const exportDashboardSnapshot = () => {
     try {
       const payload = {
@@ -665,74 +846,23 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                   <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
                   {t('dashboard.live')}
                 </span>
-                <Dropdown
-                  trigger={
-                    <button
-                      type="button"
-                      className={`rounded-xl border p-2 transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                    >
-                      <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
-                    </button>
-                  }
-                  align="right"
+                <button
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-white hover:bg-white/[0.06]' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'}`}
+                  onClick={() => {
+                    document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    toast(t('dashboard.customizeToast'), { icon: 'ℹ️' });
+                  }}
                 >
-                  {(close) => (
-                    <div className="p-2">
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          toast(t('dashboard.customizeToast'), { icon: 'ℹ️' });
-                          close();
-                        }}
-                      >
-                        {t('dashboard.customize')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          exportDashboardSnapshot();
-                          close();
-                        }}
-                      >
-                        {t('dashboard.exportReport')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          shareDashboardLink();
-                          close();
-                        }}
-                      >
-                        {t('dashboard.share')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          setShowNewProjectModal(true);
-                          close();
-                        }}
-                      >
-                        {t('dashboard.newProject')}
-                      </button>
-                      <div className={`my-2 h-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          navigate('/settings');
-                          close();
-                        }}
-                      >
-                        {t('dashboard.settings')}
-                      </button>
-                    </div>
-                  )}
-                </Dropdown>
+                  {t('dashboard.customize')}
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-white hover:bg-white/[0.06]' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'}`}
+                  onClick={() => navigate('/settings')}
+                >
+                  {t('dashboard.settings')}
+                </button>
               </div>
             </div>
 
@@ -777,6 +907,30 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               </GlassCard>
             ))}
           </div>
+
+          <GlassCard className={`mb-8 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className={`text-base font-bold ${textHeading}`}>Personal activity</h2>
+                <p className={`mt-1 text-xs ${textMuted}`}>Tasks and messages in the last 35 days</p>
+                <p className={`mt-1 text-[11px] ${textSub}`}>Each square is one day; darker means more activity.</p>
+              </div>
+              <div className={`text-xs ${textSub}`}>
+                {personalActivityDays.reduce((sum, item) => sum + item.total, 0)} activities
+              </div>
+            </div>
+            <div className="grid grid-cols-7 gap-1.5">
+              {personalActivityDays.map((day) => (
+                <div
+                  key={day.key}
+                  title={`${day.key}: ${day.tasks} tasks, ${day.messages} messages`}
+                  className={`aspect-square rounded-[4px] border ${
+                    isDarkMode ? 'border-white/[0.05]' : 'border-white'
+                  } ${activityCellClass(day.total)}`}
+                />
+              ))}
+            </div>
+          </GlassCard>
 
           <div id="vh-dashboard-activity" className="space-y-6">
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -841,15 +995,8 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             </div>
 
             <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3">
                 <h2 className={`text-lg font-bold ${textHeading}`}>Vào workspace</h2>
-                <button
-                  type="button"
-                  onClick={() => navigate('/workspaces', { state: { openCreateWorkspace: true } })}
-                  className={`text-xs font-semibold ${accentText}`}
-                >
-                  + Tạo tổ chức
-                </button>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {myOverviewItems.map((item) => (
@@ -881,49 +1028,29 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         <div className="flex-1 min-h-0 space-y-6 overflow-y-auto overflow-x-visible p-4 scrollbar-overlay">
           <div className="space-y-2">
             <p className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.quickAccess')}</p>
-            {[
-              {
-                ch: t('dashboard.channelChat'),
-                badge: t('dashboard.badgeNew'),
-                badgeTone: 'cyan',
-                path: '/workspaces',
-              },
-              { ch: t('dashboard.channelDesign'), badge: null, badgeTone: null, path: '/chat/friends' },
-              {
-                ch: t('dashboard.channelGeneral'),
-                badge: t('dashboard.badgeTwo'),
-                badgeTone: 'sky',
-                path: '/workspaces',
-              },
-            ].map((row, i) => {
-              const badgeCls =
-                row.badgeTone === 'cyan'
-                  ? isDarkMode
-                    ? 'bg-cyan-500/15 text-cyan-100'
-                    : 'bg-cyan-100 text-cyan-950'
-                  : row.badgeTone === 'sky'
-                    ? isDarkMode
-                      ? 'bg-sky-500/20 text-sky-100'
-                      : 'bg-sky-100 text-sky-950'
-                    : isDarkMode
-                      ? 'bg-white/10 text-gray-200'
-                      : 'bg-slate-200 text-slate-900';
-              return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => navigate(row.path)}
-                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition ${isDarkMode ? 'border-white/[0.05] bg-[#1A1A1C] text-[#e5e7eb] hover:border-cyan-500/35 hover:bg-white/[0.03]' : 'border-slate-200 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'}`}
-              >
-                <span className="font-medium">{row.ch}</span>
-                {row.badge && (
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeCls}`}>
-                    {row.badge}
-                  </span>
-                )}
-              </button>
-              );
-            })}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: '💬', title: 'Chat', note: 'Tin nhắn và bạn bè', path: '/chat/friends' },
+                { icon: '🎤', title: 'Voice', note: 'Phòng họp nhanh', path: '/voice' },
+                { icon: '📅', title: 'Lịch', note: 'Sự kiện và nhắc việc', path: '/calendar' },
+                { icon: '🔔', title: 'Thông báo', note: 'Cập nhật mới nhất', path: '/notifications' },
+              ].map((row) => (
+                <button
+                  key={row.path}
+                  type="button"
+                  onClick={() => navigate(row.path)}
+                  className={`rounded-2xl border px-3 py-3 text-left transition ${isDarkMode ? 'border-white/[0.05] bg-[#1A1A1C] text-[#e5e7eb] hover:border-cyan-500/35 hover:bg-white/[0.03]' : 'border-slate-200 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-base leading-none">{row.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold leading-tight">{row.title}</div>
+                      <div className={`mt-0.5 text-[11px] leading-tight ${textMuted}`}>{row.note}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -1039,35 +1166,70 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           </div>
 
           <div className={`rounded-2xl border p-3 ${cardSurface}`}>
-            <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.weekActivity')}</h3>
-            <div className="flex h-24 items-end justify-between gap-1">
-              {[45, 62, 38, 70, 55, 88, 72].map((h, idx) => (
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.weekActivity')}</h3>
+                <p className={`mt-1 text-[11px] ${textSub}`}>Lưới 7 ngày từ task và tin nhắn của tôi.</p>
+              </div>
+              <div className={`text-right text-[11px] ${textSub}`}>
+                <div className={`text-sm font-bold ${accentText}`}>
+                  {weeklyActivityDays.reduce((sum, item) => sum + (item.total || 0), 0)}
+                </div>
+                <div>hoạt động</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5">
+              {weeklyActivityDays.map((day) => (
                 <button
-                  key={idx}
+                  key={day.key}
                   type="button"
-                  onClick={() => navigate('/analytics')}
-                  className="flex flex-1 flex-col items-center gap-1 rounded-md outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-cyan-500/50"
-                  aria-label={`Xem phân tích — ${['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}`}
+                  onClick={() => day.path && navigate(day.path)}
+                  title={`${day.dayLabel} · ${day.total} hoạt động · ${day.note || 'Chưa có hoạt động'}`}
+                  className={`group flex min-h-[92px] flex-col rounded-xl border p-1.5 text-left transition ${
+                    isDarkMode ? 'border-white/[0.06] bg-[#141416] hover:bg-white/[0.04]' : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
                 >
+                  <div className="flex items-center justify-between gap-1 text-[10px] font-semibold">
+                    <span className={textSub}>{day.dayLabel}</span>
+                    <span className={day.total > 0 ? accentText : textSub}>{day.total}</span>
+                  </div>
                   <div
-                    className={`w-full max-w-[28px] rounded-t-md transition-all ${
-                      idx >= 5 ? 'bg-gradient-to-t from-cyan-600 to-teal-500' : 'bg-gradient-to-t from-slate-600 to-slate-500'
-                    }`}
-                    style={{ height: `${h}%` }}
+                    className={`mt-1 flex-1 rounded-lg border ${
+                      isDarkMode ? 'border-white/[0.05]' : 'border-white'
+                    } ${activityCellClass(day.total)}`}
                   />
-                  <span
-                    className={`text-[10px] font-medium sm:text-xs ${isDarkMode ? 'text-[#6b7280]' : 'text-slate-600'}`}
-                  >
-                    {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}
-                  </span>
+                  <div className={`mt-1 line-clamp-2 text-[10px] leading-snug ${textSub}`}>
+                    {truncateText(day.note || 'Chưa có hoạt động', 34)}
+                  </div>
                 </button>
               ))}
             </div>
-            <p
-              className={`mt-2 text-center text-xs ${isDarkMode ? 'text-emerald-400/90' : 'text-emerald-800'}`}
-            >
-              {t('dashboard.vsLastWeek')}
-            </p>
+
+            <div className="mt-3 space-y-1.5">
+              {weeklyActivityNotes.length === 0 ? (
+                <p className={`rounded-xl border border-dashed px-3 py-2 text-[11px] ${isDarkMode ? 'border-white/[0.08] text-[#6b7280]' : 'border-slate-200 text-slate-500'}`}>
+                  Chưa có note hoạt động trong tuần này.
+                </p>
+              ) : (
+                weeklyActivityNotes.map((note) => (
+                  <button
+                    key={note.key}
+                    type="button"
+                    onClick={() => note.path && navigate(note.path)}
+                    className={`flex w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition ${
+                      isDarkMode ? 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06]' : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="mt-0.5 text-sm">{note.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate text-xs font-semibold ${textHeading}`}>{note.title}</div>
+                      <div className={`mt-0.5 line-clamp-2 text-[11px] leading-snug ${textSub}`}>{note.detail}</div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
 
           <div className={`rounded-2xl border p-3.5 ${isDarkMode ? 'border-white/[0.06] bg-[#141416]' : 'border-slate-200 bg-slate-50'}`}>

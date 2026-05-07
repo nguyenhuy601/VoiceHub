@@ -178,6 +178,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
   const hasWorkspaceContext = Boolean(activeWorkspace?.slug || String(lastWorkspaceSlug || '').trim());
+  const activeWorkspaceId = activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || '';
   const inOrganizationContext = location.pathname.startsWith('/w/') || (
     hasWorkspaceContext && (location.pathname.startsWith('/documents') || location.pathname.startsWith('/notifications'))
   );
@@ -326,6 +327,12 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     if (!inOrganizationContext) return item.path;
     if (item.key === 'org') return workspacePath;
     if (item.key === 'tasks') return `${workspacePath}?tab=tasks`;
+    if (item.key === 'notifications' && activeWorkspaceId) {
+      return `/notifications?organizationId=${encodeURIComponent(activeWorkspaceId)}`;
+    }
+    if (item.key === 'documents' && activeWorkspaceId) {
+      return `/documents?organizationId=${encodeURIComponent(activeWorkspaceId)}`;
+    }
     return item.path;
   };
 

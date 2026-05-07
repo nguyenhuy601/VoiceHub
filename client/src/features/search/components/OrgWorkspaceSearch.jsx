@@ -51,6 +51,7 @@ export default function OrgWorkspaceSearch({
   const [searchLoading, setSearchLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState('');
+  const [historyVersion, setHistoryVersion] = useState(0);
   const abortRef = useRef(null);
   const rootRef = useRef(null);
 
@@ -59,7 +60,7 @@ export default function OrgWorkspaceSearch({
     320
   );
 
-  const historyEntries = useMemo(() => loadSearchHistory(scopeKey), [scopeKey, open]);
+  const historyEntries = useMemo(() => loadSearchHistory(scopeKey), [scopeKey, open, historyVersion]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -141,6 +142,7 @@ export default function OrgWorkspaceSearch({
 
   const detectPrefix = (raw) => {
     const lower = raw.toLowerCase();
+    if (lower.startsWith('@')) return { key: 'mentions', rest: raw.slice(1).trim() };
     for (const [prefix, key] of Object.entries(PREFIX_TO_KEY)) {
       if (lower.startsWith(prefix)) return { key, rest: raw.slice(prefix.length).trim() };
     }
@@ -188,6 +190,12 @@ export default function OrgWorkspaceSearch({
     setInputValue(ft);
     setTokens(f);
     setOpen(true);
+  };
+
+  const clearScopedHistory = () => {
+    clearSearchHistory(scopeKey);
+    setHistoryVersion((v) => v + 1);
+    toast.success(t('searchUi.historyCleared'));
   };
 
   return (
@@ -320,7 +328,7 @@ export default function OrgWorkspaceSearch({
                   type="button"
                   className="rounded p-1 hover:bg-black/10 dark:hover:bg-white/10"
                   title={t('searchUi.clearHistory')}
-                  onClick={() => clearSearchHistory(scopeKey)}
+                  onClick={clearScopedHistory}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

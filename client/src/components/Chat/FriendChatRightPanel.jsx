@@ -74,6 +74,7 @@ export default function FriendChatRightPanel({
   onMute,
   onPin,
   onCreateGroup,
+  isInFriendsContext = false,
 }) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
@@ -393,15 +394,19 @@ export default function FriendChatRightPanel({
         </div>
 
         <div className={`flex flex-wrap justify-center gap-2 px-2 py-3 ${hairlineT}`}>
-          <button type="button" onClick={onMute} className={footerBtn}>
-            {t('friendChat.footerMute')}
-          </button>
-          <button type="button" onClick={onPin} className={footerBtn}>
-            {t('friendChat.footerPin')}
-          </button>
-          <button type="button" onClick={onCreateGroup} className={footerBtn}>
-            {t('friendChat.footerGroup')}
-          </button>
+          {isInFriendsContext && (
+            <>
+              <button type="button" onClick={onMute} className={footerBtn}>
+                {t('friendChat.footerMute')}
+              </button>
+              <button type="button" onClick={onPin} className={footerBtn}>
+                {t('friendChat.footerPin')}
+              </button>
+              <button type="button" onClick={onCreateGroup} className={footerBtn}>
+                {t('friendChat.footerGroup')}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </aside>

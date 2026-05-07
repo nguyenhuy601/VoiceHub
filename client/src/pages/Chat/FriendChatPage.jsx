@@ -53,6 +53,27 @@ function messageDayKey(iso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const DM_MUTE_STORAGE_KEY = 'voicehub:dm-muted';
+const DM_PIN_STORAGE_KEY = 'voicehub:dm-pinned';
+
+function loadIdList(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIdList(storageKey, ids) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify([...new Set(ids.map(String).filter(Boolean))]));
+  } catch {
+    /* ignore */
+  }
+}
+
 function FriendChatPage({ landingDemo = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
@@ -93,6 +114,8 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [inlineToast, setInlineToast] = useState(null);
+  const [mutedFriendIds, setMutedFriendIds] = useState(() => loadIdList(DM_MUTE_STORAGE_KEY));
+  const [pinnedFriendIds, setPinnedFriendIds] = useState(() => loadIdList(DM_PIN_STORAGE_KEY));
   const { user } = useAuth();
   const { openFriendCall } = useFriendCallSession();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
@@ -136,6 +159,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const currentUserId = user?.userId || user?._id || user?.id;
   const currentUserName = getUserDisplayName(user) || t('common.you');
   const currentUserAvatar = user?.avatar || '🧑';
+  const currentFriendKey = selectedFriendId ? String(selectedFriendId) : '';
+  const isCurrentFriendMuted = currentFriendKey ? mutedFriendIds.includes(currentFriendKey) : false;
+  const isCurrentFriendPinned = currentFriendKey ? pinnedFriendIds.includes(currentFriendKey) : false;
 
   const showToast = (message, type = 'success') => {
     setInlineToast({ message, type });
@@ -146,6 +172,34 @@ function FriendChatPage({ landingDemo = false } = {}) {
     setOutboundCall(null);
     outboundCallRef.current = null;
   }, []);
+
+  const toggleMuteCurrentFriend = useCallback(() => {
+    if (!currentFriendKey) return;
+    const next = isCurrentFriendMuted
+      ? mutedFriendIds.filter((id) => id !== currentFriendKey)
+      : [...mutedFriendIds, currentFriendKey];
+    saveIdList(DM_MUTE_STORAGE_KEY, next);
+    setMutedFriendIds(next);
+    toast.success(
+      isCurrentFriendMuted ? 'Đã bật lại thông báo cuộc trò chuyện' : 'Đã tắt thông báo cuộc trò chuyện'
+    );
+  }, [currentFriendKey, isCurrentFriendMuted, mutedFriendIds]);
+
+  const togglePinCurrentFriend = useCallback(() => {
+    if (!currentFriendKey) return;
+    const next = isCurrentFriendPinned
+      ? pinnedFriendIds.filter((id) => id !== currentFriendKey)
+      : [...pinnedFriendIds, currentFriendKey];
+    saveIdList(DM_PIN_STORAGE_KEY, next);
+    setPinnedFriendIds(next);
+    toast.success(isCurrentFriendPinned ? 'Đã bỏ ghim hội thoại' : 'Đã ghim hội thoại');
+  }, [currentFriendKey, isCurrentFriendPinned, pinnedFriendIds]);
+
+  const createGroupFromDm = useCallback(() => {
+    if (!currentFriendKey) return;
+    navigate('/voice', { state: { openInviteModal: true, sourceFriendId: currentFriendKey } });
+    toast.success('Đã mở phòng voice để tạo nhóm');
+  }, [currentFriendKey, navigate]);
 
   const cancelOutboundCall = useCallback(async () => {
     const id = outboundCallRef.current;
@@ -1159,7 +1213,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.schedule')}
-                      onClick={() => toast(t('friendChat.scheduleSoon'), { icon: '📅' })}
+                      onClick={() => navigate('/calendar')}
                       className={scheduleBtn}
                     >
                       <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -1168,7 +1222,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.convoNotif')}
-                      onClick={() => toast(t('friendChat.convoNotifSoon'), { icon: '🔔' })}
+                      onClick={() => navigate('/notifications')}
                       className={iconBtn}
                     >
                       <Bell className="h-5 w-5" strokeWidth={2} />
@@ -1176,7 +1230,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.moreMenu')}
-                      onClick={() => toast(t('friendChat.moreSoon'), { icon: '⋯' })}
+                      onClick={() => navigate('/profile')}
                       className={iconBtn}
                     >
                       <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
@@ -1718,9 +1772,10 @@ function FriendChatPage({ landingDemo = false } = {}) {
             <FriendChatRightPanel
               friend={currentFriend}
               messages={messages}
-              onMute={() => toast(t('friendChat.muteSoon'), { icon: '🔕' })}
-              onPin={() => toast(t('friendChat.pinSoon'), { icon: '📌' })}
-              onCreateGroup={() => toast(t('friendChat.groupSoon'), { icon: '👥' })}
+              onMute={toggleMuteCurrentFriend}
+              onPin={togglePinCurrentFriend}
+              onCreateGroup={createGroupFromDm}
+              isInFriendsContext={location.pathname.includes('/chat/friends')}
             />
           )}
         </div>

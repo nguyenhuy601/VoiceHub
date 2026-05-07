@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import { GlassCard, GradientButton } from '../../components/Shared';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
@@ -29,12 +29,12 @@ function FriendsPage() {
   };
 
   const friends = [
-    { name: 'Sarah Chen', status: 'online', avatar: '👩‍💼', role: 'Designer', mutualFriends: 12, lastActive: 'Đang hoạt động', activity: 'Đang làm việc trong dự án UI' },
-    { name: 'Mike Ross', status: 'online', avatar: '👨‍💻', role: 'Developer', mutualFriends: 8, lastActive: 'Đang hoạt động', activity: 'Code review' },
-    { name: 'Emma Wilson', status: 'away', avatar: '👩‍🎨', role: 'Product Manager', mutualFriends: 15, lastActive: '10 phút trước', activity: 'Trong cuộc họp' },
-    { name: 'David Kim', status: 'offline', avatar: '👨‍🔬', role: 'Data Scientist', mutualFriends: 6, lastActive: '2 giờ trước', activity: '' },
-    { name: 'Lisa Park', status: 'online', avatar: '👩‍💼', role: 'Marketing Lead', mutualFriends: 20, lastActive: 'Đang hoạt động', activity: 'Đang soạn báo cáo' },
-    { name: 'Tom Zhang', status: 'busy', avatar: '👨‍💻', role: 'DevOps', mutualFriends: 5, lastActive: 'Đang hoạt động', activity: 'Đừng làm phiền' }
+    { id: 'demo-sarah-chen', name: 'Sarah Chen', status: 'online', avatar: '👩‍💼', role: 'Designer', mutualFriends: 12, lastActive: 'Đang hoạt động', activity: 'Đang làm việc trong dự án UI' },
+    { id: 'demo-mike-ross', name: 'Mike Ross', status: 'online', avatar: '👨‍💻', role: 'Developer', mutualFriends: 8, lastActive: 'Đang hoạt động', activity: 'Code review' },
+    { id: 'demo-emma-wilson', name: 'Emma Wilson', status: 'away', avatar: '👩‍🎨', role: 'Product Manager', mutualFriends: 15, lastActive: '10 phút trước', activity: 'Trong cuộc họp' },
+    { id: 'demo-david-kim', name: 'David Kim', status: 'offline', avatar: '👨‍🔬', role: 'Data Scientist', mutualFriends: 6, lastActive: '2 giờ trước', activity: '' },
+    { id: 'demo-lisa-park', name: 'Lisa Park', status: 'online', avatar: '👩‍💼', role: 'Marketing Lead', mutualFriends: 20, lastActive: 'Đang hoạt động', activity: 'Đang soạn báo cáo' },
+    { id: 'demo-tom-zhang', name: 'Tom Zhang', status: 'busy', avatar: '👨‍💻', role: 'DevOps', mutualFriends: 5, lastActive: 'Đang hoạt động', activity: 'Đừng làm phiền' }
   ];
 
   const friendRequests = [
@@ -183,9 +183,13 @@ function FriendsPage() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Link to="/chat/friends" className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/chat/friends', { state: { openDmUserId: friend.id } })}
+                      className="glass px-3 py-2 rounded-lg hover:bg-white/10 transition-all text-sm font-semibold flex items-center gap-1"
+                    >
                       {t('friends.message')}
-                    </Link>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
