@@ -178,6 +178,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
   const hasWorkspaceContext = Boolean(activeWorkspace?.slug || String(lastWorkspaceSlug || '').trim());
+  const activeWorkspaceId = activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || '';
   const inOrganizationContext = location.pathname.startsWith('/w/') || (
     hasWorkspaceContext && (location.pathname.startsWith('/documents') || location.pathname.startsWith('/notifications'))
   );
@@ -326,6 +327,12 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     if (!inOrganizationContext) return item.path;
     if (item.key === 'org') return workspacePath;
     if (item.key === 'tasks') return `${workspacePath}?tab=tasks`;
+    if (item.key === 'notifications' && activeWorkspaceId) {
+      return `/notifications?organizationId=${encodeURIComponent(activeWorkspaceId)}`;
+    }
+    if (item.key === 'documents' && activeWorkspaceId) {
+      return `/documents?organizationId=${encodeURIComponent(activeWorkspaceId)}`;
+    }
     return item.path;
   };
 
@@ -514,23 +521,25 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                     </Tooltip>
                   );
                 })}
-                <Tooltip label={createOrgShortLabel}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setJoinByLinkOpen(false);
-                      setCreateOrgMenuOpen(true);
-                    }}
-                    className={`${orgAvatarBtn} ${
-                      isDarkMode
-                        ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
-                        : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    }`}
-                    aria-label={createOrgShortLabel}
-                  >
-                    <span className="text-xl leading-none">+</span>
-                  </button>
-                </Tooltip>
+                {location.pathname.startsWith('/workspaces') && (
+                  <Tooltip label={createOrgShortLabel}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJoinByLinkOpen(false);
+                        setCreateOrgMenuOpen(true);
+                      }}
+                      className={`${orgAvatarBtn} ${
+                        isDarkMode
+                          ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                      aria-label={createOrgShortLabel}
+                    >
+                      <span className="text-xl leading-none">+</span>
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             </>
 

@@ -1,9 +1,18 @@
 const userService = require('../services/user.service');
-const { logger, getRedisClient } = require('/shared');
+const { logger, getRedisClient, decryptFieldSafe } = require('/shared');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
   return req.userContext?.userId || req.user?.id || null;
+}
+
+function safeProfilePayload(profile) {
+  if (!profile) return profile;
+  const plain = typeof profile.toObject === 'function' ? profile.toObject() : { ...profile };
+  return {
+    ...plain,
+    phone: decryptFieldSafe(plain.phone, plain.phone || ''),
+  };
 }
 
 class UserController {
@@ -35,7 +44,7 @@ class UserController {
 
       res.status(201).json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Create user profile error:', error);
@@ -67,7 +76,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -99,7 +108,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Get user profile by username error:', error);
@@ -133,7 +142,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Get user profile by phone error:', error);
@@ -175,7 +184,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Get current user error:', error);
@@ -209,7 +218,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: safeProfilePayload(userProfile),
       });
     } catch (error) {
       logger.error('Update user profile error:', error);
