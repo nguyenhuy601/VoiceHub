@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   AtSign,
   Hash,
@@ -27,6 +28,26 @@ import { enrichMembershipsForSearch } from '../enrichOrgMembers';
 
 function unwrap(payload) {
   return payload?.data ?? payload;
+}
+
+function formatMessagePreview(message) {
+  const mt = String(message?.messageType || 'text').toLowerCase();
+  const raw = String(message?.content || '');
+  if (mt === 'business_card') {
+    try {
+      const card = JSON.parse(raw);
+      const name = String(card?.fullName || card?.name || '—').trim() || '—';
+      const phone = String(card?.phone || '').trim() || '-';
+      const email = String(card?.email || '').trim() || '-';
+      return `Danh thiếp · Tên: ${name} · SĐT: ${phone} · Email: ${email}`;
+    } catch {
+      return 'Danh thiếp';
+    }
+  }
+  if (mt === 'image') return 'Hình ảnh';
+  if (mt === 'file') return `Tệp: ${raw || 'Đính kèm'}`;
+  if (mt === 'system') return raw || 'Tin nhắn hệ thống';
+  return raw;
 }
 
 /**
@@ -364,7 +385,7 @@ export default function OrgWorkspaceSearch({
                 )}
                 {results.map((m) => {
                   const id = m._id || m.id;
-                  const preview = String(m.content || '').slice(0, 120);
+                  const preview = formatMessagePreview(m).slice(0, 140);
                   const rid = m.roomId?._id || m.roomId;
                   return (
                     <li key={id}>

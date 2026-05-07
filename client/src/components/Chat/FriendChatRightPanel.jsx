@@ -74,6 +74,8 @@ export default function FriendChatRightPanel({
   onMute,
   onPin,
   onCreateGroup,
+  isMuted = false,
+  isPinned = false,
   isInFriendsContext = false,
 }) {
   const { t } = useAppStrings();
@@ -397,10 +399,10 @@ export default function FriendChatRightPanel({
           {isInFriendsContext && (
             <>
               <button type="button" onClick={onMute} className={footerBtn}>
-                {t('friendChat.footerMute')}
+                {isMuted ? 'Bật thông báo' : t('friendChat.footerMute')}
               </button>
               <button type="button" onClick={onPin} className={footerBtn}>
-                {t('friendChat.footerPin')}
+                {isPinned ? 'Bỏ ghim' : t('friendChat.footerPin')}
               </button>
               <button type="button" onClick={onCreateGroup} className={footerBtn}>
                 {t('friendChat.footerGroup')}

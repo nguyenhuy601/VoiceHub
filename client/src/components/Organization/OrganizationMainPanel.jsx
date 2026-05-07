@@ -425,8 +425,10 @@ const OrganizationMainPanel = ({
     return {
       id,
       name: item.name || item.displayName || item.username || t('organizations.userFallback'),
-      phone: item.phone || '',
-      email: item.email || item.username || '',
+      username: item.username || '',
+      role: item.role || '',
+      phone: item.phone || item.phoneNumber || item.mobile || '',
+      email: item.email || '',
       avatar: item.avatar || null,
       category: item.category || 'friend',
     };
@@ -500,6 +502,9 @@ const OrganizationMainPanel = ({
         fullName: selected.name,
         phone: selected.phone,
         email: selected.email,
+        avatar: selected.avatar,
+        username: selected.username,
+        role: selected.role,
       };
     }
     
@@ -991,19 +996,45 @@ const OrganizationMainPanel = ({
                 className={`min-w-0 text-[13px] ${isDarkMode ? 'text-[#9aa0ae]' : 'text-slate-600'}`}
                 aria-label={t('orgPanel.workspaceBreadcrumbAria')}
               >
-                <span className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <button
+                  type="button"
+                  onClick={() => onWorkspaceTabChange?.('chat')}
+                  className={`font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'} hover:underline`}
+                >
                   {orgName}
-                </span>
+                </button>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{branchName}</span>
+                <button type="button" onClick={() => onSelectBranch?.(selectedBranchId)} className="hover:underline">
+                  {branchName}
+                </button>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{divisionName}</span>
+                <button type="button" onClick={() => onSelectDivision?.(selectedDivisionId)} className="hover:underline">
+                  {divisionName}
+                </button>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{deptName}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectDepartment?.(selectedDepartment?._id || selectedDepartment?.id)}
+                  className="hover:underline"
+                >
+                  {deptName}
+                </button>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span>{teamName}</span>
+                <button type="button" onClick={() => onSelectTeam?.(selectedTeamId)} className="hover:underline">
+                  {teamName}
+                </button>
                 <span className={`mx-1.5 ${isDarkMode ? 'text-[#4e5258]' : 'text-slate-400'}`}>›</span>
-                <span className="text-[#5865F2]">
+                <button
+                  type="button"
+                  className="text-[#5865F2] hover:underline"
+                  onClick={() => {
+                    if (workspaceTab === 'tasks') {
+                      onWorkspaceTabChange?.('tasks');
+                      return;
+                    }
+                    if (selectedChannelId) onSelectChannel?.(selectedChannelId);
+                  }}
+                >
                   {workspaceTab === 'tasks'
                     ? '#cong-viec'
                     : t('orgPanel.channelHash', {
@@ -1013,7 +1044,7 @@ const OrganizationMainPanel = ({
                             : t('organizations.channelNameFallback')
                           : chSlug || t('organizations.channelNameFallback'),
                       })}
-                </span>
+                </button>
               </nav>
               <div className="flex flex-wrap items-center gap-2">
                 <div

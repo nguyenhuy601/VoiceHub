@@ -389,7 +389,7 @@ function NotificationsPage() {
           </div>
           <div className="flex shrink-0 flex-wrap gap-3">
             <button 
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate('/settings?tab=notifications')}
               className={`rounded-xl px-4 py-2 transition-all ${btnGhost}`}
             >
               {t('notifications.btnNotifSettings')}

@@ -40,6 +40,7 @@ function UnifiedChatComposer({
   const { isDarkMode } = useTheme();
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
   const plusButtonRef = useRef(null);
   const plusMenuRef = useRef(null);
   const mentionButtonRef = useRef(null);
@@ -54,6 +55,11 @@ function UnifiedChatComposer({
     () => (Array.isArray(mentionItems) ? mentionItems.filter((item) => item && item.label) : []),
     [mentionItems]
   );
+  const filteredMentionItems = useMemo(() => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return safeMentionItems;
+    return safeMentionItems.filter((item) => String(item.label || '').toLowerCase().includes(q));
+  }, [safeMentionItems, mentionQuery]);
   const resolvedActionItems = useMemo(() => {
     if (Array.isArray(actionItems)) {
       return actionItems.filter((item) => item && item.key);
@@ -115,10 +121,29 @@ function UnifiedChatComposer({
 
   const insertMention = (label) => {
     if (disabled) return;
+    const el = inputRef.current;
     const cur = value ?? '';
-    const next = `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}@${label} `;
-    onChange?.(next);
+    if (el && typeof el.selectionStart === 'number') {
+      const cursor = el.selectionStart;
+      const head = cur.slice(0, cursor);
+      const tail = cur.slice(cursor);
+      const match = head.match(/(^|\s)@([^\s@]*)$/);
+      if (match) {
+        const token = match[0];
+        const prefix = head.slice(0, head.length - token.length);
+        const spacer = token.startsWith(' ') ? ' ' : '';
+        const next = `${prefix}${spacer}@${label} ${tail}`;
+        onChange?.(next);
+      } else {
+        const next = `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}@${label} `;
+        onChange?.(next);
+      }
+    } else {
+      const next = `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}@${label} `;
+      onChange?.(next);
+    }
     setShowMentionMenu(false);
+    setMentionQuery('');
     requestAnimationFrame(() => {
       try {
         inputRef.current?.focus();
@@ -136,6 +161,7 @@ function UnifiedChatComposer({
     else if (kind === 'mention') {
       if (safeMentionItems.length > 0) {
         setShowPlusMenu(false);
+        setMentionQuery('');
         setShowMentionMenu((prev) => !prev);
       } else {
         insertWrap('@');
@@ -207,7 +233,7 @@ function UnifiedChatComposer({
               Gợi ý thành viên
             </div>
             <div className="max-h-56 overflow-y-auto">
-              {safeMentionItems.map((item) => (
+              {filteredMentionItems.map((item) => (
                 <button
                   key={String(item.value || item.label)}
                   type="button"
@@ -270,8 +296,28 @@ function UnifiedChatComposer({
           ref={inputRef}
           value={value}
           rows={richToolbar ? 3 : 1}
-          onChange={(event) => onChange?.(event.target.value)}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            onChange?.(nextValue);
+            if (!safeMentionItems.length) return;
+            const cursor = event.target.selectionStart ?? nextValue.length;
+            const head = nextValue.slice(0, cursor);
+            const match = head.match(/(?:^|\s)@([^\s@]*)$/);
+            if (match) {
+              setMentionQuery(match[1] || '');
+              setShowPlusMenu(false);
+              setShowMentionMenu(true);
+            } else if (showMentionMenu) {
+              setShowMentionMenu(false);
+              setMentionQuery('');
+            }
+          }}
           onKeyDown={(event) => {
+            if (showMentionMenu && filteredMentionItems.length > 0 && event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              insertMention(filteredMentionItems[0].label);
+              return;
+            }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               handleSend();

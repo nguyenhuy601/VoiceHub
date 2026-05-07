@@ -195,6 +195,9 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             myRole: org?.myRole || org?.role || 'member',
           }))
         );
+        const orgSlugById = new Map(
+          orgList.map((org) => [String(org?._id || org?.id || ''), String(org?.slug || '')])
+        );
         const orgCount = orgList.length;
         const rawOrgId = orgList[0]?._id ?? orgList[0]?.id;
         const firstOrgId = rawOrgId != null ? String(rawOrgId) : null;
@@ -294,7 +297,20 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
         const getRowId = (value) => String(value?._id || value?.id || value || '').trim();
-        const weekDayLabels = locale === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+        const resolveWeeklyPath = ({ kind, organizationId }) => {
+          const orgId = String(organizationId || '').trim();
+          const orgSlug = orgId ? orgSlugById.get(orgId) : '';
+          if (orgSlug) {
+            return kind === 'task'
+              ? `/w/${encodeURIComponent(orgSlug)}?tab=tasks`
+              : `/w/${encodeURIComponent(orgSlug)}`;
+          }
+          return kind === 'task' ? '/tasks' : '/chat/friends';
+        };
+        const weekDayLabels =
+          locale === 'en'
+            ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+            : ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
         const daily = {};
         const taskListRes = await taskAPI.getTasks({ limit: 200 }).catch(() => null);
         const taskBody = taskListRes?.data?.data ?? taskListRes?.data ?? taskListRes;
@@ -309,9 +325,10 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           const dayDate = new Date(weekStart);
           dayDate.setDate(weekStart.getDate() + index);
           const key = dayKey(dayDate);
+          const weekday = dayDate.getDay();
           const entry = {
             key,
-            dayLabel: weekDayLabels[index],
+            dayLabel: weekDayLabels[weekday] || '',
             date: dayDate,
             tasks: 0,
             messages: 0,
@@ -355,6 +372,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               ? `Đã cập nhật task: ${title}`
               : `Tạo task: ${title}`;
           const when = task.completedAt || task.updatedAt || task.createdAt;
+          const taskOrgId = getRowId(task.organizationId);
           if (when) {
             registerWeekItem({
               when,
@@ -362,7 +380,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
               icon: task.completedAt ? '✅' : '📝',
               title,
               detail: note,
-              path: '/tasks',
+              path: resolveWeeklyPath({ kind: 'task', organizationId: taskOrgId }),
             });
           }
         });
@@ -392,13 +410,14 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                   ? `Đã chia sẻ danh thiếp: ${previewText}`
                   : `Đã nhắn: ${previewText}`;
           if (msg.createdAt) {
+            const msgOrgId = getRowId(msg.organizationId);
             registerWeekItem({
               when: msg.createdAt,
               kind: 'message',
               icon: messageType === 'file' ? '📎' : messageType === 'image' ? '🖼️' : '💬',
               title: previewText,
               detail,
-              path: '/chat/friends',
+              path: resolveWeeklyPath({ kind: 'message', organizationId: msgOrgId }),
             });
           }
         });

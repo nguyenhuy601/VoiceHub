@@ -439,25 +439,64 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
   };
 
-  const loadChatContacts = async () => {
+  const loadChatContacts = async (organizationIdArg = selectedOrganizationId) => {
     setLoadingChatContacts(true);
     try {
-      const payload = await friendService.getFriends();
-      const data = unwrapData(payload);
-      const rawList = Array.isArray(data?.friends) ? data.friends : Array.isArray(data) ? data : [];
-      const normalized = rawList
+      const [friendPayload, memberPayload] = await Promise.all([
+        friendService.getFriends(),
+        organizationIdArg ? organizationAPI.getMembers(organizationIdArg) : Promise.resolve(null),
+      ]);
+      const friendData = unwrapData(friendPayload);
+      const rawFriendList = Array.isArray(friendData?.friends)
+        ? friendData.friends
+        : Array.isArray(friendData)
+          ? friendData
+          : [];
+      const friendContacts = rawFriendList
         .map((item) => item.friendId || item)
         .filter(Boolean)
         .map((item) => ({
           id: item._id || item.id,
           name: item.displayName || item.name || item.username || t('organizations.userFallback'),
-          phone: item.phone || '',
+          username: item.username || '',
+          role: item.role || '',
+          phone: item.phone || item.phoneNumber || item.mobile || '',
           email: item.email || '',
           avatar: item.avatar || null,
           category: 'friend',
         }))
         .filter((item) => !!item.id);
-      setChatContacts(normalized);
+      const memberData = unwrapData(memberPayload);
+      const rawMemberList = Array.isArray(memberData?.data)
+        ? memberData.data
+        : Array.isArray(memberData)
+          ? memberData
+          : [];
+      const memberContacts = rawMemberList
+        .map((item) => item?.user || item)
+        .filter(Boolean)
+        .map((item) => ({
+          id: item._id || item.id || item.userId,
+          name:
+            item.displayName ||
+            item.fullName ||
+            item.username ||
+            item.email ||
+            t('organizations.userFallback'),
+          username: item.username || '',
+          role: item.role || item.memberRole || '',
+          phone: item.phone || item.phoneNumber || item.mobile || '',
+          email: item.email || '',
+          avatar: item.avatar || null,
+          category: 'work',
+        }))
+        .filter((item) => !!item.id);
+      const merged = new Map();
+      [...memberContacts, ...friendContacts].forEach((item) => {
+        const key = String(item.id);
+        if (!merged.has(key)) merged.set(key, item);
+      });
+      setChatContacts(Array.from(merged.values()));
     } catch (error) {
       setChatContacts([]);
     } finally {
@@ -734,7 +773,13 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
     setLoadingMessages(true);
     try {
-      const payload = await api.get('/messages', { params: { roomId: channelId, limit: 100 } });
+      const payload = await api.get('/messages', {
+        params: {
+          roomId: channelId,
+          limit: 100,
+          ...(selectedOrganizationId ? { organizationId: selectedOrganizationId } : {}),
+        },
+      });
       const data = unwrapData(payload);
       const list = Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : [];
       // Sắp xếp cũ -> mới để hiển thị tự nhiên trong màn chat
@@ -810,6 +855,22 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
 
   const handleCreateWorkspaceTask = async (taskData) => {
     if (!selectedOrganizationId) return;
+    const optimisticId = `tmp-${Date.now()}`;
+    const optimisticTask = {
+      _id: optimisticId,
+      title: String(taskData?.title || '').trim(),
+      description: String(taskData?.description || '').trim(),
+      status: 'todo',
+      priority: taskData?.priority || 'medium',
+      departmentId: taskData?.departmentId || '',
+      organizationId: selectedOrganizationId,
+      assigneeId: taskData?.assigneeId || '',
+      dueDate: taskData?.dueDate || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      __optimistic: true,
+    };
+    setWorkspaceTasks((prev) => [optimisticTask, ...prev]);
     try {
       const payload = {
         ...taskData,
@@ -820,12 +881,17 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       const body = created?.data ?? created;
       const task = body?.data ?? body;
       if (task && (task._id || task.id)) {
-        setWorkspaceTasks((prev) => [task, ...prev]);
-      } else {
-        await loadWorkspaceTasks(selectedOrganizationId);
+        setWorkspaceTasks((prev) =>
+          prev.map((item) => (String(item._id || item.id) === optimisticId ? task : item))
+        );
       }
+      // Luôn sync lại từ server để đảm bảo board dùng dữ liệu thật (owner/assignee/status chuẩn).
+      await loadWorkspaceTasks(selectedOrganizationId);
       notifySuccess(t('tasks.toastCreated') || 'Task created');
     } catch (error) {
+      setWorkspaceTasks((prev) =>
+        prev.filter((item) => String(item._id || item.id) !== optimisticId)
+      );
       notifyError(error?.response?.data?.message || error?.message || t('tasks.toastCreateFail'));
       throw error;
     }
@@ -1536,6 +1602,9 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         fullName: payload?.fullName || '',
         phone: payload?.phone || '',
         email: payload?.email || '',
+        avatar: payload?.avatar || '',
+        username: payload?.username || '',
+        role: payload?.role || '',
       });
     } else if (kind === 'poll') {
       messageType = 'system';
@@ -1546,7 +1615,12 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       });
     } else if (kind === 'topic') {
       messageType = 'system';
-      content = `Topic: ${messageInput?.trim() || selectedChannel?.name || selectedOrganization?.name || ''}`;
+      const topicText = String(messageInput || '').trim();
+      if (!topicText) {
+        notifyError('Vui long nhap noi dung chu de');
+        return;
+      }
+      content = `Topic: ${topicText}`;
     } else {
       return;
     }
@@ -1592,6 +1666,11 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     ]);
     loadChatContacts();
   }, [landingDemo]);
+
+  useEffect(() => {
+    if (landingDemo) return;
+    loadChatContacts(selectedOrganizationId);
+  }, [selectedOrganizationId, landingDemo]);
 
   useEffect(() => {
     if (!initialWorkspaceSlug) return;
@@ -2014,7 +2093,8 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             onForwardMessage={handleForwardRequest}
             onQuickReactMessage={handleQuickReactMessage}
             workspaceOnlineUserIds={onlineUsers}
-            onWorkspaceSearchJump={({ roomId }) => {
+            onWorkspaceSearchJump={({ roomId, organizationId }) => {
+              if (organizationId) setSelectedOrganizationId(String(organizationId));
               if (roomId) setSelectedChannelId(String(roomId));
             }}
             workspaceTasks={workspaceTasks}

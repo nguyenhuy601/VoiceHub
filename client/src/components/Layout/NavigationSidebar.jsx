@@ -521,23 +521,25 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                     </Tooltip>
                   );
                 })}
-                <Tooltip label={createOrgShortLabel}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setJoinByLinkOpen(false);
-                      setCreateOrgMenuOpen(true);
-                    }}
-                    className={`${orgAvatarBtn} ${
-                      isDarkMode
-                        ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
-                        : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    }`}
-                    aria-label={createOrgShortLabel}
-                  >
-                    <span className="text-xl leading-none">+</span>
-                  </button>
-                </Tooltip>
+                {location.pathname.startsWith('/workspaces') && (
+                  <Tooltip label={createOrgShortLabel}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJoinByLinkOpen(false);
+                        setCreateOrgMenuOpen(true);
+                      }}
+                      className={`${orgAvatarBtn} ${
+                        isDarkMode
+                          ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                      aria-label={createOrgShortLabel}
+                    >
+                      <span className="text-xl leading-none">+</span>
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             </>
 
