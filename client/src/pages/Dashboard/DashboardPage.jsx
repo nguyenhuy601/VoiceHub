@@ -1,10 +1,10 @@
-import { Bell, MoreHorizontal, Search } from 'lucide-react';
+import { Bell, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
-import { Dropdown, GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
+import { GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -566,36 +566,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     else navigate('/notifications');
   };
 
-  const exportDashboardSnapshot = () => {
-    try {
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        metrics,
-        displayName,
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'voicehub-dashboard-snapshot.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(t('dashboard.exportOk'));
-    } catch {
-      toast.error(t('dashboard.exportErr'));
-    }
-  };
-
-  const shareDashboardLink = async () => {
-    const url = `${window.location.origin}/dashboard`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(t('dashboard.shareOk'));
-    } catch {
-      toast(url, { icon: '🔗' });
-    }
-  };
-
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
 
   return (
@@ -659,80 +629,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 <p className={`mb-1 text-[11px] font-bold uppercase tracking-[0.18em] ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>{t('dashboard.kicker')}</p>
                 <h1 className={`text-3xl font-bold tracking-tight md:text-4xl ${textHeading}`}>{t('dashboard.heading')}</h1>
                 <p className={`mt-1 text-base leading-relaxed ${textMuted}`}>{t('dashboard.sub')}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.12)]">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  {t('dashboard.live')}
-                </span>
-                <Dropdown
-                  trigger={
-                    <button
-                      type="button"
-                      className={`rounded-xl border p-2 transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                    >
-                      <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
-                    </button>
-                  }
-                  align="right"
-                >
-                  {(close) => (
-                    <div className="p-2">
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          toast(t('dashboard.customizeToast'), { icon: 'ℹ️' });
-                          close();
-                        }}
-                      >
-                        {t('dashboard.customize')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          exportDashboardSnapshot();
-                          close();
-                        }}
-                      >
-                        {t('dashboard.exportReport')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          shareDashboardLink();
-                          close();
-                        }}
-                      >
-                        {t('dashboard.share')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          setShowNewProjectModal(true);
-                          close();
-                        }}
-                      >
-                        {t('dashboard.newProject')}
-                      </button>
-                      <div className={`my-2 h-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-                      <button
-                        type="button"
-                        className={`w-full rounded-lg px-4 py-2 text-left text-sm transition ${isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'}`}
-                        onClick={() => {
-                          navigate('/settings');
-                          close();
-                        }}
-                      >
-                        {t('dashboard.settings')}
-                      </button>
-                    </div>
-                  )}
-                </Dropdown>
               </div>
             </div>
 
@@ -843,13 +739,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className={`text-lg font-bold ${textHeading}`}>Vào workspace</h2>
-                <button
-                  type="button"
-                  onClick={() => navigate('/workspaces', { state: { openCreateWorkspace: true } })}
-                  className={`text-xs font-semibold ${accentText}`}
-                >
-                  + Tạo tổ chức
-                </button>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {myOverviewItems.map((item) => (
