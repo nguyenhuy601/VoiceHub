@@ -90,8 +90,8 @@ function LoginPage({ landingDemo = false } = {}) {
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Chào mừng quay lại</h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>Đăng nhập để tiếp tục quản trị hệ thống của bạn.</p>
+      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
+      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
 
       {gatewayTrust && !gatewayTrust.ok && (
         <div
@@ -100,10 +100,9 @@ function LoginPage({ landingDemo = false } = {}) {
             isDarkMode ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
           }`}
         >
-          <p className="font-semibold">Không thể đăng nhập ổn định</p>
+          <p className="font-semibold">{t('login.gatewayAlertTitle')}</p>
           <p className="mt-1 opacity-95">
-            {gatewayTrust.message ||
-              'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với các microservice (xem .env.example ở root repo).'}
+            {gatewayTrust.message || t('login.gatewayAlertFallback')}
           </p>
         </div>
       )}
@@ -111,7 +110,7 @@ function LoginPage({ landingDemo = false } = {}) {
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
           <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
-            Email
+            {t('login.email')}
           </label>
           <input
             id="email"
@@ -119,7 +118,7 @@ function LoginPage({ landingDemo = false } = {}) {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className={inputBase}
-            placeholder="acbxyz@gmail.com"
+            placeholder={t('login.placeholderEmail')}
             autoComplete="email"
           />
         </div>
@@ -170,7 +169,7 @@ function LoginPage({ landingDemo = false } = {}) {
           disabled={loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok)}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
-          {loading ? 'Đang đăng nhập…' : gatewayTrust === null ? 'Đang kiểm tra cấu hình…' : 'Đăng nhập'}
+          {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>

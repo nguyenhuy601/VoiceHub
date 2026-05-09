@@ -6,6 +6,7 @@ import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authInputError, authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 
 function RegisterPage() {
@@ -156,10 +157,8 @@ function RegisterPage() {
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>Tạo tài khoản mới</h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>
-        Khởi tạo không gian làm việc chuyên nghiệp cho doanh nghiệp.
-      </p>
+      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('register.title')}</h2>
+      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('register.subtitle')}</p>
 
       {gatewayTrust && !gatewayTrust.ok && (
         <div
@@ -168,10 +167,9 @@ function RegisterPage() {
             isDarkMode ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
           }`}
         >
-          <p className="font-semibold">Chưa thể đăng ký ổn định</p>
+          <p className="font-semibold">{t('register.gatewayAlertTitle')}</p>
           <p className="mt-1 opacity-95">
-            {gatewayTrust.message ||
-              'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến vào api-gateway/.env và đồng bộ với docker-compose / các service.'}
+            {gatewayTrust.message || t('register.gatewayAlertFallback')}
           </p>
         </div>
       )}
@@ -314,10 +312,10 @@ function RegisterPage() {
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
           {loading
-            ? 'Đang gửi email xác thực…'
+            ? t('register.submitting')
             : gatewayTrust === null
-              ? 'Đang kiểm tra cấu hình…'
-              : 'Tạo tài khoản'}
+              ? t('login.checkingConfig')
+              : t('register.submit')}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>

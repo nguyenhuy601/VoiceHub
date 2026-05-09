@@ -48,7 +48,7 @@ services:
       CHOKIDAR_INTERVAL: "500"
 
   voice-service:
-    command: ["sh", "-c", "[ -f node_modules/mediasoup/worker/out/Release/mediasoup-worker ] || npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"

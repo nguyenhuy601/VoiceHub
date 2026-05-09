@@ -84,7 +84,7 @@ services:
       - .env
       - ./services/organization-service/.env
     environment:
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN:-dev-gateway-internal-token-change-me}
     depends_on:
       - mongodb
       - redis
@@ -103,9 +103,9 @@ services:
       - .env
       - ./services/friend-service/.env
     environment:
-      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL}
-      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
     depends_on:
       - mongodb
@@ -146,10 +146,10 @@ services:
       - .env
       - ./services/chat-service/.env
     environment:
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE}
-      - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN}
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE:-true}
+      - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN:-dev-shared-realtime-token-change-me}
     depends_on:
       mongodb:
         condition: service_started
@@ -176,9 +176,9 @@ services:
       - .env
       - ./services/task-service/.env
     environment:
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
     depends_on:
       mongodb:
         condition: service_started
@@ -205,9 +205,9 @@ services:
       - .env
       - ./services/ai-task-service/.env
     environment:
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
     depends_on:
       mongodb:
         condition: service_started
@@ -232,14 +232,14 @@ services:
       - .env
       - ./services/ai-task-worker/.env
     environment:
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
-      - USER_SERVICE_URL=${USER_SERVICE_URL}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - CHAT_SERVICE_URL=http://chat-service:3006
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN:-dev-shared-chat-internal-token-change-me}
+      - USER_SERVICE_URL=http://user-service:3004
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-      - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
+      - TASK_SERVICE_URL=http://task-service:3009
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - PADDLEOCR_BASE_URL=http://paddleocr-service:8000
     depends_on:
       mongodb:
         condition: service_started
@@ -295,7 +295,7 @@ services:
       - ./services/voice-service:/app
       - ./shared:/shared
       - /app/node_modules
-    command: ["sh", "-c", "[ -f node_modules/mediasoup/worker/out/Release/mediasoup-worker ] || npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
 
   notification-service:
     build: ./services/notification-service
@@ -304,7 +304,7 @@ services:
       - .env
       - ./services/notification-service/.env
     environment:
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN:-dev-gateway-internal-token-change-me}
     depends_on:
       - mongodb
       - redis
@@ -324,7 +324,7 @@ services:
       - .env
       - ./services/webhook-service/.env
     environment:
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN:-dev-gateway-internal-token-change-me}
     depends_on:
       - notification-service
     networks:
@@ -341,13 +341,13 @@ services:
       - .env
       - ./services/socket-service/.env
     environment:
-      - USER_SERVICE_URL=${USER_SERVICE_URL}
+      - USER_SERVICE_URL=http://user-service:3004
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE}
-      - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-voicehub}:${RABBITMQ_PASS:-voicehub-dev-change-me}@rabbitmq:5672
+      - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE:-true}
+      - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN:-dev-shared-realtime-token-change-me}
     depends_on:
       redis:
         condition: service_started

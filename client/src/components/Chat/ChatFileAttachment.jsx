@@ -1,3 +1,6 @@
+import friendService from '../../services/friendService';
+import toast from 'react-hot-toast';
+
 /**
  * Hiển thị tin nhắn file/hình: thẻ tệp thay vì chuỗi URL Firebase dài.
  */
@@ -189,6 +192,71 @@ export function ChatMessageAttachmentBody({ message }) {
   const content = message?.content;
   const fm = message?.fileMeta;
   const mt = message?.messageType || 'text';
+
+  if (mt === 'business_card') {
+    let card = {};
+    try {
+      card = typeof content === 'string' ? JSON.parse(content) : content || {};
+    } catch {
+      card = { fullName: String(content || '') };
+    }
+    const targetUserId = String(card.userId || card.id || card.memberId || '').trim();
+    const fullName = String(card.fullName || card.name || '—').trim() || '—';
+    const phone = String(card.phone || '').trim() || '-';
+    const email = String(card.email || '').trim() || '-';
+    const goToFriendChat = () => {
+      const target = targetUserId
+        ? `?openDmUserId=${encodeURIComponent(targetUserId)}&composeText=${encodeURIComponent(`Xin chao ${fullName}`)}`
+        : '';
+      const inWorkspace = typeof window !== 'undefined' && /^\/w\//.test(window.location.pathname);
+      const url = `/chat/friends${target}`;
+      if (inWorkspace) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      window.location.assign(url);
+    };
+    return (
+      <div className="min-w-[220px] rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-sm font-bold text-white">
+            {String(fullName).slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-cyan-100/70">Danh thiếp</div>
+            <div className="truncate text-sm font-semibold text-white">Tên: {fullName}</div>
+            <div className="truncate text-xs text-cyan-100/75">SĐT: {phone}</div>
+            <div className="truncate text-xs text-cyan-100/75">Email: {email}</div>
+          </div>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            disabled={!targetUserId}
+            onClick={async () => {
+              if (!targetUserId) return;
+              try {
+                await friendService.sendRequest(targetUserId);
+                toast.success('Da gui loi moi ket ban');
+              } catch {
+                toast.error('Khong the gui loi moi ket ban');
+              }
+            }}
+            className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-cyan-500 disabled:opacity-50"
+          >
+            Kết bạn
+          </button>
+          <button
+            type="button"
+            onClick={goToFriendChat}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+          >
+            Nhắn tin
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (mt === 'image' && isHttpUrl(content)) {
     const alt = resolveDisplayFileName(fm, content) || 'Hình ảnh';

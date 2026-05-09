@@ -35,17 +35,31 @@ function UnifiedChatComposer({
   showAiToggle = false,
   aiEnabled = false,
   onAiToggle,
+  mentionItems = [],
 }) {
   const { isDarkMode } = useTheme();
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
   const plusButtonRef = useRef(null);
   const plusMenuRef = useRef(null);
+  const mentionButtonRef = useRef(null);
+  const mentionMenuRef = useRef(null);
   const inputRef = useRef(null);
 
   const safePlusItems = useMemo(
     () => (Array.isArray(plusItems) ? plusItems.filter((item) => item && item.label) : []),
     [plusItems]
   );
+  const safeMentionItems = useMemo(
+    () => (Array.isArray(mentionItems) ? mentionItems.filter((item) => item && item.label) : []),
+    [mentionItems]
+  );
+  const filteredMentionItems = useMemo(() => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return safeMentionItems;
+    return safeMentionItems.filter((item) => String(item.label || '').toLowerCase().includes(q));
+  }, [safeMentionItems, mentionQuery]);
   const resolvedActionItems = useMemo(() => {
     if (Array.isArray(actionItems)) {
       return actionItems.filter((item) => item && item.key);
@@ -60,22 +74,21 @@ function UnifiedChatComposer({
   }, [actionItems, onOpenGift, onOpenGif, onOpenSticker, onOpenEmoji, onOpenApps]);
 
   useEffect(() => {
-    if (!showPlusMenu) return undefined;
+    if (!showPlusMenu && !showMentionMenu) return undefined;
 
     const handleOutsideClick = (event) => {
-      if (
-        plusMenuRef.current &&
-        !plusMenuRef.current.contains(event.target) &&
-        plusButtonRef.current &&
-        !plusButtonRef.current.contains(event.target)
-      ) {
-        setShowPlusMenu(false);
-      }
+      const clickedPlusMenu = plusMenuRef.current?.contains(event.target);
+      const clickedPlusButton = plusButtonRef.current?.contains(event.target);
+      const clickedMentionMenu = mentionMenuRef.current?.contains(event.target);
+      const clickedMentionButton = mentionButtonRef.current?.contains(event.target);
+      if (clickedPlusMenu || clickedPlusButton || clickedMentionMenu || clickedMentionButton) return;
+      setShowPlusMenu(false);
+      setShowMentionMenu(false);
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showPlusMenu]);
+  }, [showPlusMenu, showMentionMenu]);
 
   const handleSend = () => {
     if (disabled || sendDisabled) return;
@@ -106,13 +119,54 @@ function UnifiedChatComposer({
     onChange?.(`${cur}${before}${after}`);
   };
 
+  const insertMention = (label) => {
+    if (disabled) return;
+    const el = inputRef.current;
+    const cur = value ?? '';
+    if (el && typeof el.selectionStart === 'number') {
+      const cursor = el.selectionStart;
+      const head = cur.slice(0, cursor);
+      const tail = cur.slice(cursor);
+      const match = head.match(/(^|\s)@([^\s@]*)$/);
+      if (match) {
+        const token = match[0];
+        const prefix = head.slice(0, head.length - token.length);
+        const spacer = token.startsWith(' ') ? ' ' : '';
+        const next = `${prefix}${spacer}@${label} ${tail}`;
+        onChange?.(next);
+      } else {
+        const next = `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}@${label} `;
+        onChange?.(next);
+      }
+    } else {
+      const next = `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}@${label} `;
+      onChange?.(next);
+    }
+    setShowMentionMenu(false);
+    setMentionQuery('');
+    requestAnimationFrame(() => {
+      try {
+        inputRef.current?.focus();
+      } catch {
+        /* ignore */
+      }
+    });
+  };
+
   const fmt = (kind) => {
     onRichAction?.(kind);
     if (kind === 'bold') insertWrap('**', '**');
     else if (kind === 'italic') insertWrap('*', '*');
     else if (kind === 'code') insertWrap('`', '`');
-    else if (kind === 'mention') insertWrap('@');
-    else if (kind === 'link') insertWrap('[', '](url)');
+    else if (kind === 'mention') {
+      if (safeMentionItems.length > 0) {
+        setShowPlusMenu(false);
+        setMentionQuery('');
+        setShowMentionMenu((prev) => !prev);
+      } else {
+        insertWrap('@');
+      }
+    } else if (kind === 'link') insertWrap('[', '](url)');
   };
 
   const defaultWrapper = isDarkMode
@@ -158,6 +212,7 @@ function UnifiedChatComposer({
               type="button"
               disabled={disabled}
               title={title}
+              ref={k === 'mention' ? mentionButtonRef : undefined}
               onClick={() => fmt(k)}
               className={fmtBtn}
             >
@@ -167,6 +222,35 @@ function UnifiedChatComposer({
         </div>
       )}
       <div className={composerInner}>
+        {showMentionMenu && safeMentionItems.length > 0 && (
+          <div
+            ref={mentionMenuRef}
+            className={isDarkMode
+              ? 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
+              : 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl'}
+          >
+            <div className={`border-b px-3 py-2 text-xs font-semibold uppercase ${isDarkMode ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+              Gợi ý thành viên
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {filteredMentionItems.map((item) => (
+                <button
+                  key={String(item.value || item.label)}
+                  type="button"
+                  onClick={() => insertMention(item.label)}
+                  className={isDarkMode
+                    ? 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80'
+                    : 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100'}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-200">
+                    {item.avatar && String(item.avatar).startsWith('http') ? <img src={item.avatar} alt="" className="h-full w-full object-cover" /> : (item.label || '?').slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-end gap-2">
         {safePlusItems.length > 0 && (
           <>
@@ -212,8 +296,28 @@ function UnifiedChatComposer({
           ref={inputRef}
           value={value}
           rows={richToolbar ? 3 : 1}
-          onChange={(event) => onChange?.(event.target.value)}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            onChange?.(nextValue);
+            if (!safeMentionItems.length) return;
+            const cursor = event.target.selectionStart ?? nextValue.length;
+            const head = nextValue.slice(0, cursor);
+            const match = head.match(/(?:^|\s)@([^\s@]*)$/);
+            if (match) {
+              setMentionQuery(match[1] || '');
+              setShowPlusMenu(false);
+              setShowMentionMenu(true);
+            } else if (showMentionMenu) {
+              setShowMentionMenu(false);
+              setMentionQuery('');
+            }
+          }}
           onKeyDown={(event) => {
+            if (showMentionMenu && filteredMentionItems.length > 0 && event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              insertMention(filteredMentionItems[0].label);
+              return;
+            }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               handleSend();

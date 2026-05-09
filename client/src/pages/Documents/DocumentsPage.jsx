@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { ConfirmDialog, Dropdown, GlassCard, GradientButton, Modal } from '../../components/Shared';
 import { useTheme } from '../../context/ThemeContext';
 import { threeFramePageHeader } from '../../theme/shellTheme';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchBar, SearchFilterChips } from '../../features/search';
+import api from '../../services/api';
 
 const DEMO_DOCS = [];
 const DEMO_FOLDERS = [];
@@ -14,6 +15,8 @@ const DEMO_FOLDERS = [];
 function DocumentsPage() {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
+  const [searchParams] = useSearchParams();
+  const organizationId = searchParams.get('organizationId') || '';
   const headerStrip = threeFramePageHeader(isDarkMode);
 
   const [viewMode, setViewMode] = useState('grid');
@@ -29,6 +32,58 @@ function DocumentsPage() {
   const [showShareModal, setShowShareModal] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+
+  const formatSize = (bytes) => {
+    const n = Number(bytes);
+    if (!Number.isFinite(n) || n <= 0) return '-';
+    if (n < 1024) return `${Math.round(n)} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const mapDocument = (doc) => ({
+    id: doc._id || doc.id,
+    name: doc.name || doc.title || 'Document',
+    type: String(doc.mimeType || '').includes('pdf') ? 'PDF' : '📄',
+    size: formatSize(doc.fileSize),
+    category: doc.organizationId ? 'Workspace' : 'Personal',
+    owner: doc.uploadedBy?.displayName || doc.uploadedBy?.username || 'VoiceHub',
+    modified: doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('vi-VN') : '',
+    color: 'from-cyan-500 to-blue-600',
+    starred: false,
+    shared: Boolean(doc.isPublic || doc.organizationId),
+    raw: doc,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setDocumentsLoading(true);
+    api
+      .get('/documents', {
+        params: {
+          ...(organizationId ? { organizationId } : {}),
+          limit: 100,
+        },
+      })
+      .then((response) => {
+        if (cancelled) return;
+        const body = response?.data ?? response;
+        const inner = body?.data ?? body;
+        const list = Array.isArray(inner?.documents) ? inner.documents : Array.isArray(inner) ? inner : [];
+        setDocuments(list.map(mapDocument));
+      })
+      .catch(() => {
+        if (!cancelled) setDocuments([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDocumentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
 
   const handleStarFile = (fileId) => {
     toast.success(t('documents.toastStar'));
@@ -82,7 +137,7 @@ function DocumentsPage() {
   };
 
   const filteredDocs = useMemo(() => {
-    let list = [...DEMO_DOCS];
+    let list = documents.length ? [...documents] : [...DEMO_DOCS];
     if (activeFolder === 'Thiết Kế') list = list.filter((d) => d.category === 'Thiết kế');
     else if (activeFolder === 'Tài Liệu') list = list.filter((d) => d.category === 'Tài liệu');
     else if (activeFolder === 'Ảnh & Video') list = [];
@@ -91,7 +146,7 @@ function DocumentsPage() {
     const dq = docNameQuery.trim().toLowerCase();
     if (dq) list = list.filter((d) => String(d.name || '').toLowerCase().includes(dq));
     return list;
-  }, [activeFolder, listFilter, docNameQuery]);
+  }, [activeFolder, documents, listFilter, docNameQuery]);
 
   return (
     <>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import toast from 'react-hot-toast';
-import { Bell, Calendar, MoreHorizontal, Phone, Video } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Bell, BellOff, Calendar, Phone, Pin, PinOff, Video } from 'lucide-react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import UnifiedChatComposer from '../../components/Chat/UnifiedChatComposer';
 import { ChatMessageAttachmentBody } from '../../components/Chat/ChatFileAttachment';
@@ -53,12 +53,34 @@ function messageDayKey(iso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const DM_MUTE_STORAGE_KEY = 'voicehub:dm-muted';
+const DM_PIN_STORAGE_KEY = 'voicehub:dm-pinned';
+
+function loadIdList(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIdList(storageKey, ids) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify([...new Set(ids.map(String).filter(Boolean))]));
+  } catch {
+    /* ignore */
+  }
+}
+
 function FriendChatPage({ landingDemo = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -93,18 +115,20 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [inlineToast, setInlineToast] = useState(null);
+  const [mutedFriendIds, setMutedFriendIds] = useState(() => loadIdList(DM_MUTE_STORAGE_KEY));
+  const [pinnedFriendIds, setPinnedFriendIds] = useState(() => loadIdList(DM_PIN_STORAGE_KEY));
   const { user } = useAuth();
   const { openFriendCall } = useFriendCallSession();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
   /** Cuộc gọi đi: chờ accept / reject / timeout */
   const [outboundCall, setOutboundCall] = useState(null);
   const outboundCallRef = useRef(null);
-  const routedDmUserId = location.state?.openDmUserId
-    ? String(location.state.openDmUserId)
-    : '';
-  const routedComposeText = location.state?.composeText
-    ? String(location.state.composeText)
-    : '';
+  const routedDmUserId = String(
+    location.state?.openDmUserId || searchParams.get('openDmUserId') || ''
+  );
+  const routedComposeText = String(
+    location.state?.composeText || searchParams.get('composeText') || ''
+  );
 
   const formatDateDividerLabel = useCallback(
     (iso) => {
@@ -136,6 +160,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
   const currentUserId = user?.userId || user?._id || user?.id;
   const currentUserName = getUserDisplayName(user) || t('common.you');
   const currentUserAvatar = user?.avatar || '🧑';
+  const currentFriendKey = selectedFriendId ? String(selectedFriendId) : '';
+  const isCurrentFriendMuted = currentFriendKey ? mutedFriendIds.includes(currentFriendKey) : false;
+  const isCurrentFriendPinned = currentFriendKey ? pinnedFriendIds.includes(currentFriendKey) : false;
 
   const showToast = (message, type = 'success') => {
     setInlineToast({ message, type });
@@ -146,6 +173,34 @@ function FriendChatPage({ landingDemo = false } = {}) {
     setOutboundCall(null);
     outboundCallRef.current = null;
   }, []);
+
+  const toggleMuteCurrentFriend = useCallback(() => {
+    if (!currentFriendKey) return;
+    const next = isCurrentFriendMuted
+      ? mutedFriendIds.filter((id) => id !== currentFriendKey)
+      : [...mutedFriendIds, currentFriendKey];
+    saveIdList(DM_MUTE_STORAGE_KEY, next);
+    setMutedFriendIds(next);
+    toast.success(
+      isCurrentFriendMuted ? 'Đã bật lại thông báo cuộc trò chuyện' : 'Đã tắt thông báo cuộc trò chuyện'
+    );
+  }, [currentFriendKey, isCurrentFriendMuted, mutedFriendIds]);
+
+  const togglePinCurrentFriend = useCallback(() => {
+    if (!currentFriendKey) return;
+    const next = isCurrentFriendPinned
+      ? pinnedFriendIds.filter((id) => id !== currentFriendKey)
+      : [...pinnedFriendIds, currentFriendKey];
+    saveIdList(DM_PIN_STORAGE_KEY, next);
+    setPinnedFriendIds(next);
+    toast.success(isCurrentFriendPinned ? 'Đã bỏ ghim hội thoại' : 'Đã ghim hội thoại');
+  }, [currentFriendKey, isCurrentFriendPinned, pinnedFriendIds]);
+
+  const createGroupFromDm = useCallback(() => {
+    if (!currentFriendKey) return;
+    navigate('/voice', { state: { openInviteModal: true, sourceFriendId: currentFriendKey } });
+    toast.success('Đã mở phòng voice để tạo nhóm');
+  }, [currentFriendKey, navigate]);
 
   const cancelOutboundCall = useCallback(async () => {
     const id = outboundCallRef.current;
@@ -1008,6 +1063,9 @@ function FriendChatPage({ landingDemo = false } = {}) {
             ) : (
               filteredViewFriends.map((f) => {
                 const active = selectedFriendId === f.id;
+                const fid = String(f.id || '');
+                const isMuted = fid ? mutedFriendIds.includes(fid) : false;
+                const isPinned = fid ? pinnedFriendIds.includes(fid) : false;
                 const avatarUrl =
                   typeof f.avatar === 'string' && /^https?:\/\//i.test(f.avatar) ? f.avatar : null;
                 return (
@@ -1051,10 +1109,22 @@ function FriendChatPage({ landingDemo = false } = {}) {
                       />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div
-                        className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                      >
-                        {f.name}
+                      <div className="flex items-center gap-1.5">
+                        <div
+                          className={`truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                        >
+                          {f.name}
+                        </div>
+                        {isPinned && (
+                          <span className={`rounded px-1 text-[9px] font-bold ${isDarkMode ? 'bg-amber-400/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                            PIN
+                          </span>
+                        )}
+                        {isMuted && (
+                          <span className={`rounded px-1 text-[9px] font-bold ${isDarkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600'}`}>
+                            MUTE
+                          </span>
+                        )}
                       </div>
                       <div className={`truncate text-[10px] ${railMuted}`}>{f.subtitle}</div>
                     </div>
@@ -1159,7 +1229,15 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     <button
                       type="button"
                       title={t('friendChat.schedule')}
-                      onClick={() => toast(t('friendChat.scheduleSoon'), { icon: '📅' })}
+                      onClick={() =>
+                        navigate('/calendar', {
+                          state: {
+                            source: 'friend-chat',
+                            prefillAttendees: [currentFriend.name].filter(Boolean),
+                            prefillTitle: `Meeting với ${currentFriend.name || 'bạn bè'}`,
+                          },
+                        })
+                      }
                       className={scheduleBtn}
                     >
                       <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -1167,19 +1245,27 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     </button>
                     <button
                       type="button"
-                      title={t('friendChat.convoNotif')}
-                      onClick={() => toast(t('friendChat.convoNotifSoon'), { icon: '🔔' })}
+                      title={isCurrentFriendMuted ? 'Bật thông báo' : t('friendChat.convoNotif')}
+                      onClick={toggleMuteCurrentFriend}
                       className={iconBtn}
                     >
-                      <Bell className="h-5 w-5" strokeWidth={2} />
+                      {isCurrentFriendMuted ? (
+                        <BellOff className="h-5 w-5" strokeWidth={2} />
+                      ) : (
+                        <Bell className="h-5 w-5" strokeWidth={2} />
+                      )}
                     </button>
                     <button
                       type="button"
-                      title={t('friendChat.moreMenu')}
-                      onClick={() => toast(t('friendChat.moreSoon'), { icon: '⋯' })}
+                      title={isCurrentFriendPinned ? 'Bỏ ghim hội thoại' : 'Ghim hội thoại'}
+                      onClick={togglePinCurrentFriend}
                       className={iconBtn}
                     >
-                      <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
+                      {isCurrentFriendPinned ? (
+                        <PinOff className="h-5 w-5" strokeWidth={2} />
+                      ) : (
+                        <Pin className="h-5 w-5" strokeWidth={2} />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -1718,9 +1804,12 @@ function FriendChatPage({ landingDemo = false } = {}) {
             <FriendChatRightPanel
               friend={currentFriend}
               messages={messages}
-              onMute={() => toast(t('friendChat.muteSoon'), { icon: '🔕' })}
-              onPin={() => toast(t('friendChat.pinSoon'), { icon: '📌' })}
-              onCreateGroup={() => toast(t('friendChat.groupSoon'), { icon: '👥' })}
+              onMute={toggleMuteCurrentFriend}
+              onPin={togglePinCurrentFriend}
+              onCreateGroup={createGroupFromDm}
+              isMuted={isCurrentFriendMuted}
+              isPinned={isCurrentFriendPinned}
+              isInFriendsContext={location.pathname.includes('/chat/friends')}
             />
           )}
         </div>
@@ -1746,4 +1835,5 @@ function FriendChatPage({ landingDemo = false } = {}) {
 }
 
 export default FriendChatPage;
+
 

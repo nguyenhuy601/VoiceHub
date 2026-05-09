@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   AtSign,
   Hash,
@@ -29,6 +30,26 @@ function unwrap(payload) {
   return payload?.data ?? payload;
 }
 
+function formatMessagePreview(message) {
+  const mt = String(message?.messageType || 'text').toLowerCase();
+  const raw = String(message?.content || '');
+  if (mt === 'business_card') {
+    try {
+      const card = JSON.parse(raw);
+      const name = String(card?.fullName || card?.name || '—').trim() || '—';
+      const phone = String(card?.phone || '').trim() || '-';
+      const email = String(card?.email || '').trim() || '-';
+      return `Danh thiếp · Tên: ${name} · SĐT: ${phone} · Email: ${email}`;
+    } catch {
+      return 'Danh thiếp';
+    }
+  }
+  if (mt === 'image') return 'Hình ảnh';
+  if (mt === 'file') return `Tệp: ${raw || 'Đính kèm'}`;
+  if (mt === 'system') return raw || 'Tin nhắn hệ thống';
+  return raw;
+}
+
 /**
  * Thanh tìm kiếm workspace tổ chức (Discord-style): bộ lọc + lịch sử + gợi ý + kết quả.
  */
@@ -51,6 +72,7 @@ export default function OrgWorkspaceSearch({
   const [searchLoading, setSearchLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState('');
+  const [historyVersion, setHistoryVersion] = useState(0);
   const abortRef = useRef(null);
   const rootRef = useRef(null);
 
@@ -59,7 +81,7 @@ export default function OrgWorkspaceSearch({
     320
   );
 
-  const historyEntries = useMemo(() => loadSearchHistory(scopeKey), [scopeKey, open]);
+  const historyEntries = useMemo(() => loadSearchHistory(scopeKey), [scopeKey, open, historyVersion]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -141,6 +163,7 @@ export default function OrgWorkspaceSearch({
 
   const detectPrefix = (raw) => {
     const lower = raw.toLowerCase();
+    if (lower.startsWith('@')) return { key: 'mentions', rest: raw.slice(1).trim() };
     for (const [prefix, key] of Object.entries(PREFIX_TO_KEY)) {
       if (lower.startsWith(prefix)) return { key, rest: raw.slice(prefix.length).trim() };
     }
@@ -188,6 +211,12 @@ export default function OrgWorkspaceSearch({
     setInputValue(ft);
     setTokens(f);
     setOpen(true);
+  };
+
+  const clearScopedHistory = () => {
+    clearSearchHistory(scopeKey);
+    setHistoryVersion((v) => v + 1);
+    toast.success(t('searchUi.historyCleared'));
   };
 
   return (
@@ -320,7 +349,7 @@ export default function OrgWorkspaceSearch({
                   type="button"
                   className="rounded p-1 hover:bg-black/10 dark:hover:bg-white/10"
                   title={t('searchUi.clearHistory')}
-                  onClick={() => clearSearchHistory(scopeKey)}
+                  onClick={clearScopedHistory}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -356,7 +385,7 @@ export default function OrgWorkspaceSearch({
                 )}
                 {results.map((m) => {
                   const id = m._id || m.id;
-                  const preview = String(m.content || '').slice(0, 120);
+                  const preview = formatMessagePreview(m).slice(0, 140);
                   const rid = m.roomId?._id || m.roomId;
                   return (
                     <li key={id}>
