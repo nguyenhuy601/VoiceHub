@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
 import { ConfirmDialog, GlassCard, GradientButton, NotificationBellBadge } from '../../components/Shared';
 import { useSocket } from '../../context/SocketContext';
@@ -13,8 +13,10 @@ import { PageSearchBar, SearchFilterChips } from '../../features/search';
 
 function NotificationsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
+  const organizationIdFilter = String(searchParams.get('organizationId') || searchParams.get('orgId') || '').trim();
   const [filter, setFilter] = useState('all');
   const [notifSearch, setNotifSearch] = useState('');
   const [notifications, setNotifications] = useState([]);
@@ -33,6 +35,19 @@ function NotificationsPage() {
     if (diffHours < 24) return t('time.hoursAgo', { n: diffHours });
     const diffDays = Math.floor(diffHours / 24);
     return t('time.daysAgo', { n: diffDays });
+  };
+
+  const parseNotificationData = (item) => {
+    const raw = item?.data;
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
   };
 
   const iconByType = {
@@ -68,6 +83,7 @@ function NotificationsPage() {
   };
 
   const toViewNotification = (item) => {
+    const data = parseNotificationData(item);
     const id = item?._id || item?.id;
     const rawType = String(item?.type || 'system');
     const type =
@@ -83,20 +99,22 @@ function NotificationsPage() {
                 ? 'system'
                 : rawType;
     const orgLabel =
-      item?.data?.workspaceName ||
-      item?.data?.organizationName ||
+      data?.workspaceName ||
+      data?.organizationName ||
+      data?.companyName ||
       item?.workspaceName ||
       item?.organizationName ||
+      item?.companyName ||
       '';
     const orgSlug =
-      item?.data?.workspaceSlug ||
-      item?.data?.organizationSlug ||
+      data?.workspaceSlug ||
+      data?.organizationSlug ||
       item?.workspaceSlug ||
       item?.organizationSlug ||
       '';
     const orgId =
-      item?.data?.workspaceId ||
-      item?.data?.organizationId ||
+      data?.workspaceId ||
+      data?.organizationId ||
       item?.workspaceId ||
       item?.organizationId ||
       '';
@@ -109,9 +127,10 @@ function NotificationsPage() {
       message: item?.content || item?.message || '',
       time: getRelativeTime(item?.createdAt),
       read: Boolean(item?.isRead),
-      priority: item?.data?.priority || 'low',
+      priority: data?.priority || 'low',
       action: getActionLabel(rawType, type),
       organizationLabel: orgLabel,
+      organizationName: orgLabel,
       organizationSlug: orgSlug,
       organizationId: orgId,
       /** Chuông + badge đỏ giống sidebar (chủ yếu lời mời kết bạn) */
@@ -122,7 +141,12 @@ function NotificationsPage() {
   const loadNotifications = useCallback(async () => {
     setNotificationsLoading(true);
     try {
-      const response = await api.get('/notifications', { params: { limit: 100 } });
+      const response = await api.get('/notifications', {
+        params: {
+          limit: 100,
+          ...(organizationIdFilter ? { organizationId: organizationIdFilter } : {}),
+        },
+      });
       const payload = response?.data || response;
       const data = payload?.data || payload;
       const list = Array.isArray(data?.notifications) ? data.notifications : [];
@@ -133,7 +157,7 @@ function NotificationsPage() {
     } finally {
       setNotificationsLoading(false);
     }
-  }, [t]);
+  }, [organizationIdFilter, t]);
 
   useEffect(() => {
     loadNotifications();
@@ -284,11 +308,15 @@ function NotificationsPage() {
         break;
       case 'task':
       case 'deadline':
-        navigate('/tasks');
+        navigate(notif.organizationSlug ? `${targetWorkspacePath}?tab=tasks` : '/tasks');
         toast(t('notifications.toastOpenTasks'), { icon: '✅' });
         break;
       case 'file':
-        navigate('/documents');
+        navigate(
+          notif.organizationId
+            ? `/documents?organizationId=${encodeURIComponent(notif.organizationId)}`
+            : '/documents'
+        );
         toast(t('notifications.toastOpenDocs'), { icon: '📁' });
         break;
       default:
@@ -306,13 +334,16 @@ function NotificationsPage() {
           : filter === 'friend'
             ? notifications.filter((n) => n.type === 'friend')
             : notifications.filter((n) => n.type === filter);
+    if (organizationIdFilter) {
+      list = list.filter((n) => String(n.organizationId || '').trim() === organizationIdFilter);
+    }
     const q = notifSearch.trim().toLowerCase();
     if (!q) return list;
     return list.filter((n) => {
       const hay = `${n.title || ''} ${n.message || ''} ${n.action || ''} ${n.type || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [notifications, filter, notifSearch]);
+  }, [notifications, filter, notifSearch, organizationIdFilter]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -358,7 +389,7 @@ function NotificationsPage() {
           </div>
           <div className="flex shrink-0 flex-wrap gap-3">
             <button 
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate('/settings?tab=notifications')}
               className={`rounded-xl px-4 py-2 transition-all ${btnGhost}`}
             >
               {t('notifications.btnNotifSettings')}
@@ -475,11 +506,11 @@ function NotificationsPage() {
                     <span>🕐 {notif.time}</span>
                     <span>•</span>
                     <span className="capitalize">{notif.type}</span>
-                    {notif.organizationLabel ? (
+                    {notif.organizationName ? (
                       <>
                         <span>•</span>
                         <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-cyan-300">
-                          {notif.organizationLabel}
+                          {notif.organizationName}
                         </span>
                       </>
                     ) : null}

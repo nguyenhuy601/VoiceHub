@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
@@ -96,6 +96,7 @@ const getSignalBaseUrl = () => {
 };
 
 const getSignalPath = () => import.meta.env.VITE_VOICE_SIGNAL_PATH || '/voice-socket';
+const RECENT_VOICE_CALLS_KEY = 'vh.voice.recentCalls';
 
 const normalizeToken = (rawToken) => {
   if (!rawToken) return null;
@@ -150,6 +151,7 @@ function deptMatchesMember(m, deptId) {
 
 function VoiceRoomPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { roomId } = useParams();
   const [searchParams] = useSearchParams();
   const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
@@ -190,6 +192,16 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
   const [inviteSearch, setInviteSearch] = useState('');
   const [inviteCandidates, setInviteCandidates] = useState([]);
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [selectedInviteIds, setSelectedInviteIds] = useState([]);
+  const [voiceFriends, setVoiceFriends] = useState([]);
+  const [recentCalls, setRecentCalls] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECENT_VOICE_CALLS_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [roomMessages, setRoomMessages] = useState([]);
   const [roomChatInput, setRoomChatInput] = useState('');
@@ -248,6 +260,44 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
   useEffect(() => {
     setDisplayNameInput((prev) => (prev.trim() ? prev : localDisplayName));
   }, [localDisplayName]);
+
+  useEffect(() => {
+    if (landingDemo) {
+      setVoiceFriends([
+        { id: 'demo-friend-1', label: 'Lan Anh', subtitle: 'online' },
+        { id: 'demo-friend-2', label: 'Minh Tuan', subtitle: 'offline' },
+      ]);
+      return;
+    }
+    let cancelled = false;
+    friendService
+      .getFriends()
+      .then((resp) => {
+        if (cancelled) return;
+        const payload = resp?.data || resp;
+        const result = payload?.data || payload;
+        const list = result?.friends || result;
+        const rows = Array.isArray(list) ? list : [];
+        setVoiceFriends(
+          rows.slice(0, 8).map((f) => {
+            const u = f.friendId || f;
+            const id = String(u?._id || u?.userId || u?.id || f.id || '');
+            return {
+              id,
+              label: u?.displayName || u?.fullName || u?.username || u?.email?.split('@')?.[0] || id.slice(-6),
+              subtitle: u?.email || '',
+              avatar: u?.avatar || null,
+            };
+          })
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setVoiceFriends([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [landingDemo]);
 
   useEffect(() => {
     const kind = searchParams.get('kind');
@@ -875,8 +925,19 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
   }, [inviteModalOpen, loadInviteCandidates]);
 
   useEffect(() => {
-    if (!inviteModalOpen) setInviteSearch('');
+    if (!inviteModalOpen) {
+      setInviteSearch('');
+      setSelectedInviteIds([]);
+    }
   }, [inviteModalOpen]);
+
+  useEffect(() => {
+    if (!location.state?.openInviteModal) return;
+    const sourceId = String(location.state?.sourceFriendId || '').trim();
+    setInviteModalOpen(true);
+    if (sourceId) setSelectedInviteIds([sourceId]);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   const initVoiceRoom = async ({
     targetRoomId,
@@ -1036,6 +1097,7 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
       setIsMuted(!audioTrack);
       setIsCameraOff(!videoTrack);
       setViewStage('inRoom');
+      pushRecentCall(roomTarget);
       stopPrejoinPreview({ keepStreamForRoom: true });
 
       const qs = new URLSearchParams();
@@ -1129,6 +1191,31 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
       navigate('/voice');
     }
   };
+
+  const pushRecentCall = useCallback(
+    (roomTarget) => {
+      const entry = {
+        roomId: String(roomTarget || ''),
+        roomKind,
+        label:
+          String(roomTarget || '') ||
+          (roomKind === 'org'
+            ? `${t('voiceRoom.roomTypeOrg')} ${selectedOrgId ? `#${selectedOrgId}` : ''}`.trim()
+            : t('voiceRoom.roomTypeFree')),
+        joinedAt: new Date().toISOString(),
+      };
+      setRecentCalls((prev) => {
+        const next = [entry, ...prev.filter((item) => String(item.roomId) !== entry.roomId)].slice(0, 8);
+        try {
+          localStorage.setItem(RECENT_VOICE_CALLS_KEY, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    },
+    [roomKind, selectedOrgId, t]
+  );
 
   const toggleMute = async () => {
     const producer = mediasoupRef.current.audioProducer;
@@ -1351,22 +1438,22 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
         id: 'schedule',
         label: t('voiceRoom.schedule'),
         icon: Calendar,
-        onClick: () => toast(t('voiceRoom.scheduleSoon'), { icon: '📅' }),
+        onClick: () => navigate('/calendar'),
       },
       {
         id: 'share',
         label: t('voiceRoom.screenShare'),
         icon: Monitor,
-        onClick: () => toast(t('voiceRoom.screenShareSoon'), { icon: '🖥️' }),
+        onClick: () => setInviteModalOpen(true),
       },
       {
         id: 'notes',
         label: t('voiceRoom.notes'),
         icon: FileText,
-        onClick: () => toast(t('voiceRoom.notesSoon'), { icon: '📝' }),
+        onClick: () => navigate('/documents'),
       },
     ],
-    [t]
+    [navigate, t]
   );
 
   /** Khung lobby: sáng = cùng tông shell app; tối = nền đen (trước khi vào phòng) */
@@ -1506,6 +1593,80 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
                   </button>
                 );
               })}
+              <div className={`mt-6 border-t pt-4 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className={`mb-2 px-2 text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                  Ban be
+                </div>
+                <div className="space-y-1.5">
+                  {voiceFriends.length === 0 ? (
+                    <div className={`rounded-xl px-3 py-2 text-xs ${isDarkMode ? 'bg-white/[0.04] text-gray-500' : 'bg-slate-100 text-slate-500'}`}>
+                      Chua co ban be de goi nhanh
+                    </div>
+                  ) : (
+                    voiceFriends.map((friend) => (
+                      <button
+                        key={friend.id}
+                        type="button"
+                        onClick={() => {
+                          setRoomKind('free');
+                          setViewStage('prejoin');
+                          setInviteModalOpen(true);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition ${
+                          isDarkMode ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-xs font-bold text-white">
+                          {friend.avatar && String(friend.avatar).startsWith('http') ? (
+                            <img src={friend.avatar} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            String(friend.label || '?').slice(0, 1).toUpperCase()
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className={`block truncate text-xs font-semibold ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>
+                            {friend.label}
+                          </span>
+                          <span className={`block truncate text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                            {friend.subtitle || 'Friend'}
+                          </span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className={`mt-4 border-t pt-4 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+                <div className={`mb-2 px-2 text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                  Lich su cuoc goi
+                </div>
+                <div className="space-y-1.5">
+                  {recentCalls.length === 0 ? (
+                    <div className={`rounded-xl px-3 py-2 text-xs ${isDarkMode ? 'bg-white/[0.04] text-gray-500' : 'bg-slate-100 text-slate-500'}`}>
+                      Chua co cuoc goi gan day
+                    </div>
+                  ) : (
+                    recentCalls.map((item) => (
+                      <button
+                        key={`${item.roomId}-${item.joinedAt}`}
+                        type="button"
+                        onClick={() => {
+                          setMeetingCode(String(item.roomId || ''));
+                          setViewStage('prejoin');
+                        }}
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2 py-2 text-left transition ${isDarkMode ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
+                      >
+                        <span className={`min-w-0 truncate text-xs font-semibold ${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>
+                          {item.label || item.roomId || 'Voice room'}
+                        </span>
+                        <span className={`shrink-0 text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
+                          {item.joinedAt ? new Date(item.joinedAt).toLocaleDateString('vi-VN') : ''}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             </aside>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8">
@@ -2060,7 +2221,7 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
                   <VoiceToolbarControl
                     label={t('voiceRoom.toolbarShare')}
                     icon={Share2}
-                    onClick={() => toast(t('voiceRoom.screenShareSoon'), { icon: '🖥️' })}
+                    onClick={() => setInviteModalOpen(true)}
                     chevron
                   />
                   <div className="relative" ref={moreMenuWrapRef}>
@@ -2408,6 +2569,13 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
                           <li
                             key={row.id}
                             className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-white/5"
+                            onClick={() =>
+                              setSelectedInviteIds((prev) =>
+                                prev.includes(String(row.id))
+                                  ? prev.filter((id) => id !== String(row.id))
+                                  : [...prev, String(row.id)]
+                              )
+                            }
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-700 text-xs font-semibold text-white">
                               {row.avatar && String(row.avatar).startsWith('http') ? (
@@ -2422,7 +2590,12 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
                                 <div className="truncate text-xs text-gray-500">{row.subtitle}</div>
                               ) : null}
                             </div>
-                            <input type="checkbox" className="h-4 w-4 rounded border-white/20" readOnly />
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-white/20"
+                              checked={selectedInviteIds.includes(String(row.id))}
+                              readOnly
+                            />
                           </li>
                         ))}
                       </ul>

@@ -30,9 +30,19 @@ const friendService = {
     return await api.post(`/friends/accept/${requestId}`);
   },
 
+  // Chấp nhận theo userId người gửi lời mời - POST /friends/:friendId/accept
+  acceptFriend: async (friendId) => {
+    return await api.post(`/friends/${friendId}/accept`);
+  },
+
   // Từ chối lời mời - DELETE /friends/reject/:requestId
   rejectRequest: async (requestId) => {
     return await api.delete(`/friends/reject/${requestId}`);
+  },
+
+  // Từ chối theo userId người gửi lời mời - POST /friends/:friendId/reject
+  rejectFriend: async (friendId) => {
+    return await api.post(`/friends/${friendId}/reject`);
   },
 
   // Xóa bạn - DELETE /friends/:friendId
@@ -51,6 +61,11 @@ const friendService = {
   // Khi block: không nhận message, không thấy online status
   blockUser: async (userId) => {
     return await api.post('/friends/block', { userId });
+  },
+
+  // Chặn theo REST route mới - POST /friends/:friendId/block
+  blockFriend: async (friendId) => {
+    return await api.post(`/friends/${friendId}/block`);
   },
 
   // Bỏ chặn - DELETE /friends/unblock/:userId

@@ -22,6 +22,17 @@ import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/org
 
 const unwrapData = (payload) => payload?.data ?? payload;
 
+const parseNotificationData = (item) => {
+  if (!item || typeof item !== 'object') return { data: {} };
+  if (item.data && typeof item.data === 'object') return item;
+  if (typeof item.data !== 'string') return { ...item, data: {} };
+  try {
+    return { ...item, data: JSON.parse(item.data) };
+  } catch {
+    return { ...item, data: {} };
+  }
+};
+
 function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = {}) {
   const { t, locale } = useAppStrings();
   const { user } = useAuth();
@@ -187,6 +198,9 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
   const [workspaceTasks, setWorkspaceTasks] = useState([]);
   const [loadingWorkspaceTasks, setLoadingWorkspaceTasks] = useState(false);
   const [workspaceTabView, setWorkspaceTabView] = useState('chat');
+  const [workspaceNotificationsOpen, setWorkspaceNotificationsOpen] = useState(false);
+  const [workspaceNotifications, setWorkspaceNotifications] = useState([]);
+  const [loadingWorkspaceNotifications, setLoadingWorkspaceNotifications] = useState(false);
   const previousVoiceChannelIdRef = useRef('');
   const hasInviteQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -425,25 +439,64 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
   };
 
-  const loadChatContacts = async () => {
+  const loadChatContacts = async (organizationIdArg = selectedOrganizationId) => {
     setLoadingChatContacts(true);
     try {
-      const payload = await friendService.getFriends();
-      const data = unwrapData(payload);
-      const rawList = Array.isArray(data?.friends) ? data.friends : Array.isArray(data) ? data : [];
-      const normalized = rawList
+      const [friendPayload, memberPayload] = await Promise.all([
+        friendService.getFriends(),
+        organizationIdArg ? organizationAPI.getMembers(organizationIdArg) : Promise.resolve(null),
+      ]);
+      const friendData = unwrapData(friendPayload);
+      const rawFriendList = Array.isArray(friendData?.friends)
+        ? friendData.friends
+        : Array.isArray(friendData)
+          ? friendData
+          : [];
+      const friendContacts = rawFriendList
         .map((item) => item.friendId || item)
         .filter(Boolean)
         .map((item) => ({
           id: item._id || item.id,
           name: item.displayName || item.name || item.username || t('organizations.userFallback'),
-          phone: item.phone || '',
+          username: item.username || '',
+          role: item.role || '',
+          phone: item.phone || item.phoneNumber || item.mobile || '',
           email: item.email || '',
           avatar: item.avatar || null,
           category: 'friend',
         }))
         .filter((item) => !!item.id);
-      setChatContacts(normalized);
+      const memberData = unwrapData(memberPayload);
+      const rawMemberList = Array.isArray(memberData?.data)
+        ? memberData.data
+        : Array.isArray(memberData)
+          ? memberData
+          : [];
+      const memberContacts = rawMemberList
+        .map((item) => item?.user || item)
+        .filter(Boolean)
+        .map((item) => ({
+          id: item._id || item.id || item.userId,
+          name:
+            item.displayName ||
+            item.fullName ||
+            item.username ||
+            item.email ||
+            t('organizations.userFallback'),
+          username: item.username || '',
+          role: item.role || item.memberRole || '',
+          phone: item.phone || item.phoneNumber || item.mobile || '',
+          email: item.email || '',
+          avatar: item.avatar || null,
+          category: 'work',
+        }))
+        .filter((item) => !!item.id);
+      const merged = new Map();
+      [...memberContacts, ...friendContacts].forEach((item) => {
+        const key = String(item.id);
+        if (!merged.has(key)) merged.set(key, item);
+      });
+      setChatContacts(Array.from(merged.values()));
     } catch (error) {
       setChatContacts([]);
     } finally {
@@ -720,7 +773,13 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
     setLoadingMessages(true);
     try {
-      const payload = await api.get('/messages', { params: { roomId: channelId, limit: 100 } });
+      const payload = await api.get('/messages', {
+        params: {
+          roomId: channelId,
+          limit: 100,
+          ...(selectedOrganizationId ? { organizationId: selectedOrganizationId } : {}),
+        },
+      });
       const data = unwrapData(payload);
       const list = Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : [];
       // Sắp xếp cũ -> mới để hiển thị tự nhiên trong màn chat
@@ -753,6 +812,26 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     }
   };
 
+  const openWorkspaceNotifications = async () => {
+    if (!selectedOrganizationId) return;
+    setWorkspaceNotificationsOpen(true);
+    setLoadingWorkspaceNotifications(true);
+    try {
+      const response = await api.get('/notifications', {
+        params: { organizationId: selectedOrganizationId, limit: 50 },
+      });
+      const body = response?.data ?? response;
+      const inner = body?.data ?? body;
+      const list = Array.isArray(inner?.notifications) ? inner.notifications : [];
+      setWorkspaceNotifications(list.map(parseNotificationData));
+    } catch (error) {
+      setWorkspaceNotifications([]);
+      notifyError(error?.response?.data?.message || t('notifications.loadFail'));
+    } finally {
+      setLoadingWorkspaceNotifications(false);
+    }
+  };
+
   const handleMoveWorkspaceTask = async (task, nextStatus) => {
     if (!task?._id || !selectedOrganizationId) return;
     const taskId = String(task._id);
@@ -771,6 +850,50 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         prev.map((t) => (String(t._id) === taskId ? { ...t, status: previousStatus } : t))
       );
       notifyError(t('tasks.toastMoveFail'));
+    }
+  };
+
+  const handleCreateWorkspaceTask = async (taskData) => {
+    if (!selectedOrganizationId) return;
+    const optimisticId = `tmp-${Date.now()}`;
+    const optimisticTask = {
+      _id: optimisticId,
+      title: String(taskData?.title || '').trim(),
+      description: String(taskData?.description || '').trim(),
+      status: 'todo',
+      priority: taskData?.priority || 'medium',
+      departmentId: taskData?.departmentId || '',
+      organizationId: selectedOrganizationId,
+      assigneeId: taskData?.assigneeId || '',
+      dueDate: taskData?.dueDate || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      __optimistic: true,
+    };
+    setWorkspaceTasks((prev) => [optimisticTask, ...prev]);
+    try {
+      const payload = {
+        ...taskData,
+        organizationId: selectedOrganizationId,
+        serverId: selectedOrganizationId,
+      };
+      const created = await taskAPI.createTask(payload);
+      const body = created?.data ?? created;
+      const task = body?.data ?? body;
+      if (task && (task._id || task.id)) {
+        setWorkspaceTasks((prev) =>
+          prev.map((item) => (String(item._id || item.id) === optimisticId ? task : item))
+        );
+      }
+      // Luôn sync lại từ server để đảm bảo board dùng dữ liệu thật (owner/assignee/status chuẩn).
+      await loadWorkspaceTasks(selectedOrganizationId);
+      notifySuccess(t('tasks.toastCreated') || 'Task created');
+    } catch (error) {
+      setWorkspaceTasks((prev) =>
+        prev.filter((item) => String(item._id || item.id) !== optimisticId)
+      );
+      notifyError(error?.response?.data?.message || error?.message || t('tasks.toastCreateFail'));
+      throw error;
     }
   };
 
@@ -1473,11 +1596,15 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       }
       return;
     } else if (kind === 'contact') {
-      messageType = 'system';
-      content = t('organizations.contactCard', {
-        fullName: payload?.fullName || '-',
-        phone: payload?.phone || '-',
-        email: payload?.email || '-',
+      messageType = 'business_card';
+      content = JSON.stringify({
+        userId: payload?.userId || '',
+        fullName: payload?.fullName || '',
+        phone: payload?.phone || '',
+        email: payload?.email || '',
+        avatar: payload?.avatar || '',
+        username: payload?.username || '',
+        role: payload?.role || '',
       });
     } else if (kind === 'poll') {
       messageType = 'system';
@@ -1486,6 +1613,14 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         q: payload?.question || '',
         options: options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n'),
       });
+    } else if (kind === 'topic') {
+      messageType = 'system';
+      const topicText = String(messageInput || '').trim();
+      if (!topicText) {
+        notifyError('Vui long nhap noi dung chu de');
+        return;
+      }
+      content = `Topic: ${topicText}`;
     } else {
       return;
     }
@@ -1531,6 +1666,11 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     ]);
     loadChatContacts();
   }, [landingDemo]);
+
+  useEffect(() => {
+    if (landingDemo) return;
+    loadChatContacts(selectedOrganizationId);
+  }, [selectedOrganizationId, landingDemo]);
 
   useEffect(() => {
     if (!initialWorkspaceSlug) return;
@@ -1930,7 +2070,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             onSelectChannel={handleSelectChannel}
             onSelectDepartment={handleSelectDepartment}
             onSelectTeam={setSelectedTeamId}
-            onOpenNotificationsPage={() => navigate('/notifications')}
+            onOpenNotificationsPage={openWorkspaceNotifications}
             onCreateDivision={handleCreateDivision}
             onCreateDepartment={handleCreateDepartment}
             onCreateTeam={handleCreateTeam}
@@ -1953,15 +2093,20 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             onForwardMessage={handleForwardRequest}
             onQuickReactMessage={handleQuickReactMessage}
             workspaceOnlineUserIds={onlineUsers}
-            onWorkspaceSearchJump={({ roomId }) => {
+            onWorkspaceSearchJump={({ roomId, organizationId }) => {
+              if (organizationId) setSelectedOrganizationId(String(organizationId));
               if (roomId) setSelectedChannelId(String(roomId));
             }}
             workspaceTasks={workspaceTasks}
             loadingWorkspaceTasks={loadingWorkspaceTasks}
             onMoveWorkspaceTask={handleMoveWorkspaceTask}
+            onCreateWorkspaceTask={handleCreateWorkspaceTask}
             onOpenOrganizationSettings={handleOpenOrganizationSettingsModal}
             onInviteOrganization={handleInviteOrganization}
             canInviteMembers={['owner', 'admin', 'hr'].includes(
+              String(selectedOrganization?.myRole || '').toLowerCase()
+            )}
+            canManageWorkspaceStructure={['owner', 'admin'].includes(
               String(selectedOrganization?.myRole || '').toLowerCase()
             )}
             onWorkspaceTabChange={setWorkspaceTabView}
@@ -1998,6 +2143,64 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
         }
         rightWidth="w-[280px]"
       />
+      {workspaceNotificationsOpen && (
+        <Modal
+          isOpen={workspaceNotificationsOpen}
+          onClose={() => setWorkspaceNotificationsOpen(false)}
+          title={`Thong bao - ${selectedOrganization?.name || ''}`}
+          size="lg"
+        >
+          <div className="space-y-3">
+            {loadingWorkspaceNotifications ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-gray-300">
+                Dang tai thong bao...
+              </div>
+            ) : workspaceNotifications.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-5 text-sm text-gray-400">
+                Chua co thong bao trong to chuc nay.
+              </div>
+            ) : (
+              workspaceNotifications.map((item) => (
+                <button
+                  key={item._id || item.id}
+                  type="button"
+                  onClick={() => {
+                    const data = item.data || {};
+                    if (item.type === 'document' || data.documentId) {
+                      navigate(`/documents?organizationId=${encodeURIComponent(selectedOrganizationId)}`);
+                    } else if (item.type === 'task_assigned' || item.type === 'task_completed' || data.taskId) {
+                      navigate(`/w/${encodeURIComponent(selectedOrganization?.slug || selectedOrganizationId)}?tab=tasks`);
+                    } else {
+                      navigate(`/w/${encodeURIComponent(selectedOrganization?.slug || selectedOrganizationId)}`);
+                    }
+                    setWorkspaceNotificationsOpen(false);
+                  }}
+                  className="block w-full rounded-xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.07]"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">
+                        {item.title || t('notifications.defaultTitle')}
+                      </div>
+                      {(item.organizationName || item.data?.organizationName || item.data?.workspaceName) && (
+                        <div className="mt-1 truncate text-[11px] uppercase tracking-wide text-cyan-300">
+                          {item.organizationName || item.data?.workspaceName || item.data?.organizationName}
+                        </div>
+                      )}
+                      <div className="mt-1 line-clamp-2 text-sm text-gray-400">
+                        {item.content || item.message || ''}
+                      </div>
+                    </div>
+                    {!item.isRead ? (
+                      <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-400" />
+                    ) : null}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </Modal>
+      )}
       {leaveOrgModalOpen && (
         <Modal
           isOpen={leaveOrgModalOpen}
