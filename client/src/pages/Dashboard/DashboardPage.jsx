@@ -757,45 +757,6 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     else if (type === 'message') navigate('/chat/friends');
     else navigate('/notifications');
   };
-
-  const activityCellClass = (total) => {
-    if (total >= 8) return 'bg-emerald-400';
-    if (total >= 4) return 'bg-emerald-500/80';
-    if (total >= 2) return 'bg-emerald-600/55';
-    if (total >= 1) return 'bg-emerald-700/35';
-    return isDarkMode ? 'bg-white/[0.06]' : 'bg-slate-200';
-  };
-
-  const exportDashboardSnapshot = () => {
-    try {
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        metrics,
-        displayName,
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'voicehub-dashboard-snapshot.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(t('dashboard.exportOk'));
-    } catch {
-      toast.error(t('dashboard.exportErr'));
-    }
-  };
-
-  const shareDashboardLink = async () => {
-    const url = `${window.location.origin}/dashboard`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(t('dashboard.shareOk'));
-    } catch {
-      toast(url, { icon: '🔗' });
-    }
-  };
-
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
 
   return (
@@ -860,31 +821,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 <h1 className={`text-3xl font-bold tracking-tight md:text-4xl ${textHeading}`}>{t('dashboard.heading')}</h1>
                 <p className={`mt-1 text-base leading-relaxed ${textMuted}`}>{t('dashboard.sub')}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.12)]">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  {t('dashboard.live')}
-                </span>
-                <button
-                  type="button"
-                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-white hover:bg-white/[0.06]' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'}`}
-                  onClick={() => {
-                    document.getElementById('vh-dashboard-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    toast(t('dashboard.customizeToast'), { icon: 'ℹ️' });
-                  }}
-                >
-                  {t('dashboard.customize')}
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${isDarkMode ? 'border-white/[0.08] bg-[#1A1A1C] text-white hover:bg-white/[0.06]' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'}`}
-                  onClick={() => navigate('/settings')}
-                >
-                  {t('dashboard.settings')}
-                </button>
-              </div>
             </div>
-
           <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat, idx) => (
               <GlassCard
