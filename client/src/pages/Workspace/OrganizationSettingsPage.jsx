@@ -6,6 +6,7 @@ import { appShellBg } from '../../theme/shellTheme';
 import OrganizationSettingsPanel from '../../components/Organization/OrganizationSettingsPanel';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
+import { buildCommunicateChannelsPath } from '../../utils/suitePathUtils';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -13,7 +14,7 @@ const unwrap = (payload) => payload?.data ?? payload;
  * Cài đặt workspace full màn hình: sidebar app + 2 cột (mục | nội dung) trong OrganizationSettingsPanel.
  * Đường dẫn: /workspaces/:orgId/settings?tab=join
  */
-export default function OrganizationSettingsPage() {
+export default function OrganizationSettingsPage({ suiteLayout = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const shell = isDarkMode
@@ -26,9 +27,9 @@ export default function OrganizationSettingsPage() {
 
   const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
-  const organizationHomePath = organization?.slug
-    ? `/w/${encodeURIComponent(organization.slug)}/chat`
-    : '/dashboard';
+  const organizationHomePath = orgId
+    ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`
+    : '/app/collaborate/workspaces';
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +70,7 @@ export default function OrganizationSettingsPage() {
   if (!orgId) {
     return (
       <div className={shell}>
-        <NavigationSidebar />
+        {!suiteLayout && <NavigationSidebar />}
         <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
           {t('organizationSettings.missingOrgId')}
         </main>
@@ -80,7 +81,7 @@ export default function OrganizationSettingsPage() {
   if (loading) {
     return (
       <div className={shell}>
-        <NavigationSidebar />
+        {!suiteLayout && <NavigationSidebar />}
         <main className={`flex flex-1 items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
           {t('organizationSettings.loading')}
         </main>
@@ -91,12 +92,12 @@ export default function OrganizationSettingsPage() {
   if (!organization) {
     return (
       <div className={shell}>
-        <NavigationSidebar />
+        {!suiteLayout && <NavigationSidebar />}
         <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
           <p className={isDarkMode ? 'text-gray-400' : 'text-slate-600'}>{t('organizationSettings.notFound')}</p>
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/app/collaborate/workspaces')}
             className="text-cyan-400 hover:underline"
           >
             {t('organizationSettings.backOrgs')}
@@ -108,13 +109,13 @@ export default function OrganizationSettingsPage() {
 
   return (
     <div className={shell}>
-      <NavigationSidebar />
+      {!suiteLayout && <NavigationSidebar />}
       <OrganizationSettingsPanel
         organization={organization}
         initialTab={initialTab}
         onBack={() => navigate(organizationHomePath)}
         onOrganizationUpdated={handleOrganizationUpdated}
-        onOrganizationDeleted={() => navigate('/dashboard')}
+        onOrganizationDeleted={() => navigate('/app/collaborate/workspaces')}
       />
     </div>
   );

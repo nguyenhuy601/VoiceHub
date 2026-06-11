@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { buildWorkspacePath } from '../../utils/workspaceTabUtils';
+import {
+  buildCollaborateDocumentsPath,
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+} from '../../utils/suitePathUtils';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchToolbar, SearchFilterChips } from '../search';
@@ -169,24 +173,22 @@ export default function OrganizationNotificationsWorkspacePanel({
     if (!notif) return;
     if (!notif.read) handleMarkAsRead(notif.id);
 
-    const slug = notif.organizationSlug || organizationSlug;
-    const orgId = notif.organizationId || organizationId;
-    if (slug) {
+    const orgId = String(notif.organizationId || organizationId || '').trim();
+    if (orgId) {
       switch (notif.type) {
         case 'task':
-          navigate(buildWorkspacePath(slug, 'tasks'));
+          navigate(buildCollaborateTasksPath(orgId));
           break;
         case 'file':
-          navigate(buildWorkspacePath(slug, 'documents'));
+          navigate(buildCollaborateDocumentsPath(orgId));
           break;
         default:
-          navigate(buildWorkspacePath(slug, 'chat'));
+          navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
           break;
       }
       return;
     }
-    const fallbackPath = orgId ? `/workspaces?orgId=${encodeURIComponent(orgId)}` : '/workspaces';
-    navigate(fallbackPath);
+    navigate('/app/collaborate/workspaces');
   };
 
   return (

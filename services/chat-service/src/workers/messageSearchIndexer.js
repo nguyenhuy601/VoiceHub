@@ -5,7 +5,7 @@ const {
   MESSAGE_SEARCH_BINDING_KEYS,
   MESSAGE_SEARCH_INDEXER_QUEUE,
   MESSAGE_SEARCH_INDEXER_DLQ,
-} = require('/shared/messaging/messageSearchEvents');
+} = require('@enterprise/shared/messaging/messageSearchEvents');
 const Message = require('../models/Message');
 const {
   buildMessageSearchDocument,

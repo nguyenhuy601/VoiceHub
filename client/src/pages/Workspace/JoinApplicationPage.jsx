@@ -11,7 +11,7 @@ import { useAppStrings } from '../../locales/appStrings';
  * Trang điền đơn gia nhập workspace (thay cho modal).
  * Đường dẫn: /workspaces/join/:orgId?name=Tên+TC
  */
-export default function JoinApplicationPage() {
+export default function JoinApplicationPage({ suiteLayout = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : `flex min-h-screen ${appShellBg(false)}`;
@@ -30,17 +30,17 @@ export default function JoinApplicationPage() {
 
   const handleSubmitted = () => {
     toast.success(t('joinApplication.toastSent'));
-    navigate('/dashboard', { replace: true });
+    navigate('/app/collaborate/workspaces', { replace: true });
   };
 
   const handleCancel = () => {
-    navigate('/dashboard');
+    navigate('/app/collaborate/workspaces');
   };
 
   if (!orgId) {
     return (
       <div className={shell}>
-        <NavigationSidebar />
+        {!suiteLayout && <NavigationSidebar />}
         <main className={`flex flex-1 items-center justify-center p-6 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
           {t('joinApplication.missingOrgId')}
         </main>
@@ -50,7 +50,7 @@ export default function JoinApplicationPage() {
 
   return (
     <div className={shell}>
-      <NavigationSidebar />
+      {!suiteLayout && <NavigationSidebar />}
       <main className="flex flex-1 flex-col overflow-y-auto">
         <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 md:py-12">
           <button

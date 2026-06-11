@@ -5,9 +5,9 @@ const TaskBoardList = require('../models/TaskBoardList');
 const TaskBoardMember = require('../models/TaskBoardMember');
 const TaskBoardListWatcher = require('../models/TaskBoardListWatcher');
 const Task = require('../models/Task');
-const { logger } = require('/shared');
-const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
-const { fetchUserProfileByIdInternal } = require('/shared/utils/userServiceInternal');
+const { logger } = require('@enterprise/shared');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const {
   fetchTaskWorkspaceScope,
   canCreateTaskInScope,

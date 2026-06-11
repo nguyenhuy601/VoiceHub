@@ -6,43 +6,43 @@
 services:
   api-gateway:
     # npm ci theo lockfile (commit trong git); fallback npm install nếu chưa có lock.
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   auth-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   user-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   organization-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   friend-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   role-permission-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   chat-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
@@ -54,31 +54,31 @@ services:
       CHOKIDAR_INTERVAL: "500"
 
   task-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   ai-task-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   ai-task-worker:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   document-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
   notification-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
@@ -87,7 +87,7 @@ services:
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3016", "--reload"]
 
   socket-service:
-    command: ["sh", "-c", "npm ci || npm install; npm run dev"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"

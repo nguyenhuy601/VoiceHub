@@ -1,4 +1,4 @@
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 const mediasoupConfig = require('../config/mediasoup.config');
 
 let mediasoup;

@@ -4,7 +4,7 @@ let connectionListenersBound = false;
 
 /**
  * Lưu ý: trong mỗi microservice, model/controller PHẢI dùng cùng `mongoose` với module này
- * (ví dụ `src/db.js` re-export `require('../../../shared/config/mongo').mongoose`).
+ * (ví dụ `src/db.js` re-export `require('@enterprise/shared/config/mongo').mongoose`).
  * `require('mongoose')` trực tiếp trong service dùng bản từ `service/node_modules` → khác singleton
  * → kết nối từ connectDB() không áp dụng → lỗi buffering timed out.
  */

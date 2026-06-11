@@ -1,5 +1,5 @@
 const callSessionService = require('../services/callSession.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 function userIdFromReq(req) {
   return req.user?.id || req.user?.userId || req.user?._id;

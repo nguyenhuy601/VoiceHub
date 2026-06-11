@@ -1,6 +1,7 @@
 const { bffCachedRead } = require('./bffRead');
 const { bootstrapCacheKey } = require('./cache');
 const { buildBootstrap } = require('./bootstrap.service');
+const { normalizeBootstrapSuite } = require('./bootstrapEnrichment');
 
 const TTL_SEC = Math.min(
   120,
@@ -14,12 +15,13 @@ async function handleBootstrap(req, res) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const cacheKey = bootstrapCacheKey(userId);
+    const suite = normalizeBootstrapSuite(req.query?.suite);
+    const cacheKey = bootstrapCacheKey(userId, suite || 'default');
     const { data, fromCache } = await bffCachedRead({
       cacheKey,
       coalesceKey: cacheKey,
       ttlSec: TTL_SEC,
-      loader: () => buildBootstrap(userId, req.user?.email),
+      loader: () => buildBootstrap(userId, req.user?.email, suite),
     });
 
     if (fromCache) res.setHeader('X-Bff-Cache', 'HIT');

@@ -6,22 +6,29 @@ const voiceRoomJoinRequestService = require('./voiceRoomJoinRequest.service');
 const { assertOrgVoiceChannelAccess } = require('../utils/orgVoiceChannelAccess');
 const { isFreePublicLobbyRoom } = require('../utils/voiceRoomKind');
 
-/** userId đã gọi bootstrap cho phòng lobby mã tự do (Zoom-style). */
+const voiceLobbyRedis = require('../presence/voiceLobbyRedis');
+
+/** userId đã gọi bootstrap — fallback in-memory khi Redis không có. */
 const lobbyBootstrapUsers = new Map();
 
 function rememberLobbyBootstrap(roomId, userId) {
   const rid = String(roomId || '').trim();
   const uid = String(userId || '').trim();
   if (!rid || !uid) return;
+  void voiceLobbyRedis.rememberLobbyBootstrap(rid, uid);
   if (!lobbyBootstrapUsers.has(rid)) {
     lobbyBootstrapUsers.set(rid, new Set());
   }
   lobbyBootstrapUsers.get(rid).add(uid);
 }
 
-function hasLobbyBootstrap(roomId, userId) {
-  const set = lobbyBootstrapUsers.get(String(roomId || '').trim());
-  return Boolean(set && set.has(String(userId || '').trim()));
+async function hasLobbyBootstrap(roomId, userId) {
+  const rid = String(roomId || '').trim();
+  const uid = String(userId || '').trim();
+  const fromRedis = await voiceLobbyRedis.hasLobbyBootstrap(rid, uid);
+  if (fromRedis) return true;
+  const set = lobbyBootstrapUsers.get(rid);
+  return Boolean(set && set.has(uid));
 }
 
 function isObjectId(value) {
@@ -113,7 +120,7 @@ async function assertVoiceRoomAccess({ roomId, userId, organizationId, authoriza
     }
   }
 
-  if (!hasLobbyBootstrap(rid, uid)) {
+  if (!(await hasLobbyBootstrap(rid, uid))) {
     const err = new Error('Bootstrap required before joining this room');
     err.statusCode = 403;
     throw err;

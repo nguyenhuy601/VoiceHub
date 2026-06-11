@@ -10,6 +10,7 @@ alwaysApply: true
 - **Tương thích**: Ưu tiên sửa lỗi cục bộ (null check, populate thiếu model, query hợp lệ) thay vì refactor lớn hoặc đổi contract API công khai.
 - **Regression**: Tránh phá luồng đã chạy (chat, voice, friend, org). Nếu phải đổi hành vi API, ghi rõ trong spec và giữ backward-compatible khi có thể.
 - **Microservice**: Mỗi service chỉ có các model đăng ký trong repo đó — `populate()` ref tới model chưa đăng ký (ví dụ `User`) sẽ gây 500; dùng bỏ populate, lean, hoặc đăng ký model tối thiểu có chủ đích.
+- **@enterprise/shared**: Chỉ import qua package `@enterprise/shared` hoặc subpath (`@enterprise/shared/middleware/auth`). **Cấm** `require('/shared')` và thêm business logic / HTTP client gọi service khác vào `shared/` — đặt trong `services/<name>/src/clients/`. Event schema chéo service được phép trong `shared/messaging/` và `shared/cache/`.
 
 ## Làm nhóm — ưu tiên phần đang chạy ổn
 
@@ -36,3 +37,34 @@ Môi trường dev: máy khác trong WiFi truy cập qua **HTTPS + hostname** (N
 **Kiểm thử tối thiểu:** `devops/nginx/verify-lan-https.ps1 -BaseUrl https://voicehub.local` (sau khi có `hosts`); một máy LAN khác mở cùng URL. Chi tiết: [docs/lan-https-voicehub.local.md](../../docs/lan-https-voicehub.local.md).
 
 **Gateway BFF / bootstrap (1b, 3d):** client chỉ gọi `/api/...` relative; gọi nội bộ gateway → service vẫn dùng URL Docker (`http://*-service:port`), không đổi vì browser đổi IP.
+
+## Chuẩn lập plan (bắt buộc)
+
+Khi tạo/cập nhật plan, luôn trình bày đúng 6 phần theo thứ tự:
+
+1. **Mục tiêu & phạm vi**
+   - Định nghĩa rõ "done" (success criteria đo lường được).
+   - Nêu rõ `in-scope` và `out-of-scope`.
+2. **Files affected**
+   - Liệt kê file tạo mới, file chỉnh sửa, file cố ý không đụng tới (nếu dễ nhầm).
+3. **Thiết kế & trách nhiệm module**
+   - Tách rõ route/controller/service/model.
+   - Không nhét business logic vào controller/router nếu service layer phù hợp hơn.
+4. **Thứ tự triển khai**
+   - Nêu dependency giữa các bước (vì sao làm A trước B).
+   - Chia bước nhỏ review được; có thể yêu cầu "Implement step 1 only. Stop for review."
+5. **Test plan**
+   - Nêu unit/integration/smoke test.
+   - Ghi rõ mock/fixture cần dùng và command chạy.
+   - Có tiêu chí pass quan sát/đo được (ví dụ auth flow pass, health endpoint 200).
+6. **Risk & trade-off**
+   - Nêu tối thiểu 1-3 rủi ro và quyết định đã chọn.
+   - Giải thích vì sao chọn phương án này thay vì phương án khác.
+   - Có rollback path rõ ràng (feature flag, migration reversible, commit nhỏ).
+
+Dấu hiệu plan đạt chuẩn:
+- Người review đọc xong biết sửa file nào, test nào, rủi ro nào.
+- Triển khai được theo bước nhỏ, dừng review giữa chừng.
+- Có success criteria cụ thể, không mô tả chung chung.
+
+Sau khi vá rủi ro bảo mật: chạy `bash devops/scripts/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.

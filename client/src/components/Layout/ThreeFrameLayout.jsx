@@ -41,7 +41,12 @@ const ThreeFrameLayout = ({
   const { isDarkMode } = useTheme();
   const shell = appShellBg(isDarkMode);
   const rightPanel = threeFrameRightPanel(isDarkMode);
-  const navLeft = left ?? <NavigationSidebar landingDemo={landingDemo} />;
+  const navLeft =
+    left === false ? (
+      <div className="w-14 shrink-0 sm:w-16 md:w-[68px] h-screen" aria-hidden />
+    ) : (
+      left ?? <NavigationSidebar landingDemo={landingDemo} />
+    );
   const baseRightW = useMemo(() => parseRightWidthToPx(rightWidth), [rightWidth]);
   const [rightW, setRightW] = useState(baseRightW);
   const resizingRef = useRef(null);

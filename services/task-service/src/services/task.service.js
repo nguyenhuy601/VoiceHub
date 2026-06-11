@@ -1,6 +1,8 @@
 const Task = require('../models/Task');
-const { getRedisClient, taskWebhook, logger, fetchUserProfileByIdInternal } = require('/shared');
-const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { taskWebhook } = require('../clients/webhook.client');
+const { getRedisClient, logger } = require('@enterprise/shared');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const {
   fetchTaskWorkspaceScope,
   userCanAccessTask,
@@ -294,6 +296,14 @@ class TaskService {
 
       if (!task) {
         throw new Error('Task not found');
+      }
+
+      let scope = null;
+      if (task.organizationId) {
+        scope = await fetchTaskWorkspaceScope(userId, task.organizationId);
+      }
+      if (!userCanAccessTask(task, userId, scope)) {
+        throw new Error('Bạn không có quyền bình luận task này');
       }
 
       task.comments.push({

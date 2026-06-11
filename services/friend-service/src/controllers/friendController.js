@@ -75,12 +75,15 @@ exports.sendFriendRequest = async (req, res, next) => {
 
 exports.acceptRequest = async (req, res, next) => {
   try {
-    const friendship = await Friendship.findByIdAndUpdate(
-      req.params.id,
+    const userId = String(req.user?.id || req.user?._id || '').trim();
+    const friendship = await Friendship.findOneAndUpdate(
+      { _id: req.params.id, recipient: userId, status: 'pending' },
       { status: 'accepted' },
       { new: true }
     );
-
+    if (!friendship) {
+      return res.status(404).json({ status: 'fail', message: 'Request not found' });
+    }
     res.json({ status: 'success', data: friendship });
   } catch (error) {
     next(error);
@@ -89,7 +92,15 @@ exports.acceptRequest = async (req, res, next) => {
 
 exports.rejectRequest = async (req, res, next) => {
   try {
-    await Friendship.findByIdAndUpdate(req.params.id, { status: 'rejected' });
+    const userId = String(req.user?.id || req.user?._id || '').trim();
+    const friendship = await Friendship.findOneAndUpdate(
+      { _id: req.params.id, recipient: userId, status: 'pending' },
+      { status: 'rejected' },
+      { new: true }
+    );
+    if (!friendship) {
+      return res.status(404).json({ status: 'fail', message: 'Request not found' });
+    }
     res.json({ status: 'success', message: 'Request rejected' });
   } catch (error) {
     next(error);
@@ -98,7 +109,15 @@ exports.rejectRequest = async (req, res, next) => {
 
 exports.removeFriend = async (req, res, next) => {
   try {
-    await Friendship.findByIdAndDelete(req.params.id);
+    const userId = String(req.user?.id || req.user?._id || '').trim();
+    const friendship = await Friendship.findOneAndDelete({
+      _id: req.params.id,
+      status: 'accepted',
+      $or: [{ requester: userId }, { recipient: userId }],
+    });
+    if (!friendship) {
+      return res.status(404).json({ status: 'fail', message: 'Friendship not found' });
+    }
     res.json({ status: 'success', message: 'Friend removed' });
   } catch (error) {
     next(error);

@@ -1,4 +1,4 @@
-const { unwrapPlaintext } = require('/shared');
+const { unwrapPlaintext } = require('@enterprise/shared');
 
 function slimFileMeta(fileMeta) {
   if (!fileMeta || typeof fileMeta !== 'object') return undefined;

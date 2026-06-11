@@ -8,7 +8,7 @@ ENV npm_config_fetch_retries=10 \
 
 COPY package*.json ./
 # nodemon global: volume ẩn /app/node_modules có thể giữ node_modules cũ → npm run dev vẫn tìm được nodemon
-RUN npm install && npm install -g nodemon
+RUN npm install --ignore-scripts && npm install -g nodemon
 
 COPY src ./src
 

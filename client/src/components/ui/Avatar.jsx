@@ -16,6 +16,7 @@ const Avatar = ({ user, size = 'md', online = false, className = '' }) => {
   return (
     <UserAvatar
       avatar={user?.avatar}
+      userId={user?.userId || user?.id || user?._id}
       name={displayName}
       size={SIZE_MAP[size] || 'md'}
       showOnline={online}

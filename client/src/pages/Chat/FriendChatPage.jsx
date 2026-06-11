@@ -119,7 +119,7 @@ function saveIdMap(storageKey, value) {
   }
 }
 
-function FriendChatPage({ landingDemo = false } = {}) {
+function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
@@ -299,7 +299,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
         name: org.name,
         slug: org.slug,
       });
-      navigate('/workspaces', { state: { selectOrganizationId: String(org._id) } });
+      navigate('/app/collaborate/workspaces', { state: { selectOrganizationId: String(org._id) } });
     },
     [navigate, setActiveWorkspace]
   );
@@ -1665,7 +1665,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
   return (
     <div className={chatShell}>
       {/* Khung 1: Sidebar nav chỉ icon, thanh trượt riêng */}
-      <NavigationSidebar landingDemo={landingDemo} />
+      {!suiteLayout && <NavigationSidebar landingDemo={landingDemo} />}
       <div className={`${workspace.shell} min-h-0 min-w-0 flex-1`}>
         <div className={workspace.shellInner}>
         {/* Khung 2: Danh sách bạn — cùng token panel như sidebar tổ chức */}
@@ -1730,6 +1730,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                     {active && <span className={railActiveStrip} aria-hidden />}
                     <UserAvatar
                       avatar={f.avatar}
+                      userId={f.id}
                       name={f.name}
                       size="md"
                       showOnline
@@ -1839,6 +1840,7 @@ function FriendChatPage({ landingDemo = false } = {}) {
                 <div className="flex items-start gap-3">
                   <UserAvatar
                     avatar={currentFriend.avatar}
+                    userId={currentFriend.id}
                     name={currentFriend.name}
                     size="lg"
                     showOnline
@@ -2084,6 +2086,11 @@ function FriendChatPage({ landingDemo = false } = {}) {
                           <div className="flex w-full items-start justify-start gap-3">
                             <UserAvatar
                               avatar={isMine ? currentUserAvatar : currentFriend?.avatar}
+                              userId={
+                                isMine
+                                  ? user?.userId || user?.id || user?._id
+                                  : currentFriend?.id
+                              }
                               name={isMine ? currentUserName : currentFriend?.name}
                               size="sm"
                               ringClassName={

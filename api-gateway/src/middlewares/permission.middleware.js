@@ -1,10 +1,19 @@
 const roleService = require('../services/role.service');
-const { getAction, extractServerId, noPermissionRoutes } = require('../config/permissions');
+const {
+  getAction,
+  extractServerId,
+  noPermissionRoutes,
+  isSelfRoleReadRequest,
+  isOrgRoleCatalogRead,
+  isDelegatedUserRoleRead,
+  isDelegatedUserPermissionRead,
+  isDelegatedRoleManageRoute,
+} = require('../config/permissions');
 const { isPublicRoute, normalizePath } = require('../config/services');
 
 /** Cache kết quả checkPermission (giảm tải role-service) */
 const permissionCache = new Map();
-const CACHE_TTL_MS = Math.max(5000, parseInt(process.env.GATEWAY_PERMISSION_CACHE_TTL_MS || '60000', 10) || 60000);
+const CACHE_TTL_MS = Math.max(5000, parseInt(process.env.GATEWAY_PERMISSION_CACHE_TTL_MS || '15000', 10) || 15000);
 
 function cacheKey(userId, serverId, action) {
   return `${userId}|${serverId}|${action}`;
@@ -137,6 +146,16 @@ const permissionMiddleware = async (req, res, next) => {
         success: false,
         message: 'serverId or organizationId is required',
       });
+    }
+
+    if (
+      isSelfRoleReadRequest(req, action) ||
+      isOrgRoleCatalogRead(req, action) ||
+      isDelegatedUserRoleRead(req, action) ||
+      isDelegatedUserPermissionRead(req, action) ||
+      isDelegatedRoleManageRoute(req, action)
+    ) {
+      return next();
     }
 
     const ck = cacheKey(userId, serverId, action);

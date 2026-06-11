@@ -2,8 +2,9 @@
  * Gắn signed read URL vào tin file/ảnh khi trả API (DB lưu tên file + fileMeta.storagePath).
  * Cache Redis ngắn hạn theo storagePath để giảm gọi GCS lặp.
  */
-const { firebaseStorage, getRedisClient } = require('/shared');
-const logger = require('/shared/utils/logger');
+const firebaseStorage = require('../utils/firebaseStorage');
+const { getRedisClient } = require('@enterprise/shared');
+const logger = require('@enterprise/shared/utils/logger');
 const { ttlMsForRetentionContext } = require('../config/fileRetention');
 
 const REDIS_PREFIX = 'chat:signedread:';

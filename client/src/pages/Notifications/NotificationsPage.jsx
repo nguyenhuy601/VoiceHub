@@ -19,8 +19,13 @@ import { useOrgShell } from '../../hooks/queries/useOrgShell';
 import { queryKeys } from '../../lib/queryKeys';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchToolbar, SearchFilterChips } from '../../features/search';
-import { orgRecordId } from '../../utils/orgListUtils';
-import { buildWorkspacePath } from '../../utils/workspaceTabUtils';
+import { findOrgBySlug, orgRecordId } from '../../utils/orgListUtils';
+import {
+  buildCollaborateDocumentsPath,
+  buildCollaborateOrgNotificationsPath,
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+} from '../../utils/suitePathUtils';
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -41,6 +46,7 @@ function rawNotificationHasOrgScope(item) {
 }
 
 const ORG_NOTIFICATIONS_PATH = '/notifications/organization';
+const COLLABORATE_NOTIFICATIONS_PATH = '/app/collaborate/notifications';
 
 function unwrapApiBody(res) {
   const body = res?.data;
@@ -50,6 +56,26 @@ function unwrapApiBody(res) {
   return body ?? null;
 }
 
+function resolveNotificationOrgId(notif, { organizations = [], organizationIdFilter = '' } = {}) {
+  const data = notif?.data && typeof notif.data === 'object' ? notif.data : {};
+  const direct = String(
+    notif?.organizationId ||
+      data?.organizationId ||
+      data?.workspaceId ||
+      ''
+  ).trim();
+  if (direct) return direct;
+
+  const slug = String(notif?.organizationSlug || data?.organizationSlug || data?.workspaceSlug || '').trim();
+  if (slug) {
+    const matched = findOrgBySlug(organizations, slug);
+    const id = orgRecordId(matched);
+    if (id) return String(id);
+  }
+
+  return String(organizationIdFilter || '').trim();
+}
+
 function getNotifActionKind(notif) {
   if (!notif || notif.read || notif.data?.resolved) return 'none';
   if (notif.data?.kind === 'voice_room_join_request') return 'voice_join';
@@ -57,14 +83,17 @@ function getNotifActionKind(notif) {
   return 'navigate';
 }
 
-function NotificationsPage() {
+function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { activeWorkspace } = useWorkspace();
-  const isOrgNotificationsPage = location.pathname.startsWith(ORG_NOTIFICATIONS_PATH);
+  const isOrgNotificationsPage =
+    orgScope ||
+    location.pathname.startsWith(COLLABORATE_NOTIFICATIONS_PATH) ||
+    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH);
   const notificationScope = isOrgNotificationsPage ? 'organization' : 'personal';
   const organizationIdFilter = useMemo(() => {
     const fromQuery = String(searchParams.get('organizationId') || searchParams.get('orgId') || '').trim();
@@ -93,34 +122,9 @@ function NotificationsPage() {
     const params = new URLSearchParams(searchParams);
     params.delete('scope');
     const qs = params.toString();
-    navigate(`${ORG_NOTIFICATIONS_PATH}${qs ? `?${qs}` : ''}`, { replace: true });
+    navigate(`${COLLABORATE_NOTIFICATIONS_PATH}${qs ? `?${qs}` : ''}`, { replace: true });
   }, [location.pathname, navigate, searchParams]);
 
-  /** Thông báo tổ chức → workspace tab giữa (giống công việc) */
-  useEffect(() => {
-    if (!isOrgNotificationsPage || !organizationIdFilter) return;
-    const fromList = (Array.isArray(orgsQuery.data) ? orgsQuery.data : []).find(
-      (o) => orgRecordId(o) === organizationIdFilter
-    );
-    const slug =
-      String(fromList?.slug || '').trim() ||
-      String(activeWorkspace?.slug || '').trim() ||
-      '';
-    if (slug) {
-      navigate(buildWorkspacePath(slug, 'notifications'), { replace: true });
-      return;
-    }
-    navigate(
-      `/workspaces?orgId=${encodeURIComponent(organizationIdFilter)}&tab=notifications`,
-      { replace: true }
-    );
-  }, [
-    isOrgNotificationsPage,
-    organizationIdFilter,
-    orgsQuery.data,
-    activeWorkspace?.slug,
-    navigate,
-  ]);
   const [filter, setFilter] = useState('all');
   const [notifSearch, setNotifSearch] = useState('');
   const [notifications, setNotifications] = useState([]);
@@ -504,11 +508,11 @@ function NotificationsPage() {
       handleMarkAsRead(notif.id);
     }
 
-    const targetWorkspacePath = notif.organizationSlug
-      ? buildWorkspacePath(notif.organizationSlug, 'chat')
-      : notif.organizationId
-        ? `/workspaces?orgId=${encodeURIComponent(notif.organizationId)}`
-        : null;
+    const orgId = resolveNotificationOrgId(notif, {
+      organizations: orgsQuery.data || [],
+      organizationIdFilter,
+    });
+    const targetWorkspacePath = orgId ? buildCommunicateChannelsPath(orgId) : null;
 
     if (notif.rawType === 'message') {
       const senderId = String(
@@ -521,9 +525,9 @@ function NotificationsPage() {
       })();
       const peerId = senderId || fromAction;
       if (peerId) {
-        navigate(`/chat/friends?openDmUserId=${encodeURIComponent(peerId)}`);
+        navigate(`/app/communicate/chat/friends?openDmUserId=${encodeURIComponent(peerId)}`);
       } else {
-        navigate('/chat/friends');
+        navigate('/app/communicate/chat/friends');
       }
       toast(t('notifications.toastOpenFriendChat'), { icon: '💬' });
       return;
@@ -531,11 +535,11 @@ function NotificationsPage() {
 
     switch (notif.type) {
       case 'mention':
-        navigate(targetWorkspacePath || '/chat/organization');
+        navigate(targetWorkspacePath || '/app/communicate/channels');
         toast(t('notifications.toastOpenOrgChat'), { icon: '💬' });
         break;
       case 'friend':
-        navigate('/chat/friends?tab=requests');
+        navigate('/app/communicate/chat/friends?tab=requests');
         toast(t('notifications.toastOpenFriendReq'), { icon: '👥' });
         break;
       case 'meeting':
@@ -544,42 +548,38 @@ function NotificationsPage() {
           notif.data?.kind === 'voice_room_join_request'
         ) {
           const voiceUrl = String(notif.actionUrl || '').trim();
-          if (voiceUrl.startsWith('/voice')) {
-            navigate(voiceUrl);
+          if (voiceUrl.startsWith('/voice') || voiceUrl.startsWith('/app/communicate/voice')) {
+            navigate(voiceUrl.replace(/^\/voice/, '/app/communicate/voice'));
           } else if (notif.data?.roomId) {
-            navigate(`/voice/${encodeURIComponent(notif.data.roomId)}?join=1`);
+            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}?join=1`);
           } else {
-            navigate('/voice');
+            navigate('/app/communicate/voice');
           }
           toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
         } else {
-          navigate('/calendar');
+          navigate('/app/me/calendar');
           toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
         }
         break;
       case 'system':
-        navigate(targetWorkspacePath || '/settings');
+        navigate(targetWorkspacePath || '/app/me/settings');
         toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
         break;
       case 'task':
       case 'deadline':
         navigate(
-          notif.organizationSlug ? buildWorkspacePath(notif.organizationSlug, 'tasks') : '/tasks'
+          orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/tasks'
         );
         toast(t('notifications.toastOpenTasks'), { icon: '✅' });
         break;
       case 'file':
         navigate(
-          notif.organizationSlug
-            ? buildWorkspacePath(notif.organizationSlug, 'documents')
-            : notif.organizationId
-              ? `/workspaces?orgId=${encodeURIComponent(notif.organizationId)}&tab=documents`
-              : '/documents'
+          orgId ? buildCollaborateDocumentsPath(orgId) : '/app/collaborate/documents'
         );
         toast(t('notifications.toastOpenDocs'), { icon: '📁' });
         break;
       default:
-        navigate(targetWorkspacePath || '/dashboard');
+        navigate(targetWorkspacePath || '/app/me/dashboard');
         toast(t('notifications.toastOpenDetail'), { icon: 'ℹ️' });
     }
   };
@@ -799,6 +799,7 @@ function NotificationsPage() {
   return (
     <>
       <ThreeFrameLayout
+        left={suiteLayout ? false : undefined}
         centerScrollable={false}
         center={
           <div className={`flex h-full min-h-0 flex-col p-5 lg:p-6 ${shell}`}>
@@ -824,7 +825,7 @@ function NotificationsPage() {
         {!isOrgNotificationsPage && friendPendingCount > 0 && (
           <button
             type="button"
-            onClick={() => navigate('/chat/friends?tab=requests')}
+            onClick={() => navigate('/app/communicate/chat/friends?tab=requests')}
             className={`mb-4 w-full shrink-0 rounded-xl px-4 py-3 text-left text-sm font-semibold transition lg:mb-5 ${
               isDarkMode
                 ? 'border border-cyan-500/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20'

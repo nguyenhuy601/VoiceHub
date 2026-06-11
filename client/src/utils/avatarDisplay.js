@@ -123,10 +123,14 @@ export function avatarImageShellClassName(size = 'md', extra = '') {
     .join(' ');
 }
 
-/** Avatar /uploads — không dùng <img src> trực tiếp (gateway 401); tải blob có Authorization. */
-export function needsAuthenticatedAvatarFetch(avatar) {
+/** Avatar protected — dùng blob fetch (ưu tiên /api/users/:id/avatar khi có userId). */
+export function needsAuthenticatedAvatarFetch(avatar, userId = null) {
   const raw = pickAvatarValue(avatar);
-  return Boolean(raw && /\/uploads\//i.test(String(raw)));
+  if (!raw || !isAvatarImageUrl(avatar)) return false;
+  if (/\/uploads\//i.test(String(raw))) return true;
+  const v = String(raw).trim();
+  if (/^https?:\/\//i.test(v) || v.startsWith('data:')) return false;
+  return Boolean(String(userId || '').trim());
 }
 
 export function resolveAvatarSrc(avatar, cacheBust, userId = null) {

@@ -1,4 +1,5 @@
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
+const { buildSuiteEnrichment } = require('./bootstrapEnrichment');
 
 function mapBootstrapUser(profile) {
   if (!profile || typeof profile !== 'object') return null;
@@ -41,7 +42,7 @@ function mapPendingList(raw) {
 /**
  * Gom shell app: user, organizations, badges (+ pending cho hydrate FE).
  */
-async function buildBootstrap(userId, userEmail) {
+async function buildBootstrap(userId, userEmail, suite = '') {
   const headers = buildTrustedHeaders(userId, userEmail);
   const userUrl = `${services.user.url}/api/users/me`;
   const orgUrl = `${services.organization.url}/api/organizations/my`;
@@ -71,7 +72,7 @@ async function buildBootstrap(userId, userEmail) {
     notificationsUnreadPersonal = Number(notifData?.unreadCount) || 0;
   }
 
-  return {
+  const base = {
     user,
     organizations,
     badges: {
@@ -83,6 +84,25 @@ async function buildBootstrap(userId, userEmail) {
       organizations: !orgRes.ok,
       notifications: !notifRes.ok,
       friends: !friendRes.ok,
+    },
+  };
+
+  const suiteNorm = String(suite || '').trim().toLowerCase();
+  if (!suiteNorm) return base;
+
+  const { enrichment, partialEnrichment } = await buildSuiteEnrichment(
+    suiteNorm,
+    organizations,
+    headers
+  );
+
+  return {
+    ...base,
+    suite: suiteNorm,
+    enrichment: enrichment || { upcomingMeetings: [], taskDoneByOrg: null },
+    partial: {
+      ...base.partial,
+      enrichment: partialEnrichment,
     },
   };
 }

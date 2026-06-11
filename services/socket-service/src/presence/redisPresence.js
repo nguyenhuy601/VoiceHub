@@ -1,4 +1,4 @@
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('@enterprise/shared');
 
 const PREFIX = process.env.PRESENCE_REDIS_PREFIX || 'vh:presence:';
 const TTL_SEC = Math.max(30, parseInt(process.env.PRESENCE_REDIS_TTL_SEC || '120', 10) || 120);

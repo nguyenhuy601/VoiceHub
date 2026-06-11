@@ -6,8 +6,8 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const { Server } = require('socket.io');
-const { socketAuth } = require('/shared/middleware/auth');
-const { connectRedis, disconnectRedis } = require('/shared');
+const { socketAuth } = require('@enterprise/shared/middleware/auth');
+const { connectRedis, disconnectRedis } = require('@enterprise/shared');
 const registerChatNamespace = require('./socket/chat.namespace');
 const { setChatNamespace, publishRealtimeEvent } = require('./socket/realtimeHub');
 

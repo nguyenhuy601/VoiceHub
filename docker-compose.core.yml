@@ -20,7 +20,9 @@ services:
 
   api-gateway:
 
-    build: ./api-gateway
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
 
     container_name: enterprise-api-gateway
 
@@ -88,9 +90,11 @@ services:
 
       - ./api-gateway:/app
 
+      - ./shared:/shared
+
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -128,7 +132,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -166,7 +170,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -204,7 +208,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -246,7 +250,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -282,7 +286,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -350,7 +354,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -406,7 +410,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -458,7 +462,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -516,7 +520,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/worker.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/worker.js"]
 
 
 
@@ -550,7 +554,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -646,7 +650,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 
@@ -744,7 +748,7 @@ services:
 
       - /app/node_modules
 
-    command: ["sh", "-c", "npm ci || npm install; node src/server.js"]
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
 
 

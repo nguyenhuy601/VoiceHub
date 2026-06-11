@@ -1,5 +1,5 @@
 // Sử dụng cùng instance mongoose với connectDB trong thư mục /shared
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 
 const userProfileSchema = new mongoose.Schema(

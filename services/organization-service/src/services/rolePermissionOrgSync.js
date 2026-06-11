@@ -1,7 +1,7 @@
 const ROLE_PERMISSION_SERVICE_URL = String(process.env.ROLE_PERMISSION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ROLE_PERMISSION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ROLE_PERMISSION_SERVICE_URL');
 const axios = require('axios');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 const { invalidateOrgAcl } = require('./orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 
@@ -63,6 +63,13 @@ async function ensureDefaultOrgRoles(organizationId) {
       timeout: 8000,
       validateStatus: () => true,
     });
+    if (listRes.status !== 200) {
+      logger.warn('[rolePermissionOrgSync] listRoles failed', {
+        oid,
+        status: listRes.status,
+        message: listRes.data?.message,
+      });
+    }
     const existing = Array.isArray(listRes.data?.data) ? listRes.data.data : [];
     const byName = new Map(existing.map((r) => [r.name, r]));
 
@@ -87,7 +94,13 @@ async function ensureDefaultOrgRoles(organizationId) {
         return;
       }
       const errMsg = String(res.data?.message || '');
-      if (res.status === 400 && (errMsg.includes('already exists') || errMsg.includes('already'))) {
+      if (
+        res.status === 400 &&
+        (errMsg.includes('already exists') ||
+          errMsg.includes('already') ||
+          errMsg.includes('đã tồn tại') ||
+          res.data?.errorCode === 'ROLE_NAME_EXISTS')
+      ) {
         return;
       }
       logger.warn('[rolePermissionOrgSync] createRole failed', {

@@ -1,5 +1,5 @@
 // Dùng singleton mongoose từ /shared để đảm bảo connectDB() áp dụng cho model
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 
 const friendSchema = new mongoose.Schema(

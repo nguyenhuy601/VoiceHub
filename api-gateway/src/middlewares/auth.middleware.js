@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { isPublicRoute } = require('../config/services');
+const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 
@@ -8,6 +9,16 @@ const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
  * Verify JWT token và gắn req.user
  */
 const authMiddleware = (req, res, next) => {
+  Promise.resolve(authMiddlewareAsync(req, res, next)).catch((error) => {
+    console.error('[API-Gateway] authMiddleware:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication error',
+    });
+  });
+};
+
+async function authMiddlewareAsync(req, res, next) {
   // Lấy path không có query string để check public route (Express 5 / proxy: dùng thêm originalUrl)
   const pathWithoutQuery = req.path.split('?')[0];
   const fromOriginal = String(req.originalUrl || req.url || '')
@@ -36,14 +47,7 @@ const authMiddleware = (req, res, next) => {
       });
     }
 
-    // Lấy token từ header
-    let authHeader = req.headers.authorization;
-    if ((!authHeader || !authHeader.startsWith('Bearer ')) && req.method === 'GET') {
-      const queryToken = String(req.query?.access_token || '').trim();
-      if (queryToken) {
-        authHeader = `Bearer ${queryToken}`;
-      }
-    }
+    const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
@@ -64,15 +68,30 @@ const authMiddleware = (req, res, next) => {
     // Verify token
     try {
       const decoded = jwt.verify(token, jwtSecret);
-      
-      // Gắn user info vào request
+      const userId = decoded.id || decoded.userId || decoded._id;
+      const normalizedUserId = userId != null ? String(userId).trim() : '';
+      if (!normalizedUserId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid token',
+        });
+      }
+
+      const versionOk = await isAccessTokenVersionValid(normalizedUserId, decoded.tv);
+      if (!versionOk) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token revoked',
+        });
+      }
+
       req.user = {
-        id: decoded.id || decoded.userId || decoded._id,
+        id: normalizedUserId,
         email: decoded.email,
         ...decoded,
       };
 
-      next();
+      return next();
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
         return res.status(401).json({
@@ -97,7 +116,7 @@ const authMiddleware = (req, res, next) => {
       message: 'Authentication error',
     });
   }
-};
+}
 
 module.exports = authMiddleware;
 

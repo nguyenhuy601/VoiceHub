@@ -25,7 +25,15 @@ import { useTheme } from '../../context/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
-import { buildWorkspacePath, parseWorkspaceTabFromLocation } from '../../utils/workspaceTabUtils';
+import {
+  buildCollaborateDocumentsPath,
+  buildCollaborateOrgNotificationsPath,
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+  getDefaultPathForSuite,
+  orgQueryFromSearch,
+  SUITE,
+} from '../../utils/suitePathUtils';
 import {
   useFriendPending,
   useNotificationBadge,
@@ -91,6 +99,33 @@ const ORG_NAV_DEF = [
   { key: 'notifications', path: ORG_NOTIFICATIONS_PATH, bellBadge: true },
 ];
 
+const COMMUNICATE_NAV_DEF = [
+  { key: 'friends', Icon: MessageSquare, path: '/app/communicate/chat/friends' },
+  { key: 'voice', Icon: Mic, path: '/app/communicate/voice' },
+  { key: 'channels', Icon: Building2, path: '/app/communicate/channels', isWorkspaceEntry: true },
+  { key: 'notifications', path: '/app/communicate/notifications', bellBadge: true },
+];
+
+const COLLABORATE_NAV_DEF = [
+  { key: 'org', Icon: Building2, path: '/app/collaborate/workspaces', isWorkspaceEntry: true },
+  { key: 'tasks', Icon: ListTodo, path: '/app/collaborate/tasks' },
+  { key: 'documents', Icon: FileText, path: '/app/collaborate/documents' },
+  { key: 'notifications', path: '/app/collaborate/notifications', bellBadge: true },
+];
+
+const ME_NAV_DEF = [
+  { key: 'dashboard', Icon: Home, path: '/app/me/dashboard' },
+  { key: 'calendar', Icon: Calendar, path: '/app/me/calendar' },
+  { key: 'settings', Icon: BarChart3, path: '/app/me/settings' },
+];
+
+function navDefForSuite(suite) {
+  if (suite === 'communicate') return COMMUNICATE_NAV_DEF;
+  if (suite === 'collaborate') return COLLABORATE_NAV_DEF;
+  if (suite === 'me') return ME_NAV_DEF;
+  return null;
+}
+
 const canUseHoverExpand = () =>
   typeof window !== 'undefined' &&
   window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -102,7 +137,7 @@ function navRailBackdropClassName(extra = '') {
   return `${shellNavRailBackdrop} ${shellNavRailMenuBackdropZ}${extra ? ` ${extra}` : ''}`;
 }
 
-const NavigationSidebar = ({ landingDemo = false } = {}) => {
+const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}) => {
   const [time, setTime] = useState(new Date());
   const location = useLocation();
   const navigate = useNavigate();
@@ -111,8 +146,13 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     activeWorkspace,
     setActiveWorkspace,
     getLastWorkspacePath,
+    getLastCommunicatePath,
+    getLastCollaboratePath,
     lastWorkspaceSlug,
   } = useWorkspace();
+  const activeOrgId = String(
+    activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || ''
+  ).trim();
   const { locale } = useLocale();
   const { t, dict } = useAppStrings();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -160,18 +200,35 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     setJoinByLinkOpen(false);
   }, []);
 
-  const onOrgRail = useMemo(
-    () =>
+  const onOrgRail = useMemo(() => {
+    if (suiteProp === 'communicate') {
+      return (
+        location.pathname.startsWith('/app/communicate/channels') ||
+        location.pathname.startsWith('/app/collaborate/notifications')
+      );
+    }
+    if (suiteProp === 'collaborate') {
+      return (
+        location.pathname.startsWith('/app/collaborate/tasks') ||
+        location.pathname.startsWith('/app/collaborate/documents') ||
+        location.pathname.startsWith('/app/collaborate/notifications')
+      );
+    }
+    if (suiteProp) return false;
+    return (
       location.pathname.startsWith('/w/') ||
-      location.pathname.startsWith(ORG_NOTIFICATIONS_PATH),
-    [location.pathname]
-  );
+      location.pathname.startsWith(ORG_NOTIFICATIONS_PATH)
+    );
+  }, [location.pathname, suiteProp]);
 
   const orgIdForBadge = useMemo(() => {
-    let orgIdFromUrl = '';
-    if (location.pathname.startsWith(ORG_NOTIFICATIONS_PATH)) {
-      const q = new URLSearchParams(location.search);
-      orgIdFromUrl = String(q.get('organizationId') || q.get('orgId') || '').trim();
+    let orgIdFromUrl = orgQueryFromSearch(location.search);
+    if (
+      !orgIdFromUrl &&
+      (location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
+        location.pathname.startsWith('/app/collaborate/notifications'))
+    ) {
+      orgIdFromUrl = orgQueryFromSearch(location.search);
     }
     return (
       orgIdFromUrl ||
@@ -189,7 +246,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   ]);
 
   const notificationScope =
-    onOrgRail && orgIdForBadge ? 'organization' : 'personal';
+    (suiteProp === 'collaborate' &&
+      (location.pathname.startsWith('/app/collaborate/notifications') || (onOrgRail && orgIdForBadge))) ||
+    (!suiteProp && onOrgRail && orgIdForBadge)
+      ? 'organization'
+      : 'personal';
 
   const { unreadCount } = useNotificationBadge({
     scope: notificationScope,
@@ -275,12 +336,12 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     return match ? decodeURIComponent(match[1]) : '';
   }, [location.pathname]);
 
-  /** Đồng bộ workspace đang chọn với URL (/w/:slug hoặc ?organizationId=) — không phụ thuộc reference list mỗi render. */
+  /** Đồng bộ workspace đang chọn với ?organizationId= (hoặc legacy /w/:slug). */
   useEffect(() => {
     if (landingDemo || !orgListIdsKey) return;
 
     let target = null;
-    if (slugFromPath) {
+    if (!suiteProp && slugFromPath) {
       target = findOrgBySlug(myOrganizations, slugFromPath);
     } else if (orgIdFromUrl) {
       target = myOrganizations.find((o) => orgRecordId(o) === orgIdFromUrl) || null;
@@ -302,21 +363,21 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
 
     workspaceUrlSyncRef.current = syncKey;
     setActiveWorkspace(workspacePayloadFromOrg(target));
-  }, [slugFromPath, orgIdFromUrl, orgListIdsKey, landingDemo, setActiveWorkspace]);
+  }, [slugFromPath, orgIdFromUrl, orgListIdsKey, landingDemo, setActiveWorkspace, suiteProp, activeWorkspace]);
 
   const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
   const hasWorkspaceContext = Boolean(activeWorkspace?.slug || String(lastWorkspaceSlug || '').trim());
   const activeWorkspaceId = activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || '';
-  const inOrganizationContext =
-    location.pathname.startsWith('/w/') ||
-    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
-    (hasWorkspaceContext && location.pathname.startsWith('/documents'));
+  const inOrganizationContext = suiteProp
+    ? suiteProp === 'communicate' || suiteProp === 'collaborate'
+    : location.pathname.startsWith('/w/') ||
+      location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
+      (hasWorkspaceContext && location.pathname.startsWith('/documents'));
   const navItems = useMemo(() => {
-    const base = inOrganizationContext
-      ? ORG_NAV_DEF
-      : PUBLIC_NAV_DEF;
+    const suiteNav = navDefForSuite(suiteProp);
+    const base = suiteNav || (inOrganizationContext ? ORG_NAV_DEF : PUBLIC_NAV_DEF);
     return base.map((def) => {
       const copy = dict?.nav?.[def.key] || {};
       const fallbackLabel = def.key === 'org' ? 'Workspace' : def.key;
@@ -334,7 +395,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         isWorkspaceEntry: Boolean(def.isWorkspaceEntry),
       };
     });
-  }, [dict, inOrganizationContext, locale]);
+  }, [dict, inOrganizationContext, locale, suiteProp]);
   const displayName = getUserDisplayName(user);
   const isInvisible = Boolean(user?.isInvisible);
   const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
@@ -416,7 +477,10 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   const handleOpenCreateWorkspace = () => {
     setCreateOrgMenuOpen(false);
     setJoinByLinkOpen(false);
-    navigate('/workspaces', { state: { openCreateWorkspace: true } });
+    navigate(
+      suiteProp === 'collaborate' ? '/app/collaborate/workspaces' : '/workspaces',
+      { state: { openCreateWorkspace: true } }
+    );
   };
 
   const handleOpenJoinByLink = () => {
@@ -436,7 +500,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     });
     setJoinByLinkOpen(false);
     setJoinLinkInput('');
-    navigate(`/workspaces?${params.toString()}`);
+    navigate(
+      suiteProp === 'collaborate'
+        ? `/app/collaborate/workspaces?${params.toString()}`
+        : `/workspaces?${params.toString()}`
+    );
     refreshOrganizations();
   };
 
@@ -450,21 +518,31 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
     setJoinByLinkOpen(false);
 
     const path = location.pathname;
-    if (path.startsWith(ORG_NOTIFICATIONS_PATH) || path.startsWith('/documents')) {
-      const slug = String(org.slug || '').trim();
-      const tab = path.startsWith('/documents') ? 'documents' : 'notifications';
+    if (suiteProp === 'communicate') {
       navigate(
-        slug
-          ? buildWorkspacePath(slug, tab)
-          : `/workspaces?orgId=${encodeURIComponent(id)}&tab=${tab}`
+        id
+          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(id)}`
+          : buildCommunicateChannelsPath()
       );
       return;
     }
-    if (path.startsWith('/w/') || inOrganizationContext) {
-      navigate(slug ? buildWorkspacePath(slug, 'chat') : '/workspaces');
+    if (suiteProp === 'collaborate') {
+      if (path.startsWith('/app/collaborate/documents')) {
+        navigate(buildCollaborateDocumentsPath(id));
+        return;
+      }
+      if (path.startsWith('/app/collaborate/notifications')) {
+        navigate(buildCollaborateOrgNotificationsPath(id));
+        return;
+      }
+      navigate(buildCollaborateTasksPath(id));
       return;
     }
-    navigate(slug ? buildWorkspacePath(slug, 'chat') : '/workspaces');
+    if (path.startsWith(ORG_NOTIFICATIONS_PATH) || path.startsWith('/documents')) {
+      navigate(`/workspaces?orgId=${encodeURIComponent(id)}`);
+      return;
+    }
+    navigate('/workspaces');
   };
 
   const isOrganizationActive = (org) => {
@@ -478,56 +556,64 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
   };
 
   const isActivePath = (path) => {
-    if (path === '/workspaces') {
-      return location.pathname.startsWith('/workspaces') || location.pathname.startsWith('/w/');
-    }
-    if (path === '/notifications') {
+    if (path === '/workspaces' || path === '/app/collaborate/workspaces') {
       return (
-        location.pathname === '/notifications' || location.pathname === '/notifications/'
+        location.pathname.startsWith('/workspaces') ||
+        location.pathname.startsWith('/w/') ||
+        location.pathname === '/app/collaborate/workspaces'
       );
     }
-    if (path === ORG_NOTIFICATIONS_PATH) {
-      return location.pathname.startsWith(ORG_NOTIFICATIONS_PATH);
+    if (path === '/notifications' || path === '/app/communicate/notifications') {
+      return (
+        location.pathname === '/notifications' ||
+        location.pathname === '/notifications/' ||
+        location.pathname === '/app/communicate/notifications'
+      );
+    }
+    if (path === ORG_NOTIFICATIONS_PATH || path === '/app/collaborate/notifications') {
+      return (
+        location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
+        location.pathname.startsWith('/app/collaborate/notifications')
+      );
     }
     if (path === '/') return location.pathname === '/';
-    return location.pathname.startsWith(path);
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
-  const workspaceTab = useMemo(
-    () => parseWorkspaceTabFromLocation(location.pathname, location.search),
-    [location.pathname, location.search]
-  );
-
-  const navWorkspaceSlug = useMemo(
-    () => String(slugFromPath || activeWorkspace?.slug || lastWorkspaceSlug || '').trim(),
-    [slugFromPath, activeWorkspace?.slug, lastWorkspaceSlug]
-  );
-
   const getOrgNavTargetPath = (item) => {
-    const slug = navWorkspaceSlug;
+    if (suiteProp === 'communicate') {
+      if (item.key === 'channels' || item.key === 'org') return getLastCommunicatePath();
+      if (item.key === 'notifications') return '/app/communicate/notifications';
+      return item.path;
+    }
+    if (suiteProp === 'collaborate') {
+      if (item.key === 'org') return '/app/collaborate/workspaces';
+      if (item.key === 'tasks') return getLastCollaboratePath();
+      if (item.key === 'documents') return buildCollaborateDocumentsPath(activeOrgId);
+      if (item.key === 'notifications') return buildCollaborateOrgNotificationsPath(activeOrgId);
+      return item.path;
+    }
     if (item.key === 'notifications') {
       if (!inOrganizationContext) return '/notifications';
-      return slug ? buildWorkspacePath(slug, 'notifications') : getLastWorkspacePath();
+      return getLastWorkspacePath();
     }
     if (!inOrganizationContext) return item.path;
-    if (item.key === 'org') return slug ? buildWorkspacePath(slug, 'chat') : getLastWorkspacePath();
-    if (item.key === 'tasks') return slug ? buildWorkspacePath(slug, 'tasks') : item.path;
-    if (item.key === 'documents') return slug ? buildWorkspacePath(slug, 'documents') : item.path;
+    if (item.key === 'org') return getLastWorkspacePath();
     return item.path;
   };
 
   const isNavItemActive = (item) => {
-    if (inOrganizationContext && item.key === 'org') {
-      return location.pathname.startsWith('/w/') && workspaceTab === 'chat';
+    if (suiteProp === 'communicate' && item.key === 'channels') {
+      return location.pathname.startsWith('/app/communicate/channels');
     }
-    if (inOrganizationContext && item.key === 'tasks') {
-      return location.pathname.startsWith('/w/') && workspaceTab === 'tasks';
+    if (suiteProp === 'collaborate' && item.key === 'tasks') {
+      return location.pathname.startsWith('/app/collaborate/tasks');
     }
-    if (inOrganizationContext && item.key === 'documents') {
-      return location.pathname.startsWith('/w/') && workspaceTab === 'documents';
+    if (suiteProp === 'collaborate' && item.key === 'documents') {
+      return location.pathname.startsWith('/app/collaborate/documents');
     }
-    if (inOrganizationContext && item.key === 'notifications') {
-      return location.pathname.startsWith('/w/') && workspaceTab === 'notifications';
+    if (suiteProp === 'collaborate' && item.key === 'notifications') {
+      return location.pathname.startsWith('/app/collaborate/notifications');
     }
     return isActivePath(item.path);
   };
@@ -614,7 +700,15 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
         <div className={`flex h-full min-w-[56px] shrink-0 flex-col overflow-y-hidden overflow-x-visible sm:w-16 md:w-[68px] w-14 ${rail}`}>
           <div className="scrollbar-overlay flex flex-1 min-h-0 flex-col items-center gap-1 overflow-x-visible overflow-y-auto py-3">
             <Link
-              to="/dashboard"
+              to={
+                suiteProp === 'communicate'
+                  ? getDefaultPathForSuite(SUITE.COMMUNICATE)
+                  : suiteProp === 'collaborate'
+                    ? getDefaultPathForSuite(SUITE.COLLABORATE)
+                    : suiteProp === 'me'
+                      ? getDefaultPathForSuite(SUITE.ME)
+                      : '/dashboard'
+              }
               className={`${iconBtn} ${navLogoTile()} shrink-0`}
               aria-label={t('nav.brandHome')}
             >
@@ -649,7 +743,11 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 const Icon = item.Icon;
                 const active = isNavItemActive(item);
                 const targetPath = item.isWorkspaceEntry
-                  ? getLastWorkspacePath()
+                  ? suiteProp === 'communicate'
+                    ? getLastCommunicatePath()
+                    : suiteProp === 'collaborate'
+                      ? '/app/collaborate/workspaces'
+                      : getLastWorkspacePath()
                   : getOrgNavTargetPath(item);
                 return (
                   <Tooltip key={idx} label={item.tooltip ?? item.label}>
@@ -667,6 +765,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
               })}
             </nav>
 
+            {(suiteProp === 'communicate' || suiteProp === 'collaborate' || (!suiteProp && inOrganizationContext)) && (
             <>
               <div className={`my-1 h-px w-8 ${divCls}`} />
               <div className="flex w-full flex-col items-center gap-1.5">
@@ -726,6 +825,7 @@ const NavigationSidebar = ({ landingDemo = false } = {}) => {
                 )}
               </div>
             </>
+            )}
 
             <Tooltip label={isDarkMode ? t('nav.themeLight') : t('nav.themeDark')}>
               <button

@@ -1,7 +1,7 @@
 const express = require('express');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 const gatewayUserMiddleware = require('./middlewares/gatewayUser');
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 require('./models/CallSession');
 require('./models/VoiceRoomLobby');
 require('./models/VoiceRoomJoinRequest');

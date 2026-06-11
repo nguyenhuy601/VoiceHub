@@ -1,6 +1,6 @@
 const axios = require('axios');
 const Role = require('../models/Role');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -78,17 +78,21 @@ async function requireOrgRoleManager(req, res, next) {
   }
 }
 
-/** GET role: phải là thành viên active của org (serverId = organizationId). */
+/** GET role: thành viên org HOẶC gọi S2S nội bộ (organization-service sync, không có x-user-id). */
 async function requireOrgMember(req, res, next) {
   try {
-    const userId = req.user?.id || req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
     const organizationId = req.params?.serverId || req.params?.organizationId;
     if (!organizationId) {
       return res.status(400).json({ success: false, message: 'serverId is required' });
+    }
+
+    if (req.isInternalServiceCall) {
+      return next();
+    }
+
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
     const membershipRole = await fetchMembershipRole(String(userId), String(organizationId));

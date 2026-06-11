@@ -1,4 +1,4 @@
-const { unwrapPlaintext } = require('/shared');
+const { unwrapPlaintext } = require('@enterprise/shared');
 
 function hasMessageAttachment(doc) {
   const mt = String(doc?.messageType || '');

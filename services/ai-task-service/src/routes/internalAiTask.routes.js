@@ -1,8 +1,8 @@
 const express = require('express');
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const AiTaskExtraction = require('../models/AiTaskExtraction');
 const SyncSuggestion = require('../models/SyncSuggestion');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 const router = express.Router();
 

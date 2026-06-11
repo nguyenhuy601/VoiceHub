@@ -2,7 +2,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = require('./app');
-const { connectDB, disconnectDB } = require('/shared');
+const { connectDB, disconnectDB } = require('@enterprise/shared');
 const { closeRabbit } = require('./messaging/rabbit');
 
 const PORT = process.env.PORT || 3020;

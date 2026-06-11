@@ -1,7 +1,8 @@
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const Role = require('../models/Role');
 const UserRole = require('../models/UserRole');
-const { getRedisClient, roleWebhook, logger } = require('/shared');
+const { roleWebhook } = require('../clients/webhook.client');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -342,6 +343,8 @@ class RoleService {
         const cacheKey = `role:${roleId}`;
         await redis.del(cacheKey);
       }
+      const { invalidatePermissionsCacheForRole } = require('../utils/invalidatePermissionCache');
+      await invalidatePermissionsCacheForRole(roleId);
 
       logger.info(`Role updated: ${roleId}`);
       return role;
@@ -376,6 +379,8 @@ class RoleService {
         const cacheKey = `role:${roleId}`;
         await redis.del(cacheKey);
       }
+      const { invalidatePermissionsCacheForRole } = require('../utils/invalidatePermissionCache');
+      await invalidatePermissionsCacheForRole(roleId);
 
       logger.info(`Role deleted: ${roleId}`);
       return role;

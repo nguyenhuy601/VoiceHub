@@ -1,6 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 require('dotenv').config();
 
 const app = express();

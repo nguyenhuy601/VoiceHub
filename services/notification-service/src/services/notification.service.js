@@ -1,15 +1,13 @@
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
-const {
-  getRedisClient,
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { getRedisClient,
   logger,
-  emitRealtimeEvent,
   encryptField,
   isEncrypted,
   isEncryptionEnabled,
   unwrapPlaintext,
-  recordLazyMigrate,
-} = require('/shared');
+  recordLazyMigrate } = require('@enterprise/shared');
 
 function encText(val) {
   if (val === undefined || val === null) return val;
@@ -333,7 +331,16 @@ class NotificationService {
       );
 
       logger.info(`All notifications marked as read for user: ${userId}`);
-      await emitUnreadSnapshots(userId, [{ scope: 'personal' }]);
+      const orgIds = await Notification.distinct('data.organizationId', {
+        userId,
+        isRead: false,
+        'data.organizationId': { $exists: true, $nin: [null, ''] },
+      });
+      const targets = [{ scope: 'personal' }];
+      for (const oid of orgIds) {
+        if (oid) targets.push({ scope: 'organization', organizationId: String(oid) });
+      }
+      await emitUnreadSnapshots(userId, targets);
       await emitRealtimeEvent({
         event: 'notification:read_all',
         userId: String(userId),

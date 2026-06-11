@@ -3,12 +3,14 @@ const axios = require('axios');
 const { validateRegistrationDateOfBirth } = require('../utils/dateOfBirth');
 const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
-const { getRedisClient } = require('/shared');
+const { bumpTokenVersion, accessTokenPayload } = require('../utils/tokenVersion');
+const { cacheTokenVersion } = require('@enterprise/shared/utils/tokenVersionAuth');
+const { getRedisClient } = require('@enterprise/shared');
 const emailService = require('../utils/email');
 const { bootstrapUserProfile } = require('../utils/bootstrapUserProfile');
-const { writeDateOfBirthFields } = require('/shared/utils/dateOfBirthPii');
+const { writeDateOfBirthFields } = require('@enterprise/shared/utils/dateOfBirthPii');
 const crypto = require('crypto');
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const {
   findUserAuthByEmail,
   hydrateAuthEmailDoc,
@@ -250,11 +252,9 @@ class AuthService {
       userAuth.lastLoginAt = new Date();
       await userAuth.save();
 
-      // Tạo tokens
-      const payload = {
-        id: userAuth.userId.toString(),
-        email: plainEmail,
-      };
+      // Tạo tokens (kèm tokenVersion để revoke sau logout/đổi mật khẩu)
+      const payload = accessTokenPayload(userAuth, plainEmail);
+      await cacheTokenVersion(userAuth.userId, payload.tv);
 
       const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
@@ -305,10 +305,8 @@ class AuthService {
 
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
-      const payload = {
-        id: userAuth.userId.toString(),
-        email: plainEmail,
-      };
+      const payload = accessTokenPayload(userAuth, plainEmail);
+      await cacheTokenVersion(userAuth.userId, payload.tv);
 
       const accessToken = generateAccessToken(payload);
 
@@ -330,6 +328,7 @@ class AuthService {
       if (userAuth) {
         userAuth.refreshToken = null;
         userAuth.refreshTokenExpiresAt = null;
+        await bumpTokenVersion(userAuth);
         await userAuth.save();
       }
 
@@ -369,9 +368,17 @@ class AuthService {
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
-      // Cập nhật password
+      // Cập nhật password và vô hiệu token cũ
       userAuth.password = hashedPassword;
+      userAuth.refreshToken = null;
+      userAuth.refreshTokenExpiresAt = null;
+      await bumpTokenVersion(userAuth);
       await userAuth.save();
+
+      const redis = getRedisClient();
+      if (redis && userAuth.userId) {
+        await redis.del(`refresh_token:${userAuth.userId}`);
+      }
 
       return true;
     } catch (error) {
@@ -612,11 +619,19 @@ class AuthService {
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
-      // Cập nhật password và xóa reset token
+      // Cập nhật password, xóa reset token và vô hiệu session cũ
       userAuth.password = hashedPassword;
       userAuth.passwordResetToken = null;
       userAuth.passwordResetExpiresAt = null;
+      userAuth.refreshToken = null;
+      userAuth.refreshTokenExpiresAt = null;
+      await bumpTokenVersion(userAuth);
       await userAuth.save();
+
+      const redis = getRedisClient();
+      if (redis && userAuth.userId) {
+        await redis.del(`refresh_token:${userAuth.userId}`);
+      }
 
       return true;
     } catch (error) {

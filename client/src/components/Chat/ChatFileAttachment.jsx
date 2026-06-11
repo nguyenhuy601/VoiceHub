@@ -319,7 +319,7 @@ export function ChatMessageAttachmentBody({
         ? `?openDmUserId=${encodeURIComponent(targetUserId)}&composeText=${encodeURIComponent(`Xin chao ${fullName}`)}`
         : '';
       const inWorkspace = typeof window !== 'undefined' && /^\/w\//.test(window.location.pathname);
-      const url = `/chat/friends${target}`;
+      const url = `/app/communicate/chat/friends${target}`;
       if (inWorkspace) {
         window.open(url, '_blank', 'noopener,noreferrer');
         return;

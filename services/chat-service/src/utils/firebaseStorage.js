@@ -2,7 +2,7 @@
  * Firebase Storage (Admin SDK): signed URL upload, copy, delete, read URL.
  * Bật khi đủ biến môi trường FIREBASE_* — nếu thiếu, isEnabled() === false.
  */
-const logger = require('./logger');
+const logger = require('@enterprise/shared/utils/logger');
 
 let adminApp;
 let bucketInstance;

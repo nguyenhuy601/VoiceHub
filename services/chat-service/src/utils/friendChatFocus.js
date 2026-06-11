@@ -1,4 +1,4 @@
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('@enterprise/shared');
 
 const PREFIX = process.env.FRIEND_CHAT_FOCUS_REDIS_PREFIX || 'vh:friend_chat_focus:';
 

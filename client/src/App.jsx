@@ -1,280 +1,172 @@
-// Import lazy và Suspense từ React để tối ưu performance
-// lazy: cho phép load component chỉ khi cần thiết (code splitting)
-// Suspense: hiển thị fallback UI trong khi component đang được load
 import { lazy, Suspense } from 'react';
-
-// Import Route và Routes từ react-router-dom để quản lý điều hướng
-// Routes: container chứa tất cả các route
-// Route: định nghĩa từng đường dẫn và component tương ứng
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
-
-// Import ProtectedRoute để bảo vệ routes cần đăng nhập
+import { Navigate, Route, Routes } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import BrandPageLoader from './components/Shared/BrandPageLoader';
+import SuiteShellLayout from './components/Layout/SuiteShellLayout';
+import CommunicateSidebar from './components/Layout/CommunicateSidebar';
+import CollaborateSidebar from './components/Layout/CollaborateSidebar';
+import ProfileSidebar from './components/Layout/ProfileSidebar';
+import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
+import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
+import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
 
-/* ========================================
-   LAZY LOADING CÁC PAGES
-   Tại sao dùng lazy()?
-   - Thay vì load tất cả pages ngay từ đầu (500KB)
-   - Chỉ load page nào user đang truy cập (~150KB ban đầu)
-   - Giảm thời gian load trang đầu từ 2s xuống 0.6s
-   - Các page khác sẽ load khi user click vào link
-======================================== */
-
-// Lazy load trang chủ - file HomePage.jsx nằm trong ./pages/Auth/
 const HomePage = lazy(() => import('./pages/Auth/HomePage'));
-
-// Lazy load trang đăng nhập - kết nối với AuthContext để xác thực
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
-
-// Lazy load trang đăng ký - tạo user mới qua auth-service
 const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage'));
-
-// Lazy load trang xác thực email
 const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
-
-// Lazy load trang quên mật khẩu
 const ForgotPasswordPage = lazy(() => import('./pages/Auth/ForgotPasswordPage'));
-
-// Lazy load trang đặt lại mật khẩu
 const ResetPasswordPage = lazy(() => import('./pages/Auth/ResetPasswordPage'));
-
-// Lazy load trang điều khoản dịch vụ
 const TermsOfServicePage = lazy(() => import('./pages/Auth/TermsOfServicePage'));
-
-// Lazy load trang chính sách bảo mật
 const PrivacyPolicyPage = lazy(() => import('./pages/Auth/PrivacyPolicyPage'));
-
-// Lazy load dashboard - trang tổng quan sau khi đăng nhập
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage'));
-
-// Lazy load trang chat bạn bè
 const FriendChatPage = lazy(() => import('./pages/Chat/FriendChatPage'));
-
-// Lazy load phòng voice chat - :roomId là dynamic parameter
-// Kết nối với WebRTC để gọi voice, sử dụng simple-peer
 const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
-
-// Lazy load trang tổ chức - quản lý organizations
-// Kết nối với organization-service
 const OrganizationsPage = lazy(() => import('./pages/Workspace/OrganizationsPage'));
-
-// Cài đặt tổ chức full màn hình — đặt trước /organizations
 const OrganizationSettingsPage = lazy(() => import('./pages/Workspace/OrganizationSettingsPage'));
-
-// Đơn gia nhập tổ chức (trang riêng, có :orgId)
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
-
-// Lazy load trang thông báo - hiển thị notifications realtime
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
-
-// Trang tài liệu (UI demo + tương tác cục bộ)
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
-
-// Lazy load trang lịch - quản lý sự kiện và meetings
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
-
-
-// Lazy load trang cài đặt - thay đổi preferences
 const SettingsPage = lazy(() => import('./pages/Settings/SettingsPage'));
-
-// Lazy load trang 404 - hiển thị khi route không tồn tại
 const NotFoundPage = lazy(() => import('./pages/NotFound/NotFoundPage'));
 
-/* ========================================
-   MAIN APP COMPONENT
-   - Được import vào main.jsx
-   - Được wrap bởi AuthProvider, SocketProvider, ThemeProvider
-   - Quản lý toàn bộ routing của ứng dụng
-======================================== */
-function App() {
-  const WorkspaceSlugEntry = () => {
-    const { slug } = useParams();
-    return <OrganizationsPage initialWorkspaceSlug={slug || ''} />;
-  };
+const Protected = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
 
+function App() {
   return (
-    // Suspense: lazy routes — BrandPageLoader khi đang tải chunk
     <Suspense fallback={<BrandPageLoader />}>
-      {/* Routes: container quản lý tất cả các route */}
       <Routes>
-        {/* ===== PUBLIC ROUTES =====
-            Không cần đăng nhập, ai cũng truy cập được */}
-        
-        {/* Route trang chủ - path "/" */}
         <Route path="/" element={<HomePage />} />
-        
-        {/* Route đăng nhập - path "/login" */}
-        {/* LoginPage sẽ gọi authService.login() → auth-service */}
         <Route path="/login" element={<LoginPage />} />
-        
-        {/* Route đăng ký - path "/register" */}
-        {/* RegisterPage sẽ gọi authService.register() → auth-service */}
         <Route path="/register" element={<RegisterPage />} />
-        
-        {/* Route xác thực email - path "/verify-email?token=xxx" */}
-        {/* VerifyEmailPage sẽ gọi authService.verifyEmail() → auth-service */}
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email-change" element={<VerifyEmailPage />} />
-
-        {/* Route quên mật khẩu */}
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-
-        {/* Route đặt lại mật khẩu qua token */}
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-        {/* Route điều khoản dịch vụ */}
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
-
-        {/* Route chính sách bảo mật */}
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
-        {/* ===== PROTECTED ROUTES =====
-            Cần đăng nhập mới truy cập được
-            Guest (chưa đăng nhập) sẽ bị redirect về trang chủ */}
-        
-        {/* Dashboard - trang chính sau khi login */}
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/chat" element={<Navigate to="/chat/friends" replace />} />
+        {/* Suite root */}
+        <Route
+          path="/app"
+          element={
+            <Protected>
+              <SuiteRootRedirect />
+            </Protected>
+          }
+        />
 
-        {/* Chat bạn bè */}
-        <Route path="/chat/friends" element={
-          <ProtectedRoute>
-            <FriendChatPage />
-          </ProtectedRoute>
-        } />
+        {/* Communicate suite */}
+        <Route
+          path="/app/communicate"
+          element={
+            <Protected>
+              <SuiteShellLayout sidebar={<CommunicateSidebar />} />
+            </Protected>
+          }
+        >
+          <Route index element={<Navigate to="chat/friends" replace />} />
+          <Route path="chat/friends" element={<FriendChatPage suiteLayout />} />
+          <Route path="voice" element={<VoiceRoomPage suiteLayout />} />
+          <Route path="voice/:roomId" element={<VoiceRoomPage suiteLayout />} />
+          <Route
+            path="channels"
+            element={<OrganizationsPage suiteMode="communicate" suiteLayout />}
+          />
+          <Route path="notifications" element={<NotificationsPage suiteLayout />} />
+        </Route>
 
-        <Route path="/chat/organization" element={<Navigate to="/workspaces" replace />} />
-        
-        {/* Voice chat room - :roomId là dynamic param */}
-        {/* VD: /voice/room123 → roomId = "room123" */}
-        {/* Sử dụng WebRTC peer-to-peer để gọi voice */}
-        {/* Guest KHÔNG được truy cập */}
-        <Route path="/voice" element={
-          <ProtectedRoute>
-            <VoiceRoomPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/voice/:roomId" element={
-          <ProtectedRoute>
-            <VoiceRoomPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/tasks" element={<Navigate to="/workspaces" replace />} />
-        
-        <Route path="/profile" element={<Navigate to="/dashboard" replace />} />
-        
-        {/* Đơn gia nhập — đặt trước /organizations/:orgId/settings */}
+        {/* Collaborate suite */}
+        <Route
+          path="/app/collaborate"
+          element={
+            <Protected>
+              <SuiteShellLayout sidebar={<CollaborateSidebar />} />
+            </Protected>
+          }
+        >
+          <Route index element={<Navigate to="workspaces" replace />} />
+          <Route
+            path="workspaces"
+            element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
+          />
+          <Route
+            path="tasks"
+            element={<OrganizationsPage suiteMode="collaborate" workspaceTab="tasks" suiteLayout />}
+          />
+          <Route path="documents" element={<DocumentsPage suiteLayout />} />
+          <Route
+            path="notifications"
+            element={<NotificationsPage orgScope suiteLayout />}
+          />
+          <Route path="organizations/:orgId/settings" element={<OrganizationSettingsPage suiteLayout />} />
+          <Route path="join/:orgId" element={<JoinApplicationPage suiteLayout />} />
+        </Route>
+
+        {/* Me suite */}
+        <Route
+          path="/app/me"
+          element={
+            <Protected>
+              <SuiteShellLayout sidebar={<ProfileSidebar />} />
+            </Protected>
+          }
+        >
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage suiteLayout />} />
+          <Route path="calendar" element={<CalendarPage suiteLayout />} />
+          <Route path="settings" element={<SettingsPage suiteLayout />} />
+        </Route>
+
+        {/* Legacy redirects */}
+        <Route path="/dashboard" element={<Navigate to="/app/me/dashboard" replace />} />
+        <Route path="/calendar" element={<Navigate to="/app/me/calendar" replace />} />
+        <Route path="/settings" element={<Navigate to="/app/me/settings" replace />} />
+        <Route path="/profile" element={<Navigate to="/app/me/dashboard" replace />} />
+        <Route path="/chat" element={<Navigate to="/app/communicate/chat/friends" replace />} />
+        <Route path="/chat/friends" element={<Navigate to="/app/communicate/chat/friends" replace />} />
+        <Route path="/chat/organization" element={<Navigate to="/app/collaborate/workspaces" replace />} />
+        <Route path="/voice" element={<Navigate to="/app/communicate/voice" replace />} />
+        <Route
+          path="/voice/:roomId"
+          element={<LegacyPathRedirect toTemplate="/app/communicate/voice/:roomId" />}
+        />
+        <Route path="/friends" element={<Navigate to="/app/communicate/chat/friends" replace />} />
+        <Route path="/notifications" element={<Navigate to="/app/communicate/notifications" replace />} />
+        <Route path="/notifications/organization" element={<Navigate to="/app/collaborate/notifications" replace />} />
+        <Route path="/documents" element={<Navigate to="/app/collaborate/documents" replace />} />
+        <Route path="/tasks" element={<Navigate to="/app/collaborate/tasks" replace />} />
+        <Route path="/organizations" element={<Navigate to="/app/collaborate/workspaces" replace />} />
+        <Route path="/workspaces" element={<Navigate to="/app/collaborate/workspaces" replace />} />
         <Route
           path="/organizations/join/:orgId"
-          element={
-            <ProtectedRoute>
-              <JoinApplicationPage />
-            </ProtectedRoute>
-          }
+          element={<LegacyPathRedirect toTemplate="/app/collaborate/join/:orgId" />}
         />
-
         <Route
           path="/organizations/:orgId/settings"
-          element={
-            <ProtectedRoute>
-              <OrganizationSettingsPage />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Organizations - quản lý tổ chức */}
-        {/* CRUD operations với organization-service */}
-        {/* Guest KHÔNG được truy cập */}
-        <Route path="/organizations" element={
-          <ProtectedRoute>
-            <OrganizationsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/workspaces" element={
-          <ProtectedRoute>
-            <OrganizationsPage />
-          </ProtectedRoute>
-        } />
-        <Route
-          path="/w/:slug/*"
-          element={
-            <ProtectedRoute>
-              <WorkspaceSlugEntry />
-            </ProtectedRoute>
-          }
+          element={<LegacyPathRedirect toTemplate="/app/collaborate/organizations/:orgId/settings" />}
         />
         <Route
           path="/workspaces/join/:orgId"
-          element={
-            <ProtectedRoute>
-              <JoinApplicationPage />
-            </ProtectedRoute>
-          }
+          element={<LegacyPathRedirect toTemplate="/app/collaborate/join/:orgId" />}
         />
         <Route
           path="/workspaces/:orgId/settings"
+          element={<LegacyPathRedirect toTemplate="/app/collaborate/organizations/:orgId/settings" />}
+        />
+        <Route
+          path="/w/:slug/*"
           element={
-            <ProtectedRoute>
-              <OrganizationSettingsPage />
-            </ProtectedRoute>
+            <Protected>
+              <LegacyWorkspaceRedirect />
+            </Protected>
           }
         />
-        
-        {/* Friends - tạm khóa giao diện riêng, gom vào trang Tin nhắn */}
-        <Route path="/friends" element={
-          <Navigate to="/chat/friends" replace />
-        } />
-        
-        {/* Documents - quản lý tài liệu (giao diện + thao tác cục bộ) */}
-        <Route path="/documents" element={
-          <ProtectedRoute>
-            <DocumentsPage />
-          </ProtectedRoute>
-        } />
-        
-        {/* Notifications — cá nhân (public) vs tổ chức (sidebar org) */}
-        <Route path="/notifications/organization" element={
-          <ProtectedRoute>
-            <NotificationsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/notifications" element={
-          <ProtectedRoute>
-            <NotificationsPage />
-          </ProtectedRoute>
-        } />
-        
-        {/* Calendar - lịch làm việc */}
-        {/* Hiển thị events, meetings, deadlines */}
-        <Route path="/calendar" element={
-          <ProtectedRoute>
-            <CalendarPage />
-          </ProtectedRoute>
-        } />
-        
-        {/* Settings - cài đặt */}
-        {/* Thay đổi theme, language, notifications preferences */}
-        <Route path="/settings" element={
-          <ProtectedRoute>
-            <SettingsPage />
-          </ProtectedRoute>
-        } />
 
-        {/* ===== 404 NOT FOUND =====
-            Catch-all route cho mọi path không match */}
-        {/* path="*" nghĩa là bất kỳ route nào không được định nghĩa ở trên */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   );
 }
 
-// Export App component để import vào main.jsx
 export default App;

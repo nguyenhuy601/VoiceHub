@@ -1,5 +1,5 @@
 const { Server } = require('socket.io');
-const { socketAuth } = require('/shared/middleware/auth');
+const { socketAuth } = require('@enterprise/shared/middleware/auth');
 const friendSocket = require('./friend.socket');
 const serverSocket = require('./server.socket');
 

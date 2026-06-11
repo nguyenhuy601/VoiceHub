@@ -5,8 +5,8 @@ const {
   ORG_EVENT_BINDING_KEYS,
   ORG_EVENTS_CHAT_QUEUE,
   ORG_EVENTS_CHAT_DLQ,
-} = require('/shared/messaging/orgEvents');
-const { isDuplicateOrgEvent } = require('/shared/messaging/orgEventIdempotency');
+} = require('@enterprise/shared/messaging/orgEvents');
+const { isDuplicateOrgEvent } = require('@enterprise/shared/messaging/orgEventIdempotency');
 const { invalidateLocalOrgAcl } = require('../services/orgAccessReadModel');
 const { deleteOrgMessagesByOrganization } = require('../services/messageSearchIndex.service');
 const { isMeilisearchConfigured } = require('../services/meilisearchClient');

@@ -957,7 +957,7 @@ function OrganizationMemberSidebar({
     if (!target?.userId) return;
     const text = String(memberCard.quickMessage || '').trim();
     setMemberCard((prev) => ({ ...prev, open: false }));
-    navigate('/chat/friends', {
+    navigate('/app/communicate/chat/friends', {
       state: {
         openDmUserId: target.userId,
         composeText: text,
@@ -1027,7 +1027,7 @@ function OrganizationMemberSidebar({
             onClick={() => {
               const m = menu.member;
               closeMenu();
-              navigate('/chat/friends', { state: { openDmUserId: m?.userId } });
+              navigate('/app/communicate/chat/friends', { state: { openDmUserId: m?.userId } });
             }}
           >
             {t('organizations.memberMenuMessage')}

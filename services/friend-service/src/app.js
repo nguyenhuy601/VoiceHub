@@ -1,5 +1,5 @@
 const express = require('express');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 
 const app = express();
 

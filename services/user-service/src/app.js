@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
-const { getCryptoMetrics } = require('/shared');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { getCryptoMetrics } = require('@enterprise/shared');
 const { uploadsDir } = require('./config/uploadsPath');
 
 const app = express();

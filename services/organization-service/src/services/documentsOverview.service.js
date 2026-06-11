@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const Organization = require('../models/Organization');
 const { resolveOrgAccess } = require('../utils/orgAccess');
 const { getCachedAccessibleChannelData, getCachedOrganizationStructureData } = require('./orgReadCache.service');

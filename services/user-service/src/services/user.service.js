@@ -1,6 +1,6 @@
 const UserProfile = require('../models/UserProfile');
-const { getRedisClient, logger } = require('/shared');
-const { phoneBlindIndex } = require('/shared/utils/fieldCrypto');
+const { getRedisClient, logger } = require('@enterprise/shared');
+const { phoneBlindIndex } = require('@enterprise/shared/utils/fieldCrypto');
 const {
   writePiiPatch,
   writeEmailPatch,
@@ -291,9 +291,22 @@ class UserService {
     if (!uid || !normalizedEmail) {
       throw serviceError('Thiếu userId hoặc email', 400, 'USER_VALIDATION');
     }
+
+    const emailFields = writeEmailPatch(normalizedEmail);
+    const dupFilter = emailFields.emailBlindIndex
+      ? {
+          userId: { $ne: uid },
+          $or: [{ emailBlindIndex: emailFields.emailBlindIndex }, { email: normalizedEmail }],
+        }
+      : { userId: { $ne: uid }, email: normalizedEmail };
+    const duplicate = await UserProfile.findOne(dupFilter).select('userId').lean();
+    if (duplicate) {
+      throw serviceError('Email đã được dùng bởi hồ sơ khác', 409, 'USER_EMAIL_EXISTS');
+    }
+
     const userProfile = await UserProfile.findOneAndUpdate(
       { userId: uid },
-      { $set: { email: normalizedEmail } },
+      { $set: emailFields },
       { new: true, runValidators: true }
     );
     if (!userProfile) {

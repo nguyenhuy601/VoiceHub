@@ -4,8 +4,8 @@ const {
   ORG_EVENT_TYPES,
   ORG_EVENTS_NOTIFICATION_QUEUE,
   ORG_EVENTS_NOTIFICATION_DLQ,
-} = require('/shared/messaging/orgEvents');
-const { isDuplicateOrgEvent } = require('/shared/messaging/orgEventIdempotency');
+} = require('@enterprise/shared/messaging/orgEvents');
+const { isDuplicateOrgEvent } = require('@enterprise/shared/messaging/orgEventIdempotency');
 const {
   invalidateUnreadBadgeCache,
   invalidateUnreadForOrg,

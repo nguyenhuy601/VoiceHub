@@ -1,4 +1,4 @@
-const { getRedisClient, logger } = require('/shared');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const { publishOrgEvent, ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { emitOrgShellUpdated } = require('./orgShellRealtime.service');
 const {
@@ -7,7 +7,7 @@ const {
   orgAclCachePattern,
   DEFAULT_ORG_ACL_CACHE_TTL_SEC,
   DEFAULT_ORG_STRUCTURE_CACHE_TTL_SEC,
-} = require('/shared/cache/orgReadCacheKeys');
+} = require('@enterprise/shared/cache/orgReadCacheKeys');
 
 const ACL_TTL_SEC = Number(process.env.ORG_ACL_CACHE_TTL_SEC || DEFAULT_ORG_ACL_CACHE_TTL_SEC);
 const STRUCTURE_TTL_SEC = Number(

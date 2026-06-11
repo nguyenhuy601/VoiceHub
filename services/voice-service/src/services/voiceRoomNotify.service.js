@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { resolveFrontendUrl } = require('/shared');
+const { resolveFrontendUrl } = require('@enterprise/shared');
 
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '')
   .trim()

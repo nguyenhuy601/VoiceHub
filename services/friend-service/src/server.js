@@ -2,7 +2,7 @@ const path = require('path');
 // Luôn đọc .env trong thư mục service (kể cả khi chạy từ thư mục khác)
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, logger } = require('/shared');
+const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
 const { purgeExpiredGraces } = require('./services/unfriendGrace.service');
 
 const PORT = process.env.PORT || 3014;

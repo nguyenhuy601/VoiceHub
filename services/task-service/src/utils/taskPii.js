@@ -2,9 +2,9 @@ const {
   encryptField,
   isEncrypted,
   isEncryptionEnabled,
-} = require('/shared/utils/fieldCrypto');
-const { unwrapPlaintext } = require('/shared/utils/migration');
-const { recordLazyMigrate } = require('/shared/utils/cryptoMetrics');
+} = require('@enterprise/shared/utils/fieldCrypto');
+const { unwrapPlaintext } = require('@enterprise/shared/utils/migration');
+const { recordLazyMigrate } = require('@enterprise/shared/utils/cryptoMetrics');
 
 const TEXT_FIELDS = ['title', 'summary', 'description'];
 

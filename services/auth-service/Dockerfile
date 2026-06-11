@@ -13,7 +13,7 @@ COPY package*.json ./
 
 # 4️⃣ Cài dependencies (bcrypt cần toolchain trên Alpine; nodemon cho dev)
 RUN apk add --no-cache --virtual .build-deps python3 make g++ \
-  && npm install && npm install -g nodemon \
+  && npm install --ignore-scripts && npm install -g nodemon \
   && apk del .build-deps
 
 # 5️⃣ Copy toàn bộ code

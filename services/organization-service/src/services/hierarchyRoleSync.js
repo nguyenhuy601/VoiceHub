@@ -1,7 +1,7 @@
 const ROLE_PERMISSION_SERVICE_URL = String(process.env.ROLE_PERMISSION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ROLE_PERMISSION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ROLE_PERMISSION_SERVICE_URL');
 const axios = require('axios');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 const ROLE_PERMISSION_BASE = String(
   process.env.ROLE_PERMISSION_SERVICE_URL
@@ -97,6 +97,18 @@ async function createRole({ organizationId, name, permissions, priority = PRIORI
     'createRole'
   );
   if (res.status === 201) return res.data?.data || null;
+  const errMsg = String(res.data?.message || '');
+  if (
+    res.status === 400 &&
+    (errMsg.includes('đã tồn tại') ||
+      errMsg.includes('already exists') ||
+      res.data?.errorCode === 'ROLE_NAME_EXISTS')
+  ) {
+    const roles = await listRoles(organizationId);
+    const tag = String(name || '').split('·').pop()?.trim();
+    const existing = roles.find((r) => tag && String(r?.name || '').includes(tag));
+    return existing || null;
+  }
   logger.warn('[hierarchyRoleSync] createRole non-201', {
     status: res.status,
     message: res.data?.message,

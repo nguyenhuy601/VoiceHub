@@ -274,6 +274,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                   <div className="flex flex-wrap items-center gap-4">
                     <UserAvatar
                       avatar={searchResult.avatar}
+                      userId={targetUserId(searchResult)}
                       name={
                         searchResult.displayName ||
                         searchResult.name ||
@@ -340,6 +341,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <UserAvatar
                             avatar={req.avatar}
+                            userId={pendingRequesterId(row)}
                             name={name}
                             size="lg"
                           />

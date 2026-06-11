@@ -1,4 +1,4 @@
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('@enterprise/shared');
 
 const TTL_SEC = Math.max(30, Number(process.env.NOTIFICATION_UNREAD_CACHE_TTL_SEC || 120));
 

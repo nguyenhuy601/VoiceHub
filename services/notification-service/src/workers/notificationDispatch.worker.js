@@ -1,6 +1,6 @@
 const amqp = require('amqplib');
 const notificationService = require('../services/notification.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 const QUEUE = process.env.RABBITMQ_NOTIFICATION_DISPATCH_QUEUE || 'voicehub.notification.dispatch';
 const DLQ = process.env.RABBITMQ_NOTIFICATION_DISPATCH_DLQ || `${QUEUE}.dlq`;

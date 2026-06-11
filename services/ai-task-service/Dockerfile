@@ -7,7 +7,7 @@ ENV npm_config_fetch_retries=10 \
     npm_config_fetch_retry_maxtimeout=120000
 
 COPY package*.json ./
-RUN npm install && npm install -g nodemon
+RUN npm install --ignore-scripts && npm install -g nodemon
 
 COPY . .
 

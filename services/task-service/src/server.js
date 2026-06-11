@@ -1,6 +1,6 @@
 require('dotenv').config();
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, disconnectRedis, logger } = require('/shared');
+const { connectDB, connectRedis, disconnectDB, disconnectRedis, logger } = require('@enterprise/shared');
 const { startTaskFromFileWorker, stopTaskFromFileWorker } = require('./workers/taskFromFileWorker');
 
 const PORT = process.env.PORT || 3009;

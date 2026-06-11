@@ -1,6 +1,6 @@
 const express = require('express');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
-const { mongoose } = require('/shared/config/mongo');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -25,7 +25,7 @@ const memberRoutes = require('./routes/memberRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const channelRoutes = require('./routes/channelRoutes');
 const hierarchyRoutes = require('./routes/hierarchyRoutes');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const internalOrganizationRoutes = require('./routes/internalOrganization.routes');
 
 app.use('/api/organizations/internal', internalGatewayAuth, internalOrganizationRoutes);

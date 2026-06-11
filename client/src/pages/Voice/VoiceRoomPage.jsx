@@ -195,7 +195,7 @@ function deptMatchesMember(m, deptId) {
   return String(did || '') === String(deptId || '');
 }
 
-function VoiceRoomPage({ landingDemo = false } = {}) {
+function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { roomId } = useParams();
@@ -447,7 +447,7 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
     const room = String(safeRoomId || '').trim();
     if (!callId || !room.startsWith('friend-1on1-')) return;
     if (friendCallSession?.callId === callId) {
-      navigate('/chat/friends', { replace: true });
+      navigate('/app/communicate/chat/friends', { replace: true });
       return;
     }
     const media = searchParams.get('friendCallMedia') === 'audio' ? 'audio' : 'video';
@@ -458,7 +458,7 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
       peerUserId: '',
       peerLabel: '',
     });
-    navigate('/chat/friends', { replace: true });
+    navigate('/app/communicate/chat/friends', { replace: true });
   }, [
     landingDemo,
     safeRoomId,
@@ -1934,7 +1934,7 @@ function VoiceRoomPage({ landingDemo = false } = {}) {
     <div
       className={`flex h-screen max-h-[100dvh] overflow-hidden ${isDarkMode ? 'bg-[#050810]' : appShellBg(false)}`}
     >
-      <NavigationSidebar landingDemo={landingDemo} />
+      {!suiteLayout && <NavigationSidebar landingDemo={landingDemo} />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {viewStage !== 'inRoom' ? (
           <div className={voiceLobby}>

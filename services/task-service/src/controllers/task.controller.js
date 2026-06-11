@@ -2,9 +2,9 @@ const axios = require('axios');
 const taskService = require('../services/task.service');
 const Task = require('../models/Task');
 const mongoose = require('../db');
-const { logger } = require('/shared');
-const { isEncryptionEnabled } = require('/shared/utils/fieldCrypto');
-const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
+const { logger } = require('@enterprise/shared');
+const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const { publishTaskFromFileJob } = require('../messaging/taskFromFilePublisher');
 const {
   fetchTaskWorkspaceScope,
@@ -350,6 +350,11 @@ class TaskController {
    */
   async getStatistics(req, res) {
     try {
+      const userId = req.user?.id || req.userContext?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
       const { organizationId } = req.query;
       const oid =
         organizationId != null && organizationId !== ''
@@ -360,6 +365,11 @@ class TaskController {
           success: false,
           message: 'organizationId query parameter is required and must be a valid ObjectId',
         });
+      }
+
+      const scope = await fetchTaskWorkspaceScope(userId, oid);
+      if (!scope) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
       }
 
       if (mongoose.connection.readyState !== 1) {
@@ -518,6 +528,13 @@ class TaskController {
         return res.status(403).json({
           success: false,
           message: 'Not your message',
+        });
+      }
+      const msgOrgId = msg.organizationId ? String(msg.organizationId) : '';
+      if (msgOrgId && String(organizationId) !== msgOrgId) {
+        return res.status(400).json({
+          success: false,
+          message: 'organizationId does not match message organization',
         });
       }
       if (!msg.fileMeta?.storagePath) {

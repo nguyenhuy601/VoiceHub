@@ -1,4 +1,4 @@
-const { authenticate } = require('/shared/middleware/auth');
+const { authenticate } = require('@enterprise/shared/middleware/auth');
 
 /**
  * Gọi nội bộ S2S (chỉ x-gateway-internal-token, không có x-user-id) HOẶC JWT / gateway user forward.
@@ -9,6 +9,7 @@ function authenticateOrInternal(req, res, next) {
   const got = String(req.headers['x-gateway-internal-token'] || '').trim();
   const forwardedUserId = String(req.headers['x-user-id'] || '').trim();
   if (expected && got === expected && !forwardedUserId) {
+    req.isInternalServiceCall = true;
     return next();
   }
   return authenticate(req, res, next);

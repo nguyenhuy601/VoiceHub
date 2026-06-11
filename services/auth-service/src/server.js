@@ -10,7 +10,7 @@ if (process.env.NODE_ENV === 'production') {
 
 const app = require('./app');
 // Sử dụng hàm connectDB / disconnectDB / connectRedis chung từ /shared
-const { connectDB, disconnectDB, connectRedis } = require('/shared');
+const { connectDB, disconnectDB, connectRedis } = require('@enterprise/shared');
 
 const PORT = process.env.PORT || 3001;
 

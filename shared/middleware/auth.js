@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const { isTrustedGatewayForward } = require('./gatewayTrust');
+const { isAccessTokenVersionValid } = require('../utils/tokenVersionAuth');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 
@@ -39,91 +40,98 @@ const getHeader = (headers, key) =>
   headers?.[key] ?? headers?.[key.toLowerCase()];
 
 const authenticate = (req, res, next) => {
-  try {
-    const existingId = req.user?.id || req.user?.userId || req.user?._id;
-    if (existingId) {
-      return next();
-    }
-
-    const forwardedUserId = getHeader(req.headers, 'x-user-id');
-    if (forwardedUserId && isTrustedGatewayForward(req)) {
-      req.user = {
-        id: String(forwardedUserId).trim(),
-        userId: String(forwardedUserId).trim(),
-        email: getHeader(req.headers, 'x-user-email') || null,
-      };
-      return next();
-    }
-
-    const jwtSecret = getJwtSecret();
-    if (!jwtSecret) {
-      logger.error('JWT_SECRET is not configured');
-      return res.status(500).json({
-        success: false,
-        message: 'Authentication service misconfigured',
-      });
-    }
-
-    // Lấy token từ header
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    // Extract token
-    const token = normalizeToken(authHeader.split(' ')[1]);
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    // Verify token
-    try {
-      const decoded = jwt.verify(token, jwtSecret);
-      
-      // Gắn user info vào request
-      req.user = {
-        id: decoded.id || decoded.userId || decoded._id,
-        email: decoded.email,
-        ...decoded,
-      };
-
-      logger.debug(`User authenticated: ${req.user.id}`);
-      next();
-    } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        logger.warn('Token expired');
-        return res.status(401).json({
-          success: false,
-          message: 'Token expired',
-        });
-      }
-
-      if (error.name === 'JsonWebTokenError') {
-        logger.warn('Invalid token');
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid token',
-        });
-      }
-
-      throw error;
-    }
-  } catch (error) {
+  Promise.resolve(authenticateAsync(req, res, next)).catch((error) => {
     logger.error('Authentication error:', error);
     return res.status(500).json({
       success: false,
       message: 'Authentication error',
     });
-  }
+  });
 };
+
+async function authenticateAsync(req, res, next) {
+  const existingId = req.user?.id || req.user?.userId || req.user?._id;
+  if (existingId) {
+    return next();
+  }
+
+  const forwardedUserId = getHeader(req.headers, 'x-user-id');
+  if (forwardedUserId && isTrustedGatewayForward(req)) {
+    req.user = {
+      id: String(forwardedUserId).trim(),
+      userId: String(forwardedUserId).trim(),
+      email: getHeader(req.headers, 'x-user-email') || null,
+    };
+    return next();
+  }
+
+  const jwtSecret = getJwtSecret();
+  if (!jwtSecret) {
+    logger.error('JWT_SECRET is not configured');
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication service misconfigured',
+    });
+  }
+
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'No token provided',
+    });
+  }
+
+  const token = normalizeToken(authHeader.split(' ')[1]);
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'No token provided',
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecret);
+    const userId = decoded.id || decoded.userId || decoded._id;
+
+    const versionOk = await isAccessTokenVersionValid(userId, decoded.tv);
+    if (!versionOk) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token revoked',
+      });
+    }
+
+    req.user = {
+      id: userId,
+      email: decoded.email,
+      ...decoded,
+    };
+
+    logger.debug(`User authenticated: ${req.user.id}`);
+    return next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      logger.warn('Token expired');
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired',
+      });
+    }
+
+    if (error.name === 'JsonWebTokenError') {
+      logger.warn('Invalid token');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token',
+      });
+    }
+
+    throw error;
+  }
+}
 
 /**
  * Middleware xác thực JWT cho Socket.IO
@@ -131,7 +139,7 @@ const authenticate = (req, res, next) => {
  * @param {Function} next - Next middleware function
  */
 const socketAuth = (socket, next) => {
-  try {
+  (async () => {
     const jwtSecret = getJwtSecret();
     if (!jwtSecret) {
       logger.error('JWT_SECRET is not configured');
@@ -140,8 +148,7 @@ const socketAuth = (socket, next) => {
 
     const authHeader = socket.handshake.headers?.authorization;
     const tokenFromHeader = authHeader?.split?.(' ')?.[1];
-    const rawToken =
-      socket.handshake.auth?.token || tokenFromHeader;
+    const rawToken = socket.handshake.auth?.token || tokenFromHeader;
     const token = normalizeToken(rawToken);
 
     if (!token) {
@@ -149,9 +156,16 @@ const socketAuth = (socket, next) => {
     }
 
     const decoded = jwt.verify(token, jwtSecret);
+    const userId = decoded.id || decoded.userId || decoded._id;
+
+    const versionOk = await isAccessTokenVersionValid(userId, decoded.tv);
+    if (!versionOk) {
+      return next(new Error('Authentication error: Token revoked'));
+    }
+
     const normalizedUser = {
       ...decoded,
-      id: decoded.id || decoded.userId || decoded._id,
+      id: userId,
       userId: decoded.userId || decoded.id || decoded._id,
     };
 
@@ -162,10 +176,10 @@ const socketAuth = (socket, next) => {
     socket.user = normalizedUser;
     socket.data = socket.data || {};
     socket.data.user = normalizedUser;
-    
+
     logger.debug(`Socket authenticated: ${socket.user.id}`);
-    next();
-  } catch (error) {
+    return next();
+  })().catch((error) => {
     if (error.name === 'TokenExpiredError') {
       logger.warn('Socket token expired');
       return next(new Error('Authentication error: Token expired'));
@@ -177,8 +191,8 @@ const socketAuth = (socket, next) => {
     }
 
     logger.error('Socket authentication error:', error);
-    next(new Error('Authentication error: Invalid token'));
-  }
+    return next(new Error('Authentication error: Invalid token'));
+  });
 };
 
 /**

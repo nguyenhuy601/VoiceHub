@@ -1,5 +1,5 @@
 const roleService = require('../services/role.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   const status = Number(err?.statusCode) || fallbackStatus;
@@ -41,7 +41,14 @@ class RoleController {
         data: role,
       });
     } catch (error) {
-      logger.error('Create role error:', error);
+      const isDuplicate =
+        String(error?.errorCode || '') === 'ROLE_NAME_EXISTS' ||
+        String(error?.message || '').includes('đã tồn tại');
+      if (isDuplicate) {
+        logger.warn('Create role skipped (duplicate name):', error.message);
+      } else {
+        logger.error('Create role error:', error);
+      }
       return sendError(res, error, 400, 'Không thể tạo vai trò', 'ROLE_CREATE_FAILED');
     }
   }

@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const userService = require('../services/user.service');
-const { logger, getRedisClient } = require('/shared');
+const { logger, getRedisClient } = require('@enterprise/shared');
 const { readPiiFromProfile } = require('../utils/profilePii');
 const { uploadsDir } = require('../config/uploadsPath');
 
@@ -103,11 +103,19 @@ class UserController {
         });
       }
 
-      const profileEmail = String(userProfile?.email || '').trim().toLowerCase();
+      const plain =
+        typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
+      const profileEmail = readPiiFromProfile(plain).email;
+      const hasStoredEmailArtifact =
+        Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
       const authEmail = String(req.headers['x-user-email'] || req.user?.email || '')
         .trim()
         .toLowerCase();
-      if (!profileEmail && authEmail) {
+      if (!profileEmail && hasStoredEmailArtifact) {
+        logger.warn(
+          `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
+        );
+      } else if (!profileEmail && authEmail) {
         try {
           userProfile = await userService.updateUserEmailInternal(userId, authEmail);
           logger.info(`Recovered missing profile email for userId=${userId}`);

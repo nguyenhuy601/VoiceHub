@@ -1,6 +1,6 @@
 const userService = require('../services/user.service');
-const { logger } = require('/shared');
-const { isTrustedGatewayForward } = require('/shared/middleware/gatewayTrust');
+const { logger } = require('@enterprise/shared');
+const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 
 /**
  * Middleware để gắn user context vào request

@@ -1,4 +1,4 @@
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 
 const userAuthSchema = new mongoose.Schema(
   {
@@ -105,6 +105,11 @@ const userAuthSchema = new mongoose.Schema(
     lockUntil: {
       type: Date,
       default: null,
+    },
+    /** Tăng khi logout/đổi mật khẩu để vô hiệu access token cũ */
+    tokenVersion: {
+      type: Number,
+      default: 0,
     },
   },
   {

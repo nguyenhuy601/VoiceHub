@@ -1,5 +1,5 @@
 /**
- * Map require('/shared/...') khi chạy script trên host (Windows/macOS).
+ * Map require('@enterprise/shared/...') khi chạy script trên host (Windows/macOS).
  * Trong Docker, volume mount ./shared → /shared nên không cần file này.
  */
 const path = require('path');

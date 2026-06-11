@@ -31,7 +31,7 @@ const NOTIF_LABEL_KEYS = {
   'mobile-push': 'notifPush',
 };
 
-function SettingsPage() {
+function SettingsPage({ suiteLayout = false } = {}) {
   const { t, locale } = useAppStrings();
   const { user, updateUser } = useAuth();
   const { isDarkMode, toggleTheme, fontScale, setFontScale } = useTheme();
@@ -571,6 +571,7 @@ function SettingsPage() {
   return (
     <>
       <ThreeFrameLayout
+        left={suiteLayout ? false : undefined}
         center={
           <div className={`p-5 lg:p-6 min-h-full ${settingsShell}`}>
         {/* Role Switcher for demo */}

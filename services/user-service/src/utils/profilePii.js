@@ -4,18 +4,18 @@ const {
   isEncryptionEnabled,
   decryptFieldSafe,
   phoneBlindIndex,
-} = require('/shared/utils/fieldCrypto');
+} = require('@enterprise/shared/utils/fieldCrypto');
 const {
   readEmailFromStored,
   writeEmailFields,
   migrateEmailOnDocument,
-} = require('/shared/utils/emailPii');
-const { unwrapPlaintext } = require('/shared/utils/migration');
+} = require('@enterprise/shared/utils/emailPii');
+const { unwrapPlaintext } = require('@enterprise/shared/utils/migration');
 const {
   readDateOfBirthFromStored,
   writeDateOfBirthFields,
   migrateDateOfBirthOnDocument,
-} = require('/shared/utils/dateOfBirthPii');
+} = require('@enterprise/shared/utils/dateOfBirthPii');
 
 function readBioPlain(stored) {
   if (stored == null || stored === '') return '';

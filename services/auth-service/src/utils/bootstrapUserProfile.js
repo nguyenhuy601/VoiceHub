@@ -2,7 +2,7 @@ const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().repla
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
 const axios = require('axios');
 const { hydrateAuthEmailDoc } = require('./authEmailPii');
-const { readDateOfBirthFromStored } = require('/shared/utils/dateOfBirthPii');
+const { readDateOfBirthFromStored } = require('@enterprise/shared/utils/dateOfBirthPii');
 
 /**
  * Username hợp lệ cho UserProfile (3–30 ký tự, không khoảng trắng thừa).

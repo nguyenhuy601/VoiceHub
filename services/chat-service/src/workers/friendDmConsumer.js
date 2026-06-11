@@ -1,7 +1,7 @@
 const amqp = require('amqplib');
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('@enterprise/shared');
 const messageService = require('../services/message.service');
-const { emitRealtimeEvent } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { assertDmCanSend } = require('../utils/verifyDmRelationship');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
 

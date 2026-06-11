@@ -11,7 +11,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const amqp = require('amqplib');
 const axios = require('axios');
-const { connectDB, disconnectDB } = require('/shared');
+const { connectDB, disconnectDB } = require('@enterprise/shared');
 const AiTaskExtraction = require('./models/AiTaskExtraction');
 const SyncSuggestion = require('./models/SyncSuggestion');
 const {

@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { isTrustedGatewayForward } = require('/shared/middleware/gatewayTrust');
+const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 
 const AUTH_SERVICE_URL = String(process.env.AUTH_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AUTH_SERVICE_URL) throw new Error('Thiếu biến môi trường: AUTH_SERVICE_URL');

@@ -1,4 +1,4 @@
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 
 const teamSchema = new mongoose.Schema(
   {

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
-const { emitRealtimeEvent } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
 const {
   setCachedUnreadCount,
   invalidateUnreadBadgeCache,

@@ -24,7 +24,8 @@
     "dev": "nodemon src/server.js",
     "backfill:dm-conversation": "node src/scripts/backfillDmConversationId.js",
     "backfill:message-search": "node src/scripts/backfillMessageSearchIndex.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "keywords": [
     "microservice",

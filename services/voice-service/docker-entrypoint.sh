@@ -35,4 +35,8 @@ if [ ! -f "$WORKER" ]; then
   exit 1
 fi
 
+if [ -f /shared/postinstall-link.cjs ]; then
+  node /shared/postinstall-link.cjs
+fi
+
 exec node src/server.js

@@ -1,5 +1,5 @@
-const { socketAuth } = require('/shared/middleware/auth');
-const { logger } = require('/shared');
+const { socketAuth } = require('@enterprise/shared/middleware/auth');
+const { logger } = require('@enterprise/shared');
 const roomManager = require('../sfu/roomManager');
 const voiceRoomSessionService = require('../services/voiceRoomSession.service');
 

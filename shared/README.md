@@ -1,110 +1,55 @@
-# Shared Utilities
+# @enterprise/shared
 
-Thư viện dùng chung cho tất cả các microservices Node trong repo VoiceHub. Tổng quan repo: [`../README.md`](../README.md).
+Package platform dùng chung cho microservices Node trong VoiceHub. Tổng quan repo: [`../README.md`](../README.md).
+
+**Không** chứa HTTP client gọi service khác (realtime, user profile, webhook, firebase) — các module đó nằm trong `services/<name>/src/clients/` hoặc `src/utils/` của service sở hữu.
 
 ## Cấu trúc
 
 ```
 shared/
-├── config/
-│   ├── mongo.js      # MongoDB connection
-│   ├── redis.js      # Redis connection
-│   └── env.js        # Environment variables loader
-├── middleware/
-│   └── auth.js       # JWT authentication middleware
-└── utils/
-    ├── logger.js       # Logger utility (redact token/phone/content trong object log)
-    ├── fieldCrypto.js  # AES-256-GCM envelope: encryptField / decryptField / phoneBlindIndex
-    ├── cryptoMetrics.js
-    ├── migration.js    # unwrapPlaintext, lazyEncryptField
-    └── realtime.js
+├── config/          # mongo, redis
+├── middleware/      # auth, cors, gatewayTrust, internalGatewayAuth
+├── messaging/       # event contracts (RabbitMQ)
+├── cache/           # cross-service cache key contracts
+├── pagination/
+└── utils/           # logger, fieldCrypto, PII, tokenVersionAuth, ...
 ```
 
-## Mã hóa trường dữ liệu (at-rest)
+## Cài đặt
 
-- Đặt `ENCRYPTION_MASTER_KEY` (32+ ký tự UTF-8 hoặc 64 ký tự hex) trên **user-service**, **chat-service**, **notification-service** (và bất kỳ service nào gọi `encryptField`).
-- Lazy migration: đọc vẫn trả plaintext; bản ghi cũ được mã hóa lại khi đọc/ghi hoặc qua `scripts/encryption-backfill.js`.
-- Metrics: `getCryptoMetrics()` — endpoint `/health/crypto` trên user-service (ví dụ).
+Mỗi service / api-gateway có `postinstall` tự symlink `node_modules/@enterprise/shared` → thư mục `shared/` (script [`postinstall-link.cjs`](postinstall-link.cjs)).
 
-## Cách sử dụng
+Sau pull, chạy từ root:
 
-### 1. Cài đặt dependencies
-
-Trong mỗi service, cài đặt dependencies:
 ```bash
-npm install dotenv ioredis jsonwebtoken mongoose
+node scripts/sync-node-deps.mjs
 ```
 
-### 2. Import và sử dụng
+Hoặc từng service: `npm install` (postinstall chạy tự động).
 
-#### MongoDB Connection
+Docker: mount `./shared:/shared`; lệnh compose chạy `node ../../shared/postinstall-link.cjs` sau `npm install`.
+
+## Import (chuẩn duy nhất)
+
 ```javascript
-const { connectDB } = require('../../shared/config/mongo');
-
-// Kết nối MongoDB
-await connectDB();
+const { connectDB, logger, getRedisClient } = require('@enterprise/shared');
+const { mongoose } = require('@enterprise/shared/config/mongo');
+const { authenticate } = require('@enterprise/shared/middleware/auth');
+const { ORG_EVENT_TYPES } = require('@enterprise/shared/messaging/orgEvents');
 ```
 
-#### Redis Connection
+**Cấm:** `require('/shared')`, `require('/shared/...')`, relative `../../../shared/...`.
+
+## Domain clients (trong từng service)
+
 ```javascript
-const { connectRedis, getRedisClient } = require('../../shared/config/redis');
-
-// Kết nối Redis
-connectRedis();
-
-// Sử dụng Redis client
-const redis = getRedisClient();
-await redis.set('key', 'value');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 ```
 
-#### Environment Variables
-```javascript
-const env = require('../../shared/config/env');
+## Mã hóa trường (at-rest)
 
-// Validate required variables
-env
-  .require(['MONGODB_URI', 'JWT_SECRET'])
-  .validate();
-
-// Lấy giá trị
-const port = env.getNumber('PORT', 3000);
-const isDev = env.getBoolean('NODE_ENV', 'development') === 'development';
-```
-
-#### Authentication Middleware
-```javascript
-const { authenticate, socketAuth } = require('../../shared/middleware/auth');
-
-// HTTP middleware
-app.use('/api/protected', authenticate);
-
-// Socket.IO middleware
-io.use(socketAuth);
-```
-
-#### Logger
-```javascript
-const logger = require('../../shared/utils/logger');
-
-logger.info('Service started');
-logger.error('Error occurred', error);
-logger.warn('Warning message');
-logger.debug('Debug information');
-```
-
-## Environment Variables
-
-### LOG_LEVEL
-- `error` - Chỉ log errors
-- `warn` - Log warnings và errors
-- `info` - Log info, warnings và errors (mặc định)
-- `debug` - Log tất cả
-
-## Lưu ý
-
-1. **Đường dẫn**: Điều chỉnh đường dẫn `../../shared/` tùy theo cấu trúc thư mục của service
-2. **Dependencies**: Đảm bảo tất cả dependencies đã được cài đặt
-3. **Environment**: Load `.env` file trước khi sử dụng shared config
-
-
-
+- `ENCRYPTION_MASTER_KEY` trên user-service, chat-service, notification-service, v.v.
+- Lazy migration qua `unwrapPlaintext` / `encryptField` — xem `utils/fieldCrypto.js`.
+- Test: `cd shared && npm test`

@@ -1,8 +1,8 @@
 const express = require('express');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const router = express.Router();
 const meetingController = require('../controllers/meeting.controller');
-const { authenticate } = require('/shared/middleware/auth');
+const { authenticate } = require('@enterprise/shared/middleware/auth');
 
 router.delete(
   '/internal/purge-organization/:organizationId',

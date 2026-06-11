@@ -234,10 +234,81 @@ const extractServerId = (req) => {
   );
 };
 
+/**
+ * GET quyền/role của chính mình — không yêu cầu role:read (tránh vòng gà-trứng khi chưa gán role).
+ */
+function roleReadPath(req) {
+  return String(req.originalUrl || req.url || req.path || '')
+    .split('?')[0]
+    .replace(/\/+/g, '/');
+}
+
+/** GET quyền/role của chính mình — không yêu cầu role:read (tránh vòng gà-trứng khi chưa gán role). */
+function isSelfRoleReadRequest(req, action) {
+  if (action !== 'role:read' || req.method !== 'GET') return false;
+  const actorId = String(req.user?.id || '').trim();
+  if (!actorId) return false;
+  const pathOnly = roleReadPath(req);
+  const patterns = [
+    /^\/api\/permissions\/user\/([^/]+)\/server\/[^/]+(?:\/role)?\/?$/,
+    /^\/api\/roles\/user\/([^/]+)\/server\/[^/]+\/?$/,
+  ];
+  return patterns.some((re) => {
+    const m = pathOnly.match(re);
+    return m && String(m[1]).trim() === actorId;
+  });
+}
+
+/**
+ * GET danh sách role template trong org — kiểm tra membership tại role-permission-service.
+ */
+function isOrgRoleCatalogRead(req, action) {
+  if (action !== 'role:read' || req.method !== 'GET') return false;
+  return /^\/api\/roles\/server\/[^/]+\/?$/.test(roleReadPath(req));
+}
+
+/**
+ * Đọc role của user (self hoặc org admin) — kiểm tra tại role-permission-service.
+ */
+function isDelegatedUserRoleRead(req, action) {
+  if (action !== 'role:read' || req.method !== 'GET') return false;
+  return /^\/api\/roles\/user\/[^/]+\/server\/[^/]+\/?$/.test(roleReadPath(req));
+}
+
+/**
+ * Đọc permissions của user (self hoặc org admin) — kiểm tra tại role-permission-service.
+ */
+function isDelegatedUserPermissionRead(req, action) {
+  if (action !== 'role:read' || req.method !== 'GET') return false;
+  return /^\/api\/permissions\/user\/[^/]+\/server\/[^/]+(?:\/role)?\/?$/.test(roleReadPath(req));
+}
+
+/**
+ * CRUD role + gán/gỡ — org owner/admin qua requireOrgRoleManager tại role-service,
+ * không cần role:write RBAC trước (tránh vòng gà-trứng cho admin tổ chức).
+ */
+function isDelegatedRoleManageRoute(req, action) {
+  if (action !== 'role:write') return false;
+  const path = roleReadPath(req);
+  const method = req.method;
+  if (method === 'POST') {
+    return path === '/api/roles' || path === '/api/roles/assign' || path === '/api/roles/remove';
+  }
+  if (method === 'PATCH' || method === 'PUT' || method === 'DELETE') {
+    return /^\/api\/roles\/[^/]+\/?$/.test(path);
+  }
+  return false;
+}
+
 module.exports = {
   getAction,
   extractServerId,
   noPermissionRoutes,
+  isSelfRoleReadRequest,
+  isOrgRoleCatalogRead,
+  isDelegatedUserRoleRead,
+  isDelegatedUserPermissionRead,
+  isDelegatedRoleManageRoute,
 };
 
 

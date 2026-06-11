@@ -4,7 +4,7 @@ const {
   MESSAGE_SEARCH_EVENT_TYPES,
   routingKeyForType,
   isKnownMessageSearchEventType,
-} = require('/shared/messaging/messageSearchEvents');
+} = require('@enterprise/shared/messaging/messageSearchEvents');
 
 function isPublishEnabled() {
   const raw = String(

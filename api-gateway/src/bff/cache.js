@@ -58,8 +58,10 @@ async function setCachedJson(key, value, ttlSec) {
   }
 }
 
-function bootstrapCacheKey(userId) {
-  return `bff:bootstrap:${String(userId || '').trim()}`;
+function bootstrapCacheKey(userId, suite = '') {
+  const uid = String(userId || '').trim();
+  const s = String(suite || '').trim().toLowerCase();
+  return s ? `bff:bootstrap:${uid}:${s}` : `bff:bootstrap:${uid}:default`;
 }
 
 function shellCacheKey(userId, orgId) {

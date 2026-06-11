@@ -1,6 +1,6 @@
 const axios = require('axios');
-const { mongoose } = require('/shared/config/mongo');
-const { getRedisClient, logger } = require('/shared');
+const { mongoose } = require('@enterprise/shared/config/mongo');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const Membership = require('../models/Membership');
 const JoinApplication = require('../models/JoinApplication');
 const Channel = require('../models/Channel');
