@@ -6,7 +6,7 @@ const aiTaskExtractionSchema = new mongoose.Schema(
     organizationId: { type: mongoose.Schema.Types.ObjectId, required: true },
     status: {
       type: String,
-      enum: ['queued', 'processing', 'ready', 'failed', 'confirmed'],
+      enum: ['queued', 'processing', 'ready', 'confirming', 'failed', 'confirmed'],
       default: 'queued',
     },
     taskId: { type: mongoose.Schema.Types.ObjectId, default: null },

@@ -1,6 +1,7 @@
 import authService from './authService';
 import { getToken } from '../utils/tokenStorage';
 import { loadBootstrapShell } from './bootstrapService';
+import { readStoredSuite } from '../utils/suitePathUtils';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 
 let inflightRestore = null;
@@ -21,7 +22,7 @@ export async function restoreAuthSession() {
 
   inflightRestore = (async () => {
     try {
-      const boot = await loadBootstrapShell();
+      const boot = await loadBootstrapShell({ suite: readStoredSuite() });
       if (boot?.user) {
         return {
           user: mergeAuthUserFromProfile(null, boot.user),
@@ -49,7 +50,7 @@ export async function restoreAuthSession() {
 
 export async function restoreAuthSessionAfterLogin(loginUser) {
   try {
-    const boot = await loadBootstrapShell();
+    const boot = await loadBootstrapShell({ suite: readStoredSuite() });
     if (boot?.user) {
       return mergeAuthUserFromProfile(loginUser, boot.user);
     }

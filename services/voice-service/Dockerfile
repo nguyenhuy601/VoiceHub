@@ -19,7 +19,9 @@ RUN apt-get update && \
 COPY package*.json ./
 
 # 5️⃣ Cài dependencies + build mediasoup-worker trong image
-RUN npm install && npm install -g nodemon
+# --ignore-scripts: bỏ postinstall shared (không có trong build context); rebuild mediasoup riêng.
+RUN npm install --ignore-scripts && npm install -g nodemon \
+  && npm rebuild mediasoup --foreground-scripts
 RUN test -x node_modules/mediasoup/worker/out/Release/mediasoup-worker \
   || (echo "mediasoup-worker build failed in image" && exit 1)
 RUN mkdir -p /opt/voice-prebuilt && cp -a node_modules /opt/voice-prebuilt/

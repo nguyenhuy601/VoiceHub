@@ -146,7 +146,7 @@ export default function FriendPendingRequestsRail({
             rows.map((item) => (
               <div key={item.rowKey} className={`p-2 ${card}`}>
                 <div className="mb-2 flex items-center gap-2">
-                  <UserAvatar avatar={item.avatar} name={item.name} size="sm" />
+                  <UserAvatar avatar={item.avatar} userId={item.id} name={item.name} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className={`truncate text-xs font-semibold ${nameCls}`}>{item.name}</div>
                     <div className={`text-[10px] ${subCls}`}>{t('friendChat.pendingWantsFriend')}</div>

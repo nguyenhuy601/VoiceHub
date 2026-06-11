@@ -2,7 +2,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const http = require('http');
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, disconnectRedis } = require('/shared');
+const { connectDB, connectRedis, disconnectDB, disconnectRedis } = require('@enterprise/shared');
 const initializeSocket = require('./socket/index');
 const { startFriendDmConsumer, stopFriendDmConsumer } = require('./workers/friendDmConsumer');
 const { startOrgAclConsumer, stopOrgAclConsumer } = require('./workers/orgAclConsumer');

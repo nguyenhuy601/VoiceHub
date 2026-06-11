@@ -1,8 +1,8 @@
 const express = require('express');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 require('dotenv').config();
-const { gatewayUserFromTrustedHeaders } = require('/shared/middleware/gatewayTrust');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const { gatewayUserFromTrustedHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 
 const app = express();
 

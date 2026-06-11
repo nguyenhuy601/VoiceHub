@@ -22,7 +22,7 @@ function NotFoundPage() {
           404
         </h1>
         <p className={`mb-8 text-2xl ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notFound.title')}</p>
-        <Link to="/dashboard">
+        <Link to="/app">
           <GradientButton variant="primary">{t('notFound.cta')}</GradientButton>
         </Link>
       </div>

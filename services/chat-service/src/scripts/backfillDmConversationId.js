@@ -2,8 +2,8 @@ const path = require('path');
 require('./registerShared').registerShared();
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
-const { connectDB, disconnectDB } = require('/shared');
-const { mongo } = require('/shared');
+const { connectDB, disconnectDB } = require('@enterprise/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');

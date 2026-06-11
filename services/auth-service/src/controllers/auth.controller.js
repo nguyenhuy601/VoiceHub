@@ -1,7 +1,7 @@
 const authService = require('../services/auth.service');
 const emailService = require('../utils/email');
-const { resolveFrontendUrl } = require('/shared');
-const { readEmailFromStored } = require('/shared/utils/emailPii');
+const { resolveFrontendUrl } = require('@enterprise/shared');
+const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   const status = Number(err?.statusCode) || fallbackStatus;
@@ -21,7 +21,9 @@ class AuthController {
     console.log('[AuthController] ========== REGISTER REQUEST RECEIVED ==========');
     console.log('[AuthController] Request method:', req.method);
     console.log('[AuthController] Request path:', req.path);
-    console.log('[AuthController] Request headers:', JSON.stringify(req.headers, null, 2));
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthController] Request headers keys:', Object.keys(req.headers || {}));
+    }
     console.log('[AuthController] Request body exists:', !!req.body);
     
     // Kiểm tra nếu request đã bị abort

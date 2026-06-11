@@ -4,16 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ConfirmDialog, Modal, GlassCard, GradientButton } from '../Shared';
 import { useAuth } from '../../context/AuthContext';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import roleAPI from '../../services/api/roleAPI';
-import RoleHierarchyKanban from './RoleHierarchyKanban';
-import RolePermissionsViewModal from './RolePermissionsViewModal';
-import {
-  TIER_META,
-  normalizeRoleDisplayName,
-  priorityFromTier,
-  resolveRoleTier,
-  TIER_DEPARTMENT,
-} from './roleRbacUtils';
+import OrganizationRbacSettings from './OrganizationRbacSettings';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -21,7 +12,7 @@ const ADMIN_TABS = [
   { id: 'general', label: 'Tổng quan', icon: '⚙️' },
   { id: 'structure', label: 'Cấu trúc tổ chức', icon: '🏢' },
   { id: 'join', label: 'Đơn gia nhập', icon: '📋' },
-  { id: 'roles', label: 'Vai trò', icon: '🔐' },
+  { id: 'roles', label: 'Phân quyền', icon: '🔐' },
   { id: 'security', label: 'Bảo mật', icon: '🛡️' },
   { id: 'integrations', label: 'Tích hợp', icon: '🔗' },
   { id: 'billing', label: 'Thanh toán', icon: '💳' },
@@ -103,7 +94,6 @@ function OrganizationSettingsPanel({
     },
     [setSearchParams]
   );
-  const [roleDeleteConfirmId, setRoleDeleteConfirmId] = useState(null);
   const [loadingOrg, setLoadingOrg] = useState(false);
 
   const [organizationForm, setOrganizationForm] = useState({
@@ -137,20 +127,6 @@ function OrganizationSettingsPanel({
   });
   const [themeMode, setThemeMode] = useState('dark');
   const [avatarUrl, setAvatarUrl] = useState('');
-  const [roles, setRoles] = useState([]);
-  const [roleLoading, setRoleLoading] = useState(false);
-  const [roleEditorOpen, setRoleEditorOpen] = useState(false);
-  const [editingRoleId, setEditingRoleId] = useState(null);
-  const [editingRoleOriginalName, setEditingRoleOriginalName] = useState('');
-  const [roleDraft, setRoleDraft] = useState({
-    name: '',
-    members: 0,
-    color: 'from-purple-600 to-pink-600',
-    icon: '🧩',
-  });
-  const [roleTier, setRoleTier] = useState(TIER_DEPARTMENT);
-  const [rolePermissionsView, setRolePermissionsView] = useState(null);
-
   /** Tên tổ chức từ API — dùng để so khớp khi xóa (không phụ thuộc chỉnh sửa form chưa lưu). */
   const [serverOrgName, setServerOrgName] = useState('');
   const [deleteOrgModalOpen, setDeleteOrgModalOpen] = useState(false);
@@ -236,26 +212,6 @@ function OrganizationSettingsPanel({
     }
   }, [orgId, organization?.name]);
 
-  const loadRoles = useCallback(async () => {
-    if (!orgId || !isFullAccess) return;
-    try {
-      setRoleLoading(true);
-      const response = await roleAPI.getRolesByOrganization(orgId);
-      const raw = response?.data ?? response;
-      const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
-      setRoles(
-        list.map((r) => ({
-          ...r,
-          id: r.id || r._id,
-        }))
-      );
-    } catch {
-      /* giữ mặc định */
-    } finally {
-      setRoleLoading(false);
-    }
-  }, [orgId, isFullAccess]);
-
   const loadJoinWorkspace = useCallback(async () => {
     if (!orgId || !isFullAccess) return;
     setJoinFormLoading(true);
@@ -320,7 +276,6 @@ function OrganizationSettingsPanel({
     const nextTab = urlTab && allowed.includes(urlTab) ? urlTab : first;
     setActiveTab(nextTab);
     loadOrgFromApi();
-    loadRoles();
 
     try {
       const raw = localStorage.getItem(storageKey(orgId, 'memberPrefs'));
@@ -333,7 +288,7 @@ function OrganizationSettingsPanel({
     } catch {
       /* ignore */
     }
-  }, [orgId, isFullAccess, initialTab, searchParams, loadOrgFromApi, loadRoles]);
+  }, [orgId, isFullAccess, initialTab, searchParams, loadOrgFromApi]);
 
   useEffect(() => {
     if (!user) return;
@@ -767,110 +722,6 @@ function OrganizationSettingsPanel({
       toast.success('Đã gỡ quyền kênh');
     } catch {
       toast.error('Không thể gỡ quyền kênh');
-    }
-  };
-
-  const openCreateRole = () => {
-    setEditingRoleId(null);
-    setEditingRoleOriginalName('');
-    setRoleDraft({
-      name: '',
-      members: 0,
-      color: 'from-purple-600 to-pink-600',
-      icon: '🧩',
-    });
-    setRoleTier(TIER_DEPARTMENT);
-    setRoleEditorOpen(true);
-  };
-
-  const openEditRole = (role) => {
-    setEditingRoleId(role.id || role._id);
-    setEditingRoleOriginalName(String(role.name || ''));
-    setRoleDraft({
-      name: normalizeRoleDisplayName(role.name),
-      members: role.members,
-      color: role.color || 'from-purple-600 to-pink-600',
-      icon: role.icon || '🧩',
-    });
-    setRoleTier(resolveRoleTier(role));
-    setRoleEditorOpen(true);
-  };
-
-  const handleSaveRole = async () => {
-    if (!roleDraft.name?.trim()) {
-      toast.error('Nhập tên vai trò');
-      return;
-    }
-    try {
-      setRoleLoading(true);
-      const fallbackHierarchyName =
-        editingRoleId &&
-        editingRoleOriginalName &&
-        normalizeRoleDisplayName(editingRoleOriginalName) === roleDraft.name?.trim()
-          ? editingRoleOriginalName
-          : '';
-      const payload = {
-        ...roleDraft,
-        name: fallbackHierarchyName || roleDraft.name,
-        permissions: [],
-        priority: priorityFromTier(roleTier),
-        organizationId: orgId,
-        serverId: orgId,
-      };
-      if (editingRoleId) {
-        await roleAPI.updateRole(editingRoleId, payload);
-        toast.success('Đã cập nhật vai trò');
-      } else {
-        await roleAPI.createRole(payload);
-        toast.success('Đã tạo vai trò');
-      }
-      setRoleEditorOpen(false);
-      setEditingRoleId(null);
-      setEditingRoleOriginalName('');
-      setRoleTier(TIER_DEPARTMENT);
-      await loadRoles();
-    } catch (e) {
-      toast.error(e?.message || 'Không lưu được vai trò');
-    } finally {
-      setRoleLoading(false);
-    }
-  };
-
-  const requestDeleteRole = (roleId) => {
-    setRoleDeleteConfirmId(roleId);
-  };
-
-  const confirmDeleteRole = async () => {
-    const roleId = roleDeleteConfirmId;
-    if (!roleId || !orgId) return;
-    try {
-      setRoleLoading(true);
-      await roleAPI.deleteRole(roleId, orgId);
-      toast.success('Đã xóa vai trò');
-      await loadRoles();
-    } catch (e) {
-      toast.error(e?.message || 'Lỗi xóa vai trò');
-    } finally {
-      setRoleLoading(false);
-    }
-  };
-
-  const persistRoleHierarchy = async (updates) => {
-    if (!updates?.length || !orgId) return;
-    try {
-      setRoleLoading(true);
-      await Promise.all(
-        updates.map(({ id, priority }) =>
-          roleAPI.updateRole(id, { priority, serverId: orgId, organizationId: orgId })
-        )
-      );
-      await loadRoles();
-      toast.success('Đã cập nhật thứ bậc vai trò');
-    } catch (e) {
-      toast.error(e?.message || 'Không lưu được thứ bậc');
-      await loadRoles();
-    } finally {
-      setRoleLoading(false);
     }
   };
 
@@ -1415,114 +1266,9 @@ function OrganizationSettingsPanel({
           )}
 
           {isFullAccess && activeTab === 'roles' && (
-            <div className="mx-auto max-w-6xl space-y-4">
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="text-xl font-bold text-white">Quản lý vai trò (RBAC)</h3>
-                    <p className="mt-1 max-w-xl text-sm text-slate-400">
-                      Vai trò chỉ là nhãn và cấp Kanban. Quyền chat/voice cấu hình tại từng kênh (bánh răng trên
-                      kênh): gán vai trò cho kênh chat chung của phòng là đủ để thành viên thấy kênh và mục phòng
-                      đó trên sidebar. Kéo thả giữa 4 cột: Điều hành → Khối → Phòng → Team.
-                    </p>
-                  </div>
-                  <GradientButton variant="primary" onClick={openCreateRole} disabled={roleLoading}>
-                    + Tạo vai trò
-                  </GradientButton>
-                </div>
-                {roleEditorOpen && (
-                  <div className="mb-5 rounded-2xl border border-violet-500/30 bg-gradient-to-br from-[#040f2a] to-slate-950/80 p-5 shadow-lg shadow-violet-950/20">
-                    <h4 className="mb-3 text-sm font-semibold text-violet-200">
-                      {editingRoleId ? 'Chỉnh sửa vai trò' : 'Vai trò mới'}
-                    </h4>
-                    <div className="space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <label className="mb-1.5 block text-xs font-medium text-slate-400">
-                            Tên vai trò
-                          </label>
-                          <input
-                            value={roleDraft.name}
-                            onChange={(e) => setRoleDraft((p) => ({ ...p, name: e.target.value }))}
-                            placeholder="VD: Trưởng phòng Dev"
-                            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-2.5 text-white placeholder:text-slate-500 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1.5 block text-xs font-medium text-slate-400">
-                            Cấp vai trò
-                          </label>
-                          <select
-                            value={roleTier}
-                            onChange={(e) => setRoleTier(e.target.value)}
-                            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-2.5 text-white focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
-                          >
-                            {TIER_META.map((tier) => (
-                              <option key={tier.id} value={tier.id}>
-                                {tier.title} — {tier.hint}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <p className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3 text-sm leading-relaxed text-cyan-100/90">
-                        Quyền đọc/ghi/voice không gán tại đây. Sau khi tạo vai trò, mở bánh răng trên kênh (ví dụ
-                        kênh chung Phòng Dev), thêm vai trò và bật quyền — không cần cấu hình riêng tên mục
-                        khối/phòng/team.
-                      </p>
-                    </div>
-                    <div className="mt-3 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-gray-300"
-                        onClick={() => {
-                          setRoleEditorOpen(false);
-                          setRoleTier(TIER_DEPARTMENT);
-                          setEditingRoleId(null);
-                          setEditingRoleOriginalName('');
-                        }}
-                      >
-                        Hủy
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-3 py-2 text-sm font-semibold text-white"
-                        onClick={handleSaveRole}
-                        disabled={roleLoading}
-                      >
-                        Lưu
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {roleLoading && roles.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-slate-500">Đang tải vai trò…</p>
-                ) : roles.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-700 py-10 text-center text-sm text-slate-500">
-                    Chưa có vai trò. Bấm &quot;+ Tạo vai trò&quot; để bắt đầu.
-                  </p>
-                ) : (
-                  <RoleHierarchyKanban
-                    roles={roles}
-                    disabled={roleLoading}
-                    onRoleNameClick={(role) => setRolePermissionsView(role)}
-                    onEdit={openEditRole}
-                    onDelete={(role) => requestDeleteRole(role.id || role._id)}
-                    onHierarchyPersist={persistRoleHierarchy}
-                  />
-                )}
-              </GlassCard>
-
-              <RolePermissionsViewModal
-                role={rolePermissionsView}
-                isOpen={Boolean(rolePermissionsView)}
-                onClose={() => setRolePermissionsView(null)}
-                onEdit={(role) => {
-                  setRolePermissionsView(null);
-                  openEditRole(role);
-                }}
-              />
-            </div>
+            <GlassCard className="border border-slate-800 bg-slate-900/60 p-4 sm:p-6">
+              <OrganizationRbacSettings orgId={orgId} />
+            </GlassCard>
           )}
 
           {isFullAccess && activeTab === 'security' && (
@@ -2166,15 +1912,6 @@ function OrganizationSettingsPanel({
         </div>
       </Modal>
 
-      <ConfirmDialog
-        isOpen={roleDeleteConfirmId != null}
-        onClose={() => setRoleDeleteConfirmId(null)}
-        onConfirm={confirmDeleteRole}
-        title="Xóa vai trò"
-        message="Xóa vai trò này?"
-        confirmText="Xóa"
-        cancelText="Hủy"
-      />
     </>
   );
 }

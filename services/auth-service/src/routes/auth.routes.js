@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/auth.controller');
 const { verifyAccessToken } = require('../config/jwt');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 
 // Middleware xác thực
 const authenticate = (req, res, next) => {

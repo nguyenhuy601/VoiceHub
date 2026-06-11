@@ -1,7 +1,7 @@
 const mongoose = require('../db');
 const Meeting = require('../models/Meeting');
 const meetingService = require('./meeting.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 const MIN_RECORDING_SEC = 300;
 

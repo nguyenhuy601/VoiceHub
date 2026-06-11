@@ -2,10 +2,11 @@ const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().repla
 if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
 const express = require('express');
 const axios = require('axios');
-const { buildTrustedGatewayHeaders } = require('../../../../shared/middleware/gatewayTrust');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const AiTaskExtraction = require('../models/AiTaskExtraction');
 const SyncSuggestion = require('../models/SyncSuggestion');
 const { publishJson } = require('../messaging/rabbit');
+const { assertUserCanExtractFromMessage } = require('../utils/verifyExtractSource');
 
 const router = express.Router();
 
@@ -32,6 +33,18 @@ router.post('/extract', async (req, res) => {
   if (!generatedBy) return res.status(401).json({ success: false, message: 'Missing user context' });
   if (!messageId || !organizationId) {
     return res.status(400).json({ success: false, message: 'messageId and organizationId are required' });
+  }
+
+  try {
+    await assertUserCanExtractFromMessage({
+      messageId,
+      organizationId,
+      userId: generatedBy,
+      channelId,
+    });
+  } catch (verifyErr) {
+    const status = Number(verifyErr?.statusCode) || 403;
+    return fail(res, status, verifyErr.message || 'Forbidden', 'AI_EXTRACT_FORBIDDEN');
   }
 
   const safeMentions = Array.isArray(mentions)
@@ -125,12 +138,29 @@ router.post('/confirm', async (req, res) => {
     return res.json({ success: true, data: { taskId: String(extraction.taskId), extractionId: String(extraction._id) } });
   }
 
+  const locked = await AiTaskExtraction.findOneAndUpdate(
+    { _id: extractionId, status: 'ready' },
+    { $set: { status: 'confirming' } },
+    { new: true }
+  );
+  if (!locked) {
+    const latest = await AiTaskExtraction.findById(extractionId).lean();
+    if (latest?.status === 'confirmed' && latest.taskId) {
+      return res.json({
+        success: true,
+        data: { taskId: String(latest.taskId), extractionId: String(latest._id) },
+      });
+    }
+    return fail(res, 409, 'Nội dung AI chưa sẵn sàng hoặc đang được xác nhận', 'AI_EXTRACTION_NOT_READY');
+  }
+
   const taskServiceUrl = process.env.TASK_SERVICE_URL;
-  const draft = extraction.draft || {};
+  const draft = locked.draft || {};
   if (!draft.dueDate) {
+    await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
     return fail(res, 422, 'Tin nhắn chưa có deadline rõ ngày/giờ nên chưa thể tạo task tự động', 'AI_DUE_DATE_REQUIRED');
   }
-  const assigneeId = resolveTrustedAssigneeId(extraction, bodyAssigneeId);
+  const assigneeId = resolveTrustedAssigneeId(locked, bodyAssigneeId);
   const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
 
   let createRes;
@@ -148,7 +178,7 @@ router.post('/confirm', async (req, res) => {
         attachments,
         assigneeId: assigneeId || undefined,
         aiGenerated: true,
-        sourceMessageId: extraction.sourceRef?.messageId || undefined,
+        sourceMessageId: locked.sourceRef?.messageId || undefined,
       },
       {
         headers: buildTrustedGatewayHeaders(userId),
@@ -163,7 +193,7 @@ router.post('/confirm', async (req, res) => {
         title: draft.title || 'Task từ AI',
         summary: draft.summary || '',
         description: draft.description || '',
-        organizationId: String(extraction.organizationId),
+        organizationId: String(locked.organizationId),
         priority: draft.priority || 'medium',
         dueDate: draft.dueDate || null,
         tags: Array.isArray(draft.tags) ? draft.tags : [],
@@ -173,7 +203,7 @@ router.post('/confirm', async (req, res) => {
         teamId: draft.teamId || undefined,
         departmentName: draft.departmentName || undefined,
         aiGenerated: true,
-        sourceMessageId: extraction.sourceRef?.messageId || undefined,
+        sourceMessageId: locked.sourceRef?.messageId || undefined,
       },
       {
         headers: buildTrustedGatewayHeaders(userId),
@@ -184,6 +214,7 @@ router.post('/confirm', async (req, res) => {
   }
 
   if (createRes.status !== 201 || !createRes.data?.success || !createRes.data?.data?._id) {
+    await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
     const taskMsg =
       typeof createRes.data?.message === 'string' && createRes.data.message.trim()
         ? createRes.data.message.trim()
@@ -191,18 +222,33 @@ router.post('/confirm', async (req, res) => {
     return fail(res, 400, taskMsg, 'AI_CONFIRM_CREATE_TASK_FAILED');
   }
 
-  extraction.status = 'confirmed';
-  extraction.taskId = createRes.data.data._id;
+  locked.status = 'confirmed';
+  locked.taskId = createRes.data.data._id;
   if (idemKey) {
-    extraction.confirmIdempotencyKey = idemKey;
+    locked.confirmIdempotencyKey = idemKey;
   }
-  await extraction.save();
+  await locked.save();
 
-  return res.json({ success: true, data: { taskId: String(extraction.taskId), extractionId: String(extraction._id) } });
+  return res.json({ success: true, data: { taskId: String(locked.taskId), extractionId: String(locked._id) } });
 });
 
 router.get('/:taskId/sync-suggestions', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+
   const { taskId } = req.params;
+  const taskRes = await axios.get(`${TASK_SERVICE_URL}/api/tasks/${encodeURIComponent(String(taskId))}`, {
+    headers: buildTrustedGatewayHeaders(userId),
+    timeout: 12000,
+    validateStatus: () => true,
+  });
+  if (taskRes.status === 403 || taskRes.status === 401) {
+    return fail(res, 403, 'Forbidden', 'AI_SYNC_SUGGESTIONS_FORBIDDEN');
+  }
+  if (taskRes.status !== 200) {
+    return fail(res, 404, 'Task not found', 'AI_TASK_NOT_FOUND');
+  }
+
   const items = await SyncSuggestion.find({ taskId, status: 'pending' }).sort({ createdAt: -1 }).lean();
   return res.json({ success: true, data: items });
 });

@@ -9,8 +9,8 @@ const ChannelAccess = require('../models/ChannelAccess');
 const ChannelRoleAccess = require('../models/ChannelRoleAccess');
 const ScopeRoleAccess = require('../models/ScopeRoleAccess');
 const axios = require('axios');
-const { emitRealtimeEvent } = require('/shared');
-const { syncUserOrgRole } = require('../services/rolePermissionOrgSync');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { syncUserOrgRole, ensureDefaultOrgRoles } = require('../services/rolePermissionOrgSync');
 const { syncHierarchyRoles } = require('../services/hierarchyRoleSync');
 const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
 const { resolveTaskWorkspaceScope } = require('../services/taskWorkspaceScope.service');
@@ -707,6 +707,12 @@ exports.getOrgShell = async (req, res, next) => {
         message: 'Access denied',
         code: 'ORG_ACCESS_DENIED',
       });
+    }
+
+    const existingRoles = await fetchUserRolesInOrg(userId, orgId);
+    if (existingRoles.length === 0 && access.membership) {
+      await ensureDefaultOrgRoles(orgId);
+      await syncUserOrgRole(userId, orgId, access.membership.role || 'member');
     }
 
     const orgDoc = await Organization.findById(orgId).select('name slug logo').lean();

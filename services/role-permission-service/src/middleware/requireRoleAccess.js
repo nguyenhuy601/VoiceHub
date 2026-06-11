@@ -21,6 +21,18 @@ async function resolveOrganizationId(req) {
 function requireRolePermission(action) {
   return async (req, res, next) => {
     try {
+      if (req.isInternalServiceCall) {
+        const organizationId = await resolveOrganizationId(req);
+        if (!organizationId) {
+          return res.status(400).json({
+            success: false,
+            message: 'organizationId or serverId is required',
+          });
+        }
+        req.roleOrgContext = { organizationId };
+        return next();
+      }
+
       const userId = req.user?.id || req.user?.userId;
       if (!userId) {
         return res.status(401).json({ success: false, message: 'Unauthorized' });

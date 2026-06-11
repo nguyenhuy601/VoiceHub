@@ -5,7 +5,7 @@ const {
   writeEmailFields,
   migrateEmailOnDocument,
   normalizeEmail,
-} = require('/shared/utils/emailPii');
+} = require('@enterprise/shared/utils/emailPii');
 
 async function findUserAuthByEmail(email, options = {}) {
   const filter = emailLookupFilter(email);

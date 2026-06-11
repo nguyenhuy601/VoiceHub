@@ -12,9 +12,9 @@ import UserAvatar from '../../components/Shared/UserAvatar';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useOrganizationsMy } from '../../hooks/queries';
 import { orgRecordId } from '../../utils/orgListUtils';
-import { buildWorkspacePath } from '../../utils/workspaceTabUtils';
+import { buildCollaborateDocumentsPath } from '../../utils/suitePathUtils';
 
-function DocumentsPage() {
+function DocumentsPage({ suiteLayout = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const navigate = useNavigate();
@@ -65,12 +65,13 @@ function DocumentsPage() {
   });
 
   useEffect(() => {
-    if (isOrgDocuments) return undefined;
     let cancelled = false;
     setDocumentsLoading(true);
+    const params = { limit: 100 };
+    if (isOrgDocuments) params.organizationId = organizationId;
     api
       .get('/documents', {
-        params: { limit: 100 },
+        params,
       })
       .then((response) => {
         if (cancelled) return;
@@ -91,7 +92,7 @@ function DocumentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [isOrgDocuments, t]);
+  }, [isOrgDocuments, organizationId, t]);
 
   const handleStarFile = (fileId) => {
     toast.success(t('documents.toastStar'));
@@ -154,35 +155,13 @@ function DocumentsPage() {
     return list;
   }, [documents, listFilter, docNameQuery]);
 
-  useEffect(() => {
-    if (!isOrgDocuments) return;
-    const fromList = (Array.isArray(orgsQuery.data) ? orgsQuery.data : []).find(
-      (o) => orgRecordId(o) === organizationId
-    );
-    const slug =
-      String(fromList?.slug || '').trim() ||
-      (orgRecordId(activeWorkspace) === organizationId
-        ? String(activeWorkspace?.slug || '').trim()
-        : '');
-    if (slug) {
-      navigate(buildWorkspacePath(slug, 'documents'), { replace: true });
-      return;
-    }
-    navigate(`/workspaces?orgId=${encodeURIComponent(organizationId)}&tab=documents`, {
-      replace: true,
-    });
-  }, [isOrgDocuments, organizationId, orgsQuery.data, activeWorkspace, navigate]);
-
-  if (isOrgDocuments) {
-    return null;
-  }
-
   const muted = isDarkMode ? 'text-slate-400' : 'text-slate-600';
   const titleCls = isDarkMode ? 'text-white' : 'text-slate-900';
 
   return (
     <>
       <ThreeFrameLayout
+        left={suiteLayout ? false : undefined}
         center={
           <div className={`flex h-full min-h-0 flex-col p-5 lg:p-6 ${shell}`}>
             <div className="mb-6">

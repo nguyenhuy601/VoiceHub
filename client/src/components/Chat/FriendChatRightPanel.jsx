@@ -377,6 +377,7 @@ export default function FriendChatRightPanel({
         <div className="flex flex-col items-center px-4 pb-4 pt-3">
           <UserAvatar
             avatar={friend.avatar}
+            userId={friend.userId || friend.id || friend._id}
             name={friend.name}
             size="xl"
             onClick={onOpenProfile}

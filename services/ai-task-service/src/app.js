@@ -1,7 +1,7 @@
 const express = require('express');
-const { createCorsMiddleware } = require('/shared/middleware/corsPolicy');
-const { gatewayUserFromTrustedHeaders } = require('/shared/middleware/gatewayTrust');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { gatewayUserFromTrustedHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 
 const aiTaskRoutes = require('./routes/aiTask.routes');
 const internalAiTaskRoutes = require('./routes/internalAiTask.routes');

@@ -1,5 +1,5 @@
 const permissionService = require('../services/permission.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   const status = Number(err?.statusCode) || fallbackStatus;

@@ -1,8 +1,29 @@
 const Meeting = require('../models/Meeting');
-const { getRedisClient, logger, fetchUserProfileByIdInternal } = require('/shared');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
+
+function userCanAccessMeeting(meeting, userId) {
+  const uid = String(userId || '').trim();
+  if (!meeting || !uid) return false;
+  const hostId = String(meeting.hostId?._id || meeting.hostId || '');
+  if (hostId === uid) return true;
+  return (meeting.participants || []).some(
+    (p) => String(p.userId?._id || p.userId) === uid && !p.leftAt
+  );
+}
+
+function assertMeetingHost(meeting, userId) {
+  const uid = String(userId || '').trim();
+  const hostId = String(meeting?.hostId?._id || meeting?.hostId || '');
+  if (!meeting || hostId !== uid) {
+    const err = new Error('Forbidden');
+    err.statusCode = 403;
+    throw err;
+  }
+}
 
 class MeetingService {
   // Tạo meeting mới
@@ -200,11 +221,9 @@ class MeetingService {
     );
 
     if (!isHost && !participant) {
-      // Auto append participant for MVP join flow.
-      meeting.participants.push({
-        userId,
-        joinedAt: new Date(),
-      });
+      const err = new Error('Forbidden: not a meeting participant');
+      err.statusCode = 403;
+      throw err;
     }
 
     if (meeting.status === 'scheduled') {
@@ -259,5 +278,9 @@ class MeetingService {
   }
 }
 
-module.exports = new MeetingService();
+const meetingServiceInstance = new MeetingService();
+meetingServiceInstance.userCanAccessMeeting = userCanAccessMeeting;
+meetingServiceInstance.assertMeetingHost = assertMeetingHost;
+
+module.exports = meetingServiceInstance;
 

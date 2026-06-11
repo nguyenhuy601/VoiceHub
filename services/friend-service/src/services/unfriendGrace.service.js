@@ -1,6 +1,6 @@
 const axios = require('axios');
 const FriendUnfriendGrace = require('../models/FriendUnfriendGrace');
-const { logger, mongo } = require('/shared');
+const { logger, mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');

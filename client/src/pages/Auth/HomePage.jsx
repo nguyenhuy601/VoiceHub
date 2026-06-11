@@ -174,7 +174,7 @@ function HomePage() {
             {isAuthenticated ? (
               <button
                 type="button"
-                onClick={() => navigate('/dashboard')}
+                onClick={() => navigate('/app')}
                 className="rounded-2xl bg-gradient-to-r from-cyan-600 to-teal-600 px-4 py-2 text-sm font-bold text-white shadow-md transition hover:from-cyan-500 hover:to-teal-500 sm:px-5 sm:py-2.5"
               >
                 {copy.nav.enterApp}
@@ -238,7 +238,7 @@ function HomePage() {
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   type="button"
-                  onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+                  onClick={() => navigate(isAuthenticated ? '/app' : '/register')}
                   className="inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-600 to-teal-600 px-8 text-lg font-bold text-white shadow-[0_12px_32px_-8px_rgba(6,182,212,0.45)] transition hover:-translate-y-0.5 hover:from-cyan-500 hover:to-teal-500 motion-reduce:hover:translate-y-0"
                 >
                   {isAuthenticated ? copy.nav.enterApp : copy.hero.ctaPrimary}
@@ -458,7 +458,7 @@ function HomePage() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => navigate('/dashboard')}
+                  onClick={() => navigate('/app')}
                   className={`inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl border-2 px-8 text-lg font-semibold ${
                     isDarkMode ? 'border-white/20 text-white hover:bg-white/5' : 'border-slate-300 text-slate-800 hover:bg-white/80'
                   }`}
@@ -510,7 +510,7 @@ function HomePage() {
                   className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-4 py-2 text-sm font-bold"
                   onClick={() => {
                     closeModal();
-                    navigate('/dashboard');
+                    navigate('/app');
                   }}
                 >
                   {copy.modal.goDashboard}

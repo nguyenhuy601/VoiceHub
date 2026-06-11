@@ -1,5 +1,6 @@
 const friendService = require('../services/friend.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
+const { checkRateLimit } = require('@enterprise/shared/utils/redisRateLimit');
 
 /** Chuẩn hóa lỗi từ service: 503 khi MongoDB/service unavailable, 404 khi User not found */
 function errorToStatus(error, defaultMessage = 'An error occurred', defaultStatus = 400) {
@@ -44,6 +45,18 @@ class FriendController {
       const friendId = req.body?.friendId ?? req.body?.userId;
       const currentUserId = req.user?.id ?? req.user?._id ?? req.userContext?.userId;
       const userId = currentUserId?.toString?.() ?? currentUserId;
+
+      const rl = await checkRateLimit({
+        key: `friend:request:${userId}`,
+        limit: parseInt(process.env.FRIEND_REQUEST_RATE_LIMIT || '20', 10) || 20,
+        windowSec: parseInt(process.env.FRIEND_REQUEST_RATE_WINDOW_SEC || '600', 10) || 600,
+      });
+      if (!rl.allowed) {
+        return res.status(429).json({
+          success: false,
+          message: 'Quá nhiều lời mời kết bạn. Vui lòng thử lại sau.',
+        });
+      }
 
       if (!friendId || !userId) {
         return res.status(400).json({
@@ -124,13 +137,21 @@ class FriendController {
   // Lấy danh sách bạn bè
   async getFriends(req, res) {
     try {
-      const userId = req.user?.id || req.userContext?.userId || req.params.userId;
+      const authUserId = String(req.user?.id || req.userContext?.userId || '').trim();
+      const paramUserId = String(req.params.userId || '').trim();
+      const userId = authUserId;
       const { status, page, limit } = req.query;
 
       if (!userId) {
-        return res.status(400).json({
+        return res.status(401).json({
           success: false,
-          message: 'userId is required',
+          message: 'Unauthorized',
+        });
+      }
+      if (paramUserId && paramUserId !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
         });
       }
 

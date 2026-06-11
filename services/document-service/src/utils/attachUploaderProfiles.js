@@ -1,4 +1,4 @@
-const { fetchUserProfileByIdInternal } = require('/shared');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 
 function extractProfile(body, userId) {
   const root = body?.data?.data ?? body?.data ?? body ?? {};

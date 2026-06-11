@@ -30,7 +30,7 @@ export default function UserAvatar({
   const [imgFailed, setImgFailed] = useState(false);
   const [authAvatarUrl, setAuthAvatarUrl] = useState(null);
   const avatarValue = pickAvatarValue(avatar);
-  const useAuthFetch = needsAuthenticatedAvatarFetch(avatarValue);
+  const useAuthFetch = needsAuthenticatedAvatarFetch(avatarValue, userId);
 
   useEffect(() => {
     setImgFailed(false);

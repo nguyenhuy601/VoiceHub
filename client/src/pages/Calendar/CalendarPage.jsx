@@ -31,7 +31,7 @@ function parseTimeInputToDisplay(hhmm, loc) {
   return d.toLocaleTimeString(tag, { hour: '2-digit', minute: '2-digit' });
 }
 
-function CalendarPage() {
+function CalendarPage({ suiteLayout = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -524,6 +524,7 @@ function CalendarPage() {
   return (
     <>
       <ThreeFrameLayout
+        left={suiteLayout ? false : undefined}
         center={
           <div className={`flex h-full min-h-0 flex-col ${calShell}`}>
         <PageSearchToolbar

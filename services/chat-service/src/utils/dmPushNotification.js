@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { fetchUserProfileByIdInternal } = require('/shared');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { isOnFriendChatPage } = require('./friendChatFocus');
 
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');

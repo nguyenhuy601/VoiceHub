@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { connectDB, disconnectDB, logger } = require('/shared');
+const { connectDB, disconnectDB, logger } = require('@enterprise/shared');
 const {
   startNotificationDispatchWorker,
   stopNotificationDispatchWorker,

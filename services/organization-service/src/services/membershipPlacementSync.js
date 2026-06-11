@@ -7,7 +7,7 @@ const {
   resolveUserHierarchyScopes,
 } = require('../utils/memberPlacementScope');
 const { upsertAssignmentsFromScopes, pickPrimaryScope } = require('./memberScopePolicy.service');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 /**
  * Đồng bộ RoleScopeAssignment từ các role hierarchy (div_/dep_/team_).

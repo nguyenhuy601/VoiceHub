@@ -5,7 +5,8 @@
   "main": "src/worker.js",
   "scripts": {
     "start": "node src/worker.js",
-    "dev": "nodemon src/worker.js"
+    "dev": "nodemon src/worker.js",
+    "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {
     "amqplib": "^0.10.4",
@@ -17,4 +18,3 @@
     "nodemon": "^3.1.11"
   }
 }
-

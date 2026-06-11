@@ -1,6 +1,6 @@
 const notificationService = require('../services/notification.service');
 const { publishDispatchJob } = require('../messaging/notificationDispatch.publisher');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 function safeMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;

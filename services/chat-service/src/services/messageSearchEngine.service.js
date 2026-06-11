@@ -1,8 +1,8 @@
-const { mongo, unwrapPlaintext } = require('/shared');
+const { mongo, unwrapPlaintext } = require('@enterprise/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
 const { toClientMessage } = require('../utils/messageDto');
-const { decodePageToken, encodePageToken } = require('/shared/pagination/pageToken');
+const { decodePageToken, encodePageToken } = require('@enterprise/shared/pagination/pageToken');
 const {
   ensureOrgMessagesIndex,
   pingMeilisearch,

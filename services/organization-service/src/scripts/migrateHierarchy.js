@@ -1,4 +1,4 @@
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const Organization = require('../models/Organization');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');

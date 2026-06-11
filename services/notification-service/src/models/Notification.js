@@ -1,4 +1,4 @@
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 
 const notificationSchema = new mongoose.Schema(

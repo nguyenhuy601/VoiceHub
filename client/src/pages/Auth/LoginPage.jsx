@@ -79,7 +79,7 @@ function LoginPage({ landingDemo = false } = {}) {
     try {
       const success = await login(formData.email, formData.password);
       if (success) {
-        navigate('/dashboard');
+        navigate('/app');
       }
     } catch (error) {
       console.error('Login error:', error);

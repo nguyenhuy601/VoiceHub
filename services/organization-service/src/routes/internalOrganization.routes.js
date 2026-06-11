@@ -1,10 +1,38 @@
 const express = require('express');
 const Organization = require('../models/Organization');
+const Membership = require('../models/Membership');
 const { buildAiTaskExtractContext } = require('../services/memberContext.service');
 const { syncMembershipPlacementFromRoles } = require('../services/membershipPlacementSync');
 const { backfillRoleScopeAssignmentsForOrg } = require('../services/roleScopeAssignmentBackfill.service');
 
 const router = express.Router();
+
+/** GET membership role — role-permission-service requireOrgMember gọi S2S. */
+router.get('/membership/:organizationId/:userId', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    const userId = String(req.params.userId || '').trim();
+    if (!organizationId || !userId) {
+      return res.status(400).json({ success: false, message: 'organizationId and userId are required' });
+    }
+    const row = await Membership.findOne({
+      organization: organizationId,
+      user: userId,
+      status: 'active',
+    })
+      .select('role')
+      .lean();
+    if (!row) {
+      return res.status(404).json({ success: false, message: 'Not a member of this organization' });
+    }
+    return res.json({
+      success: true,
+      data: { role: Membership.normalizeRole(row.role) },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+  }
+});
 
 /** Tên tổ chức cho webhook / service nội bộ (serverId RBAC = organizationId). */
 router.get('/org/:organizationId/summary', async (req, res) => {

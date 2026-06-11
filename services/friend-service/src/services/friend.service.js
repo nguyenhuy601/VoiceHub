@@ -1,13 +1,11 @@
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 const Friend = require('../models/Friend');
-const {
-  getRedisClient,
-  friendWebhook,
-  logger,
-  emitRealtimeEvent,
-  fetchUserProfileByIdInternal,
-} = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { friendWebhook } = require('../clients/webhook.client');
+const { getRedisClient,
+  logger } = require('@enterprise/shared');
 const axios = require('axios');
 const {
   scheduleGrace,

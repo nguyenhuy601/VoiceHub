@@ -1,7 +1,7 @@
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 const axios = require('axios');
-const { buildTrustedGatewayHeaders } = require('/shared/middleware/gatewayTrust');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const UserOrgChannelAccess = require('../models/UserOrgChannelAccess');
 const {
   readOrgAclFromRedis,

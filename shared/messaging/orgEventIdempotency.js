@@ -1,4 +1,4 @@
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('../config/redis');
 
 const TTL_SEC = Math.max(
   3600,

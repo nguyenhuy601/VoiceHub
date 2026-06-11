@@ -16,6 +16,7 @@ import {
   unwrapApiData,
 } from '../../utils/helpers';
 import { AVATAR_FILE_ACCEPT } from '../../utils/avatarDisplay';
+import { invalidateProtectedAvatarCache } from '../../utils/protectedMediaFetch';
 import {
   birthYearOptions,
   isBirthDateComplete,
@@ -350,6 +351,9 @@ function ProfileModal({ isOpen, onClose }) {
       }
 
       const bust = Date.now();
+      const profileUserId =
+        profile?.userId || profile?.id || profile?._id || authUser?.userId || authUser?.id || authUser?._id;
+      invalidateProtectedAvatarCache({ userId: profileUserId, cacheBust: bust });
       setAvatarCacheBust(bust);
       const merged = { ...updated, avatar: avatarUrl };
       setProfile((prev) => (prev ? { ...prev, ...merged } : merged));
@@ -645,6 +649,14 @@ function ProfileModal({ isOpen, onClose }) {
                 <div className="group relative cursor-pointer">
                   <UserAvatar
                     avatar={profile?.avatar}
+                    userId={
+                      profile?.userId ||
+                      profile?.id ||
+                      profile?._id ||
+                      authUser?.userId ||
+                      authUser?.id ||
+                      authUser?._id
+                    }
                     name={displayName || email || 'U'}
                     size="profile"
                     showOnline

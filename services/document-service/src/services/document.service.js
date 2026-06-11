@@ -1,5 +1,6 @@
 const Document = require('../models/Document');
-const { getRedisClient, logger, fetchUserProfileByIdInternal } = require('/shared');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const {
   resolveUploaderProfileMap,
   attachUploadedByToDocuments,

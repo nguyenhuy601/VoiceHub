@@ -1,10 +1,11 @@
 const { randomUUID } = require('crypto');
 const axios = require('axios');
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const messageService = require('../services/message.service');
-const { emitRealtimeEvent, firebaseStorage } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const firebaseStorage = require('../utils/firebaseStorage');
 const {
   attachSignedReadUrlsToMessages,
   attachSignedReadUrlToMessage,
@@ -18,7 +19,7 @@ const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
 const {
   buildTrustedGatewayHeaders,
   isTrustedGatewayForward,
-} = require('/shared/middleware/gatewayTrust');
+} = require('@enterprise/shared/middleware/gatewayTrust');
 const {
   fetchAccessibleChannelPermissionMatrix,
   assertCanWriteInOrgChannel,
@@ -248,8 +249,16 @@ class MessageController {
       if (!storagePath) {
         return res.status(400).json({ success: false, message: 'storagePath is required' });
       }
+      const allowedPrefixes = ['temp/', 'tasks/', 'chat/', 'dm/'];
+      const normalizedPath = storagePath.replace(/^\/+/, '');
+      if (!allowedPrefixes.some((p) => normalizedPath.startsWith(p))) {
+        return res.status(403).json({ success: false, message: 'storagePath not allowed' });
+      }
+      if (normalizedPath.includes('..')) {
+        return res.status(400).json({ success: false, message: 'Invalid storagePath' });
+      }
       const ttlMs = Number(req.query?.ttlMs || 10 * 60 * 1000);
-      const { url } = await firebaseStorage.getSignedReadUrl(storagePath, ttlMs);
+      const { url } = await firebaseStorage.getSignedReadUrl(normalizedPath, ttlMs);
       return res.json({ success: true, data: { url } });
     } catch (error) {
       return res.status(500).json({ success: false, message: error.message });
@@ -504,7 +513,22 @@ class MessageController {
       }
 
       const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
-      const messages = await messageService.findUnreadOrgRoomMessages(userId, limit);
+      const UserOrgChannelAccess = require('../models/UserOrgChannelAccess');
+      const accessRows = await UserOrgChannelAccess.find({ userId: String(userId) })
+        .select('channelIds')
+        .lean();
+      const allowedRoomIds = [
+        ...new Set(
+          accessRows.flatMap((row) =>
+            Array.isArray(row.channelIds) ? row.channelIds.map(String) : []
+          )
+        ),
+      ];
+      const messages = await messageService.findUnreadOrgRoomMessages(
+        userId,
+        limit,
+        allowedRoomIds
+      );
       const enriched = await attachSignedReadUrlsToMessages(messages);
 
       res.json({

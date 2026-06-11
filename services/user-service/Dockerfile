@@ -12,7 +12,7 @@ ENV npm_config_fetch_retries=10 \
 COPY package*.json ./
 
 # 4️⃣ Cài dependencies (và nodemon để dev mode dùng được)
-RUN npm install && npm install -g nodemon
+RUN npm install --ignore-scripts && npm install -g nodemon
 
 # 5️⃣ Copy toàn bộ code
 COPY . .

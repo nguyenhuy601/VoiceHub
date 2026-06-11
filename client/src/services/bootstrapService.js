@@ -2,21 +2,28 @@ import api from './api';
 import { queryClient } from '../lib/queryClient';
 import { queryKeys } from '../lib/queryKeys';
 import { unwrapApiData } from '../utils/helpers';
+import { normalizeSuite, suiteToSegment } from '../utils/suitePathUtils';
 
 let inflightBootstrap = null;
+let inflightBootstrapKey = '';
 
 /**
  * GET /api/bootstrap — shell gom user, orgs, badges (gateway BFF).
  * Dedupe in-flight (React StrictMode mount 2 lần).
  */
-export async function fetchBootstrap() {
-  if (inflightBootstrap) return inflightBootstrap;
+export async function fetchBootstrap({ suite } = {}) {
+  const suiteKey = suite ? suiteToSegment(normalizeSuite(suite)) : 'default';
+  const requestKey = suiteKey;
+  if (inflightBootstrap && inflightBootstrapKey === requestKey) return inflightBootstrap;
 
+  const params = suiteKey !== 'default' ? { suite: suiteKey } : undefined;
+  inflightBootstrapKey = requestKey;
   inflightBootstrap = api
-    .get('/bootstrap', { skipGlobalErrorHandling: true })
+    .get('/bootstrap', { params, skipGlobalErrorHandling: true })
     .then((res) => unwrapApiData(res) ?? res)
     .finally(() => {
       inflightBootstrap = null;
+      inflightBootstrapKey = '';
     });
 
   return inflightBootstrap;
@@ -50,8 +57,8 @@ export function hydrateBootstrapCache(payload) {
 }
 
 /** Gọi bootstrap và hydrate cache (sau auth/me). */
-export async function loadBootstrapShell() {
-  const data = await fetchBootstrap();
+export async function loadBootstrapShell(options = {}) {
+  const data = await fetchBootstrap(options);
   hydrateBootstrapCache(data);
   return data;
 }

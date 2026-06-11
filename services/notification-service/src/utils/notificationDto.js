@@ -1,4 +1,4 @@
-const { unwrapPlaintext } = require('/shared');
+const { unwrapPlaintext } = require('@enterprise/shared');
 
 function toClientNotification(doc, opts = {}) {
   if (!doc) return null;

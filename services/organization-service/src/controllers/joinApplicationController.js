@@ -2,7 +2,8 @@ const axios = require('axios');
 const Organization = require('../models/Organization');
 const JoinApplication = require('../models/JoinApplication');
 const Membership = require('../models/Membership');
-const { emitRealtimeEvent, resolveFrontendUrl } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { resolveFrontendUrl } = require('@enterprise/shared');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 

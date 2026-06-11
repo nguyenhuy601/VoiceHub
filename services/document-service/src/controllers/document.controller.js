@@ -1,7 +1,8 @@
-const { mongoose } = require('/shared/config/mongo');
+const { mongoose } = require('@enterprise/shared/config/mongo');
 const documentService = require('../services/document.service');
 const Document = require('../models/Document');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
+const { assertOrganizationMember } = require('../utils/verifyOrgAccess');
 
 function safeMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;
@@ -31,6 +32,18 @@ class DocumentController {
           success: false,
           message: 'name, fileUrl and uploadedBy are required',
         });
+      }
+
+      if (organizationId) {
+        try {
+          await assertOrganizationMember(uploadedBy, organizationId);
+        } catch (accessErr) {
+          const status = Number(accessErr?.statusCode) || 403;
+          return res.status(status).json({
+            success: false,
+            message: status === 403 ? 'Forbidden' : accessErr.message,
+          });
+        }
       }
 
       const document = await documentService.createDocument({
@@ -117,7 +130,18 @@ class DocumentController {
 
       const filter = { isActive: true };
 
-      if (organizationId) filter.organizationId = organizationId;
+      if (organizationId) {
+        try {
+          await assertOrganizationMember(userId, organizationId);
+        } catch (accessErr) {
+          const status = Number(accessErr?.statusCode) || 403;
+          return res.status(status).json({
+            success: false,
+            message: status === 403 ? 'Forbidden' : accessErr.message,
+          });
+        }
+        filter.organizationId = organizationId;
+      }
       if (serverId) filter.serverId = serverId;
       if (uploadedBy) {
         if (String(uploadedBy) !== String(userId)) {

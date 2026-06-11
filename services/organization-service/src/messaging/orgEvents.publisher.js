@@ -1,12 +1,12 @@
 const crypto = require('crypto');
 const amqp = require('amqplib');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 const {
   ORG_EVENT_EXCHANGE,
   ORG_EVENT_TYPES,
   routingKeyForType,
   isKnownOrgEventType,
-} = require('/shared/messaging/orgEvents');
+} = require('@enterprise/shared/messaging/orgEvents');
 
 function isPublishEnabled() {
   const raw = String(

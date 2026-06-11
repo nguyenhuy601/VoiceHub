@@ -1,5 +1,6 @@
-const { getRedisClient, emitRealtimeEvent } = require('/shared');
-const { orgShellVersionCacheKey } = require('/shared/cache/orgReadCacheKeys');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { getRedisClient } = require('@enterprise/shared');
+const { orgShellVersionCacheKey } = require('@enterprise/shared/cache/orgReadCacheKeys');
 const Membership = require('../models/Membership');
 
 async function getOrgShellVersion(orgId) {

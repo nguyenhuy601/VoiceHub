@@ -6,7 +6,7 @@ const {
   isEncryptionEnabled,
   unwrapPlaintext,
   recordLazyMigrate,
-} = require('/shared');
+} = require('@enterprise/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
@@ -17,7 +17,7 @@ const {
   decodePageToken,
   encodePageToken,
   nextPageTokenFromDocs,
-} = require('/shared/pagination/pageToken');
+} = require('@enterprise/shared/pagination/pageToken');
 const {
   syncAfterCreate,
   syncAfterUpdate,
@@ -251,7 +251,7 @@ class MessageService {
    * Tin nhắn kênh tổ chức (có roomId + organizationId) chưa đọc, không phải do user gửi.
    * Lưu ý: isRead hiện là cờ đơn (phù hợp DM); với kênh nhiều người có thể cần mở rộng sau.
    */
-  async findUnreadOrgRoomMessages(userId, limit = 30) {
+  async findUnreadOrgRoomMessages(userId, limit = 30, allowedRoomIds = null) {
     try {
       await ensureMongoReady();
       const uid = mongoose.Types.ObjectId.isValid(userId)
@@ -260,8 +260,19 @@ class MessageService {
 
       const cap = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
+      const roomFilter = { $exists: true, $ne: null };
+      if (Array.isArray(allowedRoomIds)) {
+        const ids = allowedRoomIds
+          .map((id) => String(id || '').trim())
+          .filter((id) => mongoose.Types.ObjectId.isValid(id));
+        if (!ids.length) {
+          return [];
+        }
+        roomFilter.$in = ids.map((id) => new mongoose.Types.ObjectId(id));
+      }
+
       const messages = await Message.find({
-        roomId: { $exists: true, $ne: null },
+        roomId: roomFilter,
         organizationId: { $exists: true, $ne: null },
         senderId: { $ne: uid },
         isRead: false,
@@ -1052,7 +1063,7 @@ class MessageService {
    * GC: xóa object Storage + soft-delete message có file hết hạn.
    */
   async runStorageGcOnce() {
-    const { firebaseStorage } = require('/shared');
+    const firebaseStorage = require('../utils/firebaseStorage');
     if (!firebaseStorage.isEnabled()) {
       return { scanned: 0, deleted: 0, skipped: true };
     }

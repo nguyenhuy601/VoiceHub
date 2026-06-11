@@ -2,7 +2,7 @@ require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, logger } = require('/shared');
+const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
 const roomManager = require('./sfu/roomManager');
 const registerVoiceNamespace = require('./socket/voice.namespace');
 

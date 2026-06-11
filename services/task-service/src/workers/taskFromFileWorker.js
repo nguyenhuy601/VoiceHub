@@ -3,7 +3,9 @@ const axios = require('axios');
 const Task = require('../models/Task');
 const taskService = require('../services/task.service');
 const { writeTaskPayload } = require('../utils/taskPii');
-const { firebaseStorage, emitRealtimeEvent, logger } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const firebaseStorage = require('../utils/firebaseStorage');
+const { logger } = require('@enterprise/shared');
 
 const QUEUE = process.env.RABBITMQ_TASK_FROM_FILE_QUEUE || 'voicehub.task.from_file';
 const DLQ =
@@ -55,6 +57,15 @@ async function processJob(payload) {
     throw new Error('Firebase Storage not configured');
   }
 
+  const existingTask = await Task.findOne({
+    sourceMessageId: String(messageId),
+    isActive: true,
+  }).lean();
+  if (existingTask?._id) {
+    logger.info(`[taskFromFileWorker] skip duplicate messageId=${messageId} task=${existingTask._id}`);
+    return;
+  }
+
   let task = null;
   try {
     task = await taskService.createTask({
@@ -62,6 +73,7 @@ async function processJob(payload) {
       description: 'Tạo từ file đính kèm trong chat',
       createdBy: userId,
       organizationId,
+      sourceMessageId: String(messageId),
     });
 
     const safeName = firebaseStorage.sanitizeFileName(originalName || 'file');

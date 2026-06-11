@@ -56,11 +56,12 @@ import {
   workspacePayloadFromOrg,
 } from '../../utils/orgListUtils';
 import {
-  buildWorkspacePath,
-  normalizeWorkspaceTab,
-  parseWorkspaceTabFromLocation,
-  resolveLegacyWorkspaceRedirect,
-} from '../../utils/workspaceTabUtils';
+  buildCollaborateDocumentsPath,
+  buildCollaborateOrgNotificationsPath,
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+  orgQueryFromSearch,
+} from '../../utils/suitePathUtils';
 const unwrapData = (payload) => payload?.data ?? payload;
 
 /** Khi đổi phòng ban: không tự nhảy vào kênh voice — ưu tiên kênh chat hoặc để trống. */
@@ -99,10 +100,16 @@ function preferDefaultTextChannelId(channelList, preferredTeamId = '', permissio
   return anyText?._id ? String(anyText._id) : '';
 }
 
-function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = {}) {
+function OrganizationsPage({
+  landingDemo = false,
+  suiteMode = null,
+  workspaceTab: workspaceTabProp = null,
+  suiteLayout = false,
+} = {}) {
   const { t, locale } = useAppStrings();
   const { user, loading: authLoading, isAuthenticated, accessToken } = useAuth();
-  const { setActiveWorkspace, lastWorkspaceSlug, setLastWorkspaceSlug } = useWorkspace();
+  const { setActiveWorkspace, lastWorkspaceSlug, setLastWorkspaceSlug, lastOrganizationId } =
+    useWorkspace();
   const { isDarkMode } = useTheme();
   const { on, off, onlineUsers, connected: socketConnected, joinRoom, leaveRoom } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
@@ -301,7 +308,12 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
   const [workspaceDocFiles, setWorkspaceDocFiles] = useState([]);
   const [loadingWorkspaceDocuments, setLoadingWorkspaceDocuments] = useState(false);
   const [workspaceDocumentsError, setWorkspaceDocumentsError] = useState('');
-  const [workspaceTabView, setWorkspaceTabView] = useState('chat');
+  const initialTab = useMemo(() => {
+    if (suiteMode === 'communicate') return 'chat';
+    if (workspaceTabProp) return workspaceTabProp;
+    return 'chat';
+  }, [suiteMode, workspaceTabProp]);
+  const [workspaceTabView, setWorkspaceTabView] = useState(initialTab);
   const previousVoiceChannelIdRef = useRef('');
   const hasInviteQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -311,29 +323,21 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     !landingDemo &&
     organizationsLoaded &&
     organizations.length === 0 &&
-    !initialWorkspaceSlug &&
     !createOrgModalOpen &&
     !location.state?.openCreateWorkspace &&
     !hasInviteQuery;
-  const workspaceTabFromUrl = useMemo(
-    () => parseWorkspaceTabFromLocation(location.pathname, location.search),
-    [location.pathname, location.search]
-  );
-
   useEffect(() => {
-    const target = resolveLegacyWorkspaceRedirect(location.pathname, location.search);
-    if (target) {
-      const current = `${location.pathname}${location.search || ''}`;
-      if (target !== current) {
-        navigate(target, { replace: true });
-        return;
-      }
+    if (suiteMode === 'communicate') {
+      setWorkspaceTabView('chat');
+      return;
     }
-  }, [location.pathname, location.search, navigate]);
+    if (workspaceTabProp) setWorkspaceTabView(workspaceTabProp);
+  }, [suiteMode, workspaceTabProp]);
 
-  useEffect(() => {
-    setWorkspaceTabView(workspaceTabFromUrl);
-  }, [workspaceTabFromUrl]);
+  const orgIdFromQuery = useMemo(
+    () => orgQueryFromSearch(location.search),
+    [location.search]
+  );
 
   const notify = (message, type = 'success') => {
     if (type === 'fail') toast.error(message);
@@ -356,21 +360,26 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
 
   const handleWorkspaceTabChange = useCallback(
     (tab) => {
-      const next = normalizeWorkspaceTab(tab);
-      const current = parseWorkspaceTabFromLocation(location.pathname, location.search);
-      if (current === next) return;
-      const slug = String(selectedOrganization?.slug || selectedOrganizationId || '').trim();
-      if (!slug || landingDemo) return;
-      navigate(buildWorkspacePath(slug, next));
+      const next = String(tab || 'chat').trim().toLowerCase();
+      if (!selectedOrganizationId || landingDemo) return;
+      const orgId = String(selectedOrganizationId);
+      if (next === 'chat') {
+        navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
+        return;
+      }
+      if (next === 'tasks') {
+        navigate(buildCollaborateTasksPath(orgId));
+        return;
+      }
+      if (next === 'documents') {
+        navigate(buildCollaborateDocumentsPath(orgId));
+        return;
+      }
+      if (next === 'notifications') {
+        navigate(buildCollaborateOrgNotificationsPath(orgId));
+      }
     },
-    [
-      location.pathname,
-      location.search,
-      selectedOrganization?.slug,
-      selectedOrganizationId,
-      landingDemo,
-      navigate,
-    ]
+    [selectedOrganizationId, landingDemo, navigate]
   );
 
   const openWorkspaceNotifications = useCallback(() => {
@@ -383,14 +392,13 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       if (file?.roomId) {
         setSelectedChannelId(String(file.roomId));
       }
-      const slug = String(selectedOrganization?.slug || selectedOrganizationId || '').trim();
-      if (!slug) return;
-      const query = {};
-      if (file?.roomId) query.channelId = String(file.roomId);
-      if (file?.source === 'message' && file?.id) query.messageId = String(file.id);
-      navigate(buildWorkspacePath(slug, 'documents', query));
+      if (!selectedOrganizationId) return;
+      const params = new URLSearchParams({ organizationId: String(selectedOrganizationId) });
+      if (file?.roomId) params.set('channelId', String(file.roomId));
+      if (file?.source === 'message' && file?.id) params.set('messageId', String(file.id));
+      navigate(`${buildCollaborateDocumentsPath()}?${params.toString()}`);
     },
-    [selectedOrganization?.slug, selectedOrganizationId, navigate]
+    [selectedOrganizationId, navigate]
   );
 
   useEffect(() => {
@@ -408,21 +416,6 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     () => teams.find((team) => String(team._id) === String(selectedTeamId)) || null,
     [teams, selectedTeamId]
   );
-
-  useEffect(() => {
-    if (workspaceTabView !== 'tasks' && workspaceTabView !== 'documents') return;
-    if (selectedTeamId) return;
-    const slug = String(selectedOrganization?.slug || selectedOrganizationId || '').trim();
-    if (!slug) return;
-    toast.error('Vui lòng chọn team!');
-    navigate(buildWorkspacePath(slug, 'chat'));
-  }, [
-    workspaceTabView,
-    selectedTeamId,
-    selectedOrganization?.slug,
-    selectedOrganizationId,
-    navigate,
-  ]);
 
   const selectedChannel = useMemo(
     () => channels.find((ch) => String(ch._id) === String(selectedChannelId)) || null,
@@ -910,6 +903,25 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     applyOrgShell,
   ]);
 
+  useEffect(() => {
+    if (!workspaceTabProp || (workspaceTabProp !== 'tasks' && workspaceTabProp !== 'documents')) return;
+    if (workspaceTabView !== 'tasks' && workspaceTabView !== 'documents') return;
+    if (selectedTeamId) return;
+    if (!selectedOrganizationId) return;
+    if (!orgShellData && !orgShellError) return;
+    if (orgShellError) return;
+    toast.error('Vui lòng chọn team!');
+    navigate(buildCommunicateChannelsPath(selectedOrganizationId));
+  }, [
+    workspaceTabProp,
+    workspaceTabView,
+    selectedTeamId,
+    selectedOrganizationId,
+    orgShellData,
+    orgShellError,
+    navigate,
+  ]);
+
   const handleSelectBranch = (branchId) => {
     setSelectedBranchId(branchId);
     const branch = workspaceStructure.find((b) => String(b._id) === String(branchId));
@@ -1376,9 +1388,10 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
       setCreateOrgModalOpen(false);
       setCreateWorkspaceStep(1);
       await loadOrganizations();
-      const createdSlug = String(created?.slug || normalizedSlug || '').trim();
-      if (createdSlug) {
-        navigate(buildWorkspacePath(createdSlug, 'chat'));
+      const createdId = orgRecordId(created);
+      if (created) setActiveWorkspace(workspacePayloadFromOrg(created));
+      if (createdId) {
+        navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(createdId)}`);
       }
     } catch (error) {
       const msg =
@@ -1434,7 +1447,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
           const qs = new URLSearchParams();
           if (data.organizationName) qs.set('name', data.organizationName);
           const q = qs.toString();
-          navigate(`/workspaces/join/${encodeURIComponent(orgId)}${q ? `?${q}` : ''}`);
+          navigate(`/app/collaborate/join/${encodeURIComponent(orgId)}${q ? `?${q}` : ''}`);
         } else {
           notifySuccess(body?.message || 'Đã gửi đơn, vui lòng chờ quản trị viên xét duyệt');
         }
@@ -1568,15 +1581,16 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     if (!orgId) return;
     const selected = organizations.find((item) => String(item._id) === String(orgId));
     setSelectedOrganizationId(orgId);
-    if (selected?.slug) {
-      setLastWorkspaceSlug(selected.slug);
-      navigate(buildWorkspacePath(selected.slug, 'chat'));
+    if (selected) {
+      setActiveWorkspace(workspacePayloadFromOrg(selected));
+      if (selected.slug) setLastWorkspaceSlug(selected.slug);
+      navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
     }
   };
 
   const handleEditOrganization = (orgId) => {
     if (!orgId) return;
-    navigate(`/workspaces/${encodeURIComponent(orgId)}/settings`);
+    navigate(`/app/collaborate/organizations/${encodeURIComponent(orgId)}/settings`);
   };
 
   const handleOpenOrganizationSettingsModal = (orgCandidate = null) => {
@@ -1587,7 +1601,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     if (!target) return;
     const orgId = target?._id || target?.id;
     if (!orgId) return;
-    navigate(`/workspaces/${encodeURIComponent(orgId)}/settings`);
+    navigate(`/app/collaborate/organizations/${encodeURIComponent(orgId)}/settings`);
   };
 
   const handleLeaveOrganization = (orgId) => {
@@ -1772,7 +1786,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
           const qs = new URLSearchParams();
           if (data.organizationName) qs.set('name', data.organizationName);
           const q = qs.toString();
-          navigate(`/workspaces/join/${encodeURIComponent(orgId)}${q ? `?${q}` : ''}`);
+          navigate(`/app/collaborate/join/${encodeURIComponent(orgId)}${q ? `?${q}` : ''}`);
           notifySuccess(body?.message || 'Vui lòng điền form gia nhập để gửi xét duyệt');
         } else if (data?.requiresJoinApplication) {
           notifySuccess(body?.message || 'Đã gửi đơn, vui lòng chờ quản trị viên xét duyệt');
@@ -2255,20 +2269,25 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
   }, [landingDemo, orgsQuery.isError, t]);
 
   useEffect(() => {
-    if (landingDemo || !organizationsLoaded || initialWorkspaceSlug) return;
+    if (landingDemo || !organizationsLoaded) return;
     if (!organizations.length) {
       setSelectedOrganizationId((prev) => (prev === '' ? prev : ''));
       return;
     }
+    const idHint = String(lastOrganizationId || '').trim();
+    const matchedById = idHint
+      ? organizations.find((o) => orgRecordId(o) === idHint)
+      : null;
     const slugHint = String(lastWorkspaceSlug || '').trim();
-    const matchedBySlug = slugHint ? findOrgBySlug(organizations, slugHint) : null;
+    const matchedBySlug = !matchedById && slugHint ? findOrgBySlug(organizations, slugHint) : null;
     setSelectedOrganizationId((prev) => {
-      const preferred = orgRecordId(matchedBySlug) || orgRecordId(organizations[0]) || '';
+      const preferred =
+        orgRecordId(matchedById) || orgRecordId(matchedBySlug) || orgRecordId(organizations[0]) || '';
       if (!preferred) return prev === '' ? prev : '';
       if (prev && organizations.some((o) => orgRecordId(o) === String(prev))) return prev;
       return preferred;
     });
-  }, [landingDemo, organizationsLoaded, organizationIdsKey, lastWorkspaceSlug, initialWorkspaceSlug]);
+  }, [landingDemo, organizationsLoaded, organizationIdsKey, lastWorkspaceSlug, lastOrganizationId]);
 
   useEffect(() => {
     if (!slugPendingOrg || !Array.isArray(orgsQuery.data)) return;
@@ -2376,60 +2395,14 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     };
   }, [selectedOrganizationId, landingDemo, friendsListKey, t]);
 
-  const slugResolveAttemptedRef = useRef('');
-  const lastSlugPersistRef = useRef('');
-
   useEffect(() => {
-    if (!initialWorkspaceSlug) return;
-    const wantedSlug = String(initialWorkspaceSlug).trim().toLowerCase();
-    if (!wantedSlug) return;
-    const matchedWorkspace = findOrgBySlug(organizations, wantedSlug);
-    if (matchedWorkspace) {
-      slugResolveAttemptedRef.current = wantedSlug;
-      const nextId = orgRecordId(matchedWorkspace);
-      if (!nextId) return;
-      setSelectedOrganizationId((prev) => (prev === nextId ? prev : nextId));
-      const slugNorm = String(matchedWorkspace.slug || '').trim();
-      if (slugNorm && lastSlugPersistRef.current !== slugNorm) {
-        lastSlugPersistRef.current = slugNorm;
-        setLastWorkspaceSlug(slugNorm);
-      }
-      return;
-    }
-    if (!organizationsLoaded) return;
-    if (slugResolveAttemptedRef.current === wantedSlug) return;
-    slugResolveAttemptedRef.current = wantedSlug;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const payload = await organizationAPI.getWorkspaceBySlug(wantedSlug);
-        const raw = unwrapData(payload);
-        const org = raw?.data ?? raw;
-        const nextId = orgRecordId(org);
-        if (!nextId || cancelled) return;
-        queryClient.setQueryData(queryKeys.organizations.my(), (old) => {
-          const list = Array.isArray(old) ? old : [];
-          if (list.some((o) => orgRecordId(o) === nextId)) return list;
-          return [org, ...list];
-        });
-        setSlugPendingOrg((prev) => (orgRecordId(prev) === nextId ? prev : org));
-        setSelectedOrganizationId((prev) => (prev === nextId ? prev : nextId));
-        const slugNorm = String(org?.slug || '').trim();
-        if (slugNorm && lastSlugPersistRef.current !== slugNorm) {
-          lastSlugPersistRef.current = slugNorm;
-          setLastWorkspaceSlug(slugNorm);
-        }
-      } catch {
-        if (!cancelled) {
-          setLastWorkspaceSlug('');
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialWorkspaceSlug, organizationIdsKey, organizationsLoaded, queryClient, setLastWorkspaceSlug]);
+    if (!orgIdFromQuery || !organizationsLoaded) return;
+    const exists = organizations.some((o) => orgRecordId(o) === orgIdFromQuery);
+    if (!exists) return;
+    setSelectedOrganizationId((prev) => (prev === orgIdFromQuery ? prev : orgIdFromQuery));
+    const org = organizations.find((o) => orgRecordId(o) === orgIdFromQuery);
+    if (org) setActiveWorkspace(workspacePayloadFromOrg(org));
+  }, [orgIdFromQuery, organizationsLoaded, organizationIdsKey, organizations, setActiveWorkspace]);
 
   useEffect(() => {
     if (!forwardModalOpen || !selectedOrganizationId || !departments.length) {
@@ -2507,7 +2480,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
 
   useEffect(() => {
     if (!shouldRedirectEmptyOrganizations) return;
-    navigate('/dashboard', { replace: true });
+    navigate('/app/me/dashboard', { replace: true });
   }, [shouldRedirectEmptyOrganizations, navigate]);
 
   useEffect(() => {
@@ -2532,7 +2505,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
             if (data.organizationName) qs.set('name', data.organizationName);
             const q = qs.toString();
             navigate(
-              `/workspaces/join/${encodeURIComponent(orgIdFromUrl)}${q ? `?${q}` : ''}`,
+              `/app/collaborate/join/${encodeURIComponent(orgIdFromUrl)}${q ? `?${q}` : ''}`,
               { replace: true }
             );
           } else {
@@ -2961,6 +2934,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
     <>
       <ThreeFrameLayout
         landingDemo={landingDemo}
+        left={suiteLayout ? false : undefined}
         centerScrollable={false}
         center={
           <div className={orgCenterShell}>
@@ -3385,7 +3359,7 @@ function OrganizationsPage({ landingDemo = false, initialWorkspaceSlug = '' } = 
                 className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
               />
               <p className="text-xs text-gray-400">
-                Workspace URL: /w/{createWorkspaceSlug || 'your-slug'}/chat
+                Slug dùng nội bộ (invite); sau tạo sẽ mở kênh tổ chức trong Communicate.
               </p>
             </div>
           ) : null}

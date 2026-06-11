@@ -4,8 +4,8 @@ const axios = require('axios');
 const mongoose = require('../db');
 const CallSession = require('../models/CallSession');
 const { applyCallAction } = require('../call/callFsm');
-const { emitRealtimeEvent } = require('/shared/utils/realtime');
-const { logger } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { logger } = require('@enterprise/shared');
 
 const FRIEND_SERVICE_URL = String(process.env.FRIEND_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!FRIEND_SERVICE_URL) throw new Error('Thiếu biến môi trường: FRIEND_SERVICE_URL');

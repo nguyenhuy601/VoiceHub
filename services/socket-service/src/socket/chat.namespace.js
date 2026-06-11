@@ -6,6 +6,8 @@ const redisFriendChatFocus = require('../presence/redisFriendChatFocus');
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
+const FRIEND_SERVICE_URL = String(process.env.FRIEND_SERVICE_URL || '').trim().replace(/\/+$/, '');
+const GATEWAY_INTERNAL_TOKEN = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
 
@@ -128,9 +130,32 @@ module.exports = function registerChatNamespace(io) {
         const ids = Array.isArray(payload.userIds)
           ? payload.userIds.map((id) => String(id).trim()).filter(Boolean)
           : [];
-        const limited = ids.slice(0, 200);
+        const selfId = String(userId || '').trim();
+        const limited = ids.slice(0, 30);
+        const allowed = new Set([selfId]);
+        if (FRIEND_SERVICE_URL && GATEWAY_INTERNAL_TOKEN && limited.length) {
+          try {
+            const fr = await axios.get(`${FRIEND_SERVICE_URL}/api/friends`, {
+              headers: {
+                'x-user-id': selfId,
+                'x-gateway-internal-token': GATEWAY_INTERNAL_TOKEN,
+              },
+              timeout: 8000,
+              validateStatus: () => true,
+            });
+            const body = fr.data?.data;
+            const list = Array.isArray(body) ? body : body?.friends || [];
+            for (const row of list) {
+              const fid = String(row?.friendId || row?.userId || row?.id || row?._id || '').trim();
+              if (fid) allowed.add(fid);
+            }
+          } catch {
+            /* chỉ trả presence của chính user nếu không load được friend list */
+          }
+        }
+        const allowedIds = limited.filter((id) => allowed.has(id));
         const users = await Promise.all(
-          limited.map(async (id) => {
+          allowedIds.map(async (id) => {
             const inMemory = (onlineUserSockets.get(id) || 0) > 0;
             const redisOn = inMemory ? true : await redisPresence.isOnline(id);
             return { userId: id, status: inMemory || redisOn ? 'online' : 'offline' };

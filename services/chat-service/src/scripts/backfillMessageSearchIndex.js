@@ -18,7 +18,7 @@ if (
   process.env.MEILI_HOST = 'http://127.0.0.1:7700';
 }
 
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 const Message = require('../models/Message');
 const { isOrgIndexableMessage } = require('../search/messageSearchDocument');

@@ -8,7 +8,7 @@ ENV npm_config_fetch_retries=10 \
 
 COPY package*.json ./
 
-RUN npm install && npm install -g nodemon
+RUN npm install --ignore-scripts && npm install -g nodemon
 
 COPY . .
 

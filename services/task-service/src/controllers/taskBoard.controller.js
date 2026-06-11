@@ -1,5 +1,5 @@
 const mongoose = require('../db');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 const boardService = require('../services/taskBoard.service');
 
 function asUserId(req) {

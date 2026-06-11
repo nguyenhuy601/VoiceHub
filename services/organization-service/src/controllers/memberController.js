@@ -11,7 +11,8 @@ const { resolveEffectiveScopesFromAssignments } = require('../services/memberSco
 const { resolveOrgAccess } = require('../utils/orgAccess');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
-const { emitRealtimeEvent, resolveFrontendUrl } = require('/shared');
+const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { resolveFrontendUrl, logger } = require('@enterprise/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
@@ -182,10 +183,19 @@ async function fetchOrgRolesList(orgId, userId) {
       `${ROLE_PERMISSION_BASE}/api/roles/server/${encodeURIComponent(oid)}`,
       { headers, timeout: 8000, validateStatus: () => true }
     );
-    if (res.status >= 400) return [];
+    if (res.status >= 400) {
+      logger.warn('[fetchOrgRolesList] list roles failed', {
+        orgId: oid,
+        userId: uid,
+        status: res.status,
+        message: res.data?.message,
+      });
+      return [];
+    }
     const body = res.data?.data ?? res.data;
     return Array.isArray(body) ? body : [];
-  } catch {
+  } catch (err) {
+    logger.warn('[fetchOrgRolesList] list roles error', { orgId: oid, message: err?.message });
     return [];
   }
 }

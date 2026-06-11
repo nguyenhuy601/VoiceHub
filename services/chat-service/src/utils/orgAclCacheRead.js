@@ -1,9 +1,9 @@
-const { getRedisClient } = require('/shared');
+const { getRedisClient } = require('@enterprise/shared');
 const {
   orgAclCacheKey,
   orgAclCachePattern,
   DEFAULT_ORG_ACL_CACHE_TTL_SEC,
-} = require('/shared/cache/orgReadCacheKeys');
+} = require('@enterprise/shared/cache/orgReadCacheKeys');
 
 const ACL_REDIS_TTL_SEC = Number(process.env.ORG_ACL_CACHE_TTL_SEC || DEFAULT_ORG_ACL_CACHE_TTL_SEC);
 

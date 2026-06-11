@@ -1,6 +1,8 @@
 require('dotenv').config();
+const { assertTestUnlockSafeForBoot } = require('./utils/rbacTestUnlock');
+assertTestUnlockSafeForBoot();
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, logger } = require('/shared');
+const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
 
 const PORT = process.env.PORT || 3015;
 

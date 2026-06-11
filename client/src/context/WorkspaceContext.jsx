@@ -1,4 +1,10 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import {
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+  readStoredLastOrganizationId,
+  writeStoredLastOrganizationId,
+} from '../utils/suitePathUtils';
 
 const LAST_WORKSPACE_SLUG_KEY = 'voicehub:last-workspace-slug';
 
@@ -11,14 +17,20 @@ const WorkspaceContext = createContext({
   activeWorkspace: null,
   setActiveWorkspace: () => {},
   lastWorkspaceSlug: '',
+  lastOrganizationId: '',
   setLastWorkspaceSlug: () => {},
-  getLastWorkspacePath: () => '/workspaces',
+  getLastWorkspacePath: () => '/app/collaborate/workspaces',
+  getLastCommunicatePath: () => '/app/communicate/channels',
+  getLastCollaboratePath: () => '/app/collaborate/workspaces',
 });
 
 export function WorkspaceProvider({ children }) {
   const [activeWorkspace, setActiveWorkspace] = useState(null);
   const [lastWorkspaceSlugState, setLastWorkspaceSlugState] = useState(() =>
     readStoredLastWorkspaceSlug()
+  );
+  const [lastOrganizationIdState, setLastOrganizationIdState] = useState(() =>
+    readStoredLastOrganizationId()
   );
 
   const setLastWorkspaceSlug = useCallback((slug) => {
@@ -30,36 +42,71 @@ export function WorkspaceProvider({ children }) {
     }
   }, []);
 
-  const setActiveWorkspaceWithPersist = useCallback((workspace) => {
-    const next = workspace || null;
-    setActiveWorkspace((prev) => {
-      const same =
-        String(prev?._id || '') === String(next?._id || '') &&
-        String(prev?.slug || '') === String(next?.slug || '') &&
-        String(prev?.name || '') === String(next?.name || '') &&
-        String(prev?.myRole || '') === String(next?.myRole || '');
-      if (!same && next?.slug) {
-        const slug = String(next.slug).trim();
-        queueMicrotask(() => setLastWorkspaceSlug(slug));
-      }
-      return same ? prev : next;
-    });
-  }, [setLastWorkspaceSlug]);
+  const setLastOrganizationId = useCallback((orgId) => {
+    const normalized = String(orgId || '').trim();
+    setLastOrganizationIdState(normalized);
+    writeStoredLastOrganizationId(normalized);
+  }, []);
 
-  const getLastWorkspacePath = useCallback(() => {
-    const slug = String(lastWorkspaceSlugState || '').trim();
-    return slug ? `/w/${encodeURIComponent(slug)}/chat` : '/workspaces';
-  }, [lastWorkspaceSlugState]);
+  const setActiveWorkspaceWithPersist = useCallback(
+    (workspace) => {
+      const next = workspace || null;
+      setActiveWorkspace((prev) => {
+        const same =
+          String(prev?._id || prev?.id || '') === String(next?._id || next?.id || '') &&
+          String(prev?.slug || '') === String(next?.slug || '') &&
+          String(prev?.name || '') === String(next?.name || '') &&
+          String(prev?.myRole || '') === String(next?.myRole || '');
+        if (!same && next) {
+          const slug = String(next.slug || '').trim();
+          const orgId = String(next._id || next.id || '').trim();
+          queueMicrotask(() => {
+            if (slug) setLastWorkspaceSlug(slug);
+            if (orgId) setLastOrganizationId(orgId);
+          });
+        }
+        return same ? prev : next;
+      });
+    },
+    [setLastWorkspaceSlug, setLastOrganizationId]
+  );
+
+  const getLastCommunicatePath = useCallback(() => {
+    const orgId =
+      String(activeWorkspace?._id || activeWorkspace?.id || lastOrganizationIdState || '').trim();
+    return orgId ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}` : buildCommunicateChannelsPath();
+  }, [activeWorkspace, lastOrganizationIdState]);
+
+  const getLastCollaboratePath = useCallback(() => {
+    const orgId =
+      String(activeWorkspace?._id || activeWorkspace?.id || lastOrganizationIdState || '').trim();
+    return orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/workspaces';
+  }, [activeWorkspace, lastOrganizationIdState]);
+
+  const getLastWorkspacePath = useCallback(() => getLastCollaboratePath(), [getLastCollaboratePath]);
 
   const value = useMemo(
     () => ({
       activeWorkspace,
       setActiveWorkspace: setActiveWorkspaceWithPersist,
       lastWorkspaceSlug: lastWorkspaceSlugState,
+      lastOrganizationId: lastOrganizationIdState,
       setLastWorkspaceSlug,
+      setLastOrganizationId,
       getLastWorkspacePath,
+      getLastCommunicatePath,
+      getLastCollaboratePath,
     }),
-    [activeWorkspace, lastWorkspaceSlugState]
+    [
+      activeWorkspace,
+      lastWorkspaceSlugState,
+      lastOrganizationIdState,
+      setLastWorkspaceSlug,
+      setLastOrganizationId,
+      getLastWorkspacePath,
+      getLastCommunicatePath,
+      getLastCollaboratePath,
+    ]
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

@@ -1,5 +1,5 @@
 const express = require('express');
-const internalGatewayAuth = require('/shared/middleware/internalGatewayAuth');
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const router = express.Router();
 const taskController = require('../controllers/task.controller');
 const taskBoardRoutes = require('./taskBoard.routes');

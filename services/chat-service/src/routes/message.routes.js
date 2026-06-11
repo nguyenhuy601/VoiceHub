@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const messageController = require('../controllers/message.controller');
-const { authenticate } = require('/shared/middleware/auth');
+const { authenticate } = require('@enterprise/shared/middleware/auth');
 
 const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
 

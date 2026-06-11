@@ -1,7 +1,7 @@
 const mongoose = require('../db');
 const meetingService = require('../services/meeting.service');
 const Meeting = require('../models/Meeting');
-const { logger } = require('/shared');
+const { logger } = require('@enterprise/shared');
 
 function safeErrorMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;
@@ -49,6 +49,12 @@ class MeetingController {
   async startMeeting(req, res) {
     try {
       const { meetingId } = req.params;
+      const userId = req.user?.id || req.userContext?.userId;
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+      meetingService.assertMeetingHost(existing, userId);
       const meeting = await meetingService.startMeeting(meetingId);
 
       res.json({
@@ -68,6 +74,12 @@ class MeetingController {
   async endMeeting(req, res) {
     try {
       const { meetingId } = req.params;
+      const userId = req.user?.id || req.userContext?.userId;
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+      meetingService.assertMeetingHost(existing, userId);
       const meeting = await meetingService.endMeeting(meetingId);
 
       res.json({
@@ -143,12 +155,20 @@ class MeetingController {
   async getMeetingById(req, res) {
     try {
       const { meetingId } = req.params;
+      const userId = req.user?.id || req.userContext?.userId;
       const meeting = await meetingService.getMeetingById(meetingId);
 
       if (!meeting) {
         return res.status(404).json({
           success: false,
           message: 'Meeting not found',
+        });
+      }
+
+      if (!meetingService.userCanAccessMeeting(meeting, userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
         });
       }
 

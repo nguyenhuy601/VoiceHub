@@ -1,4 +1,4 @@
-const { MESSAGE_SEARCH_EVENT_TYPES } = require('/shared/messaging/messageSearchEvents');
+const { MESSAGE_SEARCH_EVENT_TYPES } = require('@enterprise/shared/messaging/messageSearchEvents');
 const { publishMessageSearchEvent } = require('../messaging/messageSearch.publisher');
 const { isOrgIndexableMessage } = require('./messageSearchDocument');
 const {

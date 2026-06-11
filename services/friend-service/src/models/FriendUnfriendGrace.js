@@ -1,4 +1,4 @@
-const { mongo } = require('/shared');
+const { mongo } = require('@enterprise/shared');
 const { mongoose } = mongo;
 
 /** Hủy kết bạn — giữ DM đến purgeAt; kết bạn lại trước đó thì hủy lịch xóa. */

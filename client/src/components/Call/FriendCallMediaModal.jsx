@@ -75,7 +75,7 @@ function buildRecordingStream(localStream, remoteStream) {
   return out;
 }
 
-function FriendCallPeerPresence({ name, avatar, isSpeaking, voiceLevel }) {
+function FriendCallPeerPresence({ name, avatar, userId, isSpeaking, voiceLevel }) {
   const ringClass = voiceSpeakingRingClass(isSpeaking);
   const ringStyle = isSpeaking
     ? {
@@ -89,7 +89,7 @@ function FriendCallPeerPresence({ name, avatar, isSpeaking, voiceLevel }) {
         className="rounded-2xl p-1 transition-[box-shadow] duration-100"
         style={ringStyle}
       >
-        <UserAvatar avatar={avatar} name={name} size="hero" ringClassName={ringClass} />
+        <UserAvatar avatar={avatar} userId={userId} name={name} size="hero" ringClassName={ringClass} />
       </div>
       <p className="max-w-[min(100%,20rem)] truncate text-center text-lg font-semibold text-white">
         {name}
@@ -835,6 +835,7 @@ export default function FriendCallMediaModal() {
                 <FriendCallPeerPresence
                   name={peerDisplayName}
                   avatar={peerAvatar}
+                  userId={session?.peerUserId}
                   isSpeaking={remoteSpeaking}
                   voiceLevel={remoteVoiceLevel}
                 />

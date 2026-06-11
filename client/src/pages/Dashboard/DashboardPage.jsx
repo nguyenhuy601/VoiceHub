@@ -23,7 +23,10 @@ import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
-import { buildWorkspacePath } from '../../utils/workspaceTabUtils';
+import {
+  buildCollaborateTasksPath,
+  buildCommunicateChannelsPath,
+} from '../../utils/suitePathUtils';
 import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import { getUserDisplayName } from '../../utils/helpers';
@@ -244,7 +247,7 @@ function githubContributionCellClass(total, isDarkMode) {
 
 
 
-function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
+function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayout = false } = {}) {
   const [activeFilter, setActiveFilter] = useState(() =>
     landingDemo && demoVariant === 'tasks' ? 'tasks' : 'all',
   );
@@ -447,7 +450,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       );
       setWeeklyActivityNotes([
         { icon: '✅', title: 'Hoàn thành task UI', detail: '2 task đã hoàn tất trong tuần này', path: '/tasks' },
-        { icon: '💬', title: 'Tin nhắn công việc', detail: '3 đoạn trao đổi quan trọng được gửi', path: '/chat/friends' },
+        { icon: '💬', title: 'Tin nhắn công việc', detail: '3 đoạn trao đổi quan trọng được gửi', path: '/app/communicate/chat/friends' },
         { icon: '📝', title: 'Cập nhật tiến độ', detail: '1 task được cập nhật trạng thái', path: '/tasks' },
       ]);
       setRecentDmContacts([
@@ -606,13 +609,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         const getRowId = (value) => String(value?._id || value?.id || value || '').trim();
         const resolveWeeklyPath = ({ kind, organizationId }) => {
           const orgId = String(organizationId || '').trim();
-          const orgSlug = orgId ? orgSlugById.get(orgId) : '';
-          if (orgSlug) {
+          if (orgId) {
             return kind === 'task'
-              ? buildWorkspacePath(orgSlug, 'tasks')
-              : buildWorkspacePath(orgSlug, 'chat');
+              ? buildCollaborateTasksPath(orgId)
+              : `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`;
           }
-          return kind === 'task' ? '/tasks' : '/chat/friends';
+          return kind === 'task' ? '/app/collaborate/tasks' : '/app/communicate/chat/friends';
         };
         const weekDayLabels =
           locale === 'en'
@@ -1159,11 +1161,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
         .filter((row) => row?.slug)
         .map((row) => ({
           id: String(row.id || row.slug),
+          organizationId: String(row.id || row._id || ''),
           title: String(row.myRole || 'member').toUpperCase(),
           detail: t('dashboard.detailTask'),
           workspaceName: row.name,
           workspaceSlug: row.slug,
-          route: '/workspaces',
+          route: '/app/collaborate/workspaces',
         })),
     [workspaceEntries, t]
   );
@@ -1185,19 +1188,19 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
       case 'tasks':
         return { path: '/tasks', cta: t('dashboard.statOpenTasks') };
       case 'friends':
-        return { path: '/friends', cta: t('dashboard.statOpenFriends') };
+        return { path: '/app/communicate/chat/friends', cta: t('dashboard.statOpenFriends') };
       case 'notify':
-        return { path: '/notifications', cta: t('dashboard.statOpenNotify') };
+        return { path: '/app/communicate/notifications', cta: t('dashboard.statOpenNotify') };
       default:
         return null;
     }
   };
 
   const navigateFromActivityType = (type) => {
-    if (type === 'task') navigate('/tasks');
-    else if (type === 'file') navigate('/documents');
-    else if (type === 'message') navigate('/chat/friends');
-    else navigate('/notifications');
+    if (type === 'task') navigate('/app/collaborate/tasks');
+    else if (type === 'file') navigate('/app/collaborate/documents');
+    else if (type === 'message') navigate('/app/communicate/chat/friends');
+    else navigate('/app/communicate/notifications');
   };
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
 
@@ -1205,9 +1208,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
     <>
     <div className={`relative flex ${shellH} overflow-hidden ${shellBg}`}>
       <ShellWaveBackdrop />
-      <div className="h-full shrink-0">
-        <NavigationSidebar landingDemo={landingDemo} />
-      </div>
+      {!suiteLayout && (
+        <div className="h-full shrink-0">
+          <NavigationSidebar landingDemo={landingDemo} />
+        </div>
+      )}
 
       <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className={`flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:gap-4 md:px-6 ${dashHeader}`}>
@@ -1402,7 +1407,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                   <h2 className={`text-base font-bold ${textHeading}`}>{t('dashboard.privateMessagesTitle')}</h2>
                   <button
                     type="button"
-                    onClick={() => navigate('/chat/friends')}
+                    onClick={() => navigate('/app/communicate/chat/friends')}
                     className={`text-xs font-semibold ${accentText}`}
                   >
                     Xem tất cả
@@ -1418,7 +1423,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                       <button
                         key={`dm-${activity.id || idx}`}
                         type="button"
-                        onClick={() => navigate('/chat/friends')}
+                        onClick={() => navigate('/app/communicate/chat/friends')}
                         className={`w-full rounded-xl px-3 py-2 text-left transition ${
                           isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'
                         }`}
@@ -1482,7 +1487,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                     key={item.id}
                     type="button"
                     onClick={() =>
-                      navigate(buildWorkspacePath(String(item.workspaceSlug || ''), 'chat'))
+                      navigate(
+                        item.organizationId
+                          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(item.organizationId)}`
+                          : '/app/collaborate/workspaces'
+                      )
                     }
                     className={`w-full rounded-xl border px-4 py-3 text-left transition ${
                       isDarkMode ? 'border-white/[0.08] bg-[#141416] hover:bg-white/[0.05]' : 'border-slate-200 bg-white hover:bg-slate-50'
@@ -1509,7 +1518,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
           <div className={`rounded-2xl p-3.5 ${isDarkMode ? 'bg-[#0f1218]' : 'bg-white'}`}>
             <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-gradient-to-b from-[#1a1f2b] to-[#141821]' : 'bg-slate-50'}`}>
               <div className="flex items-center gap-3">
-                <UserAvatar avatar={user?.avatar} name={displayName} size="md" />
+                <UserAvatar
+                  avatar={user?.avatar}
+                  userId={user?.userId || user?.id || user?._id}
+                  name={displayName}
+                  size="md"
+                />
                 <div className="min-w-0">
                   <div className={`truncate text-base font-bold ${textHeading}`}>{displayName}</div>
                 </div>
@@ -1580,7 +1594,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             {!metrics.loading && metrics.pendingCount > 0 && (
               <button
                 type="button"
-                onClick={() => navigate('/chat/friends?tab=requests')}
+                onClick={() => navigate('/app/communicate/chat/friends?tab=requests')}
                 className={`w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
                   isDarkMode
                     ? 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
@@ -1606,11 +1620,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                 <div key={pf.id != null ? String(pf.id) : idx} className="flex flex-col items-center text-center">
                   <button
                     type="button"
-                    onClick={() => navigate('/chat/friends')}
+                    onClick={() => navigate('/app/communicate/chat/friends')}
                     className="relative rounded-full outline-none ring-offset-2 ring-offset-transparent transition hover:ring-2 hover:ring-cyan-500/40 focus-visible:ring-2 focus-visible:ring-cyan-500/50"
                     aria-label={t('friendChat.openChatAria', { name: pf.name })}
                   >
-                    <UserAvatar avatar={pf.avatarUrl} name={pf.name} size="md" />
+                    <UserAvatar avatar={pf.avatarUrl} userId={pf.id} name={pf.name} size="md" />
                     <StatusIndicator status={pf.status} />
                   </button>
                   <span
@@ -1623,7 +1637,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
             </div>
             <button
               type="button"
-              onClick={() => navigate('/chat/friends')}
+              onClick={() => navigate('/app/communicate/chat/friends')}
               className={`mt-3 w-full rounded-xl py-2.5 text-sm font-semibold transition ${isDarkMode ? 'bg-white/[0.03] text-[#9ca3af] hover:bg-white/[0.08] hover:text-white' : 'bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-900'}`}
             >
               {t('dashboard.openFriendChat')}
@@ -1706,7 +1720,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default' } = {}) {
                   label: t('dashboard.statInvites'),
                   value: metrics.loading ? '…' : String(metrics.pendingCount),
                   icon: '👋',
-                  path: '/chat/friends?tab=requests',
+                  path: '/app/communicate/chat/friends?tab=requests',
                 },
                 {
                   label: t('dashboard.statFriends'),
