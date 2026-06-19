@@ -23,6 +23,7 @@ import {
   validateBirthDateParts,
 } from '../../utils/birthDateUtils';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { notify } from '../../utils/appToast';
 
 function ProfileModal({ isOpen, onClose }) {
@@ -75,17 +76,13 @@ function ProfileModal({ isOpen, onClose }) {
 
   const optionClass = isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-white text-slate-800';
 
-  const overlayClass = isDarkMode ? 'bg-black/70' : 'bg-slate-900/45';
-  const shellClass = isDarkMode
-    ? 'relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111827]/95 shadow-2xl'
-    : 'relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl';
-  const tabsBarClass = isDarkMode
-    ? 'flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2'
-    : 'flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-2';
-  const tabActive = isDarkMode ? 'border-cyan-400 text-white' : 'border-cyan-600 text-slate-900';
-  const tabInactive = isDarkMode
-    ? 'border-transparent text-gray-400 hover:text-white'
-    : 'border-transparent text-slate-500 hover:text-slate-800';
+  const overlayClass = 'bg-black/60';
+  const shellClass =
+    'relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl';
+  const tabsBarClass =
+    'flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2';
+  const tabActive = 'border-primary text-foreground';
+  const tabInactive = 'border-transparent text-muted-foreground hover:text-foreground';
   const bodyScrollClass = isDarkMode
     ? 'scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-4 md:flex-row'
     : 'flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-4 md:flex-row';
@@ -171,7 +168,7 @@ function ProfileModal({ isOpen, onClose }) {
       applyBirthPartsFromProfile(data?.dateOfBirth);
       setBirthError('');
     } catch (err) {
-      showNotice(err?.message || t('profileModal.loadFail'), 'fail');
+      showNotice(resolveApiErrorMessage(err, { t, fallback: t('profileModal.loadFail') }), 'fail');
       setProfile(null);
     } finally {
       setLoading(false);
@@ -190,7 +187,7 @@ function ProfileModal({ isOpen, onClose }) {
         return String(rows[0]._id || rows[0].id || '');
       });
     } catch (err) {
-      showNotice(err?.message || t('profileModal.orgLoadFail'), 'fail');
+      showNotice(resolveApiErrorMessage(err, { t, fallback: t('profileModal.orgLoadFail') }), 'fail');
       setOrganizations([]);
     } finally {
       setOrgsLoading(false);
@@ -295,7 +292,7 @@ function ProfileModal({ isOpen, onClose }) {
         onClose?.();
       }
     } catch (err) {
-      showNotice(err?.message || t('profileModal.saveFail'), 'fail');
+      showNotice(resolveApiErrorMessage(err, { t, fallback: t('profileModal.saveFail') }), 'fail');
     } finally {
       setSaving(false);
     }
@@ -363,7 +360,7 @@ function ProfileModal({ isOpen, onClose }) {
       notify.success(t('profileModal.avatarOk'));
       handleAvatarCropClose();
     } catch (error) {
-      showNotice(error?.message || t('profileModal.avatarUploadFail'), 'fail');
+      showNotice(resolveApiErrorMessage(error, { t, fallback: t('profileModal.avatarUploadFail') }), 'fail');
     } finally {
       setAvatarUploading(false);
     }

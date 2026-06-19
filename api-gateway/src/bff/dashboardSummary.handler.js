@@ -1,6 +1,7 @@
 const { bffCachedRead } = require('./bffRead');
 const { dashboardSummaryCacheKey } = require('./cache');
 const { buildDashboardSummary } = require('./dashboardSummary.service');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const TTL_SEC = Math.min(
   120,
@@ -26,9 +27,10 @@ async function handleDashboardSummary(req, res) {
     return res.json({ success: true, data });
   } catch (error) {
     console.error('[bff:dashboard] error:', error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Dashboard summary failed',
+    return sendApiError(res, 500, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
+      message: 'Dashboard summary failed',
+      messageUser: GENERIC_5XX_MESSAGE,
     });
   }
 }

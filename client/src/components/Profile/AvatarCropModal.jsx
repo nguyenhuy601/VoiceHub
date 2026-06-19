@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ImageIcon, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useAppStrings } from '../../locales/appStrings';
 import {
   AVATAR_CROP_VIEWPORT,
   clampAvatarPan,
@@ -24,6 +25,7 @@ export default function AvatarCropModal({
   onClose,
   onApply,
 }) {
+  const { t } = useAppStrings();
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [imgMeta, setImgMeta] = useState(null);
@@ -166,7 +168,7 @@ export default function AvatarCropModal({
               type="button"
               className={`shrink-0 ${muted} hover:text-white`}
               onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - 0.1).toFixed(2)))}
-              aria-label="Thu nhỏ"
+              aria-label={t('profile.avatarZoomOut')}
             >
               <ZoomOut className="h-5 w-5" />
             </button>
@@ -187,7 +189,7 @@ export default function AvatarCropModal({
               type="button"
               className={`shrink-0 ${muted} hover:text-white`}
               onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + 0.1).toFixed(2)))}
-              aria-label="Phóng to"
+              aria-label={t('profile.avatarZoomIn')}
             >
               <ZoomIn className="h-5 w-5" />
             </button>

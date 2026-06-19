@@ -1,16 +1,42 @@
-import { Bell } from 'lucide-react';
+﻿import {
+  Bell,
+  Bot,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  FileText,
+  Flame,
+  MessageCircle,
+  Mic,
+  Settings,
+  Timer,
+  TrendingUp,
+  Users,
+  Zap,
+} from 'lucide-react';
 import { AppSearchField } from '../../features/search';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
-import { GlassCard, GradientButton, Modal, StatusIndicator } from '../../components/Shared';
+import { GlassCard, GradientButton, Modal } from '../../components/Shared';
+import DashboardFigmaView from '../../components/Dashboard/DashboardFigmaView';
+import {
+  buildProductivity30D,
+  buildProductivityTrends,
+  getInitials,
+  hashColorForSeed,
+  METRIC_COLOR_MAP,
+  METRIC_ICON_MAP,
+} from '../../components/Dashboard/dashboardUiUtils';
 import { useAuth } from '../../context/AuthContext';
+import useUiRole from '../../hooks/useUiRole';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { meetingAPI } from '../../services/api/meetingAPI';
+import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import {
   useDashboardSummary,
@@ -21,35 +47,19 @@ import {
 } from '../../hooks/queries';
 import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
+import { useLocation } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useLocale } from '../../context/LocaleContext';
 import {
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
 } from '../../utils/suitePathUtils';
 import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
-import UserAvatar from '../../components/Shared/UserAvatar';
-import { getUserDisplayName } from '../../utils/helpers';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
-
-/** Mini sparkline — thanh nhỏ cho thẻ metric */
-function MiniSparkline({ up = true, className = '' }) {
-  const heights = up ? [38, 52, 45, 58, 50, 65, 72] : [72, 58, 62, 48, 55, 42, 38];
-  return (
-    <div className={`flex h-7 items-end gap-[3px] ${className}`}>
-      {heights.map((h, i) => (
-        <div
-          key={i}
-          className="w-[3px] min-h-[4px] rounded-full bg-current opacity-90 transition-all"
-          style={{ height: `${h}%` }}
-        />
-      ))}
-    </div>
-  );
-}
 
 function truncateText(value, maxLength = 56) {
   const text = String(value || '').trim();
@@ -163,6 +173,7 @@ async function fetchTasksForDashboardPaged({ maxPages = 3, limit = 50 } = {}) {
  * Ngày ngoài năm chọn được render trong lưới nhưng inYear=false (ô trong suốt).
  */
 function buildGithubYearGrid(year, dailyMap, locale) {
+  const localeTag = String(locale || '').toLowerCase() === 'en' ? 'en-US' : 'vi-VN';
   const yearStart = new Date(year, 0, 1);
   yearStart.setHours(0, 0, 0, 0);
   const yearEnd = new Date(year, 11, 31);
@@ -212,7 +223,7 @@ function buildGithubYearGrid(year, dailyMap, locale) {
     weeks.push(col);
   }
 
-  const monthLocale = locale === 'en' ? 'en-US' : 'vi-VN';
+  const monthLocale = localeTag;
   const monthLabels = [];
   let lastMonth = -1;
   for (let w = 0; w < numWeeks; w += 1) {
@@ -250,9 +261,12 @@ function githubContributionCellClass(total, isDarkMode) {
   return 'bg-emerald-500 border border-emerald-600/80';
 }
 
-
-
-function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayout = false } = {}) {
+function DashboardPage({
+  landingDemo = false,
+  demoVariant = 'default',
+  suiteLayout = false,
+  suiteScope = 'me',
+} = {}) {
   const [activeFilter, setActiveFilter] = useState(() =>
     landingDemo && demoVariant === 'tasks' ? 'tasks' : 'all',
   );
@@ -272,6 +286,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
     pendingCount: landingDemo ? 2 : 0,
     unread: landingDemo ? 4 : 0,
     taskDone: landingDemo ? 14 : null,
+    activeVoiceMeetings: landingDemo ? 1 : null,
+    pendingApprovals: landingDemo ? 2 : null,
+    communicationCount: landingDemo ? 3241 : null,
+    totalMembers: landingDemo ? 185 : null,
+    onTimeRate: landingDemo ? 91 : null,
+    avgResponseMinutes: landingDemo ? 3.8 : null,
   });
   /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
   const [presenceFriends, setPresenceFriends] = useState([]);
@@ -282,15 +302,21 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
   const [activityDailyMap, setActivityDailyMap] = useState({});
   const [activityYear, setActivityYear] = useState(() => new Date().getFullYear());
   const [weeklyActivityDays, setWeeklyActivityDays] = useState([]);
+  const [, setWeeklyActivityNotes] = useState([]);
   const [weeklyDayModal, setWeeklyDayModal] = useState(null);
   const [recentDmContacts, setRecentDmContacts] = useState([]);
   const [recentNotifications, setRecentNotifications] = useState([]);
   const { user } = useAuth();
+  const { role, isGuest, isPersonal, isManagerOrAbove } = useUiRole();
   const { onlineUsers, connected: socketConnected, on, off } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
+  const location = useLocation();
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const currentUserKey = String(user?.userId || user?._id || user?.id || '').trim();
+  const isSuiteOverview =
+    suiteLayout && ['communicate', 'collaborate', 'me'].includes(String(suiteScope || '').toLowerCase());
+  const showEnterpriseSections = isSuiteOverview ? !isGuest && !isPersonal : isManagerOrAbove;
 
   const orgsQuery = useOrganizationsMy({ enabled: !landingDemo });
   const summaryQuery = useDashboardSummary({ enabled: !landingDemo });
@@ -301,6 +327,48 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
   const refetchFriends = friendsQuery.refetch;
   const refetchPending = pendingQuery.refetch;
   const refetchNotifications = notificationsQuery.refetch;
+
+  const dashboardQueryErrorNotifiedRef = useRef(false);
+  useEffect(() => {
+    if (landingDemo) return;
+    const failedQuery =
+      (summaryQuery.isError && summaryQuery.error) ||
+      (orgsQuery.isError && orgsQuery.error) ||
+      (friendsQuery.isError && friendsQuery.error);
+    if (!failedQuery) {
+      dashboardQueryErrorNotifiedRef.current = false;
+      return;
+    }
+    if (dashboardQueryErrorNotifiedRef.current) return;
+    dashboardQueryErrorNotifiedRef.current = true;
+    const err = summaryQuery.error || orgsQuery.error || friendsQuery.error;
+    toast.error(resolveApiErrorMessage(err, { t, fallback: t('errors.generic') }));
+  }, [
+    landingDemo,
+    summaryQuery.isError,
+    summaryQuery.error,
+    orgsQuery.isError,
+    orgsQuery.error,
+    friendsQuery.isError,
+    friendsQuery.error,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (!suiteLayout || landingDemo) return;
+    const overviewPaths = new Set([
+      '/app/communicate/overview',
+      '/app/collaborate/overview',
+      '/app/me/dashboard',
+    ]);
+    if (!overviewPaths.has(location.pathname)) return;
+    const root = document.querySelector(`[aria-label="${t('dashboard.ariaOverview')}"]`);
+    if (root) {
+      root.scrollIntoView({ block: 'start', behavior: 'instant' in window ? 'instant' : 'auto' });
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, [location.pathname, suiteLayout, landingDemo, t]);
 
   useEffect(() => {
     if (landingDemo) return undefined;
@@ -404,15 +472,21 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         pendingCount: 2,
         unread: 4,
         taskDone: 14,
+        activeVoiceMeetings: 1,
+        pendingApprovals: 2,
+        communicationCount: 3241,
+        totalMembers: 185,
+        onTimeRate: 91,
+        avgResponseMinutes: 3.8,
       });
       setPresenceFriends([
         { id: 'u1', name: 'Lan Anh', avatar: null, status: 'online' },
-        { id: 'u2', name: 'Minh Tuấn', avatar: null, status: 'away' },
+        { id: 'u2', name: 'Minh Tuan', avatar: null, status: 'away' },
       ]);
       setUpcomingMeetings([
         {
           id: 'm-demo',
-          title: 'Họp nhóm VoiceHub',
+          title: t('dashboard.demoMeetingTitle'),
           time: '10:00',
           attendees: 5,
           startTime: new Date().toISOString(),
@@ -437,7 +511,15 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
       }
       setActivityDailyMap(demoDaily);
       setActivityYear(demoY);
-      const demoWeekLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+      const demoWeekLabels = [
+        t('dashboard.weekDayMon'),
+        t('dashboard.weekDayTue'),
+        t('dashboard.weekDayWed'),
+        t('dashboard.weekDayThu'),
+        t('dashboard.weekDayFri'),
+        t('dashboard.weekDaySat'),
+        t('dashboard.weekDaySun'),
+      ];
       setWeeklyActivityDays(
         demoWeekLabels.map((label, index) => ({
           key: `demo-week-${index}`,
@@ -447,26 +529,26 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           total: index % 3 === 0 ? 3 : index % 2 === 0 ? 2 : 1,
           note:
             index % 3 === 0
-              ? 'Hoàn thành task UI'
+              ? t('dashboard.demoWeeklyDoneTitle')
               : index % 2 === 0
-                ? 'Trao đổi với team'
-                : 'Cập nhật trạng thái công việc',
+                ? t('dashboard.demoWeeklyChatTitle')
+                : t('dashboard.demoWeeklyUpdateTitle'),
         }))
       );
       setWeeklyActivityNotes([
-        { icon: '✅', title: 'Hoàn thành task UI', detail: '2 task đã hoàn tất trong tuần này', path: '/tasks' },
-        { icon: '💬', title: 'Tin nhắn công việc', detail: '3 đoạn trao đổi quan trọng được gửi', path: '/app/communicate/chat/friends' },
-        { icon: '📝', title: 'Cập nhật tiến độ', detail: '1 task được cập nhật trạng thái', path: '/tasks' },
+        { icon: '✅', title: t('dashboard.demoWeeklyDoneTitle'), detail: t('dashboard.demoWeeklyDoneDetail'), path: '/tasks' },
+        { icon: '💬', title: t('dashboard.demoWeeklyChatTitle'), detail: t('dashboard.demoWeeklyChatDetail'), path: '/app/communicate/chat/friends' },
+        { icon: '📝', title: t('dashboard.demoWeeklyUpdateTitle'), detail: t('dashboard.demoWeeklyUpdateDetail'), path: '/tasks' },
       ]);
       setRecentDmContacts([
-        { id: 'dm-demo-1', name: 'Lan Anh', preview: 'Cập nhật mockup mới rồi nhé', time: '2 phút trước' },
-        { id: 'dm-demo-2', name: 'Minh Tuấn', preview: 'Chiều họp nhanh 15p được không?', time: '12 phút trước' },
-        { id: 'dm-demo-3', name: 'Hải Nam', preview: 'Mình đã gửi tài liệu qua file', time: '1 giờ trước' },
+        { id: 'dm-demo-1', name: 'Lan Anh', preview: t('dashboard.demoDmPreview1'), time: t('dashboard.relMinutes', { n: 2 }) },
+        { id: 'dm-demo-2', name: 'Minh Tuan', preview: t('dashboard.demoDmPreview2'), time: t('dashboard.relMinutes', { n: 12 }) },
+        { id: 'dm-demo-3', name: 'Hai Nam', preview: t('dashboard.demoDmPreview3'), time: t('dashboard.relHours', { n: 1 }) },
       ]);
       setRecentNotifications([
-        { id: 'nt-demo-1', title: 'Nhắc hạn task', preview: 'Task UI Dashboard sắp đến hạn', time: '5 phút trước' },
-        { id: 'nt-demo-2', title: 'Lời mời kết bạn', preview: 'Bạn có 1 lời mời kết bạn mới', time: '20 phút trước' },
-        { id: 'nt-demo-3', title: 'Tin nhắn mới', preview: 'Bạn được nhắc trong một cuộc trò chuyện', time: '1 giờ trước' },
+        { id: 'nt-demo-1', title: t('dashboard.demoNotifTitle1'), preview: t('dashboard.demoNotifPreview1'), time: t('dashboard.relMinutes', { n: 5 }) },
+        { id: 'nt-demo-2', title: t('dashboard.demoNotifTitle2'), preview: t('dashboard.demoNotifPreview2'), time: t('dashboard.relMinutes', { n: 20 }) },
+        { id: 'nt-demo-3', title: t('dashboard.demoNotifTitle3'), preview: t('dashboard.demoNotifPreview3'), time: t('dashboard.relHours', { n: 1 }) },
       ]);
       return;
     }
@@ -503,6 +585,22 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         const friendsTotal =
           summary?.friendsTotal ??
           (friendsQuery.isLoading && friendsQuery.data === undefined ? null : friendsRaw.length);
+        const totalMembersFromOrgs = orgList.reduce((sum, org) => {
+          const direct =
+            org?.memberCount ??
+            org?.membersCount ??
+            org?.totalMembers ??
+            org?.stats?.memberCount ??
+            org?.stats?.members;
+          if (Number.isFinite(Number(direct))) return sum + Number(direct);
+          if (Array.isArray(org?.members)) return sum + org.members.length;
+          return sum;
+        }, 0);
+        const totalMembers =
+          summary?.totalMembers ??
+          summary?.membersTotal ??
+          summary?.activeMembersTotal ??
+          (totalMembersFromOrgs > 0 ? totalMembersFromOrgs : friendsTotal);
 
         const presence = friendsRaw.slice(0, 12).map((row) => {
           const u = row.friendId && typeof row.friendId === 'object' ? row.friendId : null;
@@ -518,6 +616,17 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           };
         });
         setPresenceFriends(presence);
+
+        let activeVoiceMeetings = summary?.activeVoiceMeetings ?? null;
+        if (activeVoiceMeetings == null) {
+          const activeMeetingRes = await meetingAPI
+            .getMeetings({ status: 'active', limit: 50 })
+            .catch(() => null);
+          const activeBody = activeMeetingRes?.data ?? activeMeetingRes;
+          const activeInner = activeBody?.data ?? activeBody;
+          const activeRows = activeInner?.meetings ?? activeInner?.data?.meetings ?? activeInner?.items;
+          activeVoiceMeetings = Array.isArray(activeRows) ? activeRows.length : 0;
+        }
 
         let meetingsUi = [];
         const summaryMeetings = Array.isArray(summary?.upcomingMeetings)
@@ -587,6 +696,25 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         setUpcomingMeetings(mergedUpcoming);
 
         const pendingCount = summary?.pendingCount ?? pendingQuery.pendingCount ?? 0;
+        let pendingApprovals = summary?.pendingApprovals ?? null;
+        if (pendingApprovals == null) {
+          const [myJoinAppsRes, reviewAppsRes] = await Promise.all([
+            organizationAPI.getMyPendingJoinApplications().catch(() => null),
+            organizationAPI.getJoinApplicationsToReview().catch(() => null),
+          ]);
+          const readCount = (payload) => {
+            const body = payload?.data ?? payload;
+            const inner = body?.data ?? body;
+            const rows =
+              inner?.applications ||
+              inner?.joinApplications ||
+              inner?.pendingApplications ||
+              inner?.items ||
+              inner;
+            return Array.isArray(rows) ? rows.length : 0;
+          };
+          pendingApprovals = pendingCount + readCount(myJoinAppsRes) + readCount(reviewAppsRes);
+        }
         const unread =
           summary?.unread ?? (Number(notificationsQuery.data?.unreadCount) || 0);
         const notifRows = Array.isArray(notificationsQuery.data?.notifications)
@@ -595,17 +723,17 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         const nowTs = Date.now();
         const relTime = (value) => {
           const ts = value ? new Date(value).getTime() : NaN;
-          if (!Number.isFinite(ts)) return 'Vừa xong';
+          if (!Number.isFinite(ts)) return t('time.justNow');
           const diffMin = Math.max(1, Math.floor((nowTs - ts) / 60000));
-          if (diffMin < 60) return `${diffMin} phút trước`;
+          if (diffMin < 60) return t('time.minutesAgo', { n: diffMin });
           const diffHours = Math.floor(diffMin / 60);
-          if (diffHours < 24) return `${diffHours} giờ trước`;
+          if (diffHours < 24) return t('time.hoursAgo', { n: diffHours });
           const diffDays = Math.floor(diffHours / 24);
-          return `${diffDays} ngày trước`;
+          return t('time.daysAgo', { n: diffDays });
         };
         const dashboardRecentNotifications = notifRows.slice(0, 3).map((row, idx) => ({
           id: row?._id || row?.id || `nt-${idx}`,
-          title: row?.title || 'Thông báo',
+          title: row?.title || t('dashboard.notificationFallback'),
           preview: row?.content || row?.message || '',
           time: relTime(row?.createdAt),
         }));
@@ -621,12 +749,37 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           }
           return kind === 'task' ? '/app/collaborate/tasks' : '/app/communicate/chat/friends';
         };
-        const weekDayLabels =
-          locale === 'en'
-            ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-            : ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+        const weekDayLabels = [
+          t('dashboard.weekDaySun'),
+          t('dashboard.weekDayMon'),
+          t('dashboard.weekDayTue'),
+          t('dashboard.weekDayWed'),
+          t('dashboard.weekDayThu'),
+          t('dashboard.weekDayFri'),
+          t('dashboard.weekDaySat'),
+        ];
         const daily = {};
         const taskRows = await fetchTasksForDashboardPaged({ maxPages: 25, limit: 100 }).catch(() => []);
+        let tasksWithDueAndCompletion = 0;
+        let tasksCompletedOnTime = 0;
+        taskRows.forEach((task) => {
+          const status = String(task.status || task.state || '').toLowerCase();
+          const completedAtRaw = task.completedAt || task.completed_at || task.doneAt || task.updatedAt;
+          const dueAtRaw = task.dueDate || task.dueAt || task.deadline || task.endDate;
+          const isCompleted =
+            Boolean(task.completedAt || task.doneAt) ||
+            ['done', 'completed', 'complete', 'closed'].includes(status);
+          const completedTs = completedAtRaw ? new Date(completedAtRaw).getTime() : NaN;
+          const dueTs = dueAtRaw ? new Date(dueAtRaw).getTime() : NaN;
+          if (isCompleted && Number.isFinite(completedTs) && Number.isFinite(dueTs)) {
+            tasksWithDueAndCompletion += 1;
+            if (completedTs <= dueTs) tasksCompletedOnTime += 1;
+          }
+        });
+        const onTimeRate =
+          tasksWithDueAndCompletion > 0
+            ? Math.round((tasksCompletedOnTime / tasksWithDueAndCompletion) * 100)
+            : null;
         const weeklyDayMap = new Map();
         const weekStart = new Date();
         weekStart.setHours(0, 0, 0, 0);
@@ -678,10 +831,10 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           const title = truncateText(task.title || task.name || t('dashboard.taskFallback') || 'Task', 40);
           const status = String(task.status || '').toLowerCase();
           const note = task.completedAt
-            ? `Đã hoàn thành task: ${title}`
+            ? t('dashboard.taskCompletedNote', { title })
             : status && status !== 'todo'
-              ? `Đã cập nhật task: ${title}`
-              : `Tạo task: ${title}`;
+              ? t('dashboard.taskUpdatedNote', { title })
+              : t('dashboard.taskCreatedNote', { title });
           const when = task.completedAt || task.updatedAt || task.createdAt;
           const taskOrgId = getRowId(task.organizationId);
           if (when) {
@@ -703,19 +856,19 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           if (key) daily[key] = { tasks: daily[key]?.tasks || 0, messages: (daily[key]?.messages || 0) + 1 };
           const messageType = String(msg.messageType || 'text');
           const previewText = truncateText(
-            formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || 'Tin nhắn',
+            formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || t('dashboard.messageFallback'),
             48
           );
           const detail =
             messageType === 'file'
-              ? `Đã gửi file: ${previewText}`
+              ? t('dashboard.msgSentFile', { preview: previewText })
               : messageType === 'image'
-                ? `Đã gửi ảnh: ${previewText}`
+                ? t('dashboard.msgSentImage', { preview: previewText })
                 : messageType === 'business_card'
-                  ? `Đã chia sẻ danh thiếp: ${previewText}`
+                  ? t('dashboard.msgSharedCard', { preview: previewText })
                   : messageType === 'call_log'
                     ? previewText
-                    : `Đã nhắn: ${previewText}`;
+                    : t('dashboard.msgSent', { preview: previewText });
           if (msg.createdAt) {
             const msgOrgId = getRowId(msg.organizationId);
             registerWeekItem({
@@ -735,6 +888,41 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
             });
           }
         });
+        const responseDiffs = [];
+        const dmMessagesByPeer = new Map();
+        msgRows.forEach((msg) => {
+          if (msg?.roomId || !currentUserKey) return;
+          const senderId = getRowId(msg?.senderId);
+          const receiverId = getRowId(msg?.receiverId);
+          const ts = msg?.createdAt ? new Date(msg.createdAt).getTime() : NaN;
+          if (!senderId || !receiverId || !Number.isFinite(ts)) return;
+          if (senderId !== currentUserKey && receiverId !== currentUserKey) return;
+          const peerId = senderId === currentUserKey ? receiverId : senderId;
+          if (!peerId) return;
+          const rows = dmMessagesByPeer.get(peerId) || [];
+          rows.push({ senderId, ts });
+          dmMessagesByPeer.set(peerId, rows);
+        });
+        dmMessagesByPeer.forEach((rows) => {
+          const ordered = [...rows].sort((a, b) => a.ts - b.ts);
+          let lastPeerTs = null;
+          ordered.forEach((row) => {
+            if (row.senderId === currentUserKey) {
+              if (lastPeerTs != null && row.ts >= lastPeerTs) {
+                const diffMin = (row.ts - lastPeerTs) / 60000;
+                if (diffMin >= 0 && diffMin <= 7 * 24 * 60) responseDiffs.push(diffMin);
+                lastPeerTs = null;
+              }
+            } else {
+              lastPeerTs = row.ts;
+            }
+          });
+        });
+        const avgResponseMinutes =
+          responseDiffs.length > 0
+            ? Math.round((responseDiffs.reduce((sum, n) => sum + n, 0) / responseDiffs.length) * 10) / 10
+            : null;
+        const communicationCount = msgRows.length + notifRows.length + mergedUpcoming.length;
 
         const friendNameById = new Map();
         friendsRaw.forEach((row) => {
@@ -746,13 +934,13 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
             u?.name ||
             u?.username ||
             (u?.email ? String(u.email).split('@')[0] : '') ||
-            'Bạn bè';
+            t('dashboard.friendFallback');
           friendNameById.set(fid, n);
         });
 
         const dmLatestByPeer = new Map();
         const makePreview = (msg) =>
-          formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || 'Tin nhắn mới';
+          formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || t('dashboard.newMessageFallback');
         msgRows.forEach((msg) => {
           if (msg?.roomId) return;
           const senderId = getRowId(msg?.senderId);
@@ -774,7 +962,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
               peerObj?.displayName ||
               peerObj?.name ||
               peerObj?.username ||
-              'Bạn bè';
+              t('dashboard.friendFallback');
             dmLatestByPeer.set(peerId, {
               id: peerId,
               name: peerName,
@@ -786,11 +974,11 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         const relDmTime = (ts) => {
           const now = Date.now();
           const diffMin = Math.max(1, Math.floor((now - ts) / 60000));
-          if (diffMin < 60) return `${diffMin} phút trước`;
+          if (diffMin < 60) return t('time.minutesAgo', { n: diffMin });
           const diffHours = Math.floor(diffMin / 60);
-          if (diffHours < 24) return `${diffHours} giờ trước`;
+          if (diffHours < 24) return t('time.hoursAgo', { n: diffHours });
           const diffDays = Math.floor(diffHours / 24);
-          return `${diffDays} ngày trước`;
+          return t('time.daysAgo', { n: diffDays });
         };
         const dashboardRecentDms = Array.from(dmLatestByPeer.values())
           .sort((a, b) => b.ts - a.ts)
@@ -810,6 +998,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
             pendingCount,
             unread,
             taskDone,
+            activeVoiceMeetings,
+            pendingApprovals,
+            communicationCount,
+            totalMembers,
+            onTimeRate,
+            avgResponseMinutes,
           });
           setActivityDailyMap({ ...daily });
           setRecentDmContacts(dashboardRecentDms);
@@ -895,13 +1089,18 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
     return sum;
   }, [activityDailyMap, activityYear]);
 
-  /** Nhãn cột ngày bên trái (sparse): T2/T4/T6 ↔ Mon/Wed/Fri */
-  const contributionLeftDayMarkers = useMemo(() => {
-    if (locale === 'en') {
-      return ['', 'Mon', '', 'Wed', '', 'Fri', ''];
-    }
-    return ['', 'T2', '', 'T4', '', 'T6', ''];
-  }, [locale]);
+  const contributionLeftDayMarkers = useMemo(
+    () => [
+      '',
+      t('dashboard.contribMarkerMon'),
+      '',
+      t('dashboard.contribMarkerWed'),
+      '',
+      t('dashboard.contribMarkerFri'),
+      '',
+    ],
+    [t]
+  );
 
   const shellBg = appShellBg(isDarkMode);
   const dashHeader = isDarkMode
@@ -948,7 +1147,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
   const formatWeeklyDayTitle = useCallback(
     (day) => {
       if (!day?.date) return day?.dayLabel || '';
-      const dateLocale = locale === 'en' ? 'en-US' : 'vi-VN';
+      const dateLocale = String(locale || '').toLowerCase() === 'en' ? 'en-US' : 'vi-VN';
       const long = day.date.toLocaleDateString(dateLocale, {
         weekday: 'long',
         day: 'numeric',
@@ -1037,6 +1236,102 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
       },
     ];
   }, [metrics, t]);
+
+  const enterpriseStats = useMemo(() => {
+    const fmtNumber = (n) => {
+      if (metrics.loading) return '…';
+      if (n == null || n === '') return '—';
+      const num = Number(n);
+      if (!Number.isFinite(num)) return String(n);
+      return new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'vi-VN').format(num);
+    };
+    const fmtPercent = (n) => {
+      if (metrics.loading) return '…';
+      if (n == null || n === '') return '—';
+      const num = Number(n);
+      return Number.isFinite(num) ? `${Math.round(num)}%` : '—';
+    };
+    const fmtMinutes = (n) => {
+      if (metrics.loading) return '…';
+      if (n == null || n === '') return '—';
+      const num = Number(n);
+      if (!Number.isFinite(num)) return '—';
+      if (num < 1) return `${Math.max(1, Math.round(num * 60))}s`;
+      return `${num % 1 === 0 ? num.toFixed(0) : num.toFixed(1)}m`;
+    };
+    const lastDaysTotal = (daysBackStart, daysBackEnd) => {
+      let total = 0;
+      for (let i = daysBackStart; i <= daysBackEnd; i += 1) {
+        const d = new Date();
+        d.setHours(12, 0, 0, 0);
+        d.setDate(d.getDate() - i);
+        const key = dayKeyFromDate(d);
+        const bucket = activityDailyMap?.[key] || {};
+        total += Number(bucket.messages || 0) + Number(bucket.meetings || 0);
+      }
+      return total;
+    };
+    const recentComms = lastDaysTotal(0, 6);
+    const previousComms = lastDaysTotal(7, 13);
+    const commTrend =
+      previousComms > 0
+        ? `${Math.round(((recentComms - previousComms) / previousComms) * 100)}%`
+        : recentComms > 0
+          ? '100%'
+          : '';
+    const activeCount = Math.max(Number(onlineFriendCount) || 0, Number(metrics.activeMembers) || 0);
+    const totalMembers = Number(metrics.totalMembers ?? metrics.friendsTotal ?? displayPresenceFriends.length) || 0;
+    const avgResponse = Number(metrics.avgResponseMinutes);
+    const responseDelta =
+      Number.isFinite(avgResponse) ? Math.round((avgResponse - 5) * 10) / 10 : null;
+    return [
+      {
+        key: 'comms',
+        label: t('dashboard.statComms'),
+        value: fmtNumber(metrics.communicationCount),
+        change: commTrend ? `${commTrend}` : '',
+        trend: commTrend ? (String(commTrend).startsWith('-') ? 'down' : 'up') : null,
+        detail: t('dashboard.detailVsPrevWeek'),
+        icon: MessageCircle,
+        color: '#2563EB',
+        bg: 'rgba(37,99,235,0.08)',
+      },
+      {
+        key: 'personnel',
+        label: t('dashboard.statActivePersonnel'),
+        value: fmtNumber(totalMembers || activeCount),
+        change: activeCount > 0 ? `${fmtNumber(activeCount)} ${t('dashboard.onlineSuffix')}` : '',
+        trend: activeCount > 0 ? 'up' : null,
+        detail: totalMembers ? t('dashboard.ofTotalPeople', { n: fmtNumber(totalMembers) }) : '',
+        icon: Users,
+        color: '#10B981',
+        bg: 'rgba(16,185,129,0.08)',
+      },
+      {
+        key: 'ontime',
+        label: t('dashboard.statOnTimeRate'),
+        value: fmtPercent(metrics.onTimeRate),
+        change: '',
+        trend: null,
+        detail:
+          metrics.onTimeRate == null ? t('dashboard.notEnoughDueTasks') : t('dashboard.fromDueDateTasks'),
+        icon: CheckCircle2,
+        color: '#F97316',
+        bg: 'rgba(249,115,22,0.08)',
+      },
+      {
+        key: 'response',
+        label: t('dashboard.statAvgResponse'),
+        value: fmtMinutes(metrics.avgResponseMinutes),
+        change: responseDelta == null ? '' : `${responseDelta > 0 ? '+' : ''}${responseDelta}m`,
+        trend: responseDelta == null ? null : responseDelta <= 0 ? 'up' : 'down',
+        detail: t('dashboard.slaTarget'),
+        icon: Timer,
+        color: '#06B6D4',
+        bg: 'rgba(6,182,212,0.08)',
+      },
+    ];
+  }, [activityDailyMap, displayPresenceFriends.length, locale, metrics, onlineFriendCount, t]);
 
   const selectedStat = useMemo(() => {
     if (!selectedStatKey) return null;
@@ -1185,7 +1480,293 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
           ? t('dashboard.activityTypeMessage')
           : t('dashboard.activityTypeDefault');
 
-  /** Điều hướng từ modal chỉ số — khớp `stats[].key` */
+  const hour = new Date().getHours();
+  const greetingShort =
+    hour < 12
+      ? t('dashboard.greetingShortMorning')
+      : hour < 18
+        ? t('dashboard.greetingShortAfternoon')
+        : t('dashboard.greetingShortEvening');
+
+  const meetingsDailyMap = useMemo(() => {
+    const map = {};
+    upcomingMeetings.forEach((m) => {
+      const key = dayKeyFromDate(m.startTime || m.startAt || m.date);
+      if (!key) return;
+      map[key] = (map[key] || 0) + 1;
+    });
+    return map;
+  }, [upcomingMeetings]);
+
+  const productivity30d = useMemo(
+    () => buildProductivity30D(activityDailyMap, locale, meetingsDailyMap),
+    [activityDailyMap, locale, meetingsDailyMap]
+  );
+
+  const productivityTrends = useMemo(
+    () => buildProductivityTrends(productivity30d),
+    [productivity30d]
+  );
+
+  const performanceStats = useMemo(() => {
+    const weekTasks = weeklyActivityDays.reduce((sum, d) => sum + (d.tasks || 0), 0);
+    const weekTotal = weeklyActivityDays.reduce((sum, d) => sum + (d.total || 0), 0);
+    const onTimePct =
+      weekTotal > 0 ? Math.min(100, Math.round((weekTasks / Math.max(1, weekTotal)) * 100)) : 0;
+    return [
+      {
+        label: t('dashboard.perfTasksWeek'),
+        value: weekTasks,
+        target: Math.max(weekTasks, 10),
+        color: '#10B981',
+        icon: CheckCircle2,
+      },
+      {
+        label: t('dashboard.perfOnTimeRate'),
+        value: onTimePct,
+        target: 100,
+        unit: '%',
+        color: '#2563EB',
+        icon: Timer,
+      },
+      {
+        label: t('dashboard.perfSprintVelocity'),
+        value: metrics.taskDone == null ? 0 : Number(metrics.taskDone) || 0,
+        target: Math.max(Number(metrics.taskDone) || 0, 20),
+        unit: ' pts',
+        color: '#06B6D4',
+        icon: TrendingUp,
+      },
+    ];
+  }, [weeklyActivityDays, metrics.taskDone, t]);
+
+  const twoWaySyncFeed = useMemo(() => {
+    const rows = [];
+    weeklyActivityDays.forEach((day) => {
+      (day.items || []).forEach((item) => {
+        const relTime = day.dayLabel || '';
+        rows.push({
+          icon: item.kind === 'task' ? CheckCircle2 : item.icon === '🤖' ? Bot : MessageCircle,
+          color: item.kind === 'task' ? '#10B981' : '#6366F1',
+          user: t('dashboard.syncYou'),
+          action: item.kind === 'task' ? t('dashboard.syncCompleted') : t('dashboard.syncSent'),
+          item: `"${item.title}"`,
+          workspace: item.channelName ? `#${item.channelName}` : '',
+          time: relTime,
+          path: item.path,
+        });
+      });
+    });
+    return rows.slice(0, 5);
+  }, [t, weeklyActivityDays]);
+
+  const aiInsights = useMemo(() => {
+    const lines = [];
+    if (metrics.pendingApprovals > 0) {
+      lines.push(t('dashboard.insightPendingApprovals', { n: metrics.pendingApprovals }));
+    }
+    if (metrics.pendingCount > 0) {
+      lines.push(t('dashboard.insightPendingFriends', { n: metrics.pendingCount }));
+    }
+    if (metrics.unread > 0) {
+      lines.push(t('dashboard.insightUnread', { n: metrics.unread }));
+    }
+    if (upcomingMeetings.length > 0) {
+      lines.push(t('dashboard.insightUpcomingMeeting', { title: upcomingMeetings[0].title }));
+    }
+    if (metrics.taskDone != null && metrics.taskDone > 0) {
+      lines.push(t('dashboard.insightTasksDone', { n: metrics.taskDone }));
+    }
+    if (onlineFriendCount > 0) {
+      lines.push(t('dashboard.insightOnlineFriends', { n: onlineFriendCount }));
+    }
+    if (!lines.length) {
+      lines.push(t('dashboard.insightNoAlerts'));
+    }
+    return lines;
+  }, [
+    metrics.pendingApprovals,
+    metrics.pendingCount,
+    metrics.unread,
+    metrics.taskDone,
+    upcomingMeetings,
+    onlineFriendCount,
+    t,
+  ]);
+
+  const heroStats = useMemo(() => {
+    const weekTotal = weeklyActivityDays.reduce((sum, d) => sum + (d.total || 0), 0);
+    const productivity = Math.min(99, Math.max(12, Math.round((weekTotal / 35) * 100)));
+    const responseRate = Math.min(99, Math.max(20, 100 - Math.min(80, Number(metrics.unread) || 0) * 3));
+    const tasksDonePct =
+      metrics.taskDone == null
+        ? '—'
+        : `${Math.min(99, Math.max(5, Math.round((Number(metrics.taskDone) / Math.max(1, Number(metrics.orgCount) || 1)) * 10)))}%`;
+    return [
+      { label: t('dashboard.heroProductivity'), value: `${productivity}%`, icon: TrendingUp, color: '#10B981' },
+      { label: t('dashboard.heroResponseRate'), value: `${responseRate}%`, icon: Zap, color: '#2563EB' },
+      { label: t('dashboard.heroTasksDone'), value: tasksDonePct, icon: Flame, color: '#F97316' },
+    ];
+  }, [weeklyActivityDays, metrics.unread, metrics.taskDone, metrics.orgCount, t]);
+
+  const quickNavItems = useMemo(
+    () => [
+      {
+        label: t('dashboard.quickNavCommunicate'),
+        icon: MessageCircle,
+        path: '/app/communicate/chat/friends',
+        color: '#2563EB',
+        desc: t('dashboard.quickNavDescUnread', {
+          n: pendingQuery.pendingCount || metrics.pendingCount || 0,
+        }),
+      },
+      {
+        label: t('dashboard.quickNavOrg'),
+        icon: Building2,
+        path: '/app/collaborate/workspaces',
+        color: '#06B6D4',
+        desc: t('dashboard.quickNavDescOrgs', { n: metrics.orgCount ?? 0 }),
+      },
+      {
+        label: t('dashboard.quickNavMeetings'),
+        icon: Mic,
+        path: '/app/communicate/voice',
+        color: '#F59E0B',
+        desc: t('dashboard.quickNavDescLiveRooms', {
+          n: upcomingMeetings.filter((m) => m.soon).length || upcomingMeetings.length,
+        }),
+      },
+      {
+        label: t('dashboard.quickNavCalendar'),
+        icon: Calendar,
+        path: '/app/me/calendar',
+        color: '#10B981',
+        desc: t('dashboard.quickNavDescMeetingsToday', { n: upcomingMeetings.length }),
+      },
+      {
+        label: t('dashboard.quickNavDocuments'),
+        icon: FileText,
+        path: '/app/collaborate/documents',
+        color: '#8B5CF6',
+        desc: t('dashboard.quickNavDescFiles'),
+      },
+      {
+        label: t('dashboard.quickNavNotifications'),
+        icon: Bell,
+        path: '/app/communicate/notifications',
+        color: '#EF4444',
+        desc: t('dashboard.quickNavDescPending', { n: metrics.unread || 0 }),
+      },
+      {
+        label: t('dashboard.quickNavAdmin'),
+        icon: Settings,
+        path: '/app/me/settings',
+        color: '#64748B',
+        desc: t('dashboard.quickNavDescSystemSettings'),
+      },
+    ],
+    [t, metrics.unread, metrics.orgCount, upcomingMeetings, pendingQuery.pendingCount, metrics.pendingCount]
+  );
+
+  const filteredQuickNav = useMemo(() => {
+    if (isGuest) {
+      return quickNavItems.filter((item) =>
+        ['/app/communicate/chat/friends', '/app/communicate/notifications', '/app/me/calendar', '/app/me/settings'].includes(
+          item.path
+        )
+      );
+    }
+    if (isPersonal) {
+      return quickNavItems.filter((item) =>
+        [
+          '/app/communicate/chat/friends',
+          '/app/communicate/notifications',
+          '/app/me/calendar',
+          '/app/collaborate/documents',
+          '/app/me/settings',
+        ].includes(item.path)
+      );
+    }
+    return quickNavItems;
+  }, [quickNavItems, isGuest, isPersonal]);
+
+  const quickNavCols = isGuest || isPersonal ? 4 : 7;
+
+  const recentMessagesUi = useMemo(
+    () =>
+      recentDmContacts.map((row) => {
+        const color = hashColorForSeed(row.name);
+        return {
+          id: row.id,
+          name: row.name,
+          avatar: getInitials(row.name),
+          msg: row.preview,
+          time: row.time,
+          unread: 0,
+          color,
+          type: 'dm',
+        };
+      }),
+    [recentDmContacts]
+  );
+
+  const upcomingMeetingsUi = useMemo(() => {
+    const now = Date.now();
+    return upcomingMeetings.slice(0, 3).map((m, idx) => {
+      const startTs = m.startTime ? new Date(m.startTime).getTime() : NaN;
+      const soon = Number.isFinite(startTs) && startTs - now < 2 * 60 * 60 * 1000 && startTs >= now - 15 * 60 * 1000;
+      const palette = ['#2563EB', '#06B6D4', '#10B981'];
+      return {
+        id: m.id,
+        title: m.title,
+        time: m.time,
+        attendees: m.attendees,
+        color: palette[idx % palette.length],
+        soon,
+      };
+    });
+  }, [upcomingMeetings]);
+
+  const workspacesUi = useMemo(
+    () =>
+      workspaceEntries.map((ws) => {
+        const color = hashColorForSeed(ws.name);
+        return {
+          id: ws.id,
+          name: ws.name,
+          slug: ws.slug,
+          members: metrics.friendsTotal ?? 0,
+          channels: 0,
+          unread: 0,
+          color,
+          initial: getInitials(ws.name).slice(0, 1),
+          desc: t('dashboard.workspaceRoleDesc', {
+            role: String(ws.myRole || 'member').toUpperCase(),
+          }),
+        };
+      }),
+    [workspaceEntries, metrics.friendsTotal]
+  );
+
+  const metricCardsUi = useMemo(() => {
+    const source = suiteLayout ? enterpriseStats : stats;
+    return source.map((stat) => {
+      const palette = METRIC_COLOR_MAP[stat.key] || METRIC_COLOR_MAP.org;
+      const Icon = stat.icon || METRIC_ICON_MAP[stat.key] || Building2;
+      return {
+        ...stat,
+        icon: Icon,
+        color: stat.color || palette.color,
+        bg: stat.bg || palette.bg,
+        trend: stat.change,
+        trendUp: stat.trend === 'up',
+        sub: stat.detail,
+        preview: false,
+      };
+    });
+  }, [suiteLayout, enterpriseStats, stats]);
+
+  /** Navigation from the stats modal — matches `stats[].key` */
   const getStatDetailRoute = (key) => {
     switch (key) {
       case 'org':
@@ -1207,559 +1788,134 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
     else if (type === 'message') navigate('/app/communicate/chat/friends');
     else navigate('/app/communicate/notifications');
   };
+  const performanceMiniStats = useMemo(
+    () => [
+      {
+        label: t('dashboard.miniActiveMembers'),
+        value: `${onlineFriendCount}/${displayPresenceFriends.length || 0}`,
+        color: '#2563EB',
+      },
+      {
+        label: t('dashboard.miniAvgTasksDay'),
+        value: (weeklyActivityDays.reduce((sum, d) => sum + d.tasks, 0) / 7).toFixed(1),
+        color: '#10B981',
+      },
+      {
+        label: t('dashboard.miniPending'),
+        value: String(metrics.pendingCount || 0),
+        color: '#EF4444',
+      },
+    ],
+    [t, onlineFriendCount, displayPresenceFriends.length, weeklyActivityDays, metrics.pendingCount]
+  );
+
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
+
+  const dashboardBody = (
+    <DashboardFigmaView
+      isGuest={isGuest}
+      isPersonal={isPersonal}
+      isManagerOrAbove={showEnterpriseSections}
+      locale={locale}
+      greetingShort={greetingShort}
+      displayName={displayName}
+      aiInsights={aiInsights}
+      priorityDm={pendingQuery.pendingCount || metrics.pendingCount || recentDmContacts.length}
+      priorityMeetings={Math.min(upcomingMeetings.length, 3)}
+      pendingApprovals={metrics.pendingApprovals || 0}
+      heroStats={heroStats}
+      hideRoleBanner={suiteLayout}
+      insightPreview={false}
+      syncFeedPreview={false}
+      metricCards={metricCardsUi}
+      onMetricCardClick={suiteLayout ? undefined : setSelectedStatKey}
+      productivity30d={productivity30d}
+      productivityTrends={productivityTrends}
+      performanceStats={performanceStats}
+      performanceMiniStats={performanceMiniStats}
+      syncFeed={twoWaySyncFeed}
+      onSyncItemClick={(item) => item.path && navigate(item.path)}
+      quickNavItems={filteredQuickNav}
+      quickNavCols={quickNavCols}
+      onNavigate={navigate}
+      pendingBannerLabel={
+        !metrics.loading && metrics.pendingCount > 0
+          ? t('dashboard.pendingInvites', { n: metrics.pendingCount })
+          : ''
+      }
+      onPendingClick={() => navigate('/app/communicate/chat/friends?tab=requests')}
+      recentMessages={recentMessagesUi}
+      upcomingMeetings={upcomingMeetingsUi}
+      meetingsEmptyLabel={t('dashboard.noMeetingsWeek')}
+      workspaces={workspacesUi}
+      addFriendLabel={t('dashboard.addFriend')}
+      onCreateRoom={() => {
+        toast.success(t('dashboard.toastCreatingRoom'));
+        setTimeout(() => navigate('/app/communicate/voice'), 600);
+      }}
+      onCreateWorkspace={() => {
+        toast.success(t('dashboard.toastGotoWorkspace'));
+        navigate('/app/collaborate/workspaces');
+      }}
+      onAddFriend={() => setShowAddFriendModal(true)}
+      onWorkspaceClick={(ws) =>
+        navigate(
+          ws.slug
+            ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(ws.id)}`
+            : '/app/collaborate/workspaces'
+        )
+      }
+    />
+  );
 
   return (
     <>
-    <div className={`relative flex ${shellH} overflow-hidden ${shellBg}`}>
-      <ShellWaveBackdrop />
+    <div className={suiteLayout ? 'h-full overflow-hidden' : `relative flex ${shellH} overflow-hidden ${shellBg}`}>
+      {!suiteLayout && <ShellWaveBackdrop />}
       {!suiteLayout && (
         <div className="h-full shrink-0">
           <NavigationSidebar landingDemo={landingDemo} />
         </div>
       )}
 
-      <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className={`flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:gap-4 md:px-6 ${dashHeader}`}>
-          <p className={`max-w-[40%] truncate text-sm font-medium md:max-w-none md:text-[15px] ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
-            {getGreeting()}
-          </p>
-          <div className="min-w-0 flex-1 md:mx-auto md:max-w-xl">
-            <AppSearchField
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder={t('dashboard.searchPlaceholder')}
-              isDarkMode={isDarkMode}
-              id="dashboard-header-search"
-              aria-label={t('dashboard.ariaSearch')}
-              size="lg"
-              onFocus={() => setQuickNavOpen(true)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  setQuickNavOpen(true);
-                }
-              }}
-            />
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate('/notifications')}
-              className={`relative rounded-xl p-2.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
-              aria-label={t('dashboard.ariaNotifications')}
-            >
-              <Bell className="h-5 w-5" strokeWidth={2} />
-              {(metrics.unread > 0 || metrics.pendingCount > 0) && (
-                <span
-                  className={`absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ${isDarkMode ? 'ring-[#0D0D0F]' : 'ring-white'}`}
-                />
-              )}
-            </button>
-          </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1">
-          <main className={`min-h-0 flex-1 overflow-y-auto overflow-x-visible px-4 py-5 scrollbar-overlay md:px-6 lg:px-8 ${dashMain}`}>
-          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map((stat, idx) => (
-              <GlassCard
-                key={idx}
-                hover
-                onClick={() => setSelectedStatKey(stat.key)}
-                className={`group relative cursor-pointer overflow-hidden rounded-2xl p-4 transition duration-300 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.35)] hover:border-white/[0.1] hover:shadow-[0_12px_48px_rgba(0,0,0,0.5)]' : 'shadow-md hover:border-cyan-200/80 hover:shadow-lg'}`}
-                style={{ animationDelay: `${idx * 0.06}s` }}
-              >
-                <div
-                  className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 transition-opacity duration-300 group-hover:opacity-[0.07]`}
-                />
-                <div className="relative z-10">
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div
-                      className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${stat.iconBg || stat.color} text-lg shadow-[0_4px_20px_rgba(8,145,178,0.25)]`}
-                    >
-                      {stat.icon}
-                    </div>
-                    <div className="text-right">
-                      <div
-                        className={`flex items-center justify-end gap-0.5 text-xs font-bold ${stat.trend === 'up' ? 'text-emerald-400' : 'text-rose-400'}`}
-                      >
-                        <span>{stat.trend === 'up' ? '↗' : '↘'}</span>
-                        <span>{stat.change}</span>
-                      </div>
-                      <div className={`mt-1 flex justify-end ${stat.sparkClass || 'text-emerald-400/90'}`}>
-                        <MiniSparkline up={stat.trend === 'up'} />
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`mb-0.5 text-3xl font-bold tabular-nums tracking-tight ${textHeading}`}>{stat.value}</div>
-                  <div className={`mb-1 text-sm font-medium ${textMuted}`}>{stat.label}</div>
-                  <div className={`text-xs leading-relaxed ${textSub}`}>{stat.detail}</div>
-                  <div className={`mt-3 text-[11px] font-medium opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${accentText}`}>
-                    {t('dashboard.viewDetails')}
-                  </div>
-                </div>
-              </GlassCard>
-            ))}
-          </div>
-
-          <GlassCard className={`mb-8 ${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <h2 className={`text-base font-bold ${textHeading}`}>{t('dashboard.personalActivityTitle')}</h2>
-              </div>
-              <div className={`text-right text-xs tabular-nums ${textSub}`}>
-                <span className={`font-semibold ${accentText}`}>{activityYear}</span>
-                <span className="mx-1 opacity-70">·</span>
-                {t('dashboard.personalActivityCount', { n: activityTotalSelectedYear })}
-              </div>
+      <div className={`relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden ${suiteLayout ? 'h-full' : ''}`}>
+        {!suiteLayout && (
+          <header className={`flex shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:gap-4 md:px-6 ${dashHeader}`}>
+            <p className={`max-w-[40%] truncate text-sm font-medium md:max-w-none md:text-[15px] ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>{getGreeting()}</p>
+            <div className="min-w-0 flex-1 md:mx-auto md:max-w-xl">
+              <AppSearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder={t('dashboard.searchPlaceholder')}
+                isDarkMode={isDarkMode}
+                id="dashboard-header-search"
+                aria-label={t('dashboard.ariaSearch')}
+                size="lg"
+                onFocus={() => setQuickNavOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    setQuickNavOpen(true);
+                  }
+                }}
+              />
             </div>
-            <div className={`flex flex-col gap-4 rounded-xl px-3 py-3 sm:px-4 ${isDarkMode ? 'bg-[#0d1117]/35' : 'bg-slate-50/70'}`}>
-              <div className="flex min-w-0 flex-1 gap-4">
-                <div className={`min-h-0 min-w-0 flex-1 overflow-x-auto scrollbar-overlay ${isDarkMode ? '' : ''}`}>
-                  <div className="flex w-max min-w-full gap-2">
-                    <div className="flex shrink-0 flex-col pt-[15px]">
-                      <div className="flex flex-col gap-[3px]" aria-hidden>
-                        {contributionLeftDayMarkers.map((lab, i) => (
-                          <span
-                            key={`dw-${i}`}
-                            className={`flex h-[10px] items-center justify-end whitespace-nowrap pr-1 text-[9px] ${textMuted}`}
-                          >
-                            {lab || '\u00a0'}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="min-w-0 shrink-0">
-                      <div className="flex gap-[3px]">
-                        {githubGrid.monthLabels.map((lab, wi) => (
-                          <div key={`mh-${wi}`} className="w-[11px] shrink-0 text-left leading-none">
-                            {lab ? <span className={`text-[10px] ${textMuted}`}>{lab}</span> : null}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-[3px] flex gap-[3px]">
-                        {githubGrid.weeks.map((week, wi) => (
-                          <div key={`wk-${wi}`} className="flex shrink-0 flex-col gap-[3px]" role="presentation">
-                            {week.map((cell, di) => (
-                              <div
-                                key={cell.key + String(di)}
-                                title={
-                                  cell.inYear
-                                    ? t('dashboard.personalActivityDayTitle', {
-                                        date: cell.key,
-                                        tasks: cell.tasks,
-                                        messages: cell.messages,
-                                      })
-                                    : ''
-                                }
-                                className={`h-[10px] w-[11px] rounded-[2px] ${
-                                  cell.inYear ? githubContributionCellClass(cell.total, isDarkMode) : 'pointer-events-none border-0 bg-transparent'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <nav
-                  aria-label={t('dashboard.activityYearNavAria')}
-                  className={`flex shrink-0 flex-col items-end gap-0.5 border-l pl-3 ${isDarkMode ? 'border-white/[0.08]' : 'border-slate-200'}`}
-                >
-                  {contributionYearChoices.map((y) => (
-                    <button
-                      key={y}
-                      type="button"
-                      onClick={() => setActivityYear(y)}
-                      className={`rounded-md px-2 py-0.5 text-sm font-semibold transition ${
-                        y === activityYear
-                          ? isDarkMode
-                            ? 'bg-cyan-500/25 text-cyan-200 ring-1 ring-cyan-500/40'
-                            : 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-200'
-                          : isDarkMode
-                            ? `${textMuted} hover:bg-white/[0.06] hover:text-white`
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                      }`}
-                    >
-                      {y}
-                    </button>
-                  ))}
-                </nav>
-              </div>
-              <div className={`flex flex-wrap items-center justify-end gap-2 pt-1 text-[11px] ${textMuted}`}>
-                <div className="flex items-center gap-1">
-                  <span>{t('dashboard.personalActivityLegendLess')}</span>
-                  <div className="flex gap-1">
-                    {[0, 1, 4, 8, 12].map((fakeTotal, i) => (
-                      <div
-                        key={`lg-${i}`}
-                        className={`h-[10px] w-[11px] rounded-[2px] ${fakeTotal === 0 ? githubContributionCellClass(0, isDarkMode) : githubContributionCellClass(fakeTotal, isDarkMode)}`}
-                      />
-                    ))}
-                  </div>
-                  <span>{t('dashboard.personalActivityLegendMore')}</span>
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-
-          <div id="vh-dashboard-activity" className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_24px_rgba(0,0,0,0.22)]' : 'shadow-md'}`}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className={`text-base font-bold ${textHeading}`}>{t('dashboard.privateMessagesTitle')}</h2>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/app/communicate/chat/friends')}
-                    className={`text-xs font-semibold ${accentText}`}
-                  >
-                    Xem tất cả
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {recentDmContacts.length === 0 ? (
-                    <p className={`rounded-xl border border-dashed px-3 py-2 text-xs ${isDarkMode ? 'border-white/[0.08] text-[#6b7280]' : 'border-slate-200 text-slate-500'}`}>
-                      Chưa có tin nhắn gần đây.
-                    </p>
-                  ) : (
-                    recentDmContacts.map((activity, idx) => (
-                      <button
-                        key={`dm-${activity.id || idx}`}
-                        type="button"
-                        onClick={() => navigate('/app/communicate/chat/friends')}
-                        className={`w-full rounded-xl px-3 py-2 text-left transition ${
-                          isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className={`truncate text-sm font-semibold ${textHeading}`}>{activity.name}</div>
-                          <div className={`shrink-0 text-[11px] ${textSub}`}>{activity.time}</div>
-                        </div>
-                        <div className={`mt-0.5 truncate text-xs ${textMuted}`}>{activity.preview}</div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </GlassCard>
-
-              <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_24px_rgba(0,0,0,0.22)]' : 'shadow-md'}`}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className={`text-base font-bold ${textHeading}`}>Thông báo</h2>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/notifications')}
-                    className={`text-xs font-semibold ${accentText}`}
-                  >
-                    Tất cả
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {recentNotifications.length === 0 ? (
-                    <p className={`rounded-xl border border-dashed px-3 py-2 text-xs ${isDarkMode ? 'border-white/[0.08] text-[#6b7280]' : 'border-slate-200 text-slate-500'}`}>
-                      Chưa có thông báo gần đây.
-                    </p>
-                  ) : (
-                    recentNotifications.map((activity, idx) => (
-                    <button
-                      key={`noti-${activity.id || idx}`}
-                      type="button"
-                      onClick={() => navigate('/notifications')}
-                      className={`w-full rounded-xl px-3 py-2 text-left transition ${
-                        isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className={`truncate text-sm font-semibold ${textHeading}`}>{activity.title}</div>
-                        <div className={`shrink-0 text-[11px] ${textSub}`}>{activity.time}</div>
-                      </div>
-                      <div className={`mt-0.5 truncate text-xs ${textMuted}`}>{activity.preview}</div>
-                    </button>
-                    ))
-                  )}
-                </div>
-              </GlassCard>
-            </div>
-
-            <GlassCard className={`${cardSurface} ${isDarkMode ? 'shadow-[0_8px_32px_rgba(0,0,0,0.25)]' : 'shadow-md'}`}>
-              <div className="mb-3">
-                <h2 className={`text-lg font-bold ${textHeading}`}>Vào workspace</h2>
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {myOverviewItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() =>
-                      navigate(
-                        item.organizationId
-                          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(item.organizationId)}`
-                          : '/app/collaborate/workspaces'
-                      )
-                    }
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                      isDarkMode ? 'border-white/[0.08] bg-[#141416] hover:bg-white/[0.05]' : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className={`text-base font-semibold ${textHeading}`}>{item.workspaceName}</div>
-                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                        isDarkMode ? 'border-cyan-500/40 text-cyan-300' : 'border-cyan-300 text-cyan-700'
-                      }`}>
-                        {item.title}
-                      </span>
-                    </div>
-                    <div className={`mt-1 text-xs ${textMuted}`}>{item.detail}</div>
-                  </button>
-                ))}
-              </div>
-            </GlassCard>
-          </div>
-          </main>
-
-      <aside className={`flex w-80 shrink-0 flex-col overflow-hidden ${dashAside}`}>
-        <div className="flex-1 min-h-0 space-y-6 overflow-y-auto overflow-x-visible p-4 scrollbar-overlay">
-          <div className={`rounded-2xl p-3.5 ${isDarkMode ? 'bg-[#0f1218]' : 'bg-white'}`}>
-            <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-gradient-to-b from-[#1a1f2b] to-[#141821]' : 'bg-slate-50'}`}>
-              <div className="flex items-center gap-3">
-                <UserAvatar
-                  avatar={user?.avatar}
-                  userId={user?.userId || user?.id || user?._id}
-                  name={displayName}
-                  size="md"
-                />
-                <div className="min-w-0">
-                  <div className={`truncate text-base font-bold ${textHeading}`}>{displayName}</div>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className={`text-2xl font-extrabold tabular-nums ${textHeading}`}>{metrics.orgCount ?? 0}</div>
-                  <div className={`text-[11px] ${textSub}`}>{t('dashboard.statOrg')}</div>
-                </div>
-                <div>
-                  <div className={`text-2xl font-extrabold tabular-nums ${textHeading}`}>{metrics.friendsTotal ?? 0}</div>
-                  <div className={`text-[11px] ${textSub}`}>{t('dashboard.statFriends')}</div>
-                </div>
-                <div>
-                  <div className={`text-2xl font-extrabold tabular-nums ${textHeading}`}>{metrics.taskDone ?? 0}</div>
-                  <div className={`text-[11px] ${textSub}`}>{t('dashboard.statTaskDone')}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Sắp tới</h3>
-                <button
-                  type="button"
-                  onClick={() => navigate('/calendar')}
-                  className={`text-[11px] font-semibold ${isDarkMode ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-600'}`}
-                >
-                  {t('dashboard.viewAllShort')}
-                </button>
-              </div>
-              <div className="space-y-2.5">
-                {!metrics.loading && upcomingMeetings.length === 0 && (
-                  <p className={`rounded-xl border border-dashed px-3 py-2 text-xs ${isDarkMode ? 'border-white/[0.08] text-[#6b7280]' : 'border-slate-200 text-slate-500'}`}>
-                    {t('dashboard.noMeetingsWeek')}
-                  </p>
+            <div className="ml-auto flex items-center gap-2">
+              <button type="button" onClick={() => navigate('/app/communicate/notifications')} className={`relative rounded-xl p-2.5 transition ${isDarkMode ? 'text-[#9ca3af] hover:bg-white/[0.06] hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`} aria-label={t('dashboard.ariaNotifications')}>
+                <Bell className="h-5 w-5" strokeWidth={2} />
+                {(metrics.unread > 0 || metrics.pendingCount > 0) && (
+                  <span className={`absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ${isDarkMode ? 'ring-[#0D0D0F]' : 'ring-white'}`} />
                 )}
-                {upcomingMeetings.slice(0, 3).map((event, idx) => {
-                  const borderColors = ['border-l-blue-500', 'border-l-emerald-500', 'border-l-amber-500'];
-                  const bc = borderColors[idx % borderColors.length];
-                  return (
-                    <button
-                      key={event.id != null ? String(event.id) : idx}
-                      type="button"
-                      onClick={() => navigate('/calendar')}
-                      className={`w-full rounded-xl border-l-4 px-3 py-2 text-left transition ${bc} ${isDarkMode ? 'bg-[#161b25] hover:bg-white/[0.04]' : 'bg-white hover:bg-slate-50'}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className={`truncate text-sm font-semibold ${textHeading}`}>{event.title}</div>
-                        {event.source === 'local' ? (
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-                            Local
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className={`mt-0.5 text-xs ${textMuted}`}>
-                        {event.time} · {t('dashboard.peopleUnit', { n: event.attendees })}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-
-            {!metrics.loading && metrics.pendingCount > 0 && (
-              <button
-                type="button"
-                onClick={() => navigate('/app/communicate/chat/friends?tab=requests')}
-                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
-                  isDarkMode
-                    ? 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                    : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                {t('dashboard.pendingInvites', { n: metrics.pendingCount })}
               </button>
-            )}
+            </div>
+          </header>
+        )}
+
+        {suiteLayout ? dashboardBody : (
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-overlay">
+            {dashboardBody}
           </div>
-
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.groupStatus')}</h3>
-              <span
-                className={`text-xs font-semibold ${isDarkMode ? 'text-emerald-400/90' : 'text-emerald-800'}`}
-              >
-                {onlineFriendCount} online
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {displayPresenceFriends.slice(0, 9).map((pf, idx) => (
-                <div key={pf.id != null ? String(pf.id) : idx} className="flex flex-col items-center text-center">
-                  <button
-                    type="button"
-                    onClick={() => navigate('/app/communicate/chat/friends')}
-                    className="relative rounded-full outline-none ring-offset-2 ring-offset-transparent transition hover:ring-2 hover:ring-cyan-500/40 focus-visible:ring-2 focus-visible:ring-cyan-500/50"
-                    aria-label={t('friendChat.openChatAria', { name: pf.name })}
-                  >
-                    <UserAvatar avatar={pf.avatarUrl} userId={pf.id} name={pf.name} size="md" />
-                    <StatusIndicator status={pf.status} />
-                  </button>
-                  <span
-                    className={`mt-1 w-full truncate text-xs font-medium ${isDarkMode ? 'text-[#d1d5db]' : 'text-slate-800'}`}
-                  >
-                    {pf.name.split(' ')[0]}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate('/app/communicate/chat/friends')}
-              className={`mt-3 w-full rounded-xl py-2.5 text-sm font-semibold transition ${isDarkMode ? 'bg-white/[0.03] text-[#9ca3af] hover:bg-white/[0.08] hover:text-white' : 'bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-900'}`}
-            >
-              {t('dashboard.openFriendChat')}
-            </button>
-          </div>
-
-          <div className={`rounded-2xl border p-3 ${cardSurface}`}>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h3 className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.weekActivity')}</h3>
-              </div>
-              <div className={`text-right text-[11px] ${textSub}`}>
-                <div className={`text-sm font-bold ${accentText}`}>
-                  {weeklyActivityDays.reduce((sum, item) => sum + (item.total || 0), 0)}
-                </div>
-                <div>hoạt động</div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1.5">
-              {weeklyActivityDays.map((day) => (
-                <button
-                  key={day.key}
-                  type="button"
-                  onClick={() => setWeeklyDayModal(day)}
-                  title={`${day.dayLabel} · ${day.total} hoạt động`}
-                  className={`group flex min-h-[72px] flex-col rounded-xl border p-1.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 ${
-                    isDarkMode
-                      ? 'border-white/[0.06] bg-[#141416] hover:border-emerald-500/30 hover:bg-white/[0.04]'
-                      : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1 text-[10px] font-semibold">
-                    <span className={textSub}>{day.dayLabel}</span>
-                    <span
-                      className={
-                        day.total > 0
-                          ? isDarkMode
-                            ? 'text-emerald-400'
-                            : 'text-emerald-700'
-                          : textSub
-                      }
-                    >
-                      {day.total}
-                    </span>
-                  </div>
-                  <div
-                    className={`mt-1.5 min-h-[44px] flex-1 rounded-md ${githubContributionCellClass(day.total, isDarkMode)}`}
-                    aria-hidden
-                  />
-                </button>
-              ))}
-            </div>
-
-            <div className={`mt-2 flex flex-wrap items-center justify-end gap-2 text-[11px] ${textMuted}`}>
-              <span>{t('dashboard.personalActivityLegendLess')}</span>
-              <div className="flex gap-1">
-                {[0, 1, 4, 8, 12].map((fakeTotal, i) => (
-                  <div
-                    key={`week-lg-${i}`}
-                    className={`h-[10px] w-[11px] rounded-[2px] ${githubContributionCellClass(fakeTotal, isDarkMode)}`}
-                  />
-                ))}
-              </div>
-              <span>{t('dashboard.personalActivityLegendMore')}</span>
-            </div>
-          </div>
-
-          <div className={`rounded-2xl border p-3.5 ${isDarkMode ? 'border-white/[0.06] bg-[#141416]' : 'border-slate-200 bg-slate-50'}`}>
-            <h3 className={`mb-3 text-xs font-bold uppercase tracking-wider ${textSub}`}>{t('dashboard.quickStats')}</h3>
-            <div className="space-y-2.5">
-              {[
-                {
-                  label: t('dashboard.statUnread'),
-                  value: metrics.loading ? '…' : String(metrics.unread),
-                  icon: '🔔',
-                  path: '/notifications',
-                },
-                {
-                  label: t('dashboard.statInvites'),
-                  value: metrics.loading ? '…' : String(metrics.pendingCount),
-                  icon: '👋',
-                  path: '/app/communicate/chat/friends?tab=requests',
-                },
-                {
-                  label: t('dashboard.statFriends'),
-                  value: metrics.loading ? '…' : metrics.friendsTotal == null ? '—' : String(metrics.friendsTotal),
-                  icon: '👥',
-                  path: '/friends',
-                },
-              ].map((s, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => navigate(s.path)}
-                  className={`flex w-full items-center justify-between rounded-lg text-left text-sm transition ${isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-100'}`}
-                >
-                  <span className={`flex items-center gap-2 ${textMuted}`}>
-                    <span>{s.icon}</span>
-                    {s.label}
-                  </span>
-                  <span className={`font-bold ${accentText}`}>{s.value}</span>
-                </button>
-              ))}
-            </div>
-            <GradientButton
-              type="button"
-              variant="primary"
-              className="mt-4 w-full py-3 text-sm font-semibold shadow-[0_8px_24px_rgba(8,145,178,0.22)]"
-              onClick={() => setShowAddFriendModal(true)}
-            >
-              {t('dashboard.addFriend')}
-            </GradientButton>
-          </div>
-        </div>
-      </aside>
-        </div>
+        )}
       </div>
     </div>
 
@@ -1804,8 +1960,12 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         <div className="space-y-3">
           <p className={`text-sm ${textMuted}`}>
             {weeklyDayModal.total > 0
-              ? `${weeklyDayModal.total} hoạt động · ${weeklyDayModal.tasks} task · ${weeklyDayModal.messages} tin nhắn`
-              : 'Chưa có hoạt động trong ngày này.'}
+              ? t('dashboard.weeklyDaySummary', {
+                  total: weeklyDayModal.total,
+                  tasks: weeklyDayModal.tasks,
+                  messages: weeklyDayModal.messages,
+                })
+              : t('dashboard.weeklyDayEmpty')}
           </p>
           {weeklyDayModal.items?.length > 0 ? (
             <ul className="max-h-[min(360px,55vh)] space-y-2 overflow-y-auto scrollbar-overlay pr-1">
@@ -1948,7 +2108,7 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
                       <div className="flex-1">
                         <div className={`font-semibold ${textHeading}`}>{role.name}</div>
                         <div className={`text-xs ${textMuted}`}>
-                          {role.online}/{role.count} online
+                          {t('dashboard.roleOnlineCount', { online: role.online, count: role.count })}
                         </div>
                       </div>
                       <div className="h-2 w-24 overflow-hidden rounded-full glass-strong">
@@ -2131,11 +2291,13 @@ function DashboardPage({ landingDemo = false, demoVariant = 'default', suiteLayo
         </div>
     </Modal>
 
+    {!suiteLayout && (
     <DashboardGlobalSearchModal
       isOpen={quickNavOpen}
       onClose={() => setQuickNavOpen(false)}
       layer1Query={searchQuery}
     />
+    )}
 
   </>
   );

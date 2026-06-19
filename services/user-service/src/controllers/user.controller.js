@@ -20,6 +20,49 @@ function safeProfilePayload(profile) {
   };
 }
 
+function authEmailFromReq(req) {
+  return String(req.headers['x-user-email'] || req.user?.email || '')
+    .trim()
+    .toLowerCase();
+}
+
+async function reconcileProfileEmail(req, userId, userProfile) {
+  if (!userProfile || !userId) return userProfile;
+  const plain =
+    typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
+  const profileEmail = readPiiFromProfile(plain).email;
+  const hasStoredEmailArtifact =
+    Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
+  const authEmail = authEmailFromReq(req);
+  if (!profileEmail && hasStoredEmailArtifact) {
+    logger.warn(
+      `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
+    );
+    return userProfile;
+  }
+  if (!profileEmail && authEmail) {
+    try {
+      return await userService.updateUserEmailInternal(userId, authEmail);
+    } catch (repairErr) {
+      logger.warn(
+        `Failed to recover missing profile email for userId=${userId}: ${
+          repairErr?.message || 'unknown error'
+        }`
+      );
+    }
+  }
+  return userProfile;
+}
+
+function withAuthEmailFallback(req, payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const authEmail = authEmailFromReq(req);
+  if (!String(payload.email || '').trim() && authEmail) {
+    return { ...payload, email: authEmail };
+  }
+  return payload;
+}
+
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   const status = Number(err?.statusCode) || fallbackStatus;
   const message = String(err?.message || fallbackMessage);
@@ -94,7 +137,7 @@ class UserController {
           message: 'userId is required',
         });
       }
-      const userProfile = await userService.getUserProfileById(userId);
+      let userProfile = await userService.getUserProfileById(userId);
 
       if (!userProfile) {
         return res.status(404).json({
@@ -103,34 +146,11 @@ class UserController {
         });
       }
 
-      const plain =
-        typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
-      const profileEmail = readPiiFromProfile(plain).email;
-      const hasStoredEmailArtifact =
-        Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
-      const authEmail = String(req.headers['x-user-email'] || req.user?.email || '')
-        .trim()
-        .toLowerCase();
-      if (!profileEmail && hasStoredEmailArtifact) {
-        logger.warn(
-          `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
-        );
-      } else if (!profileEmail && authEmail) {
-        try {
-          userProfile = await userService.updateUserEmailInternal(userId, authEmail);
-          logger.info(`Recovered missing profile email for userId=${userId}`);
-        } catch (repairErr) {
-          logger.warn(
-            `Failed to recover missing profile email for userId=${userId}: ${
-              repairErr?.message || 'unknown error'
-            }`
-          );
-        }
-      }
+      userProfile = await reconcileProfileEmail(req, userId, userProfile);
 
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: withAuthEmailFallback(req, safeProfilePayload(userProfile)),
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -247,9 +267,11 @@ class UserController {
         });
       }
 
+      userProfile = await reconcileProfileEmail(req, userId, userProfile);
+
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: withAuthEmailFallback(req, safeProfilePayload(userProfile)),
       });
     } catch (error) {
       logger.error('Get current user error:', error);

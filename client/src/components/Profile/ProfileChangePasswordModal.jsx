@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { GradientButton } from '../Shared';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { notify } from '../../utils/appToast';
 
 export default function ProfileChangePasswordModal({
@@ -62,7 +63,7 @@ export default function ProfileChangePasswordModal({
       setConfirmPassword('');
       onBack?.();
     } catch (err) {
-      notify.error(err?.message || t('profileModal.pwFail'));
+      notify.error(resolveApiErrorMessage(err, { t, fallback: t('profileModal.pwFail') }));
     } finally {
       setSaving(false);
     }

@@ -7,6 +7,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import { meetingAPI } from '../../services/api/meetingAPI';
 import friendService from '../../services/friendService';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { fetchOrgMessageSearch, formatOrgMessageSearchError } from '../search/orgChatSearchConfig';
 import { formatMessagePreview } from '../search/formatMessagePreview';
 import { enrichMessagesBusinessCards } from '../search/businessCardDisplay';
@@ -370,10 +371,7 @@ export async function fetchDashboardSearchResults({
   } catch (e) {
     const msg =
       formatOrgMessageSearchError(e) ||
-      e?.data?.message ||
-      e?.response?.data?.message ||
-      e?.message ||
-      t('dashboard.globalSearch.loadError');
+      resolveApiErrorMessage(e, { t, fallback: t('dashboard.globalSearch.loadError') });
     return { items: [], truncated: false, error: msg };
   }
 }
