@@ -5,6 +5,7 @@ import { useFriendPending } from '../../hooks/queries';
 import friendService from '../../services/friendService';
 import UserAvatar from '../Shared/UserAvatar';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { queryKeys } from '../../lib/queryKeys';
 import {
   NOTIFICATIONS_REFRESH_EVENT,
@@ -80,7 +81,7 @@ export default function FriendPendingRequestsRail({
       invalidateAll();
       onAccepted?.(item);
     } catch (err) {
-      toast.error(err.response?.data?.message || t('friendChat.pendingActionFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.pendingActionFail') }));
     } finally {
       setActingKey('');
     }
@@ -95,7 +96,7 @@ export default function FriendPendingRequestsRail({
       toast.success(t('friendChat.pendingRejectOk'));
       invalidateAll();
     } catch (err) {
-      toast.error(err.response?.data?.message || t('friendChat.pendingActionFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.pendingActionFail') }));
     } finally {
       setActingKey('');
     }

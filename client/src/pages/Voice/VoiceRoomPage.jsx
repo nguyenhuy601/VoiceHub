@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import {
   Calendar,
   ChevronUp,
+  Clock,
   LayoutGrid,
   LogIn,
   Maximize2,
@@ -14,14 +15,17 @@ import {
   MicOff,
   Minimize2,
   MoreHorizontal,
+  PhoneOff,
   PictureInPicture2,
   Plus,
   Search,
+  Send,
   Settings,
   UserPlus,
   Users,
   Video,
   VideoOff,
+  Wifi,
   X,
 } from 'lucide-react';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
@@ -29,11 +33,11 @@ import api from '../../services/api';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import userService from '../../services/userService';
 import friendService from '../../services/friendService';
-import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { useAuth } from '../../context/AuthContext';
 import { useFriendCallSession } from '../../context/FriendCallSessionContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { appShellBg } from '../../theme/shellTheme';
 import { PageSearchBar } from '../../features/search';
 import { useLocale } from '../../context/LocaleContext';
@@ -48,6 +52,78 @@ import { resolveAppOrigin } from '../../utils/browserOrigin';
 import { emitNotificationsRefresh } from '../../services/notificationSync';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
+import {
+  FIGMA_VOICE_CTRL_BTN,
+  FIGMA_VOICE_CTRL_BTN_ACTIVE,
+  FIGMA_VOICE_CTRL_BTN_DANGER,
+  FIGMA_VOICE_CTRL_BTN_IDLE,
+  FIGMA_VOICE_CTRL_DIVIDER,
+  FIGMA_VOICE_CTRL_END,
+  FIGMA_VOICE_CTRL_GROUP,
+  FIGMA_VOICE_LOBBY_BODY,
+  FIGMA_VOICE_LOBBY_CREATE_CARD,
+  FIGMA_VOICE_LOBBY_CREATE_ICON,
+  FIGMA_VOICE_LOBBY_HEADER,
+  FIGMA_VOICE_LOBBY_HEADER_ICON,
+  FIGMA_VOICE_LOBBY_HEADER_TITLE,
+  FIGMA_VOICE_LOBBY_JOIN_CARD,
+  FIGMA_VOICE_LOBBY_LIVE_BADGE,
+  FIGMA_VOICE_LOBBY_LIVE_DOT,
+  FIGMA_VOICE_LOBBY_LIVE_TEXT,
+  FIGMA_VOICE_LOBBY_PRIMARY_BTN,
+  FIGMA_VOICE_LOBBY_ROOT,
+  FIGMA_VOICE_AVATAR_STACK,
+  FIGMA_VOICE_AVATAR_STACK_CHIP,
+  FIGMA_VOICE_AVATAR_STACK_OVERFLOW,
+  FIGMA_VOICE_CHAT_INPUT,
+  FIGMA_VOICE_CHAT_SEND_BTN,
+  FIGMA_VOICE_GRID_AREA_INLINE,
+  FIGMA_VOICE_GRID_SCROLL,
+  FIGMA_VOICE_MAIN_ROW,
+  FIGMA_VOICE_MODAL_BACKDROP,
+  FIGMA_VOICE_MODAL_HEADER,
+  FIGMA_VOICE_MODAL_SHELL,
+  FIGMA_VOICE_PEOPLE_AVATAR,
+  FIGMA_VOICE_PEOPLE_ROW,
+  FIGMA_VOICE_SIDE_CLOSE_BTN,
+  FIGMA_VOICE_SIDE_TAB_ROW,
+  FIGMA_VOICE_STATUS_DOT,
+  FIGMA_VOICE_TILE_AVATAR_FALLBACK,
+  FIGMA_VOICE_TILE_BADGE_ROW,
+  FIGMA_VOICE_TILE_BASE,
+  FIGMA_VOICE_TILE_HOVER_BTN,
+  FIGMA_VOICE_TILE_HOVER_BTN_DANGER,
+  FIGMA_VOICE_TILE_HOVER_OVERLAY,
+  FIGMA_VOICE_TILE_IDLE,
+  FIGMA_VOICE_TILE_MUTE_BADGE,
+  FIGMA_VOICE_TILE_NAME_BADGE,
+  FIGMA_VOICE_TILE_ROLE_BADGE,
+  FIGMA_VOICE_TILE_SPEAKING,
+  FIGMA_VOICE_TILE_VIDEO,
+  FIGMA_VOICE_TILE_YOU_BADGE,
+  FIGMA_VOICE_TOP_CHANNEL,
+  FIGMA_VOICE_TOP_DIVIDER,
+  FIGMA_VOICE_TOP_META,
+  FIGMA_VOICE_TOP_TITLE,
+  FIGMA_VOICE_WIFI_BADGE,
+  FIGMA_VOICE_WIFI_ICON,
+  FIGMA_VOICE_WIFI_TEXT,
+  figmaVoiceCtrlOuter,
+  figmaVoiceCtrlPill,
+  figmaVoiceGridArea,
+  figmaVoiceGridClass,
+  figmaVoiceGridInner,
+  figmaVoiceRoomRoot,
+  figmaVoiceSidePanel,
+  figmaVoiceSideTab,
+  figmaVoiceTopBar,
+} from '../../components/Voice/figmaVoiceClasses';
+import VoiceSpeakingWaveform from '../../components/Voice/VoiceSpeakingWaveform';
+import { voiceParticipantColor, voiceParticipantInitials } from '../../utils/voiceParticipantColor';
+import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
+import VoiceLobbyView from '../../components/Voice/VoiceLobbyView';
+import VoiceAiTranscribeControl from '../../components/Voice/VoiceAiTranscribeControl';
+import VoiceMeetingTile from '../../components/Voice/VoiceMeetingTile';
 
 /** Nút thanh họp: icon + (badge) + chevron + nhãn — tham chiếu layout Zoom/Teams (hình 1) */
 function VoiceToolbarControl({
@@ -59,8 +135,31 @@ function VoiceToolbarControl({
   badge,
   active = true,
   pressed = false,
+  suiteLayout = false,
 }) {
   const OffIcon = iconOff || Icon;
+  if (suiteLayout) {
+    const btnState = !active
+      ? FIGMA_VOICE_CTRL_BTN_DANGER
+      : pressed
+        ? FIGMA_VOICE_CTRL_BTN_ACTIVE
+        : FIGMA_VOICE_CTRL_BTN_IDLE;
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        aria-label={badge != null ? `${label} (${badge})` : label}
+        className={`${FIGMA_VOICE_CTRL_BTN} ${btnState}`}
+      >
+        {active ? (
+          <Icon className="h-[17px] w-[17px] shrink-0 text-white" strokeWidth={1.75} />
+        ) : (
+          <OffIcon className="h-[17px] w-[17px] shrink-0 text-white" strokeWidth={1.75} />
+        )}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
@@ -206,7 +305,9 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
-  const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
+  const LOCALE_TAG_EN = 'en-US';
+  const LOCALE_TAG_VI = 'vi-VN';
+  const timeLocale = locale === 'en' ? LOCALE_TAG_EN : LOCALE_TAG_VI;
 
   const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
@@ -258,6 +359,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       return [];
     }
   });
+  const [aiTranscribeEnabled, setAiTranscribeEnabled] = useState(false);
 
   const [roomMessages, setRoomMessages] = useState([]);
   const [roomChatInput, setRoomChatInput] = useState('');
@@ -306,6 +408,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const meetingRootRef = useRef(null);
   const moreMenuWrapRef = useRef(null);
   const pipVideoRef = useRef(null);
+  const voiceInitTokenRef = useRef(0);
 
   const localDisplayName = useMemo(
     () => user?.displayName || user?.fullName || user?.name || user?.email?.split('@')[0] || t('common.you'),
@@ -530,6 +633,42 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const totalParticipants = useMemo(() => participants.length + 1, [participants.length]);
   const currentMeetingCode = useMemo(() => activeRoomId || safeRoomId || 'room1', [activeRoomId, safeRoomId]);
 
+  const inRoomTitle = useMemo(() => {
+    if (roomKind === 'org' && selectedOrgId) {
+      return t('voiceRoom.roomTypeOrg');
+    }
+    return t('voiceRoom.pageTitle');
+  }, [roomKind, selectedOrgId, t]);
+
+  const inRoomChannelLabel = useMemo(() => {
+    if (roomKind === 'org' && selectedOrgId) {
+      return `#org-${String(selectedOrgId).slice(-6)}`;
+    }
+    return `#${String(currentMeetingCode).replace(/^VH-/i, '').toLowerCase() || 'voice'}`;
+  }, [roomKind, selectedOrgId, currentMeetingCode]);
+
+  const avatarStackItems = useMemo(() => {
+    const localName = displayNameInput || localDisplayName;
+    const localColor = voiceParticipantColor(localName);
+    const rows = [
+      {
+        id: 'local',
+        initials: voiceParticipantInitials(localName),
+        color: localColor,
+      },
+      ...participants.slice(0, 3).map((p) => {
+        const name = p.displayName || p.userId || 'P';
+        return {
+          id: p.socketId,
+          initials: voiceParticipantInitials(name),
+          color: voiceParticipantColor(name),
+        };
+      }),
+    ];
+    const overflow = Math.max(0, totalParticipants - rows.length);
+    return { rows, overflow };
+  }, [displayNameInput, localDisplayName, participants, totalParticipants]);
+
   const filteredInviteRows = useMemo(() => {
     const q = inviteSearch.trim().toLowerCase();
     if (!q) return inviteCandidates;
@@ -556,7 +695,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     [participants, hideNoVideo, maxTiles, isCameraOff, hasLocalVideoTrack]
   );
 
-  const meetingGridClass = useMemo(() => gridWrapperClass(layoutMode), [layoutMode]);
+  const meetingGridClass = useMemo(
+    () => (suiteLayout ? figmaVoiceGridClass(layoutMode) : gridWrapperClass(layoutMode)),
+    [layoutMode, suiteLayout]
+  );
 
   useEffect(() => {
     localStorage.setItem('vh.voice.layoutMode', layoutMode);
@@ -904,6 +1046,60 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     }
   };
 
+  const teardownVoiceSession = useCallback(({ notifyServer = true } = {}) => {
+    const {
+      socket,
+      audioProducer,
+      videoProducer,
+      sendTransport,
+      recvTransport,
+      consumers,
+      localStream,
+      remoteStreams,
+    } = mediasoupRef.current;
+
+    if (notifyServer && socket?.connected && currentRoomRef.current) {
+      socket.emit('voice:leaveRoom', { roomId: currentRoomRef.current });
+    }
+
+    for (const consumer of consumers.values()) {
+      try {
+        consumer.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    consumers.clear();
+    remoteStreams.clear();
+
+    audioProducer?.close();
+    videoProducer?.close();
+    sendTransport?.close();
+    recvTransport?.close();
+
+    mediasoupRef.current.audioProducer = null;
+    mediasoupRef.current.videoProducer = null;
+    mediasoupRef.current.sendTransport = null;
+    mediasoupRef.current.recvTransport = null;
+    mediasoupRef.current.device = null;
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+    }
+    mediasoupRef.current.localStream = null;
+
+    stopAudioLevelMonitor('local');
+    for (const key of [...audioLevelMonitorsRef.current.keys()]) {
+      if (key.startsWith('remote:')) stopAudioLevelMonitor(key);
+    }
+
+    if (socket) {
+      socket.removeAllListeners();
+      socket.disconnect();
+    }
+    mediasoupRef.current.socket = null;
+  }, []);
+
   const startPrejoinPreview = async (audioEnabled = true, videoEnabled = true) => {
     stopPrejoinPreview();
     if (!audioEnabled && !videoEnabled) return;
@@ -1131,6 +1327,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     displayName = '',
   }) => {
     const roomTarget = targetRoomId || safeRoomId || 'room1';
+    teardownVoiceSession({ notifyServer: false });
+    const initToken = ++voiceInitTokenRef.current;
     try {
       setJoining(true);
       setError('');
@@ -1141,6 +1339,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       await api.get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`, {
         skipGlobalErrorHandling: true,
       }).catch(() => null);
+
+      if (initToken !== voiceInitTokenRef.current) return;
 
       let localStream = prejoinStreamRef.current;
       if (!localStream) {
@@ -1171,13 +1371,21 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       });
       mediasoupRef.current.socket = socket;
 
-      socket.on('connect', () => setConnected(true));
-      socket.on('disconnect', () => setConnected(false));
+      socket.on('connect', () => {
+        if (initToken !== voiceInitTokenRef.current) return;
+        setConnected(true);
+      });
+      socket.on('disconnect', () => {
+        if (initToken !== voiceInitTokenRef.current) return;
+        setConnected(false);
+      });
       socket.on('connect_error', (err) => {
-        setError(err.message || 'Voice signaling connect error');
+        if (initToken !== voiceInitTokenRef.current) return;
+        setError(resolveApiErrorMessage(err, { t, fallback: t('voiceRoom.connectFail') }));
       });
 
       socket.on('voice:peerJoined', (payload) => {
+        if (initToken !== voiceInitTokenRef.current) return;
         addOrUpdateParticipant({
           socketId: payload.socketId,
           userId: payload.userId,
@@ -1187,6 +1395,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       });
 
       socket.on('voice:peerLeft', (payload) => {
+        if (initToken !== voiceInitTokenRef.current) return;
         removeParticipant(payload.socketId);
         stopAudioLevelMonitor(`remote:${payload.socketId}`);
         setRemoteSpeakingMap((prev) => {
@@ -1202,6 +1411,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       });
 
       const mediasoupModule = await import('mediasoup-client');
+      if (initToken !== voiceInitTokenRef.current) {
+        teardownVoiceSession({ notifyServer: false });
+        return;
+      }
       const DeviceClass = mediasoupModule.Device;
 
       const joinResp = await requestSocket('voice:joinRoom', { roomId: roomTarget, displayName });
@@ -1276,12 +1489,17 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       }
 
       socket.on('voice:newProducer', async (producerMeta) => {
+        if (initToken !== voiceInitTokenRef.current) return;
         try {
           await consumeProducer(producerMeta);
         } catch (consumeError) {
           console.error('consume new producer failed', consumeError);
         }
       });
+      if (initToken !== voiceInitTokenRef.current) {
+        teardownVoiceSession({ notifyServer: false });
+        return;
+      }
       setIsMuted(!audioTrack);
       setIsCameraOff(!videoTrack);
       setViewStage('inRoom');
@@ -1300,12 +1518,16 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       if (fcm) qs.set('friendCallMedia', fcm);
       navigate(`/voice/${encodeURIComponent(roomTarget)}?${qs.toString()}`, { replace: true });
     } catch (initError) {
+      if (initToken !== voiceInitTokenRef.current) return;
       console.error(initError);
-      const msg = initError.message || t('voiceRoom.connectFail');
+      const msg = resolveApiErrorMessage(initError, { t, fallback: t('voiceRoom.connectFail') });
       setError(msg);
       toast.error(msg);
+      teardownVoiceSession({ notifyServer: false });
     } finally {
-      setJoining(false);
+      if (initToken === voiceInitTokenRef.current) {
+        setJoining(false);
+      }
     }
   };
 
@@ -1320,33 +1542,12 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         }
       }
 
-      const { socket, audioProducer, videoProducer, sendTransport, recvTransport, consumers, localStream } =
-        mediasoupRef.current;
+      teardownVoiceSession({ notifyServer: true });
 
-      if (socket?.connected) {
-        socket.emit('voice:leaveRoom', { roomId: currentRoomRef.current });
-      }
-
-      for (const consumer of consumers.values()) {
-        consumer.close();
-      }
-      consumers.clear();
-
-      audioProducer?.close();
-      videoProducer?.close();
-      sendTransport?.close();
-      recvTransport?.close();
-
-      if (localStream) {
-        localStream.getTracks().forEach((track) => track.stop());
-      }
-      stopAudioLevelMonitor('local');
-      for (const key of [...audioLevelMonitorsRef.current.keys()]) {
-        if (key.startsWith('remote:')) stopAudioLevelMonitor(key);
-      }
       setRemoteSpeakingMap({});
       setIsLocalSpeaking(false);
       setHasLocalVideoTrack(false);
+      setConnected(false);
       setActiveRoomId(null);
       setViewStage('home');
       setRightPanel(null);
@@ -1362,7 +1563,6 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         document.exitFullscreen().catch(() => {});
       }
 
-      socket?.disconnect();
       navigate('/voice');
     } catch (leaveError) {
       console.error(leaveError);
@@ -1479,7 +1679,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       setIsCameraOff(true);
     } catch (cameraError) {
       console.error(cameraError);
-      toast.error(cameraError.message || t('voiceRoom.cameraToggleFail'));
+      toast.error(resolveApiErrorMessage(cameraError, { t, fallback: t('voiceRoom.cameraToggleFail') }));
     }
   };
 
@@ -1512,24 +1712,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   useEffect(() => {
     return () => {
-      const { socket, localStream, consumers, audioProducer, videoProducer, sendTransport, recvTransport } =
-        mediasoupRef.current;
-      socket?.disconnect();
-      localStream?.getTracks().forEach((track) => track.stop());
+      voiceInitTokenRef.current += 1;
+      teardownVoiceSession({ notifyServer: true });
       stopPrejoinPreview();
-      stopAudioLevelMonitor('local');
-      for (const key of [...audioLevelMonitorsRef.current.keys()]) {
-        if (key.startsWith('remote:')) stopAudioLevelMonitor(key);
-      }
-      setRemoteSpeakingMap({});
-      setIsLocalSpeaking(false);
-      consumers.forEach((consumer) => consumer.close());
-      audioProducer?.close();
-      videoProducer?.close();
-      sendTransport?.close();
-      recvTransport?.close();
     };
-  }, []);
+  }, [teardownVoiceSession]);
 
   useEffect(() => {
     if (landingDemo) return;
@@ -1619,6 +1806,46 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     setViewStage('home');
   };
 
+  const lobbyRooms = useMemo(
+    () =>
+      recentCalls.map((item, index) => ({
+        id: String(item.roomId || ''),
+        name: item.label || item.roomId || t('voiceRoom.roomTypeFree'),
+        participants: index === 0 ? 1 : 0,
+        max: 15,
+        active: index === 0,
+        channel: item.roomKind === 'org' ? 'org-voice' : 'voice-free',
+        color: index % 2 === 0 ? '#2563EB' : '#8B5CF6',
+      })),
+    [recentCalls, t]
+  );
+
+  const lobbyActiveCount = useMemo(
+    () => lobbyRooms.filter((room) => room.active).length,
+    [lobbyRooms]
+  );
+
+  const handleLobbyJoinByCode = useCallback((code) => {
+    const trimmed = String(code || '').trim();
+    if (!trimmed) return;
+    setMeetingCode(trimmed);
+    setPrejoinMode('join');
+    setPrejoinAudioEnabled(true);
+    setPrejoinVideoEnabled(true);
+    setJoinModalOpen(false);
+    setViewStage('prejoin');
+  }, []);
+
+  const handleLobbyJoinRoom = useCallback((room) => {
+    const code = String(room?.id || '').trim();
+    if (!code) return;
+    setMeetingCode(code);
+    setPrejoinMode('join');
+    setPrejoinAudioEnabled(true);
+    setPrejoinVideoEnabled(true);
+    setViewStage('prejoin');
+  }, []);
+
   const handleResolveJoinRequest = async (requestId, action) => {
     const room = String(activeRoomId || safeRoomId || meetingCode || '').trim();
     if (!room || !requestId) return;
@@ -1632,7 +1859,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       emitNotificationsRefresh();
       toast.success(action === 'approve' ? t('voiceRoom.approveBtn') : t('voiceRoom.rejectBtn'));
     } catch (err) {
-      toast.error(err?.response?.data?.message || t('common.errorGeneric'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('common.errorGeneric') }));
     }
   };
 
@@ -1662,7 +1889,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       setInviteSearch('');
       setSelectedInviteIds([]);
     } catch (err) {
-      toast.error(err?.response?.data?.message || t('voiceRoom.inviteSentFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('voiceRoom.inviteSentFail') }));
     } finally {
       setInviteSending(false);
     }
@@ -1708,10 +1935,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         if (data?.hostUserId) setRoomHostUserId(String(data.hostUserId));
         else setRoomHostUserId(currentUserId);
       } catch (err) {
-        const status = err?.response?.status;
-        const msg = err?.response?.data?.message || '';
+        const status = err?.status || err?.response?.status;
+        const msg = resolveApiErrorMessage(err, { t, fallback: t('common.errorGeneric') });
         if (status !== 409) {
-          toast.error(msg || t('common.errorGeneric'));
+          toast.error(msg);
           setJoinRequestSubmitting(false);
           return;
         }
@@ -1748,11 +1975,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         setJoinRequestStatus('pending');
         toast.success(t('voiceRoom.joinRequestSent'));
       } catch (err) {
-        const msg = err?.response?.data?.message || '';
+        const msg = resolveApiErrorMessage(err, { t, fallback: t('common.errorGeneric') });
         if (msg.includes('host has not started')) {
           toast.error(t('voiceRoom.hostNotStarted'));
         } else {
-          toast.error(msg || t('common.errorGeneric'));
+          toast.error(msg);
         }
       } finally {
         setJoinRequestSubmitting(false);
@@ -1835,7 +2062,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   /** Khung lobby: sáng = cùng tông shell app; tối = nền đen (trước khi vào phòng) */
   const voiceLobby = useMemo(
     () =>
-      `flex min-h-0 flex-1 w-full flex-row overflow-hidden ${
+      `flex min-h-0 flex-1 w-full flex-col overflow-hidden lg:flex-row ${
         isDarkMode ? 'bg-black' : 'bg-white/55 backdrop-blur-sm'
       }`,
     [isDarkMode]
@@ -1843,100 +2070,595 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   const renderMeetingTile = (tile, index) => {
     const extra = tileItemClass(layoutMode, index);
+    const legacyClasses = {
+      tileBase:
+        'relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border bg-black/40 md:min-h-[260px]',
+      tileSpeaking: 'border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.2)]',
+      tileSpeakingLocal: 'border-emerald-400/60 shadow-[0_0_24px_rgba(52,211,153,0.25)]',
+      tileIdle: 'border-white/10',
+      videoClass: 'h-full min-h-[200px] w-full flex-1 object-cover',
+      avatarFallback:
+        'flex min-h-[220px] flex-1 flex-col items-center justify-center gap-3 bg-zinc-900/80 md:min-h-[260px]',
+    };
+
     if (tile.kind === 'local') {
       return (
-        <div
+        <VoiceMeetingTile
           key="local"
-          className={`relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border md:min-h-[260px] ${
-            isLocalSpeaking && !isMuted
-              ? 'border-emerald-400/60 shadow-[0_0_24px_rgba(52,211,153,0.25)]'
-              : 'border-white/10'
-          } bg-black/40 ${extra}`}
-        >
-          {hasLocalVideoTrack && !isCameraOff ? (
-            <video
-              ref={(node) => {
-                localVideoRef.current = node;
-                const stream = mediasoupRef.current.localStream;
-                if (node && stream && node.srcObject !== stream) {
-                  node.srcObject = stream;
-                  node.play?.().catch(() => {});
-                }
-              }}
-              autoPlay
-              playsInline
-              muted
-              className="h-full min-h-[200px] w-full flex-1 object-cover"
-            />
-          ) : (
-            <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-4 bg-gradient-to-b from-zinc-900/80 to-black/80 md:min-h-[260px]">
-              <UserAvatar
-                avatar={localAvatar}
-                userId={user?.id || user?._id}
-                name={localDisplayName}
-                size="hero"
-                className="shadow-lg"
-              />
-            </div>
-          )}
-          <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-2">
-            <span className="rounded-lg bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
-              {displayNameInput || localDisplayName}
-            </span>
-            <span className="rounded-md bg-violet-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              {t('voiceRoom.youBadge')}
-            </span>
-            {isMuted && (
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600/90">
-                <MicOff className="h-4 w-4 text-white" aria-hidden />
-              </span>
-            )}
-          </div>
-        </div>
+          suiteLayout={suiteLayout}
+          extraClass={extra}
+          isSpeaking={isLocalSpeaking && !isMuted}
+          isMuted={isMuted}
+          name={displayNameInput || localDisplayName}
+          youLabel={t('voiceRoom.youBadge')}
+          roleLabel={isRoomHost ? t('voiceRoom.host') : ''}
+          showYouBadge
+          hasVideo={hasLocalVideoTrack && !isCameraOff}
+          videoRef={localVideoRef}
+          videoStream={mediasoupRef.current.localStream}
+          localAvatar={localAvatar}
+          localUserId={user?.id || user?._id}
+          avatarSize="hero"
+          legacyClasses={{
+            ...legacyClasses,
+            tileSpeaking: legacyClasses.tileSpeakingLocal,
+            avatarFallback:
+              'flex min-h-[220px] flex-1 flex-col items-center justify-center gap-4 bg-gradient-to-b from-zinc-900/80 to-black/80 md:min-h-[260px]',
+          }}
+        />
       );
     }
+
     const participant = tile.participant;
+    const pName = participant.displayName || participant.userId || t('voiceRoom.memberFallback');
+    const hasRemoteVideo = participant.stream && participant.stream.getVideoTracks().length > 0;
+
     return (
-      <div
+      <VoiceMeetingTile
         key={participant.socketId}
-        className={`relative flex min-h-[220px] flex-col overflow-hidden rounded-xl border bg-black/40 md:min-h-[260px] ${
-          remoteSpeakingMap[participant.socketId]
-            ? 'border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.2)]'
-            : 'border-white/10'
-        } ${extra}`}
-      >
-        {participant.stream && participant.stream.getVideoTracks().length > 0 ? (
-          <video
-            autoPlay
-            playsInline
-            ref={(node) => {
-              if (!node) return;
-              if (node.srcObject !== participant.stream) {
-                node.srcObject = participant.stream;
-              }
-            }}
-            className="h-full min-h-[200px] w-full flex-1 object-cover"
-          />
-        ) : (
-          <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center gap-3 bg-zinc-900/80 md:min-h-[260px]">
-            <UserAvatar name={participant.displayName || participant.userId || 'P'} size="xl" />
-            <span className="text-xs text-gray-500">{t('voiceRoom.camOff')}</span>
-          </div>
-        )}
-        <div className="absolute bottom-3 left-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs text-white">
-          {participant.displayName || participant.userId || t('voiceRoom.memberFallback')}
-        </div>
-      </div>
+        suiteLayout={suiteLayout}
+        extraClass={extra}
+        isSpeaking={Boolean(remoteSpeakingMap[participant.socketId])}
+        isMuted={false}
+        name={pName}
+        hasVideo={hasRemoteVideo}
+        videoStream={participant.stream}
+        camOffLabel={t('voiceRoom.camOff')}
+        showHostActions={suiteLayout && isRoomHost && roomKind === 'free'}
+        onHoverMute={() => toast.success(t('voiceRoom.toastMuteParticipant', { name: pName }))}
+        onHoverKick={() => toast.error(t('voiceRoom.toastKickParticipant', { name: pName }))}
+        legacyClasses={legacyClasses}
+      />
     );
   };
 
+  const renderVoiceSidePanelBody = () => (
+    <>
+      <div className={FIGMA_VOICE_SIDE_TAB_ROW}>
+        {[
+          { id: 'people', label: t('voiceRoom.toolbarMembers') },
+          { id: 'chat', label: t('voiceRoom.toolbarChat') },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setRightPanel(tab.id)}
+            className={figmaVoiceSideTab(rightPanel === tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setRightPanel(null)}
+          className={FIGMA_VOICE_SIDE_CLOSE_BTN}
+          aria-label={t('voiceRoom.closeAria')}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {rightPanel === 'chat' && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5">
+            {roomMessages.map((m) => {
+              const accent = voiceParticipantColor(m.userName || localDisplayName);
+              return (
+                <div key={m.id} className="flex gap-1.5">
+                  <div
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.55rem] font-bold"
+                    style={{ background: `${accent}25`, color: accent }}
+                  >
+                    {voiceParticipantInitials(m.userName || localDisplayName)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 text-[0.6875rem] font-semibold" style={{ color: accent }}>
+                      {m.userName || localDisplayName}
+                    </div>
+                    <p className="m-0 text-[0.8125rem] leading-relaxed text-foreground/80">{m.text}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="relative shrink-0 border-t border-white/[0.07] p-2.5">
+            <div className="flex gap-1.5">
+              <input
+                value={roomChatInput}
+                onChange={(e) => setRoomChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    const text = roomChatInput.trim();
+                    if (!text || !allowParticipantChat) return;
+                    setRoomMessages((prev) => [
+                      ...prev,
+                      {
+                        id: `${Date.now()}`,
+                        text,
+                        userName: displayNameInput || localDisplayName,
+                        timeLabel: clockNow.toLocaleTimeString(timeLocale, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        }),
+                      },
+                    ]);
+                    setRoomChatInput('');
+                  }
+                }}
+                disabled={!allowParticipantChat}
+                placeholder={
+                  allowParticipantChat ? t('voiceRoom.chatPlaceholder') : t('voiceRoom.chatDisabled')
+                }
+                className={FIGMA_VOICE_CHAT_INPUT}
+              />
+              <button
+                type="button"
+                className={FIGMA_VOICE_CHAT_SEND_BTN}
+                disabled={!allowParticipantChat || !roomChatInput.trim()}
+                onClick={() => {
+                  const text = roomChatInput.trim();
+                  if (!text) return;
+                  setRoomMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `${Date.now()}`,
+                      text,
+                      userName: displayNameInput || localDisplayName,
+                      timeLabel: clockNow.toLocaleTimeString(timeLocale, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      }),
+                    },
+                  ]);
+                  setRoomChatInput('');
+                }}
+              >
+                <Send className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rightPanel === 'people' && (
+        <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
+          <div className={FIGMA_VOICE_PEOPLE_ROW}>
+            <div
+              className={FIGMA_VOICE_PEOPLE_AVATAR}
+              style={{
+                background: `${voiceParticipantColor(displayNameInput || localDisplayName)}25`,
+                color: voiceParticipantColor(displayNameInput || localDisplayName),
+                border: isLocalSpeaking && !isMuted ? `2px solid ${voiceParticipantColor(displayNameInput || localDisplayName)}` : '2px solid transparent',
+              }}
+            >
+              {voiceParticipantInitials(displayNameInput || localDisplayName)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[0.8125rem] font-medium text-foreground">
+                {displayNameInput || localDisplayName}
+              </div>
+              {isRoomHost ? (
+                <div className="text-[0.6875rem] font-semibold text-primary">{t('voiceRoom.host')}</div>
+              ) : null}
+            </div>
+            <div className="flex gap-1">
+              {isMuted ? <MicOff className="h-3.5 w-3.5 text-destructive" aria-hidden /> : null}
+              {isCameraOff ? <VideoOff className="h-3.5 w-3.5 text-muted-foreground" aria-hidden /> : null}
+            </div>
+          </div>
+          {participants.map((p) => {
+            const pName = p.displayName || p.userId || t('voiceRoom.memberFallback');
+            const accent = voiceParticipantColor(pName);
+            const speaking = Boolean(remoteSpeakingMap[p.socketId]);
+            return (
+              <div key={p.socketId} className={FIGMA_VOICE_PEOPLE_ROW}>
+                <div
+                  className={FIGMA_VOICE_PEOPLE_AVATAR}
+                  style={{
+                    background: `${accent}25`,
+                    color: accent,
+                    border: speaking ? `2px solid ${accent}` : '2px solid transparent',
+                  }}
+                >
+                  {voiceParticipantInitials(pName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[0.8125rem] font-medium text-foreground">{pName}</div>
+                </div>
+                <VideoOff className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              </div>
+            );
+          })}
+          {isRoomHost ? (
+            <button
+              type="button"
+              onClick={() => setInviteModalOpen(true)}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover"
+            >
+              <UserPlus className="h-4 w-4" />
+              {t('voiceRoom.addPeopleTitle')}
+            </button>
+          ) : null}
+          {roomKind === 'free' && isRoomHost ? (
+            <div className="mt-4">
+              <p className="mb-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t('voiceRoom.pendingApprovalTitle')}
+              </p>
+              {pendingJoinRequests.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{t('voiceRoom.pendingApprovalEmpty')}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {pendingJoinRequests.map((req) => (
+                    <li
+                      key={req.id}
+                      className="flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 p-2"
+                    >
+                      <div
+                        className={FIGMA_VOICE_PEOPLE_AVATAR}
+                        style={{
+                          background: `${voiceParticipantColor(req.displayName || req.userId)}25`,
+                          color: voiceParticipantColor(req.displayName || req.userId),
+                        }}
+                      >
+                        {voiceParticipantInitials(req.displayName || req.userId || '?')}
+                      </div>
+                      <div className="min-w-0 flex-1 truncate text-sm text-foreground">
+                        {req.displayName || req.userId}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleResolveJoinRequest(req.id, 'approve')}
+                        className="rounded-md bg-success px-2 py-1 text-xs font-semibold text-white hover:bg-success/90"
+                      >
+                        {t('voiceRoom.approveBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResolveJoinRequest(req.id, 'reject')}
+                        className="rounded-md border border-white/20 px-2 py-1 text-xs text-muted-foreground hover:bg-white/10"
+                      >
+                        {t('voiceRoom.rejectBtn')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div
-      className={`flex h-screen max-h-[100dvh] overflow-hidden ${isDarkMode ? 'bg-[#050810]' : appShellBg(false)}`}
+      className={
+        suiteLayout
+          ? `${FIGMA_PAGE_SHELL} flex h-full min-h-0 overflow-hidden`
+          : `flex h-screen max-h-[100dvh] overflow-hidden ${isDarkMode ? 'bg-[#050810]' : appShellBg(false)}`
+      }
     >
       {!suiteLayout && <NavigationSidebar landingDemo={landingDemo} />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {viewStage !== 'inRoom' ? (
+          suiteLayout && viewStage === 'home' ? (
+            <VoiceLobbyView
+              roomCode={meetingCode}
+              onRoomCodeChange={setMeetingCode}
+              onCreateRoom={handleNewMeeting}
+              onJoinByCode={handleLobbyJoinByCode}
+              rooms={lobbyRooms}
+              onJoinRoom={handleLobbyJoinRoom}
+              liveRoomsCount={lobbyActiveCount}
+              createTitle={t('voiceRoom.createTitle')}
+              createButtonLabel={t('voiceRoom.createNow')}
+              joinTitle={t('voiceRoom.joinModalTitle')}
+              joinFieldLabel={t('voiceRoom.roomCode')}
+              joinButtonLabel={t('voiceRoom.joinNav')}
+            />
+          ) : suiteLayout && viewStage === 'prejoin' ? (
+            <div className={FIGMA_VOICE_LOBBY_ROOT}>
+              <header className={FIGMA_VOICE_LOBBY_HEADER}>
+                <div className={FIGMA_VOICE_LOBBY_HEADER_ICON}>
+                  <Mic className="h-3.5 w-3.5 text-warning" aria-hidden />
+                </div>
+                <h4 className={FIGMA_VOICE_LOBBY_HEADER_TITLE}>{t('voiceRoom.pageTitle')}</h4>
+                <div className={FIGMA_VOICE_LOBBY_LIVE_BADGE}>
+                  <span className={FIGMA_VOICE_LOBBY_LIVE_DOT} />
+                  <span className={FIGMA_VOICE_LOBBY_LIVE_TEXT}>
+                    {lobbyActiveCount > 0
+                      ? t('voiceRoom.liveRoomsCount', { n: lobbyActiveCount })
+                      : t('voiceRoom.liveRoomsEmpty')}
+                  </span>
+                </div>
+              </header>
+
+              <div className={FIGMA_VOICE_LOBBY_BODY}>
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
+                  <section className={FIGMA_VOICE_LOBBY_CREATE_CARD}>
+                    <div className={FIGMA_VOICE_LOBBY_CREATE_ICON}>
+                      <Video className="h-[22px] w-[22px] text-primary-foreground" aria-hidden />
+                    </div>
+                    <h3 className="mb-2 text-base font-semibold text-foreground">
+                      {t('voiceRoom.previewTitle')}
+                    </h3>
+                    <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
+                      {t('voiceRoom.previewSubtitle')}
+                    </p>
+                    <div className="overflow-hidden rounded-2xl border border-border bg-background/70 shadow-inner">
+                      <div className="relative aspect-video bg-black">
+                        {prejoinVideoEnabled ? (
+                          <video
+                            ref={prejoinVideoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-surface-raised to-background">
+                            <UserAvatar
+                              avatar={localAvatar}
+                              userId={user?.id || user?._id}
+                              name={displayNameInput || localDisplayName}
+                              size="2xl"
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              {t('voiceRoom.camOffShort')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 border-t border-border bg-surface p-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setPrejoinAudioEnabled((v) => !v)}
+                          className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                            prejoinAudioEnabled
+                              ? 'border border-border bg-background text-foreground hover:border-primary/30'
+                              : 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90'
+                          }`}
+                        >
+                          {prejoinAudioEnabled ? (
+                            <Mic className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <MicOff className="h-4 w-4" aria-hidden />
+                          )}
+                          {prejoinAudioEnabled ? t('voiceRoom.micOn') : t('voiceRoom.micOff')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPrejoinVideoEnabled((v) => !v)}
+                          className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                            prejoinVideoEnabled
+                              ? 'border border-border bg-background text-foreground hover:border-primary/30'
+                              : 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90'
+                          }`}
+                        >
+                          {prejoinVideoEnabled ? (
+                            <Video className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <VideoOff className="h-4 w-4" aria-hidden />
+                          )}
+                          {prejoinVideoEnabled ? t('voiceRoom.camOn') : t('voiceRoom.camBtnOff')}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className={FIGMA_VOICE_LOBBY_JOIN_CARD}>
+                    <div className="mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/10">
+                      {prejoinMode === 'create' ? (
+                        <Plus className="h-[22px] w-[22px] text-cyan-400" aria-hidden />
+                      ) : (
+                        <LogIn className="h-[22px] w-[22px] text-cyan-400" aria-hidden />
+                      )}
+                    </div>
+                    <h3 className="mb-2 text-base font-semibold text-foreground">
+                      {prejoinMode === 'create' ? t('voiceRoom.createTitle') : t('voiceRoom.joinTitle')}
+                    </h3>
+                    <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
+                      {t('voiceRoom.controlsTitle')}
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                          {t('voiceRoom.roomCode')}
+                        </label>
+                        <input
+                          value={meetingCode}
+                          readOnly={prejoinMode === 'create'}
+                          onChange={(e) => {
+                            if (prejoinMode === 'create') return;
+                            setMeetingCode(e.target.value);
+                          }}
+                          placeholder="VH-XXXXXX"
+                          className={`h-11 w-full rounded-[9px] border px-3 font-mono text-[0.9375rem] tracking-[0.08em] outline-none transition ${
+                            prejoinMode === 'create'
+                              ? 'cursor-default border-border bg-muted text-muted-foreground'
+                              : 'border-border bg-input-background text-foreground placeholder:text-muted-foreground focus:border-cyan-400 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.14)]'
+                          }`}
+                        />
+                        {prejoinMode === 'create' ? (
+                          <p className="mt-1.5 text-xs text-muted-foreground">
+                            {t('voiceRoom.roomCodeReservedHint')}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <span className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">
+                          {t('voiceRoom.roomKind')}
+                        </span>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {[
+                            { id: 'free', label: t('voiceRoom.roomTypeFree') },
+                            { id: 'org', label: t('voiceRoom.roomTypeOrg') },
+                          ].map((kind) => (
+                            <button
+                              key={kind.id}
+                              type="button"
+                              onClick={() => {
+                                setRoomKind(kind.id);
+                                if (kind.id === 'free') {
+                                  setSelectedOrgId('');
+                                  setSelectedDeptId('');
+                                }
+                              }}
+                              className={`rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                                roomKind === kind.id
+                                  ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
+                                  : 'border-border bg-surface text-foreground hover:border-primary/25 hover:bg-muted'
+                              }`}
+                            >
+                              {kind.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {roomKind === 'org' ? (
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                              {t('voiceRoom.orgLabel')}
+                            </span>
+                            <select
+                              value={selectedOrgId}
+                              onChange={(e) => {
+                                setSelectedOrgId(e.target.value);
+                                setSelectedDeptId('');
+                              }}
+                              disabled={orgsLoading}
+                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                            >
+                              <option value="">
+                                {orgsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectOrgPh')}
+                              </option>
+                              {organizations.map((o) => (
+                                <option key={String(o._id || o.id)} value={String(o._id || o.id)}>
+                                  {o.name || t('common.org')}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                              {t('voiceRoom.deptLabel')}
+                            </span>
+                            <select
+                              value={selectedDeptId}
+                              onChange={(e) => setSelectedDeptId(e.target.value)}
+                              disabled={!selectedOrgId}
+                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                            >
+                              <option value="">{t('voiceRoom.selectDeptPh')}</option>
+                              {departments.map((d) => (
+                                <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
+                                  {d.name || t('common.department')}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                          {t('voiceRoom.displayName')}
+                        </span>
+                        <input
+                          value={displayNameInput}
+                          onChange={(e) => setDisplayNameInput(e.target.value)}
+                          placeholder={localDisplayName}
+                          className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary"
+                        />
+                      </label>
+
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={!prejoinAudioEnabled}
+                            onChange={(e) => setPrejoinAudioEnabled(!e.target.checked)}
+                            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/30"
+                          />
+                          {t('voiceRoom.muteJoin')}
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={!prejoinVideoEnabled}
+                            onChange={(e) => setPrejoinVideoEnabled(!e.target.checked)}
+                            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/30"
+                          />
+                          {t('voiceRoom.camOffJoin')}
+                        </label>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleJoinMeeting}
+                      disabled={prejoinPrimaryDisabled}
+                      className={`${FIGMA_VOICE_LOBBY_PRIMARY_BTN} mt-6 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0`}
+                    >
+                      <Mic className="h-[15px] w-[15px]" aria-hidden />
+                      {joinRequestSubmitting ? t('voiceRoom.connectingRoom') : prejoinPrimaryLabel}
+                    </button>
+
+                    {roomKind === 'free' && !isCreatorPrejoin && prejoinMode === 'join' && joinRequestStatus === 'pending' ? (
+                      <p className="mt-3 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-center text-xs font-medium text-warning">
+                        {t('voiceRoom.joinRequestSent')}
+                      </p>
+                    ) : null}
+                    {roomKind === 'free' && !isCreatorPrejoin && prejoinMode === 'join' && joinRequestStatus === 'approved' ? (
+                      <p className="mt-3 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-center text-xs font-medium text-success">
+                        {t('voiceRoom.joinRequestApproved')}
+                      </p>
+                    ) : null}
+                    {roomKind === 'free' && !isCreatorPrejoin && prejoinMode === 'join' && joinRequestStatus === 'rejected' ? (
+                      <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-center text-xs font-medium text-destructive">
+                        {t('voiceRoom.joinRequestRejected')}
+                      </p>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={handlePrejoinCancel}
+                      className="mt-3 w-full rounded-lg py-2 text-center text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    >
+                      {t('nav.cancel')}
+                    </button>
+                  </section>
+                </div>
+              </div>
+            </div>
+          ) : (
           <div className={voiceLobby}>
             {/* Cột trái: menu (hình 1) */}
             <aside
@@ -2393,45 +3115,174 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
               )}
             </div>
           </div>
+          )
         ) : (
-          <div ref={meetingRootRef} className="relative flex min-h-0 flex-1 flex-col bg-black">
+          <div
+            ref={meetingRootRef}
+            className={`${figmaVoiceRoomRoot(suiteLayout)}${suiteLayout ? ' flex flex-col' : ''}`}
+          >
             {error && (
-              <div className="absolute right-5 top-5 z-30 max-w-xs rounded-lg bg-red-950/90 px-3 py-2 text-xs text-red-100">
+              <div className="absolute right-5 top-5 z-30 max-w-xs rounded-lg bg-destructive/90 px-3 py-2 text-xs text-destructive-foreground">
                 {error}
               </div>
             )}
             {joining && (
-              <div className="absolute right-5 top-16 z-30 rounded-full bg-zinc-900/95 px-4 py-2 text-sm text-gray-300 shadow-lg">
+              <div
+                className={`absolute right-5 z-30 rounded-full px-4 py-2 text-sm shadow-lg backdrop-blur-md ${
+                  suiteLayout
+                    ? 'top-16 border border-white/10 bg-surface-raised/95 text-foreground'
+                    : 'top-16 bg-zinc-900/95 text-gray-300'
+                }`}
+              >
                 {t('voiceRoom.connectingRoom')}
               </div>
             )}
 
-            {/* Thanh trạng thái nổi (hình 3) */}
-            <div className="absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-sm text-white shadow-xl backdrop-blur-md md:left-8 md:top-6">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
-                title={connected ? t('voiceRoom.connected') : t('voiceRoom.connecting')}
-              />
-              <span className="max-w-[140px] truncate font-semibold tracking-tight md:max-w-[220px]">
-                {currentMeetingCode}
-              </span>
-              <span className="text-white/25">|</span>
-              <Users className="h-4 w-4 shrink-0 text-white/70" aria-hidden />
-              <span className="tabular-nums">{totalParticipants}</span>
-              <span className="text-white/25">|</span>
-              <span className="tabular-nums text-white/90">{formatCallDuration(callDurationSec)}</span>
-            </div>
+            {(() => {
+              const topBarInner = (
+                <>
+                  <span
+                    className={
+                      suiteLayout
+                        ? `${FIGMA_VOICE_STATUS_DOT} vh-anim-fade-in`
+                        : 'h-2 w-2 shrink-0 rounded-full bg-emerald-500'
+                    }
+                    title={connected ? t('voiceRoom.connected') : t('voiceRoom.connecting')}
+                  />
+                  <span className={suiteLayout ? FIGMA_VOICE_TOP_TITLE : 'max-w-[140px] truncate font-semibold tracking-tight md:max-w-[220px]'}>
+                    {suiteLayout ? inRoomTitle : currentMeetingCode}
+                  </span>
+                  {suiteLayout ? (
+                    <span className={FIGMA_VOICE_TOP_CHANNEL}>{inRoomChannelLabel}</span>
+                  ) : null}
+                  {!suiteLayout ? (
+                    <>
+                      <span className="text-white/25">|</span>
+                      <Users className="h-4 w-4 shrink-0 text-white/70" aria-hidden />
+                      <span className="tabular-nums">{totalParticipants}</span>
+                    </>
+                  ) : null}
+                  {suiteLayout ? (
+                    <span className={FIGMA_VOICE_WIFI_BADGE} title={connected ? t('voiceRoom.connected') : t('voiceRoom.connecting')}>
+                      <Wifi className={FIGMA_VOICE_WIFI_ICON} aria-hidden />
+                      <span className={FIGMA_VOICE_WIFI_TEXT}>
+                        {connected ? t('voiceRoom.connected') : t('voiceRoom.connecting')}
+                      </span>
+                    </span>
+                  ) : null}
+                  <span className={suiteLayout ? 'ml-auto flex items-center gap-1.5 text-[0.8125rem] text-muted-foreground' : FIGMA_VOICE_TOP_DIVIDER}>
+                    {suiteLayout ? (
+                      <>
+                        <Clock className="h-3.5 w-3.5" aria-hidden />
+                        <span className={FIGMA_VOICE_TOP_META}>{formatCallDuration(callDurationSec)}</span>
+                      </>
+                    ) : (
+                      '|'
+                    )}
+                  </span>
+                  {!suiteLayout ? (
+                    <>
+                      <span className="text-white/25">|</span>
+                      <span className="tabular-nums text-white/90">{formatCallDuration(callDurationSec)}</span>
+                    </>
+                  ) : null}
+                  {suiteLayout ? (
+                    <div className={FIGMA_VOICE_AVATAR_STACK}>
+                      {avatarStackItems.rows.map((item, i) => (
+                        <div
+                          key={item.id}
+                          className={FIGMA_VOICE_AVATAR_STACK_CHIP}
+                          style={{ background: item.color, marginLeft: i > 0 ? '-8px' : undefined }}
+                        >
+                          {item.initials}
+                        </div>
+                      ))}
+                      {avatarStackItems.overflow > 0 ? (
+                        <div className={FIGMA_VOICE_AVATAR_STACK_OVERFLOW} style={{ marginLeft: '-8px' }}>
+                          +{avatarStackItems.overflow}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              );
 
-            <div className="pointer-events-none absolute bottom-28 left-4 z-20 text-left text-sm text-white/90 md:bottom-32 md:left-8">
-              <div className="tabular-nums font-medium" suppressHydrationWarning>
-                {clockNow.toLocaleTimeString(timeLocale, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                })}
-              </div>
-              <div className="mt-0.5 max-w-[200px] truncate text-xs text-white/45">{currentMeetingCode}</div>
-            </div>
+              const gridContent = (
+                <div className={figmaVoiceGridInner(suiteLayout)}>
+                  <div
+                    className={
+                      suiteLayout
+                        ? 'w-full'
+                        : 'rounded-2xl border-2 border-violet-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(139,92,246,0.08)] md:p-6'
+                    }
+                  >
+                    {layoutTiles.length === 0 ? (
+                      <p className="py-12 text-center text-sm text-muted-foreground">{t('voiceRoom.noVideoTiles')}</p>
+                    ) : layoutMode === 'sidebar' && layoutTiles.length > 1 ? (
+                      <div className={`${meetingGridClass} min-h-[200px]`}>
+                        <div className="min-h-0 min-w-0 flex-1 lg:flex-[3]">
+                          {renderMeetingTile(layoutTiles[0], 0)}
+                        </div>
+                        <div className="flex flex-col gap-3 overflow-y-auto lg:max-h-[min(70vh,560px)] lg:w-52 lg:shrink-0">
+                          {layoutTiles.slice(1).map((tile, i) => renderMeetingTile(tile, i + 1))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={meetingGridClass}>
+                        {layoutTiles.map((tile, i) => renderMeetingTile(tile, i))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+
+              return suiteLayout ? (
+                <>
+                  <div className={`hidden lg:flex ${figmaVoiceTopBar(suiteLayout, { fullWidth: true })}`}>
+                    {topBarInner}
+                  </div>
+                  <div className={FIGMA_VOICE_MAIN_ROW}>
+                    <div className={`${FIGMA_VOICE_GRID_AREA_INLINE} relative`}>
+                      {pipOpen && (
+                        <div className="pointer-events-none absolute inset-0 z-[25] flex flex-col items-center justify-center gap-4 bg-black/55 px-6 text-center backdrop-blur-sm">
+                          <p className="max-w-md text-lg text-foreground">{t('voiceRoom.pipBody')}</p>
+                          <p className="max-w-md text-sm text-muted-foreground">{t('voiceRoom.pipSecondLine')}</p>
+                          <button
+                            type="button"
+                            className="pointer-events-auto rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-hover"
+                            onClick={() => setPipOpen(false)}
+                          >
+                            {t('voiceRoom.pipRestore')}
+                          </button>
+                        </div>
+                      )}
+                      <div className={`lg:hidden ${figmaVoiceTopBar(suiteLayout)}`}>{topBarInner}</div>
+                      <div className={FIGMA_VOICE_GRID_SCROLL}>{gridContent}</div>
+                    </div>
+                    {rightPanel ? (
+                      <div className={`hidden lg:flex ${figmaVoiceSidePanel(suiteLayout, true, { inline: true })}`}>
+                        {renderVoiceSidePanelBody()}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className={figmaVoiceTopBar(suiteLayout)}>{topBarInner}</div>
+                  <div className="pointer-events-none absolute bottom-28 left-4 z-20 text-left text-sm text-white/90 md:bottom-32 md:left-8">
+                    <div className="tabular-nums font-medium" suppressHydrationWarning>
+                      {clockNow.toLocaleTimeString(timeLocale, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      })}
+                    </div>
+                    <div className="mt-0.5 max-w-[200px] truncate text-xs text-white/45">{currentMeetingCode}</div>
+                  </div>
+                  <div className={figmaVoiceGridArea(suiteLayout)}>{gridContent}</div>
+                </>
+              );
+            })()}
 
             {isFullscreen && (
               <div className="pointer-events-none absolute left-0 right-0 top-0 z-[60] flex justify-center px-4 pt-3">
@@ -2450,40 +3301,6 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
               </div>
             )}
 
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-24 md:px-8">
-              {pipOpen && (
-                <div className="pointer-events-none absolute inset-0 z-[25] flex flex-col items-center justify-center gap-4 bg-black/55 px-6 text-center backdrop-blur-sm">
-                  <p className="max-w-md text-lg text-white">{t('voiceRoom.pipBody')}</p>
-                  <p className="max-w-md text-sm text-white/70">{t('voiceRoom.pipSecondLine')}</p>
-                  <button
-                    type="button"
-                    className="pointer-events-auto rounded-full bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
-                    onClick={() => setPipOpen(false)}
-                  >
-                    {t('voiceRoom.pipRestore')}
-                  </button>
-                </div>
-              )}
-              <div className="w-full max-w-5xl">
-                <div className="rounded-2xl border-2 border-violet-500/35 bg-black/30 p-4 shadow-[0_0_60px_rgba(139,92,246,0.08)] md:p-6">
-                  {layoutTiles.length === 0 ? (
-                    <p className="py-12 text-center text-sm text-gray-400">{t('voiceRoom.noVideoTiles')}</p>
-                  ) : layoutMode === 'sidebar' && layoutTiles.length > 1 ? (
-                    <div className={`${meetingGridClass} min-h-[200px]`}>
-                      <div className="min-h-0 min-w-0 flex-1 lg:flex-[3]">{renderMeetingTile(layoutTiles[0], 0)}</div>
-                      <div className="flex flex-col gap-3 overflow-y-auto lg:max-h-[min(70vh,560px)] lg:w-52 lg:shrink-0">
-                        {layoutTiles.slice(1).map((t, i) => renderMeetingTile(t, i + 1))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className={meetingGridClass}>
-                      {layoutTiles.map((t, i) => renderMeetingTile(t, i))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {pipOpen && (
               <div
                 className="fixed z-[55] overflow-hidden rounded-lg border border-white/20 bg-black shadow-2xl"
@@ -2495,7 +3312,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                 }}
               >
                 <div
-                  className="flex cursor-move items-center justify-between gap-2 border-b border-white/10 bg-zinc-900/95 px-2 py-1.5"
+                  className="flex cursor-move items-center justify-between gap-2 border-b border-white/10 bg-surface-raised/95 px-2 py-1.5"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     pipDragging.current = {
@@ -2527,7 +3344,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-zinc-900 text-sm text-gray-400">
+                    <div className="flex h-full w-full items-center justify-center bg-surface-raised text-sm text-muted-foreground">
                       {t('voiceRoom.camOffShort')}
                     </div>
                   )}
@@ -2554,9 +3371,9 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
             )}
 
             {/* Thanh điều khiển nổi (hình 3) */}
-            <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-30 flex justify-center px-2 md:bottom-8">
-              <div className="pointer-events-auto flex max-w-[min(100%,56rem)] flex-wrap items-end justify-between gap-3 rounded-2xl border border-white/10 bg-black/85 px-3 py-3 shadow-2xl backdrop-blur-xl md:gap-6 md:px-6">
-                <div className="flex items-end gap-1 sm:gap-3">
+            <div className={figmaVoiceCtrlOuter(suiteLayout)}>
+              <div className={figmaVoiceCtrlPill(suiteLayout)}>
+                <div className={suiteLayout ? FIGMA_VOICE_CTRL_GROUP : 'flex items-end gap-1 sm:gap-3'}>
                   <VoiceToolbarControl
                     label={t('voiceRoom.toolbarAudio')}
                     icon={Mic}
@@ -2564,6 +3381,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     active={!isMuted}
                     onClick={toggleMute}
                     chevron
+                    suiteLayout={suiteLayout}
                   />
                   <VoiceToolbarControl
                     label={t('voiceRoom.toolbarVideo')}
@@ -2572,10 +3390,19 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     active={!isCameraOff}
                     onClick={toggleCamera}
                     chevron
+                    suiteLayout={suiteLayout}
                   />
                 </div>
 
-                <div className="flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-2 md:gap-4">
+                {suiteLayout && <div className={FIGMA_VOICE_CTRL_DIVIDER} aria-hidden />}
+
+                <div
+                  className={
+                    suiteLayout
+                      ? FIGMA_VOICE_CTRL_GROUP
+                      : 'flex flex-1 flex-wrap items-end justify-center gap-0.5 sm:gap-2 md:gap-4'
+                  }
+                >
                   <VoiceToolbarControl
                     label={t('voiceRoom.toolbarMembers')}
                     icon={Users}
@@ -2583,6 +3410,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     pressed={rightPanel === 'people'}
                     onClick={() => setRightPanel((p) => (p === 'people' ? null : 'people'))}
                     chevron
+                    suiteLayout={suiteLayout}
                   />
                   <VoiceToolbarControl
                     label={t('voiceRoom.toolbarChat')}
@@ -2590,6 +3418,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     pressed={rightPanel === 'chat'}
                     onClick={() => setRightPanel((p) => (p === 'chat' ? null : 'chat'))}
                     chevron
+                    suiteLayout={suiteLayout}
                   />
                   <div className="relative" ref={moreMenuWrapRef}>
                     <VoiceToolbarControl
@@ -2598,9 +3427,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       pressed={moreMenuOpen}
                       onClick={() => setMoreMenuOpen((v) => !v)}
                       chevron={false}
+                      suiteLayout={suiteLayout}
                     />
                     {moreMenuOpen && (
-                      <div className="absolute bottom-full left-1/2 z-[45] mb-2 w-[min(calc(100vw-2rem),17rem)] -translate-x-1/2 rounded-xl border border-white/10 bg-zinc-900 py-1.5 shadow-2xl">
+                      <div className="absolute bottom-full left-1/2 z-[45] mb-2 w-[min(calc(100vw-2rem),17rem)] -translate-x-1/2 rounded-xl border border-white/10 bg-surface-raised py-1.5 shadow-2xl">
                         <button
                           type="button"
                           className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-white hover:bg-white/10"
@@ -2655,288 +3485,62 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                   </div>
                 </div>
 
-                <div className="flex items-end">
+                {suiteLayout && <div className={FIGMA_VOICE_CTRL_DIVIDER} aria-hidden />}
+
+                {suiteLayout ? (
+                  <div className="shrink-0">
+                    <VoiceAiTranscribeControl
+                      active={aiTranscribeEnabled}
+                      onToggle={() => setAiTranscribeEnabled((v) => !v)}
+                    />
+                  </div>
+                ) : null}
+
+                {suiteLayout && <div className={FIGMA_VOICE_CTRL_DIVIDER} aria-hidden />}
+
+                <div className={suiteLayout ? FIGMA_VOICE_CTRL_GROUP : 'flex items-end'}>
                   <button
                     type="button"
                     onClick={leaveRoom}
-                    className="group flex flex-col items-center gap-1 rounded-xl px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
+                    className={
+                      suiteLayout
+                        ? FIGMA_VOICE_CTRL_END
+                        : 'group flex flex-col items-center gap-1 rounded-xl px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60'
+                    }
                     title={t('voiceRoom.endCall')}
                   >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 shadow-lg transition group-hover:bg-red-500">
-                      <X className="h-6 w-6 text-white" strokeWidth={2.5} aria-hidden />
-                    </div>
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-white/70 group-hover:text-white">
-                      {t('voiceRoom.endShort')}
-                    </span>
+                    {suiteLayout ? (
+                      <>
+                        <PhoneOff className="h-4 w-4 text-destructive-foreground" aria-hidden />
+                        <span>{t('voiceRoom.endShort')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 shadow-lg transition group-hover:bg-red-500">
+                          <X className="h-6 w-6 text-white" strokeWidth={2.5} aria-hidden />
+                        </div>
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-white/70 group-hover:text-white">
+                          {t('voiceRoom.endShort')}
+                        </span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
             </div>
 
-            <div
-              className={`fixed inset-y-0 right-0 z-40 flex h-full w-[min(100vw,22rem)] flex-col border-l border-white/10 bg-[#1a1a1a] shadow-2xl transition-transform duration-300 ease-out ${
-                rightPanel ? 'translate-x-0' : 'pointer-events-none translate-x-full'
-              }`}
-            >
-              {rightPanel === 'chat' && (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-white">{t('voiceRoom.inCallChatTitle')}</h2>
-                    <button
-                      type="button"
-                      onClick={() => setRightPanel(null)}
-                      className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
-                      aria-label={t('voiceRoom.closeAria')}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2 text-xs text-gray-400">
-                    <span>{t('voiceRoom.allowChat')}</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={allowParticipantChat}
-                      onClick={() => setAllowParticipantChat((v) => !v)}
-                      className={`relative h-6 w-11 rounded-full transition ${
-                        allowParticipantChat ? 'bg-violet-600' : 'bg-zinc-600'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${
-                          allowParticipantChat ? 'left-5' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <p className="mx-4 mt-3 rounded-lg bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-gray-400">
-                    {t('voiceRoom.chatSessionNote')}
-                  </p>
-                  <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
-                    {roomMessages.map((m) => (
-                      <div key={m.id} className="flex justify-end">
-                        <div className="max-w-[90%] rounded-2xl rounded-br-md bg-sky-600/90 px-3 py-2 text-sm text-white shadow">
-                          {m.text}
-                          <div className="mt-1 text-[10px] text-sky-100/80">{m.timeLabel}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="relative border-t border-white/10 p-3">
-                    {roomChatEmojiOpen && (
-                      <>
-                        <button
-                          type="button"
-                          className="fixed inset-0 z-10 cursor-default"
-                          aria-label={t('voiceRoom.emojiCloseAria')}
-                          onClick={() => setRoomChatEmojiOpen(false)}
-                        />
-                        <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-zinc-900 p-2 shadow-xl">
-                          <div className="grid grid-cols-8 gap-1">
-                            {COMPOSER_EMOJI_LIST.map((emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                className="rounded p-1 text-lg hover:bg-white/10"
-                                onClick={() => {
-                                  setRoomChatInput((prev) => `${prev || ''}${emoji}`);
-                                  setRoomChatEmojiOpen(false);
-                                }}
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-xl border border-white/10 px-2 py-2 text-lg text-white/80 hover:bg-white/10"
-                        onClick={() => setRoomChatEmojiOpen((v) => !v)}
-                        aria-label={t('voiceRoom.emojiBtnAria')}
-                      >
-                        🙂
-                      </button>
-                      <input
-                        value={roomChatInput}
-                        onChange={(e) => setRoomChatInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            const t = roomChatInput.trim();
-                            if (!t || !allowParticipantChat) return;
-                            setRoomMessages((prev) => [
-                              ...prev,
-                              {
-                                id: `${Date.now()}`,
-                                text: t,
-                                timeLabel: clockNow.toLocaleTimeString(timeLocale, {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false,
-                                }),
-                              },
-                            ]);
-                            setRoomChatInput('');
-                          }
-                        }}
-                        disabled={!allowParticipantChat}
-                        placeholder={
-                          allowParticipantChat ? t('voiceRoom.chatPlaceholder') : t('voiceRoom.chatDisabled')
-                        }
-                        className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-violet-500/40 focus:outline-none disabled:opacity-50"
-                      />
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-xl bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-40"
-                        disabled={!allowParticipantChat || !roomChatInput.trim()}
-                        onClick={() => {
-                          const t = roomChatInput.trim();
-                          if (!t) return;
-                          setRoomMessages((prev) => [
-                            ...prev,
-                            {
-                              id: `${Date.now()}`,
-                              text: t,
-                              timeLabel: clockNow.toLocaleTimeString(timeLocale, {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                hour12: false,
-                              }),
-                            },
-                          ]);
-                          setRoomChatInput('');
-                        }}
-                      >
-                        {t('voiceRoom.sendBtn')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+            {rightPanel ? (
+              <div className={`${suiteLayout ? 'lg:hidden ' : ''}${figmaVoiceSidePanel(suiteLayout, true)}`}>
+                {renderVoiceSidePanelBody()}
+              </div>
+            ) : null}
 
-              {rightPanel === 'people' && (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-white">{t('voiceRoom.everyoneTitle')}</h2>
-                    <button
-                      type="button"
-                      onClick={() => setRightPanel(null)}
-                      className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
-                      aria-label={t('voiceRoom.closeAria')}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                  <div className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => setInviteModalOpen(true)}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
-                    >
-                      <UserPlus className="h-4 w-4" />
-                      {t('voiceRoom.addPeopleTitle')}
-                    </button>
-                    <div className="relative mt-3">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-                      <input
-                        placeholder={t('voiceRoom.searchPeople')}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 py-2 pl-9 pr-3 text-sm text-white placeholder:text-gray-600 focus:border-violet-500/40 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      {t('voiceRoom.inMeeting')}
-                    </p>
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <div className="flex items-center gap-3">
-                        <UserAvatar
-                          avatar={localAvatar}
-                          userId={user?.id || user?._id}
-                          name={displayNameInput || localDisplayName}
-                          size="md"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-white">
-                            {displayNameInput || localDisplayName}{' '}
-                            <span className="text-gray-500">{t('voiceRoom.you')}</span>
-                          </div>
-                          {isRoomHost ? (
-                            <div className="text-xs text-gray-500">{t('voiceRoom.host')}</div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                    {roomKind === 'free' && isRoomHost ? (
-                      <div className="mt-4">
-                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                          {t('voiceRoom.pendingApprovalTitle')}
-                        </p>
-                        {pendingJoinRequests.length === 0 ? (
-                          <p className="text-xs text-gray-500">{t('voiceRoom.pendingApprovalEmpty')}</p>
-                        ) : (
-                          <ul className="space-y-2">
-                            {pendingJoinRequests.map((req) => (
-                              <li
-                                key={req.id}
-                                className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3"
-                              >
-                                <UserAvatar
-                                  name={req.displayName || req.userId || '?'}
-                                  userId={req.userId}
-                                  size="sm"
-                                />
-                                <div className="min-w-0 flex-1 truncate text-sm text-white">
-                                  {req.displayName || req.userId}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleResolveJoinRequest(req.id, 'approve')}
-                                  className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500"
-                                >
-                                  {t('voiceRoom.approveBtn')}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleResolveJoinRequest(req.id, 'reject')}
-                                  className="rounded-lg border border-white/20 px-2.5 py-1 text-xs text-gray-300 hover:bg-white/10"
-                                >
-                                  {t('voiceRoom.rejectBtn')}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : null}
-                    {participants.map((p) => (
-                      <div
-                        key={p.socketId}
-                        className="mt-2 flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 p-3"
-                      >
-                        <UserAvatar name={p.displayName || p.userId || 'P'} size="md" />
-                        <div className="min-w-0 flex-1 truncate text-sm text-white">
-                          {p.displayName || p.userId || t('voiceRoom.memberFallback')}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
 
             {inviteModalOpen && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-                <div
-                  role="dialog"
-                  aria-modal="true"
-                  className="flex max-h-[min(90vh,520px)] w-full max-w-md flex-col rounded-2xl border border-white/10 bg-[#1e1e1e] shadow-2xl"
-                >
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <h3 className="text-base font-semibold text-white">{t('voiceRoom.addPeopleTitle')}</h3>
+              <div className={FIGMA_VOICE_MODAL_BACKDROP}>
+                <div role="dialog" aria-modal="true" className={`${FIGMA_VOICE_MODAL_SHELL} max-h-[min(90vh,520px)] max-w-md`}>
+                  <div className={FIGMA_VOICE_MODAL_HEADER}>
+                    <h3 className="text-base font-semibold text-foreground">{t('voiceRoom.addPeopleTitle')}</h3>
                     <button
                       type="button"
                       onClick={() => setInviteModalOpen(false)}
@@ -3014,7 +3618,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                           (!selectedInviteIds.length && !INVITE_EMAIL_RE.test(inviteSearch.trim()))
                         }
                         onClick={handleSendInvites}
-                        className="flex w-full items-center justify-center rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex w-full items-center justify-center rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {inviteSending ? t('common.loadingEllipsis') : t('voiceRoom.inviteSendBtn')}
                       </button>
@@ -3025,20 +3629,16 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
             )}
 
             {layoutModalOpen && (
-              <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-                <div
-                  role="dialog"
-                  aria-modal="true"
-                  className="flex max-h-[min(92vh,640px)] w-full max-w-lg flex-col rounded-2xl bg-white text-gray-900 shadow-2xl"
-                >
-                  <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div className={FIGMA_VOICE_MODAL_BACKDROP}>
+                <div role="dialog" aria-modal="true" className={`${FIGMA_VOICE_MODAL_SHELL} max-w-lg`}>
+                  <div className={`${FIGMA_VOICE_MODAL_HEADER} px-5 py-4`}>
                     <div>
-                      <h2 className="text-lg font-semibold">{t('voiceRoom.layoutTitle')}</h2>
-                      <p className="mt-1 text-xs text-gray-500">{t('voiceRoom.layoutSaved')}</p>
+                      <h2 className="text-lg font-semibold text-foreground">{t('voiceRoom.layoutTitle')}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">{t('voiceRoom.layoutSaved')}</p>
                     </div>
                     <button
                       type="button"
-                      className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
                       onClick={() => setLayoutModalOpen(false)}
                       aria-label={t('voiceRoom.closeAria')}
                     >
@@ -3055,23 +3655,23 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       ].map((opt) => (
                         <label
                           key={opt.id}
-                          className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:bg-gray-50"
+                          className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 px-3 py-2.5 hover:bg-white/5"
                         >
                           <input
                             type="radio"
                             name="voice-layout-mode"
                             checked={layoutMode === opt.id}
                             onChange={() => setLayoutMode(opt.id)}
-                            className="h-4 w-4 text-blue-600"
+                            className="h-4 w-4 accent-primary"
                           />
-                          <span className="text-sm">{opt.label}</span>
+                          <span className="text-sm text-foreground">{opt.label}</span>
                         </label>
                       ))}
                     </div>
                     <div>
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-800">{t('voiceRoom.tileCount')}</span>
-                        <span className="text-sm tabular-nums text-gray-600">{maxTiles}</span>
+                        <span className="text-sm font-medium text-foreground">{t('voiceRoom.tileCount')}</span>
+                        <span className="text-sm tabular-nums text-muted-foreground">{maxTiles}</span>
                       </div>
                       <input
                         type="range"
@@ -3079,26 +3679,24 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                         max={16}
                         value={maxTiles}
                         onChange={(e) => setMaxTiles(Number(e.target.value))}
-                        className="w-full accent-blue-600"
+                        className="w-full accent-primary"
                       />
-                      <p className="mt-1 text-xs text-gray-500">
-                        {t('voiceRoom.tileCountHelp')}
-                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{t('voiceRoom.tileCountHelp')}</p>
                     </div>
-                    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-3">
-                      <span className="text-sm text-gray-800">{t('voiceRoom.hideNoVideo')}</span>
+                    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-3">
+                      <span className="text-sm text-foreground">{t('voiceRoom.hideNoVideo')}</span>
                       <input
                         type="checkbox"
                         checked={hideNoVideo}
                         onChange={(e) => setHideNoVideo(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                        className="h-4 w-4 rounded border-white/20 accent-primary"
                       />
                     </label>
                   </div>
-                  <div className="border-t border-gray-200 px-5 py-3 text-right">
+                  <div className="border-t border-white/10 px-5 py-3 text-right">
                     <button
                       type="button"
-                      className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500"
+                      className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
                       onClick={() => setLayoutModalOpen(false)}
                     >
                       {t('voiceRoom.layoutDone')}
@@ -3112,19 +3710,19 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         )}
             {settingsOpen &&
               createPortal(
-                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+                <div className={FIGMA_VOICE_MODAL_BACKDROP}>
                   <div
                     role="dialog"
                     aria-modal="true"
-                    className={`flex max-h-[min(92vh,720px)] w-full max-w-3xl overflow-hidden rounded-2xl shadow-2xl ${isDarkMode ? 'bg-[#141414] text-gray-100' : 'bg-white text-gray-900'}`}
+                    className={`${FIGMA_VOICE_MODAL_SHELL} max-h-[min(92vh,720px)] max-w-3xl`}
                   >
-                    <aside className={`w-52 shrink-0 border-r py-4 ${isDarkMode ? 'border-white/10 bg-[#0d0d0d]' : 'border-gray-200 bg-gray-50'}`}>
+                    <aside className="w-52 shrink-0 border-r border-white/10 bg-surface py-4">
                       <button
                         type="button"
-                        className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium ${
+                        className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium transition ${
                           settingsTab === 'audio'
-                            ? 'border-l-4 border-blue-600 bg-white text-blue-700'
-                            : 'text-gray-700 hover:bg-gray-100'
+                            ? 'border-l-4 border-primary bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
                         }`}
                         onClick={() => setSettingsTab('audio')}
                       >
@@ -3132,10 +3730,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       </button>
                       <button
                         type="button"
-                        className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium ${
+                        className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium transition ${
                           settingsTab === 'video'
-                            ? 'border-l-4 border-blue-600 bg-white text-blue-700'
-                            : 'text-gray-700 hover:bg-gray-100'
+                            ? 'border-l-4 border-primary bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
                         }`}
                         onClick={() => setSettingsTab('video')}
                       >
@@ -3143,11 +3741,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       </button>
                     </aside>
                     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-                      <div className={`flex items-center justify-between border-b px-6 py-4 ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}>
-                        <h2 className="text-lg font-semibold">{t('voiceRoom.settingsTitle')}</h2>
+                      <div className={`${FIGMA_VOICE_MODAL_HEADER} px-6 py-4`}>
+                        <h2 className="text-lg font-semibold text-foreground">{t('voiceRoom.settingsTitle')}</h2>
                         <button
                           type="button"
-                          className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
+                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
                           onClick={() => setSettingsOpen(false)}
                           aria-label={t('voiceRoom.closeAria')}
                         >

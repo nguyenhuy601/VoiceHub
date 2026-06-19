@@ -1,6 +1,7 @@
 const Friendship = require('../models/Friendship');
 const axios = require('axios');
 const friendService = require('../services/friend.service');
+const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
@@ -8,21 +9,36 @@ const USER_SERVICE_INTERNAL_TOKEN = process.env.USER_SERVICE_INTERNAL_TOKEN || '
 
 exports.getFriends = async (req, res, next) => {
   try {
-    const friends = await Friendship.find({
+    const userId = req.user?._id || req.user?.id;
+    const friendships = await Friendship.find({
       $or: [
-        { requester: req.user._id, status: 'accepted' },
-        { recipient: req.user._id, status: 'accepted' },
+        { requester: userId, status: 'accepted' },
+        { recipient: userId, status: 'accepted' },
       ],
-    })
-      .populate('requester', 'name avatar email')
-      .populate('recipient', 'name avatar email');
+    }).lean();
 
-    const formatted = friends.map((f) => {
-      const friend = f.requester._id.toString() === req.user._id.toString() 
-        ? f.recipient 
-        : f.requester;
-      return { ...friend.toObject(), friendshipId: f._id };
-    });
+    const formatted = await Promise.all(
+      friendships.map(async (f) => {
+        const peerId =
+          String(f.requester) === String(userId) ? f.recipient : f.requester;
+        let friend = { _id: peerId };
+        try {
+          const profileRes = await fetchUserProfileByIdInternal(peerId);
+          const data = profileRes.data?.data || profileRes.data;
+          if (data) {
+            friend = {
+              _id: data.userId || data._id || peerId,
+              name: data.displayName || data.username || data.name,
+              avatar: data.avatar,
+              email: data.email,
+            };
+          }
+        } catch {
+          /* profile optional */
+        }
+        return { ...friend, friendshipId: f._id };
+      })
+    );
 
     res.json({ status: 'success', data: formatted });
   } catch (error) {

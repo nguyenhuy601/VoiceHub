@@ -25,7 +25,6 @@ import ChatAttachmentContextMenu from './ChatAttachmentContextMenu';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
 import { buildMediaAttachmentMenuItems } from '../../utils/buildAttachmentMenuItems';
 import { fileTypeBadge, formatFileSize } from '../../utils/chatFileDisplay';
-import { entShell } from '../../theme/enterpriseWorkspace';
 import {
   formatDmEventWhen,
   getDmRemindersForFriend,
@@ -176,25 +175,21 @@ export default function FriendChatRightPanel({
     });
   };
 
-  const sidebarTok = entShell(isDarkMode);
-  const shell = `${sidebarTok.sidebar} hidden h-full min-h-0 w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden lg:flex`;
-  const hairlineB = isDarkMode ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
-  const hairlineT = isDarkMode ? 'border-t border-white/[0.06]' : 'border-t border-slate-200';
-  const titleMain = sidebarTok.textPrimary;
-  const labelMuted = isDarkMode ? 'text-gray-500' : 'text-slate-500';
-  const sectionBtn = isDarkMode
-    ? 'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-white hover:bg-white/[0.03]'
-    : 'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-slate-900 hover:bg-slate-50';
-  const thumbBg = isDarkMode ? 'bg-[#14151c]' : 'bg-slate-100';
-  const quickRow = isDarkMode
-    ? 'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-200 hover:bg-white/[0.04]'
-    : 'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50';
-  const actionCircle = isDarkMode
-    ? 'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-gray-400 transition hover:bg-white/[0.05] hover:text-white'
-    : 'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900';
-  const actionCircleDisabled = isDarkMode
-    ? 'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-gray-400'
-    : 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-500';
+  const shell =
+    'flex h-full min-h-0 w-[min(320px,88vw)] shrink-0 flex-col overflow-hidden border-l border-border bg-surface text-foreground lg:w-[320px] lg:max-w-[32vw]';
+  const hairlineB = 'border-b border-border';
+  const hairlineT = 'border-t border-border';
+  const titleMain = 'text-foreground';
+  const labelMuted = 'text-muted-foreground';
+  const sectionBtn =
+    'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-muted/70';
+  const thumbBg = 'bg-muted';
+  const quickRow =
+    'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-muted/70';
+  const actionCircle =
+    'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground';
+  const actionCircleDisabled =
+    'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground';
 
   const renderFileRow = (f) => {
     const mime = f.fileMeta?.mimeType || '';

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { saveVoiceAudioPrefs } from './voiceAudioPrefs';
+import { useAppStrings } from '../../locales/appStrings';
 
 const BAR_COUNT = 12;
 /** Hệ số nghe lại giọng mình — tránh hú quá to khi bật loa gần mic */
@@ -23,7 +24,7 @@ function buildMicConstraints(deviceId) {
  * Cấu hình mic / loa + kiểm tra đầu vào / đầu ra (dùng trong modal Cài đặt Voice).
  */
 export default function VoiceAudioSettingsPanel({
-  t,
+  t: tProp,
   isDarkMode = true,
   micId,
   speakerId,
@@ -38,6 +39,8 @@ export default function VoiceAudioSettingsPanel({
   /** Đang trong kênh voice — không giữ mic test (tránh tranh Realtek/BT với mediasoup). */
   voiceSessionActive = false,
 }) {
+  const { t: tFromHook } = useAppStrings();
+  const t = tProp ?? tFromHook;
   const [audioInputs, setAudioInputs] = useState([]);
   const [audioOutputs, setAudioOutputs] = useState([]);
   const [micTesting, setMicTesting] = useState(false);
@@ -58,11 +61,11 @@ export default function VoiceAudioSettingsPanel({
   const speakerAudioRef = useRef(null);
   const speakerOscRef = useRef(null);
 
-  const labelClass = isDarkMode ? 'text-gray-300' : 'text-slate-700';
+  const labelClass = isDarkMode ? 'text-foreground/90' : 'text-slate-700';
   const fieldClass = isDarkMode
-    ? 'w-full rounded-lg border border-white/15 bg-[#1a1a1a] px-3 py-2.5 text-sm text-white focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30'
-    : 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900';
-  const sliderClass = 'w-full accent-cyan-500';
+    ? 'w-full rounded-lg border border-white/15 bg-surface-raised px-3 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30'
+    : 'w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30';
+  const sliderClass = 'w-full accent-primary';
 
   const stopMicMonitor = useCallback(() => {
     const gain = testGainRef.current;
@@ -226,7 +229,7 @@ export default function VoiceAudioSettingsPanel({
     };
   }, [active, ensureMicPermission, refreshDevices, releaseMicCapture, stopSpeakerTest]);
 
-  /** Chỉ giữ mic khi đang bấm "Kiểm tra mic" */
+  /** Keep mic active while the mic test is running */
   useEffect(() => {
     if (voiceSessionActive && micTesting) {
       setMicTesting(false);

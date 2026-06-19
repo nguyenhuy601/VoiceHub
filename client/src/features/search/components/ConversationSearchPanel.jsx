@@ -68,7 +68,7 @@ export default function ConversationSearchPanel({
   const rowHover = isDarkMode ? 'hover:bg-white/[0.05]' : 'hover:bg-slate-50';
 
   const asideClass = inline
-    ? `flex h-full min-h-0 w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden border-l shadow-none ${panel}`
+    ? `flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-l shadow-none ${panel}`
     : `fixed right-0 top-0 z-[250] flex h-full w-[min(360px,92vw)] flex-col border-l shadow-2xl ${panel}`;
 
   const content = (

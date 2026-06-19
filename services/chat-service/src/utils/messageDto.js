@@ -1,13 +1,31 @@
 const { unwrapPlaintext } = require('@enterprise/shared');
 
-function slimFileMeta(fileMeta) {
+function slimFileMeta(fileMeta, { includeStoragePath = false } = {}) {
   if (!fileMeta || typeof fileMeta !== 'object') return undefined;
   const out = {};
   if (fileMeta.originalName) out.originalName = fileMeta.originalName;
   if (fileMeta.mimeType) out.mimeType = fileMeta.mimeType;
   if (fileMeta.byteSize != null) out.byteSize = fileMeta.byteSize;
-  if (fileMeta.storagePath) out.storagePath = fileMeta.storagePath;
+  if (includeStoragePath && fileMeta.storagePath) out.storagePath = fileMeta.storagePath;
   return Object.keys(out).length ? out : undefined;
+}
+
+const CLIENT_MESSAGE_FULL_FIELDS = [
+  '_id', 'senderId', 'senderDisplayName', 'content', 'originalContent', 'messageType',
+  'roomId', 'organizationId', 'receiverId', 'conversationId', 'createdAt', 'updatedAt',
+  'isRead', 'readAt', 'replyToMessageId', 'isDeleted', 'isRecalled', 'editedAt',
+  'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links',
+];
+
+function pickClientFullMessage(o, senderId) {
+  const picked = { senderId };
+  for (const key of CLIENT_MESSAGE_FULL_FIELDS) {
+    if (o[key] !== undefined) picked[key] = o[key];
+  }
+  if (picked.fileMeta) {
+    picked.fileMeta = slimFileMeta(picked.fileMeta, { includeStoragePath: false });
+  }
+  return picked;
 }
 
 /**
@@ -23,7 +41,7 @@ function toClientMessage(doc, opts = {}) {
 
   const senderId = String(o.senderId?._id || o.senderId || '');
   if (fields === 'full') {
-    return { ...o, senderId };
+    return pickClientFullMessage(o, senderId);
   }
 
   const summary = {

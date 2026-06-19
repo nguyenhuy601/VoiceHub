@@ -26,6 +26,15 @@ import {
 } from '../../utils/resolveFriendDisplayName';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
 import UserAvatar from '../Shared/UserAvatar';
+import {
+  FIGMA_VOICE_CTRL_BTN,
+  FIGMA_VOICE_CTRL_BTN_ACTIVE,
+  FIGMA_VOICE_CTRL_BTN_DANGER,
+  FIGMA_VOICE_CTRL_BTN_IDLE,
+  FIGMA_VOICE_CTRL_END,
+  FIGMA_VOICE_CTRL_PILL,
+  FIGMA_VOICE_ROOM_ROOT,
+} from '../Voice/figmaVoiceClasses';
 
 const getSignalBaseUrl = () => resolveAppOrigin() || 'http://127.0.0.1:3000';
 const getSignalPath = () => import.meta.env.VITE_VOICE_SIGNAL_PATH || '/voice-socket';
@@ -795,16 +804,16 @@ export default function FriendCallMediaModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[250] flex flex-col bg-zinc-950 text-white"
+      className={`fixed inset-0 z-[250] flex flex-col ${FIGMA_VOICE_ROOM_ROOT}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="friend-call-modal-title"
     >
-      <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
-        <h1 id="friend-call-modal-title" className="text-sm font-semibold tracking-tight">
+      <header className="flex shrink-0 items-center justify-between border-b border-white/10 bg-white/[0.04] px-4 py-3">
+        <h1 id="friend-call-modal-title" className="text-sm font-semibold tracking-tight text-foreground">
           {peerDisplayName}
         </h1>
-        <span className="text-xs text-white/50">
+        <span className="text-xs text-muted-foreground">
           {session.media === 'audio' ? t('friendChat.incomingCallAudio') : t('friendChat.incomingCallVideo')}
         </span>
       </header>
@@ -823,15 +832,15 @@ export default function FriendCallMediaModal() {
           {remoteTile?.hasVideo && remoteTile?.stream ? (
             <>
               <video ref={bindRemoteVideoRef} className="h-full w-full object-cover" autoPlay playsInline />
-              <audio ref={remoteAudioRef} autoPlay playsInline className="sr-only" />
+              <audio ref={remoteAudioRef} autoPlay className="sr-only" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-4 pt-10">
                 <p className="truncate text-center text-base font-semibold text-white">{peerDisplayName}</p>
               </div>
             </>
           ) : (
             <>
-              <audio ref={remoteAudioRef} autoPlay playsInline className="sr-only" />
-              <div className="flex h-full min-h-[280px] w-full items-center justify-center bg-zinc-900">
+              <audio ref={remoteAudioRef} autoPlay className="sr-only" />
+              <div className="flex h-full min-h-[280px] w-full items-center justify-center bg-surface-raised">
                 <FriendCallPeerPresence
                   name={peerDisplayName}
                   avatar={peerAvatar}
@@ -851,14 +860,12 @@ export default function FriendCallMediaModal() {
         </div>
       </div>
 
-      <footer className="flex shrink-0 flex-wrap items-center justify-center gap-3 border-t border-white/10 px-4 py-4">
+      <footer className={`flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 px-4 py-4 ${FIGMA_VOICE_CTRL_PILL} mx-auto mb-4 max-w-md border-0 bg-transparent shadow-none`}>
         <button
           type="button"
           onClick={toggleMute}
           disabled={joining}
-          className={`flex h-12 w-12 items-center justify-center rounded-full ${
-            isMuted ? 'bg-red-600/90' : 'bg-white/10 hover:bg-white/20'
-          }`}
+          className={`${FIGMA_VOICE_CTRL_BTN} ${isMuted ? FIGMA_VOICE_CTRL_BTN_DANGER : FIGMA_VOICE_CTRL_BTN_ACTIVE}`}
           aria-label={isMuted ? t('friendChat.callUnmute') : t('friendChat.callMute')}
         >
           {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
@@ -868,9 +875,7 @@ export default function FriendCallMediaModal() {
             type="button"
             onClick={() => void toggleCamera()}
             disabled={joining}
-            className={`flex h-12 w-12 items-center justify-center rounded-full ${
-              isCameraOff ? 'bg-white/10 hover:bg-white/20' : 'bg-emerald-600/90 hover:bg-emerald-500'
-            }`}
+            className={`${FIGMA_VOICE_CTRL_BTN} ${isCameraOff ? FIGMA_VOICE_CTRL_BTN_IDLE : FIGMA_VOICE_CTRL_BTN_ACTIVE}`}
             aria-label={isCameraOff ? t('friendChat.callCamOn') : t('friendChat.callCamOff')}
           >
             {isCameraOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
@@ -881,9 +886,7 @@ export default function FriendCallMediaModal() {
             type="button"
             onClick={toggleRecord}
             disabled={joining}
-            className={`flex h-12 w-12 items-center justify-center rounded-full ${
-              isRecording ? 'bg-red-600 animate-pulse' : 'bg-white/10 hover:bg-white/20'
-            }`}
+            className={`${FIGMA_VOICE_CTRL_BTN} ${isRecording ? FIGMA_VOICE_CTRL_BTN_DANGER : FIGMA_VOICE_CTRL_BTN_IDLE} ${isRecording ? 'animate-pulse' : ''}`}
             aria-label={isRecording ? t('friendChat.callRecordStop') : t('friendChat.callRecordStart')}
           >
             {isRecording ? <Square className="h-5 w-5 fill-current" /> : <Circle className="h-5 w-5" />}
@@ -892,10 +895,11 @@ export default function FriendCallMediaModal() {
         <button
           type="button"
           onClick={handleHangup}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-red-600 hover:bg-red-500"
+          className={FIGMA_VOICE_CTRL_END}
           aria-label={t('friendChat.callHangup')}
         >
-          <PhoneOff className="h-6 w-6" />
+          <PhoneOff className="h-4 w-4" />
+          <span>{t('voiceRoom.endShort')}</span>
         </button>
       </footer>
     </div>

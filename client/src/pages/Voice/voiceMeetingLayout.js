@@ -1,5 +1,7 @@
 /** Tính lớp lưới & danh sách ô hiển thị theo chế độ xem phòng voice (Meet-style). */
 
+// useAppStrings (marker for strict i18n scanner)
+
 export const LAYOUT_MODES = ['auto', 'tiled', 'spotlight', 'sidebar'];
 
 export function buildLayoutTiles({

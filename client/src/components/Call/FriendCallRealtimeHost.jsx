@@ -8,6 +8,7 @@ import friendCallService from '../../services/friendCallService';
 import userService from '../../services/userService';
 import { useFriendsList } from '../../hooks/queries';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { getUserDisplayName } from '../../utils/helpers';
 import {
   resolveFriendDisplayNameFromList,
@@ -270,7 +271,7 @@ export default function FriendCallRealtimeHost() {
         }
       );
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || t('friendChat.callAcceptFail');
+      const msg = resolveApiErrorMessage(err, { t, fallback: t('friendChat.callAcceptFail') });
       toast.error(msg);
       clearIncoming();
     } finally {

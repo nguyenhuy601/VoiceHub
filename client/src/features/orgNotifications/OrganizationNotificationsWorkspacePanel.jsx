@@ -7,6 +7,7 @@ import {
 } from '../../utils/suitePathUtils';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { PageSearchToolbar, SearchFilterChips } from '../search';
 import { useNotificationsInfinite } from '../../hooks/queries';
 import { getToken } from '../../utils/tokenStorage';
@@ -165,7 +166,7 @@ export default function OrganizationNotificationsWorkspacePanel({
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     } catch (error) {
-      toast.error(error?.response?.data?.message || t('notifications.markReadErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
     }
   };
 

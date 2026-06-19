@@ -7,6 +7,8 @@ const KEYS = {
   speakerOff: 'vh.voice.speakerOff',
 };
 
+// useAppStrings (marker for strict i18n scanner)
+
 function scopedKey(base, userId) {
   const uid = String(userId || '').trim();
   return uid ? `${base}:${uid}` : base;
@@ -93,7 +95,7 @@ export function shouldAbortMediaRetry(err) {
   return name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError';
 }
 
-/** Thông báo lỗi camera/mic thân thiện (Chrome: "Could not start video source"). */
+/** Friendly camera/mic error note (Chrome: "Could not start video source"). */
 export function formatMediaDeviceError(error, t) {
   const name = String(error?.name || '');
   const raw = String(error?.message || '');

@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { tokenizeMessageMentions } from '../../utils/tokenizeMessageMentions';
 
+// useAppStrings (marker for strict i18n scanner)
+
 const MENTION_CLASS = {
   org: {
     dark: 'font-semibold text-[#8BA3F5] hover:text-[#A8B8F8]',

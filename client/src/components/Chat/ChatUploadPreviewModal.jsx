@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Xác nhận gửi file/ảnh trước khi upload (DM / org).
@@ -11,10 +12,14 @@ export default function ChatUploadPreviewModal({
   isDarkMode,
   onCancel,
   onConfirm,
-  confirmLabel = 'Gửi',
-  cancelLabel = 'Huỷ',
-  title = 'Xem trước',
+  confirmLabel,
+  cancelLabel,
+  title,
 }) {
+  const { t } = useAppStrings();
+  const confirmText = confirmLabel || t('friendChat.send');
+  const cancelText = cancelLabel || t('nav.cancel');
+  const titleText = title || t('friendChat.uploadPreviewTitle');
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
@@ -36,7 +41,7 @@ export default function ChatUploadPreviewModal({
       <button
         type="button"
         className="fixed inset-0 z-[200] bg-black/50"
-        aria-label={cancelLabel}
+        aria-label={cancelText}
         onClick={onCancel}
       />
       <div
@@ -45,7 +50,7 @@ export default function ChatUploadPreviewModal({
         aria-modal="true"
       >
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold">{title}</h3>
+          <h3 className="text-sm font-bold">{titleText}</h3>
           <button type="button" onClick={onCancel} className={`rounded-lg p-1.5 ${muted} hover:opacity-80`}>
             <X className="h-5 w-5" />
           </button>
@@ -75,14 +80,14 @@ export default function ChatUploadPreviewModal({
               isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'
             }`}
           >
-            {cancelLabel}
+            {cancelText}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500"
           >
-            {confirmLabel}
+            {confirmText}
           </button>
         </div>
       </div>
