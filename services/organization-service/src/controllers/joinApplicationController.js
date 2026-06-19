@@ -1,11 +1,20 @@
 const axios = require('axios');
 const Organization = require('../models/Organization');
 const JoinApplication = require('../models/JoinApplication');
+const {
+  orgUnauthorized,
+  orgNotFound,
+  orgValidation,
+  orgFail,
+  orgConflict,
+  orgCatch,
+} = require('../utils/orgApiError');
 const Membership = require('../models/Membership');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { resolveFrontendUrl } = require('@enterprise/shared');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+const { toJoinApplicationListItem } = require('../utils/orgDto');
 
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: NOTIFICATION_SERVICE_URL');
@@ -165,7 +174,7 @@ exports.getJoinApplicationForm = async (req, res, next) => {
     const orgId = req.params.orgId;
     const org = await Organization.findById(orgId).lean();
     if (!org) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
     const jf = org.settings?.joinApplicationForm || {};
     res.json({
@@ -187,25 +196,19 @@ exports.updateJoinApplicationForm = async (req, res, next) => {
     const orgId = req.params.orgId;
     const org = await Organization.findById(orgId);
     if (!org) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
 
     const normalized = normalizeJoinFormFromBody(req.body || {});
     for (const f of normalized.fields) {
       if (!FIELD_ID_RE.test(f.id)) {
-        return res.status(400).json({
-          status: 'fail',
-          message: `field id không hợp lệ: ${f.id} (chỉ chữ, số, gạch dưới, tối đa 64 ký tự)`,
-        });
+        return orgValidation(res, `field id không hợp lệ: ${f.id} (chỉ chữ, số, gạch dưới, tối đa 64 ký tự)`);
       }
       if (!f.label) {
-        return res.status(400).json({ status: 'fail', message: 'Mỗi trường cần có label' });
+        return orgValidation(res, 'Mỗi trường cần có label');
       }
       if (CHOICE_TYPES.includes(f.type) && (!f.options || f.options.length < 2)) {
-        return res.status(400).json({
-          status: 'fail',
-          message: `Trường "${f.label}" cần ít nhất 2 lựa chọn`,
-        });
+        return orgValidation(res, `Trường "${f.label}" cần ít nhất 2 lựa chọn`);
       }
     }
 
@@ -253,14 +256,11 @@ exports.getJoinApplicationFormPublic = async (req, res, next) => {
     const orgId = req.params.orgId;
     const org = await Organization.findById(orgId).lean();
     if (!org || !org.isActive) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
     const jf = org.settings?.joinApplicationForm || {};
     if (!jf.enabled) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Join application form is not enabled for this organization',
-      });
+      return orgFail(res, 404, 'Join application form is not enabled for this organization', 'ORG_NOT_FOUND');
     }
     res.json({
       status: 'success',
@@ -282,20 +282,17 @@ exports.submitJoinApplication = async (req, res, next) => {
     const userId = getUserId(req);
     const frontendUrl = resolveFrontendUrl(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const org = await Organization.findById(orgId);
     if (!org || !org.isActive) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
 
     const jf = org.settings?.joinApplicationForm || {};
     if (!jf.enabled) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Form gia nhập chưa được bật',
-      });
+      return orgValidation(res, 'Form gia nhập chưa được bật');
     }
 
     const formFields = Array.isArray(jf.fields) ? jf.fields : [];
@@ -306,10 +303,7 @@ exports.submitJoinApplication = async (req, res, next) => {
       status: 'active',
     });
     if (existingMember) {
-      return res.status(409).json({
-        status: 'fail',
-        message: 'Bạn đã là thành viên tổ chức này',
-      });
+      return orgConflict(res, 'Bạn đã là thành viên tổ chức này', 'ORG_ALREADY_MEMBER');
     }
 
     const pending = await JoinApplication.findOne({
@@ -318,17 +312,14 @@ exports.submitJoinApplication = async (req, res, next) => {
       status: 'pending',
     });
     if (pending) {
-      return res.status(409).json({
-        status: 'fail',
-        message: 'Bạn đã có đơn gia nhập đang chờ duyệt',
-      });
+      return orgConflict(res, 'Bạn đã có đơn gia nhập đang chờ duyệt', 'ORG_ALREADY_MEMBER');
     }
 
     const answers = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
     if (formFields.length > 0) {
       const errs = validateAnswersAgainstForm(formFields, answers);
       if (errs.length) {
-        return res.status(400).json({ status: 'fail', message: errs.join('; ') });
+        return orgValidation(res, errs.join('; '));
       }
     }
 
@@ -394,10 +385,7 @@ exports.submitJoinApplication = async (req, res, next) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({
-        status: 'fail',
-        message: 'Bạn đã có đơn gia nhập đang chờ duyệt',
-      });
+      return orgConflict(res, 'Bạn đã có đơn gia nhập đang chờ duyệt', 'ORG_ALREADY_MEMBER');
     }
     next(error);
   }
@@ -408,7 +396,7 @@ exports.listMyPendingJoinApplications = async (req, res, next) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const apps = await JoinApplication.find({
@@ -451,7 +439,7 @@ exports.listJoinApplicationsToReview = async (req, res, next) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const adminMemberships = await Membership.find({
@@ -483,17 +471,18 @@ exports.listJoinApplicationsToReview = async (req, res, next) => {
     const data = apps.map((a) => {
       const oid = String(a.organization);
       const o = orgMap[oid] || {};
+      const item = toJoinApplicationListItem(a);
       return {
         applicationId: String(a._id),
         organizationId: oid,
         organizationName: o.name || 'Tổ chức',
         logo: o.logo || null,
-        applicantUser: String(a.applicantUser),
-        applicantSnapshot: a.applicantSnapshot || {},
-        answers: a.answers || {},
-        formSnapshot: a.formSnapshot ?? null,
-        submittedAt: a.submittedAt,
-        status: a.status,
+        applicantUser: item.applicantUser,
+        applicantSnapshot: item.applicantSnapshot,
+        answers: item.answers,
+        formSnapshot: item.formSnapshot,
+        submittedAt: item.submittedAt,
+        status: item.status,
       };
     });
 
@@ -508,7 +497,7 @@ exports.listJoinApplications = async (req, res, next) => {
     const orgId = req.params.orgId;
     const status = req.query?.status || 'pending';
     if (!['pending', 'approved', 'rejected', 'all'].includes(status)) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid status filter' });
+      return orgValidation(res, 'Invalid status filter');
     }
 
     const q = { organization: orgId };
@@ -521,13 +510,7 @@ exports.listJoinApplications = async (req, res, next) => {
 
     res.json({
       status: 'success',
-      data: rows.map((r) => ({
-        ...r,
-        applicantUser: String(r.applicantUser),
-        applicantSnapshot: r.applicantSnapshot || {},
-        organization: String(r.organization),
-        reviewedBy: r.reviewedBy ? String(r.reviewedBy) : null,
-      })),
+      data: rows.map((r) => toJoinApplicationListItem(r)),
     });
   } catch (error) {
     next(error);
@@ -544,12 +527,12 @@ exports.reviewJoinApplication = async (req, res, next) => {
     const frontendUrl = resolveFrontendUrl(req);
 
     if (!['approve', 'reject'].includes(action)) {
-      return res.status(400).json({ status: 'fail', message: 'action phải là approve hoặc reject' });
+      return orgValidation(res, 'action phải là approve hoặc reject');
     }
 
     const org = await Organization.findById(orgId).lean();
     if (!org) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
 
     const appDoc = await JoinApplication.findOne({
@@ -558,7 +541,7 @@ exports.reviewJoinApplication = async (req, res, next) => {
       status: 'pending',
     });
     if (!appDoc) {
-      return res.status(404).json({ status: 'fail', message: 'Không tìm thấy đơn chờ duyệt' });
+      return orgFail(res, 404, 'Không tìm thấy đơn chờ duyệt', 'ORG_NOT_FOUND');
     }
 
     const applicantId = String(appDoc.applicantUser);

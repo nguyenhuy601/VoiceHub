@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
+import { useAppStrings } from '../../locales/appStrings';
 
 const MENU_WIDTH = 256;
 const EST_MENU_HEIGHT = 380;
@@ -44,6 +45,7 @@ export default function ChannelMessageMoreMenu({
   onPinToggle,
   pinLabel = '',
 }) {
+  const { t } = useAppStrings();
   if (!open || !anchorRect) return null;
 
   const { left, top } = computeMenuPosition(anchorRect);
@@ -52,7 +54,7 @@ export default function ChannelMessageMoreMenu({
     <>
       <button
         type="button"
-        aria-label="Đóng menu"
+        aria-label={t('orgPanel.closeMenuAria')}
         className={`${shellNavRailBackdrop} z-[80] cursor-default bg-black/20`}
         onClick={onClose}
       />
@@ -71,7 +73,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            Sao chép tin nhắn
+            {t('orgPanel.menuCopyMessage')}
             <span className="text-slate-400">📋</span>
           </button>
         )}
@@ -85,7 +87,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            Trả lời
+            {t('orgPanel.menuReply')}
             <span className="text-slate-400">↩️</span>
           </button>
         )}
@@ -98,7 +100,7 @@ export default function ChannelMessageMoreMenu({
             onClose();
           }}
         >
-          Chuyển tiếp
+          {t('orgPanel.menuForward')}
           <span className="text-slate-400">↪️</span>
         </button>
         {typeof onCreateTask === 'function' && (
@@ -106,7 +108,7 @@ export default function ChannelMessageMoreMenu({
             type="button"
             role="menuitem"
             disabled={createTaskDisabled}
-            title={createTaskHoverTitle || 'Phân tích tin nhắn và gợi ý task (AI)'}
+            title={createTaskHoverTitle || t('orgPanel.menuCreateTaskHint')}
             className={`flex w-full items-center justify-between px-3 py-2.5 text-left ${
               createTaskDisabled
                 ? 'cursor-not-allowed text-slate-500'
@@ -120,7 +122,7 @@ export default function ChannelMessageMoreMenu({
           >
             <span className="flex min-w-0 flex-1 items-center gap-2">
               <span className="shrink-0">✅</span>
-              <span className="truncate">Tạo task (AI)</span>
+              <span className="truncate">{t('orgPanel.menuCreateTaskAi')}</span>
             </span>
             <span className="text-slate-400">🤖</span>
           </button>
@@ -135,7 +137,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            Chỉnh sửa tin nhắn
+            {t('orgPanel.menuEditMessage')}
             <span className="text-slate-400">✏️</span>
           </button>
         )}
@@ -149,7 +151,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            {pinLabel || 'Ghim tin nhắn'}
+            {pinLabel || t('orgPanel.menuPinMessage')}
             <span className="text-slate-400">📌</span>
           </button>
         )}
@@ -164,7 +166,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            Thu hồi tin nhắn
+            {t('orgPanel.menuRecallMessage')}
             <span className="text-slate-400">↩</span>
           </button>
         )}
@@ -178,7 +180,7 @@ export default function ChannelMessageMoreMenu({
               onClose();
             }}
           >
-            Xoá tin nhắn
+            {t('orgPanel.menuDeleteMessage')}
             <span>🗑️</span>
           </button>
         )}

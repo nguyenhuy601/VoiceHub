@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../Shared';
+import { useAppStrings } from '../../locales/appStrings';
 
 const BACKGROUND_PRESETS = [
   'linear-gradient(135deg,#1f2937,#111827)',
@@ -17,6 +18,7 @@ export default function CreateTaskBoardModal({
   defaultTeamName = '',
   defaultScopeLabel = '',
 }) {
+  const { t } = useAppStrings();
   const [title, setTitle] = useState('');
   const [visibility, setVisibility] = useState('private');
   const [background, setBackground] = useState(BACKGROUND_PRESETS[0]);
@@ -38,26 +40,27 @@ export default function CreateTaskBoardModal({
   const canSubmit = String(title || '').trim().length > 0 && !creating;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Tạo Task Board" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('organization.createTaskBoardTitle')} size="md">
       <div className="space-y-4">
         <div className="text-xs text-slate-400">
-          Phạm vi: <span className="text-slate-200">{defaultScopeLabel || defaultTeamName || '—'}</span>
+          {t('organization.scopeLabel')}:{' '}
+          <span className="text-slate-200">{defaultScopeLabel || defaultTeamName || '—'}</span>
         </div>
 
         <div>
-          <div className="mb-1 text-sm font-semibold text-white">Tiêu đề board *</div>
+          <div className="mb-1 text-sm font-semibold text-white">{t('organization.taskBoardTitleLabel')} *</div>
           <input
             value={title}
             maxLength={180}
             onChange={(e) => setTitle(e.target.value)}
             className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none"
-            placeholder="Nhập tiêu đề board"
+            placeholder={t('organization.taskBoardTitlePlaceholder')}
           />
         </div>
 
         <div>
-          <div className="mb-2 text-sm font-semibold text-white">Phông nền</div>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="mb-2 text-sm font-semibold text-white">{t('organization.taskBoardBackground')}</div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             {BACKGROUND_PRESETS.map((preset) => (
               <button
                 key={preset}
@@ -77,19 +80,19 @@ export default function CreateTaskBoardModal({
             value={customBackground}
             onChange={(e) => setCustomBackground(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs text-white outline-none"
-            placeholder="Nhập CSS background (tùy chọn)"
+            placeholder={t('organization.taskBoardBackgroundPlaceholder')}
           />
         </div>
 
         <div>
-          <div className="mb-1 text-sm font-semibold text-white">Quyền xem</div>
+          <div className="mb-1 text-sm font-semibold text-white">{t('organization.taskBoardVisibility')}</div>
           <select
             value={visibility}
             onChange={(e) => setVisibility(e.target.value)}
             className="w-full rounded-lg border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white outline-none"
           >
-            <option value="private">Riêng tư</option>
-            <option value="workspace">Không gian làm việc</option>
+            <option value="private">{t('organization.taskBoardPrivate')}</option>
+            <option value="workspace">{t('organization.taskBoardWorkspace')}</option>
           </select>
         </div>
 
@@ -100,7 +103,7 @@ export default function CreateTaskBoardModal({
             disabled={creating}
             className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-50"
           >
-            Hủy
+            {t('nav.cancel')}
           </button>
           <button
             type="button"
@@ -114,7 +117,7 @@ export default function CreateTaskBoardModal({
             }
             className="rounded-lg bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50"
           >
-            {creating ? 'Đang tạo...' : 'Tạo Task Board'}
+            {creating ? t('organization.taskBoardCreating') : t('organization.createTaskBoardTitle')}
           </button>
         </div>
       </div>

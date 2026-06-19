@@ -27,18 +27,18 @@ function SplitAudioButton({
 }) {
   const mainCls = isMutedStyle
     ? isDarkMode
-      ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
-      : 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+      ? 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+      : 'bg-destructive/10 text-destructive hover:bg-destructive/15'
     : isDarkMode
-      ? 'text-slate-200 hover:bg-white/10'
+      ? 'text-foreground hover:bg-white/10'
       : 'text-slate-600 hover:bg-slate-200';
 
   const menuCls = menuOpen
     ? isDarkMode
-      ? 'bg-white/10 text-white'
+      ? 'bg-white/10 text-foreground'
       : 'bg-slate-200 text-slate-900'
     : isDarkMode
-      ? 'text-slate-300 hover:bg-white/10'
+      ? 'text-muted-foreground hover:bg-white/10'
       : 'text-slate-600 hover:bg-slate-200';
 
   return (
@@ -76,7 +76,7 @@ function RadioDeviceRow({ selected, label, sub, onSelect, isDarkMode }) {
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{label}</div>
         {sub ? (
-          <div className={`truncate text-xs ${isDarkMode ? 'text-[#949ba4]' : 'text-slate-500'}`}>{sub}</div>
+          <div className={`truncate text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>{sub}</div>
         ) : null}
       </div>
       <span
@@ -246,7 +246,7 @@ export default function OrganizationSidebarAudioBar({
     ? 'hover:bg-white/[0.06] text-white'
     : 'hover:bg-slate-50 text-slate-900';
 
-  const subText = isDarkMode ? 'text-[#949ba4]' : 'text-slate-500';
+  const subText = isDarkMode ? 'text-muted-foreground' : 'text-slate-500';
 
   const renderDeviceSubmenu = () => {
     if (!deviceSubmenu) return null;

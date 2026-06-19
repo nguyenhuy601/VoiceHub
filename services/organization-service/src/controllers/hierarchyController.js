@@ -4,6 +4,10 @@ const Department = require('../models/Department');
 const Team = require('../models/Team');
 const Channel = require('../models/Channel');
 const {
+  orgFail,
+  orgValidation,
+} = require('../utils/orgApiError');
+const {
   ensureDivisionRole,
   ensureDepartmentRole,
   ensureTeamRole,
@@ -89,7 +93,7 @@ exports.updateDivision = async (req, res, next) => {
       { new: true }
     );
     if (!doc) {
-      return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
     await ensureDivisionRole(req.params.orgId, doc._id, doc.name);
     await bumpOrgReadCache(req.params.orgId);
@@ -119,7 +123,7 @@ exports.createDepartmentByDivision = async (req, res, next) => {
       isActive: true,
     }).lean();
     if (!division) {
-      return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
     const doc = await Department.create({
       organization: req.params.orgId,
@@ -157,7 +161,7 @@ exports.createTeamByDepartment = async (req, res, next) => {
       organization: req.params.orgId,
     }).lean();
     if (!department) {
-      return res.status(404).json({ status: 'fail', message: 'Department not found' });
+      return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
     }
     const doc = await Team.create({
       organization: req.params.orgId,
@@ -216,7 +220,7 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
       { new: true }
     );
     if (!doc) {
-      return res.status(404).json({ status: 'fail', message: 'Team not found' });
+      return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
     await ensureTeamRole(req.params.orgId, doc._id, doc.name);
     await bumpOrgReadCache(req.params.orgId);
@@ -247,7 +251,7 @@ exports.createChannelByTeam = async (req, res, next) => {
       isActive: true,
     }).lean();
     if (!team) {
-      return res.status(404).json({ status: 'fail', message: 'Team not found' });
+      return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
     const doc = await Channel.create({
       organization: req.params.orgId,
@@ -279,7 +283,7 @@ exports.createChannelByScope = async (req, res, next) => {
     if (level === 'team') {
       const teamId = req.body?.teamId || req.params.teamId;
       if (!teamId) {
-        return res.status(400).json({ status: 'fail', message: 'teamId is required' });
+        return orgValidation(res, 'teamId is required');
       }
       const team = await Team.findOne({
         _id: teamId,
@@ -287,7 +291,7 @@ exports.createChannelByScope = async (req, res, next) => {
         isActive: true,
       }).lean();
       if (!team) {
-        return res.status(404).json({ status: 'fail', message: 'Team not found' });
+        return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
       }
       const doc = await Channel.create({
         organization: req.params.orgId,
@@ -307,14 +311,14 @@ exports.createChannelByScope = async (req, res, next) => {
     if (level === 'department') {
       const departmentId = req.body?.departmentId || null;
       if (!departmentId) {
-        return res.status(400).json({ status: 'fail', message: 'departmentId is required' });
+        return orgValidation(res, 'departmentId is required');
       }
       const department = await Department.findOne({
         _id: departmentId,
         organization: req.params.orgId,
       }).lean();
       if (!department) {
-        return res.status(404).json({ status: 'fail', message: 'Department not found' });
+        return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
       }
       const doc = await Channel.create({
         organization: req.params.orgId,
@@ -333,7 +337,7 @@ exports.createChannelByScope = async (req, res, next) => {
 
     const divisionId = req.body?.divisionId || null;
     if (!divisionId) {
-      return res.status(400).json({ status: 'fail', message: 'divisionId is required' });
+      return orgValidation(res, 'divisionId is required');
     }
     const division = await Division.findOne({
       _id: divisionId,
@@ -341,7 +345,7 @@ exports.createChannelByScope = async (req, res, next) => {
       isActive: true,
     }).lean();
     if (!division) {
-      return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
     const doc = await Channel.create({
       organization: req.params.orgId,
@@ -377,7 +381,7 @@ exports.updateChannelByScope = async (req, res, next) => {
       { new: true }
     );
     if (!doc) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });
@@ -403,7 +407,7 @@ exports.updateChannelByTeam = async (req, res, next) => {
       { new: true }
     );
     if (!doc) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });

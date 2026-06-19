@@ -21,6 +21,7 @@ import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
 import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
+import { useAppStrings } from '../../locales/appStrings';
 
 const LIST_WIDTH = 'w-[272px]';
 const CARD_OVERLAY_WIDTH = 'w-[248px]';
@@ -117,6 +118,7 @@ function KanbanListColumn({
   isCardsOver,
   children,
 }) {
+  const { t } = useAppStrings();
   const listId = String(list._id);
   const { setNodeRef: setListDragRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } =
     useDraggable({
@@ -158,7 +160,7 @@ function KanbanListColumn({
           className={`shrink-0 cursor-grab rounded p-0.5 active:cursor-grabbing ${
             isDarkMode ? 'text-slate-500 hover:bg-white/10' : 'text-slate-400 hover:bg-slate-200'
           }`}
-          aria-label="Kéo danh sách"
+          aria-label={t('taskBoard.dragListAria')}
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
@@ -167,7 +169,7 @@ function KanbanListColumn({
         {list.isWatching || list.watcherCount > 0 ? (
           <span
             className={`flex items-center gap-0.5 text-[10px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
-            title="Người theo dõi"
+            title={t('taskBoard.watchersTitle')}
           >
             <Eye className="h-3 w-3" />
             {list.watcherCount > 0 ? list.watcherCount : ''}
@@ -180,7 +182,7 @@ function KanbanListColumn({
             onMenuClick(e);
           }}
           className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
-          aria-label="Thao tác danh sách"
+          aria-label={t('taskBoard.listActionsAria')}
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
@@ -249,7 +251,9 @@ export default function TaskBoardWorkspacePanel({
   onUpdateCard,
   onReorderList,
   onRefresh,
+  renderCardExtra = null,
 }) {
+  const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
   const [addingListOpen, setAddingListOpen] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
@@ -583,7 +587,7 @@ export default function TaskBoardWorkspacePanel({
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => onToggleComplete(card, e)}
-            title={isDone ? 'Đánh dấu chưa hoàn tất' : 'Đánh dấu hoàn tất'}
+            title={isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
             className="mt-0.5 shrink-0 rounded-full"
           >
             {isDone ? (
@@ -613,7 +617,7 @@ export default function TaskBoardWorkspacePanel({
         </div>
         {card.dueDate ? (
           <div className={`mt-1 text-[10px] ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
-            {new Date(card.dueDate).toLocaleDateString('vi-VN')}
+            {new Date(card.dueDate).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')}
           </div>
         ) : null}
         {visibleAssignees.length > 0 ? (
@@ -621,7 +625,7 @@ export default function TaskBoardWorkspacePanel({
             {visibleAssignees.map((m, idx) => (
               <span
                 key={`${m.userId || m.displayName || 'assignee'}-${idx}`}
-                title={m.displayName || 'Thành viên phụ trách'}
+                title={m.displayName || t('taskBoard.assigneeTitle')}
                 className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-semibold text-white"
               >
                 {assigneeInitials(m)}
@@ -630,16 +634,17 @@ export default function TaskBoardWorkspacePanel({
             {overflowAssigneeCount > 0 ? (
               <span
                 className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}
-                title={`${overflowAssigneeCount} thành viên khác`}
+                title={t('taskBoard.moreAssignees', { n: overflowAssigneeCount })}
               >
                 +{overflowAssigneeCount}
               </span>
             ) : null}
           </div>
         ) : null}
+        {typeof renderCardExtra === 'function' ? renderCardExtra(card) : null}
         <button
           type="button"
-          title="Chỉnh sửa thẻ"
+          title={t('taskBoard.editCard')}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => onOpenMenu(card, e)}
           className={`absolute right-1.5 top-1.5 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
@@ -742,7 +747,7 @@ export default function TaskBoardWorkspacePanel({
                             setCardDraftByList((prev) => ({ ...prev, [listKey]: e.target.value }))
                           }
                           rows={2}
-                          placeholder="Nhập tiêu đề thẻ..."
+                          placeholder={t('taskBoard.cardTitlePh')}
                           className={`w-full resize-none rounded-lg border px-2 py-1.5 text-xs outline-none ${
                             isDarkMode
                               ? 'border-white/15 bg-[#1a1d26] text-white'
@@ -774,7 +779,7 @@ export default function TaskBoardWorkspacePanel({
                               setCardComposerOpen((prev) => ({ ...prev, [listKey]: false }));
                               setCardDraftByList((prev) => ({ ...prev, [listKey]: '' }));
                             }}
-                            aria-label="Đóng"
+                            aria-label={t('common.close')}
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -820,7 +825,7 @@ export default function TaskBoardWorkspacePanel({
                         setNewListTitle('');
                       }
                     }}
-                    placeholder="Nhập tên danh sách..."
+                    placeholder={t('taskBoard.listNamePh')}
                     className={`w-full rounded-lg border px-2.5 py-2 text-sm outline-none ${
                       isDarkMode
                         ? 'border-white/15 bg-[#1a1d26] text-white placeholder:text-slate-500'
@@ -836,7 +841,7 @@ export default function TaskBoardWorkspacePanel({
                       onClick={handleSubmitNewList}
                       className="rounded-md bg-[#5865F2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      {submittingList ? 'Đang thêm...' : 'Thêm danh sách'}
+                      {submittingList ? t('taskBoard.addingList') : t('taskBoard.addList')}
                     </button>
                     <button
                       type="button"
@@ -848,7 +853,7 @@ export default function TaskBoardWorkspacePanel({
                       className={`rounded-md p-1.5 ${
                         isDarkMode ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'
                       }`}
-                      aria-label="Hủy"
+                      aria-label={t('taskBoard.cancelAria')}
                     >
                       <X className="h-4 w-4" />
                     </button>

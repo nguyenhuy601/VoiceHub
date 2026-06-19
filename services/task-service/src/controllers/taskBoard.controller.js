@@ -1,6 +1,7 @@
 const mongoose = require('../db');
 const { logger } = require('@enterprise/shared');
 const boardService = require('../services/taskBoard.service');
+const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 
 function asUserId(req) {
   return req.user?.id || req.userContext?.userId || '';
@@ -11,17 +12,20 @@ function validOid(id) {
 }
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const isServerError = status >= 500;
-  const safeMessage = isServerError
-    ? 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.'
-    : String(err?.message || fallbackMessage);
-  return res.status(status).json({
-    success: false,
-    message: safeMessage,
-    errorCode: String(err?.errorCode || fallbackCode || (isServerError ? 'TASK_BOARD_INTERNAL_ERROR' : '')).trim(),
-    messageUser: safeMessage,
+  return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'TASK_BOARD_INTERNAL_ERROR');
+}
+
+function boardUnauthorized(res) {
+  return sendServiceError(res, 401, {
+    errorCode: 'AUTH_NO_TOKEN',
+    messageUser: 'Vui lòng đăng nhập lại.',
+    message: 'Unauthorized',
   });
+}
+
+function boardValidation(res, message, errorCode = 'VALIDATION_INVALID_ID') {
+  const msg = String(message || 'Dữ liệu không hợp lệ.').trim();
+  return sendServiceError(res, 400, { errorCode, messageUser: msg, message: msg });
 }
 
 class TaskBoardController {
@@ -29,7 +33,7 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { organizationId, teamId, scopeType, scopeId, title, background, visibility } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       const nextScopeType = String(scopeType || (teamId ? 'team' : '')).toLowerCase();
       const requiresScope = ['team', 'department', 'division'].includes(nextScopeType);
       const finalScopeId = scopeId || teamId || null;
@@ -39,7 +43,7 @@ class TaskBoardController {
           .json({ success: false, message: 'organizationId/scopeId (hoặc teamId) không hợp lệ' });
       }
       if (!String(title || '').trim()) {
-        return res.status(400).json({ success: false, message: 'title là bắt buộc' });
+        return boardValidation(res, 'title là bắt buộc', 'VALIDATION_REQUIRED');
       }
       const board = await boardService.createBoard({
         userId,
@@ -64,9 +68,9 @@ class TaskBoardController {
       }
       const userId = asUserId(req);
       const { organizationId, teamId, scopeType, scopeId } = req.query || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(organizationId)) {
-        return res.status(400).json({ success: false, message: 'organizationId không hợp lệ' });
+        return boardValidation(res, 'organizationId không hợp lệ');
       }
       if (teamId && !validOid(teamId)) {
         return res.status(400).json({ success: false, message: 'teamId không hợp lệ' });
@@ -87,8 +91,8 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { boardId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-      if (!validOid(boardId)) return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(boardId)) return boardValidation(res, 'boardId không hợp lệ');
       const data = await boardService.getBoardDetail({ userId, boardId });
       return res.json({ success: true, data });
     } catch (err) {
@@ -100,8 +104,8 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { boardId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-      if (!validOid(boardId)) return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(boardId)) return boardValidation(res, 'boardId không hợp lệ');
       const data = await boardService.listBoardAssignableMembers({ userId, boardId });
       return res.json({ success: true, data });
     } catch (err) {
@@ -114,10 +118,10 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { boardId } = req.params;
       const { title } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-      if (!validOid(boardId)) return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(boardId)) return boardValidation(res, 'boardId không hợp lệ');
       if (!String(title || '').trim()) {
-        return res.status(400).json({ success: false, message: 'title là bắt buộc' });
+        return boardValidation(res, 'title là bắt buộc', 'VALIDATION_REQUIRED');
       }
       const data = await boardService.createList({ userId, boardId, title });
       return res.status(201).json({ success: true, data });
@@ -131,12 +135,12 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { boardId } = req.params;
       const { listId, title } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId) || !validOid(listId)) {
         return res.status(400).json({ success: false, message: 'boardId/listId không hợp lệ' });
       }
       if (!String(title || '').trim()) {
-        return res.status(400).json({ success: false, message: 'title là bắt buộc' });
+        return boardValidation(res, 'title là bắt buộc', 'VALIDATION_REQUIRED');
       }
       const data = await boardService.createCard({ userId, boardId, ...req.body });
       return res.status(201).json({ success: true, data });
@@ -150,7 +154,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { cardId } = req.params;
       const { toListId, position, index } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId) || !validOid(toListId)) {
         return res.status(400).json({ success: false, message: 'cardId/toListId không hợp lệ' });
       }
@@ -166,7 +170,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { cardId } = req.params;
       const { toListId } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
       if (toListId && !validOid(toListId)) {
         return res.status(400).json({ success: false, message: 'toListId không hợp lệ' });
@@ -182,7 +186,7 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { cardId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
       const data = await boardService.archiveCard({ userId, cardId });
       return res.json({ success: true, data });
@@ -197,7 +201,7 @@ class TaskBoardController {
       const { listId, boardId: boardIdParam } = req.params;
       const { boardId: boardIdBody, position } = req.body || {};
       const boardId = boardIdParam || boardIdBody;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(boardId)) {
         return res.status(400).json({ success: false, message: 'listId/boardId không hợp lệ' });
       }
@@ -213,7 +217,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { listId } = req.params;
       const { title, toBoardId } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
       if (toBoardId && !validOid(toBoardId)) {
         return res.status(400).json({ success: false, message: 'toBoardId không hợp lệ' });
@@ -230,7 +234,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { listId } = req.params;
       const { toBoardId, position } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(toBoardId)) {
         return res.status(400).json({ success: false, message: 'listId/toBoardId không hợp lệ' });
       }
@@ -246,7 +250,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { listId } = req.params;
       const { toListId } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(toListId)) {
         return res.status(400).json({ success: false, message: 'listId/toListId không hợp lệ' });
       }
@@ -261,7 +265,7 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { listId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
       const data = await boardService.setListWatch({ userId, listId, watching: true });
       return res.json({ success: true, data });
@@ -274,7 +278,7 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { listId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
       const data = await boardService.setListWatch({ userId, listId, watching: false });
       return res.json({ success: true, data });
@@ -287,7 +291,7 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { boardId, listId } = req.params;
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId) || !validOid(listId)) {
         return res.status(400).json({ success: false, message: 'boardId/listId không hợp lệ' });
       }
@@ -304,7 +308,7 @@ class TaskBoardController {
       const { cardId } = req.params;
       const { title, description, summary, priority, dueDate, tags, assigneeId, attachments, status } =
         req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
       const data = await boardService.updateCard({
         userId,
@@ -330,7 +334,7 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { cardId } = req.params;
       const { content } = req.body || {};
-      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+      if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
       const data = await boardService.addCardComment({ userId, cardId, content });
       return res.status(201).json({ success: true, data });

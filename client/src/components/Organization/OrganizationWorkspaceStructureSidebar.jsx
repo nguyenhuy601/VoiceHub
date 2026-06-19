@@ -14,6 +14,7 @@ import {
   splitChatVoiceChannels,
 } from '../../utils/orgChannelScope';
 import OrganizationChannelListPanel from './OrganizationChannelListPanel';
+import { FIGMA_ORG_STRUCTURE_ROOT, FIGMA_ORG_STRUCTURE_SCROLL } from './figmaOrganizationClasses';
 
 function normalize(s) {
   return String(s || '')
@@ -22,7 +23,7 @@ function normalize(s) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-/** Ưu tiên `department.teams` từ cây đã lọc theo RBAC; không ghi đè bằng list team phẳng của cả org. */
+/** Prefer `department.teams` from the RBAC-filtered tree; do not override with the org's flat team list. */
 function teamsForDepartment(teams, departmentId, divisionDepartments) {
   const dept = (divisionDepartments || []).find((d) => String(d._id) === String(departmentId));
   const fromStructure = Array.isArray(dept?.teams) ? dept.teams : [];
@@ -358,7 +359,7 @@ export default function OrganizationWorkspaceStructureSidebar({
   const textBright = isDarkMode ? 'text-[#F3F4F6]' : 'text-slate-900';
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className={FIGMA_ORG_STRUCTURE_ROOT}>
       <div className={`mb-2 text-[10px] font-bold uppercase tracking-wider ${textMuted}`}>
         <span>{t('orgPanel.branchHeading')}</span>
       </div>
@@ -401,7 +402,7 @@ export default function OrganizationWorkspaceStructureSidebar({
           className={`w-full rounded-lg border py-2 pl-8 pr-2 text-xs outline-none transition ${
             isDarkMode
               ? 'border-white/10 bg-[#171B24] text-[#F3F4F6] placeholder:text-[#6B7280] focus:border-[#4F6BED]/40'
-              : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-indigo-400'
+              : 'border-slate-200 bg-white text-slate-900 placeholder:text-muted-foreground focus:border-indigo-400'
           }`}
         />
       </div>
@@ -413,7 +414,7 @@ export default function OrganizationWorkspaceStructureSidebar({
         <span>{t('orgPanel.organizationSection')}</span>
       </div>
 
-      <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto border-l border-white/[0.04] pl-2 pr-0.5">
+      <div className={FIGMA_ORG_STRUCTURE_SCROLL}>
         {loadingDepartments ? (
           <div className={`mb-2 h-10 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
         ) : null}
@@ -464,7 +465,7 @@ export default function OrganizationWorkspaceStructureSidebar({
                   className={`absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 opacity-0 transition group-hover:opacity-100 ${
                     isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'
                   }`}
-                  title="Cài đặt quyền khối"
+                  title={t('orgPanel.divisionPermissionSettingsTitle')}
                 >
                   <Settings className="h-3 w-3" />
                 </button>
@@ -523,7 +524,7 @@ export default function OrganizationWorkspaceStructureSidebar({
                             className={`absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 opacity-0 transition group-hover:opacity-100 ${
                               isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'
                             }`}
-                            title="Cài đặt quyền phòng ban"
+                            title={t('orgPanel.departmentPermissionSettingsTitle')}
                           >
                             <Settings className="h-3 w-3" />
                           </button>
@@ -559,7 +560,7 @@ export default function OrganizationWorkspaceStructureSidebar({
                                       !canReadTeam
                                         ? isDarkMode
                                           ? 'cursor-not-allowed border-transparent text-[#6B7280]'
-                                          : 'cursor-not-allowed border-transparent text-slate-400'
+                                          : 'cursor-not-allowed border-transparent text-muted-foreground'
                                         : teamActive
                                           ? isDarkMode
                                             ? 'border-[#4F6BED] bg-[#1D2330] text-[#F3F4F6]'
@@ -589,7 +590,7 @@ export default function OrganizationWorkspaceStructureSidebar({
                                       className={`absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 opacity-0 transition group-hover:opacity-100 ${
                                         isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'
                                       }`}
-                                      title="Cài đặt quyền team"
+                                      title={t('orgPanel.teamPermissionSettingsTitle')}
                                     >
                                       <Settings className="h-3 w-3" />
                                     </button>
@@ -642,7 +643,7 @@ export default function OrganizationWorkspaceStructureSidebar({
               setTeamMenu((prev) => ({ ...prev, open: false }));
             }}
           >
-            Tạo Task Board
+            {t('orgPanel.createTaskBoard')}
           </button>
         </div>
       ) : null}

@@ -44,6 +44,7 @@ const organizationSchema = new mongoose.Schema(
     ownerId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
+      // CẤM populate User — model User không đăng ký trong organization-service.
       ref: 'User',
     },
     logo: {

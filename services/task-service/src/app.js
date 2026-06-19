@@ -37,5 +37,18 @@ const taskRoutes = require('./routes/task.routes');
 app.use('/api/tasks', taskRoutes);
 app.use('/api/work', taskRoutes); // Alias
 
+// 404
+app.use((req, res) => {
+  const { sendServiceError } = require('./middleware/sendServiceError');
+  sendServiceError(res, 404, {
+    errorCode: 'TASK_NOT_FOUND',
+    messageUser: 'Không tìm thấy tài nguyên.',
+    message: 'Not found',
+  });
+});
+
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
+
 module.exports = app;
 

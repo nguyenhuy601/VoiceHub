@@ -1,3 +1,4 @@
+const { orgCatch, orgNotFound, orgValidation } = require('../utils/orgApiError');
 const express = require('express');
 const Organization = require('../models/Organization');
 const Membership = require('../models/Membership');
@@ -13,7 +14,7 @@ router.get('/membership/:organizationId/:userId', async (req, res) => {
     const organizationId = String(req.params.organizationId || '').trim();
     const userId = String(req.params.userId || '').trim();
     if (!organizationId || !userId) {
-      return res.status(400).json({ success: false, message: 'organizationId and userId are required' });
+      return orgValidation(res, 'organizationId and userId are required');
     }
     const row = await Membership.findOne({
       organization: organizationId,
@@ -23,14 +24,14 @@ router.get('/membership/:organizationId/:userId', async (req, res) => {
       .select('role')
       .lean();
     if (!row) {
-      return res.status(404).json({ success: false, message: 'Not a member of this organization' });
+      return orgMemberNotFound(res, 'Không phải thành viên tổ chức này.');
     }
     return res.json({
       success: true,
       data: { role: Membership.normalizeRole(row.role) },
     });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 
@@ -39,14 +40,14 @@ router.get('/org/:organizationId/summary', async (req, res) => {
   try {
     const org = await Organization.findById(req.params.organizationId).select('name').lean();
     if (!org) {
-      return res.status(404).json({ success: false, message: 'Organization not found' });
+      return orgNotFound(res);
     }
     return res.json({
       success: true,
       data: { organizationId: String(req.params.organizationId), name: org.name || 'Organization' },
     });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 
@@ -57,7 +58,7 @@ router.post('/ai-task-context', async (req, res) => {
   try {
     const { organizationId, userIds, mentionLabels, channelId, messageText } = req.body || {};
     if (!organizationId) {
-      return res.status(400).json({ success: false, message: 'organizationId is required' });
+      return orgValidation(res, 'organizationId is required');
     }
     const data = await buildAiTaskExtractContext({
       organizationId,
@@ -67,11 +68,11 @@ router.post('/ai-task-context', async (req, res) => {
       messageText,
     });
     if (!data) {
-      return res.status(404).json({ success: false, message: 'Organization not found' });
+      return orgNotFound(res);
     }
     return res.json({ success: true, data });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 
@@ -83,7 +84,7 @@ router.post('/sync-membership-placement', async (req, res) => {
   try {
     const { organizationId, userId } = req.body || {};
     if (!organizationId || !userId) {
-      return res.status(400).json({ success: false, message: 'organizationId and userId are required' });
+      return orgValidation(res, 'organizationId and userId are required');
     }
     const result = await syncMembershipPlacementFromRoles(userId, organizationId);
     if (!result.ok) {
@@ -91,7 +92,7 @@ router.post('/sync-membership-placement', async (req, res) => {
     }
     return res.json({ success: true, data: result });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 
@@ -100,7 +101,7 @@ router.post('/sync-membership-placement-org', async (req, res) => {
   try {
     const { organizationId } = req.body || {};
     if (!organizationId) {
-      return res.status(400).json({ success: false, message: 'organizationId is required' });
+      return orgValidation(res, 'organizationId is required');
     }
     const Membership = require('../models/Membership');
     const rows = await Membership.find({ organization: organizationId, status: 'active' })
@@ -115,7 +116,7 @@ router.post('/sync-membership-placement-org', async (req, res) => {
     }
     return res.json({ success: true, data: { synced: results.length, results } });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 
@@ -124,7 +125,7 @@ router.post('/backfill-role-scope-assignments', async (req, res) => {
   try {
     const { organizationId } = req.body || {};
     if (!organizationId) {
-      return res.status(400).json({ success: false, message: 'organizationId is required' });
+      return orgValidation(res, 'organizationId is required');
     }
     const result = await backfillRoleScopeAssignmentsForOrg(organizationId);
     if (!result.ok) {
@@ -132,7 +133,7 @@ router.post('/backfill-role-scope-assignments', async (req, res) => {
     }
     return res.json({ success: true, data: result });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    return orgCatch(res, err);
   }
 });
 

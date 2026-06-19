@@ -82,8 +82,8 @@ export default function OrganizationVoiceChannelSidebar({
   }, [sortedMessages.length, scrollToLatest]);
 
   const shell = isDarkMode
-    ? 'flex h-full min-h-0 flex-col bg-[#1e1f22] text-[#dcddde]'
-    : 'flex h-full min-h-0 flex-col bg-slate-50 text-slate-800';
+    ? 'flex h-full min-h-0 flex-col bg-[#111827] text-foreground'
+    : 'flex h-full min-h-0 flex-col bg-surface text-foreground';
 
   return (
     <aside className={shell}>
@@ -93,12 +93,8 @@ export default function OrganizationVoiceChannelSidebar({
         }`}
       >
         <div className="flex min-w-0 items-center gap-2">
-          <MessageSquare className="h-4 w-4 shrink-0 text-[#b5bac1]" aria-hidden />
-          <span
-            className={`min-w-0 truncate text-sm font-semibold ${
-              isDarkMode ? 'text-white' : 'text-slate-900'
-            }`}
-          >
+          <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 truncate text-sm font-semibold text-foreground">
             {displayChannelName}
           </span>
         </div>

@@ -1,5 +1,8 @@
 const mongoose = require('../db');
 
+// CẤM populate User/Organization/Server/Document — các model không đăng ký trong task-service.
+// Dùng HTTP client hoặc enrich DTO sau query .lean().
+
 const taskSchema = new mongoose.Schema(
   {
     title: {

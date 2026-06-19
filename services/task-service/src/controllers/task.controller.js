@@ -13,6 +13,8 @@ const {
   canAssignUser,
   userCanAccessTask,
 } = require('../services/taskWorkspaceScope');
+const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { requireObjectId, requireUserId } = require('../utils/validateInput');
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
@@ -21,16 +23,40 @@ const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || 
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const isServerError = status >= 500;
-  const safeMessage = isServerError
-    ? 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.'
-    : String(err?.message || fallbackMessage);
-  return res.status(status).json({
-    success: false,
-    message: safeMessage,
-    errorCode: String(err?.errorCode || fallbackCode || (isServerError ? 'TASK_INTERNAL_ERROR' : '')).trim(),
-    messageUser: safeMessage,
+  return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode);
+}
+
+function taskUnauthorized(res) {
+  return sendServiceError(res, 401, {
+    errorCode: 'AUTH_NO_TOKEN',
+    messageUser: 'Vui lòng đăng nhập lại.',
+    message: 'Unauthorized',
+  });
+}
+
+function taskNotFound(res, message = 'Không tìm thấy task.') {
+  return sendServiceError(res, 404, {
+    errorCode: 'TASK_NOT_FOUND',
+    messageUser: message,
+    message,
+  });
+}
+
+function taskForbidden(res, message, errorCode = 'ORG_ACCESS_DENIED') {
+  const msg = String(message || 'Bạn không có quyền thực hiện thao tác này.').trim();
+  return sendServiceError(res, 403, {
+    errorCode,
+    messageUser: msg,
+    message: msg,
+  });
+}
+
+function taskValidation(res, message, errorCode = 'VALIDATION_REQUIRED') {
+  const msg = String(message || 'Thiếu thông tin bắt buộc.').trim();
+  return sendServiceError(res, 400, {
+    errorCode,
+    messageUser: msg,
+    message: msg,
   });
 }
 
@@ -67,22 +93,13 @@ class TaskController {
       if (organizationId) {
         scope = await fetchTaskWorkspaceScope(createdBy, organizationId);
         if (!scope) {
-          return res.status(403).json({
-            success: false,
-            message: 'Không có quyền tạo task trong tổ chức này',
-          });
+        return taskForbidden(res, 'Không có quyền tạo task trong tổ chức này', 'TASK_CREATE_FAILED');
         }
         if (!canCreateTaskInScope(scope)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Chỉ trưởng phòng, team leader, quản trị viên hoặc chủ sở hữu mới được tạo task',
-          });
+          return taskForbidden(res, 'Chỉ trưởng phòng, team leader, quản trị viên hoặc chủ sở hữu mới được tạo task', 'TASK_CREATE_FAILED');
         }
         if (assigneeId && !canAssignUser(scope, assigneeId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Không thể gán task cho thành viên ngoài phạm vi quản lý',
-          });
+          return taskForbidden(res, 'Không thể gán task cho thành viên ngoài phạm vi quản lý', 'TASK_CREATE_FAILED');
         }
       }
 
@@ -117,35 +134,21 @@ class TaskController {
   // Lấy task theo ID
   async getTaskById(req, res) {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
-      }
+      const userId = requireUserId(res, req);
+      if (!userId) return;
 
       const { taskId } = req.params;
       const reserved = new Set(['boards', 'statistics', 'from-chat-file', 'internal']);
       if (reserved.has(String(taskId || '').toLowerCase())) {
-        return res.status(404).json({
-          success: false,
-          message: 'Not found',
-        });
+        return taskNotFound(res, 'Not found');
       }
-      if (!mongoose.isValidObjectId(String(taskId || ''))) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid task id',
-        });
-      }
-      const task = await taskService.getTaskById(taskId);
+      const validTaskId = requireObjectId(res, taskId, 'taskId');
+      if (!validTaskId) return;
+
+      const task = await taskService.getTaskById(validTaskId);
 
       if (!task) {
-        return res.status(404).json({
-          success: false,
-          message: 'Task not found',
-        });
+        return taskNotFound(res);
       }
 
       let scope = null;
@@ -159,10 +162,7 @@ class TaskController {
         });
       }
 
-      return res.status(403).json({
-        success: false,
-        message: 'Forbidden',
-      });
+      return taskForbidden(res);
     } catch (error) {
       logger.error('Get task error:', error);
       return sendError(res, error, 500, 'Không thể tải task', 'TASK_GET_FAILED');
@@ -197,10 +197,7 @@ class TaskController {
       const serverId = first(serverIdRaw);
       const userId = req.user?.id || req.userContext?.userId;
       if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
+        return taskUnauthorized(res);
       }
 
       const parseOid = (raw, label) => {
@@ -225,7 +222,7 @@ class TaskController {
       if (organizationId) {
         const p = parseOid(organizationId, 'organizationId');
         if (p.error) {
-          return res.status(400).json({ success: false, message: p.error });
+          return taskValidation(res, p.error, 'VALIDATION_INVALID_ID');
         }
         workspaceScope = await fetchTaskWorkspaceScope(userId, p.value);
         if (!workspaceScope) {
@@ -247,13 +244,13 @@ class TaskController {
         if (assigneeId) {
           const p = parseOid(assigneeId, 'assigneeId');
           if (p.error) {
-            return res.status(400).json({ success: false, message: p.error });
+            return taskValidation(res, p.error, 'VALIDATION_INVALID_ID');
           }
           filter.assigneeId = p.value;
         } else if (userId) {
           const p = parseOid(userId, 'user');
           if (p.error) {
-            return res.status(400).json({ success: false, message: p.error });
+            return taskValidation(res, p.error, 'VALIDATION_INVALID_ID');
           }
           filter.$or = [{ assigneeId: p.value }, { createdBy: p.value }];
         }
@@ -261,7 +258,7 @@ class TaskController {
       if (serverId) {
         const p = parseOid(serverId, 'serverId');
         if (p.error) {
-          return res.status(400).json({ success: false, message: p.error });
+          return taskValidation(res, p.error, 'VALIDATION_INVALID_ID');
         }
         filter.serverId = p.value;
       }
@@ -336,10 +333,7 @@ class TaskController {
     } catch (error) {
       logger.error('Get tasks error:', error);
       if (error.name === 'CastError' || error.name === 'BSONError') {
-        return res.status(400).json({
-          success: false,
-          message: error.message || 'Invalid query parameter',
-        });
+        return taskValidation(res, 'Invalid query parameter', 'VALIDATION_INVALID_ID');
       }
       return sendError(res, error, 500, 'Không thể tải danh sách task', 'TASK_LIST_FAILED');
     }
@@ -352,7 +346,7 @@ class TaskController {
     try {
       const userId = req.user?.id || req.userContext?.userId;
       if (!userId) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
+        return taskUnauthorized(res);
       }
 
       const { organizationId } = req.query;
@@ -369,7 +363,7 @@ class TaskController {
 
       const scope = await fetchTaskWorkspaceScope(userId, oid);
       if (!scope) {
-        return res.status(403).json({ success: false, message: 'Forbidden' });
+        return taskForbidden(res, 'Bạn không có quyền truy cập tổ chức này.');
       }
 
       if (mongoose.connection.readyState !== 1) {
@@ -422,10 +416,7 @@ class TaskController {
     } catch (error) {
       logger.error('Get task statistics error:', error);
       if (error.name === 'CastError' || error.name === 'BSONError') {
-        return res.status(400).json({
-          success: false,
-          message: error.message || 'Invalid organizationId',
-        });
+        return taskValidation(res, 'Invalid organizationId', 'VALIDATION_INVALID_ID');
       }
       return sendError(res, error, 500, 'Không thể tải thống kê task', 'TASK_STATS_FAILED');
     }
@@ -438,10 +429,7 @@ class TaskController {
       const userId = req.user?.id || req.userContext?.userId;
 
       if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
+        return taskUnauthorized(res);
       }
 
       const task = await taskService.updateTask(taskId, req.body, userId);
@@ -463,10 +451,7 @@ class TaskController {
       const userId = req.user?.id || req.userContext?.userId;
 
       if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
+        return taskUnauthorized(res);
       }
 
       const task = await taskService.deleteTask(taskId, userId);
@@ -491,7 +476,7 @@ class TaskController {
       const { messageId, title, organizationId } = req.body || {};
 
       if (!userId) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
+        return taskUnauthorized(res);
       }
       if (!messageId || !organizationId) {
         return res.status(400).json({
@@ -516,19 +501,13 @@ class TaskController {
       );
 
       if (msgRes.status !== 200 || !msgRes.data?.data) {
-        return res.status(400).json({
-          success: false,
-          message: 'Message not found',
-        });
+        return taskNotFound(res, 'Message not found');
       }
 
       const msg = msgRes.data.data;
       const sender = msg.senderId?._id || msg.senderId;
       if (String(sender) !== String(userId)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not your message',
-        });
+        return taskForbidden(res, 'Not your message', 'MESSAGE_FORBIDDEN');
       }
       const msgOrgId = msg.organizationId ? String(msg.organizationId) : '';
       if (msgOrgId && String(organizationId) !== msgOrgId) {
@@ -546,10 +525,7 @@ class TaskController {
 
       const scope = await fetchTaskWorkspaceScope(userId, organizationId);
       if (!scope || !canCreateTaskInScope(scope)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Chỉ trưởng phòng, team leader, quản trị viên hoặc chủ sở hữu mới được tạo task tự động',
-        });
+        return taskForbidden(res, 'Chỉ trưởng phòng, team leader, quản trị viên hoặc chủ sở hữu mới được tạo task tự động', 'TASK_CREATE_FAILED');
       }
 
       await publishTaskFromFileJob({

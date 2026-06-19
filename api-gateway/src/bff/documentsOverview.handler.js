@@ -4,6 +4,7 @@
 const { bffCachedRead } = require('./bffRead');
 const { documentsOverviewCacheKey } = require('./cache');
 const { services, buildTrustedHeaders, fetchJson } = require('./httpDownstream');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const TTL_SEC = Math.min(
   120,
@@ -57,10 +58,19 @@ async function handleDocumentsOverview(req, res) {
   } catch (error) {
     const status = error.statusCode || 500;
     console.error('[bff:documents-overview] error:', error.message);
-    return res.status(status).json({
-      status: 'fail',
-      success: false,
+    if (status >= 500) {
+      return sendApiError(res, status, {
+        errorCode: 'GATEWAY_INTERNAL_ERROR',
+        message: 'Documents overview failed',
+        messageUser: GENERIC_5XX_MESSAGE,
+        extra: { status: 'fail' },
+      });
+    }
+    return sendApiError(res, status, {
+      errorCode: error.errorCode || 'GATEWAY_INTERNAL_ERROR',
       message: error.message || 'Documents overview failed',
+      messageUser: error.messageUser || error.message || 'Documents overview failed',
+      extra: { status: 'fail' },
     });
   }
 }

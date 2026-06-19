@@ -1,9 +1,11 @@
 import { Check, X } from 'lucide-react';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Bật / tắt quyền (không có inherit — chỉ vai trò đã gán vào kênh mới hiện ở đây).
  */
 export default function ChannelPermissionTriToggle({ allowed, onChange, isDarkMode, disabled = false }) {
+  const { t } = useAppStrings();
   const shell = isDarkMode ? 'bg-[#1e1f22]' : 'bg-slate-100';
   const btn = (active, tone) =>
     `flex h-8 w-9 items-center justify-center transition ${
@@ -22,14 +24,14 @@ export default function ChannelPermissionTriToggle({ allowed, onChange, isDarkMo
         isDarkMode ? 'border-[#3f4147]' : 'border-slate-200'
       } ${shell}`}
       role="group"
-      aria-label={allowed ? 'Cho phép' : 'Từ chối'}
+      aria-label={allowed ? t('organization.allow') : t('organization.deny')}
     >
       <button
         type="button"
         className={btn(!allowed, 'deny')}
         onClick={() => onChange?.(false)}
         aria-pressed={!allowed}
-        title="Từ chối"
+        title={t('organization.deny')}
       >
         <X className="h-4 w-4" strokeWidth={2.5} />
       </button>
@@ -38,7 +40,7 @@ export default function ChannelPermissionTriToggle({ allowed, onChange, isDarkMo
         className={btn(allowed, 'allow')}
         onClick={() => onChange?.(true)}
         aria-pressed={allowed}
-        title="Cho phép"
+        title={t('organization.allow')}
       >
         <Check className="h-4 w-4" strokeWidth={2.5} />
       </button>

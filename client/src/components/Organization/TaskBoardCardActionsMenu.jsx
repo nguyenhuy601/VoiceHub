@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { taskAPI } from '../../services/api/taskAPI';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 export default function TaskBoardCardActionsMenu({
   isOpen,
@@ -16,6 +18,7 @@ export default function TaskBoardCardActionsMenu({
   onOpenCard,
   onRefresh,
 }) {
+  const { t } = useAppStrings();
   const boardApiOpts = workspaceSlug ? { workspaceSlug } : {};
   const [view, setView] = useState('menu');
   const [moveListId, setMoveListId] = useState('');
@@ -50,7 +53,7 @@ export default function TaskBoardCardActionsMenu({
       await onRefresh?.();
       onClose?.();
     } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || 'Thao tác thất bại');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.actionFailed') }));
     } finally {
       setSubmitting(false);
     }
@@ -70,7 +73,7 @@ export default function TaskBoardCardActionsMenu({
         type="button"
         onClick={onBack}
         className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-        aria-label="Quay lại"
+        aria-label={t('taskBoard.backAria')}
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
@@ -79,7 +82,7 @@ export default function TaskBoardCardActionsMenu({
         type="button"
         onClick={onClose}
         className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-        aria-label="Đóng"
+        aria-label={t('common.close')}
       >
         <X className="h-4 w-4" />
       </button>
@@ -89,7 +92,7 @@ export default function TaskBoardCardActionsMenu({
   const body =
     view === 'move' ? (
       <>
-        {header('Di chuyển', () => setView('menu'))}
+        {header(t('taskBoard.moveTitle'), () => setView('menu'))}
         <select
           value={moveListId}
           onChange={(e) => setMoveListId(e.target.value)}
@@ -109,18 +112,18 @@ export default function TaskBoardCardActionsMenu({
           onClick={() =>
             run(async () => {
               await taskAPI.moveBoardCard(cardId, { toListId: moveListId }, boardApiOpts);
-              toast.success('Đã di chuyển thẻ');
+              toast.success(t('taskBoard.cardMoved'));
             })
           }
           className="w-full rounded-lg bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Di chuyển
+          {t('taskBoard.moveBtn')}
         </button>
       </>
     ) : (
       <>
         <div className="mb-2 flex items-center justify-between border-b border-white/10 pb-2">
-          <span className="text-sm font-semibold">Thao tác thẻ</span>
+          <span className="text-sm font-semibold">{t('taskBoard.cardActionsTitle')}</span>
           <button
             type="button"
             onClick={onClose}
@@ -138,7 +141,7 @@ export default function TaskBoardCardActionsMenu({
               onClose?.();
             }}
           >
-            Mở thẻ
+            {t('taskBoard.openCard')}
           </button>
           <button
             type="button"
@@ -148,7 +151,7 @@ export default function TaskBoardCardActionsMenu({
               onClose?.();
             }}
           >
-            Chỉnh sửa nhãn
+            {t('taskBoard.editLabels')}
           </button>
           <button
             type="button"
@@ -158,7 +161,7 @@ export default function TaskBoardCardActionsMenu({
               onClose?.();
             }}
           >
-            Thay đổi thành viên
+            {t('taskBoard.changeMembers')}
           </button>
           <button
             type="button"
@@ -168,7 +171,7 @@ export default function TaskBoardCardActionsMenu({
               onClose?.();
             }}
           >
-            Chỉnh sửa ngày
+            {t('taskBoard.editDates')}
           </button>
           <button
             type="button"
@@ -176,7 +179,7 @@ export default function TaskBoardCardActionsMenu({
             disabled={otherLists.length === 0}
             onClick={() => setView('move')}
           >
-            Di chuyển
+            {t('taskBoard.moveBtn')}
           </button>
           <button
             type="button"
@@ -189,11 +192,11 @@ export default function TaskBoardCardActionsMenu({
                   { toListId: String(card.listId || '') },
                   boardApiOpts
                 );
-                toast.success('Đã sao chép thẻ');
+                toast.success(t('taskBoard.cardCopied'));
               })
             }
           >
-            Sao chép thẻ
+            {t('taskBoard.copyCard')}
           </button>
           <div className={`my-2 border-t ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`} />
           <button
@@ -203,11 +206,11 @@ export default function TaskBoardCardActionsMenu({
             onClick={() =>
               run(async () => {
                 await taskAPI.archiveBoardCard(cardId, boardApiOpts);
-                toast.success('Đã lưu trữ thẻ');
+                toast.success(t('taskBoard.cardArchived'));
               })
             }
           >
-            Lưu trữ
+            {t('taskBoard.archive')}
           </button>
         </div>
       </>

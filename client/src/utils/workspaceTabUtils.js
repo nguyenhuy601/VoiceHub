@@ -1,6 +1,6 @@
 /** Legacy tab helpers — URL /w/:slug đã bỏ; giữ cho OrganizationMainPanel. */
 
-export const WORKSPACE_TAB_VALUES = ['chat', 'tasks', 'documents', 'notifications'];
+export const WORKSPACE_TAB_VALUES = ['chat', 'voice', 'tasks', 'documents', 'notifications'];
 
 export function normalizeWorkspaceTab(value) {
   const v = String(value || '')

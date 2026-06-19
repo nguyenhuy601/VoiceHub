@@ -1,16 +1,24 @@
+const { buildApiErrorBody, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
+
 module.exports = (err, req, res, next) => {
+  if (req.aborted || res.headersSent) {
+    return;
+  }
+
   console.error('Error:', err);
   const statusCode = Number(err?.statusCode) || 500;
   const isServerError = statusCode >= 500;
-  const safeMessage = isServerError
-    ? 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.'
-    : String(err?.message || 'Yêu cầu không hợp lệ');
-  const code = String(err?.code || err?.errorCode || (isServerError ? 'ORG_INTERNAL_ERROR' : '')).trim();
+  const errorCode = String(
+    err?.errorCode || err?.code || (isServerError ? 'ORG_INTERNAL_ERROR' : '')
+  ).trim();
+  const clientMessage = String(err?.messageUser || err?.message || 'Yêu cầu không hợp lệ').trim();
 
-  res.status(statusCode).json({
-    status: statusCode >= 500 ? 'error' : 'fail',
-    message: safeMessage,
-    ...(code ? { code } : {}),
-    messageUser: safeMessage,
+  const body = buildApiErrorBody(statusCode, {
+    errorCode: errorCode || undefined,
+    messageUser: isServerError ? GENERIC_5XX_MESSAGE : clientMessage,
+    message: isServerError ? undefined : clientMessage,
+    extra: errorCode ? { code: errorCode } : undefined,
   });
+
+  res.status(statusCode).json(body);
 };

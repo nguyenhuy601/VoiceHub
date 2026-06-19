@@ -1,7 +1,7 @@
 import { PhoneOff } from 'lucide-react';
 
 /**
- * Thanh trạng thái voice trên sidebar tổ chức (Discord-style): đã kết nối + ngắt kết nối kênh.
+ * Thanh trạng thái voice trên sidebar tổ chức — Figma voice tokens.
  */
 export default function OrganizationVoiceConnectionPanel({
   isDarkMode,
@@ -16,10 +16,10 @@ export default function OrganizationVoiceConnectionPanel({
 
   return (
     <div
-      className={`mx-2 mb-2 mt-1 shrink-0 rounded-xl border px-3 py-2.5 ${
+      className={`mx-2 mb-2 mt-1 shrink-0 rounded-xl border px-3 py-2.5 shadow-sm ${
         isDarkMode
-          ? 'border-white/[0.08] bg-[#171B24] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-          : 'border-slate-200/90 bg-slate-50 shadow-sm'
+          ? 'border-white/10 bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+          : 'border-border bg-surface'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -27,22 +27,16 @@ export default function OrganizationVoiceConnectionPanel({
           <p
             className={`text-xs font-semibold leading-tight ${
               connected
-                ? isDarkMode
-                  ? 'text-emerald-400'
-                  : 'text-emerald-600'
+                ? 'text-success'
                 : isDarkMode
-                  ? 'text-[#b5bac1]'
+                  ? 'text-muted-foreground'
                   : 'text-slate-600'
             }`}
           >
             {statusText}
           </p>
           {path ? (
-            <p
-              className={`mt-0.5 truncate text-[11px] ${
-                isDarkMode ? 'text-[#949ba4]' : 'text-slate-500'
-              }`}
-            >
+            <p className={`mt-0.5 truncate text-[11px] ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
               {path}
             </p>
           ) : null}
@@ -54,8 +48,8 @@ export default function OrganizationVoiceConnectionPanel({
           aria-label={t('orgPanel.voiceDisconnect')}
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition ${
             isDarkMode
-              ? 'bg-[#1D2330] text-[#A1A8B3] hover:bg-[#252b3a] hover:text-[#F3F4F6]'
-              : 'bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'
+              ? 'bg-white/[0.06] text-muted-foreground hover:bg-white/10 hover:text-foreground'
+              : 'bg-muted text-slate-600 hover:bg-slate-200 hover:text-slate-900'
           }`}
         >
           <PhoneOff className="h-4 w-4" aria-hidden />

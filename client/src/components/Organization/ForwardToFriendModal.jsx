@@ -69,7 +69,7 @@ export default function ForwardToFriendModal({
       layerClassName="z-[320]"
     >
       <p className="mb-3 text-sm text-gray-400">
-        Chọn người nhận tin chuyển tiếp (có thể chọn nhiều người).
+        {t('friendChat.forwardRecipientHint')}
       </p>
 
       <PageSearchBar
@@ -84,10 +84,10 @@ export default function ForwardToFriendModal({
 
       <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/20">
         {loading && (
-          <div className="p-4 text-center text-sm text-gray-400">Đang tải…</div>
+          <div className="p-4 text-center text-sm text-gray-400">{t('common.loading')}</div>
         )}
         {!loading && filtered.length === 0 && (
-          <div className="p-4 text-center text-sm text-gray-500">Không có bạn phù hợp.</div>
+          <div className="p-4 text-center text-sm text-gray-500">{t('friendChat.forwardNoFriendMatch')}</div>
         )}
         {!loading &&
           filtered.map((f, idx) => {
@@ -103,7 +103,7 @@ export default function ForwardToFriendModal({
                   {f.avatar || '👤'}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-white">{f.name || 'Bạn bè'}</div>
+                  <div className="truncate font-medium text-white">{f.name || t('friendChat.friendFallback')}</div>
                 </div>
                 <input
                   type="checkbox"
@@ -118,20 +118,20 @@ export default function ForwardToFriendModal({
       </div>
 
       <div className="mb-3 rounded-xl border border-dashed border-white/15 bg-white/5 p-3 text-sm text-gray-300">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Xem trước</div>
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('friendChat.previewLabel')}</div>
         {previewMessage ? (
           <ForwardMessagePreview message={previewMessage} t={t} />
         ) : (
-          <p className="line-clamp-4 whitespace-pre-wrap break-words">{previewText || '—'}</p>
+          <p className="line-clamp-4 whitespace-pre-wrap break-words">{previewText || t('friendChat.emptyPreview')}</p>
         )}
       </div>
 
       <div className="mb-4">
-        <label className="mb-1 block text-xs text-gray-500">Thêm lời nhắn (không bắt buộc)</label>
+        <label className="mb-1 block text-xs text-gray-500">{t('friendChat.addNoteLabel')}</label>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Thêm lời nhắn…"
+          placeholder={t('friendChat.addNotePlaceholder')}
           className="w-full rounded-xl border border-white/10 bg-[#040f2a] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-600"
         />
       </div>
@@ -142,7 +142,7 @@ export default function ForwardToFriendModal({
           onClick={onClose}
           className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/5"
         >
-          Huỷ
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -150,7 +150,7 @@ export default function ForwardToFriendModal({
           onClick={handleSend}
           className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {submitting ? 'Đang gửi…' : '✈️ Gửi'}
+          {submitting ? t('friendChat.forwardSending') : t('friendChat.forwardSendAction')}
         </button>
       </div>
     </Modal>

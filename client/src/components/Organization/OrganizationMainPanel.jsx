@@ -5,8 +5,9 @@ import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
-import { getAiTaskEligibility, AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
+import { getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
+import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
 import OrganizationDocumentsWorkspacePanel from '../../features/orgDocuments/OrganizationDocumentsWorkspacePanel';
 import OrganizationNotificationsWorkspacePanel from '../../features/orgNotifications/OrganizationNotificationsWorkspacePanel';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
@@ -14,15 +15,26 @@ import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceT
 import {
   Bell,
   ChevronsDown,
+  AlertCircle,
+  ClipboardList,
   Filter,
+  FileText,
   Hash,
   Home,
+  Image as ImageIcon,
   LayoutGrid,
   List,
   MessageSquare,
+  Mic,
+  Paperclip,
   Plus,
   Search,
+  Send,
   Settings,
+  Smile,
+  Sparkles,
+  Users,
+  X,
   Zap,
 } from 'lucide-react';
 
@@ -46,7 +58,12 @@ import OrganizationSidebarAudioBar from './OrganizationSidebarAudioBar';
 import OrganizationVoiceConnectionPanel from './OrganizationVoiceConnectionPanel';
 import VoiceAudioSettingsPanel from '../../pages/Voice/VoiceAudioSettingsPanel';
 import { loadVoiceAudioPrefs } from '../../pages/Voice/voiceAudioPrefs';
-import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
+import {
+  FIGMA_ORG_CHANNEL_HEADER,
+  FIGMA_ORG_CHANNEL_HEADER_DESC,
+  FIGMA_ORG_CHANNEL_HEADER_TITLE,
+  FIGMA_ORG_CHANNEL_ICON_BTN,
+} from '../Workspace/figmaOrgSettingsClasses';
 import { parseMessageMentions } from '../../utils/parseMessageMentions';
 import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
 import {
@@ -57,6 +74,12 @@ import {
 } from '../../services/api/taskAPI';
 import CreateTaskBoardModal from './CreateTaskBoardModal';
 import TaskBoardWorkspacePanel from './TaskBoardWorkspacePanel';
+import WorkspaceOrgChatFigmaView from '../Workspace/WorkspaceOrgChatFigmaView';
+import WorkspaceKanbanFigmaView, {
+  kanbanCardSyncedExtra,
+} from '../Workspace/WorkspaceKanbanFigmaView';
+import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
+import { channelUnreadCount } from './organizationStructureTheme';
 
 function messageDayKey(iso) {
   if (!iso) return '';
@@ -126,6 +149,157 @@ function userInitialsFromProfile(user) {
   if (!parts.length) return 'U';
   if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+}
+
+function FigmaOrgChatComposer({
+  canWriteInChannel,
+  channelReadOnly,
+  chSlug,
+  fileInputRef,
+  imageInputRef,
+  messageInput,
+  onChangeMessageInput,
+  onClearReply,
+  onCreateContactCard,
+  onCreatePoll,
+  onOpenEmoji,
+  onSendMessage,
+  replyingToMessage,
+  replyToLabel,
+  selectedChannelId,
+  sendingMessage,
+  t,
+}) {
+  const disabled = !selectedChannelId || sendingMessage || channelReadOnly;
+  const sendDisabled = disabled || !String(messageInput || '').trim();
+  const placeholder = channelReadOnly
+    ? t('orgPanel.composerReadOnlyHint')
+    : selectedChannelId
+      ? t('orgPanel.composerFigmaHint', {
+          ch: chSlug || t('organizations.channelNameFallback'),
+        })
+      : t('orgPanel.composerPlaceholder');
+  const iconButton =
+    'flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0';
+
+  const handleSend = () => {
+    if (sendDisabled) return;
+    onSendMessage?.();
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    handleSend();
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-[920px]">
+      {replyingToMessage ? (
+        <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/60 px-3 py-2 text-sm text-foreground shadow-xs">
+          <div className="min-w-0">
+            <span className="text-muted-foreground">{t('orgPanel.replying')}</span>
+            <span className="font-semibold text-primary">{replyToLabel(replyingToMessage)}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onClearReply?.()}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            aria-label={t('orgPanel.cancelReplyAria')}
+          >
+            <X size={15} aria-hidden />
+          </button>
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[18px] border border-border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 focus-within:border-primary/35 focus-within:shadow-md">
+        <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title={t('orgPanel.menuUploadFile')}
+              aria-label={t('orgPanel.menuUploadFile')}
+              disabled={!canWriteInChannel}
+              onClick={() => fileInputRef.current?.click()}
+              className={iconButton}
+            >
+              <Paperclip size={17} aria-hidden />
+            </button>
+            <button
+              type="button"
+              title={t('orgPanel.menuUploadImage')}
+              aria-label={t('orgPanel.menuUploadImage')}
+              disabled={!canWriteInChannel}
+              onClick={() => imageInputRef.current?.click()}
+              className={iconButton}
+            >
+              <ImageIcon size={17} aria-hidden />
+            </button>
+            <button
+              type="button"
+              title={t('orgPanel.emojiTab')}
+              aria-label={t('orgPanel.emojiTab')}
+              disabled={disabled}
+              onClick={onOpenEmoji}
+              className={iconButton}
+            >
+              <Smile size={17} aria-hidden />
+            </button>
+            <button
+              type="button"
+              title={t('orgPanel.menuPoll')}
+              aria-label={t('orgPanel.menuPoll')}
+              disabled={!canWriteInChannel}
+              onClick={onCreatePoll}
+              className={iconButton}
+            >
+              <AlertCircle size={17} aria-hidden />
+            </button>
+            <button
+              type="button"
+              title={t('orgPanel.menuContact')}
+              aria-label={t('orgPanel.menuContact')}
+              disabled={!canWriteInChannel}
+              onClick={onCreateContactCard}
+              className={iconButton}
+            >
+              <Users size={17} aria-hidden />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            disabled={!canWriteInChannel}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-ai/30 bg-ai-subtle px-3 text-[0.8125rem] font-semibold text-ai transition-[background-color,border-color,color,transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-ai/50 hover:bg-ai-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ai/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+          >
+            <Sparkles size={14} aria-hidden />
+            <span>{t('orgPanel.aiDraft')}</span>
+          </button>
+        </div>
+
+        <div className="flex items-end gap-3 px-4 py-3">
+          <textarea
+            value={messageInput}
+            onChange={(event) => onChangeMessageInput?.(event.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            rows={1}
+            placeholder={placeholder}
+            className="max-h-32 min-h-11 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={sendDisabled}
+            aria-label={t('orgPanel.send')}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-[background-color,transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:translate-y-0"
+          >
+            <Send size={17} aria-hidden />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const OrganizationMainPanel = ({
@@ -216,6 +390,8 @@ const OrganizationMainPanel = ({
   onAppendComposerEmoji,
   onCreateTaskBoardFromTeamMenu,
   initialTaskBoardTeam = null,
+  suiteLayout = false,
+  suiteMode = null,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -237,7 +413,9 @@ const OrganizationMainPanel = ({
     const y = new Date(now);
     y.setDate(y.getDate() - 1);
     const yesterday0 = startOf(y);
-    const loc = locale === 'en' ? 'en-US' : 'vi-VN';
+    const LOCALE_TAG_EN = 'en-US';
+    const LOCALE_TAG_VI = 'vi-VN';
+    const loc = locale === 'en' ? LOCALE_TAG_EN : LOCALE_TAG_VI;
     const dd = d.toLocaleDateString(loc, { day: '2-digit', month: '2-digit' });
     if (t0 === today0) return `${t('orgPanel.dateToday')} — ${dd}`;
     if (t0 === yesterday0) return `${t('orgPanel.dateYesterday')} — ${dd}`;
@@ -368,10 +546,18 @@ const OrganizationMainPanel = ({
   const auxWorkspaceTab = isWorkspaceAuxTab(workspaceTab);
 
   const scopedChannels = selectedTeamId
-    ? channels.filter((channel) => String(channel.team || '') === String(selectedTeamId))
+    ? channels.filter(
+        (channel) =>
+          String(channel.team || '') === String(selectedTeamId) ||
+          (!String(channel.team || '') &&
+            (selectedDepartment?._id || selectedDepartment?.id) &&
+            String(channel.department || '') ===
+              String(selectedDepartment?._id || selectedDepartment?.id))
+      )
     : channels;
   const chatChannels = scopedChannels.filter((channel) => channel.type !== 'voice');
   const voiceChannels = scopedChannels.filter((channel) => channel.type === 'voice');
+  const channelMatrixReady = Object.keys(channelPermissionMatrix || {}).length > 0;
   const getChannelPerm = (channelId) => {
     const row = channelPermissionMatrix?.[String(channelId)] || null;
     const canSee = Boolean(row?.canSee ?? row?.canRead);
@@ -392,9 +578,24 @@ const OrganizationMainPanel = ({
     Boolean(selectedChannelPerm.canSee || selectedChannelPerm.canRead) &&
     !canWriteInChannel;
   const isVoiceChannel = selectedChannel?.type === 'voice';
-  const canVoiceChannel = Boolean(getChannelPerm(selectedChannelId).canVoice);
+  const isVoiceWorkspace = workspaceTab === 'voice' || isVoiceChannel;
+  const canUseVoiceChannel = (channel) => {
+    if (!channel?._id) return false;
+    if (!channelMatrixReady) return true;
+    return Boolean(getChannelPerm(channel._id).canVoice);
+  };
+  const activeVoiceChannel = isVoiceChannel
+    ? selectedChannel
+    : workspaceTab === 'voice'
+      ? voiceChannels.find(canUseVoiceChannel) || voiceChannels[0] || null
+      : null;
+  const activeVoiceChannelId = activeVoiceChannel?._id ? String(activeVoiceChannel._id) : '';
+  const activeVoiceChannelPerm = getChannelPerm(activeVoiceChannelId);
+  const canVoiceChannel = activeVoiceChannel
+    ? !channelMatrixReady || Boolean(activeVoiceChannelPerm.canVoice)
+    : Boolean(getChannelPerm(selectedChannelId).canVoice);
   const selectedTeam = teams.find((team) => String(team._id) === String(selectedTeamId)) || null;
-  const voiceConnVisible = isVoiceChannel && canVoiceChannel;
+  const voiceConnVisible = isVoiceWorkspace && Boolean(activeVoiceChannelId) && canVoiceChannel;
   const voiceConnConnected = voiceConnectionState === 'connected';
   const currentUserName =
     currentUser?.displayName ||
@@ -404,7 +605,7 @@ const OrganizationMainPanel = ({
     t('orgPanel.you');
   const currentUserAvatar = currentUser?.avatar || currentUser?.profile?.avatar || null;
   useEffect(() => {
-    if (!isVoiceChannel || !canVoiceChannel) {
+    if (!isVoiceWorkspace || !canVoiceChannel) {
       setVoiceConnectionState('idle');
       const prefs = loadVoiceAudioPrefs(orgVoiceUserId);
       setVoiceAudioState((prev) => ({
@@ -414,7 +615,7 @@ const OrganizationMainPanel = ({
       }));
       voiceControlActionsRef.current = { toggleMute: null, toggleSpeaker: null, disconnect: null };
     }
-  }, [isVoiceChannel, canVoiceChannel, selectedChannelId]);
+  }, [isVoiceWorkspace, canVoiceChannel, activeVoiceChannelId, orgVoiceUserId]);
 
   const handleOrgAudioPrefChange = ({ micMuted, speakerOff }) => {
     setVoiceAudioState((prev) => ({
@@ -474,7 +675,7 @@ const OrganizationMainPanel = ({
           el.scrollTop = maxScroll;
         }
       } else {
-        messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
+        el.scrollTop = 0;
       }
       isNearBottomRef.current = true;
       setShowJumpToLatest(false);
@@ -489,16 +690,16 @@ const OrganizationMainPanel = ({
   }, [updateNearBottomState]);
 
   useEffect(() => {
-    if (auxWorkspaceTab || isVoiceChannel) return;
+    if (auxWorkspaceTab || isVoiceWorkspace) return;
     forceScrollOnChannelRef.current = true;
     isNearBottomRef.current = true;
     setShowJumpToLatest(false);
     const el = chatScrollRef.current;
     if (el) el.scrollTop = 0;
-  }, [selectedChannelId, workspaceTab, isVoiceChannel, auxWorkspaceTab]);
+  }, [selectedChannelId, workspaceTab, isVoiceWorkspace, auxWorkspaceTab]);
 
   useEffect(() => {
-    if (auxWorkspaceTab || isVoiceChannel || loadingMessages) return;
+    if (auxWorkspaceTab || isVoiceWorkspace || loadingMessages) return;
 
     if (forceScrollOnChannelRef.current) {
       forceScrollOnChannelRef.current = false;
@@ -513,7 +714,7 @@ const OrganizationMainPanel = ({
     sortedWorkspaceMessages,
     loadingMessages,
     workspaceTab,
-    isVoiceChannel,
+    isVoiceWorkspace,
     auxWorkspaceTab,
     scrollChatToLatest,
   ]);
@@ -593,7 +794,7 @@ const OrganizationMainPanel = ({
       }
     } catch (err) {
       setTaskBoards([]);
-      toast.error(resolveApiErrorMessage(err, 'Không tải được Task Board'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
     } finally {
       setLoadingTaskBoards(false);
     }
@@ -611,7 +812,7 @@ const OrganizationMainPanel = ({
       setTaskBoardDetail(unwrapTaskBoardDetailPayload(res));
     } catch (err) {
       setTaskBoardDetail(null);
-      toast.error(resolveApiErrorMessage(err, 'Không tải được chi tiết Task Board'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail')));
     } finally {
       if (!silent) setLoadingTaskBoardDetail(false);
     }
@@ -676,7 +877,7 @@ const OrganizationMainPanel = ({
         if (rollbackLists) {
           setTaskBoardDetail((prev) => (prev ? { ...prev, lists: rollbackLists } : prev));
         }
-        toast.error(resolveApiErrorMessage(err, 'Không thể sắp xếp danh sách'));
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.reorderListFail')));
       }
     },
     [selectedTaskBoardId, taskBoardApiCtx]
@@ -699,9 +900,9 @@ const OrganizationMainPanel = ({
       await loadTaskBoards();
       if (board?._id) setSelectedTaskBoardId(String(board._id));
       onCreateTaskBoardFromTeamMenu?.(null);
-      toast.success('Tạo Task Board thành công');
+      toast.success(t('taskBoard.boardCreated'));
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, 'Không tạo được Task Board'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.boardCreateFail')));
     } finally {
       setCreatingTaskBoard(false);
     }
@@ -725,7 +926,7 @@ const OrganizationMainPanel = ({
       await loadTaskBoardDetail(selectedTaskBoardId);
       return null;
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, 'Không thêm được danh sách'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.addListFail')));
       throw err;
     }
   };
@@ -749,7 +950,7 @@ const OrganizationMainPanel = ({
         return { ...prev, cards, lists };
       });
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, 'Không thêm được công việc'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.addCardFail')));
     }
   };
 
@@ -762,7 +963,7 @@ const OrganizationMainPanel = ({
       }
       await taskAPI.moveBoardCard(String(cardId), payload, taskBoardApiCtx);
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, 'Không thể chuyển card'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.moveCardFail')));
       throw err;
     }
   };
@@ -786,7 +987,7 @@ const OrganizationMainPanel = ({
         return { ...prev, cards };
       });
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, 'Không thể cập nhật card'));
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));
       throw err;
     }
   };
@@ -796,7 +997,7 @@ const OrganizationMainPanel = ({
   const taskAssigneeLabel = (task) =>
     task?.assignee?.displayName ||
     task?.assignee?.username ||
-    (task?.assigneeId ? String(task.assigneeId).slice(-6) : 'Chưa gán');
+    (task?.assigneeId ? String(task.assigneeId).slice(-6) : t('taskBoard.unassigned'));
 
   const taskAssignerLabel = (task) =>
     task?.createdByUser?.displayName ||
@@ -806,12 +1007,12 @@ const OrganizationMainPanel = ({
   const menuCreateTaskCheck = useMemo(() => {
     const base = getAiTaskEligibility(moreMenu.message, {
       organizationId: orgIdForTask ? String(orgIdForTask) : null,
-    });
+    }, t);
     if (!base.ok) return base;
     if (!canUseAiWorkspaceTask) {
       return {
         ok: false,
-        reason: 'Chỉ trưởng phòng, team leader, quản trị viên hoặc chủ sở hữu mới được tạo task tự động',
+        reason: t('taskBoard.aiTaskDenied'),
       };
     }
     return base;
@@ -822,12 +1023,16 @@ const OrganizationMainPanel = ({
     const ent = entShell(isDarkMode);
     return {
       ...ent,
-      composerBar: isDarkMode
-        ? 'relative mt-auto shrink-0 rounded-b-xl border-t border-white/[0.06] bg-transparent px-4 pb-3 pt-2.5'
-        : 'relative mt-auto shrink-0 rounded-b-xl border-t border-slate-200/80 bg-white px-4 pb-3 pt-2.5',
-      composerWrap: 'shrink-0 bg-transparent p-0',
+      composerBar: suiteLayout
+        ? 'relative shrink-0 border-t border-border bg-background px-5 pb-4 pt-3'
+        : isDarkMode
+          ? 'relative mt-auto shrink-0 rounded-b-xl border-t border-white/[0.06] bg-transparent px-4 pb-3 pt-2.5'
+          : 'relative mt-auto shrink-0 rounded-b-xl border-t border-slate-200/80 bg-white px-4 pb-3 pt-2.5',
+      composerWrap: suiteLayout
+        ? 'mx-auto w-full max-w-[920px] shrink-0 bg-transparent p-0'
+        : 'shrink-0 bg-transparent p-0',
     };
-  }, [isDarkMode]);
+  }, [isDarkMode, suiteLayout]);
 
   const formatTime = (isoDate) => {
     if (!isoDate) return '';
@@ -1118,6 +1323,13 @@ const OrganizationMainPanel = ({
   const deptName = selectedDepartment?.name
     ? displayDepartmentName(selectedDepartment.name, locale)
     : '—';
+  const useFigmaChannelHeader =
+    suiteLayout && workspaceTab === 'chat' && !isVoiceChannel;
+  const useFigmaOrgChatChrome = suiteLayout && workspaceTab === 'chat' && !isVoiceChannel;
+  const channelUnreadForCatchUp = channelUnreadCount(selectedChannel);
+  const channelCatchUpName = selectedChannel?.name
+    ? `#${channelNameToDisplaySlug(selectedChannel.name, locale)}`
+    : '';
   const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
   const selectedDivision = selectedBranch?.divisions?.find((d) => String(d._id) === String(selectedDivisionId)) || null;
   const branchName = selectedBranch?.name ? displayDepartmentName(selectedBranch.name, locale) : '—';
@@ -1126,7 +1338,213 @@ const OrganizationMainPanel = ({
   const chSlug = selectedChannel
     ? channelNameToDisplaySlug(selectedChannel.name || 'chat', locale)
     : '';
+  const activeVoiceSlug = activeVoiceChannel?.name
+    ? channelNameToDisplaySlug(activeVoiceChannel.name, locale)
+    : '';
   const onlinePreviewIds = (workspaceOnlineUserIds || []).slice(0, 5);
+  const canReadRailChannel = (channel) => {
+    if (!channelMatrixReady) return true;
+    const perm = getChannelPerm(channel?._id);
+    return Boolean(perm.canSee || perm.canRead);
+  };
+  const railChatChannels = chatChannels.filter(canReadRailChannel);
+  const railVoiceChannels = voiceChannels.filter(canReadRailChannel);
+  const teamInitial =
+    String(teamName && teamName !== '—' ? teamName : orgName)
+      .trim()
+      .slice(0, 2)
+      .toUpperCase() || 'VH';
+  const moduleIconMap = {
+    chat: Hash,
+    voice: Mic,
+    tasks: ClipboardList,
+    documents: FileText,
+    notifications: Bell,
+  };
+  const moduleKind = isVoiceWorkspace
+    ? 'voice'
+    : workspaceTab === 'tasks'
+      ? 'tasks'
+      : workspaceTab === 'documents'
+        ? 'documents'
+        : workspaceTab === 'notifications'
+          ? 'notifications'
+          : 'chat';
+  const ModuleHeaderIcon = moduleIconMap[moduleKind] || Hash;
+  const moduleTitle =
+    moduleKind === 'chat'
+      ? `#${chSlug || t('organizations.channelNameFallback')}`
+      : moduleKind === 'voice'
+        ? activeVoiceSlug || 'Voice'
+        : moduleKind === 'tasks'
+          ? t('nav.tasks.label')
+          : moduleKind === 'documents'
+            ? t('documents.orgTitle')
+            : t('notifications.titleOrganization');
+  const moduleDescription =
+    moduleKind === 'chat'
+      ? selectedChannel?.description ||
+        selectedChannel?.topic ||
+        (t('taskBoard.teamTextChat'))
+      : selectedTeamId
+        ? `${teamName} · ${orgName}`
+        : orgName;
+  const railTone = isDarkMode
+    ? {
+        panel: 'border-white/10 bg-[#0b1120]/95 text-slate-100',
+        card: 'border-white/10 bg-white/[0.045]',
+        item: 'text-muted-foreground hover:border-white/10 hover:bg-white/[0.055] hover:text-white',
+        active: 'border-primary/45 bg-primary/15 text-foreground shadow-[inset_3px_0_0_var(--color-primary)]',
+        muted: 'text-slate-500',
+      }
+    : {
+        panel: 'border-slate-200 bg-white text-slate-900',
+        card: 'border-slate-200 bg-slate-50',
+        item: 'text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950',
+        active: 'border-primary/35 bg-primary/10 text-primary shadow-[inset_3px_0_0_var(--color-primary)]',
+        muted: 'text-slate-500',
+      };
+  const renderRailChannelButton = (channel, Icon, typeLabel) => {
+    const id = String(channel?._id || '');
+    const active = id && String(selectedChannelId || '') === id;
+    const label = channel?.name ? channelNameToDisplaySlug(channel.name, locale) : typeLabel;
+    const unread = channelUnreadCount(channel);
+    return (
+      <button
+        key={id || label}
+        type="button"
+        onClick={() => id && onSelectChannel?.(id)}
+        className={`group flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
+          active ? railTone.active : `border-transparent ${railTone.item}`
+        }`}
+      >
+        <Icon size={15} className="shrink-0 text-muted-foreground group-hover:text-current" />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {unread > 0 ? (
+          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+            {unread}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+  const suiteOrgModuleRail = suiteLayout ? (
+    <aside
+      className={`hidden h-full min-h-0 w-[min(280px,88vw)] shrink-0 flex-col overflow-hidden border-r lg:flex ${railTone.panel}`}
+    >
+      <div className="scrollbar-overlay flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+        <div className={`rounded-2xl border p-4 ${railTone.card}`}>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-cyan-400 text-sm font-black text-white shadow-lg shadow-primary/20">
+              {teamInitial}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-bold">{selectedTeamId ? teamName : orgName}</p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-success">
+                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
+              </p>
+            </div>
+            {canInviteMembers ? (
+              <button
+                type="button"
+                onClick={() => selectedOrganization?._id && onInviteOrganization?.(selectedOrganization._id)}
+                className="rounded-lg border border-border bg-surface p-2 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                title={t('taskBoard.inviteMembers')}
+              >
+                <Users size={15} />
+              </button>
+            ) : null}
+          </div>
+          {selectedTeamId && selectedDepartment?.name ? (
+            <p className={`mt-3 truncate text-xs ${railTone.muted}`}>
+              {displayDepartmentName(selectedDepartment.name, locale)}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-4">
+          <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
+            {t('taskBoard.chatChannels')}
+          </div>
+          <div className="space-y-1.5">
+            {railChatChannels.length ? (
+              railChatChannels.map((channel) => renderRailChannelButton(channel, Hash, 'general'))
+            ) : (
+              <p className={`rounded-xl border border-dashed border-border px-3 py-4 text-sm ${railTone.muted}`}>
+                {t('taskBoard.noChatChannels')}
+              </p>
+            )}
+            {canManageWorkspaceStructure && selectedTeamId ? (
+              <button
+                type="button"
+                onClick={() => onCreateChannel?.('chat')}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+              >
+                <Plus size={15} />
+                {t('taskBoard.createChatChannel')}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
+            Voice
+          </div>
+          <div className="space-y-1.5">
+            {railVoiceChannels.length ? (
+              railVoiceChannels.map((channel) => renderRailChannelButton(channel, Mic, 'voice'))
+            ) : (
+              <p className={`rounded-xl border border-dashed border-border px-3 py-4 text-sm ${railTone.muted}`}>
+                {t('taskBoard.noVoiceChannels')}
+              </p>
+            )}
+            {canManageWorkspaceStructure && selectedTeamId ? (
+              <button
+                type="button"
+                onClick={() => onCreateChannel?.('voice')}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+              >
+                <Plus size={15} />
+                {t('taskBoard.createVoiceChannel')}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {voiceConnVisible && voiceConnectionState !== 'idle' ? (
+        <OrganizationVoiceConnectionPanel
+          isDarkMode={isDarkMode}
+          t={t}
+          connected={voiceConnConnected}
+          channelLabel={
+            selectedChannel?.name
+              ? channelNameToDisplaySlug(selectedChannel.name, locale)
+              : ''
+          }
+          orgName={orgName}
+          onDisconnect={() => voiceControlActionsRef.current.disconnect?.()}
+        />
+      ) : null}
+
+      <div className={`shrink-0 border-t border-border ${isDarkMode ? 'bg-[#0b1120]' : 'bg-white'}`}>
+        <OrganizationSidebarAudioBar
+          isDarkMode={isDarkMode}
+          t={t}
+          voiceUserId={orgVoiceUserId}
+          voiceInChannel={voiceConnVisible}
+          voiceAudioState={voiceAudioState}
+          onToggleMute={() => voiceControlActionsRef.current.toggleMute?.()}
+          onToggleSpeaker={() => voiceControlActionsRef.current.toggleSpeaker?.()}
+          onAudioPrefChange={handleOrgAudioPrefChange}
+          onOpenOrganizationSettings={() => onOpenOrganizationSettings?.(selectedOrganization)}
+          onOpenVoiceSettings={() => setOrgVoiceSettingsOpen(true)}
+        />
+      </div>
+    </aside>
+  ) : null;
   const mapDropColumnToStatus = (colId) => {
     if (colId === COL_DONE) return 'done';
     if (colId === COL_PROGRESS) return 'in_progress';
@@ -1135,15 +1553,22 @@ const OrganizationMainPanel = ({
 
   return (
     <>
-    <div className={`${workspace.shell} h-full min-h-0`}>
-      <div className={workspace.shellInner || 'flex h-full min-h-0 flex-1 gap-2 overflow-hidden'}>
+    <div className={`${workspace.shell} h-full min-h-0 w-full max-w-full`}>
+      <div
+        className={
+          suiteLayout
+            ? 'flex h-full min-h-0 flex-1 overflow-hidden'
+            : workspace.shellInner || 'flex h-full min-h-0 flex-1 gap-2 overflow-hidden'
+        }
+      >
+        {suiteLayout ? suiteOrgModuleRail : (
         <aside
           className={`${workspace.aside} relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden`}
           style={{ width: leftAsideW, minWidth: LEFT_ASIDE_MIN_W, maxWidth: LEFT_ASIDE_MAX_W }}
         >
           <div
             className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize"
-            title={`Kéo để đổi độ rộng (${LEFT_ASIDE_MIN_W}px – ${LEFT_ASIDE_MAX_W}px)`}
+            title={t('taskBoard.resizeAside', { min: LEFT_ASIDE_MIN_W, max: LEFT_ASIDE_MAX_W })}
             onMouseDown={(e) => {
               if (e.button !== 0) return;
               leftAsideResizeRef.current = {
@@ -1169,7 +1594,7 @@ const OrganizationMainPanel = ({
                     if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
                   }}
                   className="min-w-0 text-left"
-                  title={canInviteMembers ? 'Mời vào tổ chức' : 'Bạn không có quyền mời thành viên'}
+                  title={canInviteMembers ? t('taskBoard.inviteOrg') : t('taskBoard.noInvitePermission')}
                 >
                   <div className={`truncate text-lg font-semibold ${workspace.textPrimary}`}>
                     {orgName}
@@ -1263,9 +1688,69 @@ const OrganizationMainPanel = ({
             />
           </div>
         </aside>
+        )}
 
-        <div className={`${workspace.main} h-full min-h-0 overflow-hidden ${isDarkMode ? '!bg-transparent' : ''}`}>
-          <header className={`${workspace.header} ${isDarkMode ? '!bg-transparent' : ''}`}>
+        <div
+          className={`${
+            suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background' : workspace.main
+          } h-full min-h-0 overflow-hidden ${isDarkMode && !suiteLayout && !useFigmaChannelHeader ? '!bg-transparent' : ''}`}
+        >
+          <header
+            className={
+              suiteLayout
+                ? FIGMA_ORG_CHANNEL_HEADER
+                : `${workspace.header} ${isDarkMode ? '!bg-transparent' : ''}`
+            }
+          >
+            {suiteLayout ? (
+              <>
+                <ModuleHeaderIcon size={16} className="shrink-0 text-muted-foreground" />
+                <span className={FIGMA_ORG_CHANNEL_HEADER_TITLE}>
+                  {moduleTitle}
+                </span>
+                <div className="h-4 w-px shrink-0 bg-border" />
+                <span className={FIGMA_ORG_CHANNEL_HEADER_DESC}>
+                  {moduleDescription}
+                </span>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {workspaceTab === 'tasks' ? (
+                    <select
+                      value={selectedTaskBoardId}
+                      onChange={(e) => setSelectedTaskBoardId(e.target.value)}
+                      className="mr-1 hidden max-w-[220px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground outline-none transition focus:border-primary sm:block"
+                      aria-label={t('taskBoard.selectBoardAria')}
+                    >
+                      <option value="">{t('taskBoard.selectBoard')}</option>
+                      {taskBoards.map((b) => (
+                        <option key={b._id} value={String(b._id)}>
+                          {b.title}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <button
+                    type="button"
+                    title={t('orgPanel.workspaceSearchAria')}
+                    aria-label={t('orgPanel.workspaceSearchAria')}
+                    onClick={() => onWorkspaceSearchOpenChange?.(true)}
+                    className={`${FIGMA_ORG_CHANNEL_ICON_BTN} ${
+                      workspaceSearchOpen ? 'bg-muted text-primary' : ''
+                    }`}
+                  >
+                    <Search size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    title={t('orgPanel.notifTitle')}
+                    aria-label={t('orgPanel.notifTitle')}
+                    onClick={() => onOpenNotificationsPage?.()}
+                    className={FIGMA_ORG_CHANNEL_ICON_BTN}
+                  >
+                    <Bell size={14} />
+                  </button>
+                </div>
+              </>
+            ) : (
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <nav
@@ -1329,9 +1814,9 @@ const OrganizationMainPanel = ({
                           ? 'border-white/15 bg-[#1a1d26] text-white'
                           : 'border-slate-200 bg-white text-slate-900'
                       }`}
-                      aria-label="Chọn Task Board"
+                      aria-label={t('taskBoard.selectBoardAria')}
                     >
-                      <option value="">Chọn Task Board</option>
+                      <option value="">{t('taskBoard.selectBoard')}</option>
                       {taskBoards.map((b) => (
                         <option key={b._id} value={String(b._id)}>
                           {b.title}
@@ -1339,7 +1824,7 @@ const OrganizationMainPanel = ({
                       ))}
                     </select>
                     {loadingTaskBoards ? (
-                      <span className={`text-[10px] sm:text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <span className={`text-[10px] sm:text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
                         Đang tải...
                       </span>
                     ) : null}
@@ -1379,13 +1864,18 @@ const OrganizationMainPanel = ({
                 </div>
               </div>
             </div>
+            )}
           </header>
 
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
-            ref={chatScrollRef}
-            className="scrollbar-chat min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain"
-            onScroll={handleChatScroll}
+            ref={workspaceTab === 'chat' && !isVoiceChannel ? undefined : isVoiceChannel ? undefined : chatScrollRef}
+            className={
+              (workspaceTab === 'chat' && !isVoiceChannel) || isVoiceChannel
+                ? 'min-h-0 flex-1 overflow-hidden'
+                : 'scrollbar-chat min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain'
+            }
+            onScroll={(workspaceTab === 'chat' && !isVoiceChannel) || isVoiceChannel ? undefined : handleChatScroll}
           >
             {workspaceTab === 'documents' ? (
               <OrganizationDocumentsWorkspacePanel
@@ -1404,6 +1894,32 @@ const OrganizationMainPanel = ({
                 fetchEnabled={notificationsFetchEnabled}
               />
             ) : workspaceTab === 'tasks' ? (
+              suiteLayout ? (
+                <WorkspaceKanbanFigmaView locale={locale}>
+                  <TaskBoardWorkspacePanel
+                    isDarkMode={isDarkMode}
+                    workspaceSlug={workspaceSlugForTask}
+                    boards={taskBoards}
+                    accessibleBoards={accessibleTaskBoards}
+                    selectedBoardId={selectedTaskBoardId}
+                    boardDetail={taskBoardDetail}
+                    boardBackground={
+                      taskBoardDetail?.board?.background ||
+                      taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.background ||
+                      ''
+                    }
+                    loadingBoards={loadingTaskBoards}
+                    loadingBoardDetail={loadingTaskBoardDetail}
+                    onAddList={handleAddBoardList}
+                    onAddCard={handleAddBoardCard}
+                    onMoveCard={handleMoveBoardCard}
+                    onUpdateCard={handleUpdateBoardCard}
+                    onReorderList={handleReorderBoardList}
+                    onRefresh={refreshTaskBoardView}
+                    renderCardExtra={(card) => kanbanCardSyncedExtra(card, channels)}
+                  />
+                </WorkspaceKanbanFigmaView>
+              ) : (
               <TaskBoardWorkspacePanel
                 isDarkMode={isDarkMode}
                 workspaceSlug={workspaceSlugForTask}
@@ -1425,6 +1941,7 @@ const OrganizationMainPanel = ({
                 onReorderList={handleReorderBoardList}
                 onRefresh={refreshTaskBoardView}
               />
+              )
             ) : isVoiceChannel ? (
                 selectedChannelId && (
                   <OrganizationVoiceChannelView
@@ -1456,8 +1973,23 @@ const OrganizationMainPanel = ({
                   />
                 )
               ) : (
-              <div className="flex min-h-full flex-col px-4 py-3">
-              <div className="mt-auto flex flex-col gap-3">
+              <WorkspaceOrgChatFigmaView
+                scrollRef={chatScrollRef}
+                onScroll={handleChatScroll}
+                unreadCount={channelUnreadForCatchUp}
+                channelName={channelCatchUpName}
+                locale={locale}
+                showCatchUp={useFigmaOrgChatChrome}
+                className={useFigmaOrgChatChrome ? undefined : 'contents'}
+              >
+              <div
+                className={
+                  useFigmaOrgChatChrome
+                    ? 'mx-auto flex w-full max-w-[920px] flex-col gap-3 px-5 py-5'
+                    : 'flex min-h-full flex-col px-4 py-3'
+                }
+              >
+              <div className={useFigmaOrgChatChrome ? 'flex flex-col gap-3' : 'mt-auto flex flex-col gap-3'}>
               <>
               {hasMoreOlderMessages && onLoadOlderMessages && (
                 <div className="flex justify-center pb-1">
@@ -1575,6 +2107,24 @@ const OrganizationMainPanel = ({
                                 : '-top-1 -translate-y-full'
                             }`}
                           >
+                            {useFigmaChannelHeader ? (
+                              <OrgMessageHoverActions
+                                visible
+                                onEmojiPick={(emoji) => onQuickReactMessage?.(message, emoji)}
+                                onReply={() => onReplyToMessage?.(message)}
+                                onAiExtract={() => {}}
+                                onMenu={(e) => {
+                                  const r = e?.currentTarget?.getBoundingClientRect?.();
+                                  if (r) {
+                                    setMoreMenu({
+                                      open: true,
+                                      anchorRect: r,
+                                      message,
+                                    });
+                                  }
+                                }}
+                              />
+                            ) : (
                             <ChannelMessageToolbar
                               compact
                               isMine={isMine}
@@ -1601,6 +2151,7 @@ const OrganizationMainPanel = ({
                                 }
                               }}
                             />
+                            )}
                           </div>
                         )}
                         <div className="flex w-full items-start justify-start gap-3">
@@ -1693,6 +2244,7 @@ const OrganizationMainPanel = ({
               <div ref={messagesEndRef} className="h-px w-full shrink-0" aria-hidden />
               </div>
               </div>
+              </WorkspaceOrgChatFigmaView>
               )}
 
           </div>
@@ -1720,8 +2272,8 @@ const OrganizationMainPanel = ({
           {isVoiceChannel && (
             <button
               type="button"
-              title="Mở chat kênh voice"
-              aria-label="Mở chat kênh voice"
+              title={t('taskBoard.openVoiceChat')}
+              aria-label={t('taskBoard.openVoiceChat')}
               onClick={() => onOpenVoiceChatSidebar?.()}
               className={`pointer-events-auto absolute bottom-4 right-4 z-20 inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-semibold shadow-lg transition hover:scale-[1.02] active:scale-[0.98] ${
                 voiceChatSidebarOpen
@@ -1770,7 +2322,31 @@ const OrganizationMainPanel = ({
                 className="hidden"
                 onChange={(event) => handleFileSelected(event, 'image')}
               />
-              <UnifiedChatComposer
+              {useFigmaOrgChatChrome ? (
+                <FigmaOrgChatComposer
+                  canWriteInChannel={canWriteInChannel}
+                  channelReadOnly={channelReadOnly}
+                  chSlug={chSlug}
+                  fileInputRef={fileInputRef}
+                  imageInputRef={imageInputRef}
+                  messageInput={messageInput}
+                  onChangeMessageInput={onChangeMessageInput}
+                  onClearReply={onClearReply}
+                  onCreateContactCard={handleCreateContactCard}
+                  onCreatePoll={handleCreatePoll}
+                  onOpenEmoji={() => {
+                    setEmojiPickerTab('emoji');
+                    setShowEmojiPicker((prev) => !prev);
+                  }}
+                  onSendMessage={onSendMessage}
+                  replyingToMessage={replyingToMessage}
+                  replyToLabel={replyToLabel}
+                  selectedChannelId={selectedChannelId}
+                  sendingMessage={sendingMessage}
+                  t={t}
+                />
+              ) : (
+                <UnifiedChatComposer
                 richToolbar
                 flatInner
                 showSendButton={false}
@@ -1785,7 +2361,7 @@ const OrganizationMainPanel = ({
                     <div
                       className={`mb-2 flex items-center justify-between gap-2 rounded-t-xl border px-3 py-2 text-sm ${
                         isDarkMode
-                          ? 'border-slate-700/80 bg-[#1a1d21]'
+                          ? 'border-border/80 bg-[#1a1d21]'
                           : 'border-slate-200 bg-slate-50'
                       }`}
                     >
@@ -1804,7 +2380,7 @@ const OrganizationMainPanel = ({
                         onClick={() => onClearReply?.()}
                         className={`rounded-full p-1.5 transition ${
                           isDarkMode
-                            ? 'text-gray-400 hover:bg-white/10 hover:text-white'
+                            ? 'text-muted-foreground hover:bg-white/10 hover:text-white'
                             : 'text-slate-500 hover:bg-slate-200 hover:text-slate-900'
                         }`}
                         aria-label={t('orgPanel.cancelReplyAria')}
@@ -1876,7 +2452,8 @@ const OrganizationMainPanel = ({
                     },
                   },
                 ]}
-              />
+                />
+              )}
 
             </div>
             )}
@@ -1892,8 +2469,8 @@ const OrganizationMainPanel = ({
             onClick={() => setShowEmojiPicker(false)}
             className={`${shellNavRailBackdrop} z-40 cursor-default bg-black/30`}
           />
-          <div className="fixed bottom-24 right-8 z-50 h-[420px] w-[520px] overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1220] shadow-2xl">
-            <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+          <div className="fixed bottom-24 right-4 z-50 h-[min(420px,calc(100vh-8rem))] w-[min(520px,calc(100vw-2rem))] max-w-[92vw] overflow-hidden rounded-2xl border border-border bg-[#0b1220] shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
               {[
                 { id: 'gif', label: t('orgPanel.gifTab') },
                 { id: 'sticker', label: t('orgPanel.stickerTab') },
@@ -1913,13 +2490,13 @@ const OrganizationMainPanel = ({
                 </button>
               ))}
             </div>
-            <div className="border-b border-slate-700 px-4 py-3">
+            <div className="border-b border-border px-4 py-3">
               <div className="flex items-center gap-2">
                 <input
                   value={emojiSearch}
                   onChange={(event) => setEmojiSearch(event.target.value)}
                   placeholder={t('orgPanel.emojiSearchPh')}
-                  className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-gray-400"
+                  className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-muted-foreground"
                 />
                 <button
                   type="button"
@@ -1932,7 +2509,7 @@ const OrganizationMainPanel = ({
             </div>
             <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
               {emojiPickerTab !== 'emoji' ? (
-                <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   {t('orgPanel.emojiBetaMsg')}
                 </div>
               ) : (
@@ -1948,7 +2525,7 @@ const OrganizationMainPanel = ({
                     </button>
                   ))}
                   {filteredComposerEmojis.length === 0 && (
-                    <div className="col-span-9 rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-gray-400">
+                    <div className="col-span-9 rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
                       {t('orgPanel.emojiNoMatch')}
                     </div>
                   )}
@@ -1995,7 +2572,7 @@ const OrganizationMainPanel = ({
         }}
         createTaskDisabled={!menuCreateTaskCheck.ok}
         createTaskHoverTitle={
-          menuCreateTaskCheck.ok ? AI_TASK_TOOLTIP_SHORT : menuCreateTaskCheck.reason
+          menuCreateTaskCheck.ok ? getAiTaskTooltipShort(t) : menuCreateTaskCheck.reason
         }
       />
 
@@ -2047,7 +2624,7 @@ const OrganizationMainPanel = ({
         title={t('voiceRoom.voiceSettingsTitle')}
         size="md"
       >
-        <p className={`mb-4 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+        <p className={`mb-4 text-sm ${isDarkMode ? 'text-muted-foreground' : 'text-slate-600'}`}>
           {t('voiceRoom.voiceSettingsDesc')}
         </p>
         <VoiceAudioSettingsPanel
@@ -2069,33 +2646,33 @@ const OrganizationMainPanel = ({
       <Modal
         isOpen={taskCreateOpen}
         onClose={() => setTaskCreateOpen(false)}
-        title="Tạo task mới"
+        title={t('taskBoard.createTaskTitle')}
         size="md"
       >
         <div className="space-y-4">
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">Tên task</div>
+            <div className="mb-1 text-sm font-semibold text-white">{t('taskBoard.taskName')}</div>
             <input
               value={taskForm.title}
               maxLength={180}
               onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
-              placeholder="Nhập tên task"
+              placeholder={t('taskBoard.taskNamePh')}
               className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
             />
           </div>
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">Mô tả</div>
+            <div className="mb-1 text-sm font-semibold text-white">{t('taskBoard.taskDesc')}</div>
             <textarea
               value={taskForm.description}
               rows={3}
               onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))}
-              placeholder="Nội dung công việc"
+              placeholder={t('taskBoard.taskDescPh')}
               className="w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
             />
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">Hạn xử lý</span>
+              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.dueDate')}</span>
               <input
                 type="date"
                 value={taskForm.dueDate}
@@ -2104,26 +2681,26 @@ const OrganizationMainPanel = ({
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">Ưu tiên</span>
+              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.priority')}</span>
               <select
                 value={taskForm.priority}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value }))}
                 className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
+                <option value="low">{t('tasks.priorityLow')}</option>
+                <option value="medium">{t('tasks.priorityMedium')}</option>
+                <option value="high">{t('tasks.priorityHigh')}</option>
+                <option value="urgent">{t('tasks.priorityUrgent')}</option>
               </select>
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">Phòng ban</span>
+              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.department')}</span>
               <select
                 value={taskForm.departmentId}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, departmentId: event.target.value }))}
                 className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
               >
-                <option value="">General</option>
+                <option value="">{t('taskBoard.deptGeneral')}</option>
                 {departments.map((department) => (
                   <option key={department._id} value={String(department._id)}>
                     {displayDepartmentName(department.name, locale)}
@@ -2132,13 +2709,13 @@ const OrganizationMainPanel = ({
               </select>
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">Gán cho</span>
+              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.assignTo')}</span>
               <select
                 value={taskForm.assigneeId}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, assigneeId: event.target.value }))}
                 className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
               >
-                <option value="">Chưa gán</option>
+                <option value="">{t('taskBoard.unassigned')}</option>
                 {assignableContactOptions.map((contact) => (
                   <option key={contact.id} value={String(contact.id)}>
                     {contact.name}
@@ -2161,7 +2738,7 @@ const OrganizationMainPanel = ({
               disabled={!taskForm.title.trim() || creatingTask}
               className="rounded-xl bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
             >
-              {creatingTask ? 'Đang tạo...' : 'Tạo task'}
+              {creatingTask ? t('taskBoard.creatingTask') : t('taskBoard.createTask')}
             </button>
           </div>
         </div>
@@ -2183,7 +2760,7 @@ const OrganizationMainPanel = ({
               placeholder={t('orgPanel.pollQuestionPh')}
               className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
             />
-            <div className="mt-1 text-right text-xs text-gray-400">{pollQuestion.length} / 300</div>
+            <div className="mt-1 text-right text-xs text-muted-foreground">{pollQuestion.length} / 300</div>
           </div>
 
           <div>
@@ -2338,7 +2915,7 @@ const OrganizationMainPanel = ({
                   <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">{t('orgPanel.loadingContacts')}</div>
                 )}
                 {!loadingChatContacts && filteredContacts.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-gray-400">
+                  <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-muted-foreground">
                     {t('orgPanel.contactNoMatch')}
                   </div>
                 )}
@@ -2358,7 +2935,7 @@ const OrganizationMainPanel = ({
                       <UserAvatar name={contact.name || 'U'} size="sm" />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-white">{contact.name}</div>
-                        <div className="truncate text-xs text-gray-400">{contact.phone || contact.email || '-'}</div>
+                        <div className="truncate text-xs text-muted-foreground">{contact.phone || contact.email || '-'}</div>
                       </div>
                     </label>
                   ))}
@@ -2367,32 +2944,32 @@ const OrganizationMainPanel = ({
           ) : (
             <div className="space-y-2">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">Tên *</label>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactName')}</label>
                 <input
                   type="text"
                   value={manualContactFullName}
                   onChange={(e) => setManualContactFullName(e.target.value)}
-                  placeholder="Ví dụ: danh cong do"
+                  placeholder={t('taskBoard.contactNamePh')}
                   className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">Số điện thoại</label>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactPhone')}</label>
                 <input
                   type="text"
                   value={manualContactPhone}
                   onChange={(e) => setManualContactPhone(e.target.value)}
-                  placeholder="Ví dụ: 0123456789 hoặc -"
+                  placeholder={t('taskBoard.contactPhonePh')}
                   className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">Email</label>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactEmail')}</label>
                 <input
                   type="text"
                   value={manualContactEmail}
                   onChange={(e) => setManualContactEmail(e.target.value)}
-                  placeholder="Ví dụ: user@example.com hoặc -"
+                  placeholder={t('taskBoard.contactEmailPh')}
                   className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
                 />
               </div>

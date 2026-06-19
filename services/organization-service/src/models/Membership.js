@@ -1,5 +1,7 @@
 const { mongoose } = require('@enterprise/shared/config/mongo');
 
+// CẤM populate path `user` — model User không đăng ký trong organization-service.
+
 const membershipSchema = new mongoose.Schema(
   {
     user: {

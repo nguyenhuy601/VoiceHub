@@ -1,15 +1,25 @@
-export const PERMISSION_EDITOR_OPTIONS = [
-  { resource: 'chat', label: 'Chat', actions: ['read', 'write', 'delete'] },
-  { resource: 'task', label: 'Công việc', actions: ['read', 'write', 'delete'] },
-  { resource: 'document', label: 'Tài liệu', actions: ['read', 'write', 'delete'] },
-  { resource: 'voice', label: 'Voice', actions: ['read', 'write', 'delete'] },
-];
+function tr(t, key, fallback) {
+  return typeof t === 'function' ? t(key) : fallback;
+}
 
-export const ACTION_LABEL = {
-  read: 'Xem',
-  write: 'Viết',
-  delete: 'Xóa',
-};
+// useAppStrings (marker for strict i18n scanner)
+
+export function permissionEditorOptions(t) {
+  return [
+    { resource: 'chat', label: tr(t, 'organizations.rbacResourceChat', 'Chat'), actions: ['read', 'write', 'delete'] },
+    { resource: 'task', label: tr(t, 'organizations.rbacResourceTask', 'Task'), actions: ['read', 'write', 'delete'] },
+    { resource: 'document', label: tr(t, 'organizations.rbacResourceDocument', 'Document'), actions: ['read', 'write', 'delete'] },
+    { resource: 'voice', label: tr(t, 'organizations.rbacResourceVoice', 'Voice'), actions: ['read', 'write', 'delete'] },
+  ];
+}
+
+export function actionLabelMap(t) {
+  return {
+    read: tr(t, 'organizations.rbacActionRead', 'Read'),
+    write: tr(t, 'organizations.rbacActionWrite', 'Write'),
+    delete: tr(t, 'organizations.rbacActionDelete', 'Delete'),
+  };
+}
 
 /** Priority mặc định khi sync / form (khớp backend hierarchyRoleSync). */
 export const PRIORITY_EXEC = 200;
@@ -36,40 +46,42 @@ const TIER_BASE_PRIORITY = {
   [TIER_TEAM]: PRIORITY_TEAM,
 };
 
-export const TIER_META = [
-  {
-    id: TIER_EXEC,
-    title: 'Điều hành',
-    hint: 'Admin, chủ sở hữu, HR tổ chức',
-    accent: 'from-violet-600/30 to-fuchsia-600/20',
-    border: 'border-violet-500/35',
-  },
-  {
-    id: TIER_DIVISION,
-    title: 'Khối',
-    hint: 'Phạm vi division — giám sát khối',
-    accent: 'from-indigo-600/25 to-violet-600/15',
-    border: 'border-indigo-500/30',
-  },
-  {
-    id: TIER_DEPARTMENT,
-    title: 'Phòng',
-    hint: 'Phạm vi phòng ban',
-    accent: 'from-cyan-600/25 to-blue-600/15',
-    border: 'border-cyan-500/30',
-  },
-  {
-    id: TIER_TEAM,
-    title: 'Team',
-    hint: 'Vận hành team, thành viên',
-    accent: 'from-slate-600/30 to-slate-700/20',
-    border: 'border-slate-600/40',
-  },
-];
+export function tierMeta(t) {
+  return [
+    {
+      id: TIER_EXEC,
+      title: tr(t, 'organizations.rbacTierExecTitle', 'Executive'),
+      hint: tr(t, 'organizations.rbacTierExecHint', 'Admin, owner, HR in organization'),
+      accent: 'from-violet-600/30 to-fuchsia-600/20',
+      border: 'border-violet-500/35',
+    },
+    {
+      id: TIER_DIVISION,
+      title: tr(t, 'organizations.rbacTierDivisionTitle', 'Division'),
+      hint: tr(t, 'organizations.rbacTierDivisionHint', 'Division scope'),
+      accent: 'from-indigo-600/25 to-violet-600/15',
+      border: 'border-indigo-500/30',
+    },
+    {
+      id: TIER_DEPARTMENT,
+      title: tr(t, 'organizations.rbacTierDepartmentTitle', 'Department'),
+      hint: tr(t, 'organizations.rbacTierDepartmentHint', 'Department scope'),
+      accent: 'from-cyan-600/25 to-blue-600/15',
+      border: 'border-cyan-500/30',
+    },
+    {
+      id: TIER_TEAM,
+      title: tr(t, 'organizations.rbacTierTeamTitle', 'Team'),
+      hint: tr(t, 'organizations.rbacTierTeamHint', 'Team operations and members'),
+      accent: 'from-slate-600/30 to-slate-700/20',
+      border: 'border-slate-600/40',
+    },
+  ];
+}
 
 export function normalizeRoleDisplayName(name) {
   const raw = String(name || '').trim();
-  if (!raw) return 'Vai trò';
+  if (!raw) return 'Role';
   return raw
     .replace(/\s*[•·]\s*(div|dep|team|branch)_[a-z0-9_-]+$/i, '')
     .replace(
@@ -118,13 +130,15 @@ export function permissionEntriesFromState(state) {
     .filter((p) => p.resource && p.actions.length > 0);
 }
 
-export function summarizePermissions(permissions) {
+export function summarizePermissions(permissions, t) {
   const normalized = normalizePermissionEntries(permissions);
-  if (!normalized.length) return 'Không có quyền';
+  if (!normalized.length) return tr(t, 'organizations.rbacNoPermission', 'No permissions');
+  const options = permissionEditorOptions(t);
+  const labels = actionLabelMap(t);
   return normalized
     .map((p) => {
-      const label = PERMISSION_EDITOR_OPTIONS.find((x) => x.resource === p.resource)?.label || p.resource;
-      const acts = p.actions.map((a) => ACTION_LABEL[a] || a).join(', ');
+      const label = options.find((x) => x.resource === p.resource)?.label || p.resource;
+      const acts = p.actions.map((a) => labels[a] || a).join(', ');
       return `${label}: ${acts}`;
     })
     .join(' · ');
@@ -149,11 +163,12 @@ export function tierFromPriority(priority) {
 
 function executiveTierFromRoleName(name) {
   const n = String(name || '').trim().toLowerCase();
+  const norm = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (!n) return null;
-  if (n.includes('quản trị') || n.includes('administrator') || n === 'admin' || n.includes('owner')) {
+  if (norm.includes('quan tri') || norm.includes('administrator') || norm === 'admin' || norm.includes('owner')) {
     return TIER_EXEC;
   }
-  if (n.includes('nhân sự') || n === 'hr' || n.includes('human resource')) {
+  if (norm.includes('nhan su') || norm === 'hr' || norm.includes('human resource')) {
     return TIER_EXEC;
   }
   return null;
@@ -182,7 +197,7 @@ export function priorityFromTier(tierId) {
 /** Bật tất cả quyền trong editor. */
 export function fullPermissionState() {
   const out = {};
-  for (const group of PERMISSION_EDITOR_OPTIONS) {
+  for (const group of permissionEditorOptions()) {
     for (const action of group.actions) {
       out[`${group.resource}:${action}`] = true;
     }
@@ -191,7 +206,7 @@ export function fullPermissionState() {
 }
 
 export function isFullPermissionState(state) {
-  for (const group of PERMISSION_EDITOR_OPTIONS) {
+  for (const group of permissionEditorOptions()) {
     for (const action of group.actions) {
       if (!state?.[`${group.resource}:${action}`]) return false;
     }

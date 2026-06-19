@@ -1,6 +1,17 @@
 const ROLE_PERMISSION_SERVICE_URL = String(process.env.ROLE_PERMISSION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ROLE_PERMISSION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ROLE_PERMISSION_SERVICE_URL');
 const Membership = require('../models/Membership');
+const {
+  orgUnauthorized,
+  orgAccessDenied,
+  orgNotFound,
+  orgMemberNotFound,
+  orgValidation,
+  orgConflict,
+  orgCatch,
+  orgOperationalError,
+  orgFail,
+} = require('../utils/orgApiError');
 const Organization = require('../models/Organization');
 const JoinApplication = require('../models/JoinApplication');
 const Branch = require('../models/Branch');
@@ -8,7 +19,7 @@ const Division = require('../models/Division');
 const Team = require('../models/Team');
 const Department = require('../models/Department');
 const { resolveEffectiveScopesFromAssignments } = require('../services/memberScopePolicy.service');
-const { resolveOrgAccess } = require('../utils/orgAccess');
+const { resolveOrgAccess, toObjectId } = require('../utils/orgAccess');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
@@ -201,7 +212,14 @@ async function fetchOrgRolesList(orgId, userId) {
 }
 
 async function listMembersForOrg(req) {
-  const orgId = req.params.orgId;
+  const orgIdRaw = String(req.params.orgId || '').trim();
+  if (!toObjectId(orgIdRaw)) {
+    const err = new Error('orgId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_INVALID_ID';
+    throw err;
+  }
+  const orgId = orgIdRaw;
   const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
   if (!userId) {
     const err = new Error('Not authenticated');
@@ -282,14 +300,8 @@ exports.getMembers = async (req, res, next) => {
     const members = await listMembersForOrg(req);
     return res.json({ status: 'success', data: members });
   } catch (error) {
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({
-        status: 'fail',
-        message: error.message,
-        code: error.code,
-        messageUser: error.message,
-      });
-    }
+    const handled = orgOperationalError(res, error);
+    if (handled) return handled;
     return next(error);
   }
 };
@@ -304,14 +316,8 @@ exports.getMembersWithRoles = async (req, res, next) => {
     ]);
     return res.json({ status: 'success', data: { members, roles } });
   } catch (error) {
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({
-        status: 'fail',
-        message: error.message,
-        code: error.code,
-        messageUser: error.message,
-      });
-    }
+    const handled = orgOperationalError(res, error);
+    if (handled) return handled;
     return next(error);
   }
 };
@@ -321,7 +327,7 @@ exports.inviteMember = async (req, res, next) => {
     const { userId, role } = req.body;
     const inviterId = req.user?.id || req.user?.userId || req.user?._id;
     if (!userId) {
-      return res.status(400).json({ status: 'fail', message: 'userId is required' });
+      return orgValidation(res, 'userId is required');
     }
 
     const inviterMembership = await Membership.findOne({
@@ -342,7 +348,7 @@ exports.inviteMember = async (req, res, next) => {
       normalizedRole = 'member';
     }
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid role' });
+      return orgValidation(res, 'Invalid role');
     }
 
     const existingMembership = await Membership.findOne({
@@ -351,7 +357,7 @@ exports.inviteMember = async (req, res, next) => {
     });
 
     if (existingMembership?.status === 'active') {
-      return res.status(409).json({ status: 'fail', message: 'User already in organization' });
+      return orgConflict(res, 'Đã là thành viên tổ chức.', 'ORG_ALREADY_MEMBER');
     }
 
     const membership = await Membership.findOneAndUpdate(
@@ -388,21 +394,30 @@ exports.getMyInvitations = async (req, res, next) => {
   try {
     const userId = req.user?.id || req.user?.userId || req.user?._id;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const invitations = await Membership.find({
       user: userId,
       status: 'pending',
     })
-      .populate({ path: 'organization', match: { isActive: true }, select: 'name description logo' })
-      .sort({ createdAt: -1 });
+      .select('organization role invitedBy createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const orgIds = [...new Set(invitations.map((i) => String(i.organization)).filter(Boolean))];
+    const orgDocs = orgIds.length
+      ? await Organization.find({ _id: { $in: orgIds }, isActive: true })
+        .select('name description logo')
+        .lean()
+      : [];
+    const orgMap = Object.fromEntries(orgDocs.map((o) => [String(o._id), o]));
 
     const normalized = invitations
-      .filter((item) => !!item.organization)
+      .filter((item) => orgMap[String(item.organization)])
       .map((item) => ({
         invitationId: item._id,
-        organization: item.organization,
+        organization: orgMap[String(item.organization)],
         role: item.role,
         invitedBy: item.invitedBy || null,
         createdAt: item.createdAt,
@@ -421,10 +436,10 @@ exports.respondToInvitation = async (req, res, next) => {
     const { invitationId } = req.params;
 
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
     if (!['accept', 'reject'].includes(action)) {
-      return res.status(400).json({ status: 'fail', message: 'Action must be accept or reject' });
+      return orgValidation(res, 'Action must be accept or reject');
     }
 
     const invitation = await Membership.findOne({
@@ -434,13 +449,13 @@ exports.respondToInvitation = async (req, res, next) => {
     });
 
     if (!invitation) {
-      return res.status(404).json({ status: 'fail', message: 'Invitation not found' });
+      return orgFail(res, 404, 'Invitation not found', 'ORG_NOT_FOUND');
     }
 
     if (action === 'accept') {
       const org = await Organization.findById(invitation.organization).lean();
       if (!org || !org.isActive) {
-        return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+        return orgNotFound(res);
       }
       const joinForm = org.settings?.joinApplicationForm || {};
       const joinFields = Array.isArray(joinForm.fields) ? joinForm.fields : [];
@@ -536,7 +551,7 @@ exports.createInviteLink = async (req, res, next) => {
     const branchIdRaw = req.body?.branchId || null;
     const divisionIdRaw = req.body?.divisionId || null;
     if (!orgId || !userId) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid request' });
+      return orgValidation(res, 'Invalid request');
     }
 
     let branchContext = null;
@@ -550,7 +565,7 @@ exports.createInviteLink = async (req, res, next) => {
         .select('_id name')
         .lean();
       if (!branchContext) {
-        return res.status(400).json({ status: 'fail', message: 'Chi nhánh không hợp lệ' });
+        return orgValidation(res, 'Chi nhánh không hợp lệ');
       }
     }
     if (divisionIdRaw) {
@@ -562,12 +577,10 @@ exports.createInviteLink = async (req, res, next) => {
         .select('_id name branch')
         .lean();
       if (!divisionContext) {
-        return res.status(400).json({ status: 'fail', message: 'Khối không hợp lệ' });
+        return orgValidation(res, 'Khối không hợp lệ');
       }
       if (branchContext && String(divisionContext.branch) !== String(branchContext._id)) {
-        return res
-          .status(400)
-          .json({ status: 'fail', message: 'Khối không thuộc chi nhánh đã chọn' });
+        return orgValidation(res, 'Khối không thuộc chi nhánh đã chọn');
       }
       if (!branchContext) {
         branchContext = await Branch.findById(divisionContext.branch).select('_id name').lean();
@@ -623,32 +636,32 @@ exports.joinViaLink = async (req, res, next) => {
 
     const { token } = req.body || {};
     if (!token) {
-      return res.status(400).json({ status: 'fail', message: 'Invite token is required' });
+      return orgValidation(res, 'Invite token is required');
     }
 
     let decoded;
     try {
       decoded = jwt.verify(token, INVITE_LINK_SECRET);
     } catch (error) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid or expired invite token' });
+      return orgValidation(res, 'Invalid or expired invite token');
     }
 
     if (decoded?.type !== 'organization_invite') {
-      return res.status(400).json({ status: 'fail', message: 'Invalid invite token type' });
+      return orgValidation(res, 'Invalid invite token type');
     }
 
     if (String(decoded.orgId) !== String(req.params.orgId)) {
-      return res.status(400).json({ status: 'fail', message: 'Invite token organization mismatch' });
+      return orgValidation(res, 'Invite token organization mismatch');
     }
 
     const userId = req.user?.id || req.user?._id || req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const org = await Organization.findById(req.params.orgId).lean();
     if (!org || !org.isActive) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
 
     const joinForm = org.settings?.joinApplicationForm;
@@ -748,13 +761,11 @@ exports.updateMemberRole = async (req, res, next) => {
       .lean();
     const requesterRole = Membership.normalizeRole(requesterMembership?.role);
     if (requesterRole === 'hr') {
-      return res
-        .status(403)
-        .json({ status: 'fail', message: 'HR không có quyền đổi vai trò thành viên' });
+        return orgAccessDenied(res, 'HR không có quyền đổi vai trò thành viên');
     }
     const normalizedRole = Membership.normalizeRole(role || 'member');
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid role' });
+      return orgValidation(res, 'Invalid role');
     }
     const targetMembership = await Membership.findOne({
       user: req.params.userId,
@@ -764,23 +775,17 @@ exports.updateMemberRole = async (req, res, next) => {
       .select('role')
       .lean();
     if (!targetMembership) {
-      return res.status(404).json({ status: 'fail', message: 'Member not found' });
+      return orgMemberNotFound(res);
     }
     const targetRole = Membership.normalizeRole(targetMembership.role);
 
     // Owner giữ toàn quyền; admin chỉ được thao tác vai trò thấp hơn.
     if (requesterRole === 'admin') {
       if (!canAdminManageTarget(targetRole)) {
-        return res.status(403).json({
-          status: 'fail',
-          message: 'Admin không được đổi vai trò owner/admin',
-        });
+        return orgAccessDenied(res, 'Admin không được đổi vai trò owner/admin');
       }
       if (['owner', 'admin'].includes(normalizedRole)) {
-        return res.status(403).json({
-          status: 'fail',
-          message: 'Admin không được gán vai trò owner/admin',
-        });
+        return orgAccessDenied(res, 'Admin không được gán vai trò owner/admin');
       }
     }
 
@@ -836,16 +841,13 @@ exports.removeMember = async (req, res, next) => {
       .select('role')
       .lean();
     if (!targetMembership) {
-      return res.status(404).json({ status: 'fail', message: 'Member not found' });
+      return orgMemberNotFound(res);
     }
     const targetRole = Membership.normalizeRole(targetMembership.role);
 
     // Chỉ owner mới có thể quản lý owner/admin. Admin chỉ được xóa role thấp hơn.
     if (requesterRole === 'admin' && !canAdminManageTarget(targetRole)) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Admin không được xóa owner/admin',
-      });
+      return orgAccessDenied(res, 'Admin không được xóa owner/admin');
     }
 
     await Membership.findOneAndDelete({
@@ -888,7 +890,7 @@ exports.leaveOrganization = async (req, res, next) => {
     const orgId = req.params.orgId;
     const userId = req.user?.id || req.user?.userId || req.user?._id;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     const membership = await Membership.findOne({
@@ -898,7 +900,7 @@ exports.leaveOrganization = async (req, res, next) => {
     });
 
     if (!membership) {
-      return res.status(404).json({ status: 'fail', message: 'Bạn không thuộc tổ chức này' });
+      return orgMemberNotFound(res, 'Bạn không thuộc tổ chức này');
     }
 
     const normalizedRole = Membership.normalizeRole(membership.role);
@@ -909,11 +911,7 @@ exports.leaveOrganization = async (req, res, next) => {
         role: 'owner',
       });
       if (ownerCount <= 1) {
-        return res.status(400).json({
-          status: 'fail',
-          message:
-            'Bạn là chủ sở hữu duy nhất. Hãy xóa tổ chức hoặc chuyển quyền sở hữu trước khi rời.',
-        });
+        return orgValidation(res, 'Bạn là chủ sở hữu duy nhất. Hãy xóa tổ chức hoặc chuyển quyền sở hữu trước khi rời.');
       }
     }
 

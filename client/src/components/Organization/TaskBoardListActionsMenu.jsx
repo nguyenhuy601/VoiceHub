@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Archive, ArrowLeft, Eye, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { taskAPI, unwrapTaskBoardDetailPayload } from '../../services/api/taskAPI';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 export default function TaskBoardListActionsMenu({
   isOpen,
@@ -17,6 +19,7 @@ export default function TaskBoardListActionsMenu({
   onOpenAddCard,
   onRefresh,
 }) {
+  const { t } = useAppStrings();
   const boardApiOpts = workspaceSlug ? { workspaceSlug } : {};
   const [view, setView] = useState('menu');
   const [copyTitle, setCopyTitle] = useState('');
@@ -37,16 +40,20 @@ export default function TaskBoardListActionsMenu({
   const hasCards = cardCount > 0;
   const activeListCount = lists.length;
   const rawBlockReason = String(list?.archiveBlockReason || '');
+  const normBlockReason = rawBlockReason
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
   const isLegacyDefaultBlock =
-    rawBlockReason.includes('hệ thống mặc định') || rawBlockReason.includes('chỉ đổi tên');
+    normBlockReason.includes('he thong mac dinh') || normBlockReason.includes('chi doi ten');
   const canArchive = isLegacyDefaultBlock
     ? activeListCount > 1 && cardCount === 0
     : Boolean(list?.canArchive);
   const archiveBlockReason = isLegacyDefaultBlock
     ? activeListCount <= 1
-      ? 'Board phải giữ ít nhất một danh sách'
+      ? t('taskBoard.listMinOne')
       : cardCount > 0
-        ? `Danh sách còn ${cardCount} thẻ — hãy chuyển hoặc xóa thẻ trước`
+        ? t('taskBoard.listHasCards', { n: cardCount })
         : ''
     : rawBlockReason;
   const archiveNameOk = archiveConfirmText.trim() === listTitle && listTitle.length > 0;
@@ -112,7 +119,7 @@ export default function TaskBoardListActionsMenu({
       await onRefresh?.();
       onClose?.();
     } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || 'Thao tác thất bại');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.actionFailed') }));
     } finally {
       setSubmitting(false);
     }
@@ -132,7 +139,7 @@ export default function TaskBoardListActionsMenu({
         type="button"
         onClick={onBack}
         className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-        aria-label="Quay lại"
+        aria-label={t('taskBoard.backAria')}
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
@@ -141,7 +148,7 @@ export default function TaskBoardListActionsMenu({
         type="button"
         onClick={onClose}
         className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-        aria-label="Đóng"
+        aria-label={t('common.close')}
       >
         <X className="h-4 w-4" />
       </button>
@@ -151,8 +158,8 @@ export default function TaskBoardListActionsMenu({
   const body =
     view === 'copy' ? (
       <>
-        {header('Sao chép danh sách', () => setView('menu'))}
-        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tên</label>
+        {header(t('taskBoard.copyListTitle'), () => setView('menu'))}
+        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{t('taskBoard.listNameLabel')}</label>
         <input
           value={copyTitle}
           onChange={(e) => setCopyTitle(e.target.value)}
@@ -171,19 +178,19 @@ export default function TaskBoardListActionsMenu({
                 { title: copyTitle.trim(), toBoardId: currentBoardId },
                 boardApiOpts
               );
-              toast.success('Đã sao chép danh sách');
+              toast.success(t('taskBoard.listCopied'));
             })
           }
           className="rounded-lg bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Tạo danh sách
+          {t('taskBoard.createListBtn')}
         </button>
       </>
     ) : view === 'move' ? (
       <>
-        {header('Di chuyển danh sách', () => setView('menu'))}
+        {header(t('taskBoard.moveListTitle'), () => setView('menu'))}
         <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Bảng thông tin
+          {t('taskBoard.listBoardLabel')}
         </label>
         <select
           value={moveBoardId}
@@ -198,11 +205,11 @@ export default function TaskBoardListActionsMenu({
           {boards.map((b) => (
             <option key={b._id} value={String(b._id)}>
               {b.title}
-              {String(b._id) === String(currentBoardId) ? ' (hiện tại)' : ''}
+              {String(b._id) === String(currentBoardId) ? t('taskBoard.currentBoardSuffix') : ''}
             </option>
           ))}
         </select>
-        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Vị trí</label>
+        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{t('taskBoard.listPositionLabel')}</label>
         <select
           value={movePosition}
           onChange={(e) => setMovePosition(Number(e.target.value))}
@@ -227,22 +234,22 @@ export default function TaskBoardListActionsMenu({
                 { toBoardId: moveBoardId, position: movePosition },
                 boardApiOpts
               );
-              toast.success('Đã di chuyển danh sách');
+              toast.success(t('taskBoard.listMoved'));
             })
           }
           className="rounded-lg bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Di chuyển
+          {t('taskBoard.moveBtn')}
         </button>
       </>
     ) : view === 'archive' ? (
       <>
-        {header('Lưu trữ danh sách', () => setView('menu'))}
+        {header(t('taskBoard.archiveListTitle'), () => setView('menu'))}
         <p className={`mb-3 text-xs leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-          Danh sách sẽ được lưu trữ (ẩn khỏi board). Chỉ lưu trữ được khi danh sách không còn thẻ.
+          {t('taskBoard.archiveListDesc')}
         </p>
         <p className={`mb-2 text-xs ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-          Nhập đúng tên danh sách để xác nhận: <strong>{listTitle}</strong>
+          {t('taskBoard.archiveConfirmPrompt')} <strong>{listTitle}</strong>
         </p>
         <input
           value={archiveConfirmText}
@@ -259,17 +266,17 @@ export default function TaskBoardListActionsMenu({
           onClick={() =>
             run(async () => {
               await taskAPI.archiveBoardList(currentBoardId, listId, boardApiOpts);
-              toast.success('Đã lưu trữ danh sách');
+              toast.success(t('taskBoard.listArchived'));
             })
           }
           className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Lưu trữ danh sách
+          {t('taskBoard.archiveListTitle')}
         </button>
       </>
     ) : view === 'moveAll' ? (
       <>
-        {header('Di chuyển toàn bộ thẻ', () => setView('menu'))}
+        {header(t('taskBoard.moveAllCardsTitle'), () => setView('menu'))}
         <div className="max-h-64 space-y-1 overflow-y-auto">
           {otherLists.map((l) => (
             <button
@@ -284,7 +291,7 @@ export default function TaskBoardListActionsMenu({
                     { toListId: String(l._id) },
                     boardApiOpts
                   );
-                  toast.success('Đã chuyển tất cả thẻ');
+                  toast.success(t('taskBoard.allCardsMoved'));
                 })
               }
               className={`${itemBtn} disabled:opacity-50`}
@@ -297,7 +304,7 @@ export default function TaskBoardListActionsMenu({
     ) : (
       <>
         <div className="mb-2 flex items-center justify-between border-b border-white/10 pb-2">
-          <span className="text-sm font-semibold">Thao tác</span>
+          <span className="text-sm font-semibold">{t('taskBoard.listActions')}</span>
           <button type="button" onClick={onClose} className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}>
             <X className="h-4 w-4" />
           </button>
@@ -311,17 +318,17 @@ export default function TaskBoardListActionsMenu({
               onClose?.();
             }}
           >
-            Thêm thẻ
+            {t('taskBoard.addCard')}
           </button>
           <button type="button" className={itemBtn} onClick={() => setView('copy')}>
-            Sao chép danh sách
+            {t('taskBoard.copyListMenu')}
           </button>
           <button type="button" className={itemBtn} onClick={() => setView('move')}>
-            Di chuyển danh sách
+            {t('taskBoard.moveListMenu')}
           </button>
           {hasCards ? (
             <button type="button" className={itemBtn} onClick={() => setView('moveAll')}>
-              Di chuyển tất cả thẻ trong danh sách này
+              {t('taskBoard.moveAllCardsMenu')}
             </button>
           ) : null}
           <button
@@ -331,16 +338,16 @@ export default function TaskBoardListActionsMenu({
               run(async () => {
                 if (list?.isWatching) {
                   await taskAPI.unwatchBoardList(currentBoardId, listId, boardApiOpts);
-                  toast.success('Đã bỏ theo dõi danh sách');
+                  toast.success(t('taskBoard.listUnwatched'));
                 } else {
                   await taskAPI.watchBoardList(currentBoardId, listId, boardApiOpts);
-                  toast.success('Đang theo dõi danh sách — bạn sẽ nhận thông báo khi có thẻ mới');
+                  toast.success(t('taskBoard.listWatchingToast'));
                 }
               })
             }
           >
             <Eye className="h-4 w-4" />
-            {list?.isWatching ? 'Bỏ theo dõi' : 'Theo dõi'}
+            {list?.isWatching ? t('taskBoard.unwatchList') : t('taskBoard.watchList')}
             {list?.watcherCount > 0 ? (
               <span className={`ml-auto text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                 {list.watcherCount}
@@ -351,7 +358,7 @@ export default function TaskBoardListActionsMenu({
           <button
             type="button"
             disabled={!canArchive || submitting}
-            title={!canArchive ? archiveBlockReason : 'Lưu trữ danh sách'}
+            title={!canArchive ? archiveBlockReason : t('taskBoard.archiveListTitle')}
             onClick={() => {
               if (!canArchive) return;
               setArchiveConfirmText('');
@@ -360,7 +367,7 @@ export default function TaskBoardListActionsMenu({
             className={`${itemBtn} flex items-center gap-2 text-red-500 disabled:cursor-not-allowed disabled:opacity-45`}
           >
             <Archive className="h-4 w-4 shrink-0" />
-            Lưu trữ danh sách
+            {t('taskBoard.archiveListTitle')}
           </button>
           {!canArchive && archiveBlockReason ? (
             <p className={`px-3 pb-1 text-[11px] leading-snug ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>

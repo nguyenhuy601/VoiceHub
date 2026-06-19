@@ -77,10 +77,13 @@ export default function ForwardChannelModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Chuyển tiếp tới" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('taskBoard.forwardTitle')} size="md">
       <p className="mb-3 text-sm text-gray-400">
-        Chọn nơi bạn muốn chia sẻ tin nhắn này
-        {organizationName ? ` trong ${organizationName}` : ''}.
+        {t('taskBoard.forwardDesc', {
+          org: organizationName
+            ? t('taskBoard.forwardDescOrg', { name: organizationName })
+            : '',
+        })}
       </p>
 
       <PageSearchBar
@@ -95,10 +98,10 @@ export default function ForwardChannelModal({
 
       <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/20">
         {loading && (
-          <div className="p-4 text-center text-sm text-gray-400">Đang tải kênh…</div>
+          <div className="p-4 text-center text-sm text-gray-400">{t('taskBoard.loadingChannels')}</div>
         )}
         {!loading && filtered.length === 0 && (
-          <div className="p-4 text-center text-sm text-gray-500">Không có kênh phù hợp.</div>
+          <div className="p-4 text-center text-sm text-gray-500">{t('taskBoard.noMatchingChannels')}</div>
         )}
         {!loading &&
           filtered.map((row) => (
@@ -124,17 +127,17 @@ export default function ForwardChannelModal({
       </div>
 
       <div className="mb-3 rounded-xl border border-dashed border-white/15 bg-white/5 p-3 text-sm text-gray-300">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Xem trước</div>
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('taskBoard.preview')}</div>
         <p className="line-clamp-4 whitespace-pre-wrap break-words">{previewText || '—'}</p>
       </div>
 
       <div className="mb-4">
-        <label className="mb-1 block text-xs text-gray-500">Thêm một tin nhắn không bắt buộc…</label>
+        <label className="mb-1 block text-xs text-gray-500">{t('taskBoard.optionalNote')}</label>
         <div className="relative">
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Thêm một tin nhắn không bắt buộc…"
+            placeholder={t('taskBoard.optionalNote')}
             className="w-full rounded-xl border border-white/10 bg-[#040f2a] px-3 py-2.5 pr-10 text-sm text-white outline-none placeholder:text-gray-600"
           />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">🙂</span>
@@ -147,7 +150,7 @@ export default function ForwardChannelModal({
           onClick={onClose}
           className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/5"
         >
-          Huỷ
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -155,7 +158,7 @@ export default function ForwardChannelModal({
           onClick={handleSend}
           className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          ✈️ Gửi
+          ✈️ {t('taskBoard.sendForward')}
         </button>
       </div>
     </Modal>

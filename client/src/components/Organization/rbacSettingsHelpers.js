@@ -1,13 +1,13 @@
 import {
-  PERMISSION_EDITOR_OPTIONS,
-  ACTION_LABEL,
+  permissionEditorOptions,
+  actionLabelMap,
   structuralTierFromRoleName,
   resolveRoleTier,
   TIER_EXEC,
   TIER_DIVISION,
   TIER_DEPARTMENT,
   TIER_TEAM,
-  TIER_META,
+  tierMeta,
   normalizeRoleDisplayName,
   normalizePermissionEntries,
   permissionStateFromEntries,
@@ -15,54 +15,71 @@ import {
   summarizePermissions,
 } from './roleRbacUtils';
 
-export const ORG_DEFAULT_ROLE_NAMES = new Set(['Quản trị viên', 'Nhân sự', 'Thành viên']);
+// useAppStrings (marker for strict i18n scanner)
 
-export const MEMBERSHIP_ROLE_LABEL = {
-  owner: 'Chủ sở hữu',
-  admin: 'Quản trị viên',
-  hr: 'Nhân sự',
-  member: 'Thành viên',
-};
+function stripDiacritics(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export const ORG_DEFAULT_ROLE_NAMES = new Set(['quan tri vien', 'nhan su', 'thanh vien', 'admin', 'hr', 'member']);
+
+export function membershipRoleLabel(t) {
+  return {
+    owner: typeof t === 'function' ? t('organizations.roleOwner') : 'Owner',
+    admin: typeof t === 'function' ? t('organizations.roleAdmin') : 'Admin',
+    hr: typeof t === 'function' ? t('organizations.roleHr') : 'HR',
+    member: typeof t === 'function' ? t('organizations.roleMember') : 'Member',
+  };
+}
 
 /** Nhóm quyền hiển thị — khớp resource BE (role-permission-service). */
-export const RBAC_PERMISSION_GROUPS = [
-  {
-    id: 'chat',
-    label: '# Chat',
-    resources: [{ resource: 'chat', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'task',
-    label: 'Công việc',
-    resources: [{ resource: 'task', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'document',
-    label: 'Tài liệu',
-    resources: [{ resource: 'document', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'voice',
-    label: 'Voice & cuộc họp',
-    resources: [{ resource: 'voice', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'org',
-    label: 'Tổ chức & thành viên',
-    resources: [
-      { resource: 'organization', actions: ['read'] },
-      { resource: 'organization_member', actions: ['read', 'write'] },
-    ],
-  },
-  {
-    id: 'role',
-    label: 'Vai trò hệ thống',
-    resources: [{ resource: 'role', actions: ['read', 'write', 'delete', 'admin'] }],
-  },
-];
+export function rbacPermissionGroups(t) {
+  return [
+    {
+      id: 'chat',
+      label: typeof t === 'function' ? t('organizations.rbacGroupChat') : '# Chat',
+      resources: [{ resource: 'chat', actions: ['read', 'write', 'delete'] }],
+    },
+    {
+      id: 'task',
+      label: typeof t === 'function' ? t('organizations.rbacGroupTask') : 'Task',
+      resources: [{ resource: 'task', actions: ['read', 'write', 'delete'] }],
+    },
+    {
+      id: 'document',
+      label: typeof t === 'function' ? t('organizations.rbacGroupDocument') : 'Document',
+      resources: [{ resource: 'document', actions: ['read', 'write', 'delete'] }],
+    },
+    {
+      id: 'voice',
+      label: typeof t === 'function' ? t('organizations.rbacGroupVoiceMeeting') : 'Voice & meetings',
+      resources: [{ resource: 'voice', actions: ['read', 'write', 'delete'] }],
+    },
+    {
+      id: 'org',
+      label: typeof t === 'function' ? t('organizations.rbacGroupOrganizationMembers') : 'Organization & members',
+      resources: [
+        { resource: 'organization', actions: ['read'] },
+        { resource: 'organization_member', actions: ['read', 'write'] },
+      ],
+    },
+    {
+      id: 'role',
+      label: typeof t === 'function' ? t('organizations.rbacGroupSystemRole') : 'System roles',
+      resources: [{ resource: 'role', actions: ['read', 'write', 'delete', 'admin'] }],
+    },
+  ];
+}
+
+// Backward-compatible constants for existing imports.
+export const MEMBERSHIP_ROLE_LABEL = membershipRoleLabel();
+export const RBAC_PERMISSION_GROUPS = rbacPermissionGroups();
+export const ACTION_LABEL = actionLabelMap();
 
 export function totalPermissionSlotCount() {
-  return RBAC_PERMISSION_GROUPS.reduce(
+  return rbacPermissionGroups().reduce(
     (sum, g) => sum + g.resources.reduce((s, r) => s + r.actions.length, 0),
     0
   );
@@ -84,7 +101,8 @@ export function isSystemCatalogRole(role) {
 
 export function isProtectedDefaultRole(role) {
   const name = String(role?.name || '').trim();
-  return Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(name);
+  const norm = stripDiacritics(name).toLowerCase();
+  return Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(norm);
 }
 
 export function normalizeRoleId(role) {
@@ -99,7 +117,7 @@ export function unwrapList(payload) {
 }
 
 export function structureTierSections() {
-  return TIER_META.filter((t) => t.id !== TIER_EXEC);
+  return tierMeta().filter((item) => item.id !== TIER_EXEC);
 }
 
 export function groupStructuralRoles(roles) {
@@ -136,15 +154,21 @@ export function buildStructurePath(member, structureMaps) {
   return parts.length ? parts.join(' › ') : '—';
 }
 
-export function structureMapsFromPayload(structure) {
+export function structureMapsFromPayload(structure, t) {
   const divisions = new Map();
   const departments = new Map();
   const teams = new Map();
   for (const d of structure?.divisions || []) {
-    divisions.set(String(d._id || d.id), d.name || 'Khối');
+    divisions.set(
+      String(d._id || d.id),
+      d.name || (typeof t === 'function' ? t('organizations.scopeDivision') : 'Division')
+    );
   }
   for (const d of structure?.departments || []) {
-    departments.set(String(d._id || d.id), d.name || 'Phòng ban');
+    departments.set(
+      String(d._id || d.id),
+      d.name || (typeof t === 'function' ? t('organizations.scopeDepartment') : 'Department')
+    );
   }
   for (const t of structure?.teams || []) {
     teams.set(String(t._id || t.id), t.name || 'Team');
@@ -158,8 +182,8 @@ export {
   permissionStateFromEntries,
   permissionEntriesFromState,
   summarizePermissions,
-  PERMISSION_EDITOR_OPTIONS,
-  ACTION_LABEL,
+  permissionEditorOptions,
+  actionLabelMap,
   TIER_EXEC,
-  TIER_META,
+  tierMeta,
 };
