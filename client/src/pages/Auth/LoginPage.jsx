@@ -9,6 +9,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
+import DemoAccountsPanel from '../../components/Auth/DemoAccountsPanel';
+import { isDemoAccountsEnabled } from '../../config/demoAccounts';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -104,6 +106,10 @@ function LoginPage({ landingDemo = false } = {}) {
           <p className="mt-1 opacity-95">
             {gatewayTrust.message || t('login.gatewayAlertFallback')}
           </p>
+
+          {!landingDemo && isDemoAccountsEnabled() && (
+            <DemoAccountsPanel disabled={loading || submitDisabled} />
+          )}
         </div>
       )}
 

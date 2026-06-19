@@ -1,10 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
+import { CheckCircle2, Eye, EyeOff, Lock, Mail, User, XCircle } from 'lucide-react';
+import AuthFigmaCenteredLayout from '../../components/Auth/AuthFigmaCenteredLayout';
+import AuthFigmaLoginLayout, { AuthFigmaLoginMobileLogo } from '../../components/Auth/AuthFigmaLoginLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { authInputError, authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
-import { useTheme } from '../../context/ThemeContext';
+import {
+  FIGMA_BTN,
+  FIGMA_BTN_SPINNER,
+  FIGMA_CENTERED_CARD,
+  FIGMA_REGISTER_SPLIT_INNER,
+  FIGMA_ERR,
+  FIGMA_FIELD_GROUP,
+  FIGMA_FORM_SPACE_4,
+  FIGMA_GRID_DOB,
+  FIGMA_GRID_NAME,
+  FIGMA_INPUT_BASE,
+  FIGMA_INPUT_ICON,
+  FIGMA_INPUT_PL8,
+  FIGMA_INPUT_PL9,
+  FIGMA_INPUT_PR10,
+  FIGMA_LABEL,
+  FIGMA_LINK_SM,
+  FIGMA_LOGIN_HEADER,
+  FIGMA_MATCH_ICON,
+  FIGMA_REGISTER_FOOTER,
+  FIGMA_REGISTER_HEADER,
+  FIGMA_REGISTER_SUBTITLE,
+  FIGMA_SELECT,
+  FIGMA_STRENGTH_CAPTION,
+  FIGMA_STRENGTH_ROW,
+  FIGMA_TERMS_LABEL,
+  FIGMA_TERMS_ROW,
+  FIGMA_TOGGLE_BTN,
+} from '../../components/Auth/figmaAuthClasses';
+import { authCheckboxClass, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
@@ -14,7 +43,9 @@ import {
   validateBirthDateParts,
 } from '../../utils/birthDateUtils';
 
-function RegisterPage() {
+const STRENGTH_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#10b981'];
+
+function RegisterPage({ suiteLayout = false } = {}) {
   const navigate = useNavigate();
   const { register } = useAuth();
   const { isDarkMode } = useTheme();
@@ -185,24 +216,23 @@ function RegisterPage() {
     }
   };
 
-  return (
-    <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('register.title')}</h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('register.subtitle')}</p>
+  const registerForm = (
+    <>
+      <div className={suiteLayout ? FIGMA_REGISTER_HEADER : FIGMA_LOGIN_HEADER}>
+        <h1 className="font-display text-foreground mb-1.5">{t('register.title')}</h1>
+        <p className={FIGMA_REGISTER_SUBTITLE}>{t('register.subtitle')}</p>
+      </div>
 
-      {gatewayTrust && !gatewayTrust.ok && (
-        <div
-          role="alert"
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
-            isDarkMode ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
-          }`}
-        >
-          <p className="font-semibold">{t('register.gatewayAlertTitle')}</p>
-          <p className="mt-1 opacity-95">
-            {gatewayTrust.message || t('register.gatewayAlertFallback')}
-          </p>
-        </div>
-      )}
+      <div className={FIGMA_CENTERED_CARD}>
+        {gatewayTrust && !gatewayTrust.ok && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-warning/40 bg-warning-bg px-4 py-3 text-[0.8125rem] leading-relaxed text-foreground-secondary"
+          >
+            <p className="font-semibold text-warning">{t('register.gatewayAlertTitle')}</p>
+            <p className="mt-1">{gatewayTrust.message || t('register.gatewayAlertFallback')}</p>
+          </div>
+        )}
 
       <form className="mt-8 space-y-5" onSubmit={handleRegister}>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -392,31 +422,49 @@ function RegisterPage() {
           {errors.terms && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{errors.terms}</p>}
         </div>
 
-        <button
-          type="submit"
-          disabled={
-            loading ||
-            gatewayTrust === null ||
-            (gatewayTrust && !gatewayTrust.ok) ||
-            !agreedToTerms ||
-            !formData.firstName ||
-            !formData.lastName ||
-            !formData.email ||
-            !isBirthDateComplete(formData) ||
-            !formData.password ||
-            !formData.confirmPassword
-          }
-          className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
-        >
-          {loading
-            ? t('register.submitting')
-            : gatewayTrust === null
-              ? t('login.checkingConfig')
-              : t('register.submit')}
-          {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
-        </button>
-      </form>
-    </AuthPageLayout>
+          <button
+            type="submit"
+            disabled={submitDisabled}
+            className={`${FIGMA_BTN} ${authPrimaryButtonClass()}`}
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className={FIGMA_BTN_SPINNER} />
+                {t('register.submitting')}
+              </span>
+            ) : gatewayTrust === null ? (
+              t('login.checkingConfig')
+            ) : (
+              t('register.submit')
+            )}
+          </button>
+        </form>
+
+        <div className={FIGMA_REGISTER_FOOTER}>
+          {t('register.hasAccount')}{' '}
+          <Link to="/login" className={FIGMA_LINK_SM}>
+            {t('register.loginCta')}
+          </Link>
+        </div>
+      </div>
+    </>
+  );
+
+  if (suiteLayout) {
+    return (
+      <AuthFigmaCenteredLayout maxWidthClass="max-w-[480px]" logoMarginClass="mb-8">
+        {registerForm}
+      </AuthFigmaCenteredLayout>
+    );
+  }
+
+  return (
+    <AuthFigmaLoginLayout aside={<AuthMarketingAside />}>
+      <div className={FIGMA_REGISTER_SPLIT_INNER}>
+        <AuthFigmaLoginMobileLogo />
+        {registerForm}
+      </div>
+    </AuthFigmaLoginLayout>
   );
 }
 

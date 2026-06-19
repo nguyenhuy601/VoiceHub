@@ -2,17 +2,11 @@ const authService = require('../services/auth.service');
 const emailService = require('../utils/email');
 const { resolveFrontendUrl } = require('@enterprise/shared');
 const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
+const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { requireParam } = require('../utils/validateInput');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const message = String(err?.message || fallbackMessage);
-  const errorCode = String(err?.errorCode || fallbackCode || '').trim();
-  return res.status(status).json({
-    success: false,
-    message,
-    ...(errorCode ? { errorCode } : {}),
-    ...(message ? { messageUser: message } : {}),
-  });
+  return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'AUTH_INTERNAL_ERROR');
 }
 
 class AuthController {
@@ -45,15 +39,17 @@ class AuthController {
 
       // Validate required fields
       if (!email || !password) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'Email và mật khẩu là bắt buộc.',
           message: 'Email and password are required',
         });
       }
 
       if (!firstName || !lastName) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'Họ và tên là bắt buộc.',
           message: 'First name and last name are required',
         });
       }

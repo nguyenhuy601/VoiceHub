@@ -31,7 +31,10 @@ import {
   getResolvedBearerToken,
 } from '../utils/tokenStorage';
 import { isAutoLogoutDisabled } from '../utils/devAuth';
+import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { resolveApiBaseUrl } from '../utils/browserOrigin';
+import { applyUiRoleOverlay, clearStoredUiRole } from '../utils/uiRoleUtils';
+import { useAppStrings } from '../locales/appStrings';
 /* ========================================
    CONTEXT: đối tượng React Context được tạo trong ./auth-context.js (tách file để HMR ổn định).
 ======================================== */
@@ -71,6 +74,7 @@ export { useAuth };
    - children: các component con (App, Toaster, etc.)
 ======================================== */
 function AuthProvider({ children }) {
+  const { t } = useAppStrings();
   /* ----- STATE MANAGEMENT ----- */
   
   // State lưu thông tin user hiện tại
@@ -97,7 +101,7 @@ function AuthProvider({ children }) {
       try {
         const { user: restored } = await restoreAuthSession();
         if (restored) {
-          setUser(restored);
+          setUser(applyUiRoleOverlay(restored));
           setAccessToken(getToken());
         }
       } catch (error) {
@@ -162,25 +166,25 @@ function AuthProvider({ children }) {
 
       try {
         const merged = await restoreAuthSessionAfterLogin(userData);
-        setUser(merged);
+        setUser(applyUiRoleOverlay(merged));
       } catch (e) {
-        setUser(userData);
+        setUser(applyUiRoleOverlay(userData));
       }
       
       // Hiển thị toast notification thành công
-      toast.success('Đăng nhập thành công!');
+      toast.success(t('authSession.loginSuccess'));
       
       // Return true để component biết login OK
       return true;
     } catch (error) {
       // Nếu có lỗi (sai password, user không tồn tại, etc.)
       // Hiển thị error message từ API hoặc message mặc định
-      toast.error(error.message || 'Đăng nhập thất bại');
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('authSession.loginFailed') }));
       
       // Return false để component biết login failed
       return false;
     }
-  }, []); // Empty deps vì không phụ thuộc state/props nào
+  }, [t]);
 
   /* ========================================
      REGISTER FUNCTION
@@ -229,7 +233,7 @@ function AuthProvider({ children }) {
       // Kiểm tra response structure
       if (!response) {
         console.error('[AuthContext] ❌ Response is null or undefined');
-        toast.error('Không nhận được phản hồi từ server');
+        toast.error(t('authSession.noServerResponse'));
         return false;
       }
       
@@ -243,7 +247,7 @@ function AuthProvider({ children }) {
       
       // Kiểm tra success flag - hiển thị thông báo NGAY LẬP TỨC
       if (response.success === false) {
-        const errorMessage = response.message || response.data?.message || 'Đăng ký thất bại';
+        const errorMessage = response.message || response.data?.message || t('authSession.registerFailed');
         console.error('[AuthContext] ❌ Registration failed:', errorMessage);
         toast.error(errorMessage);
         return false;
@@ -254,15 +258,13 @@ function AuthProvider({ children }) {
       if (response.success === true) {
         if (response.data?.emailScheduled === true) {
           // Email đã được lên lịch gửi thành công
-          toast.success('✅ Đăng ký thành công! Email xác thực đã được gửi thành công. Vui lòng kiểm tra hộp thư của bạn.');
+          toast.success(t('authSession.registerSuccessEmail'));
           console.log('[AuthContext] ✅ Email verification scheduled successfully');
         } else if (response.data?.emailScheduled === false) {
-          // Email service chưa được cấu hình
-          toast.success(response.message || '✅ Đăng ký thành công! Email service chưa được cấu hình.');
+          toast.success(response.message || t('authSession.registerSuccessNoEmail'));
           console.log('[AuthContext] Registration successful, email service not configured');
         } else {
-          // Trường hợp khác - vẫn báo thành công
-          toast.success(response.message || '✅ Đăng ký thành công!');
+          toast.success(response.message || t('authSession.registerSuccess'));
           console.log('[AuthContext] Registration successful');
         }
       }
@@ -284,7 +286,7 @@ function AuthProvider({ children }) {
       if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
         const duration = Date.now() - startTime;
         const API_URL = resolveApiBaseUrl();
-        const message = `Yêu cầu quá thời gian chờ (60s). Backend không phản hồi.\n\nVui lòng kiểm tra:\n1. API Gateway có đang chạy tại ${API_URL}?\n2. Auth Service có đang chạy không?\n3. Kiểm tra logs backend để xem có lỗi không`;
+        const message = t('authSession.registerTimeout', { url: API_URL });
         toast.error(message, { duration: 7000 });
         console.error('[AuthContext] ❌ Request timeout - backend may be slow or unresponsive');
         console.error('[AuthContext] Request took:', duration, 'ms before timeout');
@@ -300,7 +302,7 @@ function AuthProvider({ children }) {
       // Xử lý empty response - server không trả về response
       // Thường xảy ra khi backend crash hoặc không chạy
       if (error?.code === 'ERR_EMPTY_RESPONSE' || error?.message?.includes('EMPTY_RESPONSE')) {
-        const message = 'Server không phản hồi. Vui lòng kiểm tra:\n- Backend service có đang chạy không\n- API Gateway có hoạt động không\n- Kết nối mạng có ổn định không';
+        const message = t('authSession.serverNoResponseDetail');
         toast.error(message, { duration: 5000 });
         console.error('[AuthContext] ❌ Empty response - backend may be down or crashed');
         console.error('[AuthContext] Error occurred after waiting:', Date.now() - startTime, 'ms');
@@ -309,16 +311,14 @@ function AuthProvider({ children }) {
 
       // Xử lý network error
       if (error?.code === 'ERR_NETWORK' || error?.message?.includes('Network Error')) {
-        toast.error('Lỗi kết nối mạng. Vui lòng kiểm tra kết nối và thử lại.');
+        toast.error(t('api.networkError'));
         return false;
       }
       
-      // Hiển thị error message từ server hoặc default
-      const errorMessage = error?.message || error?.data?.message || 'Đăng ký thất bại';
-      toast.error(errorMessage);
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('authSession.registerFailed') }));
       return false;
     }
-  }, []);
+  }, [t]);
 
   /* ========================================
      LOGOUT FUNCTION
@@ -350,9 +350,8 @@ function AuthProvider({ children }) {
       
       // Set user = null → app sẽ redirect về login
       setUser(null);
-      
-      // Show logout notification
-      toast.success('Đăng xuất thành công!');
+      clearStoredUiRole();
+      toast.success(t('authSession.logoutSuccess'));
     } catch (error) {
       // Nếu API lỗi vẫn logout local
       console.error('Logout error:', error);
@@ -362,7 +361,7 @@ function AuthProvider({ children }) {
       setAccessToken(null);
       setUser(null);
     }
-  }, []);
+  }, [t]);
 
   /* ========================================
      UPDATE USER FUNCTION

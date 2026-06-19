@@ -1,13 +1,32 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowRight, KeyRound, LogIn } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
-import { useTheme } from '../../context/ThemeContext';
+import { CheckCircle2, Eye, EyeOff, Lock, XCircle } from 'lucide-react';
+import AuthFigmaCenteredLayout from '../../components/Auth/AuthFigmaCenteredLayout';
+import {
+  FIGMA_BTN,
+  FIGMA_BTN_PURPLE,
+  FIGMA_BTN_SPINNER,
+  FIGMA_CARD_ICON_HEADER,
+  FIGMA_CARD_ICON_WRAP_PURPLE,
+  FIGMA_CARD_SUBTITLE,
+  FIGMA_CENTERED_CARD,
+  FIGMA_ERR,
+  FIGMA_FIELD_GROUP,
+  FIGMA_FORM_SPACE_5,
+  FIGMA_INPUT_BASE,
+  FIGMA_INPUT_ICON,
+  FIGMA_INPUT_PL8,
+  FIGMA_INPUT_PR10,
+  FIGMA_INPUT_PR16,
+  FIGMA_LABEL,
+  FIGMA_MATCH_ICON,
+  FIGMA_REGISTER_FOOTER,
+  FIGMA_TOGGLE_BTN,
+} from '../../components/Auth/figmaAuthClasses';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -67,38 +86,22 @@ function ResetPasswordPage() {
         state: { message: t('resetPassword.loginFlashMessage') },
       });
     } catch (error) {
-      const message = error?.message || t('resetPassword.toastResetErr');
-      toast.error(message);
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('resetPassword.toastResetErr') }));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthPageLayout aside={<AuthMarketingAside />}>
-      <div className="mb-1 flex justify-end">
-        <Link
-          to="/login"
-          className={`inline-flex items-center gap-2 text-base font-semibold ${isDarkMode ? 'text-cyan-400 hover:underline' : 'text-cyan-700 hover:underline'}`}
-        >
-          <LogIn className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          {t('resetPassword.loginLink')}
-        </Link>
-      </div>
-
-      <div className="mt-3 flex items-start gap-3">
-        <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
-            isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700'
-          }`}
-        >
-          <KeyRound className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+    <AuthFigmaCenteredLayout maxWidthClass="max-w-[400px]" logoMarginClass="mb-10" purpleBrand gradientBackground>
+      <div className={FIGMA_CENTERED_CARD}>
+        <div className={FIGMA_CARD_ICON_HEADER}>
+          <div className={FIGMA_CARD_ICON_WRAP_PURPLE}>
+            <Lock size={24} className="text-violet-400" aria-hidden />
+          </div>
+          <h1 className="font-display text-foreground mb-2">{t('resetPassword.title')}</h1>
+          <p className={FIGMA_CARD_SUBTITLE}>{t('resetPassword.subtitle')}</p>
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('resetPassword.title')}</h1>
-          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('resetPassword.subtitle')}</p>
-        </div>
-      </div>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div>
@@ -145,23 +148,29 @@ function ResetPasswordPage() {
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
-        >
-          {loading ? t('resetPassword.updating') : t('resetPassword.update')}
-          {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={loading || !passwordsMatch}
+            className={`${FIGMA_BTN} ${passwordsMatch ? FIGMA_BTN_PURPLE : 'bg-muted text-muted-foreground'}`}
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className={FIGMA_BTN_SPINNER} />
+                {t('resetPassword.updating')}
+              </span>
+            ) : (
+              t('resetPassword.update')
+            )}
+          </button>
+        </form>
 
-      <Link
-        to="/login"
-        className={`mt-8 block text-center text-base font-medium ${mutedCls} hover:text-cyan-600 dark:hover:text-cyan-300`}
-      >
-        {t('resetPassword.backToLogin')}
-      </Link>
-    </AuthPageLayout>
+        <div className={FIGMA_REGISTER_FOOTER}>
+          <Link to="/login" className="text-[0.875rem] text-muted-foreground hover:text-violet-400">
+            {t('resetPassword.backToLogin')}
+          </Link>
+        </div>
+      </div>
+    </AuthFigmaCenteredLayout>
   );
 }
 

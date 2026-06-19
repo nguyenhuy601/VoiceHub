@@ -56,6 +56,20 @@ export function getResolvedBearerToken() {
   return normalizeBearerToken(getToken());
 }
 
+/** Đọc claim email từ JWT access token (fallback khi profile/BFF không trả email). */
+export function getJwtEmail() {
+  const token = getResolvedBearerToken();
+  if (!token) return '';
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return '';
+    const payload = JSON.parse(atob(segment.replace(/-/g, '+').replace(/_/g, '/')));
+    return String(payload?.email || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Gắn Authorization vào axios config (api.js + apiClient.js).
  * Luôn gọi trong request interceptor cho route cần JWT.

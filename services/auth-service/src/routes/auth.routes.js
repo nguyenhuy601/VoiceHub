@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/auth.controller');
 const { verifyAccessToken } = require('../config/jwt');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
+const { sendServiceError } = require('../middleware/sendServiceError');
 
 // Middleware xác thực
 const authenticate = (req, res, next) => {
@@ -10,8 +11,9 @@ const authenticate = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
+      return sendServiceError(res, 401, {
+        errorCode: 'AUTH_NO_TOKEN',
+        messageUser: 'Vui lòng đăng nhập lại.',
         message: 'No token provided',
       });
     }
@@ -20,8 +22,10 @@ const authenticate = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({
-      success: false,
+    const isExpired = String(error?.message || '').toLowerCase().includes('expired');
+    return sendServiceError(res, 401, {
+      errorCode: isExpired ? 'AUTH_TOKEN_EXPIRED' : 'AUTH_TOKEN_INVALID',
+      messageUser: isExpired ? 'Phiên đăng nhập đã hết hạn.' : 'Phiên đăng nhập không hợp lệ.',
       message: 'Invalid or expired token',
     });
   }

@@ -18,22 +18,37 @@
 import api from './api';
 import { getRefreshToken, setRefreshToken, setToken } from '../utils/tokenStorage';
 
+const GATEWAY_TRUST_TIMEOUT_MS = 8000;
+
+const gatewayTrustRequestConfig = {
+  timeout: GATEWAY_TRUST_TIMEOUT_MS,
+  __skipNetworkRetry: true,
+  skipGlobalErrorHandling: true,
+};
+
+function gatewayTrustErrorMessage(e) {
+  const isTimeout =
+    e?.code === 'ECONNABORTED' || String(e?.message || '').toLowerCase().includes('timeout');
+  if (isTimeout) {
+    return 'API Gateway không phản hồi (quá 8 giây). Kiểm tra Docker container enterprise-api-gateway đang chạy và https://voicehub.local/api/health/gateway-trust trả 200.';
+  }
+  if (e?.code === 'ERR_NETWORK' || e?.message === 'Network Error') {
+    return 'Không kết nối được API Gateway. Hãy chạy stack Docker + Nginx (start-lan-https-dev.bat) và kiểm tra VITE_API_URL=/api.';
+  }
+  return e?.message || 'Không kiểm tra được cấu hình gateway.';
+}
+
 /** Kiểm tra API Gateway đã đặt GATEWAY_INTERNAL_TOKEN (public GET, không cần JWT). */
 async function assertGatewayTrustConfigured() {
   try {
-    const data = await api.get('/health/gateway-trust');
+    const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
     if (data?.gatewayTrustConfigured) return;
     throw new Error(
       data?.message ||
         'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với user-service, task-service, docker-compose (xem .env.example).'
     );
   } catch (e) {
-    if (e.message && !e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
-      throw new Error(
-        'Không kết nối được API Gateway để kiểm tra cấu hình. Hãy chạy API Gateway và kiểm tra Vite proxy / VITE_API_URL.'
-      );
-    }
-    throw e;
+    throw new Error(gatewayTrustErrorMessage(e));
   }
 }
 
@@ -46,7 +61,7 @@ const authService = {
   /** Dùng cho trang Đăng nhập/Đăng ký: hiển thị cảnh báo sớm (không chặn nếu chỉ đọc UI). */
   checkGatewayTrust: async () => {
     try {
-      const data = await api.get('/health/gateway-trust');
+      const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
       return {
         gatewayTrustConfigured: !!data?.gatewayTrustConfigured,
         message: data?.message || '',
@@ -54,10 +69,7 @@ const authService = {
     } catch (e) {
       return {
         gatewayTrustConfigured: false,
-        message:
-          e?.code === 'ERR_NETWORK' || e?.message === 'Network Error'
-            ? 'Không kết nối được API Gateway.'
-            : e?.message || 'Không kiểm tra được cấu hình gateway.',
+        message: gatewayTrustErrorMessage(e),
       };
     }
   },

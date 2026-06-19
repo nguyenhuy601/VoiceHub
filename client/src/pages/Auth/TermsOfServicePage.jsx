@@ -1,8 +1,21 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Scale } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { useTheme } from '../../context/ThemeContext';
+import { ArrowLeft, FileText, Zap } from 'lucide-react';
+import {
+  FIGMA_LEGAL_CONTAINER,
+  FIGMA_LEGAL_FOOTER,
+  FIGMA_LEGAL_LINK_PRIMARY,
+  FIGMA_LEGAL_LINK_SECONDARY,
+  FIGMA_LEGAL_LOGO_ICON,
+  FIGMA_LEGAL_LOGO_ROW,
+  FIGMA_LEGAL_LOGO_TEXT,
+  FIGMA_LEGAL_ROOT,
+  FIGMA_LEGAL_SECTION_CARD,
+  FIGMA_LEGAL_SECTION_H,
+  FIGMA_LEGAL_SECTION_P,
+  FIGMA_LEGAL_SECTIONS,
+  FIGMA_LEGAL_TITLE_ROW,
+  FIGMA_LEGAL_UPDATED,
+} from '../../components/Auth/figmaAuthClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
 function TermsOfServicePage() {
@@ -29,45 +42,21 @@ function TermsOfServicePage() {
             <p className={`mt-2 text-base ${body}`}>{t('termsOfService.subtitle')}</p>
           </div>
         </div>
-        <Link
-          to="/register"
-          className={`inline-flex shrink-0 items-center gap-2 self-start text-base font-semibold ${linkCyan}`}
-        >
-          <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          {t('termsOfService.backToRegister')}
-        </Link>
-      </div>
 
-      <div className={`space-y-6 text-base leading-relaxed ${body}`}>
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s1h')}</h2>
-          <p>{t('termsOfService.s1p')}</p>
-        </section>
+        <div className={FIGMA_LEGAL_TITLE_ROW}>
+          <FileText size={28} className="text-violet-400" aria-hidden />
+          <h1 className="font-display text-foreground">{t('termsOfService.title')}</h1>
+        </div>
 
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s2h')}</h2>
-          <p>{t('termsOfService.s2p')}</p>
-        </section>
+        <p className={FIGMA_LEGAL_UPDATED}>{t('termsOfService.subtitle')}</p>
 
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s3h')}</h2>
-          <p>{t('termsOfService.s3p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s4h')}</h2>
-          <p>{t('termsOfService.s4p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s5h')}</h2>
-          <p>{t('termsOfService.s5p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s6h')}</h2>
-          <p>{t('termsOfService.s6p')}</p>
-        </section>
+        <div className={FIGMA_LEGAL_SECTIONS}>
+          {SECTION_KEYS.map((key) => (
+            <section key={key} className={FIGMA_LEGAL_SECTION_CARD}>
+              <h2 className={FIGMA_LEGAL_SECTION_H}>{t(`termsOfService.${key}h`)}</h2>
+              <p className={FIGMA_LEGAL_SECTION_P}>{t(`termsOfService.${key}p`)}</p>
+            </section>
+          ))}
 
         <section className={callout}>
           <p className="text-base">

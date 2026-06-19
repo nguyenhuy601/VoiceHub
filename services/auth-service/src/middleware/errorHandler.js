@@ -1,40 +1,34 @@
-const AppError = require('../utils/appError');
+const { buildApiErrorBody, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 module.exports = (err, req, res, next) => {
-  // Bỏ qua lỗi nếu request đã bị abort hoặc response đã được gửi
   if (req.aborted || res.headersSent) {
     return;
   }
 
-  // Xử lý lỗi request aborted
-  if (err.message && (err.message.includes('aborted') || err.message.includes('ECONNRESET'))) {
+  if (err?.message && (err.message.includes('aborted') || err.message.includes('ECONNRESET'))) {
     console.log('Request aborted or connection reset');
     return;
   }
 
-  err.statusCode = err.statusCode || 500;
-  err.status = err.status || 'error';
+  const statusCode = Number(err?.statusCode) || 500;
+  const isServerError = statusCode >= 500;
+  const errorCode = String(
+    err?.errorCode || err?.code || (isServerError ? 'AUTH_INTERNAL_ERROR' : '')
+  ).trim();
 
-  if (process.env.NODE_ENV === 'development') {
-    res.status(err.statusCode).json({
-      status: err.status,
-      error: err,
-      message: err.message,
-      stack: err.stack,
-    });
-  } else {
-    // Production
-    if (err.isOperational) {
-      res.status(err.statusCode).json({
-        status: err.status,
-        message: err.message,
-      });
-    } else {
-      console.error('ERROR 💥', err);
-      res.status(500).json({
-        status: 'error',
-        message: 'Something went wrong',
-      });
-    }
+  if (isServerError) {
+    console.error('ERROR', err);
   }
+
+  const clientMessage = String(err?.messageUser || err?.message || '').trim();
+  const body = buildApiErrorBody(statusCode, {
+    errorCode: errorCode || undefined,
+    messageUser: isServerError ? GENERIC_5XX_MESSAGE : clientMessage,
+    message: isServerError ? undefined : clientMessage,
+    extra: process.env.NODE_ENV === 'development' && err?.stack
+      ? { stack: err.stack }
+      : undefined,
+  });
+
+  res.status(statusCode).json(body);
 };

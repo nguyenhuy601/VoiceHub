@@ -12,6 +12,12 @@ const { writeDateOfBirthFields } = require('@enterprise/shared/utils/dateOfBirth
 const crypto = require('crypto');
 const { mongoose } = require('@enterprise/shared/config/mongo');
 const {
+  isDevDemoBypassEnabled,
+  isDevDemoEmail,
+  activateDevDemoAccount,
+  tryActivateDevDemoAccount,
+} = require('../utils/devDemoAccounts');
+const {
   findUserAuthByEmail,
   hydrateAuthEmailDoc,
   writeEmailFields,
@@ -134,6 +140,15 @@ class AuthService {
 
       await userAuth.save();
 
+      if (isDevDemoBypassEnabled() && isDevDemoEmail(normalizedEmail)) {
+        await activateDevDemoAccount(userAuth);
+        return {
+          userAuth,
+          emailVerificationToken: undefined,
+          emailScheduled: false,
+        };
+      }
+
       // Gửi email verification trong background (không block response)
       // Để tránh timeout, không await email sending
       console.log('[AuthService] 🔍 Checking email service availability...');
@@ -222,6 +237,8 @@ class AuthService {
       }
 
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
+
+      await tryActivateDevDemoAccount(userAuth, password, plainEmail);
 
       // Kiểm tra email đã được verify chưa
       if (!userAuth.isEmailVerified) {

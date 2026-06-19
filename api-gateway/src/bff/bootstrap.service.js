@@ -1,15 +1,17 @@
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
 const { buildSuiteEnrichment } = require('./bootstrapEnrichment');
 
-function mapBootstrapUser(profile) {
+function mapBootstrapUser(profile, authEmail) {
   if (!profile || typeof profile !== 'object') return null;
   const id = profile.userId || profile.id || profile._id;
   if (!id) return null;
+  const jwtEmail = String(authEmail || '').trim().toLowerCase();
+  const profileEmail = String(profile.email || '').trim().toLowerCase();
   return {
     id: String(id),
     userId: String(id),
     _id: String(id),
-    email: profile.email || null,
+    email: profileEmail || jwtEmail || null,
     displayName: profile.displayName || profile.username || profile.name || null,
     username: profile.username || null,
     avatar: profile.avatar || null,
@@ -56,7 +58,7 @@ async function buildBootstrap(userId, userEmail, suite = '') {
     fetchJson(friendUrl, headers, 'friends/pending'),
   ]);
 
-  const user = mapBootstrapUser(unwrapPayload(userRes.ok ? userRes.data : null));
+  const user = mapBootstrapUser(unwrapPayload(userRes.ok ? userRes.data : null), userEmail);
   if (!user) {
     const err = new Error('User profile unavailable');
     err.statusCode = userRes.status === 404 ? 404 : 503;

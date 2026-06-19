@@ -1,8 +1,8 @@
 import authService from './authService';
-import { getToken } from '../utils/tokenStorage';
+import { getJwtEmail, getToken } from '../utils/tokenStorage';
+import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 import { loadBootstrapShell } from './bootstrapService';
 import { readStoredSuite } from '../utils/suitePathUtils';
-import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 
 let inflightRestore = null;
 
@@ -25,7 +25,7 @@ export async function restoreAuthSession() {
       const boot = await loadBootstrapShell({ suite: readStoredSuite() });
       if (boot?.user) {
         return {
-          user: mergeAuthUserFromProfile(null, boot.user),
+          user: mergeAuthUserFromProfile({ email: getJwtEmail() || undefined }, boot.user),
           fromBootstrap: true,
         };
       }
@@ -36,7 +36,7 @@ export async function restoreAuthSession() {
     const userData = await authService.getCurrentUser();
     const profile = unwrapApiData(userData);
     return {
-      user: mergeAuthUserFromProfile(null, profile),
+      user: mergeAuthUserFromProfile({ email: getJwtEmail() || undefined }, profile),
       fromBootstrap: false,
     };
   })();

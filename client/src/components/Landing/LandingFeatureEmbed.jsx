@@ -1,5 +1,6 @@
 import { lazy, Suspense, useLayoutEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
+import { useAppStrings } from '../../locales/appStrings';
 import { LandingDemoThemeProvider } from '../../context/ThemeContext';
 import { setLandingEmbedActive } from '../../utils/landingEmbedMode';
 import { LandingScaledShell } from './LandingScaledShell';
@@ -12,9 +13,11 @@ const VoiceRoomPage = lazy(() => import('../../pages/Voice/VoiceRoomPage'));
 const OrganizationsPage = lazy(() => import('../../pages/Workspace/OrganizationsPage'));
 
 function Fallback() {
+  const { t } = useAppStrings();
+
   return (
-    <div className="flex min-h-[320px] w-full items-center justify-center bg-[#050810]/40 text-sm text-slate-500">
-      Đang tải giao diện…
+    <div className="flex min-h-[320px] w-full items-center justify-center bg-muted/30 text-sm text-muted-foreground">
+      {t('landing.embedLoading')}
     </div>
   );
 }
@@ -24,6 +27,8 @@ function Fallback() {
  * Dùng capture để chặn trước handler của Link.
  */
 function LandingEmbedClickLock({ children }) {
+  const { t } = useAppStrings();
+
   return (
     <div
       role="presentation"
@@ -35,7 +40,7 @@ function LandingEmbedClickLock({ children }) {
         if (href && href.startsWith('/') && !href.startsWith('//')) {
           e.preventDefault();
           e.stopPropagation();
-          toast('Bản demo trên trang chủ — liên kết thật có sau khi đăng nhập.', { icon: '🔒' });
+          toast(t('landing.toastDemoLink'), { icon: '🔒' });
         }
       }}
     >

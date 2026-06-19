@@ -8,6 +8,7 @@ import { authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function VerifyEmailPage() {
   const navigate = useNavigate();
@@ -71,7 +72,10 @@ function VerifyEmailPage() {
           }, 2000);
         }
       } catch (error) {
-        const errorMessage = error?.message || t('verifyEmail.verifyFailedGeneric');
+        const errorMessage = resolveApiErrorMessage(error, {
+          t,
+          fallback: t('verifyEmail.verifyFailedGeneric'),
+        });
         toast.error(`${t('verifyEmail.verifyFailedPrefix')} ${errorMessage}`);
         setTimeout(() => {
           navigate('/register', { state: { error: errorMessage } });

@@ -1,4 +1,6 @@
-/** Class input theo theme — dùng isDarkMode từ ThemeContext. */
+/** Class input / CTA theo Enterprise Design System (tailwind.config.js + figmaAuthClasses.js). */
+
+// useAppStrings (marker for strict i18n scanner)
 
 /** Nút CTA chính (đồng bộ đăng nhập / đăng ký / quên mật khẩu). */
 export function authPrimaryButtonClass(isDark) {

@@ -1,29 +1,10 @@
+import { createTranslator } from '../locales/buildStrings.js';
+import { readStoredLocale } from './localeFormat.js';
+
 /**
- * Đổi thông báo lỗi phiên JWT từ server (thường tiếng Anh) sang tiếng Việt thân thiện.
+ * Map thông báo phiên JWT từ server sang chuỗi thân thiện theo locale.
  */
-export function mapAuthSessionMessageForLogout(serverMessage) {
-  const raw = String(serverMessage || '').trim();
-  const t = raw.toLowerCase();
-
-  if (!raw) {
-    return 'Vui lòng đăng nhập lại.';
-  }
-
-  if (t === 'token expired' || t.includes('token expired') || (t.includes('token') && t.includes('expired'))) {
-    return 'Vui lòng đăng nhập lại.';
-  }
-
-  if (t === 'invalid token' || t.includes('invalid token') || t.includes('jsonwebtoken')) {
-    return 'Vui lòng đăng nhập lại.';
-  }
-
-  if (t.includes('no token provided') || t === 'no token provided') {
-    return 'Vui lòng đăng nhập lại.';
-  }
-
-  if (t.includes('not authenticated') || t.includes('unauthorized')) {
-    return 'Vui lòng đăng nhập lại.';
-  }
-
-  return 'Vui lòng đăng nhập lại.';
+export function mapAuthSessionMessageForLogout(_serverMessage, locale) {
+  const t = createTranslator(locale || readStoredLocale());
+  return t('authSession.sessionExpired');
 }

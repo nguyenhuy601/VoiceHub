@@ -1,8 +1,21 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Shield } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { useTheme } from '../../context/ThemeContext';
+import { ArrowLeft, Shield, Zap } from 'lucide-react';
+import {
+  FIGMA_LEGAL_CONTAINER,
+  FIGMA_LEGAL_FOOTER,
+  FIGMA_LEGAL_LINK_PRIMARY,
+  FIGMA_LEGAL_LINK_SECONDARY,
+  FIGMA_LEGAL_LOGO_ICON,
+  FIGMA_LEGAL_LOGO_ROW,
+  FIGMA_LEGAL_LOGO_TEXT,
+  FIGMA_LEGAL_ROOT,
+  FIGMA_LEGAL_SECTION_CARD,
+  FIGMA_LEGAL_SECTION_H,
+  FIGMA_LEGAL_SECTION_P,
+  FIGMA_LEGAL_SECTIONS,
+  FIGMA_LEGAL_TITLE_ROW,
+  FIGMA_LEGAL_UPDATED,
+} from '../../components/Auth/figmaAuthClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
 function PrivacyPolicyPage() {
@@ -29,45 +42,21 @@ function PrivacyPolicyPage() {
             <p className={`mt-2 text-base ${body}`}>{t('privacyPolicy.subtitle')}</p>
           </div>
         </div>
-        <Link
-          to="/register"
-          className={`inline-flex shrink-0 items-center gap-2 self-start text-base font-semibold ${linkCyan}`}
-        >
-          <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          {t('privacyPolicy.backToRegister')}
-        </Link>
-      </div>
 
-      <div className={`space-y-6 text-base leading-relaxed ${body}`}>
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s1h')}</h2>
-          <p>{t('privacyPolicy.s1p')}</p>
-        </section>
+        <div className={FIGMA_LEGAL_TITLE_ROW}>
+          <Shield size={28} className="text-violet-400" aria-hidden />
+          <h1 className="font-display text-foreground">{t('privacyPolicy.title')}</h1>
+        </div>
 
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s2h')}</h2>
-          <p>{t('privacyPolicy.s2p')}</p>
-        </section>
+        <p className={FIGMA_LEGAL_UPDATED}>{t('privacyPolicy.subtitle')}</p>
 
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s3h')}</h2>
-          <p>{t('privacyPolicy.s3p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s4h')}</h2>
-          <p>{t('privacyPolicy.s4p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s5h')}</h2>
-          <p>{t('privacyPolicy.s5p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('privacyPolicy.s6h')}</h2>
-          <p>{t('privacyPolicy.s6p')}</p>
-        </section>
+        <div className={FIGMA_LEGAL_SECTIONS}>
+          {SECTION_KEYS.map((key) => (
+            <section key={key} className={FIGMA_LEGAL_SECTION_CARD}>
+              <h2 className={FIGMA_LEGAL_SECTION_H}>{t(`privacyPolicy.${key}h`)}</h2>
+              <p className={FIGMA_LEGAL_SECTION_P}>{t(`privacyPolicy.${key}p`)}</p>
+            </section>
+          ))}
 
         <section className={callout}>
           <p className="text-base">
