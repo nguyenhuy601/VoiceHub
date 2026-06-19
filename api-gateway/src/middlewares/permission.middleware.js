@@ -12,6 +12,7 @@ const {
   isDelegatedRoleManageRoute,
 } = require('../config/permissions');
 const { isPublicRoute, normalizePath } = require('../config/services');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
 
@@ -42,9 +43,10 @@ const permissionMiddleware = async (req, res, next) => {
     // Lấy userId từ req.user (đã được set bởi authMiddleware)
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_NO_TOKEN',
         message: 'Unauthorized',
+        messageUser: 'Vui lòng đăng nhập lại.',
       });
     }
 
@@ -68,9 +70,10 @@ const permissionMiddleware = async (req, res, next) => {
       if (!DENY_UNMAPPED) {
         return next();
       }
-      return res.status(403).json({
-        success: false,
+      return sendApiError(res, 403, {
+        errorCode: 'ROUTE_NOT_PERMITTED',
         message: 'Route not permitted',
+        messageUser: 'Route chưa được cấp quyền tại gateway.',
       });
     }
 
@@ -187,9 +190,10 @@ const permissionMiddleware = async (req, res, next) => {
     console.error('Permission middleware error:', error);
 
     // Fail-closed: deny access khi có lỗi
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'PERMISSION_CHECK_FAILED',
       message: 'Permission check failed',
+      messageUser: GENERIC_5XX_MESSAGE,
     });
   }
 };

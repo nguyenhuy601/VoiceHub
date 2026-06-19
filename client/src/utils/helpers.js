@@ -1,11 +1,13 @@
+import { getDateLocale } from './localeFormat';
+
 export const cn = (...classes) => {
   return classes.filter(Boolean).join(' ');
 };
 
-export const formatDate = (date) => {
+export const formatDate = (date, locale = 'vi') => {
   if (!date) return '';
   const d = new Date(date);
-  return d.toLocaleDateString('vi-VN', {
+  return d.toLocaleDateString(getDateLocale(locale), {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -13,29 +15,29 @@ export const formatDate = (date) => {
 };
 
 /** Ngày sinh / dữ liệu cũ có thể null — không throw khi parse lỗi */
-export const formatBirthDateSafe = (date, placeholder = 'Chưa cập nhật') => {
+export const formatBirthDateSafe = (date, placeholder = 'Chưa cập nhật', locale = 'vi') => {
   if (date == null || date === '') return placeholder;
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return placeholder;
-  return d.toLocaleDateString('vi-VN', {
+  return d.toLocaleDateString(getDateLocale(locale), {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
 };
 
-export const formatTime = (date) => {
+export const formatTime = (date, locale = 'vi') => {
   if (!date) return '';
   const d = new Date(date);
-  return d.toLocaleTimeString('vi-VN', {
+  return d.toLocaleTimeString(getDateLocale(locale), {
     hour: '2-digit',
     minute: '2-digit',
   });
 };
 
-export const formatDateTime = (date) => {
+export const formatDateTime = (date, locale = 'vi') => {
   if (!date) return '';
-  return `${formatDate(date)} ${formatTime(date)}`;
+  return `${formatDate(date, locale)} ${formatTime(date, locale)}`;
 };
 
 export const formatFileSize = (bytes) => {
@@ -111,7 +113,8 @@ export const mergeAuthUserFromProfile = (prev, profilePayload, { avatarBust } = 
     avatar,
     avatarCacheKey: bust,
     displayName: p.displayName ?? prev?.displayName,
-    email: p.email ?? prev?.email,
+    email: String(p.email || '').trim() || prev?.email,
+    phone: String(p.phone || p.phoneNumber || p.mobile || '').trim() || prev?.phone,
   };
 };
 

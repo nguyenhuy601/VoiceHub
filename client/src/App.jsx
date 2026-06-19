@@ -9,6 +9,7 @@ import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
+import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
 const HomePage = lazy(() => import('./pages/Auth/HomePage'));
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
@@ -34,8 +35,9 @@ const Protected = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
 
 function App() {
   return (
-    <Suspense fallback={<BrandPageLoader />}>
-      <Routes>
+    <RouteErrorBoundary>
+      <Suspense fallback={<BrandPageLoader />}>
+        <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -65,7 +67,8 @@ function App() {
             </Protected>
           }
         >
-          <Route index element={<Navigate to="chat/friends" replace />} />
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<DashboardPage suiteLayout suiteScope="communicate" />} />
           <Route path="chat/friends" element={<FriendChatPage suiteLayout />} />
           <Route path="voice" element={<VoiceRoomPage suiteLayout />} />
           <Route path="voice/:roomId" element={<VoiceRoomPage suiteLayout />} />
@@ -85,7 +88,8 @@ function App() {
             </Protected>
           }
         >
-          <Route index element={<Navigate to="workspaces" replace />} />
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<DashboardPage suiteLayout suiteScope="collaborate" />} />
           <Route
             path="workspaces"
             element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
@@ -113,13 +117,13 @@ function App() {
           }
         >
           <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage suiteLayout />} />
+          <Route path="dashboard" element={<DashboardPage suiteLayout suiteScope="me" />} />
           <Route path="calendar" element={<CalendarPage suiteLayout />} />
           <Route path="settings" element={<SettingsPage suiteLayout />} />
         </Route>
 
-        {/* Legacy redirects */}
-        <Route path="/dashboard" element={<Navigate to="/app/me/dashboard" replace />} />
+        {/* Legacy redirects — giữ URL cũ (/dashboard, /chat/friends, /w/:slug, …) trỏ sang /app/* suite */}
+        <Route path="/dashboard" element={<Navigate to="/app/communicate/overview" replace />} />
         <Route path="/calendar" element={<Navigate to="/app/me/calendar" replace />} />
         <Route path="/settings" element={<Navigate to="/app/me/settings" replace />} />
         <Route path="/profile" element={<Navigate to="/app/me/dashboard" replace />} />
@@ -166,6 +170,7 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
+    </RouteErrorBoundary>
   );
 }
 

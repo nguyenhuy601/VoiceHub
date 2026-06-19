@@ -1,17 +1,25 @@
 import Modal from './Modal';
+import { useAppStrings } from '../../locales/appStrings';
 
-const sanitizeNoticeMessage = (rawMessage) => {
+const sanitizeNoticeMessage = (rawMessage, t) => {
   const message = String(rawMessage || '')
     .replace(/https?:\/\/localhost(?::\d+)?/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  return message || 'Thao tác đã được xử lý.';
+  return message || t('notificationModal.fallbackMessage');
 };
 
 function NotificationModal({ notice, onClose, layerClassName = 'z-[200]' }) {
+  const { t } = useAppStrings();
   const type = notice?.type || 'success';
-  const title = notice?.title || (type === 'fail' ? 'Thông báo lỗi' : type === 'info' ? 'Thông tin' : 'Thông báo');
-  const message = sanitizeNoticeMessage(notice?.message);
+  const title =
+    notice?.title ||
+    (type === 'fail'
+      ? t('notificationModal.titleFail')
+      : type === 'info'
+        ? t('notificationModal.titleInfo')
+        : t('notificationModal.titleOk'));
+  const message = sanitizeNoticeMessage(notice?.message, t);
 
   return (
     <Modal isOpen={Boolean(notice)} onClose={onClose} title={title} size="sm" layerClassName={layerClassName}>
@@ -33,7 +41,7 @@ function NotificationModal({ notice, onClose, layerClassName = 'z-[200]' }) {
             onClick={onClose}
             className="rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white"
           >
-            Đóng
+            {t('common.close')}
           </button>
         </div>
       </div>

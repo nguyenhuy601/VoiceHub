@@ -1,7 +1,7 @@
-import NavigationSidebar from './NavigationSidebar';
+import FigmaNavigationSidebar from './FigmaNavigationSidebar';
 
 const CollaborateSidebar = ({ landingDemo = false } = {}) => (
-  <NavigationSidebar suite="collaborate" landingDemo={landingDemo} />
+  <FigmaNavigationSidebar suite="collaborate" landingDemo={landingDemo} />
 );
 
 export default CollaborateSidebar;

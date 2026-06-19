@@ -2,7 +2,484 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theme Variables */
+/* ─── VoiceHub Enterprise Design System (tailwind.config.js + figma*Classes.js) ─── */
+
+/* Fallback tokens trước khi ThemeProvider gắn class — mặc định light (ThemeContext) */
+:root {
+  --font-size: 15px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+  --foreground: #0f172a;
+  --foreground-secondary: #334155;
+  --foreground-tertiary: #64748b;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
+  --primary-foreground: #ffffff;
+  --primary-subtle: #eff6ff;
+  --primary-muted: #bfdbfe;
+
+  --ai: #f97316;
+  --ai-hover: #ea6c0a;
+  --ai-active: #c2570a;
+  --ai-foreground: #ffffff;
+  --ai-subtle: #fff7ed;
+  --ai-muted: #fed7aa;
+
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #334155;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --input: transparent;
+  --input-background: #f1f5f9;
+  --switch-background: #cbd5e1;
+  --ring: rgba(37, 99, 235, 0.35);
+
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 8px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 10px 24px rgba(15, 23, 42, 0.09), 0 4px 8px rgba(15, 23, 42, 0.05);
+  --shadow-xl: 0 20px 48px rgba(15, 23, 42, 0.11), 0 8px 16px rgba(15, 23, 42, 0.06);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  --chart-1: #2563eb;
+  --chart-2: #06b6d4;
+  --chart-3: #10b981;
+  --chart-4: #f97316;
+  --chart-5: #ef4444;
+
+  --sidebar: #0f172a;
+  --sidebar-surface: #1e293b;
+  --sidebar-foreground: #94a3b8;
+  --sidebar-foreground-active: #ffffff;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(59, 130, 246, 0.14);
+  --sidebar-accent-foreground: #93c5fd;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #3b82f6;
+
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --info: #06b6d4;
+  --info-bg: rgba(6, 182, 212, 0.1);
+}
+
+html.light {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+  --foreground: #0f172a;
+  --foreground-secondary: #334155;
+  --foreground-tertiary: #64748b;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
+  --primary-foreground: #ffffff;
+  --primary-subtle: #eff6ff;
+  --primary-muted: #bfdbfe;
+  --ai: #f97316;
+  --ai-hover: #ea6c0a;
+  --ai-active: #c2570a;
+  --ai-foreground: #ffffff;
+  --ai-subtle: #fff7ed;
+  --ai-muted: #fed7aa;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #334155;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --input: transparent;
+  --input-background: #f1f5f9;
+  --switch-background: #cbd5e1;
+  --ring: rgba(37, 99, 235, 0.35);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 8px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 10px 24px rgba(15, 23, 42, 0.09), 0 4px 8px rgba(15, 23, 42, 0.05);
+  --shadow-xl: 0 20px 48px rgba(15, 23, 42, 0.11), 0 8px 16px rgba(15, 23, 42, 0.06);
+  --sidebar: #0f172a;
+  --sidebar-surface: #1e293b;
+  --sidebar-foreground: #94a3b8;
+  --sidebar-foreground-active: #ffffff;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(59, 130, 246, 0.14);
+  --sidebar-accent-foreground: #93c5fd;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #3b82f6;
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --info: #06b6d4;
+  --info-bg: rgba(6, 182, 212, 0.1);
+}
+
+html.dark {
+  --background: #020817;
+  --surface: #0f172a;
+  --surface-raised: #1e293b;
+  --surface-overlay: #1e293b;
+  --foreground: #f1f5f9;
+  --foreground-secondary: #cbd5e1;
+  --foreground-tertiary: #64748b;
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --primary-active: #2563eb;
+  --primary-foreground: #ffffff;
+  --primary-subtle: rgba(37, 99, 235, 0.14);
+  --primary-muted: rgba(37, 99, 235, 0.28);
+  --ai: #fb923c;
+  --ai-hover: #f97316;
+  --ai-active: #ea6c0a;
+  --ai-foreground: #ffffff;
+  --ai-subtle: rgba(249, 115, 22, 0.14);
+  --ai-muted: rgba(249, 115, 22, 0.28);
+  --card: #0f172a;
+  --card-foreground: #f1f5f9;
+  --popover: #1e293b;
+  --popover-foreground: #f1f5f9;
+  --secondary: #1e293b;
+  --secondary-foreground: #cbd5e1;
+  --muted: #1e293b;
+  --muted-foreground: #64748b;
+  --accent: rgba(37, 99, 235, 0.14);
+  --accent-foreground: #93c5fd;
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.04);
+  --input-background: rgba(255, 255, 255, 0.06);
+  --switch-background: #334155;
+  --ring: rgba(96, 165, 250, 0.4);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 48px rgba(0, 0, 0, 0.55), 0 8px 16px rgba(0, 0, 0, 0.35);
+  --chart-1: #60a5fa;
+  --chart-2: #22d3ee;
+  --chart-3: #34d399;
+  --chart-4: #fb923c;
+  --chart-5: #f87171;
+  --sidebar: #020817;
+  --sidebar-surface: #0f172a;
+  --sidebar-foreground: #64748b;
+  --sidebar-foreground-active: #ffffff;
+  --sidebar-primary: #60a5fa;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(96, 165, 250, 0.14);
+  --sidebar-accent-foreground: #93c5fd;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #60a5fa;
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.1);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.1);
+  --error: #f87171;
+  --error-bg: rgba(248, 113, 113, 0.1);
+  --info: #22d3ee;
+  --info-bg: rgba(34, 211, 238, 0.1);
+}
+
+@layer base {
+  html {
+    font-size: var(--font-size);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, sans-serif;
+    font-feature-settings: 'ss01', 'ss02';
+  }
+
+  h1 {
+    @apply text-2xl font-semibold;
+    letter-spacing: -0.025em;
+    line-height: 1.3;
+  }
+
+  h2 {
+    @apply text-xl font-semibold;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+  }
+
+  h3 {
+    @apply text-lg font-medium;
+    letter-spacing: -0.015em;
+    line-height: 1.4;
+  }
+
+  h4 {
+    @apply text-base font-medium;
+    letter-spacing: -0.01em;
+    line-height: 1.5;
+  }
+
+  label {
+    @apply text-sm font-medium;
+    line-height: 1.5;
+  }
+
+  button {
+    @apply text-sm font-medium;
+    line-height: 1.5;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply text-sm font-normal;
+    line-height: 1.5;
+  }
+
+  ::selection {
+    background-color: var(--primary-subtle);
+    color: var(--primary);
+  }
+
+  html.dark ::selection {
+    background-color: var(--primary-muted);
+    color: var(--primary-foreground);
+  }
+
+  /* Enterprise scrollbar mặc định (Figma animations.css) */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+/* Enterprise micro-interactions (Figma animations.css) */
+@layer utilities {
+  .vh-transition {
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .vh-transition-fast {
+    transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .vh-transition-slow {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .vh-btn-press:active {
+    transform: scale(0.97);
+    transition: transform 0.08s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .vh-card-lift {
+    transition:
+      box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+      transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .vh-card-lift:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+  }
+
+  .vh-row:hover {
+    background-color: var(--muted);
+    transition: background-color 0.1s ease;
+  }
+
+  .vh-focus-ring:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  .vh-input-focus {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .vh-input-focus:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  /** Văn bản pháp lý — Terms / Privacy (thay @tailwindcss/typography) */
+  .vh-legal-prose {
+    @apply space-y-8 text-base leading-relaxed text-foreground-secondary;
+  }
+
+  .vh-legal-prose section {
+    @apply scroll-mt-24;
+  }
+
+  .vh-legal-prose section + section {
+    @apply border-t border-border pt-8;
+  }
+
+  .vh-legal-prose h2 {
+    @apply mb-3 font-display text-lg font-semibold tracking-tight text-foreground;
+  }
+
+  .vh-legal-prose p {
+    @apply leading-[1.75] text-foreground-secondary;
+  }
+
+  .vh-legal-prose .vh-legal-callout {
+    @apply rounded-xl border p-5 text-sm leading-relaxed text-foreground-secondary;
+    border-color: color-mix(in srgb, var(--primary) 25%, transparent);
+    background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+  }
+
+  .vh-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(99, 102, 241, 0.06) 25%,
+      rgba(99, 102, 241, 0.13) 50%,
+      rgba(99, 102, 241, 0.06) 75%
+    );
+    background-size: 1000px 100%;
+    animation: vh-shimmer 1.8s infinite linear;
+  }
+
+  html.dark .vh-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(99, 102, 241, 0.08) 25%,
+      rgba(99, 102, 241, 0.18) 50%,
+      rgba(99, 102, 241, 0.08) 75%
+    );
+    background-size: 1000px 100%;
+  }
+
+  .vh-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .vh-nav-item:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+
+  html.light .vh-nav-item:hover {
+    background-color: var(--muted);
+  }
+
+  .vh-nav-item.active {
+    background-color: var(--sidebar-accent);
+    color: var(--sidebar-foreground-active);
+  }
+
+  .vh-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 20%;
+    bottom: 20%;
+    width: 3px;
+    background: var(--sidebar-primary);
+    border-radius: 0 3px 3px 0;
+  }
+}
+
+@keyframes vh-shimmer {
+  0% {
+    background-position: -500px 0;
+  }
+  100% {
+    background-position: 500px 0;
+  }
+}
+
+.vh-anim-fade-in {
+  @apply animate-fade-in;
+}
+
+.vh-anim-scale-in {
+  @apply animate-scale-in;
+}
+
+@keyframes vh-voice-wave {
+  from {
+    transform: scaleY(0.45);
+    opacity: 0.55;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* Theme Variables — legacy (giữ tương thích trang chưa migrate) */
 :root {
   --bg-primary: #0a0118;
   --bg-secondary: #1a0b2e;
@@ -233,6 +710,7 @@ html.light .text-gradient {
   -webkit-text-fill-color: transparent;
 }
 
+/* Legacy base styles — landing embed / pre-migration pages */
 @layer base {
   :root {
     --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

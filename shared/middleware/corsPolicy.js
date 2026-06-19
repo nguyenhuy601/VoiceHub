@@ -30,7 +30,13 @@ function escapeRegExp(value) {
 function toOriginMatcher(rule) {
   const normalized = String(rule || '').replace(/\/+$/, '').trim();
   if (!normalized) return null;
-  if (normalized === '*') return () => true;
+  if (normalized === '*') {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[corsPolicy] CORS_ORIGIN=* is ignored in production');
+      return null;
+    }
+    return () => true;
+  }
   if (!normalized.includes('*')) {
     return (origin) => origin.replace(/\/+$/, '') === normalized;
   }

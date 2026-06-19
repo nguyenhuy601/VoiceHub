@@ -3,6 +3,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { appShellBg, threeFrameRightPanel } from '../../theme/shellTheme';
 import NavigationSidebar from './NavigationSidebar';
 import ShellWaveBackdrop from './ShellWaveBackdrop';
+import { useAppStrings } from '../../locales/appStrings';
 
 function parseRightWidthToPx(rightWidth) {
   const s = String(rightWidth || '').trim();
@@ -38,18 +39,34 @@ const ThreeFrameLayout = ({
   /** false = cột giữa cố định chiều cao, con tự cuộn (workspace chat). */
   centerScrollable = true,
 }) => {
+  const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
   const shell = appShellBg(isDarkMode);
   const rightPanel = threeFrameRightPanel(isDarkMode);
-  const navLeft =
-    left === false ? (
-      <div className="w-14 shrink-0 sm:w-16 md:w-[68px] h-screen" aria-hidden />
-    ) : (
-      left ?? <NavigationSidebar landingDemo={landingDemo} />
-    );
+  const embeddedSuiteLayout = left === false;
+  const navLeft = embeddedSuiteLayout ? null : (left ?? <NavigationSidebar landingDemo={landingDemo} />);
   const baseRightW = useMemo(() => parseRightWidthToPx(rightWidth), [rightWidth]);
   const [rightW, setRightW] = useState(baseRightW);
   const resizingRef = useRef(null);
+  const rootClass = embeddedSuiteLayout
+    ? 'relative flex h-full min-h-0 overflow-hidden bg-background'
+    : `relative flex h-screen overflow-hidden ${shell}`;
+  const centerFrameClass = embeddedSuiteLayout
+    ? 'relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'
+    : 'relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden py-2 pl-2 pr-1';
+  const centerInnerClass = embeddedSuiteLayout
+    ? centerScrollable
+      ? 'scrollbar-overlay min-h-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto'
+      : 'flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden'
+    : centerScrollable
+      ? 'scrollbar-overlay flex-1 min-h-0 overflow-x-visible overflow-y-auto rounded-xl'
+      : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl';
+  const rightFrameClass = embeddedSuiteLayout
+    ? 'relative z-[1] flex h-full shrink-0'
+    : 'relative z-[1] flex h-full shrink-0 py-2 pr-2';
+  const rightPanelFrameClass = embeddedSuiteLayout
+    ? 'relative z-[1] flex h-full shrink-0 items-stretch'
+    : 'relative z-[1] flex h-full shrink-0 items-stretch py-2 pr-2';
 
   useEffect(() => {
     setRightW(baseRightW);
@@ -80,27 +97,19 @@ const ThreeFrameLayout = ({
   }, []);
 
   return (
-    <div className={`relative flex h-screen overflow-hidden ${shell}`}>
-      <ShellWaveBackdrop />
-      <div className="relative h-full shrink-0 pointer-events-none">{navLeft}</div>
+    <div className={rootClass}>
+      {!embeddedSuiteLayout && <ShellWaveBackdrop />}
+      {navLeft ? <div className="relative h-full shrink-0 pointer-events-none">{navLeft}</div> : null}
 
-      <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden py-2 pl-2 pr-1">
-        <div
-          className={
-            centerScrollable
-              ? 'scrollbar-overlay flex-1 min-h-0 overflow-x-visible overflow-y-auto rounded-xl'
-              : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl'
-          }
-        >
-          {center}
-        </div>
+      <div className={centerFrameClass}>
+        <div className={centerInnerClass}>{center}</div>
       </div>
 
       {right !== null &&
         (rightFrameClassName ? (
-          <div className="relative z-[1] flex h-full shrink-0 py-2 pr-2">{right}</div>
+          <div className={`${rightFrameClass} hidden lg:flex`}>{right}</div>
         ) : (
-          <div className="relative z-[1] flex h-full shrink-0 items-stretch py-2 pr-2">
+          <div className={`${rightPanelFrameClass} hidden lg:flex`}>
             <div
               className={`relative flex min-h-0 flex-col overflow-hidden ${rightPanel}`}
               style={{
@@ -111,7 +120,10 @@ const ThreeFrameLayout = ({
             >
               <div
                 className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize"
-                title={`Kéo để đổi độ rộng (${RIGHT_SIDEBAR_MIN_W}px – ${baseRightW + RIGHT_SIDEBAR_EXTRA_MAX_W}px)`}
+                title={t('taskBoard.resizeAside', {
+                  min: RIGHT_SIDEBAR_MIN_W,
+                  max: baseRightW + RIGHT_SIDEBAR_EXTRA_MAX_W,
+                })}
                 onMouseDown={(e) => {
                   if (e.button !== 0) return;
                   resizingRef.current = {

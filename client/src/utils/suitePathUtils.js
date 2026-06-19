@@ -20,8 +20,8 @@ const SEGMENT_TO_SUITE = Object.fromEntries(
 );
 
 export const SUITE_DEFAULT_PATH = {
-  [SUITE.COMMUNICATE]: '/app/communicate/chat/friends',
-  [SUITE.COLLABORATE]: '/app/collaborate/workspaces',
+  [SUITE.COMMUNICATE]: '/app/communicate/overview',
+  [SUITE.COLLABORATE]: '/app/collaborate/overview',
   [SUITE.ME]: '/app/me/dashboard',
 };
 

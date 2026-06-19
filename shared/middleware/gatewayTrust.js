@@ -2,6 +2,8 @@
  * Tin `x-user-id` / `x-user-email` chỉ khi request đi qua API Gateway đã ký
  * bằng `x-gateway-internal-token` trùng `GATEWAY_INTERNAL_TOKEN`.
  */
+const { sendApiError } = require('./httpErrorResponse');
+
 const getExpectedToken = () => String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
 
 /**
@@ -18,17 +20,19 @@ function gatewayUserFromTrustedHeaders(req, res, next) {
     console.error(
       '[gatewayTrust] GATEWAY_INTERNAL_TOKEN chưa set — từ chối tin x-user-id (fail-closed). Cấu hình trùng api-gateway + docker-compose.'
     );
-    return res.status(503).json({
-      success: false,
+    return sendApiError(res, 503, {
+      errorCode: 'GATEWAY_TRUST_NOT_CONFIGURED',
       message: 'Gateway trust not configured (set GATEWAY_INTERNAL_TOKEN on this service)',
+      messageUser: 'Gateway trust chưa được cấu hình.',
     });
   }
 
   const got = String(req.headers['x-gateway-internal-token'] || '').trim();
   if (got !== expected) {
-    return res.status(401).json({
-      success: false,
+    return sendApiError(res, 401, {
+      errorCode: 'GATEWAY_TRUST_INVALID',
       message: 'Unauthorized: invalid or missing gateway trust',
+      messageUser: 'Yêu cầu không hợp lệ.',
     });
   }
 

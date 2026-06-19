@@ -7,9 +7,9 @@ const ConfirmDialog = ({
   onConfirm,
   title,
   message,
-  confirmText = 'Xác nhận',
-  cancelText = 'Hủy',
-  /** z cao hơn menu ngữ cảnh / portal (vd. danh sách thành viên ~9998) */
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  /** z-index higher than context menus / portals (e.g. member list ~9998) */
   layerClassName = 'z-[10050]',
 }) => {
   const { isDarkMode } = useTheme();

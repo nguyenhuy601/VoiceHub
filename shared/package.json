@@ -12,6 +12,7 @@
     "./middleware/corsPolicy": "./middleware/corsPolicy.js",
     "./middleware/gatewayTrust": "./middleware/gatewayTrust.js",
     "./middleware/internalGatewayAuth": "./middleware/internalGatewayAuth.js",
+    "./middleware/httpErrorResponse": "./middleware/httpErrorResponse.js",
     "./middleware/*": "./middleware/*.js",
     "./utils/logger": "./utils/logger.js",
     "./utils/fieldCrypto": "./utils/fieldCrypto.js",

@@ -1,15 +1,52 @@
 const express = require('express');
-const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { services } = require('./config/services');
 require('dotenv').config();
 
 const app = express();
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+/** Liveness — đăng ký trước mọi middleware/proxy để không bị kẹt khi upstream chết. */
+app.get('/api/health/gateway-trust', (req, res) => {
+  const configured = Boolean(String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim());
+  res.json({
+    success: true,
+    gatewayTrustConfigured: configured,
+    message: configured
+      ? 'Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN).'
+      : 'API Gateway chưa đặt GATEWAY_INTERNAL_TOKEN — đăng nhập sẽ không ổn định. Thêm biến này vào api-gateway/.env và đồng bộ với các microservice.',
+  });
+});
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'API Gateway is running',
+    timestamp: new Date().toISOString(),
+  });
+});
+app.get('/metrics', (req, res) => {
+  res.json({
+    success: true,
+    service: 'api-gateway',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
 
+const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000);
+
+// cross-origin: cần avatar/media; frameguard: chống clickjacking
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    frameguard: { action: 'deny' },
+  })
+);
+
+// Rate limit /api/* — không áp dụng /socket.io và voice signaling (WebRTC handshake).
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.GATEWAY_RATE_LIMIT_MAX || 300),
@@ -29,50 +66,8 @@ const loginLimiter = rateLimit({
 app.use('/api/auth/login', loginLimiter);
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function toOriginMatcher(rule) {
-  const normalized = String(rule || '').replace(/\/+$/, '').trim();
-  if (!normalized) return null;
-  if (normalized === '*') {
-    if (isProd) {
-      console.warn('[api-gateway] CORS_ORIGIN=* is ignored in production');
-      return null;
-    }
-    return () => true;
-  }
-  if (!normalized.includes('*')) {
-    return (origin) => origin.replace(/\/+$/, '') === normalized;
-  }
-  const pattern = '^' + escapeRegExp(normalized).replace(/\\\*/g, '.*') + '$';
-  const regex = new RegExp(pattern);
-  return (origin) => regex.test(origin.replace(/\/+$/, ''));
-}
-
-const isProd = process.env.NODE_ENV === 'production';
-const corsAllowList = String(process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((o) => o.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim())
-  .filter(Boolean);
-const corsMatchers = corsAllowList.map(toOriginMatcher).filter(Boolean);
-
 // Middleware — production: chỉ origin trong whitelist; dev: cho phép không có Origin (mobile/curl)
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (corsMatchers.some((match) => match(origin))) return callback(null, true);
-      if (!isProd) return callback(null, true);
-      return callback(new Error('CORS blocked'));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  })
-);
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
+app.use(createCorsMiddleware());
 
 // Proxy Socket.IO polling traffic before auth/permission middlewares.
 app.use(
@@ -88,6 +83,17 @@ app.use(
      * nhưng socket-service cần path `/socket.io`.
      */
     pathRewrite: (path) => `/socket.io${path}`,
+    timeout: PROXY_HTTP_TIMEOUT_MS,
+    proxyTimeout: PROXY_HTTP_TIMEOUT_MS,
+    onError: (err, req, res) => {
+      console.warn('[API-Gateway] Socket HTTP proxy error:', err?.message || err);
+      if (res && !res.headersSent) {
+        res.status(503).json({
+          success: false,
+          message: 'Socket service unavailable',
+        });
+      }
+    },
   })
 );
 
@@ -104,6 +110,17 @@ app.use(
      * Tương tự `/socket.io`: khi mount theo `VOICE_SIGNAL_PATH`, req.url bị strip prefix.
      */
     pathRewrite: (path) => `${VOICE_SIGNAL_PATH}${path}`,
+    timeout: PROXY_HTTP_TIMEOUT_MS,
+    proxyTimeout: PROXY_HTTP_TIMEOUT_MS,
+    onError: (err, req, res) => {
+      console.warn('[API-Gateway] Voice signal HTTP proxy error:', err?.message || err);
+      if (res && !res.headersSent) {
+        res.status(503).json({
+          success: false,
+          message: 'Voice signaling service unavailable',
+        });
+      }
+    },
   })
 );
 
@@ -129,18 +146,6 @@ app.use(
   })
 );
 
-/** Public — phải khai báo trước router + auth để Express 5 không rơi vào 401 (client gọi không có JWT). */
-app.get('/api/health/gateway-trust', (req, res) => {
-  const configured = Boolean(String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim());
-  res.json({
-    success: true,
-    gatewayTrustConfigured: configured,
-    message: configured
-      ? 'Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN).'
-      : 'API Gateway chưa đặt GATEWAY_INTERNAL_TOKEN — đăng nhập sẽ không ổn định. Thêm biến này vào api-gateway/.env và đồng bộ với các microservice.',
-  });
-});
-
 // Routes
 const routes = require('./routes');
 app.use('/', routes);
@@ -148,15 +153,24 @@ app.use('/', routes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   if (err && (err.message === 'CORS blocked' || String(err.message || '').includes('CORS'))) {
-    return res.status(403).json({
-      success: false,
+    return sendApiError(res, 403, {
+      errorCode: 'CORS_FORBIDDEN',
       message: 'Not allowed by CORS',
+      messageUser: 'Nguồn yêu cầu không được phép truy cập.',
     });
   }
   console.error('Error:', err);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal server error',
+  const status = Number(err?.status || err?.statusCode) || 500;
+  if (status >= 500) {
+    return sendApiError(res, status, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
+      messageUser: GENERIC_5XX_MESSAGE,
+    });
+  }
+  return sendApiError(res, status, {
+    errorCode: err?.errorCode || 'GATEWAY_INTERNAL_ERROR',
+    message: err?.message || 'Request failed',
+    messageUser: err?.messageUser || err?.message || 'Request failed',
   });
 });
 
@@ -169,7 +183,3 @@ app.use((req, res) => {
 });
 
 module.exports = app;
-
-
-
-
