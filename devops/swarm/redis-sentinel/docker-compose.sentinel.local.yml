@@ -1,0 +1,19 @@
+# Override cho local compose test (không cần Swarm external network)
+services:
+  redis-master:
+    deploy: null
+  redis-replica-1:
+    deploy: null
+  redis-replica-2:
+    deploy: null
+  redis-sentinel-1:
+    deploy: null
+  redis-sentinel-2:
+    deploy: null
+  redis-sentinel-3:
+    deploy: null
+
+networks:
+  enterprise-network:
+    external: false
+    name: voicehub-redis-sentinel-local

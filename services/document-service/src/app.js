@@ -19,7 +19,8 @@ app.get('/health', (req, res) => {
 // Document routes
 const documentRoutes = require('./routes/document.routes');
 const internalDocumentRoutes = require('./routes/internal.document.routes');
-app.use('/api/documents', gatewayUserFromTrustedHeaders);
+const requireGatewayUser = require('./middlewares/requireGatewayUser');
+app.use('/api/documents', gatewayUserFromTrustedHeaders, requireGatewayUser);
 app.use('/api/documents', documentRoutes);
 app.use('/internal/documents', internalGatewayAuth, internalDocumentRoutes);
 

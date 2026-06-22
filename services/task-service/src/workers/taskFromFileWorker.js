@@ -6,6 +6,8 @@ const { writeTaskPayload } = require('../utils/taskPii');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const firebaseStorage = require('../utils/firebaseStorage');
 const { logger } = require('@enterprise/shared');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
 const QUEUE = process.env.RABBITMQ_TASK_FROM_FILE_QUEUE || 'voicehub.task.from_file';
 const DLQ =
@@ -141,24 +143,28 @@ async function publishToDlq(ch, msg, err) {
     transient: isTransientWorkerError(err),
     original,
   };
-  await ch.assertQueue(DLQ, { durable: true });
+  await assertQuorumQueue(ch, DLQ);
   ch.sendToQueue(DLQ, Buffer.from(JSON.stringify(body)), {
     persistent: true,
     contentType: 'application/json',
   });
 }
 
-async function startTaskFromFileWorker() {
+function isTaskFromFileWorkerEnabled() {
   const url = process.env.RABBITMQ_URL;
-  if (!url || process.env.TASK_FROM_FILE_WORKER === 'false') {
+  return Boolean(url && process.env.TASK_FROM_FILE_WORKER !== 'false');
+}
+
+async function startTaskFromFileWorker() {
+  if (!isTaskFromFileWorkerEnabled()) {
     console.log('[taskFromFileWorker] skipped');
-    return;
+    return null;
   }
 
-  const conn = await amqp.connect(url);
+  const conn = await amqp.connect(process.env.RABBITMQ_URL);
   const ch = await conn.createChannel();
-  await ch.assertQueue(QUEUE, { durable: true });
-  await ch.assertQueue(DLQ, { durable: true });
+  await assertQuorumQueue(ch, QUEUE);
+  await assertQuorumQueue(ch, DLQ);
 
   const { consumerTag } = await ch.consume(
     QUEUE,
@@ -196,7 +202,15 @@ async function startTaskFromFileWorker() {
   conn.on('error', (err) => logger.error('[taskFromFileWorker] conn', err.message));
   console.log(`[taskFromFileWorker] listening on ${QUEUE}`);
   workerHandle = { conn, ch, consumerTag };
+  await waitForAmqpClose(conn);
+  await stopTaskFromFileWorker();
   return workerHandle;
+}
+
+function runTaskFromFileWorkerLoop() {
+  return runWithReconnect('taskFromFileWorker', startTaskFromFileWorker, {
+    shouldRun: isTaskFromFileWorkerEnabled,
+  });
 }
 
 async function stopTaskFromFileWorker() {
@@ -219,4 +233,8 @@ async function stopTaskFromFileWorker() {
   workerHandle = null;
 }
 
-module.exports = { startTaskFromFileWorker, stopTaskFromFileWorker };
+module.exports = {
+  startTaskFromFileWorker,
+  stopTaskFromFileWorker,
+  runTaskFromFileWorkerLoop,
+};

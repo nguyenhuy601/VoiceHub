@@ -3,6 +3,8 @@ const {
   getAction,
   extractServerId,
   noPermissionRoutes,
+  isTaskAuthBypassRoute,
+  isDownstreamAuthorizedRoute,
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
   isDelegatedUserRoleRead,
@@ -10,6 +12,8 @@ const {
   isDelegatedRoleManageRoute,
 } = require('../config/permissions');
 const { isPublicRoute, normalizePath } = require('../config/services');
+
+const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
 
 /** Cache kết quả checkPermission (giảm tải role-service) */
 const permissionCache = new Map();
@@ -44,34 +48,24 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
-    // Task / Work / AI-task: bỏ qua role theo serverId — chạy NGAY và dùng originalUrl vì req.path
-    // có thể không khớp (proxy/mount). task-service tự kiểm tra creator/assignee.
-    const pathNorm = normalizePath(pathOnly).toLowerCase();
-    if (
-      pathNorm.startsWith('/api/tasks') ||
-      pathNorm.startsWith('/api/work') ||
-      pathNorm.startsWith('/api/ai/tasks') ||
-      /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/.test(pathNorm)
-    ) {
+    // Task / Work / AI-task / workspace boards — task-service tự authorize.
+    if (isTaskAuthBypassRoute(pathOnly)) {
       return next();
     }
 
     // Lấy action từ route và method
     const action = getAction(req.method, req.path);
-    
+
     if (!action) {
-      const pathNormUnmapped = normalizePath(pathOnly).toLowerCase();
-      const downstreamAuthPrefixes = [
-        '/api/voice',
-        '/api/meetings',
-        '/api/organizations',
-        '/api/channels',
-        '/api/tasks',
-        '/api/work',
-        '/api/ai/tasks',
-        '/api/workspaces',
-      ];
-      if (downstreamAuthPrefixes.some((prefix) => pathNormUnmapped.startsWith(prefix))) {
+      if (isDownstreamAuthorizedRoute(pathOnly)) {
+        return next();
+      }
+      console.warn(
+        `[permission] unmapped route${DENY_UNMAPPED ? ' denied' : ' (log-only)'}:`,
+        req.method,
+        pathOnly
+      );
+      if (!DENY_UNMAPPED) {
         return next();
       }
       return res.status(403).json({

@@ -1,0 +1,86 @@
+# P2-Obs alert rules — thresholds cross-reference autoscale-policy.md
+# Evaluate on Prometheus when observability stack deployed.
+
+groups:
+  - name: voicehub_queue_depth
+    rules:
+      - alert: VoiceHubQueueDepthHigh
+        expr: voicehub_rabbit_queue_messages{queue=~"task-ai\\.(extract|sync)"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          worker: ai-task
+        annotations:
+          summary: "AI task queue depth > 100 (scale-out per autoscale-policy)"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages for 5m."
+
+      - alert: VoiceHubNotificationQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.notification.dispatch"} > 200
+        for: 5m
+        labels:
+          severity: warning
+          worker: notification-dispatch
+        annotations:
+          summary: "Notification dispatch queue > 200"
+          description: "Consider scaling notification-dispatch-worker."
+
+      - alert: VoiceHubWebhookQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.webhook.delivery"} > 200
+        for: 5m
+        labels:
+          severity: warning
+          worker: webhook-delivery
+        annotations:
+          summary: "Webhook delivery queue > 200"
+
+      - alert: VoiceHubTaskFromFileQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.task.from_file"} > 50
+        for: 10m
+        labels:
+          severity: warning
+          worker: task-worker
+        annotations:
+          summary: "task.from_file queue elevated — scale task-worker cautiously (+1/10m)"
+
+      - alert: VoiceHubFriendDmQueueBacklog
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.friend.dm"} > 20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DM queue backlog — investigate consumer / chat-service"
+
+      - alert: VoiceHubDlqNotEmpty
+        expr: voicehub_rabbit_queue_messages{queue=~".*\\.dlq"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ has messages — exhausted retries or poison message"
+
+  - name: voicehub_swarm_health
+    rules:
+      - alert: VoiceHubServiceReplicaGap
+        expr: voicehub_swarm_replica_gap > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swarm service {{ $labels.service }} desired > running"
+          description: "Gap {{ $value }} for 10m — check insufficient resources or crashes."
+
+      - alert: VoiceHubGatewayP95High
+        expr: voicehub_gateway_health_p95_ms > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway /health p95 > 500ms (baseline +20% check)"
+
+      - alert: VoiceHubQueueNoConsumers
+        expr: voicehub_rabbit_queue_consumers{queue=~"voicehub\\.(notification|webhook|task).*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Queue {{ $labels.queue }} has zero consumers"

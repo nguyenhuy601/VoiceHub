@@ -1,4 +1,5 @@
 const amqp = require('amqplib');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
 
 const QUEUE = process.env.RABBITMQ_TASK_FROM_FILE_QUEUE || 'voicehub.task.from_file';
 
@@ -10,7 +11,7 @@ async function publishTaskFromFileJob(payload) {
   const conn = await amqp.connect(url);
   try {
     const ch = await conn.createChannel();
-    await ch.assertQueue(QUEUE, { durable: true });
+    await assertQuorumQueue(ch, QUEUE);
     const buf = Buffer.from(JSON.stringify(payload));
     const opts = { persistent: true };
     if (!ch.sendToQueue(QUEUE, buf, opts)) {

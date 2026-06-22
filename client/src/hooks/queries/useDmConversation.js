@@ -13,21 +13,13 @@ export function useDmConversation(peerId, { enabled = true } = {}) {
     queryFn: async ({ pageParam }) => {
       const resp = await dmMessageService.getConversation(id, {
         pageToken: pageParam || undefined,
-        page: pageParam ? undefined : 1,
         limit: dmMessageService.pageSize,
       });
       return parseMessageListPage(resp);
     },
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) => {
-      if (lastPage.nextPageToken) return lastPage.nextPageToken;
-      if (lastPage.hasMore && lastPage.currentPage != null && lastPage.totalPages != null) {
-        return lastPage.currentPage < lastPage.totalPages
-          ? lastPage.currentPage + 1
-          : undefined;
-      }
-      return undefined;
-    },
+    getNextPageParam: (lastPage) =>
+      lastPage.nextPageToken && lastPage.hasMore ? lastPage.nextPageToken : undefined,
     staleTime: STALE_TIME_FRIENDS_MS,
     enabled: Boolean(id) && enabled,
   });

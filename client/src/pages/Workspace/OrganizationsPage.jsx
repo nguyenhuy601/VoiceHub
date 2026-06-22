@@ -2730,9 +2730,9 @@ function OrganizationsPage({
       })();
     };
 
-    on?.('message:received', appendVoiceMessage);
+    on?.('room:new_message', appendVoiceMessage);
     return () => {
-      off?.('message:received', appendVoiceMessage);
+      off?.('room:new_message', appendVoiceMessage);
       leaveRoom(roomKey);
     };
   }, [

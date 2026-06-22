@@ -25,6 +25,7 @@ import userService from '../services/userService';
 import {
   getToken,
   setToken,
+  setRefreshToken,
   removeToken,
   onTokenChange,
   getResolvedBearerToken,
@@ -143,6 +144,8 @@ function AuthProvider({ children }) {
       // Backend trả về: { success: true, data: { accessToken, refreshToken, user: {...} } }
       // Hoặc sau interceptor: { accessToken, refreshToken, user: {...} }
       const token = response.accessToken || response.token || response.data?.accessToken;
+      const refreshToken =
+        response.refreshToken || response.data?.refreshToken || null;
       const userData = response.user || response.data?.user;
       
       if (!token || !userData) {
@@ -152,6 +155,9 @@ function AuthProvider({ children }) {
       // Lưu token vào localStorage để persist login
       // Token này sẽ được gửi kèm mọi API request
       setToken(token);
+      if (refreshToken) {
+        setRefreshToken(refreshToken);
+      }
       setAccessToken(token);
 
       try {

@@ -174,7 +174,7 @@ export async function fetchDashboardSearchResults({
         };
         const scope = scopeMap[subfilterId] || DM_SCOPE.ALL;
         const resp = await api.get('/messages', {
-          params: { receiverId: friendId, limit: 200, page: 1 },
+          params: { receiverId: friendId, limit: 200, fields: 'summary' },
         });
         const payload = resp?.data ?? resp;
         const result = payload?.data ?? payload;
@@ -218,7 +218,6 @@ export async function fetchDashboardSearchResults({
       if (subfilterId === 'recent') {
         const data = await fetchOrgMessageSearch([], detailQuery, {
           organizationId: orgId,
-          page: 1,
           limit: MAX_ITEMS,
         });
         const msgs = data?.messages ?? data?.data?.messages ?? [];
@@ -229,7 +228,6 @@ export async function fetchDashboardSearchResults({
       } else if (subfilterId === 'with_links') {
         const data = await fetchOrgMessageSearch([{ key: 'has', value: 'link', label: '' }], detailQuery, {
           organizationId: orgId,
-          page: 1,
           limit: MAX_ITEMS,
         });
         const msgs = data?.messages ?? data?.data?.messages ?? [];

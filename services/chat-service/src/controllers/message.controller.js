@@ -26,37 +26,12 @@ const {
 } = require('../utils/orgChannelPermissions');
 const { resolveOrgChannelAccess } = require('../services/orgAccessReadModel');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
-
-function resolveParticipantId(value) {
-  if (value == null || value === '') return '';
-  if (typeof value === 'object' && value._id != null) return String(value._id).trim();
-  return String(value).trim();
-}
-
-async function assertCanAccessMessage(message, userId, req) {
-  const uid = String(userId || '').trim();
-  if (!uid || !message) {
-    const err = new Error('Unauthorized');
-    err.statusCode = 401;
-    throw err;
-  }
-  const senderId = resolveParticipantId(message.senderId);
-  const receiverId = resolveParticipantId(message.receiverId);
-  if (senderId === uid || receiverId === uid) {
-    return true;
-  }
-  if (message.organizationId && message.roomId) {
-    const orgId = String(message.organizationId);
-    const { matrix } = await fetchAccessibleChannelPermissionMatrix(orgId, req);
-    const perms = matrix[String(message.roomId)] || {};
-    if (Boolean(perms.canRead)) {
-      return true;
-    }
-  }
-  const err = new Error('Forbidden');
-  err.statusCode = 403;
-  throw err;
-}
+const {
+  resolveParticipantId,
+  assertCanAccessMessage,
+  assertCanMarkMessageAsRead,
+} = require('../utils/messageAccess');
+const { assertDmCanSend, dmErrorToJson } = require('../utils/verifyDmRelationship');
 
 /** Realtime DM: gửi cùng payload tới sender + receiver (phòng user:{id}). */
 async function emitDmToParticipants(eventName, message, extra = {}) {
@@ -365,6 +340,7 @@ class MessageController {
         try {
           await assertDmCanSend({
             peerId: receiverId,
+            senderId,
             authorizationHeader: req.headers?.authorization,
           });
         } catch (dmErr) {
@@ -395,6 +371,14 @@ class MessageController {
           return res.status(400).json({
             success: false,
             message: 'Invalid reply target',
+          });
+        }
+        try {
+          await assertCanAccessMessage(parent, senderId, req);
+        } catch (accessErr) {
+          return res.status(accessErr.statusCode || 403).json({
+            success: false,
+            message: accessErr.message || 'Invalid reply target',
           });
         }
         if (roomId) {
@@ -621,7 +605,8 @@ class MessageController {
         data,
       });
     } catch (error) {
-      res.status(500).json({
+      const status = error.statusCode || 500;
+      res.status(status).json({
         success: false,
         message: error.message,
       });
@@ -966,11 +951,12 @@ class MessageController {
           message: 'Message not found',
         });
       }
-      const receiverId = resolveParticipantId(existing.receiverId);
-      if (receiverId && receiverId !== String(userId)) {
-        return res.status(403).json({
+      try {
+        assertCanMarkMessageAsRead(existing, userId);
+      } catch (readErr) {
+        return res.status(readErr.statusCode || 403).json({
           success: false,
-          message: 'Only the receiver can mark this message as read',
+          message: readErr.message,
         });
       }
 
@@ -990,7 +976,7 @@ class MessageController {
         data,
       });
     } catch (error) {
-      const status = error.message === 'Unauthorized' ? 403 : 500;
+      const status = error.statusCode || (error.message === 'Unauthorized' ? 403 : 500);
       res.status(status).json({
         success: false,
         message: error.message,

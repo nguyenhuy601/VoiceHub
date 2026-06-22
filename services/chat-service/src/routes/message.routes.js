@@ -1,9 +1,17 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const messageController = require('../controllers/message.controller');
 const { authenticate } = require('@enterprise/shared/middleware/auth');
 
-const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
+const CHAT_INTERNAL_TOKEN = String(process.env.CHAT_INTERNAL_TOKEN || '').trim();
+
+function tokensMatch(got, expected) {
+  const a = Buffer.from(String(got ?? ''), 'utf8');
+  const b = Buffer.from(String(expected ?? ''), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 function internalServiceOnly(req, res, next) {
   const token = String(
@@ -21,7 +29,7 @@ function internalServiceOnly(req, res, next) {
       message: 'Missing x-internal-token',
     });
   }
-  if (token !== CHAT_INTERNAL_TOKEN) {
+  if (!tokensMatch(token, CHAT_INTERNAL_TOKEN)) {
     return res.status(403).json({
       success: false,
       message: 'Forbidden',

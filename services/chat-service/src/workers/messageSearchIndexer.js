@@ -16,11 +16,13 @@ const {
   deleteOrgMessageDocument,
 } = require('../services/messageSearchIndex.service');
 const { isMeilisearchConfigured } = require('../services/meilisearchClient');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
 let consumerHandle = null;
 
 async function publishDlq(ch, msg, err) {
-  await ch.assertQueue(MESSAGE_SEARCH_INDEXER_DLQ, { durable: true });
+  await assertQuorumQueue(ch, MESSAGE_SEARCH_INDEXER_DLQ);
   ch.sendToQueue(
     MESSAGE_SEARCH_INDEXER_DLQ,
     Buffer.from(
@@ -78,8 +80,8 @@ async function startMessageSearchIndexer() {
   const conn = await amqp.connect(url);
   const ch = await conn.createChannel();
   await ch.assertExchange(MESSAGE_SEARCH_EXCHANGE, 'topic', { durable: true });
-  await ch.assertQueue(MESSAGE_SEARCH_INDEXER_QUEUE, { durable: true });
-  await ch.assertQueue(MESSAGE_SEARCH_INDEXER_DLQ, { durable: true });
+  await assertQuorumQueue(ch, MESSAGE_SEARCH_INDEXER_QUEUE);
+  await assertQuorumQueue(ch, MESSAGE_SEARCH_INDEXER_DLQ);
 
   for (const key of MESSAGE_SEARCH_BINDING_KEYS) {
     await ch.bindQueue(MESSAGE_SEARCH_INDEXER_QUEUE, MESSAGE_SEARCH_EXCHANGE, key);
@@ -112,7 +114,19 @@ async function startMessageSearchIndexer() {
   );
 
   consumerHandle = { conn, ch, tag };
+  await waitForAmqpClose(conn);
+  await stopMessageSearchIndexer();
   return consumerHandle;
+}
+
+function isMessageSearchIndexerRunnable() {
+  return isIndexerEnabled() && isMeilisearchConfigured() && Boolean(process.env.RABBITMQ_URL);
+}
+
+function runMessageSearchIndexerLoop() {
+  return runWithReconnect('messageSearchIndexer', startMessageSearchIndexer, {
+    shouldRun: isMessageSearchIndexerRunnable,
+  });
 }
 
 async function stopMessageSearchIndexer() {
@@ -138,6 +152,7 @@ async function stopMessageSearchIndexer() {
 module.exports = {
   startMessageSearchIndexer,
   stopMessageSearchIndexer,
+  runMessageSearchIndexerLoop,
   processMessageSearchEvent,
   indexMessageById,
 };

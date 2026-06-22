@@ -1,13 +1,13 @@
 require('dotenv').config();
 const { connectDB, disconnectDB, logger } = require('@enterprise/shared');
 const {
-  startNotificationDispatchWorker,
+  runNotificationDispatchWorkerLoop,
   stopNotificationDispatchWorker,
 } = require('./workers/notificationDispatch.worker');
 
 async function start() {
   await connectDB();
-  await startNotificationDispatchWorker();
+  runNotificationDispatchWorkerLoop();
   logger.info('[notification-dispatch-worker] started');
 }
 

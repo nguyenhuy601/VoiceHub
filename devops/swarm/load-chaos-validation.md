@@ -1,4 +1,19 @@
-# Load + Chaos Validation (b6)
+# Load + Chaos Validation (S3 / b6)
+
+## Automated scripts
+
+```bash
+# P2 sign-off (gateway 2+ + workers scaled)
+bash devops/swarm/run-p2-scale-validation.sh
+
+# Toàn bộ S3 (config + chaos + load)
+bash devops/swarm/run-s3-validation.sh
+
+# Từng phần
+bash devops/swarm/run-chaos-redis-rabbit.sh   # restart Redis/Rabbit, queue drain
+CHAOS_DRY_RUN=1 bash devops/swarm/run-chaos-redis-rabbit.sh  # chỉ đo queue, không restart
+bash devops/swarm/run-load-smoke.sh           # gateway burst + /socket.io probe
+```
 
 ## Load scenarios
 1. Burst chat messages in organization channels.

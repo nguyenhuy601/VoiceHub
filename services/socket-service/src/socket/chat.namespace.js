@@ -21,19 +21,22 @@ const OFFLINE_GRACE_MS = Math.max(0, Number(process.env.PRESENCE_OFFLINE_GRACE_M
 
 const FRIEND_SEND_WINDOW_MS = Math.max(1000, Number(process.env.FRIEND_SEND_RATE_WINDOW_MS || 10000));
 const FRIEND_SEND_MAX = Math.max(1, Number(process.env.FRIEND_SEND_RATE_MAX || 30));
-const friendSendBuckets = new Map();
+const ROOM_SEND_WINDOW_MS = Math.max(1000, Number(process.env.ROOM_SEND_RATE_WINDOW_MS || 10000));
+const ROOM_SEND_MAX = Math.max(1, Number(process.env.ROOM_SEND_RATE_MAX || 60));
+const PRESENCE_SUB_WINDOW_MS = Math.max(1000, Number(process.env.PRESENCE_SUB_RATE_WINDOW_MS || 60000));
+const PRESENCE_SUB_MAX = Math.max(1, Number(process.env.PRESENCE_SUB_RATE_MAX || 20));
 
-function isFriendSendRateLimited(userKey) {
-  const key = String(userKey || '').trim();
-  if (!key) return true;
-  const now = Date.now();
-  let bucket = friendSendBuckets.get(key);
-  if (!bucket || now - bucket.start >= FRIEND_SEND_WINDOW_MS) {
-    bucket = { start: now, count: 0 };
-  }
-  bucket.count += 1;
-  friendSendBuckets.set(key, bucket);
-  return bucket.count > FRIEND_SEND_MAX;
+const { isSocketEventRateLimited } = require('../utils/socketEventRateLimit');
+const { validateFriendSendPayload } = require('../utils/socketEventValidation');
+
+async function emitRateLimited(socket, userId, eventKey, limits) {
+  const limited = await isSocketEventRateLimited(eventKey, userId, socket, limits);
+  if (!limited) return false;
+  socket.emit('error', {
+    message: 'Thao tác quá nhanh, vui lòng thử lại sau',
+    code: 'RATE_LIMITED',
+  });
+  return true;
 }
 
 function cancelPendingOffline(userKey) {
@@ -127,6 +130,12 @@ module.exports = function registerChatNamespace(io) {
 
     socket.on('presence:subscribe', async (payload = {}) => {
       try {
+        if (await emitRateLimited(socket, userId, 'presence:subscribe', {
+          limit: PRESENCE_SUB_MAX,
+          windowMs: PRESENCE_SUB_WINDOW_MS,
+        })) {
+          return;
+        }
         const ids = Array.isArray(payload.userIds)
           ? payload.userIds.map((id) => String(id).trim()).filter(Boolean)
           : [];
@@ -173,14 +182,25 @@ module.exports = function registerChatNamespace(io) {
         if (!userId) {
           return socket.emit('error', { message: 'Unauthorized' });
         }
-        if (isFriendSendRateLimited(userId)) {
+        if (
+          await isSocketEventRateLimited('friend:send', userId, socket, {
+            limit: FRIEND_SEND_MAX,
+            windowMs: FRIEND_SEND_WINDOW_MS,
+          })
+        ) {
           return socket.emit('friend:send_failed', {
             message: 'Gửi tin quá nhanh, vui lòng thử lại sau',
             code: 'RATE_LIMITED',
           });
         }
-        if (!receiverId || !content) {
-          return socket.emit('error', { message: 'receiverId and content are required' });
+        const validation = validateFriendSendPayload({
+          receiverId,
+          content,
+          messageType,
+          replyToMessageId,
+        });
+        if (!validation.ok) {
+          return socket.emit('error', { message: validation.message });
         }
 
         let useQueue =
@@ -287,8 +307,41 @@ module.exports = function registerChatNamespace(io) {
       socket.emit('room:left', { roomId });
     });
 
+    socket.on('room:typing_start', ({ roomId } = {}) => {
+      if (!roomId || !userId) return;
+      const key = String(roomId);
+      if (!socket.rooms.has(key)) return;
+      socket.to(key).emit('room:typing', {
+        userId: String(userId),
+        roomId: key,
+        isTyping: true,
+      });
+    });
+
+    socket.on('room:typing_stop', ({ roomId } = {}) => {
+      if (!roomId || !userId) return;
+      const key = String(roomId);
+      if (!socket.rooms.has(key)) return;
+      socket.to(key).emit('room:typing', {
+        userId: String(userId),
+        roomId: key,
+        isTyping: false,
+      });
+    });
+
     socket.on('room:send', async ({ roomId, organizationId, event = 'room:new_message', payload = {} } = {}) => {
       if (!roomId) return;
+      if (!userId) {
+        return socket.emit('room:error', { roomId, message: 'Unauthorized' });
+      }
+      if (
+        await emitRateLimited(socket, userId, 'room:send', {
+          limit: ROOM_SEND_MAX,
+          windowMs: ROOM_SEND_WINDOW_MS,
+        })
+      ) {
+        return;
+      }
       const orgId = String(organizationId || '').trim();
       if (!orgId) {
         socket.emit('room:error', { roomId, message: 'organizationId is required' });

@@ -11,14 +11,14 @@ export const dmMessageService = {
   pageSize: DM_PAGE_SIZE,
 
   /**
-   * GET /messages?receiverId=&limit=
+   * GET /messages?receiverId=&limit= — pagination qua pageToken (không gửi page legacy).
    * @param {string} peerId
-   * @param {{ pageToken?: string|null, page?: number, limit?: number }} opts
+   * @param {{ pageToken?: string|null, limit?: number }} opts
    */
   getConversation(peerId, opts = {}) {
     const normalized =
       typeof opts === 'number'
-        ? { page: opts, limit: arguments[2] ?? DM_PAGE_SIZE }
+        ? { limit: opts }
         : opts && typeof opts === 'object'
           ? opts
           : {};
@@ -29,8 +29,6 @@ export const dmMessageService = {
     };
     if (normalized.pageToken) {
       params.pageToken = normalized.pageToken;
-    } else {
-      params.page = normalized.page ?? 1;
     }
     return api.get('/messages', { params });
   },
@@ -59,11 +57,24 @@ export const dmMessageService = {
     return api.patch(`/messages/${messageId}/recall`);
   },
 
-  /** GET /messages?receiverId=&search=1&q= */
-  searchConversation(peerId, q, page = 1, limit = 50) {
-    return api.get('/messages', {
-      params: { receiverId: peerId, q, search: 1, page, limit },
-    });
+  /** GET /messages?receiverId=&search=1&q= — trang đầu không gửi page; older dùng pageToken. */
+  searchConversation(peerId, q, opts = {}) {
+    const normalized =
+      typeof opts === 'number'
+        ? { limit: arguments[3] ?? 50, pageToken: arguments[2] || undefined }
+        : opts && typeof opts === 'object'
+          ? opts
+          : {};
+    const params = {
+      receiverId: peerId,
+      q,
+      search: 1,
+      limit: normalized.limit ?? 50,
+    };
+    if (normalized.pageToken) {
+      params.pageToken = normalized.pageToken;
+    }
+    return api.get('/messages', { params });
   },
 
   unwrap,

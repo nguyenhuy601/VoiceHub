@@ -1,6 +1,10 @@
+# P1-Cutover — App stack (Mongo Atlas + Redis Sentinel + Rabbit cluster = stacks riêng)
+# HA infra: voicehub-redis (devops/swarm/redis-sentinel/), voicehub-rabbit (devops/swarm/rabbitmq-cluster/)
+# Rollback Plan A: STACK_FILE=docker-stack.plan-a.yml — xem devops/swarm/phase1-rollback.md
+
 services:
   api-gateway:
-    image: ${REGISTRY}/${OWNER}/voicehub/api-gateway:${TAG}
+    image: ${API_GATEWAY_IMAGE}
     ports:
       - target: 3000
         published: 3000
@@ -9,6 +13,14 @@ services:
     env_file:
       - .env
       - ./api-gateway/.env
+    environment:
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_SENTINELS=${REDIS_SENTINELS:-}
+      - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
     networks:
       - enterprise-network
     deploy:
@@ -27,7 +39,7 @@ services:
           memory: 80M
 
   auth-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/auth-service:${TAG}
+    image: ${AUTH_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/auth-service/.env
@@ -48,7 +60,7 @@ services:
           memory: 80M
 
   user-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/user-service:${TAG}
+    image: ${USER_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/user-service/.env
@@ -69,7 +81,7 @@ services:
           memory: 80M
 
   organization-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/organization-service:${TAG}
+    image: ${ORGANIZATION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/organization-service/.env
@@ -90,7 +102,7 @@ services:
           memory: 80M
 
   friend-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/friend-service:${TAG}
+    image: ${FRIEND_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/friend-service/.env
@@ -114,7 +126,7 @@ services:
           memory: 80M
 
   role-permission-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/role-permission-service:${TAG}
+    image: ${ROLE_PERMISSION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/role-permission-service/.env
@@ -133,7 +145,7 @@ services:
           memory: 80M
 
   chat-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/chat-service:${TAG}
+    image: ${CHAT_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/chat-service/.env
@@ -159,7 +171,7 @@ services:
           memory: 96M
 
   task-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/task-service:${TAG}
+    image: ${TASK_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/task-service/.env
@@ -183,8 +195,8 @@ services:
           memory: 96M
 
   task-worker:
-    image: ${TASK_SERVICE_IMAGE:-voicehub/task-service:latest}
-    command: ["node", "src/workers/taskFromFileWorker.js"]
+    image: ${TASK_SERVICE_IMAGE}
+    command: ["node", "src/worker.js"]
     env_file:
       - .env
       - ./services/task-service/.env
@@ -212,7 +224,7 @@ services:
           memory: 96M
 
   ai-task-service:
-    image: ${AI_TASK_SERVICE_IMAGE:-voicehub/ai-task-service:latest}
+    image: ${AI_TASK_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-service/.env
@@ -235,7 +247,7 @@ services:
           memory: 128M
 
   ai-task-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -264,7 +276,7 @@ services:
           memory: 320M
 
   ai-task-extract-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -300,7 +312,7 @@ services:
           - node.labels.ai == true
 
   ai-task-sync-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -336,7 +348,7 @@ services:
           - node.labels.ai == true
 
   document-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/document-service:${TAG}
+    image: ${DOCUMENT_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/document-service/.env
@@ -355,7 +367,7 @@ services:
           memory: 80M
 
   voice-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/voice-service:${TAG}
+    image: ${VOICE_SERVICE_IMAGE}
     ports:
       - target: 3005
         published: 3005
@@ -426,7 +438,7 @@ services:
           memory: 192M
 
   notification-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/notification-service:${TAG}
+    image: ${NOTIFICATION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/notification-service/.env
@@ -449,7 +461,7 @@ services:
           memory: 80M
 
   notification-dispatch-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/notification-service:${TAG}
+    image: ${NOTIFICATION_SERVICE_IMAGE}
     command: ["node", "src/worker.js"]
     env_file:
       - .env
@@ -478,7 +490,7 @@ services:
           memory: 96M
 
   webhook-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/webhook-service:${TAG}
+    image: ${WEBHOOK_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/webhook-service/.env
@@ -501,7 +513,7 @@ services:
           memory: 64M
 
   webhook-delivery-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/webhook-service:${TAG}
+    image: ${WEBHOOK_SERVICE_IMAGE}
     command: ["python", "worker.py"]
     env_file:
       - .env
@@ -531,7 +543,10 @@ services:
           memory: 128M
 
   socket-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/socket-service:${TAG}
+    image: ${SOCKET_SERVICE_IMAGE}
+    # Không publish ports — chỉ enterprise-network; client WS qua api-gateway.
+    expose:
+      - "3017"
     env_file:
       - .env
       - ./services/socket-service/.env
@@ -540,6 +555,11 @@ services:
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_SENTINELS=${REDIS_SENTINELS:-}
+      - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
       - RABBITMQ_URL=${RABBITMQ_URL}
       - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE}
       - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN}
@@ -561,76 +581,6 @@ services:
         reservations:
           cpus: "0.20"
           memory: 96M
-
-  mongodb:
-    image: mongo:7
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "1.00"
-          memory: 768M
-        reservations:
-          cpus: "0.25"
-          memory: 192M
-      placement:
-        constraints:
-          - node.role == manager
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 192M
-        reservations:
-          cpus: "0.10"
-          memory: 48M
-      placement:
-        constraints:
-          - node.role == manager
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "1.00"
-          memory: 512M
-        reservations:
-          cpus: "0.20"
-          memory: 128M
-      placement:
-        constraints:
-          - node.role == manager
 
   ollama:
     image: ollama/ollama:latest
@@ -673,11 +623,7 @@ services:
           - node.labels.ai == true
 
 volumes:
-  mongodb_data:
-  redis_data:
-  rabbitmq_data:
   ollama_data:
-
 networks:
   enterprise-network:
     driver: overlay

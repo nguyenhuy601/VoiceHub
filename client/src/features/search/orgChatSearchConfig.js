@@ -63,8 +63,6 @@ export function buildOrgMessageSearchParams(tokens, keyword, ctx) {
   params.set('fields', 'summary');
   if (ctx.pageToken) {
     params.set('pageToken', String(ctx.pageToken));
-  } else if (ctx.page && ctx.page > 1) {
-    params.set('page', String(ctx.page));
   }
 
   return params;

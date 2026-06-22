@@ -4,6 +4,7 @@
 - Service health: desired vs running tasks per service.
 - Container restarts and `OOMKilled`.
 - Queue depth:
+  - `voicehub.friend.dm`
   - `task-ai.extract`
   - `task-ai.sync`
   - `voicehub.task.from_file`
@@ -12,9 +13,13 @@
 - API latency p95 on gateway.
 - Socket reconnect rate and disconnect reasons.
 
+**P2-Obs:** [`docs/phase2-observability-staging.md`](../../docs/phase2-observability-staging.md) · `run-p2-observability-baseline.sh`
+
 ## Commands (quick baseline)
 - `docker stack services voicehub`
 - `docker stack ps voicehub --no-trunc`
+- `bash devops/scripts/rabbit-queue-depth.sh`
+- `bash devops/swarm/run-p2-observability-baseline.sh`
 - `docker service logs -f voicehub_socket-service`
 - `docker service logs -f voicehub_ai-task-extract-worker`
 - `docker service logs -f voicehub_task-worker`

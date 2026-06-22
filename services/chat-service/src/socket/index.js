@@ -1,3 +1,4 @@
+/** @deprecated Legacy — canonical realtime is socket-service namespace /chat. Rollback: CHAT_SOCKET_ENABLED=true */
 const { Server } = require('socket.io');
 const { socketAuth } = require('@enterprise/shared/middleware/auth');
 const friendSocket = require('./friend.socket');

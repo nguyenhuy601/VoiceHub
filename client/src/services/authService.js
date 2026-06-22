@@ -16,6 +16,7 @@
 // Import api instance từ ./api.js
 // api đã có sẵn: base URL, interceptors, auth headers
 import api from './api';
+import { getRefreshToken, setRefreshToken, setToken } from '../utils/tokenStorage';
 
 /** Kiểm tra API Gateway đã đặt GATEWAY_INTERNAL_TOKEN (public GET, không cần JWT). */
 async function assertGatewayTrustConfigured() {
@@ -233,23 +234,27 @@ const authService = {
     return response;
   },
 
-  /* ----- REFRESH TOKEN: Làm mới token -----
-     
-     Gọi: POST /auth/refresh-token
-     Header: Authorization: Bearer <old-token>
-     Return: { token: "new-jwt..." }
-     
-     Dùng khi:
-     - Token sắp hết hạn
-     - Response 401 từ API
-     
-     TODO: Implement auto refresh trong interceptor */
+  /* ----- REFRESH TOKEN: Làm mới access token -----
+     POST /auth/refresh-token body: { refreshToken }
+     Auto retry: api.js interceptor (single-flight). */
   refreshToken: async () => {
-    // Gửi token cũ, nhận token mới
-    const response = await api.post('/auth/refresh-token');
-    
-    // Return: { token: "new-jwt..." }
-    // Cần update localStorage với token mới
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('No refresh token');
+    }
+    const response = await api.post(
+      '/auth/refresh-token',
+      { refreshToken },
+      { skipAuthRefresh: true }
+    );
+    const accessToken = response?.accessToken || response?.token || response?.data?.accessToken;
+    if (accessToken) {
+      setToken(accessToken);
+    }
+    const nextRefresh = response?.refreshToken || response?.data?.refreshToken;
+    if (nextRefresh) {
+      setRefreshToken(nextRefresh);
+    }
     return response;
   },
 

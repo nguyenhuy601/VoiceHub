@@ -1,0 +1,88 @@
+# P1-Rabbit-A — RabbitMQ 3-node cluster (Docker Swarm overlay)
+# Deploy: bash devops/swarm/rabbitmq-cluster/deploy-cluster-stack.sh
+# Local test: docker compose -f ... -f docker-compose.cluster.local.yml up -d
+
+x-rabbit-node: &rabbit-node
+  image: rabbitmq:3-management-alpine
+  networks:
+    - enterprise-network
+  environment: &rabbit-env
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:?set RABBITMQ_ERLANG_COOKIE in .env}
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?}
+    RABBITMQ_SEED_HOST: rabbitmq-1
+  volumes:
+    - type: bind
+      source: ./scripts/rabbitmq-cluster-entrypoint.sh
+      target: /scripts/rabbitmq-cluster-entrypoint.sh
+      read_only: true
+  entrypoint: ["/bin/sh", "/scripts/rabbitmq-cluster-entrypoint.sh"]
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 15s
+    timeout: 10s
+    retries: 8
+    start_period: 40s
+  deploy:
+    restart_policy:
+      condition: on-failure
+    resources:
+      limits:
+        cpus: "0.75"
+        memory: 512M
+      reservations:
+        cpus: "0.15"
+        memory: 128M
+    placement:
+      preferences:
+        - spread: node.id
+
+services:
+  rabbitmq-1:
+    <<: *rabbit-node
+    hostname: rabbitmq-1
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_CLUSTER_ROLE: seed
+    volumes:
+      - rabbitmq_1_data:/var/lib/rabbitmq
+      - type: bind
+        source: ./scripts/rabbitmq-cluster-entrypoint.sh
+        target: /scripts/rabbitmq-cluster-entrypoint.sh
+        read_only: true
+
+  rabbitmq-2:
+    <<: *rabbit-node
+    hostname: rabbitmq-2
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_CLUSTER_ROLE: member
+    volumes:
+      - rabbitmq_2_data:/var/lib/rabbitmq
+      - type: bind
+        source: ./scripts/rabbitmq-cluster-entrypoint.sh
+        target: /scripts/rabbitmq-cluster-entrypoint.sh
+        read_only: true
+
+  rabbitmq-3:
+    <<: *rabbit-node
+    hostname: rabbitmq-3
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_CLUSTER_ROLE: member
+    volumes:
+      - rabbitmq_3_data:/var/lib/rabbitmq
+      - type: bind
+        source: ./scripts/rabbitmq-cluster-entrypoint.sh
+        target: /scripts/rabbitmq-cluster-entrypoint.sh
+        read_only: true
+
+volumes:
+  rabbitmq_1_data:
+  rabbitmq_2_data:
+  rabbitmq_3_data:
+
+networks:
+  enterprise-network:
+    external: true
+    name: ${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}

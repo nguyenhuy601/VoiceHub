@@ -398,7 +398,9 @@ class MessageService {
       const existing = await Message.findById(messageId);
       if (!existing) return null;
       if (String(existing.receiverId) !== String(uid)) {
-        throw new Error('Unauthorized');
+        const err = new Error('Only the receiver can mark this message as read');
+        err.statusCode = 403;
+        throw err;
       }
       if (existing.isRead) {
         return toClientMessage(existing);

@@ -17,8 +17,6 @@ async function fetchOrgChannelMessages({ roomId, organizationId, pageParam }) {
   if (organizationId) params.organizationId = organizationId;
   if (pageParam && typeof pageParam === 'string') {
     params.pageToken = pageParam;
-  } else if (typeof pageParam === 'number' && pageParam > 1) {
-    params.page = pageParam;
   }
   const resp = await api.get('/messages', {
     params,
@@ -37,15 +35,8 @@ export function useOrgChannelMessages(roomId, organizationId, { enabled = true }
     queryFn: ({ pageParam }) =>
       fetchOrgChannelMessages({ roomId: rid, organizationId: oid, pageParam }),
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) => {
-      if (lastPage.nextPageToken) return lastPage.nextPageToken;
-      if (lastPage.hasMore && lastPage.currentPage != null && lastPage.totalPages != null) {
-        return lastPage.currentPage < lastPage.totalPages
-          ? lastPage.currentPage + 1
-          : undefined;
-      }
-      return undefined;
-    },
+    getNextPageParam: (lastPage) =>
+      lastPage.nextPageToken && lastPage.hasMore ? lastPage.nextPageToken : undefined,
     staleTime: STALE_TIME_FRIENDS_MS,
     enabled: isAuthenticated && Boolean(rid) && enabled,
   });

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { applyAuthHeader, removeToken } from '../../utils/tokenStorage';
+import { isAuthRefreshDisabled, tryRefreshAndRetry } from '../../utils/authRefresh';
 import { mapAuthSessionMessageForLogout } from '../../utils/authErrorMessages';
 import { extractApiErrorMeta, resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { isAutoLogoutDisabled } from '../../utils/devAuth';
@@ -155,6 +156,17 @@ apiClient.interceptors.response.use(
     
     // Handle specific error codes
     if (error.response?.status === 401) {
+      if (!isAuthRefreshDisabled() && !config?.skipAuthRefresh && !isAuthPublicUrl(config?.url)) {
+        try {
+          const retried = await tryRefreshAndRetry(error, apiClient);
+          if (retried !== null && retried !== undefined) {
+            return retried;
+          }
+        } catch (refreshErr) {
+          console.warn('[apiClient] Auto refresh failed:', refreshErr?.message || refreshErr);
+        }
+      }
+
       if (isAutoLogoutDisabled()) {
         console.warn('[apiClient] VITE_DISABLE_AUTO_LOGOUT: bỏ qua logout/redirect (chỉ debug).');
       } else {

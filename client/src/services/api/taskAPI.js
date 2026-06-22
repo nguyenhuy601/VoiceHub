@@ -9,12 +9,12 @@ function buildQueryParams(filters = {}) {
   return params;
 }
 
-/** legacy | workspace | dual (mặc định dual khi có workspaceSlug) */
+/** legacy | workspace | dual — mặc định workspace (S4b); rollback: VITE_TASK_API_MODE=dual */
 export function getTaskApiMode() {
-  const raw = String(import.meta.env.VITE_TASK_API_MODE || 'dual')
+  const raw = String(import.meta.env.VITE_TASK_API_MODE || 'workspace')
     .trim()
     .toLowerCase();
-  return ['legacy', 'workspace', 'dual'].includes(raw) ? raw : 'dual';
+  return ['legacy', 'workspace', 'dual'].includes(raw) ? raw : 'workspace';
 }
 
 export function extractWorkspaceApiContext(source = {}) {

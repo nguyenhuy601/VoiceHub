@@ -33,6 +33,8 @@ const routeActionMap = {
   // Document Service
   'GET /api/documents': 'document:read',
   'POST /api/documents': 'document:write',
+  'PUT /api/documents': 'document:write',
+  'PATCH /api/documents': 'document:write',
   'DELETE /api/documents': 'document:delete',
 
   // Voice Service
@@ -98,7 +100,34 @@ const routeActionMap = {
   // Friend Service (không cần server context)
   'GET /api/friends': 'friend:read',
   'POST /api/friends': 'friend:write',
+
+  // Organization BFF (sau permission middleware — org-service kiểm tra membership)
+  'GET /api/organizations/:orgId/shell': 'organization:read',
+  'GET /api/organizations/:orgId/documents-overview': 'organization:read',
 };
+
+/**
+ * Prefixes cho phép proxy khi chưa có action map — service đích tự authorize.
+ * Giữ đồng bộ với api-gateway/src/config/services.js proxy prefixes.
+ */
+const DOWNSTREAM_AUTH_PREFIXES = [
+  '/api/voice',
+  '/api/meetings',
+  '/api/organizations',
+  '/api/channels',
+  '/api/tasks',
+  '/api/work',
+  '/api/ai/tasks',
+  '/api/workspaces',
+];
+
+const TASK_AUTH_BYPASS_PREFIXES = [
+  '/api/tasks',
+  '/api/work',
+  '/api/ai/tasks',
+];
+
+const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
 
 /**
  * Routes không cần kiểm tra permission (chỉ cần authentication)
@@ -143,6 +172,51 @@ const normalizeToApiPath = (path = '') => {
   const sanitized = String(path || '').split('?')[0] || '/';
   return sanitized.startsWith('/api') ? sanitized : `/api${sanitized}`;
 };
+
+const normalizePathKey = (path = '') =>
+  normalizeToApiPath(String(path || '').split('?')[0]).replace(/\/+/g, '/').toLowerCase();
+
+function isNoPermissionRoute(path) {
+  const pathWithoutQuery = String(path || '').split('?')[0];
+  const apiPath = normalizeToApiPath(pathWithoutQuery);
+  return noPermissionRoutes.some(
+    (route) => pathWithoutQuery.startsWith(route) || apiPath.startsWith(route)
+  );
+}
+
+function isTaskAuthBypassRoute(path) {
+  const pathNorm = normalizePathKey(path);
+  if (TASK_AUTH_BYPASS_PREFIXES.some((prefix) => pathNorm.startsWith(prefix))) {
+    return true;
+  }
+  return TASK_AUTH_BYPASS_REGEX.test(pathNorm);
+}
+
+function isDownstreamAuthorizedRoute(path) {
+  const pathNorm = normalizePathKey(path);
+  return DOWNSTREAM_AUTH_PREFIXES.some((prefix) => pathNorm.startsWith(prefix));
+}
+
+/**
+ * Phân loại route cho permission middleware (audit + smoke).
+ * @returns {'public_skip'|'task_bypass'|'no_permission'|'action'|'downstream'|'unmapped'}
+ */
+function classifyPermissionRoute(method, path) {
+  if (isNoPermissionRoute(path)) {
+    return 'no_permission';
+  }
+  if (isTaskAuthBypassRoute(path)) {
+    return 'task_bypass';
+  }
+  const action = getAction(method, path);
+  if (action) {
+    return 'action';
+  }
+  if (isDownstreamAuthorizedRoute(path)) {
+    return 'downstream';
+  }
+  return 'unmapped';
+}
 
 const getAction = (method, path) => {
   const pathWithoutQuery = String(path || '').split('?')[0];
@@ -300,10 +374,41 @@ function isDelegatedRoleManageRoute(req, action) {
   return false;
 }
 
+/** Các path client thực tế — smoke test không được `unmapped`. */
+const AUDITED_CLIENT_API_PATHS = [
+  ['GET', '/api/bootstrap'],
+  ['GET', '/api/dashboard/summary'],
+  ['GET', '/api/users/me'],
+  ['GET', '/api/users/search'],
+  ['GET', '/api/users/abc123'],
+  ['GET', '/api/friends'],
+  ['GET', '/api/notifications'],
+  ['GET', '/api/messages'],
+  ['GET', '/api/messages/unread/org'],
+  ['POST', '/api/messages'],
+  ['GET', '/api/documents'],
+  ['PATCH', '/api/documents/doc1'],
+  ['GET', '/api/organizations/my'],
+  ['GET', '/api/organizations/org1/shell'],
+  ['GET', '/api/organizations/org1/structure'],
+  ['GET', '/api/tasks'],
+  ['POST', '/api/ai/tasks/extract'],
+  ['GET', '/api/voice/calls/active'],
+  ['GET', '/api/meetings'],
+  ['GET', '/api/roles/server/org1'],
+  ['GET', '/api/workspaces/ws1/task-boards'],
+];
+
 module.exports = {
   getAction,
   extractServerId,
   noPermissionRoutes,
+  DOWNSTREAM_AUTH_PREFIXES,
+  isNoPermissionRoute,
+  isTaskAuthBypassRoute,
+  isDownstreamAuthorizedRoute,
+  classifyPermissionRoute,
+  AUDITED_CLIENT_API_PATHS,
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
   isDelegatedUserRoleRead,

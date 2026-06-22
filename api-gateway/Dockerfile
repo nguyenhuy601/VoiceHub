@@ -16,17 +16,14 @@ RUN npm install --ignore-scripts && npm install -g nodemon
 
 # 5️⃣ Link @enterprise/shared tại build — không phụ thuộc mount runtime /shared
 COPY shared /shared
-RUN node /shared/postinstall-link.cjs
-
-# 6️⃣ Entrypoint: re-link khi dev mount ./shared:/shared
+RUN cd /shared && npm install --omit=dev --ignore-scripts
 COPY api-gateway/docker-entrypoint.sh /usr/local/bin/api-gateway-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/api-gateway-entrypoint.sh && \
     chmod +x /usr/local/bin/api-gateway-entrypoint.sh
 
-# 7️⃣ Copy toàn bộ code gateway
 COPY api-gateway/ .
+RUN node /shared/postinstall-link.cjs
 
-# 8️⃣ Mở cổng app
 EXPOSE 3000
 
 ENTRYPOINT ["/usr/local/bin/api-gateway-entrypoint.sh"]

@@ -100,7 +100,9 @@ services:
 
   auth-service:
 
-    build: ./services/auth-service
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
 
     container_name: enterprise-auth-service
 
@@ -138,7 +140,9 @@ services:
 
   user-service:
 
-    build: ./services/user-service
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
 
     container_name: enterprise-user-service
 
@@ -176,7 +180,9 @@ services:
 
   organization-service:
 
-    build: ./services/organization-service
+    build:
+      context: .
+      dockerfile: services/organization-service/Dockerfile
 
     container_name: enterprise-organization-service
 
@@ -214,7 +220,9 @@ services:
 
   friend-service:
 
-    build: ./services/friend-service
+    build:
+      context: .
+      dockerfile: services/friend-service/Dockerfile
 
     container_name: enterprise-friend-service
 
@@ -256,7 +264,9 @@ services:
 
   role-permission-service:
 
-    build: ./services/role-permission-service
+    build:
+      context: .
+      dockerfile: services/role-permission-service/Dockerfile
 
     container_name: enterprise-role-permission-service
 
@@ -292,7 +302,9 @@ services:
 
   chat-service:
 
-    build: ./services/chat-service
+    build:
+      context: .
+      dockerfile: services/chat-service/Dockerfile
 
     container_name: enterprise-chat-service
 
@@ -360,7 +372,9 @@ services:
 
   task-service:
 
-    build: ./services/task-service
+    build:
+      context: .
+      dockerfile: services/task-service/Dockerfile
 
     container_name: enterprise-task-service
 
@@ -416,7 +430,9 @@ services:
 
   ai-task-service:
 
-    build: ./services/ai-task-service
+    build:
+      context: .
+      dockerfile: services/ai-task-service/Dockerfile
 
     container_name: enterprise-ai-task-service
 
@@ -468,7 +484,9 @@ services:
 
   ai-task-worker:
 
-    build: ./services/ai-task-worker
+    build:
+      context: .
+      dockerfile: services/ai-task-worker/Dockerfile
 
     container_name: enterprise-ai-task-worker
 
@@ -526,7 +544,9 @@ services:
 
   document-service:
 
-    build: ./services/document-service
+    build:
+      context: .
+      dockerfile: services/document-service/Dockerfile
 
     container_name: enterprise-document-service
 
@@ -560,7 +580,9 @@ services:
 
   voice-service:
 
-    build: ./services/voice-service
+    build:
+      context: .
+      dockerfile: services/voice-service/Dockerfile
 
     container_name: enterprise-voice-service
 
@@ -618,7 +640,9 @@ services:
 
   notification-service:
 
-    build: ./services/notification-service
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
 
     container_name: enterprise-notification-service
 
@@ -686,7 +710,9 @@ services:
 
   socket-service:
 
-    build: ./services/socket-service
+    build:
+      context: .
+      dockerfile: services/socket-service/Dockerfile
 
     container_name: enterprise-socket-service
 
@@ -713,6 +739,8 @@ services:
       FRIEND_DM_USE_QUEUE: ${FRIEND_DM_USE_QUEUE}
 
       REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN}
+
+      SOCKET_IO_REDIS_ADAPTER: ${SOCKET_IO_REDIS_ADAPTER:-true}
 
     depends_on:
 

@@ -593,7 +593,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const fetchLastDmActivity = useCallback(async () => {
     if (!currentUserId) return {};
     try {
-      const resp = await api.get('/messages', { params: { limit: 500, page: 1 } });
+      const resp = await api.get('/messages', { params: { limit: 500, fields: 'summary' } });
       const payload = resp?.data || resp;
       const result = payload?.data || payload;
       const list = result?.messages || [];

@@ -88,7 +88,7 @@ Infra: **MongoDB**, **Redis**, **RabbitMQ** — [`docs/DOCKER-COMPOSE.md`](docs/
 | Frontend | React 18, Vite, React Router, Tailwind, Axios, Socket.IO client, mediasoup-client (lazy) |
 | Backend | Node.js + Express (microservices), Python (webhook-service nếu bật) |
 | Dữ liệu | MongoDB, Redis |
-| Triển khai | Docker Compose (`docker-compose.yml` gồm `include` infra + core) |
+| Triển khai | Dev: Docker Compose; staging: **Docker Swarm** (`docker-stack.yml`) |
 
 ---
 
@@ -192,7 +192,7 @@ Ma trận đầy đủ + rotate secret: **[`docs/security-runbook.md`](docs/secu
 
 ## Chạy hệ thống
 
-**Docker (khuyến nghị)** — [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md):
+**Docker Compose (local dev)** — [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md):
 
 ```bash
 # Đầy đủ (tạo .env ở root repo trước)
@@ -201,6 +201,16 @@ docker compose up -d --build
 # Dev + hot reload (nếu dùng file dev)
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
+
+**Docker Swarm (staging / production hiện tại)** — không cần Kubernetes:
+
+```bash
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+bash devops/swarm/deploy-stack.sh
+bash devops/swarm/run-s3-validation.sh   # HA + chaos smoke
+```
+
+Chi tiết: [`devops/swarm/README.md`](devops/swarm/README.md), [`MIGRATION.md`](MIGRATION.md), [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ### Chuẩn bị `.env`
 
@@ -240,6 +250,9 @@ node scripts/security-boundary-check.js
 | [`docs/security-runbook.md`](docs/security-runbook.md) | Token, header, kiểm tra sau deploy |
 | [`docs/SOCKET_LB.md`](docs/SOCKET_LB.md) | Socket / load balancer |
 | [`docs/spec-pack/00-INDEX.md`](docs/spec-pack/00-INDEX.md) | Gói đặc tả |
+| [`MIGRATION.md`](MIGRATION.md) | Compose vs Swarm; không dùng tài liệu chat-system cũ |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Kiến trúc + realtime canonical |
+| [`devops/swarm/README.md`](devops/swarm/README.md) | Deploy Swarm, HA, rollback |
 | [`shared/README.md`](shared/README.md) | Thư viện shared |
 
 ---

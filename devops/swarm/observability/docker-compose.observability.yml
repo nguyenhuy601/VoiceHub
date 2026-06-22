@@ -1,0 +1,65 @@
+# P2-Obs — optional Prometheus + node-exporter (staging Swarm)
+# Deploy: bash devops/swarm/observability/deploy-observability-stack.sh
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: 64M
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - type: bind
+        source: ./prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ./alerts.yml
+        target: /etc/prometheus/alerts.yml
+        read_only: true
+      - prometheus_data:/prometheus
+    ports:
+      - target: 9090
+        published: 9090
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    networks:
+      - observability
+
+volumes:
+  prometheus_data:
+
+networks:
+  observability:
+    driver: overlay
+    attachable: true

@@ -7,6 +7,7 @@
     ".": "./index.js",
     "./config/mongo": "./config/mongo.js",
     "./config/redis": "./config/redis.js",
+    "./config/redisConnection": "./config/redisConnection.js",
     "./middleware/auth": "./middleware/auth.js",
     "./middleware/corsPolicy": "./middleware/corsPolicy.js",
     "./middleware/gatewayTrust": "./middleware/gatewayTrust.js",

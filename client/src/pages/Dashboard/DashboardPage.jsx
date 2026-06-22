@@ -33,6 +33,7 @@ import { getUserDisplayName } from '../../utils/helpers';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
+import { parseMessageListPage } from '../../lib/parseMessageListPage';
 
 /** Mini sparkline — thanh nhỏ cho thẻ metric */
 function MiniSparkline({ up = true, className = '' }) {
@@ -127,14 +128,18 @@ async function sumTaskDoneAcrossOrgs(orgIds) {
 
 async function fetchMessagesForDashboardPaged(api, { maxPages = 3, limit = 50 } = {}) {
   const rows = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const msgRes = await api.get('/messages', { params: { limit, page }, skipGlobalErrorHandling: true }).catch(() => null);
+  let pageToken;
+  for (let i = 0; i < maxPages; i += 1) {
+    const params = { limit, fields: 'summary' };
+    if (pageToken) params.pageToken = pageToken;
+    const msgRes = await api.get('/messages', { params, skipGlobalErrorHandling: true }).catch(() => null);
     if (!msgRes) break;
-    const msgBody = msgRes?.data?.data ?? msgRes?.data ?? msgRes;
-    const batch = Array.isArray(msgBody?.messages) ? msgBody.messages : [];
+    const page = parseMessageListPage(msgRes);
+    const batch = page.messages || [];
     if (!batch.length) break;
     rows.push(...batch);
-    if (batch.length < limit) break;
+    if (!page.hasMore || !page.nextPageToken) break;
+    pageToken = page.nextPageToken;
   }
   return rows;
 }

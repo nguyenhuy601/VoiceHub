@@ -1,24 +1,21 @@
-# 1️⃣ Base image
+# Build context: repo root
+#   docker build -f services/chat-service/Dockerfile -t voicehub-chat-service:latest .
 FROM node:20-alpine
 
-# 2️⃣ Set working dir
 WORKDIR /app
 
 ENV npm_config_fetch_retries=10 \
     npm_config_fetch_retry_mintimeout=20000 \
     npm_config_fetch_retry_maxtimeout=120000
 
-# 3️⃣ Copy dependency files
-COPY package*.json ./
-
-# 4️⃣ Cài dependencies (và nodemon để dev mode dùng được)
+COPY services/chat-service/package*.json ./
 RUN npm install --ignore-scripts && npm install -g nodemon
 
-# 5️⃣ Copy toàn bộ code
-COPY . .
+COPY shared /shared
+RUN cd /shared && npm install --omit=dev --ignore-scripts
+COPY services/chat-service/ .
+RUN node /shared/postinstall-link.cjs
 
-# 6️⃣ Mở cổng app
 EXPOSE 3006
 
-# 7️⃣ Default command (dùng cho production)
 CMD ["node", "src/server.js"]

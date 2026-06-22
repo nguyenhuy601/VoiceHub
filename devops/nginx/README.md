@@ -41,7 +41,7 @@ Use your actual dev host LAN IP (DHCP có thể đổi IP — nên đặt IP tĩ
 powershell -ExecutionPolicy Bypass -File .\devops\nginx\print-lan-hosts-hint.ps1
 ```
 
-Chi tiết checklist + xử lý lỗi: [docs/lan-https-voicehub-local.md](../../docs/lan-https-voicehub-local.md).
+Chi tiết checklist + xử lý lỗi: [docs/lan-https-voicehub.local.md](../../docs/lan-https-voicehub.local.md).
 
 ## 4) Run Nginx with HTTPS config
 

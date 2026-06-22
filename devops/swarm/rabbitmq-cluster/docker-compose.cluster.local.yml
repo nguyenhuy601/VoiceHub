@@ -1,0 +1,13 @@
+# Override cho local compose test (không cần Swarm external network)
+services:
+  rabbitmq-1:
+    deploy: null
+  rabbitmq-2:
+    deploy: null
+  rabbitmq-3:
+    deploy: null
+
+networks:
+  enterprise-network:
+    external: false
+    name: voicehub-rabbitmq-cluster-local

@@ -10,6 +10,8 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const amqp = require('amqplib');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { waitForAmqpClose, sleep } = require('@enterprise/shared/messaging/rabbitReconnect');
 const axios = require('axios');
 const { connectDB, disconnectDB } = require('@enterprise/shared');
 const AiTaskExtraction = require('./models/AiTaskExtraction');
@@ -471,7 +473,7 @@ async function publishToDlq(ch, sourceQueue, msg, err) {
     transient: isTransientJobError(err),
     original,
   };
-  await ch.assertQueue(DLQ_QUEUE, { durable: true });
+  await assertQuorumQueue(ch, DLQ_QUEUE);
   ch.sendToQueue(DLQ_QUEUE, Buffer.from(JSON.stringify(body)), {
     persistent: true,
     contentType: 'application/json',
@@ -516,54 +518,57 @@ function isTransientJobError(err) {
   return false;
 }
 
-async function start() {
-  const mongoUri = (process.env.AI_TASK_MONGODB_URI || '').trim() || process.env.MONGODB_URI;
-  await connectDB(mongoUri);
+let shuttingDown = false;
+let activeSession = null;
 
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const session = activeSession;
+  activeSession = null;
+  if (session) {
+    try {
+      if (session.extractConsumerTag) await session.ch.cancel(session.extractConsumerTag);
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      if (session.syncConsumerTag) await session.ch.cancel(session.syncConsumerTag);
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      await session.ch.close();
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      await session.conn.close();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  try {
+    await disconnectDB();
+  } catch (e) {
+    /* ignore */
+  }
+  process.exit(0);
+}
+
+async function runWorkerSession() {
   const url = process.env.RABBITMQ_URL;
   if (!url) throw new Error('RABBITMQ_URL is not set');
 
   const conn = await connectAmqpWithRetry(url);
   const ch = await conn.createChannel();
-  await ch.assertQueue(EXTRACT_QUEUE, { durable: true });
-  await ch.assertQueue(SYNC_QUEUE, { durable: true });
-  await ch.assertQueue(DLQ_QUEUE, { durable: true });
+  await assertQuorumQueue(ch, EXTRACT_QUEUE);
+  await assertQuorumQueue(ch, SYNC_QUEUE);
+  await assertQuorumQueue(ch, DLQ_QUEUE);
   await ch.prefetch(1);
 
   let extractConsumerTag = null;
   let syncConsumerTag = null;
-
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    try {
-      if (extractConsumerTag) await ch.cancel(extractConsumerTag);
-    } catch (e) {
-      /* ignore */
-    }
-    try {
-      if (syncConsumerTag) await ch.cancel(syncConsumerTag);
-    } catch (e) {
-      /* ignore */
-    }
-    try {
-      await ch.close();
-    } catch (e) {
-      /* ignore */
-    }
-    try {
-      await conn.close();
-    } catch (e) {
-      /* ignore */
-    }
-    try {
-      await disconnectDB();
-    } catch (e) {
-      /* ignore */
-    }
-    process.exit(0);
-  };
 
   const shouldConsumeExtract = WORKER_MODE === 'extract' || WORKER_MODE === 'both';
   const shouldConsumeSync = WORKER_MODE === 'sync' || WORKER_MODE === 'both';
@@ -643,11 +648,40 @@ async function start() {
     syncConsumerTag = syncConsume.consumerTag;
   }
 
+  activeSession = { conn, ch, extractConsumerTag, syncConsumerTag };
+  conn.on('error', (err) => console.error('[ai-task-worker] conn error:', err.message));
+  await waitForAmqpClose(conn);
+  activeSession = null;
+  try {
+    await ch.close();
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    await conn.close();
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+async function start() {
+  const mongoUri = (process.env.AI_TASK_MONGODB_URI || '').trim() || process.env.MONGODB_URI;
+  await connectDB(mongoUri);
+
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  conn.on('error', (err) => console.error('[ai-task-worker] conn error:', err.message));
-  conn.on('close', () => console.error('[ai-task-worker] conn closed'));
+  while (!shuttingDown) {
+    try {
+      await runWorkerSession();
+    } catch (err) {
+      if (shuttingDown) break;
+      console.error('[ai-task-worker] session error:', err.message);
+    }
+    if (shuttingDown) break;
+    console.warn('[ai-task-worker] reconnecting in 5s…');
+    await sleep(5000);
+  }
 }
 
 start().catch((err) => {

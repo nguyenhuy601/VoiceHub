@@ -3,6 +3,7 @@
  * getToken() đọc cả hai storage (tránh lệch env / login cũ).
  */
 const KEY = 'token';
+const REFRESH_KEY = 'refreshToken';
 const TOKEN_CHANGE_EVENT = 'vh-token-changed';
 
 function notifyTokenChange() {
@@ -92,10 +93,37 @@ export function setToken(token) {
   notifyTokenChange();
 }
 
+export function getRefreshToken() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const primary = getTokenStorage();
+    const fromPrimary = primary?.getItem(REFRESH_KEY);
+    if (fromPrimary) return fromPrimary;
+    return localStorage.getItem(REFRESH_KEY) || sessionStorage.getItem(REFRESH_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setRefreshToken(token) {
+  const value = token != null ? String(token).trim() : '';
+  if (!value) return;
+  try {
+    const primary = getTokenStorage();
+    if (primary) {
+      primary.setItem(REFRESH_KEY, value);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function removeToken() {
   try {
     localStorage.removeItem(KEY);
     sessionStorage.removeItem(KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
   } catch {
     /* ignore */
   }
@@ -103,6 +131,7 @@ export function removeToken() {
   if (s) {
     try {
       s.removeItem(KEY);
+      s.removeItem(REFRESH_KEY);
     } catch {
       /* ignore */
     }

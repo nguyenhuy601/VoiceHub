@@ -6,7 +6,7 @@
    - Voice chat signaling
    - Notifications realtime
 
-   Kết nối: API Gateway (VITE_SOCKET_URL) hoặc trực tiếp socket-service (VITE_SOCKET_DIRECT_URL) + /chat
+   Kết nối: API Gateway hoặc socket-service (VITE_SOCKET_DIRECT_URL) + namespace /chat — không qua chat-service :3006
 ======================================== */
 
 // Import hooks để build context
@@ -19,7 +19,7 @@ import { io } from 'socket.io-client';
 // Import useAuth để lấy user info và token
 // Cần token để authenticate socket connection
 import { useAuth } from './AuthContext';
-import { getToken } from '../utils/tokenStorage';
+import { getResolvedBearerToken } from '../utils/tokenStorage';
 import { isLandingEmbedActive } from '../utils/landingEmbedMode';
 import { resolveAppOrigin } from '../utils/browserOrigin';
 
@@ -166,7 +166,7 @@ function SocketProvider({ children }) {
   // Lấy user và isAuthenticated từ AuthContext
   // Cần user để gửi user info qua socket
   // Chỉ connect socket khi isAuthenticated = true
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, accessToken } = useAuth();
 
   /** Chỉ id ổn định — tránh reconnect mỗi render khi object `user` đổi tham chiếu */
   const socketUserKey = useMemo(() => {
@@ -203,9 +203,9 @@ function SocketProvider({ children }) {
   ======================================== */
   useEffect(() => {
     // Chỉ connect khi user đã login và đã có id ổn định
-    if (isAuthenticated && socketUserKey) {
-      // Lấy token từ localStorage để authenticate
-      const token = getToken();
+    const token = getResolvedBearerToken();
+    if (isAuthenticated && socketUserKey && token) {
+      // accessToken trong deps — reconnect sau auto-refresh JWT (handshake auth không tự cập nhật)
       
       /* ----- TẠO SOCKET CONNECTION ----- */
       const newSocket = io(SOCKET_NAMESPACE_URL, {
@@ -343,7 +343,7 @@ function SocketProvider({ children }) {
         setConnectionError(null);
       };
     }
-  }, [isAuthenticated, socketUserKey]); // Re-run khi login/logout hoặc đổi user id — không phụ thuộc object user
+  }, [isAuthenticated, socketUserKey, accessToken]); // Re-run khi login/logout, đổi user, hoặc refresh access token
 
   /* ========================================
      HELPER FUNCTION: emit()
@@ -378,8 +378,8 @@ function SocketProvider({ children }) {
      Listen event từ server
      
      Cách dùng:
-     on('message:received', (message) => {
-       console.log('New message:', message);
+     on('room:new_message', (message) => {
+       console.log('New org room message:', message);
      });
      
      Dùng trong component với useEffect
@@ -488,10 +488,10 @@ export { SocketProvider };
          setMessages(prev => [...prev, msg]);
        };
        
-       on('message:received', handleMessage);
+       on('room:new_message', handleMessage);
        
        // Cleanup: off listener
-       return () => off('message:received', handleMessage);
+       return () => off('room:new_message', handleMessage);
      }, [on, off]);
      
      // Send message

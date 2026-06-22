@@ -16,6 +16,7 @@
 // Import axios - HTTP client library
 import axios from 'axios';
 import { applyAuthHeader, removeToken } from '../utils/tokenStorage';
+import { isAuthRefreshDisabled, tryRefreshAndRetry } from '../utils/authRefresh';
 import { mapAuthSessionMessageForLogout } from '../utils/authErrorMessages';
 import { extractApiErrorMeta, resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { isAutoLogoutDisabled } from '../utils/devAuth';
@@ -50,7 +51,7 @@ function buildRejectedError(errorLike, fallback = 'Đã xảy ra lỗi') {
    API Gateway sẽ route:
    /api/auth/* → auth-service (port 3001)
    /api/users/* → user-service (port 3004)
-   /api/chat/* → chat-service (port 3006)
+   /api/messages/* → chat-service (port 3006, REST only — WebSocket qua socket-service :3017 / gateway)
    /api/organizations/* → organization-service (port 3013)
    /api/tasks/* → task-service (port 3009)
    /api/friends/* → friend-service (port 3014)
@@ -287,6 +288,17 @@ api.interceptors.response.use(
       // Request tùy chọn (vd: enrich profile sau khi đã xác thực bằng /auth/me) — không xóa token / redirect
       if (error.config?.skipGlobalAuthFailure) {
         return Promise.reject(buildRejectedError(error, 'Đã xảy ra lỗi'));
+      }
+
+      if (!isAuthRefreshDisabled() && !error.config?.skipAuthRefresh) {
+        try {
+          const retried = await tryRefreshAndRetry(error, api);
+          if (retried !== null && retried !== undefined) {
+            return retried;
+          }
+        } catch (refreshErr) {
+          console.warn('[API] Auto refresh failed:', refreshErr?.message || refreshErr);
+        }
       }
 
       // Hiển thị lỗi chi tiết từ server để debug (trước khi redirect)

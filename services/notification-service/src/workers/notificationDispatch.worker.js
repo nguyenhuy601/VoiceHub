@@ -1,6 +1,8 @@
 const amqp = require('amqplib');
 const notificationService = require('../services/notification.service');
 const { logger } = require('@enterprise/shared');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
 const QUEUE = process.env.RABBITMQ_NOTIFICATION_DISPATCH_QUEUE || 'voicehub.notification.dispatch';
 const DLQ = process.env.RABBITMQ_NOTIFICATION_DISPATCH_DLQ || `${QUEUE}.dlq`;
@@ -18,7 +20,7 @@ function retryCount(msg) {
 }
 
 async function publishDlq(ch, msg, err) {
-  await ch.assertQueue(DLQ, { durable: true });
+  await assertQuorumQueue(ch, DLQ);
   ch.sendToQueue(
     DLQ,
     Buffer.from(
@@ -45,17 +47,22 @@ async function processJob(payload) {
   });
 }
 
-async function startNotificationDispatchWorker() {
+function isNotificationDispatchWorkerEnabled() {
   if (String(process.env.NOTIFICATION_DISPATCH_WORKER || 'false').toLowerCase() !== 'true') {
+    return false;
+  }
+  return Boolean(process.env.RABBITMQ_URL);
+}
+
+async function startNotificationDispatchWorker() {
+  if (!isNotificationDispatchWorkerEnabled()) {
     return null;
   }
-  const url = process.env.RABBITMQ_URL;
-  if (!url) throw new Error('RABBITMQ_URL is required for notification worker');
 
-  const conn = await amqp.connect(url);
+  const conn = await amqp.connect(process.env.RABBITMQ_URL);
   const ch = await conn.createChannel();
-  await ch.assertQueue(QUEUE, { durable: true });
-  await ch.assertQueue(DLQ, { durable: true });
+  await assertQuorumQueue(ch, QUEUE);
+  await assertQuorumQueue(ch, DLQ);
 
   const { consumerTag } = await ch.consume(
     QUEUE,
@@ -86,7 +93,15 @@ async function startNotificationDispatchWorker() {
 
   logger.info(`[notificationDispatchWorker] listening on ${QUEUE}`);
   workerHandle = { conn, ch, consumerTag };
+  await waitForAmqpClose(conn);
+  await stopNotificationDispatchWorker();
   return workerHandle;
+}
+
+function runNotificationDispatchWorkerLoop() {
+  return runWithReconnect('notificationDispatchWorker', startNotificationDispatchWorker, {
+    shouldRun: isNotificationDispatchWorkerEnabled,
+  });
 }
 
 async function stopNotificationDispatchWorker() {
@@ -106,4 +121,5 @@ async function stopNotificationDispatchWorker() {
 module.exports = {
   startNotificationDispatchWorker,
   stopNotificationDispatchWorker,
+  runNotificationDispatchWorkerLoop,
 };

@@ -1,16 +1,33 @@
-# Realtime HA Checklist (a6)
+# Realtime HA Checklist (S3 / a6)
 
-## socket-service
-- `SOCKET_IO_REDIS_ADAPTER=true`
-- `SOCKET_SERVICE_REPLICAS>=2`
-- Redis reachable from all replicas.
+## Config (staging `.env` + `docker-stack.yml`)
 
-## Load balancer / Nginx
-- Sticky session for websocket endpoint `/socket.io`.
-- Preserve `Upgrade` and `Connection` headers.
-- Keep `X-Forwarded-*` headers.
+| Biến | Giá trị |
+|------|---------|
+| `SOCKET_SERVICE_REPLICAS` | `>= 2` |
+| `SOCKET_IO_REDIS_ADAPTER` | `true` |
+| `REDIS_HOST` / `REDIS_PORT` | Reachable từ mọi socket replica |
 
-## Validation
-1. Open 2 browser clients.
-2. Restart one socket-service task.
-3. Verify reconnect, presence state, and message delivery.
+Automated:
+
+```bash
+bash devops/swarm/run-realtime-ha-checklist.sh
+```
+
+`GET /health` trên socket-service trả `redisAdapter: true` khi adapter gắn thành công.
+
+## Load balancer / Nginx (optional edge)
+
+- WS qua gateway + Redis adapter: sticky **không bắt buộc** (xem `staging-nginx-edge.md`).
+- Nếu LB riêng socket: `devops/nginx/swarm-socket-sticky.conf` — `ip_hash`, giữ `Upgrade` / `Connection`, `X-Forwarded-*`.
+
+## Validation (manual sign-off)
+
+1. Mở 2 browser clients (2 user).
+2. `docker service update --force voicehub_socket-service` (kill 1 task).
+3. Verify: reconnect, presence, DM + org realtime.
+
+```bash
+docker stack services voicehub
+docker service logs -f voicehub_socket-service
+```
