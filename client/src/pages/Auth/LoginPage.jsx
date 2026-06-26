@@ -9,8 +9,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
-import DemoAccountsPanel from '../../components/Auth/DemoAccountsPanel';
-import { isDemoAccountsEnabled } from '../../config/demoAccounts';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -37,6 +35,8 @@ function LoginPage({ landingDemo = false } = {}) {
     ? 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-600 bg-[#0c1018] text-cyan-500'
     : 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-300 text-cyan-600';
   const btnPrimary = authPrimaryButtonClass(isDarkMode);
+  const submitDisabled =
+    loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
 
   useEffect(() => {
     if (location.state?.message) {
@@ -106,10 +106,6 @@ function LoginPage({ landingDemo = false } = {}) {
           <p className="mt-1 opacity-95">
             {gatewayTrust.message || t('login.gatewayAlertFallback')}
           </p>
-
-          {!landingDemo && isDemoAccountsEnabled() && (
-            <DemoAccountsPanel disabled={loading || submitDisabled} />
-          )}
         </div>
       )}
 
@@ -172,7 +168,7 @@ function LoginPage({ landingDemo = false } = {}) {
 
         <button
           type="submit"
-          disabled={loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok)}
+          disabled={submitDisabled}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
           {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}

@@ -1,18 +1,14 @@
 # Load + Chaos Validation (S3 / b6)
 
-## Automated scripts
+> Script automated phase (`run-s3-validation.sh`, `run-chaos-*`, `run-load-smoke.sh`) đã gỡ sau sign-off.  
+> Thực hiện thủ công theo checklist dưới.
+
+## Smoke nhanh
 
 ```bash
-# P2 sign-off (gateway 2+ + workers scaled)
-bash devops/swarm/run-p2-scale-validation.sh
-
-# Toàn bộ S3 (config + chaos + load)
-bash devops/swarm/run-s3-validation.sh
-
-# Từng phần
-bash devops/swarm/run-chaos-redis-rabbit.sh   # restart Redis/Rabbit, queue drain
-CHAOS_DRY_RUN=1 bash devops/swarm/run-chaos-redis-rabbit.sh  # chỉ đo queue, không restart
-bash devops/swarm/run-load-smoke.sh           # gateway burst + /socket.io probe
+docker stack services voicehub
+curl -sf http://127.0.0.1:3000/health
+bash devops/scripts/rabbit-queue-depth.sh
 ```
 
 ## Load scenarios
@@ -23,14 +19,16 @@ bash devops/swarm/run-load-smoke.sh           # gateway burst + /socket.io probe
 5. Keep 2-10 concurrent voice rooms.
 
 ## Chaos scenarios
-1. Kill one worker replica (`docker service update --force`).
-2. Restart Redis.
-3. Restart RabbitMQ.
+1. Kill one worker replica (`docker service update --force voicehub_<worker>`).
+2. Restart Redis: `docker service update --force voicehub_redis-master` (hoặc stack sentinel).
+3. Restart RabbitMQ: `docker service update --force voicehub_rabbitmq-1`.
 4. Drain node labeled `ai=true`.
+
+Sau mỗi chaos: `bash devops/scripts/rabbit-queue-depth.sh` — depth về ~0.
 
 ## Pass criteria
 - No message loss (DLQ only for exhausted retries).
 - Queue backlog drains after failure recovery.
-- Realtime reconnects successfully.
-- Voice rooms new join still succeeds.
-- Rollback command works for each changed service.
+- Realtime reconnects successfully — [realtime-ha-checklist.md](./realtime-ha-checklist.md).
+- Voice rooms new join still succeeds — [voice-staging-smoke.md](./voice-staging-smoke.md).
+- Rollback command works for each changed service — [rollback-runbook.md](./rollback-runbook.md).

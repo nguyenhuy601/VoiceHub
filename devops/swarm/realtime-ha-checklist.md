@@ -8,10 +8,10 @@
 | `SOCKET_IO_REDIS_ADAPTER` | `true` |
 | `REDIS_HOST` / `REDIS_PORT` | Reachable từ mọi socket replica |
 
-Automated:
-
 ```bash
-bash devops/swarm/run-realtime-ha-checklist.sh
+docker stack services voicehub
+curl -sf http://127.0.0.1:3000/health
+# socket health qua gateway nếu exposed nội bộ
 ```
 
 `GET /health` trên socket-service trả `redisAdapter: true` khi adapter gắn thành công.
@@ -26,6 +26,15 @@ bash devops/swarm/run-realtime-ha-checklist.sh
 1. Mở 2 browser clients (2 user).
 2. `docker service update --force voicehub_socket-service` (kill 1 task).
 3. Verify: reconnect, presence, DM + org realtime.
+
+### Phase 5 — qua Cloudflare hostname
+
+```bash
+BASE=https://staging.app.example.com
+curl -skf "$BASE/socket.io/?EIO=4&transport=polling"
+```
+
+Manual: DevTools WS **101** trên `/socket.io`; DM realtime ≥ 15 phút — [phase5-cloudflare-websocket.md](../../docs/phase5-cloudflare-websocket.md).
 
 ```bash
 docker stack services voicehub

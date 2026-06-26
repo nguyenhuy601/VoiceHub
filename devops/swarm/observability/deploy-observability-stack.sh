@@ -16,5 +16,5 @@ docker stack deploy -c "$SCRIPT_DIR/docker-compose.observability.yml" "$STACK_NA
 echo ""
 echo "Deployed stack: $STACK_NAME"
 echo "Prometheus UI: http://127.0.0.1:9090 (host mode — staging only, not public)"
-echo "Export metrics: bash devops/swarm/run-p2-observability-baseline.sh"
+echo "Export metrics: bash devops/swarm/observability/export-swarm-metrics.sh"
 docker stack services "$STACK_NAME" 2>/dev/null || true

@@ -73,6 +73,12 @@ router.post(
   messageController.createCallLogInternal.bind(messageController)
 );
 
+router.get(
+  '/internal/threads/org-export',
+  internalServiceOnly,
+  messageController.exportOrgThreadInternal.bind(messageController)
+);
+
 // Tất cả routes đều cần authentication
 router.use(authenticate);
 

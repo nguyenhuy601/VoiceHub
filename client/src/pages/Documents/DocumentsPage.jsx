@@ -245,17 +245,10 @@ function DocumentsPage() {
               </h4>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
-                  <UserAvatar name="Sarah Chen" size="xs" />
+                  <UserAvatar name={selectedFile.owner} size="xs" />
                   <div className="flex-1">
-                    <div className="font-semibold text-foreground">Sarah Chen</div>
+                    <div className="font-semibold text-foreground">{selectedFile.owner}</div>
                     <div className="text-xs text-muted-foreground">{t('documents.roleOwner')}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <UserAvatar name="Emma Wilson" size="xs" />
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Emma Wilson</div>
-                    <div className="text-xs text-muted-foreground">{t('documents.canEditNote')}</div>
                   </div>
                 </div>
               </div>
@@ -374,7 +367,7 @@ function DocumentsPage() {
               <GradientButton
                 variant="primary"
                 type="button"
-                onClick={() => toast(t('documents.toastEmailDemo'), { icon: '✉️' })}
+                onClick={() => toast(t('dashboard.toastInviteLater'), { icon: 'ℹ️' })}
               >
                 {t('documents.add')}
               </GradientButton>
@@ -386,14 +379,13 @@ function DocumentsPage() {
               {t('documents.peopleAccess')}
             </label>
             <div className="space-y-2">
-              {renderModalCard(
+              {showShareModal.owner ? renderModalCard(
                 <>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <UserAvatar name="Sarah Chen" size="md" />
+                    <UserAvatar name={showShareModal.owner} size="md" />
                     <div>
-                      <div className="font-semibold text-foreground">Sarah Chen</div>
-                      <div className="text-xs text-muted-foreground">sarah@company.com</div>
+                      <div className="font-semibold text-foreground">{showShareModal.owner}</div>
                     </div>
                   </div>
                   <select className="glass px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
@@ -403,25 +395,7 @@ function DocumentsPage() {
                   </select>
                 </div>
                 </>
-              )}
-
-              {renderModalCard(
-                <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <UserAvatar name="Emma Wilson" size="md" />
-                    <div>
-                      <div className="font-semibold text-foreground">Emma Wilson</div>
-                      <div className="text-xs text-muted-foreground">emma@company.com</div>
-                    </div>
-                  </div>
-                  <select className="glass px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm">
-                    <option>{t('documents.roleEdit')}</option>
-                    <option>{t('documents.roleView')}</option>
-                  </select>
-                </div>
-                </>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -432,8 +406,9 @@ function DocumentsPage() {
             <div className="flex gap-2">
               <input 
                 type="text"
-                value="https://app.company.com/share/abc123"
+                value=""
                 readOnly
+                placeholder={t('documents.shareLinkLabel')}
                 className="flex-1 glass px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm"
               />
               <button 

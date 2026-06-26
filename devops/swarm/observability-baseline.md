@@ -13,16 +13,26 @@
 - API latency p95 on gateway.
 - Socket reconnect rate and disconnect reasons.
 
-**P2-Obs:** [`docs/phase2-observability-staging.md`](../../docs/phase2-observability-staging.md) · `run-p2-observability-baseline.sh`
+**P2-Obs:** [`docs/phase2-observability-staging.md`](../../docs/phase2-observability-staging.md)  
+**P4-Obs:** [`docs/phase4-oncall-runbook.md`](../../docs/phase4-oncall-runbook.md) · [`observability/alerts.yml`](./observability/alerts.yml)
 
 ## Commands (quick baseline)
-- `docker stack services voicehub`
-- `docker stack ps voicehub --no-trunc`
-- `bash devops/scripts/rabbit-queue-depth.sh`
-- `bash devops/swarm/run-p2-observability-baseline.sh`
-- `docker service logs -f voicehub_socket-service`
-- `docker service logs -f voicehub_ai-task-extract-worker`
-- `docker service logs -f voicehub_task-worker`
+
+```bash
+docker stack services voicehub
+docker stack ps voicehub --no-trunc
+bash devops/scripts/rabbit-queue-depth.sh
+bash devops/swarm/observability/export-swarm-metrics.sh
+docker service logs -f voicehub_socket-service
+docker service logs -f voicehub_ai-task-extract-worker
+docker service logs -f voicehub_task-worker
+```
+
+Deploy stack observability (khi cần):
+
+```bash
+bash devops/swarm/observability/deploy-observability-stack.sh
+```
 
 ## Success threshold
 - No service restart loop.

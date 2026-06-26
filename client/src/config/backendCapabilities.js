@@ -1,5 +1,5 @@
 export const BACKEND_CAPABILITIES = Object.freeze({
-  aiChannelCatchupSummary: false,
+  aiChannelCatchupSummary: true,
   aiAssistantChat: false,
   documentOcrProcessing: false,
   documentBinaryUpload: false,

@@ -26,30 +26,17 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function ForgotPasswordPage() {
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState('');
 
   useEffect(() => {
     const fromQuery = String(searchParams.get('email') || '').trim();
     if (fromQuery) setEmail(fromQuery);
   }, [searchParams]);
-  const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [devResetUrl, setDevResetUrl] = useState('');
-
-  const inputBase = authInputSurface(isDarkMode);
-  const btnPrimary = authPrimaryButtonClass(isDarkMode);
-  const titleCls = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const mutedCls = isDarkMode ? 'text-slate-400' : 'text-slate-600';
-  const linkCyan = isDarkMode ? 'font-semibold text-cyan-400 hover:underline' : 'font-semibold text-cyan-700 hover:underline';
-  const successBox = isDarkMode
-    ? 'rounded-xl border border-cyan-500/25 bg-cyan-500/[0.08] p-4 text-sm text-cyan-100'
-    : 'rounded-xl border border-cyan-200/80 bg-cyan-50/90 p-4 text-sm text-cyan-950';
-  const devBox = isDarkMode
-    ? 'mt-3 rounded-lg border border-cyan-400/30 bg-slate-900/60 p-3'
-    : 'mt-3 rounded-lg border border-cyan-300/60 bg-white/80 p-3';
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -63,11 +50,7 @@ function ForgotPasswordPage() {
     try {
       const result = await authService.forgotPassword(normalizedEmail);
       const fallbackUrl = result?.data?.resetUrl || '';
-      if (fallbackUrl) {
-        setDevResetUrl(fallbackUrl);
-      } else {
-        setDevResetUrl('');
-      }
+      setDevResetUrl(fallbackUrl);
       setSubmitted(true);
       if (result?.data?.emailScheduled) {
         toast.success(t('forgotPassword.toastSent'));
@@ -94,28 +77,23 @@ function ForgotPasswordPage() {
               <p className={FIGMA_CARD_SUBTITLE}>{t('forgotPassword.subtitle')}</p>
             </div>
 
-      {!submitted ? (
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          <div>
-            <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
-              {t('common.email')}
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className={inputBase}
-              placeholder={t('forgotPassword.placeholderEmail')}
-              autoComplete="email"
-            />
-          </div>
+            <form onSubmit={handleSubmit} className={FIGMA_FORM_SPACE_5}>
+              <div className={FIGMA_FIELD_GROUP}>
+                <label htmlFor="email" className={FIGMA_LABEL}>
+                  {t('common.email')}
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className={`${FIGMA_INPUT_BASE} ${FIGMA_INPUT_PL9}`}
+                  placeholder={t('forgotPassword.placeholderEmail')}
+                  autoComplete="email"
+                />
+              </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className={`${FIGMA_BTN} ${FIGMA_BTN_PURPLE}`}
-              >
+              <button type="submit" disabled={loading} className={`${FIGMA_BTN} ${FIGMA_BTN_PURPLE}`}>
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <span className={FIGMA_BTN_SPINNER} />
@@ -148,13 +126,12 @@ function ForgotPasswordPage() {
           </div>
         )}
 
-      <Link
-        to="/"
-        className={`mt-8 flex items-center justify-center gap-2 text-base font-medium transition ${mutedCls} hover:text-cyan-600 dark:hover:text-cyan-300`}
-      >
-        {t('common.backHome')}
-      </Link>
-    </AuthPageLayout>
+        <Link to="/" className={`mt-8 ${FIGMA_LINK_BACK} justify-center`}>
+          <ArrowLeft size={16} aria-hidden />
+          {t('common.backHome')}
+        </Link>
+      </div>
+    </AuthFigmaCenteredLayout>
   );
 }
 

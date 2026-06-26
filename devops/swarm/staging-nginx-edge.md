@@ -1,14 +1,15 @@
 # P2-Edge — Nginx TLS staging (Swarm)
 
 **Docs:** [`docs/lan-https-voicehub.local.md`](../../docs/lan-https-voicehub.local.md)  
-**Smoke:** `bash devops/swarm/run-p2-nginx-edge-smoke.sh`
+**Smoke:** curl — xem [OPERATIONS.md](./OPERATIONS.md#smoke-thủ-công)
 
 ## Khi nào dùng
 
 | Config | Use case |
 |--------|----------|
 | [`dev-https.conf`](../nginx/dev-https.conf) | Dev LAN + Vite HMR (`https://voicehub.local`) |
-| [`staging-swarm-edge.conf`](../nginx/staging-swarm-edge.conf) | Chỉ API/WS qua gateway (không Vite) |
+| [`prod-edge.conf`](../nginx/prod-edge.conf) | **P3** Static `client/dist` + API/WS hardened |
+| [`staging-swarm-edge.conf`](../nginx/staging-swarm-edge.conf) | Chỉ API/WS (legacy, không SPA) |
 
 ## Triển khai (P2)
 
@@ -21,11 +22,10 @@
    - Dev: `devops/nginx/start-lan-https-dev.bat`
    - API-only: `nginx -p devops/nginx -c staging-swarm-edge.conf`
 7. Verify:
-   ```powershell
-   powershell -File devops\nginx\verify-lan-https.ps1 -BaseUrl https://voicehub.local
-   ```
    ```bash
-   bash devops/swarm/run-p2-nginx-edge-smoke.sh
+   BASE=https://voicehub.local
+   curl -skf "$BASE/api/health"
+   curl -skf "$BASE/socket.io/?EIO=4&transport=polling"
    ```
 
 ## Socket sticky
@@ -33,6 +33,24 @@
 [`swarm-socket-sticky.conf`](../nginx/swarm-socket-sticky.conf) — chỉ khi Nginx proxy **trực tiếp** `socket-service:3017`.
 
 **S2 canonical:** WS qua gateway + `SOCKET_IO_REDIS_ADAPTER=true` → sticky **không bắt buộc**.
+
+## P3 prod-edge (static SPA)
+
+1. `bash devops/scripts/build-client-static.sh`
+2. Dừng nginx `dev-https.conf` nếu đang chiếm :443
+3. `devops/nginx/start-prod-edge.bat` hoặc:
+   ```bash
+   nginx -p devops/nginx -c prod-edge.conf
+   ```
+4. Verify:
+   ```bash
+   BASE=https://voicehub.local
+   curl -skf "$BASE/api/health"
+   curl -skI "$BASE/" | head -5
+   bash devops/nginx/verify-cf-origin-ssl.sh   # khi dùng CF origin cert
+   ```
+
+**Profile 1-node:** `API_GATEWAY_REPLICAS=1` — xem [`docs/single-node-dev-profile.md`](../../docs/single-node-dev-profile.md).
 
 ## Rollback
 

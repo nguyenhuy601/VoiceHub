@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prometheus textfile metrics — Swarm replicas + gateway p95 + Rabbit queues
-# Called by run-p2-observability-baseline.sh or metrics-writer sidecar.
+# Called by observability/export-swarm-metrics.sh or metrics-writer sidecar.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

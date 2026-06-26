@@ -21,6 +21,10 @@ client/.env.local
 services/**/.env
 services/**/.env.local
 
+# Cloudflare Origin CA (P5 — never commit)
+devops/nginx/certs/cf-origin.pem
+devops/nginx/certs/cf-origin-key.pem
+
 # Ignore local docs/scripts in this workspace
 docs/
 scripts/

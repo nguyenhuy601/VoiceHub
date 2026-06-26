@@ -89,7 +89,7 @@ Or run automated checks:
 
 ```powershell
 cd D:\VoiceHub
-powershell -ExecutionPolicy Bypass -File .\devops\nginx\verify-lan-https.ps1 -BaseUrl "https://voicehub.local"
+curl -skf https://voicehub.local/api/health
 ```
 
 ## 8) Voice WebRTC (không nghe được / Console: "Không có RTP")

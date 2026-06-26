@@ -97,7 +97,7 @@ Socket HA staging: `SOCKET_SERVICE_REPLICAS>=2`, `SOCKET_IO_REDIS_ADAPTER=true` 
 | **Overlay** | `voicehub_enterprise-network` | Shared bởi app + HA stacks |
 
 Baseline & failover sign-off: [`docs/ha-baseline-staging-2026-06.md`](docs/ha-baseline-staging-2026-06.md).  
-Validation: `bash devops/swarm/run-p1-failover-validation.sh`.  
+Validation (sign-off): [ha-baseline-staging-2026-06.md](docs/ha-baseline-staging-2026-06.md).  
 Roadmap: [`devops/swarm/ha-infra-roadmap.md`](devops/swarm/ha-infra-roadmap.md).
 
 ## Stateless scale (Phase 2 — staging)
@@ -111,6 +111,6 @@ Roadmap: [`devops/swarm/ha-infra-roadmap.md`](devops/swarm/ha-infra-roadmap.md).
 | **Edge** | Nginx `dev-https.conf` / `staging-swarm-edge.conf` | `TRUST_PROXY=1`; [`lan-https-voicehub.local.md`](docs/lan-https-voicehub.local.md) |
 
 Phase 2 sign-off: [`docs/ha-baseline-staging-phase2-2026-06.md`](docs/ha-baseline-staging-phase2-2026-06.md).  
-Validation: `bash devops/swarm/run-p2-scale-validation.sh`.
+Validation (sign-off): [ha-baseline-staging-phase2-2026-06.md](docs/ha-baseline-staging-phase2-2026-06.md).
 
 Lộ trình ổn định đã hoàn tất: [`.cursor/plans/stabilization/`](.cursor/plans/stabilization/00-master-index.plan.md).

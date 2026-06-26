@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Activity,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   FileText,
@@ -73,7 +74,14 @@ function buildFallbackDepartmentCards({ departments = [], channels = [] }) {
   }));
 }
 
-function buildTeamCards({ branches = [], departments = [], teams = [], channels = [], locale = 'vi' }) {
+function buildTeamCards({
+  branches = [],
+  departments = [],
+  teams = [],
+  channels = [],
+  locale = 'vi',
+  filterDepartmentId = '',
+}) {
   const treeTeams = collectTeamsFromBranches(branches);
   const source = treeTeams.length
     ? treeTeams
@@ -81,7 +89,15 @@ function buildTeamCards({ branches = [], departments = [], teams = [], channels 
       ? teams
       : buildFallbackDepartmentCards({ departments, channels });
 
-  return source.map((item, idx) => {
+  const deptFilter = String(filterDepartmentId || '').trim();
+  const scopedSource = deptFilter
+    ? source.filter((item) => {
+        const itemDeptId = String(item.departmentId || item.department || '');
+        return itemDeptId === deptFilter;
+      })
+    : source;
+
+  return scopedSource.map((item, idx) => {
     const id = item._id || item.id || item.departmentId || `team-${idx}`;
     const rawName = item.name || item.departmentName || 'Team';
     const name = displayDepartmentName(rawName, locale);
@@ -142,10 +158,13 @@ function buildTeamCards({ branches = [], departments = [], teams = [], channels 
 
 export default function OrganizationTeamGrid({
   organizationName = '',
+  departmentName = '',
+  filterDepartmentId = '',
   branches = [],
   departments = [],
   teams = [],
   channels = [],
+  onBack,
   onCreateTeam,
   onSelectTeam,
   onModuleClick,
@@ -153,8 +172,16 @@ export default function OrganizationTeamGrid({
   const { t, locale } = useAppStrings();
   const [search, setSearch] = useState('');
   const cards = useMemo(
-    () => buildTeamCards({ branches, departments, teams, channels, locale }),
-    [branches, departments, teams, channels, locale]
+    () =>
+      buildTeamCards({
+        branches,
+        departments,
+        teams,
+        channels,
+        locale,
+        filterDepartmentId,
+      }),
+    [branches, departments, teams, channels, locale, filterDepartmentId]
   );
   const filteredCards = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -207,15 +234,32 @@ export default function OrganizationTeamGrid({
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 shadow-xs backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-extrabold text-primary-foreground shadow-md">
-              {orgInitial}
-            </div>
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                aria-label={t('workspace.backToDepartments')}
+              >
+                <ChevronLeft size={20} />
+              </button>
+            ) : (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-extrabold text-primary-foreground shadow-md">
+                {orgInitial}
+              </div>
+            )}
             <div className="min-w-0">
               <h2 className="truncate font-display text-xl font-bold text-foreground">
-                {organizationName || t('workspace.organization')}
+                {departmentName || organizationName || t('workspace.organization')}
               </h2>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {t('workspace.orgSubtitle', { teams: cards.length, online: totalOnline })}
+                {departmentName
+                  ? t('workspace.teamHubSubtitle', {
+                      org: organizationName || t('workspace.organization'),
+                      teams: cards.length,
+                      online: totalOnline,
+                    })
+                  : t('workspace.orgSubtitle', { teams: cards.length, online: totalOnline })}
                 {totalTasks > 0 ? t('workspace.orgSubtitleTasks', { tasks: totalTasks }) : ''}
               </p>
             </div>

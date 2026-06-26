@@ -70,6 +70,7 @@ import {
 } from '../../utils/suitePathUtils';
 import WorkspacesOrgPickerView from '../../components/Workspace/WorkspacesOrgPickerView';
 import OrganizationTeamGrid from '../../components/Workspace/OrganizationTeamGrid';
+import OrganizationDepartmentGrid from '../../components/Workspace/OrganizationDepartmentGrid';
 import WorkspaceSlugFigmaShell from '../../components/Workspace/WorkspaceSlugFigmaShell';
 
 const unwrapData = (payload) => payload?.data ?? payload;
@@ -1016,7 +1017,18 @@ function OrganizationsPage({
       if (loc?.divisionId) setSelectedDivisionId(String(loc.divisionId));
     }
     if (pickDivisionId) setSelectedDivisionId(String(pickDivisionId));
-    if (pickDepartmentId) setSelectedDepartmentId(String(pickDepartmentId));
+    const shouldHoldForTeamHub =
+      suiteLayout &&
+      (suiteMode === 'communicate' || suiteMode === 'collaborate') &&
+      !workspaceTabProp;
+    setSelectedDepartmentId((prev) => {
+      if (shouldHoldForTeamHub) {
+        if (prev && depList.some((d) => String(d._id) === String(prev))) return prev;
+        return '';
+      }
+      if (pickDepartmentId) return String(pickDepartmentId);
+      return prev;
+    });
     const scopedTeamId = scope.teamId
       ? String(scope.teamId)
       : scopedTeams.length === 1
@@ -1308,6 +1320,16 @@ function OrganizationsPage({
     ]
   );
 
+  const hubDepartments = useMemo(
+    () => departments.filter((department) => canSelectDepartment(department._id || department.id)),
+    [departments, canSelectDepartment]
+  );
+
+  const orgHubNeedsDepartmentStep = hubDepartments.length > 0;
+  const showDepartmentHub = Boolean(
+    showTeamHub && !selectedDepartmentId && orgHubNeedsDepartmentStep
+  );
+
   const handleSelectTeam = (teamId) => {
     if (!canSelectTeam(teamId)) return;
     const context = resolveTeamContext(teamId);
@@ -1424,6 +1446,76 @@ function OrganizationsPage({
     setSelectedBranchId(hit.branchId);
     setSelectedDivisionId(hit.divisionId);
   };
+
+  const handleBackFromDepartmentHub = useCallback(() => {
+    setSelectedDepartmentId('');
+  }, []);
+
+  const handleDepartmentQuickAction = useCallback(
+    (departmentId, module, rawDepartment = {}) => {
+      if (!canSelectDepartment(departmentId)) return;
+      handleSelectDepartment(departmentId);
+
+      const deptId = String(departmentId);
+      const deptTeams = teams.filter((team) => String(team.department || '') === deptId);
+      const firstTeam = deptTeams[0];
+      const teamId = firstTeam?._id ? String(firstTeam._id) : '';
+
+      const mod = String(module || 'chat').toLowerCase();
+      if (teamId && canSelectTeam(teamId)) {
+        if (mod === 'chat' || mod === 'voice') {
+          handleTeamModuleClick(teamId, mod, firstTeam);
+        }
+        return;
+      }
+
+      if (mod === 'voice') {
+        const voiceCh = (Array.isArray(channels) ? channels : []).find(
+          (ch) =>
+            String(ch.type || '').toLowerCase() === 'voice' &&
+            String(ch.department || '') === deptId &&
+            !String(ch.team || '')
+        );
+        if (voiceCh?._id) {
+          setSelectedChannelId(String(voiceCh._id));
+          setWorkspaceTabView('chat');
+          if (selectedOrganizationId) {
+            navigate(
+              `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`
+            );
+          }
+        }
+        return;
+      }
+
+      const textChId = preferDefaultTextChannelId(
+        channels,
+        '',
+        channelPermissionMatrix,
+        deptId
+      );
+      if (textChId) setSelectedChannelId(textChId);
+      setWorkspaceTabView('chat');
+      if (selectedOrganizationId) {
+        navigate(
+          `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`
+        );
+      }
+      if (!textChId && rawDepartment?._id) {
+        setSelectedDepartmentId(deptId);
+      }
+    },
+    [
+      canSelectDepartment,
+      canSelectTeam,
+      channels,
+      channelPermissionMatrix,
+      handleTeamModuleClick,
+      navigate,
+      selectedOrganizationId,
+      teams,
+    ]
+  );
 
   const handleSelectChannel = (channelId) => {
     const perm = channelPermissionMatrix?.[String(channelId)] || {};
@@ -3501,17 +3593,46 @@ function OrganizationsPage({
         onTabChange={handleShellTabChange}
         onBackFromSubView={() => setSelectedTeamId('')}
         teamGrid={
-          <OrganizationTeamGrid
-            organizationName={selectedOrganization?.name}
-            branches={visibleBranches}
-            departments={sidebarDepartments}
-            teams={teams}
-            channels={channels}
-            locale={locale}
-            onCreateTeam={handleCreateTeam}
-            onSelectTeam={(_team, teamId) => handleSelectTeam(teamId)}
-            onModuleClick={handleTeamModuleClick}
-          />
+          showDepartmentHub ? (
+            <OrganizationDepartmentGrid
+              organizationId={selectedOrganizationId}
+              organizationName={selectedOrganization?.name}
+              departments={hubDepartments}
+              teams={teams}
+              branches={visibleBranches}
+              channels={channels}
+              onlineUserIds={onlineUsers}
+              membershipScope={membershipScope}
+              orgMyRole={selectedOrganization?.myRole}
+              onSelectDepartment={(deptId) => handleSelectDepartment(deptId)}
+              onDepartmentQuickAction={handleDepartmentQuickAction}
+              onDepartmentSettings={
+                isOrgStructureAdmin ? handleOpenDepartmentSettings : undefined
+              }
+            />
+          ) : (
+            <OrganizationTeamGrid
+              organizationName={selectedOrganization?.name}
+              departmentName={
+                selectedDepartment?.name
+                  ? displayDepartmentName(selectedDepartment.name, locale)
+                  : ''
+              }
+              filterDepartmentId={orgHubNeedsDepartmentStep ? selectedDepartmentId : ''}
+              branches={visibleBranches}
+              departments={sidebarDepartments}
+              teams={teams}
+              channels={channels}
+              onBack={
+                orgHubNeedsDepartmentStep && selectedDepartmentId
+                  ? handleBackFromDepartmentHub
+                  : undefined
+              }
+              onCreateTeam={handleCreateTeam}
+              onSelectTeam={(_team, teamId) => handleSelectTeam(teamId)}
+              onModuleClick={handleTeamModuleClick}
+            />
+          )
         }
       >
         <div className={orgCenterShell}>{orgMainPanel}</div>

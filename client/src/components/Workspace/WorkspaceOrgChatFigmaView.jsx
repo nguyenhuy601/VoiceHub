@@ -10,6 +10,9 @@ export default function WorkspaceOrgChatFigmaView({
   onScroll,
   unreadCount = 0,
   channelName = '',
+  organizationId = '',
+  roomId = '',
+  currentUserId = '',
   locale = 'vi',
   showCatchUp = true,
   className = '',
@@ -24,6 +27,9 @@ export default function WorkspaceOrgChatFigmaView({
           <OrgChatCatchUpCard
             unreadCount={unreadCount}
             channelName={channelName}
+            organizationId={organizationId}
+            roomId={roomId}
+            currentUserId={currentUserId}
             locale={locale}
             onDismiss={() => setCatchUpDismissed(true)}
             onViewDetails={() => setCatchUpDismissed(true)}

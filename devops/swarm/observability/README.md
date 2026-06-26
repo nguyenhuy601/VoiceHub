@@ -16,7 +16,7 @@ bash devops/swarm/observability/deploy-observability-stack.sh
 **Queue depth** không scrape trực tiếp từ Rabbit management (không public). Dùng:
 
 ```bash
-bash devops/swarm/run-p2-observability-baseline.sh
+bash devops/swarm/observability/export-swarm-metrics.sh
 ```
 
 ## Rollback
@@ -32,4 +32,5 @@ docker stack rm voicehub-obs
 ## Liên kết
 
 - [`docs/phase2-observability-staging.md`](../../../docs/phase2-observability-staging.md)
+- [`docs/phase4-oncall-runbook.md`](../../../docs/phase4-oncall-runbook.md) — P4 alert → action
 - [`alerts.yml`](./alerts.yml) — thresholds = [`autoscale-policy.md`](../autoscale-policy.md)

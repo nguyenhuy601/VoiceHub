@@ -18,29 +18,19 @@ import {
 } from '../../components/Auth/figmaAuthClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
+const SECTION_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6'];
+
 function PrivacyPolicyPage() {
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
-  const h1 = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const h2 = isDarkMode ? 'text-white' : 'text-slate-900';
-  const body = isDarkMode ? 'text-slate-300' : 'text-slate-600';
-  const linkCyan = isDarkMode ? 'text-cyan-400 hover:underline' : 'text-cyan-700 hover:underline';
-  const callout = isDarkMode
-    ? 'rounded-xl border border-cyan-500/25 bg-cyan-500/[0.08] p-4 text-cyan-100'
-    : 'rounded-xl border border-cyan-200/90 bg-cyan-50 p-4 text-cyan-950';
-  const iconWrap = isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700';
 
   return (
-    <AuthPageLayout aside={<AuthMarketingAside />} contentMaxWidth="max-w-4xl" mainAlign="start">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${iconWrap}`}>
-            <Shield className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+    <div className={FIGMA_LEGAL_ROOT}>
+      <div className={FIGMA_LEGAL_CONTAINER}>
+        <div className={FIGMA_LEGAL_LOGO_ROW}>
+          <div className={FIGMA_LEGAL_LOGO_ICON}>
+            <Zap size={20} className="text-white" aria-hidden />
           </div>
-          <div>
-            <h1 className={`text-2xl font-bold tracking-tight sm:text-3xl ${h1}`}>{t('privacyPolicy.title')}</h1>
-            <p className={`mt-2 text-base ${body}`}>{t('privacyPolicy.subtitle')}</p>
-          </div>
+          <span className={FIGMA_LEGAL_LOGO_TEXT}>VoiceHub</span>
         </div>
 
         <div className={FIGMA_LEGAL_TITLE_ROW}>
@@ -58,14 +48,25 @@ function PrivacyPolicyPage() {
             </section>
           ))}
 
-        <section className={callout}>
-          <p className="text-base">
-            {t('privacyPolicy.callout')}
-            <span className="font-semibold">{t('privacyPolicy.calloutEmail')}</span>.
-          </p>
-        </section>
+          <section className={FIGMA_LEGAL_SECTION_CARD}>
+            <p className={FIGMA_LEGAL_SECTION_P}>
+              {t('privacyPolicy.callout')}
+              <span className="font-semibold text-violet-300">{t('privacyPolicy.calloutEmail')}</span>.
+            </p>
+          </section>
+        </div>
+
+        <div className={FIGMA_LEGAL_FOOTER}>
+          <Link to="/register" className={FIGMA_LEGAL_LINK_PRIMARY}>
+            <ArrowLeft size={16} aria-hidden />
+            {t('privacyPolicy.backToRegister')}
+          </Link>
+          <Link to="/" className={FIGMA_LEGAL_LINK_SECONDARY}>
+            {t('common.backHome')}
+          </Link>
+        </div>
       </div>
-    </AuthPageLayout>
+    </div>
   );
 }
 

@@ -10,7 +10,16 @@ let bucketInstance;
 function getPrivateKey() {
   const raw = process.env.FIREBASE_PRIVATE_KEY;
   if (!raw) return null;
-  return String(raw).replace(/\\n/g, '\n');
+  let key = String(raw).trim();
+  // Docker env_file / Swarm secrets thường bọc thêm dấu ngoặc kép — PEM phải bắt đầu bằng -----BEGIN
+  while (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  key = key.replace(/\\n/g, '\n').trim();
+  return key.includes('-----BEGIN') ? key : null;
 }
 
 function isEnabled() {

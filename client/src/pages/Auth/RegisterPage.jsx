@@ -33,8 +33,9 @@ import {
   FIGMA_TERMS_ROW,
   FIGMA_TOGGLE_BTN,
 } from '../../components/Auth/figmaAuthClasses';
-import { authCheckboxClass, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
+import { authPrimaryButtonClass, authInputError, authInputSurface } from '../../components/Auth/authFieldClasses';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 import {

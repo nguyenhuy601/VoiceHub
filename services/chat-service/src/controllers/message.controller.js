@@ -205,6 +205,43 @@ class MessageController {
   }
 
   /**
+   * Nội bộ: export lịch sử kênh org (decrypted) cho summary pipeline.
+   */
+  async exportOrgThreadInternal(req, res) {
+    try {
+      const {
+        organizationId,
+        roomId,
+        sinceMessageId,
+        limit,
+        unreadOnly,
+        readerId,
+        userId,
+      } = req.query || {};
+
+      const data = await messageService.exportOrgThreadInternal({
+        organizationId,
+        roomId,
+        sinceMessageId,
+        limit,
+        unreadOnly,
+        readerId: readerId || userId,
+      });
+
+      return res.json({ success: true, data });
+    } catch (error) {
+      const status = Number(error?.statusCode) || 500;
+      return sendErrorFromCatch(
+        res,
+        error,
+        status,
+        status === 400 ? 'Yêu cầu không hợp lệ.' : 'Hệ thống tạm thời gặp sự cố.',
+        status === 400 ? 'CHAT_EXPORT_BAD_REQUEST' : 'CHAT_INTERNAL_ERROR'
+      );
+    }
+  }
+
+  /**
    * Nội bộ: ghi log cuộc gọi 1-1 đã kết thúc (voice-service).
    */
   async createCallLogInternal(req, res) {

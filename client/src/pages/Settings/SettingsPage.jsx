@@ -619,16 +619,7 @@ function SettingsPage() {
     }
   };
 
-  const auditEntries = useMemo(
-    () => [
-      { user: 'Admin', action: t('settingsPage.auditLog1'), time: t('settingsPage.timeMinAgo', { n: 5 }), type: 'create' },
-      { user: 'Sarah Chen', action: t('settingsPage.auditLog2'), time: t('settingsPage.timeHourAgo', { n: 1 }), type: 'update' },
-      { user: 'Mike Ross', action: t('settingsPage.auditLog3'), time: t('settingsPage.timeHourAgo', { n: 3 }), type: 'invite' },
-      { user: 'Admin', action: t('settingsPage.auditLog4'), time: t('settingsPage.timeDayAgo', { n: 1 }), type: 'security' },
-      { user: 'Emma Wilson', action: t('settingsPage.auditLog5'), time: t('settingsPage.timeDayAgo', { n: 2 }), type: 'delete' },
-    ],
-    [t]
-  );
+  const auditEntries = useMemo(() => [], []);
 
   const suiteSettingsBody = (
     <SettingsFigmaLayout

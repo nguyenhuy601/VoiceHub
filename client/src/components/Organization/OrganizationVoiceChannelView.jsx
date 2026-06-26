@@ -936,9 +936,15 @@ export default function OrganizationVoiceChannelView({
         : t('voiceRoom.connected');
   const participantRows = landingDemo
     ? [
-        { id: 'demo-neo', name: 'Neo', speaking: true, muted: false, isLocal: false },
-        { id: 'demo-minh-an', name: 'Minh An', speaking: false, muted: false, isLocal: false },
-        { id: 'demo-you', name: localDisplayName, speaking: false, muted: isMuted, isLocal: true },
+        {
+          id: 'local',
+          name: localDisplayName,
+          avatar: localAvatar,
+          userId: voiceUserId,
+          speaking: false,
+          muted: isMuted,
+          isLocal: true,
+        },
       ]
     : [
         {

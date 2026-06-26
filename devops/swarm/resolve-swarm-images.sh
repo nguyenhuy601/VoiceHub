@@ -27,6 +27,8 @@ resolve_swarm_images() {
   export TASK_SERVICE_IMAGE="$(_swarm_image task-service)"
   export AI_TASK_SERVICE_IMAGE="$(_swarm_image ai-task-service)"
   export AI_TASK_WORKER_IMAGE="$(_swarm_image ai-task-worker)"
+  export SUMMARY_SERVICE_IMAGE="$(_swarm_image summary-service)"
+  export SUMMARY_WORKER_IMAGE="$(_swarm_image summary-worker)"
   export DOCUMENT_SERVICE_IMAGE="$(_swarm_image document-service)"
   export VOICE_SERVICE_IMAGE="$(_swarm_image voice-service)"
   export NOTIFICATION_SERVICE_IMAGE="$(_swarm_image notification-service)"

@@ -52,7 +52,8 @@ Ghi kết quả vào [`docs/phase2-replica-inventory-staging.md`](../../docs/pha
 ### 3. Load baseline
 
 ```bash
-bash devops/swarm/run-load-smoke.sh
+curl -sf http://127.0.0.1:3000/health
+for i in $(seq 1 20); do curl -sf -o /dev/null -w '%{time_total}\n' http://127.0.0.1:3000/health; done
 # Ghi p95 gateway + socket probe vào inventory doc
 ```
 
@@ -114,7 +115,7 @@ docker service update --rollback voicehub_api-gateway
 
 ## References
 
-- [`run-p2-gateway-scale-smoke.sh`](./run-p2-gateway-scale-smoke.sh) — sau `API_GATEWAY_REPLICAS=2`
+- [OPERATIONS.md](./OPERATIONS.md) — sau `API_GATEWAY_REPLICAS=2`
 - [`observability-baseline.md`](./observability-baseline.md)
 - [`load-chaos-validation.md`](./load-chaos-validation.md)
 - [`ha-infra-roadmap.md`](./ha-infra-roadmap.md) — Phase 2 section

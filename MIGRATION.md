@@ -38,7 +38,7 @@ bash devops/swarm/deploy-stack.sh
 ```
 
 - Replica socket: `SOCKET_SERVICE_REPLICAS=2` (root `.env`)
-- Validation: `bash devops/swarm/run-s3-validation.sh`
+- Validation: [load-chaos-validation.md](devops/swarm/load-chaos-validation.md) — checklist thủ công
 - Runbook: [`devops/swarm/README.md`](devops/swarm/README.md)
 
 ### Tương lai (chưa implement)
@@ -73,7 +73,7 @@ Chỉ mục đầy đủ: [`.cursor/plans/stabilization/00-master-index.plan.md`
 
 - Mỗi service: `GET /health`
 - Kiểm tra env: `bash devops/scripts/check-security-env.sh`
-- Smoke stabilization: `node tests/s4-gateway-legacy.smoke.js`, `bash devops/swarm/run-s3-validation.sh`
+- Smoke stabilization: checklist trong [devops/swarm/load-chaos-validation.md](devops/swarm/load-chaos-validation.md)
 
 ## Lưu ý cho contributor
 

@@ -29,6 +29,8 @@ declare -a IMAGES=(
   "task-service:services/task-service/Dockerfile"
   "ai-task-service:services/ai-task-service/Dockerfile"
   "ai-task-worker:services/ai-task-worker/Dockerfile"
+  "summary-service:services/summary-service/Dockerfile"
+  "summary-worker:services/summary-worker/Dockerfile"
   "document-service:services/document-service/Dockerfile"
   "voice-service:services/voice-service/Dockerfile"
   "notification-service:services/notification-service/Dockerfile"

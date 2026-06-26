@@ -48,6 +48,7 @@ import {
 } from './voiceMeetingLayout';
 import VoiceAudioSettingsPanel from './VoiceAudioSettingsPanel';
 import { buildAudioConstraints, loadVoiceAudioPrefs, saveVoiceAudioPrefs } from './voiceAudioPrefs';
+import { bindAndPlayRemoteAudio, applyRemoteAudioElement } from './voiceRemoteAudio';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
 import { emitNotificationsRefresh } from '../../services/notificationSync';
 import UserAvatar from '../../components/Shared/UserAvatar';
@@ -300,6 +301,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const { roomId } = useParams();
   const [searchParams] = useSearchParams();
   const safeRoomId = roomId?.startsWith(':') ? roomId.slice(1) || '' : roomId || '';
+  const voiceRouteBase = suiteLayout ? '/app/communicate/voice' : '/voice';
   const { openFriendCall, session: friendCallSession } = useFriendCallSession();
   const { user } = useAuth();
   const { isDarkMode } = useTheme();
@@ -385,6 +387,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [selectedSpeakerId, setSelectedSpeakerId] = useState(initialVoiceAudioPrefs.speakerDeviceId);
   const [micVolume, setMicVolume] = useState(initialVoiceAudioPrefs.micVolume);
   const [speakerVolume, setSpeakerVolume] = useState(initialVoiceAudioPrefs.speakerVolume);
+  const [speakerOff, setSpeakerOff] = useState(initialVoiceAudioPrefs.speakerOff);
   const [selectedCamId, setSelectedCamId] = useState('');
   const [sendResolution, setSendResolution] = useState('auto');
   const [recvResolution, setRecvResolution] = useState('auto');
@@ -409,6 +412,12 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const moreMenuWrapRef = useRef(null);
   const pipVideoRef = useRef(null);
   const voiceInitTokenRef = useRef(0);
+  const audioElsRef = useRef(new Map());
+  const remoteOutputOptsRef = useRef({
+    speakerOff: initialVoiceAudioPrefs.speakerOff,
+    speakerVolume: initialVoiceAudioPrefs.speakerVolume,
+    speakerDeviceId: initialVoiceAudioPrefs.speakerDeviceId,
+  });
 
   const localDisplayName = useMemo(
     () => user?.displayName || user?.fullName || user?.name || user?.email?.split('@')[0] || t('common.you'),
@@ -429,10 +438,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   useEffect(() => {
     if (landingDemo) {
-      setVoiceFriends([
-        { id: 'demo-friend-1', label: 'Lan Anh', subtitle: 'online' },
-        { id: 'demo-friend-2', label: 'Minh Tuan', subtitle: 'offline' },
-      ]);
+      setVoiceFriends([]);
       return;
     }
     let cancelled = false;
@@ -809,6 +815,27 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       if ('volume' in el) el.volume = vol;
     });
   }, [speakerVolume, pipOpen, participants.length]);
+
+  useEffect(() => {
+    remoteOutputOptsRef.current = {
+      speakerOff,
+      speakerVolume,
+      speakerDeviceId: selectedSpeakerId,
+    };
+    audioElsRef.current.forEach((el) => {
+      void applyRemoteAudioElement(el, remoteOutputOptsRef.current);
+    });
+  }, [speakerOff, speakerVolume, selectedSpeakerId]);
+
+  useEffect(() => {
+    if (viewStage !== 'inRoom') return;
+    participants.forEach((p) => {
+      const el = audioElsRef.current.get(p.socketId);
+      if (el && p.stream) {
+        void bindAndPlayRemoteAudio(el, p.stream, remoteOutputOptsRef.current);
+      }
+    });
+  }, [participants, viewStage]);
 
   const toggleMeetingFullscreen = useCallback(async () => {
     const el = meetingRootRef.current;
@@ -1231,6 +1258,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     if (consumer.track && !consumer.track.enabled) {
       consumer.track.enabled = true;
     }
+
+    const audioEl = audioElsRef.current.get(producerMeta.socketId);
+    if (audioEl) {
+      void bindAndPlayRemoteAudio(audioEl, currentStream, remoteOutputOptsRef.current);
+    }
   };
 
   const loadInviteCandidates = useCallback(async () => {
@@ -1516,7 +1548,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       if (cid) qs.set('callId', cid);
       const fcm = searchParams.get('friendCallMedia');
       if (fcm) qs.set('friendCallMedia', fcm);
-      navigate(`/voice/${encodeURIComponent(roomTarget)}?${qs.toString()}`, { replace: true });
+      navigate(`${voiceRouteBase}/${encodeURIComponent(roomTarget)}?${qs.toString()}`, { replace: true });
     } catch (initError) {
       if (initToken !== voiceInitTokenRef.current) return;
       console.error(initError);
@@ -1563,7 +1595,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         document.exitFullscreen().catch(() => {});
       }
 
-      navigate('/voice');
+      navigate(voiceRouteBase);
     } catch (leaveError) {
       console.error(leaveError);
       setRightPanel(null);
@@ -1575,7 +1607,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       if (typeof document !== 'undefined' && document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
-      navigate('/voice');
+      navigate(voiceRouteBase);
     }
   };
 
@@ -3121,6 +3153,27 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
             ref={meetingRootRef}
             className={`${figmaVoiceRoomRoot(suiteLayout)}${suiteLayout ? ' flex flex-col' : ''}`}
           >
+            <div className="sr-only" aria-hidden>
+              {participants.map((p) => (
+                <audio
+                  key={p.socketId}
+                  ref={(el) => {
+                    if (el) {
+                      audioElsRef.current.set(p.socketId, el);
+                      if (p.stream) {
+                        void bindAndPlayRemoteAudio(el, p.stream, remoteOutputOptsRef.current);
+                      } else {
+                        void applyRemoteAudioElement(el, remoteOutputOptsRef.current);
+                      }
+                    } else {
+                      audioElsRef.current.delete(p.socketId);
+                    }
+                  }}
+                  autoPlay
+                  playsInline
+                />
+              ))}
+            </div>
             {error && (
               <div className="absolute right-5 top-5 z-30 max-w-xs rounded-lg bg-destructive/90 px-3 py-2 text-xs text-destructive-foreground">
                 {error}

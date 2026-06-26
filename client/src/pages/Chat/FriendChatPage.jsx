@@ -495,37 +495,10 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   useEffect(() => {
     if (landingDemo) {
-      const fid = 'demo-friend-1';
-      setFriends([
-        {
-          friendId: {
-            _id: fid,
-            userId: fid,
-            displayName: 'Lan Anh',
-            username: 'lananh',
-            status: 'online',
-            avatar: '👩',
-          },
-        },
-      ]);
+      setFriends([]);
       setFriendsLoading(false);
-      setSelectedFriendId(fid);
-      setMessages([
-        {
-          _id: 'dm1',
-          senderId: fid,
-          receiverId: currentUserId,
-          content: t('friendChat.demoMsg1'),
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'dm2',
-          senderId: currentUserId,
-          receiverId: fid,
-          content: t('friendChat.demoMsg2'),
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      setSelectedFriendId(null);
+      setMessages([]);
       return;
     }
     if (acceptedFriendsQuery.isError || blockedFriendsQuery.isError) {
@@ -1137,22 +1110,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   // Gửi tin nhắn qua socket-service (realtime) + optimistic UI
   const handleSend = async () => {
-    if (!selectedFriendId || !message.trim() || isDmComposerLocked) return;
-
-    if (landingDemo) {
-      const text = message.trim();
-      const optimistic = {
-        _id: `demo-${Date.now()}`,
-        senderId: currentUserId,
-        receiverId: selectedFriendId,
-        content: text,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, optimistic]);
-      setMessage('');
-      setReplyingToMessage(null);
-      return;
-    }
+    if (!selectedFriendId || !message.trim() || isDmComposerLocked || landingDemo) return;
 
     const text = message.trim();
     const tempId = `temp-${Date.now()}`;

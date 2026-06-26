@@ -247,14 +247,14 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           icon: Bell,
           label: t('nav.notifications'),
           path: '/app/communicate/notifications',
-          badge: landingDemo ? 5 : unreadCount,
+          badge: landingDemo ? 0 : unreadCount,
         },
         {
           key: 'friends',
           icon: MessageCircle,
           label: t('nav.messages'),
           path: '/app/communicate/chat/friends',
-          badge: landingDemo ? 3 : pendingCount,
+          badge: landingDemo ? 0 : pendingCount,
         },
         {
           key: 'channels',

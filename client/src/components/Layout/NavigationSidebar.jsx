@@ -264,7 +264,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   });
 
   const bellBadgeCount = landingDemo
-    ? 3
+    ? 0
     : onOrgRail
       ? unreadCount
       : unreadCount + pendingCount;

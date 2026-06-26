@@ -1,42 +1,28 @@
-import { useTheme } from '../../context/ThemeContext';
+import { ShieldCheck } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
+
+const FEATURE_DOT_COLORS = ['#8B5CF6', '#06B6D4', '#10B981', '#F59E0B'];
 
 /**
  * Left panel Login — 420px / p-10 (figmaAuthClasses.js).
  */
 function AuthMarketingAside() {
-  const { isDarkMode } = useTheme();
   const { t, dict } = useAppStrings();
-  const chipLabels = dict.authMarketing.chips;
-
-  const badgeOuter = isDarkMode
-    ? 'border-slate-600/55 bg-slate-900/50 text-slate-200'
-    : 'border-white/35 bg-white/12 text-white';
-  const badgeInner = isDarkMode ? 'text-cyan-300/95' : 'text-white';
-  const accentBar = isDarkMode ? 'border-cyan-400/55' : 'border-white/85';
-  const h1Main = 'text-white';
-  const h1Sub = isDarkMode ? 'text-slate-200' : 'text-white/95';
-  const body = isDarkMode ? 'text-slate-300' : 'text-white/92';
-  const quote = isDarkMode
-    ? 'border-cyan-500/30 bg-slate-900/30 text-slate-400'
-    : 'border-white/40 bg-white/[0.08] text-white/85';
-  const foot = isDarkMode ? 'text-slate-500' : 'text-white/75';
-  const chips = isDarkMode ? 'border-slate-700/50 bg-slate-900/25 text-slate-400' : 'border-white/20 bg-white/[0.08] text-white/88';
+  const features = dict.authMarketing.features || [];
 
   return (
     <div className="flex max-w-lg flex-col gap-8 lg:gap-10">
       <div>
-        <p
-          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium tracking-wide backdrop-blur-sm sm:text-sm ${badgeOuter}`}
-        >
-          <span className={`font-semibold ${badgeInner}`}>VoiceHub</span>
-          <span className={isDarkMode ? 'text-slate-500' : 'text-white/50'} aria-hidden>
+        <p className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.04] px-4 py-2 text-xs font-medium tracking-wide backdrop-blur-sm sm:text-sm text-[#A0A0C0]">
+          <span className="font-semibold text-sidebar-foreground-active">VoiceHub</span>
+          <span className="text-[#5E5E7E]" aria-hidden>
             /
           </span>
-          <span className={isDarkMode ? 'text-slate-400' : 'text-white/85'}>{t('authMarketing.badgeSub')}</span>
+          <span>{t('authMarketing.badgeSub')}</span>
         </p>
       </div>
 
+      <div>
         <h2 className="font-display text-[1.75rem] font-bold leading-[1.3] tracking-[-0.03em] text-sidebar-foreground-active mb-3.5">
           {t('authMarketing.h1a')}
           <br />

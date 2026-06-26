@@ -281,17 +281,17 @@ function DashboardPage({
   const [metricsTick, setMetricsTick] = useState(0);
   const [metrics, setMetrics] = useState({
     loading: !landingDemo,
-    orgCount: landingDemo ? 2 : null,
-    friendsTotal: landingDemo ? 8 : null,
-    pendingCount: landingDemo ? 2 : 0,
-    unread: landingDemo ? 4 : 0,
-    taskDone: landingDemo ? 14 : null,
-    activeVoiceMeetings: landingDemo ? 1 : null,
-    pendingApprovals: landingDemo ? 2 : null,
-    communicationCount: landingDemo ? 3241 : null,
-    totalMembers: landingDemo ? 185 : null,
-    onTimeRate: landingDemo ? 91 : null,
-    avgResponseMinutes: landingDemo ? 3.8 : null,
+    orgCount: null,
+    friendsTotal: null,
+    pendingCount: 0,
+    unread: 0,
+    taskDone: null,
+    activeVoiceMeetings: null,
+    pendingApprovals: null,
+    communicationCount: null,
+    totalMembers: null,
+    onTimeRate: null,
+    avgResponseMinutes: null,
   });
   /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
   const [presenceFriends, setPresenceFriends] = useState([]);
@@ -467,89 +467,26 @@ function DashboardPage({
     if (landingDemo) {
       setMetrics({
         loading: false,
-        orgCount: 2,
-        friendsTotal: 8,
-        pendingCount: 2,
-        unread: 4,
-        taskDone: 14,
-        activeVoiceMeetings: 1,
-        pendingApprovals: 2,
-        communicationCount: 3241,
-        totalMembers: 185,
-        onTimeRate: 91,
-        avgResponseMinutes: 3.8,
+        orgCount: 0,
+        friendsTotal: 0,
+        pendingCount: 0,
+        unread: 0,
+        taskDone: 0,
+        activeVoiceMeetings: 0,
+        pendingApprovals: 0,
+        communicationCount: 0,
+        totalMembers: 0,
+        onTimeRate: 0,
+        avgResponseMinutes: 0,
       });
-      setPresenceFriends([
-        { id: 'u1', name: 'Lan Anh', avatar: null, status: 'online' },
-        { id: 'u2', name: 'Minh Tuan', avatar: null, status: 'away' },
-      ]);
-      setUpcomingMeetings([
-        {
-          id: 'm-demo',
-          title: t('dashboard.demoMeetingTitle'),
-          time: '10:00',
-          attendees: 5,
-          startTime: new Date().toISOString(),
-        },
-      ]);
-      setWorkspaceEntries([
-        { id: 'demo-org-1', name: 'Alpha Corp', slug: 'alpha-corp', myRole: 'admin' },
-        { id: 'demo-org-2', name: 'BetaLabs', slug: 'betalabs', myRole: 'member' },
-      ]);
-      const demoY = new Date().getFullYear();
-      const demoDaily = {};
-      for (let mi = 0; mi < 12; mi += 1) {
-        const dim = new Date(demoY, mi + 1, 0).getDate();
-        for (let dom = 1; dom <= dim; dom += 1) {
-          if (Math.random() > 0.72) continue;
-          const k = `${demoY}-${String(mi + 1).padStart(2, '0')}-${String(dom).padStart(2, '0')}`;
-          demoDaily[k] = {
-            tasks: Math.random() > 0.76 ? 1 : 0,
-            messages: Math.floor(Math.random() * 6),
-          };
-        }
-      }
-      setActivityDailyMap(demoDaily);
-      setActivityYear(demoY);
-      const demoWeekLabels = [
-        t('dashboard.weekDayMon'),
-        t('dashboard.weekDayTue'),
-        t('dashboard.weekDayWed'),
-        t('dashboard.weekDayThu'),
-        t('dashboard.weekDayFri'),
-        t('dashboard.weekDaySat'),
-        t('dashboard.weekDaySun'),
-      ];
-      setWeeklyActivityDays(
-        demoWeekLabels.map((label, index) => ({
-          key: `demo-week-${index}`,
-          dayLabel: label,
-          tasks: index % 3 === 0 ? 1 : 0,
-          messages: index % 2 === 0 ? 2 : 1,
-          total: index % 3 === 0 ? 3 : index % 2 === 0 ? 2 : 1,
-          note:
-            index % 3 === 0
-              ? t('dashboard.demoWeeklyDoneTitle')
-              : index % 2 === 0
-                ? t('dashboard.demoWeeklyChatTitle')
-                : t('dashboard.demoWeeklyUpdateTitle'),
-        }))
-      );
-      setWeeklyActivityNotes([
-        { icon: '✅', title: t('dashboard.demoWeeklyDoneTitle'), detail: t('dashboard.demoWeeklyDoneDetail'), path: '/tasks' },
-        { icon: '💬', title: t('dashboard.demoWeeklyChatTitle'), detail: t('dashboard.demoWeeklyChatDetail'), path: '/app/communicate/chat/friends' },
-        { icon: '📝', title: t('dashboard.demoWeeklyUpdateTitle'), detail: t('dashboard.demoWeeklyUpdateDetail'), path: '/tasks' },
-      ]);
-      setRecentDmContacts([
-        { id: 'dm-demo-1', name: 'Lan Anh', preview: t('dashboard.demoDmPreview1'), time: t('dashboard.relMinutes', { n: 2 }) },
-        { id: 'dm-demo-2', name: 'Minh Tuan', preview: t('dashboard.demoDmPreview2'), time: t('dashboard.relMinutes', { n: 12 }) },
-        { id: 'dm-demo-3', name: 'Hai Nam', preview: t('dashboard.demoDmPreview3'), time: t('dashboard.relHours', { n: 1 }) },
-      ]);
-      setRecentNotifications([
-        { id: 'nt-demo-1', title: t('dashboard.demoNotifTitle1'), preview: t('dashboard.demoNotifPreview1'), time: t('dashboard.relMinutes', { n: 5 }) },
-        { id: 'nt-demo-2', title: t('dashboard.demoNotifTitle2'), preview: t('dashboard.demoNotifPreview2'), time: t('dashboard.relMinutes', { n: 20 }) },
-        { id: 'nt-demo-3', title: t('dashboard.demoNotifTitle3'), preview: t('dashboard.demoNotifPreview3'), time: t('dashboard.relHours', { n: 1 }) },
-      ]);
+      setPresenceFriends([]);
+      setUpcomingMeetings([]);
+      setWorkspaceEntries([]);
+      setActivityDailyMap({});
+      setWeeklyActivityDays([]);
+      setWeeklyActivityNotes([]);
+      setRecentDmContacts([]);
+      setRecentNotifications([]);
       return;
     }
     let cancelled = false;
@@ -1354,93 +1291,7 @@ function DashboardPage({
     [t]
   );
 
-  const activities = useMemo(() => {
-    if (!landingDemo) return [];
-    const rm = (n) => t('dashboard.relMinutes', { n });
-    const rh = (n) => t('dashboard.relHours', { n });
-    return [
-      {
-        user: 'Sarah Chen',
-        action: t('dashboard.demo1Action'),
-        item: t('dashboard.demo1Item'),
-        time: rm(2),
-        avatar: '👩‍💼',
-        type: 'task',
-        color: 'from-emerald-500 to-teal-600',
-        detailEntries: [
-          { label: t('dashboard.lblProject'), value: t('dashboard.demo1vProject') },
-          { label: t('dashboard.lblDuration'), value: t('dashboard.demo1vDuration') },
-          { label: t('dashboard.lblTags'), value: t('dashboard.demo1vTags') },
-        ],
-      },
-      {
-        user: 'Mike Ross',
-        action: t('dashboard.demo2Action'),
-        item: t('dashboard.demo2Item'),
-        time: rm(15),
-        avatar: '👨‍💻',
-        type: 'file',
-        color: 'from-blue-500 to-sky-600',
-        detailEntries: [
-          { label: t('dashboard.lblSize'), value: t('dashboard.demo2vSize') },
-          { label: t('dashboard.lblFolder'), value: t('dashboard.demo2vFolder') },
-          { label: t('dashboard.lblDownloads'), value: t('dashboard.demo2vDownloads') },
-        ],
-      },
-      {
-        user: 'Emma Wilson',
-        action: t('dashboard.demo3Action'),
-        item: t('dashboard.demo3Item'),
-        time: rh(1),
-        avatar: '👩‍🎨',
-        type: 'message',
-        color: 'from-cyan-600 to-teal-600',
-        detailEntries: [
-          { label: t('dashboard.lblMembers'), value: t('dashboard.demo3vMembers') },
-          { label: t('dashboard.lblCategory'), value: t('dashboard.demo3vCategory') },
-          { label: t('dashboard.lblDescription'), value: t('dashboard.demo3vDesc') },
-        ],
-      },
-      {
-        user: 'David Kim',
-        action: t('dashboard.demo4Action'),
-        item: t('dashboard.demo4Item'),
-        time: rh(2),
-        avatar: '👨‍🔬',
-        type: 'task',
-        color: 'from-amber-500 to-orange-600',
-        detailEntries: [
-          { label: t('dashboard.lblDuration'), value: t('dashboard.demo4vDuration') },
-          { label: t('dashboard.lblParticipants'), value: t('dashboard.demo4vParticipants') },
-          { label: t('dashboard.lblRecording'), value: t('dashboard.lblYes') },
-        ],
-      },
-      {
-        user: 'Lisa Park',
-        action: t('dashboard.demo5Action'),
-        item: t('dashboard.demo5Item'),
-        time: rh(3),
-        avatar: '👩‍💼',
-        type: 'message',
-        color: 'from-sky-500 to-cyan-600',
-        detailEntries: [
-          { label: t('dashboard.lblComments'), value: t('dashboard.demo5vComments') },
-          { label: t('dashboard.lblMentions'), value: t('dashboard.demo5vMentions') },
-          { label: t('dashboard.lblProject'), value: t('dashboard.demo5vProject') },
-        ],
-      },
-      {
-        user: 'Alex Nguyen',
-        action: t('dashboard.demo6Action'),
-        item: t('dashboard.demo6Item'),
-        time: rh(5),
-        avatar: '🧑‍💼',
-        type: 'file',
-        color: 'from-cyan-500 to-blue-600',
-        detailEntries: [{ label: t('dashboard.lblProject'), value: t('dashboard.demo1vProject') }],
-      },
-    ];
-  }, [landingDemo, t]);
+  const activities = useMemo(() => [], []);
 
   const filteredActivities =
     activeFilter === 'all'
@@ -2252,18 +2103,6 @@ function DashboardPage({
 
           <div>
             <label className={modalLabel}>{t('dashboard.membersSection')}</label>
-            <div className="mb-3 flex flex-wrap gap-2">
-              {['👩‍💼 Sarah', '👨‍💻 Mike', '👩‍🎨 Emma', '👨‍🔬 David'].map((member, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  className={modalChip}
-                  onClick={() => toast(t('dashboard.toastPickMember', { member }), { icon: '✓' })}
-                >
-                  {member}
-                </button>
-              ))}
-            </div>
             <button
               type="button"
               className={`text-sm transition-colors ${accentText} hover:underline`}

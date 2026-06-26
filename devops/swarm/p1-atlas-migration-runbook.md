@@ -60,15 +60,8 @@ Ghi downtime thực tế vào runbook khi chạy staging.
 ## 4. Verify
 
 ```bash
-bash devops/scripts/phase1-atlas-verify.sh
-node tests/p1-atlas-migration.smoke.js
-```
-
-**Live ping (cần network tới Atlas):**
-
-```bash
-PHASE1_ATLAS_LIVE=1 bash devops/scripts/phase1-atlas-verify.sh
-PHASE1_ATLAS_LIVE=1 node tests/p1-atlas-migration.smoke.js
+# Log mong đợi sau deploy rolling:
+docker service logs voicehub_auth-service --tail 20 | grep -i atlas
 ```
 
 **E2E thủ công:**
@@ -92,5 +85,4 @@ Log mong đợi: `[MongoDB] Using Atlas connection (mongodb+srv://)`
 - [ ] Atlas M10+ RS + allowlist + user scoped
 - [ ] Data migrate / verify counts
 - [ ] `CHAT_MONGODB_URI`, `AI_TASK_MONGODB_URI` set; audit pass
-- [ ] `phase1-atlas-verify.sh` + smoke pass
-- [ ] E2E login/chat/org OK
+- [ ] E2E login/chat/org OK (thủ công)

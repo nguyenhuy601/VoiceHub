@@ -207,7 +207,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```bash
 VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
 bash devops/swarm/deploy-stack.sh
-bash devops/swarm/run-s3-validation.sh   # HA + chaos smoke
+[load-chaos-validation.md](devops/swarm/load-chaos-validation.md) — checklist thủ công
 ```
 
 Chi tiết: [`devops/swarm/README.md`](devops/swarm/README.md), [`MIGRATION.md`](MIGRATION.md), [`ARCHITECTURE.md`](ARCHITECTURE.md).

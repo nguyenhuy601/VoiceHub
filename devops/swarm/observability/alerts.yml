@@ -1,5 +1,7 @@
-# P2-Obs alert rules — thresholds cross-reference autoscale-policy.md
+# P2/P4 alert rules — thresholds cross-reference autoscale-policy.md
+# P4-Obs: restart storm, gateway 5xx — see docs/phase4-oncall-runbook.md
 # Evaluate on Prometheus when observability stack deployed.
+# Without Prometheus: devops/swarm/observability-baseline.md
 
 groups:
   - name: voicehub_queue_depth
@@ -84,3 +86,25 @@ groups:
           severity: critical
         annotations:
           summary: "Queue {{ $labels.queue }} has zero consumers"
+
+  - name: voicehub_p4_ops
+    rules:
+      # Requires voicehub_container_restarts_total from export-swarm-metrics.sh / metrics-writer
+      - alert: VoiceHubServiceRestartStorm
+        expr: increase(voicehub_container_restarts_total[10m]) > 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.service }} restarted >3 times in 10m"
+          description: "Check OOM and logs — see phase4-oncall-runbook.md"
+
+      # Requires voicehub_gateway_5xx_rate from gateway metrics exporter (optional)
+      - alert: VoiceHubGateway5xxRateHigh
+        expr: voicehub_gateway_5xx_rate > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway 5xx rate > 1% over 5m"
+          description: "Consider docker service rollback voicehub_api-gateway"

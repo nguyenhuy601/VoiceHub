@@ -1,7 +1,7 @@
 # P2-Workers — Manual autoscale runbook (Swarm)
 
 **Policy:** [`autoscale-policy.md`](./autoscale-policy.md)  
-**Scripts:** [`scale-workers.sh`](./scale-workers.sh), [`run-p2-worker-queue-drain.sh`](./run-p2-worker-queue-drain.sh)  
+**Scripts:** [`scale-workers.sh`](./scale-workers.sh), [`rabbit-queue-depth.sh`](../scripts/rabbit-queue-depth.sh)  
 **Inventory:** [`docs/phase2-replica-inventory-staging.md`](../../docs/phase2-replica-inventory-staging.md)
 
 ## Mục tiêu
@@ -55,7 +55,7 @@ Hoặc restore từ [`backup/phase2-prep-2026-06-19/replica-env-snapshot.txt`](.
 
 ```bash
 bash devops/swarm/scale-workers.sh status
-bash devops/swarm/run-p2-worker-queue-drain.sh
+bash devops/scripts/rabbit-queue-depth.sh
 ```
 
 ### Queue drain pass criteria
@@ -67,10 +67,10 @@ bash devops/swarm/run-p2-worker-queue-drain.sh
 ## Burst test (notification / webhook)
 
 1. Baseline: `rabbitmqctl list_queues`
-2. Burst publish (no-op webhook events — unknown `event_type` → ack nhanh):
+2. Burst publish (no-op webhook events — unknown `event_type` → ack nhanh), rồi poll queue:
 
 ```bash
-bash devops/swarm/run-p2-worker-queue-drain.sh
+watch -n5 bash devops/scripts/rabbit-queue-depth.sh
 ```
 
 3. So sánh thời gian drain **1 vs 2 replica** (optional benchmark)

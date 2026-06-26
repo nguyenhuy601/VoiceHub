@@ -84,5 +84,5 @@ Write-Host "Truy cap: https://voicehub.local" -ForegroundColor Cyan
 
 Write-Host "Dong bo IP WebRTC: powershell -File devops\scripts\sync-lan-dev-ip.ps1"
 
-Write-Host "Verify: powershell -File devops\nginx\verify-lan-https.ps1 -BaseUrl https://voicehub.local"
+Write-Host "Verify: curl -skf https://voicehub.local/api/health"
 

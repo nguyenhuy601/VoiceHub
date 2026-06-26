@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CheckCircle2, Eye, EyeOff, Lock, XCircle } from 'lucide-react';
+import { CheckCircle2, Lock } from 'lucide-react';
 import AuthFigmaCenteredLayout from '../../components/Auth/AuthFigmaCenteredLayout';
 import {
   FIGMA_BTN,
@@ -11,18 +11,12 @@ import {
   FIGMA_CARD_ICON_WRAP_PURPLE,
   FIGMA_CARD_SUBTITLE,
   FIGMA_CENTERED_CARD,
-  FIGMA_ERR,
   FIGMA_FIELD_GROUP,
   FIGMA_FORM_SPACE_5,
   FIGMA_INPUT_BASE,
-  FIGMA_INPUT_ICON,
-  FIGMA_INPUT_PL8,
-  FIGMA_INPUT_PR10,
-  FIGMA_INPUT_PR16,
   FIGMA_LABEL,
-  FIGMA_MATCH_ICON,
   FIGMA_REGISTER_FOOTER,
-  FIGMA_TOGGLE_BTN,
+  FIGMA_STRENGTH_ROW,
 } from '../../components/Auth/figmaAuthClasses';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
@@ -30,7 +24,6 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
@@ -38,13 +31,6 @@ function ResetPasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const inputOk = authInputSurface(isDarkMode, { dense: true });
-  const btnPrimary = authPrimaryButtonClass(isDarkMode);
-  const titleCls = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const mutedCls = isDarkMode ? 'text-slate-400' : 'text-slate-600';
-  const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
-  const barEmpty = isDarkMode ? 'bg-slate-700' : 'bg-slate-200';
 
   const passwordStrength = useMemo(() => {
     let score = 0;
@@ -55,6 +41,8 @@ function ResetPasswordPage() {
     return score;
   }, [password]);
 
+  const passwordsMatch = password.length >= 8 && password === confirmPassword;
+
   const getStrengthColor = () => {
     if (passwordStrength === 0) return 'from-slate-400 to-slate-500';
     if (passwordStrength === 1) return 'from-red-500 to-orange-500';
@@ -62,6 +50,8 @@ function ResetPasswordPage() {
     if (passwordStrength === 3) return 'from-emerald-500 to-teal-500';
     return 'from-emerald-600 to-teal-600';
   };
+
+  const barEmpty = 'bg-muted';
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -103,9 +93,9 @@ function ResetPasswordPage() {
           <p className={FIGMA_CARD_SUBTITLE}>{t('resetPassword.subtitle')}</p>
         </div>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-        <div>
-          <label htmlFor="password" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
+      <form onSubmit={handleSubmit} className={FIGMA_FORM_SPACE_5}>
+        <div className={FIGMA_FIELD_GROUP}>
+          <label htmlFor="password" className={FIGMA_LABEL}>
             {t('resetPassword.newPassword')}
           </label>
           <input
@@ -113,13 +103,13 @@ function ResetPasswordPage() {
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className={inputOk}
+            className={FIGMA_INPUT_BASE}
             placeholder={t('common.passwordPlaceholder')}
             autoComplete="new-password"
           />
           {password && (
             <div className="mt-2">
-              <div className="mb-1 flex gap-1">
+              <div className={`${FIGMA_STRENGTH_ROW} mb-1`}>
                 {[0, 1, 2, 3].map((slot) => (
                   <div
                     key={slot}
@@ -133,8 +123,8 @@ function ResetPasswordPage() {
           )}
         </div>
 
-        <div>
-          <label htmlFor="confirmPassword" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
+        <div className={FIGMA_FIELD_GROUP}>
+          <label htmlFor="confirmPassword" className={FIGMA_LABEL}>
             {t('resetPassword.confirmNewPassword')}
           </label>
           <input
@@ -142,7 +132,7 @@ function ResetPasswordPage() {
             type="password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
-            className={inputOk}
+            className={FIGMA_INPUT_BASE}
             placeholder={t('common.confirmPasswordPlaceholder')}
             autoComplete="new-password"
           />

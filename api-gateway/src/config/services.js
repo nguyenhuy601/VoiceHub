@@ -16,6 +16,8 @@ const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().repla
 if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
 const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
+const SUMMARY_SERVICE_URL = String(process.env.SUMMARY_SERVICE_URL || '').trim().replace(/\/+$/, '');
+if (!SUMMARY_SERVICE_URL) throw new Error('Thiếu biến môi trường: SUMMARY_SERVICE_URL');
 const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -59,6 +61,10 @@ const services = {
   aiTask: {
     url: AI_TASK_SERVICE_URL,
     routes: ['/api/ai/tasks'],
+  },
+  summary: {
+    url: SUMMARY_SERVICE_URL,
+    routes: ['/api/ai/summaries'],
   },
   document: {
     url: DOCUMENT_SERVICE_URL,

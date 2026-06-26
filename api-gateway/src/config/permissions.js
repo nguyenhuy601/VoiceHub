@@ -30,6 +30,11 @@ const routeActionMap = {
   'GET /api/ai/tasks/extractions': 'task:read',
   'POST /api/ai/tasks/confirm': 'task:write',
 
+  // Summary Service
+  'POST /api/ai/summaries': 'chat:write',
+  'GET /api/ai/summaries': 'chat:read',
+  'GET /api/ai/summaries/:id': 'chat:read',
+
   // Document Service
   'GET /api/documents': 'document:read',
   'POST /api/documents': 'document:write',
@@ -393,6 +398,8 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/structure'],
   ['GET', '/api/tasks'],
   ['POST', '/api/ai/tasks/extract'],
+  ['POST', '/api/ai/summaries'],
+  ['GET', '/api/ai/summaries/sum1'],
   ['GET', '/api/voice/calls/active'],
   ['GET', '/api/meetings'],
   ['GET', '/api/roles/server/org1'],

@@ -1113,6 +1113,111 @@ class MessageService {
       throw new Error(`Storage GC: ${err.message}`);
     }
   }
+
+  /**
+   * Nội bộ: xuất lịch sử kênh org (plaintext) cho summary-service / worker.
+   */
+  async exportOrgThreadInternal(params = {}) {
+    try {
+      await ensureMongoReady();
+      const {
+        organizationId,
+        roomId,
+        sinceMessageId,
+        limit,
+        unreadOnly,
+        readerId,
+      } = params;
+
+      if (!organizationId || !roomId) {
+        const err = new Error('organizationId and roomId are required');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const toOid = (id) =>
+        mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(String(id)) : id;
+
+      const maxCap = Math.min(
+        Math.max(parseInt(process.env.CHAT_INTERNAL_EXPORT_MAX_MESSAGES || '500', 10) || 500, 1),
+        2000
+      );
+      const lim = Math.min(Math.max(parseInt(limit, 10) || 200, 1), maxCap);
+
+      const filter = {
+        organizationId: toOid(organizationId),
+        roomId: toOid(roomId),
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+      };
+
+      if (unreadOnly === true || unreadOnly === 'true' || unreadOnly === '1') {
+        if (!readerId) {
+          const err = new Error('readerId is required when unreadOnly is set');
+          err.statusCode = 400;
+          throw err;
+        }
+        filter.isRead = false;
+        filter.senderId = { $ne: toOid(readerId) };
+      }
+
+      if (sinceMessageId && mongoose.Types.ObjectId.isValid(String(sinceMessageId))) {
+        const sinceMsg = await Message.findById(sinceMessageId).select('createdAt _id').lean();
+        if (sinceMsg) {
+          filter.$or = [
+            { createdAt: { $gt: sinceMsg.createdAt } },
+            { createdAt: sinceMsg.createdAt, _id: { $gt: sinceMsg._id } },
+          ];
+        }
+      }
+
+      const batch = await Message.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(lim + 1)
+        .exec();
+
+      const hasMore = batch.length > lim;
+      const slice = hasMore ? batch.slice(0, lim) : batch;
+      const chronological = [...slice].reverse();
+
+      for (const m of chronological) {
+        await maybeMigrateMessageContent(m);
+      }
+
+      const messages = chronological.map((m) => ({
+        _id: String(m._id),
+        senderId: String(m.senderId),
+        content: this._formatExportContent(m),
+        messageType: m.messageType || 'text',
+        createdAt: m.createdAt,
+      }));
+
+      return {
+        messages,
+        hasMore,
+        messageCount: messages.length,
+        firstMessageId: messages[0]?._id || null,
+        lastMessageId: messages[messages.length - 1]?._id || null,
+        exportedAt: new Date(),
+      };
+    } catch (error) {
+      if (error.statusCode) throw error;
+      const err = normalizeMongoError(error);
+      throw new Error(`exportOrgThreadInternal: ${err.message}`);
+    }
+  }
+
+  _formatExportContent(m) {
+    const type = String(m?.messageType || 'text');
+    if (type === 'image' || type === 'file') {
+      const name = String(m?.fileMeta?.originalName || m?.content || 'tệp').trim();
+      return `[đính kèm: ${name}]`;
+    }
+    if (type === 'system' || type === 'call_log') {
+      return unwrapPlaintext(m.content) || `[${type}]`;
+    }
+    return unwrapPlaintext(m.content) || '';
+  }
 }
 
 module.exports = new MessageService();

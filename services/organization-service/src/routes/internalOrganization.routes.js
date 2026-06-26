@@ -1,12 +1,50 @@
-const { orgCatch, orgNotFound, orgValidation } = require('../utils/orgApiError');
+const { orgCatch, orgMemberNotFound, orgNotFound, orgValidation } = require('../utils/orgApiError');
 const express = require('express');
 const Organization = require('../models/Organization');
 const Membership = require('../models/Membership');
+const { resolveOrgAccess } = require('../utils/orgAccess');
+const { buildAccessibleChannelData } = require('../services/orgShellData.service');
+const { getCachedAccessibleChannelData } = require('../services/orgReadCache.service');
 const { buildAiTaskExtractContext } = require('../services/memberContext.service');
 const { syncMembershipPlacementFromRoles } = require('../services/membershipPlacementSync');
 const { backfillRoleScopeAssignmentsForOrg } = require('../services/roleScopeAssignmentBackfill.service');
 
 const router = express.Router();
+
+/** voice-service: quyền voice kênh org (S2S, không dùng route admin /channels/.../access). */
+router.get('/voice-channel-access/:organizationId/:userId/:channelId', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    const userId = String(req.params.userId || '').trim();
+    const channelId = String(req.params.channelId || '').trim();
+    if (!organizationId || !userId || !channelId) {
+      return orgValidation(res, 'organizationId, userId and channelId are required');
+    }
+    const access = await resolveOrgAccess(userId, organizationId);
+    if (!access.ok) {
+      return res.json({ success: true, data: { allowed: false, reason: 'not_member' } });
+    }
+    const accessData = await getCachedAccessibleChannelData(
+      userId,
+      organizationId,
+      access,
+      buildAccessibleChannelData
+    );
+    const perms = accessData?.permissionsByChannelId?.[channelId] || null;
+    const allowed = Boolean(perms?.canVoice);
+    return res.json({
+      success: true,
+      data: {
+        allowed,
+        canVoice: Boolean(perms?.canVoice),
+        canRead: Boolean(perms?.canRead),
+        reason: allowed ? null : 'voice_denied',
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
 
 /** GET membership role — role-permission-service requireOrgMember gọi S2S. */
 router.get('/membership/:organizationId/:userId', async (req, res) => {

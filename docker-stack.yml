@@ -275,6 +275,56 @@ services:
           cpus: "0.50"
           memory: 320M
 
+  summary-service:
+    image: ${SUMMARY_SERVICE_IMAGE}
+    env_file:
+      - .env
+      - ./services/summary-service/.env
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - ORGANIZATION_SERVICE_URL=${ORGANIZATION_SERVICE_URL}
+      - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${SUMMARY_SERVICE_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  summary-worker:
+    image: ${SUMMARY_WORKER_IMAGE}
+    env_file:
+      - .env
+      - ./services/summary-worker/.env
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${SUMMARY_WORKER_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 384M
+        reservations:
+          cpus: "0.15"
+          memory: 96M
+
   ai-task-extract-worker:
     image: ${AI_TASK_WORKER_IMAGE}
     env_file:
