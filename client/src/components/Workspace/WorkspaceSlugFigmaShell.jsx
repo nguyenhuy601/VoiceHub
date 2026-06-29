@@ -1,4 +1,5 @@
 import {
+  Building2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -29,22 +30,23 @@ function orgInitial(name) {
   return (n.charAt(0) || 'O').toUpperCase();
 }
 
-function teamAccent(team) {
-  const color = team?.color || team?.gradStart || '#2563EB';
+function scopeAccent(scope) {
+  const color = scope?.color || scope?.gradStart || '#2563EB';
   return {
     color,
-    initial: team?.initial || orgInitial(team?.name),
+    initial: scope?.initial || orgInitial(scope?.name),
   };
 }
 
 /**
- * Org hub shell — tab bar chat|voice|tasks|documents + team grid landing (Figma WorkspaceSlugPage).
+ * Org hub shell — tab bar chat|voice|tasks|documents + team/department grid landing (Figma WorkspaceSlugPage).
  */
 export default function WorkspaceSlugFigmaShell({
   organizationName = '',
   activeTab = 'chat',
   showLanding = false,
   selectedTeam = null,
+  selectedDepartment = null,
   locale = 'vi',
   onTabChange,
   onBackFromSubView,
@@ -54,7 +56,8 @@ export default function WorkspaceSlugFigmaShell({
   className = '',
 }) {
   const { t } = useAppStrings();
-  const accent = teamAccent(selectedTeam);
+  const teamAccentInfo = scopeAccent(selectedTeam);
+  const deptAccentInfo = scopeAccent(selectedDepartment);
 
   if (showLanding) {
     return (
@@ -65,6 +68,10 @@ export default function WorkspaceSlugFigmaShell({
   }
 
   const inTeamContext = Boolean(selectedTeam?.name || selectedTeam?.id);
+  const inDepartmentContext = Boolean(selectedDepartment?.name || selectedDepartment?.id);
+  const inSubContext = inTeamContext || inDepartmentContext;
+  const subScope = inTeamContext ? selectedTeam : selectedDepartment;
+  const subAccent = inTeamContext ? teamAccentInfo : deptAccentInfo;
 
   return (
     <div className={`${FIGMA_WS_SHELL_ROOT} ${className}`}>
@@ -88,7 +95,7 @@ export default function WorkspaceSlugFigmaShell({
         })}
       </nav>
 
-      {inTeamContext ? (
+      {inSubContext ? (
         <div className={FIGMA_WS_SHELL_SUB_HEADER}>
           <button
             type="button"
@@ -99,14 +106,28 @@ export default function WorkspaceSlugFigmaShell({
           </button>
           <div
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[0.6rem] font-bold text-white"
-            style={{ background: accent.color }}
+            style={{ background: subAccent.color }}
           >
-            {accent.initial}
+            {inDepartmentContext ? (
+              <Building2 size={13} className="text-white" />
+            ) : (
+              subAccent.initial
+            )}
           </div>
-          <span className="truncate text-sm font-bold text-foreground">{selectedTeam.name}</span>
+          <span className="truncate text-sm font-bold text-foreground">{subScope.name}</span>
           <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium text-muted-foreground">
-            {t(TAB_IDS.find((tab) => tab.id === activeTab)?.labelKey || 'workspace.moduleChat')}
+            {inDepartmentContext
+              ? t(
+                  activeTab === 'voice'
+                    ? 'workspace.deptVoiceContext'
+                    : activeTab === 'tasks'
+                      ? 'workspace.moduleTask'
+                      : activeTab === 'documents'
+                        ? 'workspace.moduleDocs'
+                        : 'workspace.deptChatContext'
+                )
+              : t(TAB_IDS.find((tab) => tab.id === activeTab)?.labelKey || 'workspace.moduleChat')}
           </span>
         </div>
       ) : (

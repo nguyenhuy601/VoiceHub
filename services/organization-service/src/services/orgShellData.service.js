@@ -16,6 +16,9 @@ const {
   resolveStructureVisibilityFromRoles,
   channelInStructureVisibility,
   resolveUserHierarchyScopes,
+  buildTeamDepartmentMap,
+  isDeptOnlyChannel,
+  userHasTeamInDepartment,
 } = require('../utils/memberPlacementScope');
 const {
   isMultiPlacementReadEnabled,
@@ -213,6 +216,8 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       : resolveStructureVisibilityFromRoles(roleNames, { divisions, departments, teams })
     : { mode: 'all', divisionIds: new Set(), departmentIds: new Set(), teamIds: new Set() };
 
+  const teamDepartmentByTeamId = buildTeamDepartmentMap(teams);
+
   for (const ch of channels) {
     const channelId = String(ch._id);
     const acl = aclByChannelId.get(channelId) || null;
@@ -277,13 +282,33 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       }
     }
 
-    const inStructure = isStructureAdmin || channelInStructureVisibility(ch, structureVisibility);
+    const inStructure =
+      isStructureAdmin ||
+      channelInStructureVisibility(ch, structureVisibility, teamDepartmentByTeamId);
     if (!inStructure && !isStructureAdmin) {
       canSee = false;
       canRead = false;
       canWrite = false;
       canDelete = false;
       canVoice = false;
+    } else if (
+      !isStructureAdmin &&
+      inStructure &&
+      isDeptOnlyChannel(ch) &&
+      !roleAcl &&
+      !acl &&
+      !canRead
+    ) {
+      const depId = String(ch.department || '');
+      if (
+        structureVisibility.departmentIds?.has(depId) ||
+        userHasTeamInDepartment(structureVisibility.teamIds, depId, teamDepartmentByTeamId)
+      ) {
+        canSee = true;
+        canRead = true;
+        canWrite = true;
+        canVoice = true;
+      }
     }
 
     const visible = canSee || canRead;

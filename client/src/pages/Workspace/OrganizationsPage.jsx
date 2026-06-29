@@ -47,6 +47,7 @@ import {
   divisionChannelsFromStructure,
   mergeChannelsById,
   filterWorkspaceStructureByScope,
+  isProtectedDefaultChannel,
 } from '../../utils/orgChannelScope';
 import { isOrgMembershipStructureAdmin } from '../../components/Organization/roleRbacUtils';
 import {
@@ -67,7 +68,15 @@ import {
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
   orgQueryFromSearch,
+  departmentQueryFromSearch,
+  channelQueryFromSearch,
 } from '../../utils/suitePathUtils';
+import {
+  preferDefaultTextChannelId as preferDeptTextChannelId,
+  resolveDeptChatChannelId,
+  resolveDeptVoiceChannelId,
+  findDeptChannelByType,
+} from '../../utils/departmentChannelUtils';
 import WorkspacesOrgPickerView from '../../components/Workspace/WorkspacesOrgPickerView';
 import OrganizationTeamGrid from '../../components/Workspace/OrganizationTeamGrid';
 import OrganizationDepartmentGrid from '../../components/Workspace/OrganizationDepartmentGrid';
@@ -91,39 +100,15 @@ function preferDefaultTextChannelId(
   channelList,
   preferredTeamId = '',
   permissionMatrix = null,
-  preferredDepartmentId = ''
+  preferredDepartmentId = '',
+  deptOnly = false
 ) {
-  const list = Array.isArray(channelList) ? channelList : [];
-  const matrix =
-    permissionMatrix && typeof permissionMatrix === 'object' ? permissionMatrix : null;
-  const matrixReady = matrix && Object.keys(matrix).length > 0;
-  const isReadable = (ch) => {
-    if (!matrixReady) return true;
-    const row = matrix[String(ch._id)] || {};
-    return Boolean(row.canSee ?? row.canRead);
-  };
-  const readable = list.filter(isReadable);
-  const pool = matrixReady ? readable : list;
-  if (preferredTeamId) {
-    const teamScoped = pool.filter(
-      (ch) =>
-        String(ch.team || '') === String(preferredTeamId) ||
-        (preferredDepartmentId &&
-          !String(ch.team || '') &&
-          String(ch.department || '') === String(preferredDepartmentId))
-    );
-    const teamText = teamScoped.find((ch) => String(ch.type || 'text').toLowerCase() !== 'voice');
-    if (teamText?._id) return String(teamText._id);
-  }
-  const deptScoped = pool.filter(
-    (ch) =>
-      !String(ch.team || '') &&
-      (!preferredDepartmentId || String(ch.department || '') === String(preferredDepartmentId))
-  );
-  const deptText = deptScoped.find((ch) => String(ch.type || 'text').toLowerCase() !== 'voice');
-  if (deptText?._id) return String(deptText._id);
-  const anyText = pool.find((ch) => String(ch.type || 'text').toLowerCase() !== 'voice');
-  return anyText?._id ? String(anyText._id) : '';
+  return preferDeptTextChannelId(channelList, {
+    preferredTeamId,
+    preferredDepartmentId,
+    permissionMatrix,
+    deptOnly,
+  });
 }
 
 function orgPickerMemberIsOnline(member = {}) {
@@ -233,6 +218,7 @@ function OrganizationsPage({
   const [departments, setDepartments] = useState([]);
   const [teams, setTeams] = useState([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
+  const [departmentWorkspaceActive, setDepartmentWorkspaceActive] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [channels, setChannels] = useState([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
@@ -381,6 +367,7 @@ function OrganizationsPage({
   const [createChannelDivisionId, setCreateChannelDivisionId] = useState('');
   const [createChannelDepartmentId, setCreateChannelDepartmentId] = useState('');
   const [createChannelTeamId, setCreateChannelTeamId] = useState('');
+  const [createChannelLevel, setCreateChannelLevel] = useState('team');
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [renameTargetType, setRenameTargetType] = useState('');
   const [renameTargetId, setRenameTargetId] = useState('');
@@ -408,6 +395,7 @@ function OrganizationsPage({
   }, [suiteMode, workspaceTabProp]);
   const [workspaceTabView, setWorkspaceTabView] = useState(initialTab);
   const previousVoiceChannelIdRef = useRef('');
+  const workspaceDeepLinkRef = useRef('');
   const hasInviteQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return Boolean(params.get('orgId') || params.get('inviteOrgId') || params.get('inviteToken'));
@@ -431,6 +419,14 @@ function OrganizationsPage({
     () => orgQueryFromSearch(location.search),
     [location.search]
   );
+  const departmentIdFromQuery = useMemo(
+    () => departmentQueryFromSearch(location.search),
+    [location.search]
+  );
+  const channelIdFromQuery = useMemo(
+    () => channelQueryFromSearch(location.search),
+    [location.search]
+  );
 
   const orgPickerRouteActive = useMemo(
     () =>
@@ -451,12 +447,14 @@ function OrganizationsPage({
       (suiteMode === 'collaborate' || suiteMode === 'communicate') &&
       selectedOrganizationId &&
       !selectedTeamId &&
+      !departmentWorkspaceActive &&
       !landingDemo,
     [
       suiteLayout,
       suiteMode,
       selectedOrganizationId,
       selectedTeamId,
+      departmentWorkspaceActive,
       landingDemo,
     ]
   );
@@ -466,6 +464,7 @@ function OrganizationsPage({
     setSelectedOrganizationId((prev) => (prev === '' ? prev : ''));
     setSelectedTeamId((prev) => (prev === '' ? prev : ''));
     setSelectedDepartmentId((prev) => (prev === '' ? prev : ''));
+    setDepartmentWorkspaceActive(false);
     setSelectedDivisionId((prev) => (prev === '' ? prev : ''));
     setSelectedBranchId((prev) => (prev === '' ? prev : ''));
     setSelectedChannelId((prev) => (prev === '' ? prev : ''));
@@ -634,6 +633,22 @@ function OrganizationsPage({
       color: '#2563EB',
     };
   }, [selectedTeam, locale]);
+
+  const shellSelectedDepartment = useMemo(() => {
+    if (!departmentWorkspaceActive || !selectedDepartment) return null;
+    const name =
+      displayDepartmentName(selectedDepartment.name || '', locale) ||
+      selectedDepartment.name ||
+      '';
+    const id = String(selectedDepartment._id || selectedDepartment.id || '');
+    const colorSeed = id.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+    const palette = ['#475569', '#1D4ED8', '#7C3AED', '#059669', '#D97706'];
+    return {
+      id,
+      name,
+      color: palette[colorSeed % palette.length],
+    };
+  }, [departmentWorkspaceActive, selectedDepartment, locale]);
 
   const voiceFileInputRef = useRef(null);
   const voiceImageInputRef = useRef(null);
@@ -1230,6 +1245,9 @@ function OrganizationsPage({
   const canManageChannelRoleAccess = ['owner', 'admin'].includes(
     String(selectedOrganization?.myRole || '').toLowerCase()
   );
+  const canManageWorkspaceStructure =
+    isOrgMembershipStructureAdmin(selectedOrganization?.myRole) ||
+    Boolean(membershipScope?.canSeeAllStructure);
 
   const canSelectTeam = useCallback(
     (teamId) => {
@@ -1345,14 +1363,34 @@ function OrganizationsPage({
       if (!selectedOrganizationId || landingDemo) return;
       const orgId = String(selectedOrganizationId);
       if (next === 'voice') {
-        const voiceCh = (Array.isArray(channels) ? channels : []).find(
-          (ch) =>
-            String(ch.type || '').toLowerCase() === 'voice' &&
-            (!selectedTeamId || String(ch.team || '') === String(selectedTeamId))
-        );
-        if (voiceCh?._id) setSelectedChannelId(String(voiceCh._id));
+        let voiceChId = '';
+        if (selectedTeamId) {
+          const voiceCh = (Array.isArray(channels) ? channels : []).find(
+            (ch) =>
+              String(ch.type || '').toLowerCase() === 'voice' &&
+              String(ch.team || '') === String(selectedTeamId)
+          );
+          voiceChId = voiceCh?._id ? String(voiceCh._id) : '';
+        } else if (selectedDepartmentId) {
+          voiceChId = resolveDeptVoiceChannelId(
+            channels,
+            selectedDepartmentId,
+            channelPermissionMatrix
+          );
+        } else {
+          const voiceCh = (Array.isArray(channels) ? channels : []).find(
+            (ch) => String(ch.type || '').toLowerCase() === 'voice'
+          );
+          voiceChId = voiceCh?._id ? String(voiceCh._id) : '';
+        }
+        if (voiceChId) setSelectedChannelId(voiceChId);
         setWorkspaceTabView('chat');
-        navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
+        navigate(
+          buildCommunicateChannelsPath(orgId, {
+            departmentId: selectedDepartmentId && !selectedTeamId ? selectedDepartmentId : '',
+            channelId: voiceChId,
+          })
+        );
         return;
       }
       if (next === 'tasks') {
@@ -1369,11 +1407,17 @@ function OrganizationsPage({
         channels,
         selectedTeamId,
         channelPermissionMatrix,
-        selectedDepartmentId
+        selectedDepartmentId,
+        Boolean(selectedDepartmentId && !selectedTeamId)
       );
       if (textCh) setSelectedChannelId(String(textCh));
       setWorkspaceTabView('chat');
-      navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
+      navigate(
+        buildCommunicateChannelsPath(orgId, {
+          departmentId: selectedDepartmentId && !selectedTeamId ? selectedDepartmentId : '',
+          channelId: textCh || '',
+        })
+      );
     },
     [
       selectedOrganizationId,
@@ -1395,6 +1439,7 @@ function OrganizationsPage({
       if (context.divisionId) setSelectedDivisionId(context.divisionId);
       if (context.departmentId) setSelectedDepartmentId(context.departmentId);
       setSelectedTeamId(teamIdString);
+      setDepartmentWorkspaceActive(false);
 
       const mod = String(module || 'chat').toLowerCase();
       if (mod === 'tasks') {
@@ -1437,8 +1482,10 @@ function OrganizationsPage({
     [selectedOrganizationId, navigate, canSelectTeam, resolveTeamContext, channels, channelPermissionMatrix]
   );
 
-  const handleSelectDepartment = (deptId) => {
+  const handleSelectDepartment = (deptId, options = {}) => {
+    const { workspace = false } = options;
     if (!canSelectDepartment(deptId)) return;
+    setDepartmentWorkspaceActive(Boolean(workspace));
     setSelectedDepartmentId(deptId);
     if (!findBranchAndDivisionForDepartment) return;
     const hit = findBranchAndDivisionForDepartment.get(String(deptId));
@@ -1449,71 +1496,105 @@ function OrganizationsPage({
 
   const handleBackFromDepartmentHub = useCallback(() => {
     setSelectedDepartmentId('');
+    setDepartmentWorkspaceActive(false);
   }, []);
 
-  const handleDepartmentQuickAction = useCallback(
-    (departmentId, module, rawDepartment = {}) => {
-      if (!canSelectDepartment(departmentId)) return;
-      handleSelectDepartment(departmentId);
+  const handleBackFromDepartmentWorkspace = useCallback(() => {
+    setDepartmentWorkspaceActive(false);
+    setSelectedChannelId('');
+    setSelectedDepartmentId('');
+    setWorkspaceTabView('chat');
+  }, []);
 
+  const handleDepartmentModuleClick = useCallback(
+    async (departmentId, module) => {
+      if (!canSelectDepartment(departmentId)) return;
       const deptId = String(departmentId);
-      const deptTeams = teams.filter((team) => String(team.department || '') === deptId);
-      const firstTeam = deptTeams[0];
-      const teamId = firstTeam?._id ? String(firstTeam._id) : '';
+      setSelectedTeamId('');
+      handleSelectDepartment(deptId, { workspace: true });
 
       const mod = String(module || 'chat').toLowerCase();
-      if (teamId && canSelectTeam(teamId)) {
-        if (mod === 'chat' || mod === 'voice') {
-          handleTeamModuleClick(teamId, mod, firstTeam);
-        }
+      const orgId = selectedOrganizationId ? String(selectedOrganizationId) : '';
+
+      if (mod === 'tasks') {
+        setWorkspaceTabView('tasks');
+        setSelectedChannelId('');
+        if (orgId) navigate(buildCollaborateTasksPath(orgId));
         return;
       }
+      if (mod === 'documents') {
+        setWorkspaceTabView('documents');
+        setSelectedChannelId('');
+        if (orgId) navigate(buildCollaborateDocumentsPath(orgId));
+        return;
+      }
+
+      let channelId = '';
+
+      const ensureDeptChannel = async (type) => {
+        if (!orgId) return '';
+        const existing = findDeptChannelByType(channels, deptId, type);
+        if (existing?._id) return String(existing._id);
+
+        const resolver =
+          type === 'voice' ? resolveDeptVoiceChannelId : resolveDeptChatChannelId;
+        let id = resolver(channels, deptId, channelPermissionMatrix);
+        if (id) return id;
+        try {
+          await organizationAPI.createChannelByScope(orgId, {
+            level: 'department',
+            departmentId: deptId,
+            type,
+            name: type === 'voice' ? 'voice' : 'general',
+          });
+          await reloadOrgShell(orgId);
+          const payload = await organizationAPI.getChannels(orgId, deptId);
+          const list = unwrapData(payload);
+          const merged = mergeChannelsById(
+            Array.isArray(list) ? list : [],
+            channels
+          );
+          setChannels(merged);
+          const after = findDeptChannelByType(merged, deptId, type);
+          if (after?._id) return String(after._id);
+          id = resolver(merged, deptId, channelPermissionMatrix);
+        } catch (error) {
+          notifyError(
+            resolveApiErrorMessage(error, {
+              t,
+              fallback: t('organizations.loadChannelsFail'),
+            })
+          );
+        }
+        return id;
+      };
 
       if (mod === 'voice') {
-        const voiceCh = (Array.isArray(channels) ? channels : []).find(
-          (ch) =>
-            String(ch.type || '').toLowerCase() === 'voice' &&
-            String(ch.department || '') === deptId &&
-            !String(ch.team || '')
-        );
-        if (voiceCh?._id) {
-          setSelectedChannelId(String(voiceCh._id));
-          setWorkspaceTabView('chat');
-          if (selectedOrganizationId) {
-            navigate(
-              `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`
-            );
-          }
-        }
-        return;
+        channelId = await ensureDeptChannel('voice');
+      } else {
+        channelId = await ensureDeptChannel('chat');
       }
 
-      const textChId = preferDefaultTextChannelId(
-        channels,
-        '',
-        channelPermissionMatrix,
-        deptId
-      );
-      if (textChId) setSelectedChannelId(textChId);
+      if (channelId) setSelectedChannelId(channelId);
       setWorkspaceTabView('chat');
-      if (selectedOrganizationId) {
+      if (orgId) {
         navigate(
-          `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`
+          buildCommunicateChannelsPath(orgId, {
+            departmentId: deptId,
+            channelId,
+          })
         );
-      }
-      if (!textChId && rawDepartment?._id) {
-        setSelectedDepartmentId(deptId);
       }
     },
     [
       canSelectDepartment,
-      canSelectTeam,
       channels,
       channelPermissionMatrix,
-      handleTeamModuleClick,
       navigate,
+      notifyError,
+      queryClient,
       selectedOrganizationId,
-      teams,
+      t,
     ]
   );
 
@@ -1527,6 +1608,30 @@ function OrganizationsPage({
     if (!channel?._id) return;
     setChannelSettingsChannel(channel);
     setChannelSettingsOpen(true);
+  };
+
+  const handleDeleteWorkspaceChannel = async (channel) => {
+    if (!channel?._id || !selectedOrganizationId) return;
+    if (isProtectedDefaultChannel(channel)) {
+      notifyError(t('organizations.deleteChannelProtected'));
+      throw new Error('protected');
+    }
+    await organizationAPI.deleteChannelByScope(selectedOrganizationId, String(channel._id));
+    notifySuccess(t('organizations.deleteChannelOk'));
+    const deletedId = String(channel._id);
+    if (String(selectedChannelId) === deletedId) {
+      setSelectedChannelId('');
+    }
+    setChannelSettingsOpen(false);
+    setChannelSettingsChannel(null);
+    await reloadOrgShell(selectedOrganizationId);
+    if (selectedDepartmentId) {
+      await loadChannels(
+        selectedOrganizationId,
+        selectedDepartmentId,
+        departmentWorkspaceActive ? '' : selectedTeamId
+      );
+    }
   };
 
   const handleOpenDivisionSettings = (division) => {
@@ -1590,14 +1695,27 @@ function OrganizationsPage({
       const divisionId = divisionIdHint || selectedDivisionId || '';
       const divisionExtras = divisionChannelsFromStructure(workspaceStructure, divisionId);
       const merged = mergeChannelsById(normalized, divisionExtras);
+      const deptOnlyPick = Boolean(departmentWorkspaceActive && deptId && !teamIdHint);
       setChannels(merged);
       setSelectedChannelId((prev) => {
-        if (prev && merged.some((item) => String(item._id) === String(prev))) {
+        const prevChannel = merged.find((item) => String(item._id) === String(prev));
+        if (prevChannel) {
+          const isDeptOnly =
+            !String(prevChannel.team || '') &&
+            String(prevChannel.department || '') === String(deptId);
+          const teamOk = teamIdHint && String(prevChannel.team || '') === String(teamIdHint);
+          const scopeOk = deptOnlyPick ? isDeptOnly : teamIdHint ? teamOk || isDeptOnly : true;
           const readable = Boolean(channelPermissionMatrix?.[String(prev)]?.canRead);
           const matrixReady = Object.keys(channelPermissionMatrix || {}).length > 0;
-          if (!matrixReady || readable) return prev;
+          if (scopeOk && (!matrixReady || readable)) return prev;
         }
-        return preferDefaultTextChannelId(merged, teamIdHint, channelPermissionMatrix, deptId);
+        return preferDefaultTextChannelId(
+          merged,
+          teamIdHint,
+          channelPermissionMatrix,
+          deptId,
+          deptOnlyPick
+        );
       });
     } catch (error) {
       setChannels([]);
@@ -2316,17 +2434,24 @@ function OrganizationsPage({
   };
 
   const handleCreateChannel = async (channelType = 'chat') => {
-    if (!selectedOrganizationId || !selectedDepartmentId || !selectedTeamId) {
+    const deptWorkspace =
+      departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId;
+    if (!selectedOrganizationId || !selectedDepartmentId) {
+      notifyError(t('organizations.selectDeptTeamForChannel'));
+      return;
+    }
+    if (!deptWorkspace && !selectedTeamId) {
       notifyError(t('organizations.selectDeptTeamForChannel'));
       return;
     }
 
     setCreateChannelType(channelType);
     setCreateChannelName('');
+    setCreateChannelLevel(deptWorkspace ? 'department' : 'team');
     setCreateChannelBranchId(String(selectedBranchId || ''));
     setCreateChannelDivisionId(String(selectedDivisionId || ''));
     setCreateChannelDepartmentId(String(selectedDepartmentId || ''));
-    setCreateChannelTeamId(String(selectedTeamId));
+    setCreateChannelTeamId(deptWorkspace ? '' : String(selectedTeamId));
     setCreateChannelModalOpen(true);
   };
 
@@ -2335,6 +2460,35 @@ function OrganizationsPage({
       notifyError(t('organizations.channelNameRequired'));
       return;
     }
+    if (createChannelLevel === 'department') {
+      if (!createChannelDepartmentId) {
+        notifyError(t('organizations.selectDepartmentRequired'));
+        return;
+      }
+      try {
+        await organizationAPI.createChannelByScope(selectedOrganizationId, {
+          level: 'department',
+          departmentId: createChannelDepartmentId,
+          name: createChannelName.trim(),
+          type: createChannelType,
+        });
+        notifySuccess(t('organizations.channelCreated'));
+        setCreateChannelModalOpen(false);
+        setSelectedBranchId(createChannelBranchId);
+        setSelectedDivisionId(createChannelDivisionId);
+        setSelectedDepartmentId(createChannelDepartmentId);
+        await reloadOrgShell(selectedOrganizationId);
+        await loadChannels(
+          selectedOrganizationId,
+          createChannelDepartmentId,
+          departmentWorkspaceActive ? '' : selectedTeamId
+        );
+      } catch (error) {
+        notifyError(t('organizations.channelCreateFail'));
+      }
+      return;
+    }
+
     if (!createChannelTeamId) {
       notifyError(t('organizations.selectTeamRequired'));
       return;
@@ -2351,6 +2505,7 @@ function OrganizationsPage({
       setSelectedDepartmentId(createChannelDepartmentId);
       setSelectedTeamId(createChannelTeamId);
       setCreateChannelModalOpen(false);
+      await reloadOrgShell(selectedOrganizationId);
       await loadChannels(selectedOrganizationId, createChannelDepartmentId, createChannelTeamId);
     } catch (error) {
       notifyError(t('organizations.channelCreateFail'));
@@ -2379,20 +2534,34 @@ function OrganizationsPage({
       } else if (renameTargetType === 'team') {
         await organizationAPI.updateTeamByHierarchy(selectedOrganizationId, renameTargetId, { name: nextName });
       } else if (renameTargetType === 'channel') {
-        if (!selectedTeamId) {
-          notifyError(t('organizations.selectTeamForChannel'));
-          return;
+        const targetChannel = channels.find((ch) => String(ch._id) === String(renameTargetId));
+        if (targetChannel && String(targetChannel.team || '')) {
+          if (!selectedTeamId) {
+            notifyError(t('organizations.selectTeamForChannel'));
+            return;
+          }
+          await organizationAPI.updateChannelByTeam(
+            selectedOrganizationId,
+            selectedTeamId,
+            renameTargetId,
+            { name: nextName }
+          );
+        } else {
+          await organizationAPI.updateChannelByScope(selectedOrganizationId, renameTargetId, {
+            name: nextName,
+          });
         }
-        await organizationAPI.updateChannelByTeam(selectedOrganizationId, selectedTeamId, renameTargetId, {
-          name: nextName,
-        });
       }
       notifySuccess(t('organizations.renamedOk'));
       setRenameModalOpen(false);
       await reloadOrgShell(selectedOrganizationId);
       if (selectedDepartmentId) await loadTeams(selectedOrganizationId, selectedDepartmentId);
       if (selectedDepartmentId) {
-        await loadChannels(selectedOrganizationId, selectedDepartmentId, selectedTeamId);
+        await loadChannels(
+          selectedOrganizationId,
+          selectedDepartmentId,
+          departmentWorkspaceActive ? '' : selectedTeamId
+        );
       }
     } catch {
       notifyError(t('organizations.renameFailRetry'));
@@ -2919,6 +3088,7 @@ function OrganizationsPage({
     if (String(selectedOrganizationId || '') !== String(orgIdFromQuery)) {
       setSelectedTeamId('');
       setSelectedDepartmentId('');
+      setDepartmentWorkspaceActive(false);
       setSelectedDivisionId('');
       setSelectedBranchId('');
       setSelectedChannelId('');
@@ -2933,6 +3103,45 @@ function OrganizationsPage({
     organizations,
     selectedOrganizationId,
     setActiveWorkspace,
+  ]);
+
+  useEffect(() => {
+    workspaceDeepLinkRef.current = '';
+  }, [orgIdFromQuery]);
+
+  useEffect(() => {
+    if (landingDemo || !orgIdFromQuery || !organizationsLoaded) return;
+    if (!departmentIdFromQuery && !channelIdFromQuery) return;
+    const key = `${orgIdFromQuery}|${departmentIdFromQuery}|${channelIdFromQuery}`;
+    if (workspaceDeepLinkRef.current === key) return;
+    workspaceDeepLinkRef.current = key;
+
+    if (departmentIdFromQuery && canSelectDepartment(departmentIdFromQuery)) {
+      setSelectedTeamId('');
+      handleSelectDepartment(departmentIdFromQuery, { workspace: true });
+    }
+
+    if (channelIdFromQuery) {
+      const ch = channels.find((c) => String(c._id) === String(channelIdFromQuery));
+      if (ch?.department && !ch?.team) {
+        setSelectedTeamId('');
+        const deptId = String(ch.department);
+        if (canSelectDepartment(deptId)) {
+          handleSelectDepartment(deptId, { workspace: true });
+        }
+      }
+      setSelectedChannelId(channelIdFromQuery);
+      setWorkspaceTabView('chat');
+    }
+  }, [
+    landingDemo,
+    orgIdFromQuery,
+    organizationsLoaded,
+    departmentIdFromQuery,
+    channelIdFromQuery,
+    channels,
+    canSelectDepartment,
+    findBranchAndDivisionForDepartment,
   ]);
 
   useEffect(() => {
@@ -3094,7 +3303,8 @@ function OrganizationsPage({
 
     let cancelled = false;
     (async () => {
-      const shouldAutoSelectTeam = !suiteLayout || Boolean(selectedTeamId);
+      const shouldAutoSelectTeam =
+        !suiteLayout || Boolean(selectedTeamId) || !departmentWorkspaceActive;
       const teamId = await loadTeams(selectedOrganizationId, selectedDepartmentId, {
         autoSelect: shouldAutoSelectTeam,
       });
@@ -3102,7 +3312,7 @@ function OrganizationsPage({
       await loadChannels(
         selectedOrganizationId,
         selectedDepartmentId,
-        shouldAutoSelectTeam ? teamId : '',
+        departmentWorkspaceActive ? '' : shouldAutoSelectTeam ? teamId : '',
         selectedDivisionId
       );
     })();
@@ -3117,6 +3327,7 @@ function OrganizationsPage({
     landingDemo,
     suiteLayout,
     selectedTeamId,
+    departmentWorkspaceActive,
   ]);
 
   useEffect(() => {
@@ -3128,7 +3339,7 @@ function OrganizationsPage({
       loadChannels(
         selectedOrganizationId,
         selectedDepartmentId,
-        selectedTeamId,
+        departmentWorkspaceActive ? '' : selectedTeamId,
         selectedDivisionId
       );
     };
@@ -3140,6 +3351,7 @@ function OrganizationsPage({
     selectedDepartmentId,
     selectedTeamId,
     selectedDivisionId,
+    departmentWorkspaceActive,
   ]);
 
   const channelMatrixKey = useMemo(
@@ -3153,26 +3365,68 @@ function OrganizationsPage({
 
   useEffect(() => {
     if (landingDemo || !channels.length) return;
+    const deptOnlyPick = Boolean(departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId);
     setSelectedChannelId((prev) => {
       const matrixReady = Object.keys(channelPermissionMatrix || {}).length > 0;
       const current = channels.find((ch) => String(ch._id) === String(prev));
       if (current) {
+        const isDeptOnly =
+          !String(current.team || '') &&
+          selectedDepartmentId &&
+          String(current.department || '') === String(selectedDepartmentId);
         const teamOk =
-          !String(current.team || '') ||
+          selectedTeamId &&
           String(current.team || '') === String(selectedTeamId);
+        const scopeOk = deptOnlyPick
+          ? isDeptOnly
+          : selectedTeamId
+            ? teamOk || isDeptOnly
+            : selectedDepartmentId
+              ? isDeptOnly
+              : !String(current.team || '') || teamOk;
         const perm = channelPermissionMatrix?.[String(prev)];
         const readable = !matrixReady || Boolean(perm?.canSee ?? perm?.canRead);
-        if (teamOk && readable) return prev;
+        if (scopeOk && readable) return prev;
       }
       const next = preferDefaultTextChannelId(
         channels,
         selectedTeamId,
         channelPermissionMatrix,
-        selectedDepartmentId
+        selectedDepartmentId,
+        deptOnlyPick
       );
       return String(next || '') === String(prev || '') ? prev : next;
     });
-  }, [landingDemo, selectedTeamId, selectedDepartmentId, channelMatrixKey, channelsKey]);
+  }, [
+    landingDemo,
+    selectedTeamId,
+    selectedDepartmentId,
+    departmentWorkspaceActive,
+    channelMatrixKey,
+    channelsKey,
+  ]);
+
+  useEffect(() => {
+    if (landingDemo || !departmentWorkspaceActive || !selectedDepartmentId || selectedTeamId) {
+      return;
+    }
+    const ch = channels.find((c) => String(c._id) === String(selectedChannelId));
+    if (!ch || !String(ch.team || '')) return;
+    const isVoice = String(ch.type || '').toLowerCase() === 'voice';
+    const next = isVoice
+      ? resolveDeptVoiceChannelId(channels, selectedDepartmentId, channelPermissionMatrix)
+      : resolveDeptChatChannelId(channels, selectedDepartmentId, channelPermissionMatrix);
+    if (next && next !== selectedChannelId) setSelectedChannelId(next);
+    else if (!next) setSelectedChannelId('');
+  }, [
+    landingDemo,
+    departmentWorkspaceActive,
+    selectedDepartmentId,
+    selectedTeamId,
+    selectedChannelId,
+    channelsKey,
+    channelPermissionMatrix,
+  ]);
 
   const lastMessagesEnrichRef = useRef('');
   const lastMessagesChannelKeyRef = useRef('');
@@ -3275,6 +3529,46 @@ function OrganizationsPage({
   }, [
     selectedChannelId,
     selectedChannelType,
+    landingDemo,
+    joinRoom,
+    leaveRoom,
+    on,
+    off,
+    enrichChannelMessages,
+  ]);
+
+  useEffect(() => {
+    if (landingDemo || selectedChannelType === 'voice' || !selectedChannelId) return undefined;
+    if (!selectedOrganizationId || !joinRoom || !leaveRoom) return undefined;
+
+    const roomKey = String(selectedChannelId);
+    joinRoom(roomKey, selectedOrganizationId);
+
+    const appendChatMessage = (msg) => {
+      const rid = String(msg?.roomId || msg?.room || '');
+      if (rid !== roomKey) return;
+      void (async () => {
+        const enrichedList = await enrichChannelMessages([msg]);
+        const normalized = enrichedList[0] || normalizeOrgChatMessage(msg);
+        setMessages((prev) => {
+          const id = normalized?._id || normalized?.id;
+          if (id && prev.some((m) => String(m._id || m.id) === String(id))) return prev;
+          return [...prev, normalized].sort(
+            (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
+          );
+        });
+      })();
+    };
+
+    on?.('room:new_message', appendChatMessage);
+    return () => {
+      off?.('room:new_message', appendChatMessage);
+      leaveRoom(roomKey);
+    };
+  }, [
+    selectedChannelId,
+    selectedChannelType,
+    selectedOrganizationId,
     landingDemo,
     joinRoom,
     leaveRoom,
@@ -3474,6 +3768,7 @@ function OrganizationsPage({
       landingDemo={landingDemo}
       suiteLayout={suiteLayout}
       suiteMode={suiteMode}
+      departmentWorkspaceActive={departmentWorkspaceActive}
       workspaceTabView={workspaceTabView}
       workspaceDocFiles={workspaceDocFiles}
       loadingWorkspaceDocuments={loadingWorkspaceDocuments}
@@ -3483,6 +3778,7 @@ function OrganizationsPage({
       selectedOrganization={selectedOrganization}
       departments={sidebarDepartments}
       selectedDepartment={selectedDepartment}
+      selectedDepartmentId={selectedDepartmentId}
       branches={visibleBranches}
       selectedBranchId={selectedBranchId}
       selectedDivisionId={selectedDivisionId}
@@ -3553,10 +3849,7 @@ function OrganizationsPage({
       canInviteMembers={['owner', 'admin', 'hr'].includes(
         String(selectedOrganization?.myRole || '').toLowerCase()
       )}
-      canManageWorkspaceStructure={
-        isOrgMembershipStructureAdmin(selectedOrganization?.myRole) ||
-        Boolean(membershipScope?.canSeeAllStructure)
-      }
+      canManageWorkspaceStructure={canManageWorkspaceStructure}
       canManageChannelRoleAccess={canManageChannelRoleAccess}
       canSeeAllStructure={
         Boolean(membershipScope?.canSeeAllStructure) ||
@@ -3589,9 +3882,16 @@ function OrganizationsPage({
         activeTab={shellActiveTab}
         showLanding={showTeamHub}
         selectedTeam={shellSelectedTeam}
+        selectedDepartment={shellSelectedDepartment}
         locale={locale}
         onTabChange={handleShellTabChange}
-        onBackFromSubView={() => setSelectedTeamId('')}
+        onBackFromSubView={() => {
+          if (departmentWorkspaceActive) {
+            handleBackFromDepartmentWorkspace();
+          } else {
+            setSelectedTeamId('');
+          }
+        }}
         teamGrid={
           showDepartmentHub ? (
             <OrganizationDepartmentGrid
@@ -3605,7 +3905,7 @@ function OrganizationsPage({
               membershipScope={membershipScope}
               orgMyRole={selectedOrganization?.myRole}
               onSelectDepartment={(deptId) => handleSelectDepartment(deptId)}
-              onDepartmentQuickAction={handleDepartmentQuickAction}
+              onDepartmentModuleClick={handleDepartmentModuleClick}
               onDepartmentSettings={
                 isOrgStructureAdmin ? handleOpenDepartmentSettings : undefined
               }
@@ -4679,22 +4979,26 @@ function OrganizationsPage({
               ))}
             </select>
           </label>
-          <label className="text-xs text-gray-300">
-            Team
-            <select
-              value={createChannelTeamId}
-              onChange={(event) => setCreateChannelTeamId(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {teamOptions(createChannelBranchId, createChannelDivisionId, createChannelDepartmentId).map(
-                (team) => (
-                  <option key={team._id} value={team._id}>
-                    {team.name}
-                  </option>
-                )
-              )}
-            </select>
-          </label>
+          {createChannelLevel !== 'department' ? (
+            <label className="text-xs text-gray-300">
+              Team
+              <select
+                value={createChannelTeamId}
+                onChange={(event) => setCreateChannelTeamId(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
+              >
+                {teamOptions(createChannelBranchId, createChannelDivisionId, createChannelDepartmentId).map(
+                  (team) => (
+                    <option key={team._id} value={team._id}>
+                      {team.name}
+                    </option>
+                  )
+                )}
+              </select>
+            </label>
+          ) : (
+            <p className="text-xs text-gray-400">{t('workspace.deptChannelCreateHint')}</p>
+          )}
           <input
             value={createChannelName}
             onChange={(event) => setCreateChannelName(event.target.value)}
@@ -4765,6 +5069,7 @@ function OrganizationsPage({
         locale={locale}
         isDarkMode={isDarkMode}
         canManageChannelRoles={canManageChannelRoleAccess}
+        onDeleteChannel={handleDeleteWorkspaceChannel}
         onSaved={() => {
           if (selectedOrganizationId) reloadOrgShell(selectedOrganizationId);
         }}

@@ -50,6 +50,7 @@ import TasksKanbanDnd, { COL_DONE, COL_PROGRESS, COL_TODO } from '../Tasks/Tasks
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
+import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
@@ -313,6 +314,7 @@ const OrganizationMainPanel = ({
   selectedOrganization,
   departments = [],
   selectedDepartment,
+  selectedDepartmentId = '',
   branches = [],
   selectedBranchId = '',
   selectedDivisionId = '',
@@ -392,6 +394,7 @@ const OrganizationMainPanel = ({
   initialTaskBoardTeam = null,
   suiteLayout = false,
   suiteMode = null,
+  departmentWorkspaceActive = false,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -545,16 +548,19 @@ const OrganizationMainPanel = ({
 
   const auxWorkspaceTab = isWorkspaceAuxTab(workspaceTab);
 
-  const scopedChannels = selectedTeamId
-    ? channels.filter(
-        (channel) =>
-          String(channel.team || '') === String(selectedTeamId) ||
-          (!String(channel.team || '') &&
-            (selectedDepartment?._id || selectedDepartment?.id) &&
-            String(channel.department || '') ===
-              String(selectedDepartment?._id || selectedDepartment?.id))
-      )
-    : channels;
+  const resolvedDepartmentId = String(
+    selectedDepartment?._id || selectedDepartment?.id || selectedDepartmentId || ''
+  );
+
+  const scopedChannels = useMemo(
+    () =>
+      resolveScopedWorkspaceChannels(channels, {
+        teamId: selectedTeamId,
+        departmentId: resolvedDepartmentId,
+        departmentOnly: Boolean(departmentWorkspaceActive && !selectedTeamId && resolvedDepartmentId),
+      }),
+    [channels, selectedTeamId, resolvedDepartmentId, departmentWorkspaceActive]
+  );
   const chatChannels = scopedChannels.filter((channel) => channel.type !== 'voice');
   const voiceChannels = scopedChannels.filter((channel) => channel.type === 'voice');
   const channelMatrixReady = Object.keys(channelPermissionMatrix || {}).length > 0;
@@ -1349,6 +1355,12 @@ const OrganizationMainPanel = ({
   };
   const railChatChannels = chatChannels.filter(canReadRailChannel);
   const railVoiceChannels = voiceChannels.filter(canReadRailChannel);
+  const deptWorkspaceContext = Boolean(
+    departmentWorkspaceActive && resolvedDepartmentId && !selectedTeamId
+  );
+  const canManageScopedChannels = Boolean(
+    canManageWorkspaceStructure && (selectedTeamId || deptWorkspaceContext)
+  );
   const teamInitial =
     String(teamName && teamName !== '—' ? teamName : orgName)
       .trim()
@@ -1385,10 +1397,14 @@ const OrganizationMainPanel = ({
     moduleKind === 'chat'
       ? selectedChannel?.description ||
         selectedChannel?.topic ||
-        (t('taskBoard.teamTextChat'))
+        (departmentWorkspaceActive && !selectedTeamId
+          ? t('workspace.deptTextChat')
+          : t('taskBoard.teamTextChat'))
       : selectedTeamId
         ? `${teamName} · ${orgName}`
-        : orgName;
+        : departmentWorkspaceActive && deptName !== '—'
+          ? `${deptName} · ${orgName}`
+          : orgName;
   const railTone = isDarkMode
     ? {
         panel: 'border-white/10 bg-[#0b1120]/95 text-slate-100',
@@ -1409,23 +1425,49 @@ const OrganizationMainPanel = ({
     const active = id && String(selectedChannelId || '') === id;
     const label = channel?.name ? channelNameToDisplaySlug(channel.name, locale) : typeLabel;
     const unread = channelUnreadCount(channel);
+    const showSettings = canManageChannelRoleAccess && onOpenChannelSettings;
+    const actionBtnClass = `absolute right-1.5 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 ${
+      isDarkMode
+        ? 'bg-[#1D2330] text-[#A1A8B3] hover:bg-[#252b3a] hover:text-white'
+        : 'bg-white text-slate-500 shadow-sm hover:bg-slate-100'
+    }`;
     return (
-      <button
-        key={id || label}
-        type="button"
-        onClick={() => id && onSelectChannel?.(id)}
-        className={`group flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
-          active ? railTone.active : `border-transparent ${railTone.item}`
-        }`}
-      >
-        <Icon size={15} className="shrink-0 text-muted-foreground group-hover:text-current" />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {unread > 0 ? (
-          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-            {unread}
-          </span>
+      <div key={id || label} className="group relative">
+        <button
+          type="button"
+          onClick={() => id && onSelectChannel?.(id)}
+          onContextMenu={(e) => {
+            if (!showSettings) return;
+            e.preventDefault();
+            onOpenChannelSettings(channel);
+          }}
+          className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
+            showSettings ? 'pr-9' : ''
+          } ${active ? railTone.active : `border-transparent ${railTone.item}`}`}
+        >
+          <Icon size={15} className="shrink-0 text-muted-foreground group-hover:text-current" />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {unread > 0 ? (
+            <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+              {unread}
+            </span>
+          ) : null}
+        </button>
+        {showSettings ? (
+          <button
+            type="button"
+            title={t('orgPanel.channelSettings')}
+            aria-label={t('orgPanel.channelSettings')}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenChannelSettings(channel);
+            }}
+            className={actionBtnClass}
+          >
+            <Settings size={14} />
+          </button>
         ) : null}
-      </button>
+      </div>
     );
   };
   const suiteOrgModuleRail = suiteLayout ? (
@@ -1439,11 +1481,25 @@ const OrganizationMainPanel = ({
               {teamInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-bold">{selectedTeamId ? teamName : orgName}</p>
-              <p className="mt-0.5 flex items-center gap-1 text-xs text-success">
-                <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
+              <p className="truncate text-base font-bold">
+                {selectedTeamId
+                  ? teamName
+                  : selectedDepartment && deptName !== '—'
+                    ? deptName
+                    : orgName}
               </p>
+              {selectedDepartment && !selectedTeamId && deptName !== '—' ? (
+                <p className={`mt-0.5 truncate text-xs ${railTone.muted}`}>
+                  {selectedChannel?.type === 'voice'
+                    ? t('workspace.deptVoiceContext')
+                    : t('workspace.deptChatContext')}
+                </p>
+              ) : (
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
+                </p>
+              )}
             </div>
             {canInviteMembers ? (
               <button
@@ -1453,6 +1509,16 @@ const OrganizationMainPanel = ({
                 title={t('taskBoard.inviteMembers')}
               >
                 <Users size={15} />
+              </button>
+            ) : null}
+            {deptWorkspaceContext && canManageWorkspaceStructure && onOpenDepartmentSettings ? (
+              <button
+                type="button"
+                onClick={() => onOpenDepartmentSettings(selectedDepartment)}
+                className="rounded-lg border border-border bg-surface p-2 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                title={t('orgPanel.departmentPermissionSettingsTitle')}
+              >
+                <Settings size={15} />
               </button>
             ) : null}
           </div>
@@ -1475,7 +1541,7 @@ const OrganizationMainPanel = ({
                 {t('taskBoard.noChatChannels')}
               </p>
             )}
-            {canManageWorkspaceStructure && selectedTeamId ? (
+            {canManageScopedChannels ? (
               <button
                 type="button"
                 onClick={() => onCreateChannel?.('chat')}
@@ -1500,7 +1566,7 @@ const OrganizationMainPanel = ({
                 {t('taskBoard.noVoiceChannels')}
               </p>
             )}
-            {canManageWorkspaceStructure && selectedTeamId ? (
+            {canManageScopedChannels ? (
               <button
                 type="button"
                 onClick={() => onCreateChannel?.('voice')}
@@ -1647,6 +1713,7 @@ const OrganizationMainPanel = ({
               canManageWorkspaceStructure={canManageWorkspaceStructure}
               canManageChannelRoleAccess={canManageChannelRoleAccess}
               canSeeAllStructure={canSeeAllStructure}
+              departmentWorkspaceActive={departmentWorkspaceActive}
               canCreateTaskBoard={canCreateWorkspaceTask}
               onCreateTaskBoard={(team) => {
                 setTaskBoardTeam(team ? { ...team, scopeType: team.scopeType || 'team' } : null);
@@ -2998,7 +3065,6 @@ const OrganizationMainPanel = ({
           </div>
         </div>
       </Modal>
-
     </>
   );
 };

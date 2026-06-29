@@ -1,5 +1,6 @@
 import { channelUnreadCount, voicePresenceLabel } from '../components/Organization/organizationStructureTheme';
 import { displayDepartmentName } from './orgEntityDisplay';
+import { channelsForDepartment } from './orgChannelScope';
 
 function asId(value) {
   if (value == null || value === '') return '';
@@ -145,27 +146,41 @@ export function buildDepartmentHubCard({
   const name = displayDepartmentName(rawName, locale);
   const deptTeams = collectDeptTeams(id, { teams, branches });
   const deptChannels = collectDeptChannels(id, deptTeams, channels);
+  const deptOnlyChannels = channelsForDepartment(channels, id);
+  const teamScopedChannels = deptChannels.filter((channel) => String(channel.team || ''));
   const memberIds = collectMemberIds(department, deptTeams);
   const onlineSet = new Set((onlineUserIds || []).map((uid) => String(uid)));
   const onlineCount = [...memberIds].filter((memberId) => onlineSet.has(memberId)).length;
-  const unread = deptChannels.reduce((sum, channel) => sum + channelUnreadCount(channel), 0);
+  const deptUnread = deptOnlyChannels.reduce((sum, channel) => sum + channelUnreadCount(channel), 0);
+  const teamUnread = teamScopedChannels.reduce((sum, channel) => sum + channelUnreadCount(channel), 0);
+  const totalUnread = deptUnread + teamUnread;
   const channelCount = deptChannels.length;
   const teamNames = deptTeams
     .map((team) => String(team?.name || '').trim())
     .filter(Boolean);
   const lastActivity = resolveLastActivity(deptTeams, deptChannels);
   const activityLevel = resolveActivityLevel({
-    unread,
+    unread: totalUnread,
     onlineCount,
     lastActivityMs: lastActivity?.ts,
   });
+  const deptVoiceChannels = deptOnlyChannels.filter(
+    (channel) => String(channel?.type || '').toLowerCase() === 'voice'
+  );
   const voiceChannels = deptChannels.filter(
     (channel) => String(channel?.type || '').toLowerCase() === 'voice'
+  );
+  const deptVoiceLive = deptVoiceChannels.some(
+    (channel) => Number(channel?.voiceActiveCount ?? channel?.activeVoiceCount ?? 0) > 0
   );
   const voiceLive = voiceChannels.some(
     (channel) => Number(channel?.voiceActiveCount ?? channel?.activeVoiceCount ?? 0) > 0
   );
   const voiceParticipants = voiceChannels.reduce(
+    (sum, channel) => sum + Number(channel?.voiceActiveCount ?? channel?.activeVoiceCount ?? 0),
+    0
+  );
+  const deptVoiceParticipants = deptVoiceChannels.reduce(
     (sum, channel) => sum + Number(channel?.voiceActiveCount ?? channel?.activeVoiceCount ?? 0),
     0
   );
@@ -183,8 +198,16 @@ export function buildDepartmentHubCard({
     onlineCount,
     teamCount: deptTeams.length,
     teamNames,
-    channelCount,
-    unread,
+    channelCount: deptOnlyChannels.length,
+    deptOnlyChannelCount: deptOnlyChannels.length,
+    channelTags: deptOnlyChannels
+      .filter((channel) => String(channel?.type || '').toLowerCase() !== 'voice')
+      .slice(0, 3)
+      .map((channel) => String(channel?.name || channel?.slug || 'general')),
+    deptUnread,
+    teamUnread,
+    totalUnread,
+    unread: deptUnread,
     activeTasks,
     headName: resolveHeadName(department, deptTeams),
     myRole: resolveDeptRole(id, membershipScope, orgMyRole),
@@ -192,8 +215,12 @@ export function buildDepartmentHubCard({
     lastActivityLabel: lastActivity?.label || '',
     lastActivityAt: lastActivity?.ts ? new Date(lastActivity.ts).toISOString() : '',
     voiceLive,
+    deptVoiceLive,
     voiceParticipants,
-    voicePresence: voiceChannels.map((channel) => voicePresenceLabel(channel)).find(Boolean) || '',
+    deptVoiceParticipants,
+    voicePresence: deptVoiceChannels.map((channel) => voicePresenceLabel(channel)).find(Boolean)
+      || voiceChannels.map((channel) => voicePresenceLabel(channel)).find(Boolean)
+      || '',
     raw: department,
   };
 }

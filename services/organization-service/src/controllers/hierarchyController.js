@@ -14,6 +14,7 @@ const {
 } = require('../services/hierarchyRoleSync');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -134,6 +135,13 @@ exports.createDepartmentByDivision = async (req, res, next) => {
       head: req.body?.head || null,
     });
     await ensureDepartmentRole(req.params.orgId, doc._id, doc.name);
+    const actorId = req.user?.id || req.user?.userId || req.user?._id || doc.head || null;
+    await ensureDepartmentDefaultChannels({
+      orgId: req.params.orgId,
+      departmentId: doc._id,
+      department: doc,
+      actorId,
+    });
     await bumpOrgReadCache(req.params.orgId);
     return res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
@@ -320,6 +328,28 @@ exports.createChannelByScope = async (req, res, next) => {
       if (!department) {
         return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
       }
+
+      const rawName = String(req.body?.name || '').trim().toLowerCase();
+      const isDefaultDeptChannel =
+        (type === 'chat' && (!rawName || rawName === 'general')) ||
+        (type === 'voice' && (!rawName || rawName === 'voice'));
+
+      if (isDefaultDeptChannel) {
+        const { created, existing } = await ensureDepartmentDefaultChannels({
+          orgId: req.params.orgId,
+          departmentId,
+          department,
+          actorId,
+        });
+        const pool = [...existing, ...created].filter((row) => String(row.type) === type);
+        const doc = pool[0];
+        if (!doc) {
+          return orgFail(res, 500, 'Failed to provision department channel', 'ORG_INTERNAL');
+        }
+        const status = created.length ? 201 : 200;
+        return res.status(status).json({ status: 'success', data: doc });
+      }
+
       const doc = await Channel.create({
         organization: req.params.orgId,
         branch: department.branch || null,
@@ -411,6 +441,35 @@ exports.updateChannelByTeam = async (req, res, next) => {
     }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+function isProtectedDefaultChannel(channel) {
+  if (!channel) return true;
+  const name = String(channel.name || '').trim().toLowerCase();
+  const type = String(channel.type || 'chat').trim().toLowerCase();
+  if (type === 'voice') return name === 'voice';
+  return name === 'general';
+}
+
+exports.deleteChannelByScope = async (req, res, next) => {
+  try {
+    const channel = await Channel.findOne({
+      _id: req.params.channelId,
+      organization: req.params.orgId,
+      isActive: true,
+    }).lean();
+    if (!channel) {
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
+    }
+    if (isProtectedDefaultChannel(channel)) {
+      return orgValidation(res, 'Cannot delete default channel');
+    }
+    await Channel.findOneAndUpdate({ _id: channel._id }, { isActive: false }, { new: true });
+    await bumpOrgReadCache(req.params.orgId);
+    return res.json({ status: 'success', message: 'Channel deleted' });
   } catch (error) {
     return next(error);
   }

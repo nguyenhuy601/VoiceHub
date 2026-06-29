@@ -56,10 +56,29 @@ async function requiresApproval(roomId) {
   return lobby.joinPolicy === 'approval';
 }
 
+async function destroyLobby(roomId) {
+  const rid = String(roomId || '').trim();
+  if (!rid || !isFreePublicLobbyRoom(rid)) return false;
+
+  const VoiceRoomJoinRequest = require('../models/VoiceRoomJoinRequest');
+  await VoiceRoomJoinRequest.deleteMany({ roomId: rid });
+  const result = await VoiceRoomLobby.deleteOne({ roomId: rid });
+
+  try {
+    const voiceLobbyRedis = require('../presence/voiceLobbyRedis');
+    await voiceLobbyRedis.clearLobbyBootstrap?.(rid);
+  } catch {
+    /* optional redis */
+  }
+
+  return result.deletedCount > 0;
+}
+
 module.exports = {
   getLobby,
   registerHost,
   isHost,
   requiresApproval,
   isFreePublicLobbyRoom,
+  destroyLobby,
 };

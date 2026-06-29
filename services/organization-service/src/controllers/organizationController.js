@@ -25,6 +25,7 @@ const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { syncUserOrgRole, ensureDefaultOrgRoles } = require('../services/rolePermissionOrgSync');
 const { syncHierarchyRoles } = require('../services/hierarchyRoleSync');
+const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
 const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
 const { resolveTaskWorkspaceScope } = require('../services/taskWorkspaceScope.service');
 const {
@@ -266,6 +267,15 @@ const seedHierarchyStructure = async ({ organizationId, ownerId, blueprint }) =>
       )
     : [];
   const departmentByKey = new Map(departmentsSeed.map((item, idx) => [item.__key, departments[idx]]));
+
+  for (const department of departments) {
+    await ensureDepartmentDefaultChannels({
+      orgId: organizationId,
+      departmentId: department._id,
+      department,
+      actorId: ownerId,
+    });
+  }
 
   const teamsSeed = [];
   for (let bIdx = 0; bIdx < normalized.branches.length; bIdx += 1) {

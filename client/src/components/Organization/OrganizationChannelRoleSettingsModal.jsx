@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronDown, Plus, X } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
@@ -14,6 +14,7 @@ import {
   emptyChannelRolePermissions,
 } from './channelRolePermissionDefs';
 import { roleAccentColor } from './channelRolePermissionDefs';
+import { isProtectedDefaultChannel } from '../../utils/orgChannelScope';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -25,6 +26,7 @@ export default function OrganizationChannelRoleSettingsModal({
   locale,
   isDarkMode,
   canManageChannelRoles = false,
+  onDeleteChannel,
   onSaved,
 }) {
   const { t } = useAppStrings();
@@ -34,12 +36,15 @@ export default function OrganizationChannelRoleSettingsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const channelId = channel?._id ? String(channel._id) : '';
   const isVoice = String(channel?.type || 'chat').toLowerCase() === 'voice';
   const channelLabel = channel?.name
     ? channelNameToDisplaySlug(channel.name, locale)
     : t('organizations.memberSidebarFilesUnknownChannel');
+  const channelProtected = isProtectedDefaultChannel(channel);
 
   const permGroups = useMemo(
     () => channelPermissionGroups({ isVoiceChannel: isVoice, t }),
@@ -107,10 +112,29 @@ export default function OrganizationChannelRoleSettingsModal({
   }, [organizationId, channelId]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setDeleteConfirm(false);
+      setDeleting(false);
+      return;
+    }
     setAddOpen(false);
+    setDeleteConfirm(false);
     loadData();
   }, [isOpen, loadData]);
+
+  const handleConfirmDelete = async () => {
+    if (!channelId || channelProtected || !onDeleteChannel) return;
+    setDeleting(true);
+    try {
+      await onDeleteChannel(channel);
+      setDeleteConfirm(false);
+      onClose?.();
+    } catch {
+      toast.error(t('organizations.deleteChannelFail'));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const assignedIds = useMemo(() => new Set(assigned.map((r) => r.id)), [assigned]);
 
@@ -217,7 +241,8 @@ export default function OrganizationChannelRoleSettingsModal({
             {t('organizations.channelRolePermManageDenied')}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1">
+          <>
+            <div className="flex min-h-0 flex-1">
             <aside
               className={`flex w-[220px] shrink-0 flex-col border-r ${borderCls} ${sidebarBg}`}
             >
@@ -362,10 +387,68 @@ export default function OrganizationChannelRoleSettingsModal({
                   ))}
                 </div>
               )}
+            </div>
+            </div>
 
-              <footer
-                className={`flex shrink-0 justify-end gap-2 border-t px-4 py-3 ${borderCls}`}
+            {deleteConfirm ? (
+              <div
+                className={`shrink-0 border-t px-4 py-2.5 text-xs ${borderCls} ${
+                  isDarkMode ? 'bg-rose-950/30 text-[#fca5a5]' : 'bg-rose-50 text-rose-700'
+                }`}
               >
+                {t('organizations.deleteChannelMsg')}
+              </div>
+            ) : null}
+
+            <footer
+              className={`flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3 ${borderCls}`}
+            >
+              <div className="min-w-0 shrink-0">
+                {canManageChannelRoles ? (
+                  channelProtected ? (
+                    <span
+                      className={`text-xs ${textMuted}`}
+                      title={t('organizations.deleteChannelProtected')}
+                    >
+                      {t('organizations.deleteChannelProtected')}
+                    </span>
+                  ) : deleteConfirm ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={deleting}
+                        onClick={() => setDeleteConfirm(false)}
+                        className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                          isDarkMode
+                            ? 'bg-white/10 text-white hover:bg-white/15'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {t('nav.cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deleting || !onDeleteChannel}
+                        onClick={handleConfirmDelete}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {deleting ? t('organizationSettings.deleting') : t('common.delete')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirm(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-600/40 bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t('organizations.deleteChannelBtn')}
+                    </button>
+                  )
+                ) : null}
+              </div>
+              <div className="flex shrink-0 gap-2">
                 <button
                   type="button"
                   onClick={onClose}
@@ -379,15 +462,15 @@ export default function OrganizationChannelRoleSettingsModal({
                 </button>
                 <button
                   type="button"
-                  disabled={saving || loading}
+                  disabled={saving || loading || deleting}
                   onClick={handleSave}
                   className="rounded-lg bg-[#5865f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
                 >
                   {saving ? t('organizations.saving') : t('organizations.saveChanges')}
                 </button>
-              </footer>
-            </div>
-          </div>
+              </div>
+            </footer>
+          </>
         )}
       </div>
     </div>

@@ -467,6 +467,226 @@ services:
         published: 40010
         protocol: udp
         mode: host
+      - target: 40011
+        published: 40011
+        protocol: udp
+        mode: host
+      - target: 40012
+        published: 40012
+        protocol: udp
+        mode: host
+      - target: 40013
+        published: 40013
+        protocol: udp
+        mode: host
+      - target: 40014
+        published: 40014
+        protocol: udp
+        mode: host
+      - target: 40015
+        published: 40015
+        protocol: udp
+        mode: host
+      - target: 40016
+        published: 40016
+        protocol: udp
+        mode: host
+      - target: 40017
+        published: 40017
+        protocol: udp
+        mode: host
+      - target: 40018
+        published: 40018
+        protocol: udp
+        mode: host
+      - target: 40019
+        published: 40019
+        protocol: udp
+        mode: host
+      - target: 40020
+        published: 40020
+        protocol: udp
+        mode: host
+      - target: 40021
+        published: 40021
+        protocol: udp
+        mode: host
+      - target: 40022
+        published: 40022
+        protocol: udp
+        mode: host
+      - target: 40023
+        published: 40023
+        protocol: udp
+        mode: host
+      - target: 40024
+        published: 40024
+        protocol: udp
+        mode: host
+      - target: 40025
+        published: 40025
+        protocol: udp
+        mode: host
+      - target: 40026
+        published: 40026
+        protocol: udp
+        mode: host
+      - target: 40027
+        published: 40027
+        protocol: udp
+        mode: host
+      - target: 40028
+        published: 40028
+        protocol: udp
+        mode: host
+      - target: 40029
+        published: 40029
+        protocol: udp
+        mode: host
+      - target: 40030
+        published: 40030
+        protocol: udp
+        mode: host
+      - target: 40031
+        published: 40031
+        protocol: udp
+        mode: host
+      - target: 40032
+        published: 40032
+        protocol: udp
+        mode: host
+      - target: 40033
+        published: 40033
+        protocol: udp
+        mode: host
+      - target: 40034
+        published: 40034
+        protocol: udp
+        mode: host
+      - target: 40035
+        published: 40035
+        protocol: udp
+        mode: host
+      - target: 40036
+        published: 40036
+        protocol: udp
+        mode: host
+      - target: 40037
+        published: 40037
+        protocol: udp
+        mode: host
+      - target: 40038
+        published: 40038
+        protocol: udp
+        mode: host
+      - target: 40039
+        published: 40039
+        protocol: udp
+        mode: host
+      - target: 40040
+        published: 40040
+        protocol: udp
+        mode: host
+      - target: 40041
+        published: 40041
+        protocol: udp
+        mode: host
+      - target: 40042
+        published: 40042
+        protocol: udp
+        mode: host
+      - target: 40043
+        published: 40043
+        protocol: udp
+        mode: host
+      - target: 40044
+        published: 40044
+        protocol: udp
+        mode: host
+      - target: 40045
+        published: 40045
+        protocol: udp
+        mode: host
+      - target: 40046
+        published: 40046
+        protocol: udp
+        mode: host
+      - target: 40047
+        published: 40047
+        protocol: udp
+        mode: host
+      - target: 40048
+        published: 40048
+        protocol: udp
+        mode: host
+      - target: 40049
+        published: 40049
+        protocol: udp
+        mode: host
+      - target: 40050
+        published: 40050
+        protocol: udp
+        mode: host
+      - target: 40051
+        published: 40051
+        protocol: udp
+        mode: host
+      - target: 40052
+        published: 40052
+        protocol: udp
+        mode: host
+      - target: 40053
+        published: 40053
+        protocol: udp
+        mode: host
+      - target: 40054
+        published: 40054
+        protocol: udp
+        mode: host
+      - target: 40055
+        published: 40055
+        protocol: udp
+        mode: host
+      - target: 40056
+        published: 40056
+        protocol: udp
+        mode: host
+      - target: 40057
+        published: 40057
+        protocol: udp
+        mode: host
+      - target: 40058
+        published: 40058
+        protocol: udp
+        mode: host
+      - target: 40059
+        published: 40059
+        protocol: udp
+        mode: host
+      - target: 40060
+        published: 40060
+        protocol: udp
+        mode: host
+      - target: 40061
+        published: 40061
+        protocol: udp
+        mode: host
+      - target: 40062
+        published: 40062
+        protocol: udp
+        mode: host
+      - target: 40063
+        published: 40063
+        protocol: udp
+        mode: host
+      - target: 40064
+        published: 40064
+        protocol: udp
+        mode: host
+      - target: 40065
+        published: 40065
+        protocol: udp
+        mode: host
     env_file:
       - .env
       - ./services/voice-service/.env
@@ -482,7 +702,7 @@ services:
       resources:
         limits:
           cpus: "1.50"
-          memory: 512M
+          memory: 768M
         reservations:
           cpus: "0.50"
           memory: 192M

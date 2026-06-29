@@ -2,6 +2,7 @@ const Department = require('../models/Department');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
 const { ensureDepartmentRole } = require('../services/hierarchyRoleSync');
+const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
 
 exports.getDepartments = async (req, res, next) => {
   try {
@@ -48,6 +49,13 @@ exports.createDepartment = async (req, res, next) => {
       head,
     });
     await ensureDepartmentRole(req.params.orgId, department._id, department.name);
+    const actorId = req.user?.id || req.user?.userId || req.user?._id || department.head || null;
+    await ensureDepartmentDefaultChannels({
+      orgId: req.params.orgId,
+      departmentId: department._id,
+      department,
+      actorId,
+    });
 
     res.status(201).json({ status: 'success', data: department });
   } catch (error) {

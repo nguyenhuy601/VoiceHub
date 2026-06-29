@@ -36,5 +36,6 @@ router.post('/teams/:teamId/channels', authorize(['owner', 'admin']), hierarchyC
 router.put('/teams/:teamId/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByTeam);
 router.post('/channels', authorize(['owner', 'admin']), hierarchyController.createChannelByScope);
 router.put('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByScope);
+router.delete('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.deleteChannelByScope);
 
 module.exports = router;

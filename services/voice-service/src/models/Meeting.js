@@ -30,6 +30,12 @@ const meetingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    /** Mã phòng lobby tự do (vd. room-abc123) */
+    lobbyRoomId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     participants: [
       {
         userId: {

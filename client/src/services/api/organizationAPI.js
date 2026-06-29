@@ -122,6 +122,10 @@ export const organizationAPI = {
     const response = await apiClient.put(`/organizations/${orgId}/hierarchy/channels/${channelId}`, data);
     return response;
   },
+  deleteChannelByScope: async (orgId, channelId) => {
+    const response = await apiClient.delete(`/organizations/${orgId}/hierarchy/channels/${channelId}`);
+    return response;
+  },
 
   getWorkspaceBySlug: async (slug) => {
     const response = await apiClient.get(`/organizations/by-slug/${encodeURIComponent(slug)}`);

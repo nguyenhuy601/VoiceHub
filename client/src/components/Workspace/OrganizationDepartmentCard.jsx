@@ -1,19 +1,27 @@
-import { useState } from 'react';
 import {
+  Activity,
   ChevronRight,
   ClipboardList,
+  FileText,
+  Hash,
   MessageCircle,
   Mic,
   Pin,
   Settings,
   Star,
   Users,
-  Video,
 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
-import { departmentSquareClass } from '../Organization/organizationStructureTheme';
 import { formatDeptRelativeTime } from '../../utils/buildDepartmentHubCard';
-import { FIGMA_WS_CARD } from './figmaWorkspaceClasses';
+import { FIGMA_WS_TEAM_CARD } from './figmaWorkspaceClasses';
+
+const GRAD_PAIRS = [
+  ['#475569', '#64748B'],
+  ['#1D4ED8', '#3B82F6'],
+  ['#7C3AED', '#A78BFA'],
+  ['#059669', '#34D399'],
+  ['#D97706', '#FBBF24'],
+];
 
 const ACTIVITY_TONE = {
   hot: {
@@ -47,50 +55,11 @@ const ROLE_LABEL = {
   guest: 'workspace.roleGuestVi',
 };
 
-function OnlineDots({ online, total }) {
-  const visible = Math.min(5, Math.max(0, online));
-  const overflow = Math.max(0, total - visible);
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center -space-x-1">
-        {Array.from({ length: visible }).map((_, index) => (
-          <span
-            key={`dot-${index}`}
-            className="h-2.5 w-2.5 rounded-full border-2 border-surface bg-success"
-          />
-        ))}
-        {overflow > 0 ? (
-          <span className="ml-2 text-[0.65rem] font-semibold text-muted-foreground">+{overflow}</span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function TeamPreview({ names, t }) {
-  if (!names.length) {
-    return <span className="text-xs text-muted-foreground">{t('workspace.deptNoTeamsYet')}</span>;
-  }
-  const visible = names.slice(0, 2);
-  const rest = names.length - visible.length;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      <span className="font-semibold text-muted-foreground">{t('workspace.deptTeamsLabel')}</span>
-      {visible.map((name) => (
-        <span
-          key={name}
-          className="rounded-md bg-muted px-2 py-0.5 font-medium text-foreground"
-        >
-          {name}
-        </span>
-      ))}
-      {rest > 0 ? (
-        <span className="rounded-md bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-          +{rest}
-        </span>
-      ) : null}
-    </div>
-  );
+function pickGrad(seed) {
+  const n = String(seed || '')
+    .split('')
+    .reduce((a, c) => a + c.charCodeAt(0), 0);
+  return GRAD_PAIRS[n % GRAD_PAIRS.length];
 }
 
 export default function OrganizationDepartmentCard({
@@ -98,16 +67,16 @@ export default function OrganizationDepartmentCard({
   starred = false,
   onToggleStar,
   onOpen,
-  onQuickAction,
+  onModuleClick,
   onSettings,
 }) {
   const { t, locale } = useAppStrings();
-  const [hovered, setHovered] = useState(false);
   const activity = ACTIVITY_TONE[card.activityLevel] || ACTIVITY_TONE.normal;
   const roleKey = String(card.myRole || '').toLowerCase();
   const roleLabelKey = ROLE_LABEL[roleKey];
   const lastActivityTime = formatDeptRelativeTime(card.lastActivityAt, t, locale);
-  const accentClass = departmentSquareClass(card.id);
+  const [gradStart, gradEnd] = pickGrad(card.id);
+  const channelTags = Array.isArray(card.channelTags) ? card.channelTags : [];
 
   const stop = (event) => {
     event.stopPropagation();
@@ -119,185 +88,197 @@ export default function OrganizationDepartmentCard({
       tabIndex={0}
       onClick={() => onOpen?.(card.id, card.raw)}
       onKeyDown={(event) => event.key === 'Enter' && onOpen?.(card.id, card.raw)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className={`${FIGMA_WS_CARD} relative min-h-[320px] overflow-hidden`}
+      className={`${FIGMA_WS_TEAM_CARD} group`}
     >
-      <div className={`absolute inset-y-0 left-0 w-1 ${accentClass}`} aria-hidden />
-
-      <div className="flex items-start gap-3 pl-1">
+      <div className="flex items-start gap-3">
         <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-lg font-extrabold text-white shadow-md ${accentClass}`}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-sm font-extrabold text-white shadow-md"
+          style={{
+            background: `linear-gradient(135deg, ${gradStart}, ${gradEnd})`,
+            boxShadow: `0 4px 14px ${gradStart}44`,
+          }}
         >
           {card.initial}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <h3 className="truncate text-base font-bold text-foreground">{card.name}</h3>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide ${activity.className}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.55rem] font-bold uppercase tracking-wide ${activity.className}`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${activity.dot}`} />
                   {t(activity.labelKey)}
                 </span>
               </div>
-              {card.description ? (
-                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                  {card.description}
-                </p>
+              {roleLabelKey ? (
+                <span className="mt-1 inline-flex rounded-md bg-primary/10 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-primary">
+                  {t(roleLabelKey)}
+                </span>
               ) : null}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-0.5">
               <button
                 type="button"
                 onClick={(event) => {
                   stop(event);
                   onToggleStar?.(card.id);
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg border border-transparent transition hover:border-border hover:bg-muted ${
-                  starred ? 'text-amber-500' : 'text-muted-foreground'
+                className={`flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted ${
+                  starred ? 'text-amber-500' : ''
                 }`}
                 aria-label={starred ? t('workspace.deptUnpin') : t('workspace.deptPin')}
               >
-                {starred ? <Star size={15} fill="currentColor" /> : <Pin size={15} />}
+                {starred ? <Star size={14} fill="currentColor" /> : <Pin size={14} />}
               </button>
+              {onSettings ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    stop(event);
+                    onSettings?.(card.raw);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-primary"
+                  aria-label={t('workspace.deptActionSettings')}
+                >
+                  <Settings size={14} />
+                </button>
+              ) : null}
               <ChevronRight
-                size={16}
-                className={`text-muted-foreground transition ${hovered ? 'translate-x-0.5 text-primary' : ''}`}
+                size={14}
+                className="text-muted-foreground transition group-hover:text-primary"
               />
             </div>
           </div>
+          {card.description ? (
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{card.description}</p>
+          ) : card.teamNames?.length ? (
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {t('workspace.teamsInDepartment', { count: card.teamCount })}
+            </p>
+          ) : null}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
-        <span className="flex items-center gap-1.5">
-          <Users size={13} className="shrink-0 text-primary" />
-          <span>
-            <strong className="text-foreground">{card.memberCount}</strong> {t('workspace.members')}
-          </span>
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Users size={11} />
+          {card.memberCount} {t('workspace.members')}
         </span>
-        <span className="flex items-center gap-1.5">
-          <MessageCircle size={13} className="shrink-0 text-sky-500" />
-          <span>
-            <strong className="text-foreground">{card.channelCount}</strong>{' '}
-            {t('workspace.deptChannelsLabel')}
+        {card.onlineCount > 0 ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+            {card.onlineCount} {t('workspace.online')}
           </span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <Users size={13} className="shrink-0 text-violet-500" />
-          <span>
-            <strong className="text-foreground">{card.teamCount}</strong> {t('workspace.deptTeamsShort')}
+        ) : null}
+        {card.teamCount > 0 ? (
+          <span className="flex items-center gap-1">
+            <Activity size={11} />
+            {card.teamCount} {t('workspace.deptTeamsShort')}
           </span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
-          <span>
-            <strong className="text-foreground">{card.onlineCount}</strong>/{card.memberCount || '—'}{' '}
-            {t('workspace.online')}
+        ) : null}
+        {card.activeTasks > 0 ? (
+          <span className="ml-auto flex items-center gap-1">
+            <ClipboardList size={11} />
+            {card.activeTasks} {t('workspace.tasks')}
           </span>
-        </span>
+        ) : null}
       </div>
 
-      {card.memberCount > 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/80 px-3 py-2">
-          <OnlineDots online={card.onlineCount} total={card.memberCount} />
-          <span className="text-[0.6875rem] text-muted-foreground">
-            {t('workspace.deptOnlineSummary', {
-              online: card.onlineCount,
-              total: card.memberCount,
-            })}
-          </span>
+      {channelTags.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {channelTags.map((ch, chIdx) => (
+            <span
+              key={`${card.id}-ch-${chIdx}-${ch}`}
+              className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground"
+            >
+              <Hash size={9} />
+              {ch}
+            </span>
+          ))}
         </div>
       ) : null}
 
-      <TeamPreview names={card.teamNames} t={t} />
-
-      {card.headName || roleLabelKey ? (
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          {card.headName ? (
-            <span className="text-muted-foreground">
-              <span className="font-semibold text-foreground">{t('workspace.deptHeadLabel')}</span>{' '}
-              {card.headName}
-            </span>
-          ) : null}
-          {roleLabelKey ? (
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-              {t('workspace.deptYourRole')}: {t(roleLabelKey)}
-            </span>
-          ) : null}
-        </div>
+      {card.lastActivityLabel ? (
+        <p className="truncate rounded-lg border border-border bg-background px-2.5 py-2 text-[0.6875rem] text-muted-foreground">
+          {card.lastActivityLabel}
+          {lastActivityTime ? ` · ${lastActivityTime}` : ''}
+        </p>
       ) : null}
 
-      {(card.unread > 0 || card.voiceLive || card.activeTasks > 0) && (
-        <div className="flex flex-wrap gap-2">
-          {card.unread > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2.5 py-1 text-[0.6875rem] font-semibold text-orange-600 dark:text-orange-400">
-              {t('workspace.deptUnreadBadge', { count: card.unread })}
+      {(card.deptUnread > 0 || card.deptVoiceLive) && (
+        <div className="flex flex-wrap gap-1.5">
+          {card.deptUnread > 0 ? (
+            <span className="inline-flex items-center rounded-full bg-orange-500/15 px-2 py-0.5 text-[0.625rem] font-semibold text-orange-600 dark:text-orange-400">
+              {t('workspace.deptUnreadBadge', { count: card.deptUnread })}
             </span>
           ) : null}
-          {card.voiceLive ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[0.6875rem] font-semibold text-success">
-              <Video size={12} />
-              {t('workspace.deptVoiceLive', { count: card.voiceParticipants || 0 })}
+          {card.totalUnread > card.deptUnread ? (
+            <span className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-[0.625rem] font-medium text-orange-600/80 dark:text-orange-400/80">
+              {t('workspace.deptUnreadFromTeams', {
+                count: Math.max(0, (card.totalUnread || 0) - (card.deptUnread || 0)),
+              })}
             </span>
           ) : null}
-          {card.activeTasks > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-[0.6875rem] font-semibold text-warning">
-              <ClipboardList size={12} />
-              {t('workspace.deptTasksBadge', { count: card.activeTasks })}
+          {card.deptVoiceLive ? (
+            <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[0.625rem] font-semibold text-success">
+              {t('workspace.deptVoiceLiveDept', { count: card.deptVoiceParticipants || 0 })}
             </span>
           ) : null}
         </div>
       )}
 
-      {card.lastActivityLabel ? (
-        <div className="rounded-xl border border-border/70 bg-muted/40 px-3 py-2.5">
-          <p className="text-[0.625rem] font-bold uppercase tracking-wide text-muted-foreground">
-            {t('workspace.deptRecentActivity')}
-          </p>
-          <p className="mt-1 truncate text-sm text-foreground">
-            {card.lastActivityLabel}
-            {lastActivityTime ? (
-              <span className="text-muted-foreground"> · {lastActivityTime}</span>
-            ) : null}
-          </p>
-        </div>
-      ) : null}
-
-      {hovered ? (
-        <div
-          className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 border-t border-border/80 bg-surface/95 px-4 py-3 backdrop-blur-sm"
-          onClick={stop}
-        >
+      {onModuleClick ? (
+        <div className="grid grid-cols-4 gap-1.5">
           {[
-            { id: 'open', label: t('workspace.deptActionOpen'), icon: ChevronRight },
-            { id: 'chat', label: t('workspace.moduleChat'), icon: MessageCircle },
-            { id: 'voice', label: t('workspace.moduleVoice'), icon: Mic },
-            ...(onSettings
-              ? [{ id: 'settings', label: t('workspace.deptActionSettings'), icon: Settings }]
-              : []),
-          ].map((action) => {
-            const Icon = action.icon;
-            return (
-              <button
-                key={action.id}
-                type="button"
-                onClick={(event) => {
-                  stop(event);
-                  if (action.id === 'open') onOpen?.(card.id, card.raw);
-                  else if (action.id === 'settings') onSettings?.(card.raw);
-                  else onQuickAction?.(card.id, action.id, card.raw);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-              >
-                <Icon size={13} />
-                {action.label}
-              </button>
-            );
-          })}
+            {
+              module: 'chat',
+              icon: MessageCircle,
+              label: t('workspace.moduleChat'),
+              badge: card.deptUnread || 0,
+              color: 'text-primary',
+            },
+            {
+              module: 'voice',
+              icon: Mic,
+              label: t('workspace.moduleVoice'),
+              badge: 0,
+              color: 'text-success',
+            },
+            {
+              module: 'tasks',
+              icon: ClipboardList,
+              label: t('workspace.moduleTask'),
+              badge: card.activeTasks || 0,
+              color: 'text-warning',
+            },
+            {
+              module: 'documents',
+              icon: FileText,
+              label: t('workspace.moduleDocs'),
+              badge: 0,
+              color: 'text-violet-500 dark:text-violet-400',
+            },
+          ].map((btn) => (
+            <button
+              key={btn.module}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onModuleClick(card.id, btn.module, card.raw);
+              }}
+              className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
+            >
+              {btn.badge > 0 ? (
+                <span className="absolute right-1.5 top-1 min-w-[15px] rounded-full bg-primary px-1 text-[0.5rem] font-bold text-primary-foreground">
+                  {btn.badge > 99 ? '99+' : btn.badge}
+                </span>
+              ) : null}
+              <btn.icon size={15} className={btn.color} />
+              {btn.label}
+            </button>
+          ))}
         </div>
       ) : null}
     </div>

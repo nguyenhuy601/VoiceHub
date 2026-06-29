@@ -1,4 +1,5 @@
 const Meeting = require('../models/Meeting');
+const mongoose = require('../db');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
@@ -261,7 +262,8 @@ class MeetingService {
       const meetings = await Meeting.find(filter)
         .limit(limit * 1)
         .skip((page - 1) * limit)
-        .sort(sort);
+        .sort(sort)
+        .lean();
 
       const total = await Meeting.countDocuments(filter);
 
@@ -275,6 +277,51 @@ class MeetingService {
       logger.error('Error getting meetings:', error);
       throw new Error(`Error getting meetings: ${error.message}`);
     }
+  }
+
+  /** Giữ tối đa `keep` cuộc họp mới nhất của user; xóa phần cũ hơn khỏi DB. */
+  async trimUserMeetingHistory(userId, keep = 25) {
+    const uidStr = String(userId || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(uidStr)) return { deleted: 0, deletedIds: [] };
+    const uid = new mongoose.Types.ObjectId(uidStr);
+    const filter = {
+      $or: [{ hostId: uid }, { 'participants.userId': uid }],
+      status: { $in: ['active', 'ended'] },
+    };
+    const rows = await Meeting.find(filter).sort({ startTime: -1 }).select('_id').lean();
+    if (rows.length <= keep) return { deleted: 0, deletedIds: [] };
+    const overflowIds = rows.slice(keep).map((r) => r._id);
+    const result = await Meeting.deleteMany({ _id: { $in: overflowIds } });
+    const deletedIds = overflowIds.map((id) => String(id));
+    logger.info(`trimUserMeetingHistory user=${uidStr} deleted=${result.deletedCount || 0}`);
+    return { deleted: result.deletedCount || 0, deletedIds };
+  }
+
+  async enrichMeetingsWithHostProfiles(meetings) {
+    if (!Array.isArray(meetings) || !meetings.length) return meetings;
+    const hostIds = [
+      ...new Set(
+        meetings
+          .map((m) => String(m?.hostId || '').trim())
+          .filter((id) => id && id !== 'undefined')
+      ),
+    ];
+    const profileMap = {};
+    await Promise.all(
+      hostIds.map(async (hostId) => {
+        try {
+          const res = await fetchUserProfileByIdInternal(hostId);
+          const body = res?.data?.data ?? res?.data ?? null;
+          if (body) profileMap[hostId] = body;
+        } catch {
+          /* ignore missing profile */
+        }
+      })
+    );
+    return meetings.map((m) => ({
+      ...m,
+      hostProfile: profileMap[String(m.hostId)] || null,
+    }));
   }
 }
 

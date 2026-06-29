@@ -75,10 +75,17 @@ export function detectSuiteFromPath(pathname) {
 }
 
 /** Org-scoped paths (không dùng slug trên URL). */
-export function buildCommunicateChannelsPath(orgId = '') {
+export function buildCommunicateChannelsPath(orgId = '', query = {}) {
   const base = '/app/communicate/channels';
+  const params = new URLSearchParams();
   const id = String(orgId || '').trim();
-  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+  if (id) params.set('organizationId', id);
+  const deptId = String(query?.departmentId || '').trim();
+  const channelId = String(query?.channelId || '').trim();
+  if (deptId) params.set('departmentId', deptId);
+  if (channelId) params.set('channelId', channelId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export function buildCollaborateTasksPath(orgId = '') {
@@ -107,6 +114,16 @@ export function buildCollaborateSettingsPath(orgId) {
 export function orgQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('organizationId') || params.get('orgId') || '').trim();
+}
+
+export function departmentQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('departmentId') || '').trim();
+}
+
+export function channelQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('channelId') || '').trim();
 }
 
 /** Legacy /w/:slug/:tab → suite route (tab: chat|tasks|documents|notifications). */

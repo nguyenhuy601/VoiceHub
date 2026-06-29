@@ -51,12 +51,20 @@ export const FIGMA_VOICE_WIFI_TEXT = 'text-[0.6875rem] font-semibold text-succes
 
 /** Vùng lưới video */
 export const FIGMA_VOICE_GRID_AREA =
-  'relative flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 pb-36 pt-20 md:px-5 md:pb-32 md:pt-[4.5rem]';
+  'relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-20 md:px-5 md:pb-32 md:pt-[4.5rem]';
 
-export const FIGMA_VOICE_GRID_INNER = 'w-full flex-1';
+export const FIGMA_VOICE_GRID_INNER = 'flex w-full flex-1 justify-center';
 
 export const FIGMA_VOICE_GRID =
-  'grid gap-3 content-start [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]';
+  'mx-auto grid w-full max-w-6xl gap-3 content-start grid-cols-1 sm:grid-cols-2 xl:grid-cols-3';
+
+export const FIGMA_VOICE_GRID_DUO =
+  'mx-auto grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-2';
+
+export const FIGMA_VOICE_GRID_SOLO_WRAP = 'flex w-full justify-center';
+
+export const FIGMA_VOICE_GRID_SOLO_TILE =
+  'aspect-video w-full max-w-[min(100%,48rem)] max-h-[min(68vh,540px)] !min-h-0';
 
 export const FIGMA_VOICE_GRID_SIDEBAR =
   'flex min-h-[200px] flex-col gap-3 lg:flex-row lg:items-stretch';
@@ -75,10 +83,10 @@ export const FIGMA_VOICE_TILE_IDLE = 'border-white/[0.07]';
 export const FIGMA_VOICE_TILE_SPEAKING =
   'border-success shadow-[0_0_20px_rgba(52,211,153,0.25)]';
 
-export const FIGMA_VOICE_TILE_VIDEO = 'h-full min-h-[160px] w-full flex-1 object-cover md:min-h-[200px]';
+export const FIGMA_VOICE_TILE_VIDEO = 'h-full min-h-0 w-full flex-1 object-cover';
 
 export const FIGMA_VOICE_TILE_AVATAR_FALLBACK =
-  'flex min-h-[160px] flex-1 flex-col items-center justify-center gap-2.5 bg-gradient-to-br from-surface-raised/80 to-background md:min-h-[200px]';
+  'flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2.5 bg-gradient-to-br from-surface-raised/80 to-background';
 
 export const FIGMA_VOICE_TILE_BADGE_ROW = 'absolute bottom-2.5 left-2.5 flex flex-wrap items-center gap-1.5';
 
@@ -193,17 +201,26 @@ export const figmaVoiceGridArea = (suiteLayout) =>
     ? FIGMA_VOICE_GRID_AREA
     : 'relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-24 md:px-8';
 
-export const figmaVoiceGridInner = (suiteLayout) =>
-  suiteLayout ? FIGMA_VOICE_GRID_INNER : 'w-full max-w-5xl';
+export const figmaVoiceGridInner = (suiteLayout, tileCount = 1) =>
+  suiteLayout
+    ? `${FIGMA_VOICE_GRID_INNER}${tileCount === 1 ? ' items-center' : ''}`
+    : `w-full max-w-5xl${tileCount === 1 ? ' mx-auto flex justify-center' : ''}`;
 
-export const figmaVoiceGridClass = (layoutMode) => {
-  switch (layoutMode) {
-    case 'sidebar':
-      return FIGMA_VOICE_GRID_SIDEBAR;
-    default:
-      return FIGMA_VOICE_GRID;
+export const figmaVoiceGridClass = (layoutMode, tileCount = 1) => {
+  if (layoutMode === 'sidebar' && tileCount > 1) {
+    return FIGMA_VOICE_GRID_SIDEBAR;
   }
+  if (tileCount === 1) {
+    return FIGMA_VOICE_GRID_SOLO_WRAP;
+  }
+  if (tileCount === 2) {
+    return FIGMA_VOICE_GRID_DUO;
+  }
+  return FIGMA_VOICE_GRID;
 };
+
+export const figmaVoiceSoloTileClass = (tileCount) =>
+  tileCount === 1 ? FIGMA_VOICE_GRID_SOLO_TILE : '';
 
 export const figmaVoiceCtrlOuter = (suiteLayout) =>
   suiteLayout
@@ -226,36 +243,49 @@ export const figmaVoiceSidePanel = (suiteLayout, open, { inline = false } = {}) 
 };
 
 /** Lobby — trước khi vào phòng (VoicePage Figma pre-join) */
-export const FIGMA_VOICE_LOBBY_ROOT = 'flex h-full min-h-0 flex-1 flex-col overflow-y-auto bg-background';
+export const FIGMA_VOICE_LOBBY_ROOT =
+  'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background';
 
 export const FIGMA_VOICE_LOBBY_HEADER =
-  'sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2.5 border-b border-border bg-surface px-6 shadow-xs';
+  'sticky top-0 z-10 flex h-auto min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2 shadow-xs sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0';
 
 export const FIGMA_VOICE_LOBBY_HEADER_ICON =
   'flex h-7 w-7 items-center justify-center rounded-[7px] bg-warning/10';
 
-export const FIGMA_VOICE_LOBBY_HEADER_TITLE = 'm-0 text-sm font-semibold text-foreground';
+export const FIGMA_VOICE_LOBBY_HEADER_TITLE =
+  'm-0 min-w-0 flex-1 truncate text-sm font-semibold text-foreground';
 
 export const FIGMA_VOICE_LOBBY_LIVE_BADGE =
-  'ml-auto flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-1';
+  'ml-auto flex max-w-[min(100%,14rem)] shrink-0 items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2 py-1 sm:max-w-none sm:px-2.5';
 
 export const FIGMA_VOICE_LOBBY_LIVE_DOT =
   'h-1.5 w-1.5 rounded-full bg-success shadow-[0_0_5px] shadow-success';
 
-export const FIGMA_VOICE_LOBBY_LIVE_TEXT = 'text-xs font-semibold text-success';
+export const FIGMA_VOICE_LOBBY_LIVE_TEXT =
+  'truncate text-[0.6875rem] font-semibold text-success sm:text-xs';
 
-export const FIGMA_VOICE_LOBBY_BODY = 'mx-auto w-full max-w-[920px] p-6';
+export const FIGMA_VOICE_LOBBY_SCROLL_MAIN =
+  'min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain';
 
-export const FIGMA_VOICE_LOBBY_HERO_GRID = 'mb-7 grid grid-cols-1 gap-3.5 md:grid-cols-2';
+export const FIGMA_VOICE_LOBBY_SCROLL = FIGMA_VOICE_LOBBY_SCROLL_MAIN;
+
+export const FIGMA_VOICE_LOBBY_PAGE_INNER = 'mx-auto w-full max-w-6xl p-4 pb-8 sm:p-6';
+
+export const FIGMA_VOICE_LOBBY_PREJOIN_GRID =
+  'grid grid-cols-1 items-start gap-4 xl:grid-cols-2 xl:gap-6';
+
+export const FIGMA_VOICE_LOBBY_BODY = 'mx-auto w-full max-w-6xl p-4 sm:p-6';
+
+export const FIGMA_VOICE_LOBBY_HERO_GRID = 'grid grid-cols-1 gap-3.5 md:grid-cols-2';
 
 export const FIGMA_VOICE_LOBBY_CREATE_CARD =
-  'relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.09] to-primary/[0.04] p-7 transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md';
+  'relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.09] to-primary/[0.04] p-5 transition-[box-shadow,border-color] duration-150 sm:p-6 lg:p-7 md:hover:-translate-y-0.5 md:hover:border-primary/30 md:hover:shadow-md';
 
 export const FIGMA_VOICE_LOBBY_CREATE_ICON =
   'mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-hover shadow-[0_4px_14px_rgba(37,99,235,0.4)]';
 
 export const FIGMA_VOICE_LOBBY_JOIN_CARD =
-  'rounded-2xl border border-border bg-surface p-7 shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md';
+  'rounded-2xl border border-border bg-surface p-5 shadow-sm transition-[box-shadow,border-color] duration-150 sm:p-6 lg:p-7 md:hover:-translate-y-0.5 md:hover:border-primary/20 md:hover:shadow-md';
 
 export const FIGMA_VOICE_LOBBY_JOIN_ICON =
   'mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/10';

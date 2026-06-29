@@ -64,6 +64,7 @@ export default function OrganizationWorkspaceStructureSidebar({
   canSeeAllStructure = false,
   canCreateTaskBoard = false,
   onCreateTaskBoard,
+  departmentWorkspaceActive = false,
 }) {
   const [expandedDivisionId, setExpandedDivisionId] = useState(selectedDivisionId || '');
   const [expandedDeptIds, setExpandedDeptIds] = useState(() => new Set());
@@ -624,6 +625,8 @@ export default function OrganizationWorkspaceStructureSidebar({
         onCreateChannel={onCreateChannel}
         onOpenChannelSettings={onOpenChannelSettings}
         canManageChannelRoleAccess={canManageChannelRoleAccess}
+        canManageWorkspaceStructure={canManageWorkspaceStructure}
+        departmentWorkspaceActive={departmentWorkspaceActive}
       />
       {teamMenu.open && teamMenu.team ? (
         <div

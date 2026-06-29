@@ -2,9 +2,14 @@ const { socketAuth } = require('@enterprise/shared/middleware/auth');
 const { logger } = require('@enterprise/shared');
 const roomManager = require('../sfu/roomManager');
 const voiceRoomSessionService = require('../services/voiceRoomSession.service');
+const voiceRoomLobby = require('../services/voiceRoomLobby.service');
 
 const getUserFromSocket = (socket) => socket.data?.user || socket.user || {};
-const callbackError = () => ({ success: false, error: 'Không thể xử lý thao tác thoại lúc này' });
+const callbackError = (error, eventName = 'voice') => {
+  const msg = error?.message || 'Không thể xử lý thao tác thoại lúc này';
+  logger.warn(`[voice] ${eventName} failed: ${msg}`);
+  return { success: false, error: msg };
+};
 
 function registerVoiceNamespace(io) {
   const voiceNamespace = io.of('/voice');
@@ -84,7 +89,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true, transport });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:createTransport'));
       }
     });
 
@@ -99,7 +104,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:connectTransport'));
       }
     });
 
@@ -125,7 +130,7 @@ function registerVoiceNamespace(io) {
           kind: result.kind,
         });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:produce'));
       }
     });
 
@@ -135,7 +140,7 @@ function registerVoiceNamespace(io) {
         const producers = roomManager.getProducersForRoom({ roomId, socketId: socket.id });
         callback({ success: true, producers });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:getProducers'));
       }
     });
 
@@ -151,7 +156,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true, consumer });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:consume'));
       }
     });
 
@@ -165,7 +170,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:resumeConsumer'));
       }
     });
 
@@ -179,7 +184,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:pauseProducer'));
       }
     });
 
@@ -193,7 +198,7 @@ function registerVoiceNamespace(io) {
         });
         callback({ success: true });
       } catch (error) {
-        callback(callbackError());
+        callback(callbackError(error, 'voice:resumeProducer'));
       }
     });
 
@@ -209,7 +214,7 @@ function registerVoiceNamespace(io) {
           displayName: left.displayName,
         });
       }
-      if (left.roomClosed) {
+        if (left.roomClosed) {
         let closedPayload = { roomId: String(roomId), recordingSaved: false };
         try {
           const finalized = await voiceRoomSessionService.finalizeRoomSession(roomId);
@@ -219,6 +224,14 @@ function registerVoiceNamespace(io) {
         } catch (finalizeErr) {
           logger.error(`[voice] finalize session failed room=${roomId}:`, finalizeErr);
         }
+        try {
+          const { isFreePublicLobbyRoom } = require('../utils/voiceRoomKind');
+          if (isFreePublicLobbyRoom(roomId)) {
+            await voiceRoomLobby.destroyLobby(roomId);
+          }
+        } catch (lobbyErr) {
+          logger.warn(`[voice] lobby destroy on room close failed room=${roomId}: ${lobbyErr.message}`);
+        }
         socket.emit('voice:roomClosed', closedPayload);
         voiceNamespace.to(roomTag).emit('voice:roomClosed', closedPayload);
       }
@@ -226,6 +239,64 @@ function registerVoiceNamespace(io) {
       delete socket.data.voiceRoomId;
       delete socket.data.voiceJoinedAt;
     };
+
+    const finalizeAndBroadcastRoomClosed = async (roomId) => {
+      const roomTag = `voice:${roomId}`;
+      let closedPayload = { roomId: String(roomId), recordingSaved: false };
+      try {
+        const finalized = await voiceRoomSessionService.finalizeRoomSession(roomId);
+        if (finalized) {
+          closedPayload = { ...closedPayload, ...finalized };
+        }
+      } catch (finalizeErr) {
+        logger.error(`[voice] finalize session failed room=${roomId}:`, finalizeErr);
+      }
+      voiceNamespace.to(roomTag).emit('voice:roomClosed', closedPayload);
+      return closedPayload;
+    };
+
+    socket.on('voice:endRoomAsHost', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+
+        const allowed = await voiceRoomLobby.isHost(roomId, userId);
+        if (!allowed) {
+          callback({ success: false, error: 'Forbidden' });
+          return;
+        }
+
+        const roomTag = `voice:${roomId}`;
+        const closed = roomManager.closeRoom(roomId);
+        const closedPayload = await finalizeAndBroadcastRoomClosed(roomId);
+
+        try {
+          const { isFreePublicLobbyRoom } = require('../utils/voiceRoomKind');
+          if (isFreePublicLobbyRoom(roomId)) {
+            await voiceRoomLobby.destroyLobby(roomId);
+          }
+        } catch (lobbyErr) {
+          logger.warn(`[voice] lobby destroy on host end failed room=${roomId}: ${lobbyErr.message}`);
+        }
+
+        for (const peer of closed.evicted || []) {
+          const peerSocket = voiceNamespace.sockets.get(peer.socketId);
+          if (!peerSocket) continue;
+          peerSocket.leave(roomTag);
+          delete peerSocket.data.voiceRoomId;
+          delete peerSocket.data.voiceJoinedAt;
+          peerSocket.emit('voice:roomClosed', closedPayload);
+        }
+
+        socket.leave(roomTag);
+        delete socket.data.voiceRoomId;
+        delete socket.data.voiceJoinedAt;
+
+        callback({ success: true, ...closedPayload });
+      } catch (error) {
+        callback({ success: false, error: error?.message || 'Không thể kết thúc phòng' });
+      }
+    });
 
     socket.on('voice:leaveRoom', (_payload, callback = () => {}) => {
       leave();

@@ -35,6 +35,8 @@ export default function OrganizationChannelListPanel({
   onCreateChannel,
   onOpenChannelSettings,
   canManageChannelRoleAccess = false,
+  canManageWorkspaceStructure = false,
+  departmentWorkspaceActive = false,
 }) {
   const getChannelPerm = (channelId) => {
     const row = channelPermissionMatrix?.[String(channelId)] || null;
@@ -66,6 +68,12 @@ export default function OrganizationChannelListPanel({
 
   const textMuted = isDarkMode ? ent.text.muted : 'text-slate-500';
   const sectionLabel = isDarkMode ? ent.text.secondary : 'text-slate-600';
+
+  const openChannelSettings = (event, channel) => {
+    if (!canManageChannelRoleAccess || !onOpenChannelSettings) return;
+    event.preventDefault();
+    onOpenChannelSettings(channel);
+  };
 
   const renderSettings = (channel) => {
     if (!canManageChannelRoleAccess || !onOpenChannelSettings) return null;
@@ -102,6 +110,7 @@ export default function OrganizationChannelListPanel({
           key={channel._id}
           className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-sm ${textMuted}`}
           title={t('orgPanel.channelLocked')}
+          onContextMenu={(e) => openChannelSettings(e, channel)}
         >
           {isVoice ? <Volume2 className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}
           <span className="truncate">{slug}</span>
@@ -116,6 +125,7 @@ export default function OrganizationChannelListPanel({
         <button
           type="button"
           onClick={() => onSelectChannel?.(channel._id)}
+          onContextMenu={(e) => openChannelSettings(e, channel)}
           className={`relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-left text-sm transition ${
             active
               ? isDarkMode
@@ -155,6 +165,10 @@ export default function OrganizationChannelListPanel({
 
   const hasScope =
     selectedTeamId || selectedDepartmentId || selectedDivisionId;
+  const canShowCreateChannel =
+    canManageChannelRoleAccess &&
+    (selectedTeamId ||
+      (departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId));
 
   return (
     <div
@@ -166,7 +180,7 @@ export default function OrganizationChannelListPanel({
         className={`mb-2 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-wider ${sectionLabel}`}
       >
         <span>{t('orgPanel.channelsSection')}</span>
-        {canManageChannelRoleAccess && selectedTeamId ? (
+        {canShowCreateChannel ? (
           <button
             type="button"
             onClick={() => onCreateChannel?.()}

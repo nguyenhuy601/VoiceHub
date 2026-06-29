@@ -188,7 +188,7 @@ class MeetingController {
   // Lấy danh sách meetings
   async getMeetings(req, res) {
     try {
-      const { serverId, organizationId, status, page, limit, startFrom, startTo } = req.query;
+      const { serverId, organizationId, status, page, limit, startFrom, startTo, mine } = req.query;
       const pageNum = Number.parseInt(page, 10) || 1;
 
       // Dashboard gọi /api/meetings khi load trang. Nếu Mongo chưa ready (Atlas reconnect),
@@ -290,15 +290,63 @@ class MeetingController {
         filter.status = status;
       }
 
+      const mineFlag = String(mine || '').toLowerCase();
+      if (mineFlag === '1' || mineFlag === 'true') {
+        const userId = req.user?.id || req.user?.userId || req.user?._id;
+        if (!userId) {
+          return res.status(401).json({
+            success: false,
+            message: 'Unauthorized',
+          });
+        }
+        const uidStr = String(userId).trim();
+        if (!mongoose.isValidObjectId(uidStr)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid user id',
+          });
+        }
+        const userOid = new mongoose.Types.ObjectId(uidStr);
+        filter.$or = [{ hostId: userOid }, { 'participants.userId': userOid }];
+        if (!status) {
+          filter.status = { $in: ['active', 'ended'] };
+        }
+
+        // Phiên active quá lâu không còn SFU → kết thúc/xóa trước khi trả lobby.
+        try {
+          const voiceRoomSessionService = require('../services/voiceRoomSession.service');
+          const STALE_ACTIVE_MS = 2 * 60 * 60 * 1000;
+          await voiceRoomSessionService.cleanupOrphanActiveMeetings({
+            maxAgeMs: STALE_ACTIVE_MS,
+            hardDelete: true,
+          });
+        } catch (cleanupErr) {
+          logger.warn(`cleanupOrphanActiveMeetings skipped: ${cleanupErr.message}`);
+        }
+
+        try {
+          await meetingService.trimUserMeetingHistory(userOid, 25);
+        } catch (trimErr) {
+          logger.warn(`trimUserMeetingHistory skipped: ${trimErr.message}`);
+        }
+      }
+
+      const lobbyLimit = mineFlag === '1' || mineFlag === 'true' ? 25 : parseInt(limit) || 50;
+
       const result = await meetingService.getMeetings(filter, {
         page: pageNum,
-        limit: parseInt(limit) || 50,
+        limit: lobbyLimit,
         sort,
       });
 
+      const enrichedMeetings = await meetingService.enrichMeetingsWithHostProfiles(result.meetings);
+
       res.json({
         success: true,
-        data: result,
+        data: {
+          ...result,
+          meetings: enrichedMeetings,
+        },
       });
     } catch (error) {
       logger.error('Get meetings error:', error);

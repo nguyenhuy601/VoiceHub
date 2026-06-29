@@ -39,7 +39,7 @@ export default function OrganizationDepartmentGrid({
   membershipScope = {},
   orgMyRole = '',
   onSelectDepartment,
-  onDepartmentQuickAction,
+  onDepartmentModuleClick,
   onDepartmentSettings,
   onCreateDepartment,
 }) {
@@ -229,7 +229,7 @@ export default function OrganizationDepartmentGrid({
                 starred={favoriteSet.has(String(card.id))}
                 onToggleStar={handleToggleStar}
                 onOpen={onSelectDepartment}
-                onQuickAction={onDepartmentQuickAction}
+                onModuleClick={onDepartmentModuleClick}
                 onSettings={onDepartmentSettings}
               />
             ))}

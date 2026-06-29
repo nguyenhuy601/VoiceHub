@@ -441,17 +441,49 @@ function resolveStructureVisibilityFromRoles(roleNames, { divisions = [], depart
   };
 }
 
-function channelInStructureVisibility(channel, structureVisibility) {
+function buildTeamDepartmentMap(teams = []) {
+  const map = new Map();
+  for (const team of teams || []) {
+    const teamId = team?._id ? String(team._id) : '';
+    const depId = team?.department ? String(team.department) : '';
+    if (teamId && depId) map.set(teamId, depId);
+  }
+  return map;
+}
+
+function userHasTeamInDepartment(teamIds, depId, teamDepartmentByTeamId) {
+  const targetDep = String(depId || '');
+  if (!targetDep || !teamIds || !teamIds.size) return false;
+  for (const tid of teamIds) {
+    if (String(teamDepartmentByTeamId.get(String(tid)) || '') === targetDep) return true;
+  }
+  return false;
+}
+
+function isDeptOnlyChannel(channel) {
+  return Boolean(channel?.department) && !channel?.team;
+}
+
+function channelInStructureVisibility(channel, structureVisibility, teamDepartmentByTeamId = null) {
   if (!channel || !structureVisibility || structureVisibility.mode === 'none') {
     return false;
   }
+  if (structureVisibility.mode === 'all') return true;
+
   const teamId = channel.team ? String(channel.team) : '';
   const depId = channel.department ? String(channel.department) : '';
   const divId = channel.division ? String(channel.division) : '';
   const { divisionIds, departmentIds, teamIds } = structureVisibility;
+  const teamDeptMap =
+    teamDepartmentByTeamId instanceof Map
+      ? teamDepartmentByTeamId
+      : buildTeamDepartmentMap(teamDepartmentByTeamId);
 
   if (teamId) return teamIds.has(teamId);
-  if (depId) return departmentIds.has(depId);
+  if (depId) {
+    if (departmentIds.has(depId)) return true;
+    return userHasTeamInDepartment(teamIds, depId, teamDeptMap);
+  }
   if (divId) return divisionIds.has(divId);
   return false;
 }
@@ -571,6 +603,9 @@ module.exports = {
   getRoleHierarchyLevel,
   resolveUserHierarchyScopes,
   resolveStructureVisibilityFromRoles,
+  buildTeamDepartmentMap,
+  userHasTeamInDepartment,
+  isDeptOnlyChannel,
   channelInStructureVisibility,
   channelInHierarchyScope,
   pickPrimaryPlacement,
