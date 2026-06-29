@@ -10,6 +10,13 @@ router.delete(
   meetingController.purgeOrganizationMeetings.bind(meetingController)
 );
 
+const meetingRecordingController = require('../controllers/meetingRecording.controller');
+router.patch(
+  '/internal/:meetingId/recording',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchRecording.bind(meetingRecordingController)
+);
+
 router.use(authenticate);
 
 // Cuộc gọi 1-1 bạn bè — đặt trước route động `/:meetingId`
@@ -27,6 +34,9 @@ router.get('/rooms/:roomId/bootstrap', meetingController.bootstrapRoom.bind(meet
 
 const voiceRoomRoutes = require('./voiceRoom.routes');
 router.use('/rooms/:roomId', voiceRoomRoutes);
+
+const meetingRecordingRoutes = require('./meetingRecording.routes');
+router.use('/:meetingId/recording', meetingRecordingRoutes);
 
 // Lấy meeting theo ID
 router.get('/:meetingId', meetingController.getMeetingById.bind(meetingController));

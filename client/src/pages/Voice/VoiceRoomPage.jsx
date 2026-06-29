@@ -46,6 +46,7 @@ import {
 } from '../../utils/voiceMeetingRecording';
 import { MEETING_HISTORY_MAX_ITEMS } from '../../components/Voice/VoiceActiveRoomsList';
 import { MIN_VOICE_RECORDING_SEC } from '../../utils/voiceRecordingUtils';
+import { uploadMeetingRecording, getMeetingRecording, fetchMeetingRecordingStream } from '../../services/meetingRecordingAPI';
 import { appShellBg } from '../../theme/shellTheme';
 import { PageSearchBar } from '../../features/search';
 import { useLocale } from '../../context/LocaleContext';
@@ -275,7 +276,14 @@ function mapMeetingToLobbyRow(meeting) {
     endTime: meeting?.endTime,
     durationSec,
     active: meeting?.status === 'active',
-    hasRecording: Boolean(meeting?.recordingUrl) && durationSec >= MIN_VOICE_RECORDING_SEC,
+    hasRecording:
+      Boolean(meeting?.hasRecording) ||
+      (Boolean(meeting?.recordingUrl) && durationSec >= MIN_VOICE_RECORDING_SEC),
+    hasAudio: Boolean(meeting?.hasAudio),
+    hasTranscript: Boolean(meeting?.hasTranscript),
+    hasSummary: Boolean(meeting?.hasSummary),
+    recordingStatus: meeting?.recordingStatus || 'none',
+    summaryPreview: meeting?.summaryPreview || '',
     participants,
     max: 10,
     color: '#2563EB',
@@ -1219,6 +1227,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         durationSec: saved.durationSec,
         lobbyRoomId: lobbyRoomId || currentRoomRef.current,
       });
+      if ((saved.durationSec || 0) >= MIN_VOICE_RECORDING_SEC) {
+        uploadMeetingRecording(mid, saved.blob, { durationSec: saved.durationSec }).catch((err) => {
+          console.warn('uploadMeetingRecording failed', err);
+        });
+      }
     }
     meetingIdRef.current = null;
     return saved;
@@ -2151,18 +2164,55 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   const handlePlayRecording = useCallback(
     async (meeting) => {
-      const meetingId = String(meeting?.id || '').trim();
+      const meetingId = String(meeting?.id || meeting?._id || '').trim();
       if (!meetingId) return;
       try {
-        const row = await loadVoiceMeetingRecording(meetingId);
-        if (!row?.blob?.size) {
+        let playbackUrl = null;
+        let transcript = '';
+        let summary = '';
+        let hasAudio = meeting?.hasAudio === true;
+
+        try {
+          const res = await getMeetingRecording(meetingId);
+          const data = res?.data?.data ?? res?.data ?? {};
+          transcript = data.transcript || '';
+          summary = data.summary || '';
+          hasAudio = data.hasAudio === true;
+          if (data.recordingStatus === 'processing' || data.recordingStatus === 'pending_upload') {
+            toast(t('voiceRoom.recordingProcessing'));
+          }
+          if (hasAudio) {
+            const streamRes = await fetchMeetingRecordingStream(meetingId);
+            const blob = streamRes?.data;
+            if (blob?.size) {
+              playbackUrl = URL.createObjectURL(blob);
+            }
+          }
+        } catch {
+          /* fallback IndexedDB */
+        }
+
+        if (!playbackUrl && hasAudio !== false) {
+          const row = await loadVoiceMeetingRecording(meetingId);
+          if (row?.blob?.size) {
+            playbackUrl = URL.createObjectURL(row.blob);
+          }
+        }
+
+        if (!playbackUrl && !transcript && !summary) {
           toast.error(t('voiceRoom.recordingNotFound'));
           return;
         }
-        const url = URL.createObjectURL(row.blob);
+
         setRecordingPlayback((prev) => {
-          if (prev?.url) URL.revokeObjectURL(prev.url);
-          return { meetingId, url, title: meeting?.title || meeting?.lobbyRoomId || '' };
+          if (prev?.url && prev.url.startsWith('blob:')) URL.revokeObjectURL(prev.url);
+          return {
+            meetingId,
+            url: playbackUrl,
+            title: meeting?.title || meeting?.lobbyRoomId || '',
+            transcript,
+            summary,
+          };
         });
       } catch {
         toast.error(t('voiceRoom.recordingNotFound'));
@@ -2173,7 +2223,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   const closeRecordingPlayback = useCallback(() => {
     setRecordingPlayback((prev) => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
+      if (prev?.url && prev.url.startsWith('blob:')) URL.revokeObjectURL(prev.url);
       return null;
     });
   }, []);
@@ -4332,7 +4382,25 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                   </button>
                 </div>
                 <p className="mb-3 truncate text-xs text-muted-foreground">{recordingPlayback.title}</p>
-                <audio src={recordingPlayback.url} controls autoPlay className="w-full" />
+                {recordingPlayback.summary ? (
+                  <div className="mb-3 rounded-lg bg-muted/40 p-3">
+                    <p className="mb-1 text-[0.6875rem] font-semibold text-foreground">
+                      {t('voiceRoom.recordingSummary')}
+                    </p>
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{recordingPlayback.summary}</p>
+                  </div>
+                ) : null}
+                {recordingPlayback.transcript ? (
+                  <div className="mb-3 max-h-40 overflow-y-auto rounded-lg border border-border p-3">
+                    <p className="mb-1 text-[0.6875rem] font-semibold text-foreground">
+                      {t('voiceRoom.recordingTranscript')}
+                    </p>
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{recordingPlayback.transcript}</p>
+                  </div>
+                ) : null}
+                {recordingPlayback.url ? (
+                  <audio src={recordingPlayback.url} controls autoPlay className="w-full" />
+                ) : null}
               </div>
             </div>,
             document.body

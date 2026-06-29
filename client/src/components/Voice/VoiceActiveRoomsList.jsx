@@ -40,21 +40,24 @@ function MeetingCard({
 }) {
   const active = meeting.active === true;
   const color = meeting.color || 'var(--primary)';
-  const canPlay = !active && meeting.hasRecording;
-  const clickable = active || canPlay;
+  const canPlay = !active && meeting.hasAudio === true && meeting.recordingStatus === 'ready';
+  const canViewNotes =
+    !active &&
+    (meeting.hasTranscript === true || meeting.hasSummary === true || Boolean(meeting.summaryPreview));
+  const clickable = active || canPlay || canViewNotes;
 
   return (
     <div
       className={`${FIGMA_VOICE_LOBBY_ROOM_CARD} ${compact ? 'flex-col items-stretch gap-2.5 p-3' : ''} ${clickable ? 'cursor-pointer' : 'cursor-default opacity-90'}`}
       onClick={() => {
         if (active) onJoinMeeting?.(meeting);
-        else if (canPlay) onPlayRecording?.(meeting);
+        else if (canPlay || canViewNotes) onPlayRecording?.(meeting);
       }}
       onKeyDown={(e) => {
         if ((e.key === 'Enter' || e.key === ' ') && clickable) {
           e.preventDefault();
           if (active) onJoinMeeting?.(meeting);
-          else if (canPlay) onPlayRecording?.(meeting);
+          else if (canPlay || canViewNotes) onPlayRecording?.(meeting);
         }
       }}
       role={clickable ? 'button' : undefined}
@@ -93,6 +96,9 @@ function MeetingCard({
               </span>
             )}
           </div>
+          {!active && meeting.summaryPreview ? (
+            <p className="mt-1 line-clamp-2 text-[0.6875rem] text-muted-foreground">{meeting.summaryPreview}</p>
+          ) : null}
           <div className={`flex flex-col gap-0.5 text-muted-foreground ${compact ? 'text-[0.6875rem]' : 'text-xs'}`}>
             <span className="inline-flex items-center gap-1">
               <User className="h-[11px] w-[11px] shrink-0" aria-hidden />
@@ -155,7 +161,19 @@ function MeetingCard({
             {t('voiceRoom.playRecording')}
           </button>
         ) : null}
-        {!compact && !active && !canPlay ? (
+        {!compact && !active && !canPlay && canViewNotes ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayRecording?.(meeting);
+            }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted"
+          >
+            {t('voiceRoom.viewTranscript')}
+          </button>
+        ) : null}
+        {!compact && !active && !canPlay && !canViewNotes ? (
           <span className="shrink-0 text-xs text-muted-foreground">{t('voiceRoom.noRecording')}</span>
         ) : null}
       </div>
@@ -176,7 +194,7 @@ function MeetingCard({
             >
               {joinText}
             </button>
-          ) : canPlay ? (
+          ) : canPlay || canViewNotes ? (
             <button
               type="button"
               onClick={(e) => {
@@ -186,7 +204,7 @@ function MeetingCard({
               className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
             >
               <Play className="h-3.5 w-3.5" aria-hidden />
-              {t('voiceRoom.playRecording')}
+              {canPlay ? t('voiceRoom.playRecording') : t('voiceRoom.viewTranscript')}
             </button>
           ) : (
             <span className="w-full text-center text-[0.6875rem] text-muted-foreground">

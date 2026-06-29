@@ -4,7 +4,7 @@ export const BACKEND_CAPABILITIES = Object.freeze({
   documentOcrProcessing: false,
   documentBinaryUpload: false,
   documentStarred: false,
-  voiceTranscriptMinutes: false,
+  voiceTranscriptMinutes: true,
   calendarEventService: false,
   documentShareAcl: false,
   documentCopyMove: false,

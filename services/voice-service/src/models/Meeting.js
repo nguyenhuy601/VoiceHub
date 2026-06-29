@@ -81,6 +81,37 @@ const meetingSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** Path Opus trên MinIO, vd. meeting-recordings/room1/xxx.opus */
+    audioStoragePath: {
+      type: String,
+      default: null,
+    },
+    transcript: {
+      type: String,
+      default: '',
+    },
+    summary: {
+      type: String,
+      default: '',
+    },
+    recordingStatus: {
+      type: String,
+      enum: ['none', 'pending_upload', 'processing', 'ready', 'failed', 'audio_expired'],
+      default: 'none',
+    },
+    durationSec: {
+      type: Number,
+      default: null,
+    },
+    /** Path WebM tạm trên MinIO (worker xóa sau transcode) */
+    tempStoragePath: {
+      type: String,
+      default: null,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     isRecording: {
       type: Boolean,
       default: false,

@@ -702,10 +702,10 @@ services:
       resources:
         limits:
           cpus: "1.50"
-          memory: 768M
+          memory: 384M
         reservations:
           cpus: "0.50"
-          memory: 192M
+          memory: 128M
 
   notification-service:
     image: ${NOTIFICATION_SERVICE_IMAGE}
@@ -865,10 +865,10 @@ services:
       resources:
         limits:
           cpus: "4.00"
-          memory: 6G
+          memory: 3G
         reservations:
           cpus: "1.00"
-          memory: 1536M
+          memory: 768M
       placement:
         constraints:
           - node.labels.ai == true
@@ -884,10 +884,10 @@ services:
       resources:
         limits:
           cpus: "2.00"
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: "0.50"
-          memory: 320M
+          memory: 192M
       placement:
         constraints:
           - node.labels.ai == true

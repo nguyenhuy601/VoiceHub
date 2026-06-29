@@ -91,7 +91,9 @@ async function finalizeRoomSession(roomId) {
         status: 'ended',
         endTime: new Date(),
         isRecording: false,
-        recordingUrl: `voicehub://meetings/${session.meetingId}/recording`,
+        recordingStatus: 'pending_upload',
+        durationSec: durationSec,
+        recordingUrl: null,
       },
     });
     logger.info(
@@ -145,7 +147,9 @@ async function finalizeOrphanMeeting(meeting, { hardDelete = false } = {}) {
         status: 'ended',
         endTime: new Date(),
         isRecording: false,
-        recordingUrl: `voicehub://meetings/${meetingId}/recording`,
+        recordingStatus: 'pending_upload',
+        durationSec: durationSec,
+        recordingUrl: null,
       },
     });
     logger.info(`Voice orphan meeting ended meeting=${meetingId} duration=${durationSec}s`);

@@ -284,17 +284,41 @@ class MeetingService {
     const uidStr = String(userId || '').trim();
     if (!mongoose.Types.ObjectId.isValid(uidStr)) return { deleted: 0, deletedIds: [] };
     const uid = new mongoose.Types.ObjectId(uidStr);
+    const keepN = Math.max(
+      parseInt(process.env.VOICE_RECORDING_KEEP_PER_USER || String(keep), 10) || keep,
+      1
+    );
     const filter = {
       $or: [{ hostId: uid }, { 'participants.userId': uid }],
       status: { $in: ['active', 'ended'] },
     };
-    const rows = await Meeting.find(filter).sort({ startTime: -1 }).select('_id').lean();
-    if (rows.length <= keep) return { deleted: 0, deletedIds: [] };
-    const overflowIds = rows.slice(keep).map((r) => r._id);
+    const rows = await Meeting.find(filter)
+      .sort({ startTime: -1 })
+      .select('_id audioStoragePath tempStoragePath')
+      .lean();
+    if (rows.length <= keepN) return { deleted: 0, deletedIds: [] };
+    const overflow = rows.slice(keepN);
+    const overflowIds = overflow.map((r) => r._id);
+
+    const meetingRecordingService = require('./meetingRecording.service');
+    for (const row of overflow) {
+      try {
+        await meetingRecordingService.deleteMeetingStorage(row);
+      } catch (storageErr) {
+        logger.warn(`trimUserMeetingHistory storage delete failed meeting=${row._id}: ${storageErr.message}`);
+      }
+    }
+
     const result = await Meeting.deleteMany({ _id: { $in: overflowIds } });
     const deletedIds = overflowIds.map((id) => String(id));
     logger.info(`trimUserMeetingHistory user=${uidStr} deleted=${result.deletedCount || 0}`);
     return { deleted: result.deletedCount || 0, deletedIds };
+  }
+
+  enrichMeetingsWithRecordingFields(meetings) {
+    const meetingRecordingService = require('./meetingRecording.service');
+    if (!Array.isArray(meetings)) return meetings;
+    return meetings.map((m) => meetingRecordingService.enrichMeetingRecordingFields(m));
   }
 
   async enrichMeetingsWithHostProfiles(meetings) {
