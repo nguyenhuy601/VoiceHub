@@ -3,6 +3,7 @@ import { queryClient } from '../lib/queryClient';
 import { queryKeys } from '../lib/queryKeys';
 import { unwrapApiData } from '../utils/helpers';
 import { normalizeSuite, suiteToSegment } from '../utils/suitePathUtils';
+import { writeBootstrapCompanyFlags } from '../utils/singleCompanyMode';
 
 let inflightBootstrap = null;
 let inflightBootstrapKey = '';
@@ -34,6 +35,8 @@ export async function fetchBootstrap({ suite } = {}) {
  */
 export function hydrateBootstrapCache(payload) {
   if (!payload || typeof payload !== 'object') return;
+
+  writeBootstrapCompanyFlags(payload);
 
   if (Array.isArray(payload.organizations)) {
     queryClient.setQueryData(queryKeys.organizations.my(), payload.organizations, {

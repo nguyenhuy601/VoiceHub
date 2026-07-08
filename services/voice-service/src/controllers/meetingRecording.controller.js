@@ -35,12 +35,18 @@ class MeetingRecordingController {
         return res.status(400).json({ success: false, message: 'recording file is required' });
       }
       const durationSec = parseInt(req.body?.durationSec || req.body?.duration || '0', 10) || 0;
+      const segmentIndexRaw = req.query?.segmentIndex ?? req.body?.segmentIndex;
+      const segmentIndex =
+        segmentIndexRaw !== undefined && segmentIndexRaw !== null && segmentIndexRaw !== ''
+          ? parseInt(segmentIndexRaw, 10)
+          : null;
       const result = await meetingRecordingService.handleUpload({
         meetingId,
         userId,
         fileBuffer: req.file.buffer,
         mimeType: req.file.mimetype,
         durationSec,
+        segmentIndex: Number.isFinite(segmentIndex) ? segmentIndex : null,
       });
       return res.status(202).json({ success: true, data: result });
     } catch (error) {
@@ -77,7 +83,8 @@ class MeetingRecordingController {
       }
       const { stream, contentType } = await meetingRecordingService.streamRecording(
         req.params.meetingId,
-        userId
+        userId,
+        req.query?.segmentId || null
       );
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -103,6 +110,40 @@ class MeetingRecordingController {
       return res.json({ success: true, data: meeting });
     } catch (error) {
       logger.error('internalPatchRecording error:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Update failed',
+      });
+    }
+  }
+
+  async internalPatchTranscriptChunk(req, res) {
+    try {
+      const { meetingId } = req.params;
+      const result = await meetingRecordingService.applyTranscriptChunk(meetingId, req.body || {});
+      if (!result) {
+        return res.status(400).json({ success: false, message: 'Empty transcript chunk' });
+      }
+      return res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('internalPatchTranscriptChunk error:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Update failed',
+      });
+    }
+  }
+
+  async internalPatchSummary(req, res) {
+    try {
+      const { meetingId } = req.params;
+      const meeting = await meetingRecordingService.applySummaryResult(meetingId, req.body || {});
+      if (!meeting) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+      return res.json({ success: true, data: meeting });
+    } catch (error) {
+      logger.error('internalPatchSummary error:', error);
       return res.status(500).json({
         success: false,
         message: error.message || 'Update failed',

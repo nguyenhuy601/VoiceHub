@@ -15,6 +15,7 @@ import {
   FIGMA_NOTIF_ITEM_UNREAD,
 } from './figmaNotificationsClasses';
 import { useAppStrings } from '../../locales/appStrings';
+import { isVoiceRoomInviteNotification } from '../../utils/notificationNavigation';
 
 const TYPE_META = {
   friend: { color: 'text-destructive', bg: 'bg-destructive/10', border: 'border-destructive/20', Icon: UserPlus },
@@ -114,7 +115,9 @@ export default function NotificationFeedItem({
               </button>
             </div>
           ) : null}
-          {actionKind === 'voice_join' || notif?.rawType === 'voice_room_invite' ? (
+          {actionKind === 'voice_join' ||
+          actionKind === 'voice_invite' ||
+          isVoiceRoomInviteNotification(notif) ? (
             <button
               type="button"
               disabled={acting}

@@ -156,6 +156,7 @@ const noPermissionRoutes = [
   '/api/friends',
   '/api/notifications',
   '/api/organizations/my',
+  '/api/organizations/company-invites',
 ];
 
 /**

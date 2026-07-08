@@ -106,6 +106,20 @@ export const mergeAuthUserFromProfile = (prev, profilePayload, { avatarBust } = 
       : avatar && avatar !== prev?.avatar
         ? Date.now()
         : prev?.avatarCacheKey;
+  const prevSystemRole = String(prev?.systemRole || '').trim().toLowerCase();
+  const nextSystemRole = String(p.systemRole || '').trim().toLowerCase();
+  const systemRole =
+    nextSystemRole === 'admin' || prevSystemRole === 'admin'
+      ? 'admin'
+      : nextSystemRole || prevSystemRole || undefined;
+
+  const mustChangePassword =
+    p.mustChangePassword !== undefined
+      ? Boolean(p.mustChangePassword)
+      : prev?.mustChangePassword !== undefined
+        ? Boolean(prev.mustChangePassword)
+        : undefined;
+
   return {
     ...(prev || {}),
     ...p,
@@ -115,6 +129,8 @@ export const mergeAuthUserFromProfile = (prev, profilePayload, { avatarBust } = 
     displayName: p.displayName ?? prev?.displayName,
     email: String(p.email || '').trim() || prev?.email,
     phone: String(p.phone || p.phoneNumber || p.mobile || '').trim() || prev?.phone,
+    ...(systemRole ? { systemRole } : {}),
+    ...(mustChangePassword !== undefined ? { mustChangePassword } : {}),
   };
 };
 

@@ -16,7 +16,42 @@ bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh
 4. Set `RABBITMQ_QUORUM_QUEUES=true` trong `.env` (mặc định code = true)
 5. **Deploy consumers trước** (assert quorum)
 6. **Deploy publishers** + workers
-7. Smoke: DM, notification, task file, webhook
+7. Smoke: DM, notification, task file, webhook, **voice recording/STT**
+
+## Voice queues (classic → quorum)
+
+Queues: `voice.recording.process`, `voice.stt.chunk`, `voice.summary.process` (+ DLQ tương ứng).
+
+```bash
+# Dừng producer/consumer → xóa classic → workers declare quorum → voice-service
+bash devops/swarm/rabbitmq-cluster/migrate-voice-queues-to-quorum.sh
+```
+
+Hoặc chỉ purge (đã scale down thủ công):
+
+```bash
+bash devops/swarm/rabbitmq-cluster/migrate-voice-queues-to-quorum.sh --purge-only
+bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh   # toàn bộ app queues
+```
+
+Sau migrate, rebuild/redeploy `voice-service` + Python workers (`voice-recording-worker`, `voice-stt-worker`).
+
+### Điều kiện cluster (quan trọng)
+
+Quorum queue **không chạy** nếu cluster metadata có 3 disk node nhưng chỉ 1 node `running` → lỗi `cluster_not_formed`.
+
+| Môi trường | Yêu cầu |
+|------------|---------|
+| Production | `RABBITMQ_CLUSTER_SIZE=3`, ≥2 node healthy |
+| Dev 1 node | Cluster **chỉ** có 1 disk member (redeploy stack rabbit sạch), không để metadata 3 node |
+
+Kiểm tra trước migrate:
+
+```bash
+bash devops/swarm/rabbitmq-cluster/ensure-quorum-cluster-ready.sh
+```
+
+Dev single-node bị lệch metadata (đã từng chạy 3 node): redeploy cluster stack sau khi xóa volume rabbit, hoặc scale đủ 2/3 node trước khi migrate.
 
 ## Rollback
 

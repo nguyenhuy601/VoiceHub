@@ -10,7 +10,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const amqp = require('amqplib');
-const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { assertQueuesResilient } = require('@enterprise/shared/messaging/rabbitQuorum');
 const { waitForAmqpClose, sleep } = require('@enterprise/shared/messaging/rabbitReconnect');
 const axios = require('axios');
 const { connectDB, disconnectDB } = require('@enterprise/shared');
@@ -473,7 +473,6 @@ async function publishToDlq(ch, sourceQueue, msg, err) {
     transient: isTransientJobError(err),
     original,
   };
-  await assertQuorumQueue(ch, DLQ_QUEUE);
   ch.sendToQueue(DLQ_QUEUE, Buffer.from(JSON.stringify(body)), {
     persistent: true,
     contentType: 'application/json',
@@ -561,10 +560,7 @@ async function runWorkerSession() {
   if (!url) throw new Error('RABBITMQ_URL is not set');
 
   const conn = await connectAmqpWithRetry(url);
-  const ch = await conn.createChannel();
-  await assertQuorumQueue(ch, EXTRACT_QUEUE);
-  await assertQuorumQueue(ch, SYNC_QUEUE);
-  await assertQuorumQueue(ch, DLQ_QUEUE);
+  const ch = await assertQueuesResilient(conn, [EXTRACT_QUEUE, SYNC_QUEUE, DLQ_QUEUE]);
   await ch.prefetch(1);
 
   let extractConsumerTag = null;

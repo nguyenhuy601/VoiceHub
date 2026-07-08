@@ -1,6 +1,6 @@
 import {
-  MIN_VOICE_RECORDING_SEC,
   buildMergedRecordingStream,
+  buildVoiceRecorderOptions,
   pickVoiceRecorderMime,
 } from './voiceRecordingUtils';
 
@@ -27,11 +27,18 @@ function openDb() {
 
 export async function saveVoiceMeetingRecording(meetingId, blob, meta = {}) {
   if (!meetingId || !blob?.size) return false;
+  const segmentIndex = meta.segmentIndex ?? 0;
+  const storageKey =
+    segmentIndex > 0 || meta.segmentIndex === 0
+      ? `${String(meetingId)}::${segmentIndex}`
+      : String(meetingId);
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).put({
-      meetingId: String(meetingId),
+      meetingId: storageKey,
+      legacyMeetingId: String(meetingId),
+      segmentIndex,
       blob,
       mimeType: blob.type || meta.mimeType || 'audio/webm',
       savedAt: new Date().toISOString(),
@@ -49,12 +56,16 @@ export async function saveVoiceMeetingRecording(meetingId, blob, meta = {}) {
   });
 }
 
-export async function loadVoiceMeetingRecording(meetingId) {
+export async function loadVoiceMeetingRecording(meetingId, segmentIndex = null) {
   if (!meetingId) return null;
+  const storageKey =
+    segmentIndex !== null && segmentIndex !== undefined
+      ? `${String(meetingId)}::${segmentIndex}`
+      : String(meetingId);
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const req = tx.objectStore(STORE_NAME).get(String(meetingId));
+    const req = tx.objectStore(STORE_NAME).get(storageKey);
     req.onsuccess = () => {
       db.close();
       resolve(req.result || null);
@@ -84,7 +95,9 @@ export async function pruneVoiceMeetingRecordingsExcept(keepMeetingIds = []) {
     req.onsuccess = () => {
       const keys = req.result || [];
       for (const key of keys) {
-        if (!keep.has(String(key))) {
+        const keyStr = String(key);
+        const legacyId = keyStr.includes('::') ? keyStr.split('::')[0] : keyStr;
+        if (!keep.has(legacyId)) {
           store.delete(key);
           removed += 1;
         }
@@ -118,7 +131,12 @@ export class VoiceSessionRecorder {
     this.chunks = [];
     this.mimeType = mimeType;
     try {
-      const recorder = new MediaRecorder(stream, { mimeType });
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, buildVoiceRecorderOptions(mimeType));
+      } catch {
+        recorder = new MediaRecorder(stream, { mimeType });
+      }
       this.recorder = recorder;
       recorder.ondataavailable = (ev) => {
         if (ev.data?.size > 0) this.chunks.push(ev.data);
@@ -144,7 +162,7 @@ export class VoiceSessionRecorder {
         const durationSec = Math.max(0, Math.floor((Date.now() - this.startedAt) / 1000));
         const blob = new Blob(this.chunks, { type: this.mimeType || 'audio/webm' });
         this.chunks = [];
-        if (!blob.size || durationSec < MIN_VOICE_RECORDING_SEC) {
+        if (!blob.size) {
           resolve(null);
           return;
         }

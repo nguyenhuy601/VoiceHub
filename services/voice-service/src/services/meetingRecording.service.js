@@ -3,9 +3,9 @@ const Meeting = require('../models/Meeting');
 const objectStorage = require('../utils/objectStorage');
 const { publishJson } = require('../messaging/rabbit');
 const { VOICE_RECORDING_PROCESS_QUEUE } = require('@enterprise/shared/messaging/voiceRecordingEvents');
+const meetingRecordingSegmentService = require('./meetingRecordingSegment.service');
+const { segmentMeetsMinDuration, MIN_RECORDING_SEC } = require('../utils/meetingPersistPolicy');
 const { logger } = require('@enterprise/shared');
-
-const MIN_RECORDING_SEC = 180;
 
 function isRecordingEnabled() {
   return String(process.env.VOICE_RECORDING_ENABLED || 'true').toLowerCase() !== 'false';
@@ -50,21 +50,40 @@ function computeDurationSec(meeting) {
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
-function enrichMeetingRecordingFields(meeting) {
+async function loadSegmentsForMeeting(meetingId, meeting) {
+  let segments = await meetingRecordingSegmentService.listSegments(meetingId);
+  if (!segments.length && meeting?.audioStoragePath) {
+    const migrated = await meetingRecordingSegmentService.migrateLegacyAudioToSegment(meeting);
+    if (migrated) segments = [migrated];
+  }
+  return segments;
+}
+
+function enrichMeetingRecordingFields(meeting, segments = []) {
   if (!meeting) return meeting;
   const row = typeof meeting.toObject === 'function' ? meeting.toObject() : { ...meeting };
   const durationSec = computeDurationSec(row);
   const status = row.recordingStatus || 'none';
-  const hasAudio = status === 'ready' && Boolean(row.audioStoragePath);
+  const segmentHasAudio = segments.some((s) => s.hasAudio || s.status === 'ready');
+  const segmentProcessing = segments.some((s) => s.status === 'processing');
+  const hasAudio =
+    segmentHasAudio || (status === 'ready' && Boolean(row.audioStoragePath));
+  let recordingStatus = status;
+  if (recordingStatus === 'none' && segmentProcessing) recordingStatus = 'processing';
+  if (recordingStatus === 'none' && segmentHasAudio) recordingStatus = 'ready';
   const hasTranscript = Boolean(String(row.transcript || '').trim());
-  const hasSummary = Boolean(String(row.summary || '').trim());
-  const legacyRecording = Boolean(row.recordingUrl) && !row.audioStoragePath;
+  const hasSummary =
+    Boolean(String(row.summary || '').trim()) ||
+    row.summaryStatus === 'ready' ||
+    Boolean(row.summaryStructured?.summary);
+  const legacyRecording = Boolean(row.recordingUrl) && !row.audioStoragePath && !segments.length;
   const hasRecording =
-    durationSec >= MIN_RECORDING_SEC &&
-    (hasAudio ||
-      hasTranscript ||
-      legacyRecording ||
-      ['pending_upload', 'processing', 'audio_expired'].includes(status));
+    segments.length > 0 ||
+    hasAudio ||
+    hasTranscript ||
+    hasSummary ||
+    legacyRecording ||
+    ['pending_upload', 'processing', 'audio_expired'].includes(recordingStatus);
 
   return {
     ...row,
@@ -73,7 +92,14 @@ function enrichMeetingRecordingFields(meeting) {
     hasAudio,
     hasTranscript,
     hasSummary,
-    summaryPreview: String(row.summary || '').trim().slice(0, 160),
+    recordingStatus,
+    summaryPreview: String(row.summary || row.summaryStructured?.summary || '')
+      .trim()
+      .slice(0, 160),
+    transcriptSource: row.transcriptSource || 'none',
+    summaryStatus: row.summaryStatus || 'none',
+    aiSummaryEnabled: Boolean(row.aiSummaryEnabled),
+    segments,
   };
 }
 
@@ -92,7 +118,7 @@ async function assertParticipantAccess(meetingId, userId) {
   return meeting;
 }
 
-async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationSec }) {
+async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationSec, segmentIndex = null }) {
   if (!isRecordingEnabled()) {
     const err = new Error('Voice recording is disabled');
     err.statusCode = 503;
@@ -106,7 +132,7 @@ async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationS
 
   const meeting = await assertParticipantAccess(meetingId, userId);
   const duration = Number(durationSec) || computeDurationSec(meeting);
-  if (duration < MIN_RECORDING_SEC) {
+  if (!segmentMeetsMinDuration(duration)) {
     const err = new Error(`Recording must be at least ${MIN_RECORDING_SEC} seconds`);
     err.statusCode = 400;
     throw err;
@@ -131,6 +157,25 @@ async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationS
   }
 
   const roomKey = resolveRoomKey(meeting);
+  const skipTranscript = meeting.transcriptSource === 'realtime';
+  const idx =
+    segmentIndex !== null && segmentIndex !== undefined
+      ? Number(segmentIndex)
+      : await meetingRecordingSegmentService.getNextSegmentIndex(meetingId);
+
+  if (Number.isFinite(idx) && idx >= 0) {
+    return meetingRecordingSegmentService.handleClientSegmentUpload({
+      meetingId,
+      userId,
+      segmentIndex: idx,
+      fileBuffer,
+      mimeType: mime,
+      durationSec: duration,
+      roomKey,
+      skipTranscript,
+    });
+  }
+
   const tempStoragePath = `temp/meeting-recordings/${meetingId}/${randomUUID()}.webm`;
   await objectStorage.putObject(tempStoragePath, fileBuffer, mime || 'audio/webm');
 
@@ -145,12 +190,13 @@ async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationS
   });
 
   await publishJson(VOICE_RECORDING_PROCESS_QUEUE, {
+    jobType: 'legacy_full',
     meetingId: String(meetingId),
     roomKey,
     tempStoragePath,
     durationSec: duration,
     opusBitrateKbps: opusBitrateKbps(),
-    skipTranscript: String(process.env.VOICE_RECORDING_SKIP_TRANSCRIPT || 'false').toLowerCase() === 'true',
+    skipTranscript,
   });
 
   logger.info(`Meeting recording upload queued meeting=${meetingId} path=${tempStoragePath}`);
@@ -159,7 +205,8 @@ async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationS
 
 async function getRecordingPayload(meetingId, userId) {
   const meeting = await assertParticipantAccess(meetingId, userId);
-  const enriched = enrichMeetingRecordingFields(meeting);
+  const segments = await loadSegmentsForMeeting(meetingId, meeting);
+  const enriched = enrichMeetingRecordingFields(meeting, segments);
 
   return {
     meetingId: String(meetingId),
@@ -169,13 +216,28 @@ async function getRecordingPayload(meetingId, userId) {
     hasSummary: enriched.hasSummary,
     transcript: enriched.transcript || '',
     summary: enriched.summary || '',
+    summaryStructured: enriched.summaryStructured || null,
     summaryPreview: enriched.summaryPreview || '',
+    summaryStatus: enriched.summaryStatus,
+    transcriptSource: enriched.transcriptSource,
+    aiSummaryEnabled: enriched.aiSummaryEnabled,
     durationSec: enriched.durationSec,
+    segments,
   };
 }
 
-async function streamRecording(meetingId, userId) {
+async function streamRecording(meetingId, userId, segmentId = null) {
   const meeting = await assertParticipantAccess(meetingId, userId);
+
+  if (segmentId) {
+    return meetingRecordingSegmentService.streamSegment(segmentId, meetingId);
+  }
+
+  const segments = await loadSegmentsForMeeting(meetingId, meeting);
+  if (segments.length === 1 && segments[0].id) {
+    return meetingRecordingSegmentService.streamSegment(segments[0].id, meetingId);
+  }
+
   if (meeting.recordingStatus !== 'ready' || !meeting.audioStoragePath) {
     const err = new Error('Recording audio not available');
     err.statusCode = 404;
@@ -188,14 +250,21 @@ async function streamRecording(meetingId, userId) {
 }
 
 async function applyWorkerResult(meetingId, payload) {
+  if (payload.segmentId) {
+    return meetingRecordingSegmentService.applySegmentWorkerResult(payload.segmentId, payload);
+  }
+
   const update = {
     recordingStatus: payload.recordingStatus || 'ready',
     audioStoragePath: payload.audioStoragePath || null,
-    transcript: payload.transcript || '',
-    summary: payload.summary || '',
+    transcript: payload.transcript || undefined,
+    summary: payload.summary || undefined,
     tempStoragePath: null,
     durationSec: payload.durationSec ?? undefined,
   };
+  if (payload.transcript && !payload.skipTranscriptMerge) {
+    update.transcriptSource = payload.transcriptSource || 'post_audio';
+  }
   if (payload.error) {
     update.recordingStatus = 'failed';
   }
@@ -210,10 +279,39 @@ async function applyWorkerResult(meetingId, payload) {
   return meeting;
 }
 
+async function applyTranscriptChunk(meetingId, payload) {
+  const meetingAiSummary = require('./meetingAiSummary.service');
+  const voiceBroadcast = require('../socket/voiceBroadcast');
+  const result = await meetingAiSummary.appendTranscriptChunk(meetingId, payload);
+  if (!result) return null;
+
+  const meeting = await Meeting.findById(meetingId).lean();
+  const roomId = meeting?.lobbyRoomId || meeting?.voiceChannelId;
+  if (roomId) {
+    voiceBroadcast.broadcastTranscriptPartial(String(roomId), {
+      meetingId: String(meetingId),
+      seq: result.seq,
+      text: result.text,
+      speakerId: payload.speakerId || '',
+      displayName: payload.displayName || '',
+    });
+  }
+  return result;
+}
+
+async function applySummaryResult(meetingId, payload) {
+  const meetingAiSummary = require('./meetingAiSummary.service');
+  return meetingAiSummary.applySummaryResult(meetingId, payload);
+}
+
 async function deleteMeetingStorage(meeting) {
   if (!meeting || !objectStorage.isEnabled()) return;
   const paths = [meeting.audioStoragePath, meeting.tempStoragePath].filter(Boolean);
   await objectStorage.deleteObjects(paths);
+  const segments = await meetingRecordingSegmentService.listSegments(meeting._id || meeting.id);
+  for (const seg of segments) {
+    await meetingRecordingSegmentService.deleteSegmentStorage(seg);
+  }
 }
 
 module.exports = {
@@ -221,10 +319,13 @@ module.exports = {
   isRecordingEnabled,
   userCanAccessMeetingRecording,
   enrichMeetingRecordingFields,
+  loadSegmentsForMeeting,
   handleUpload,
   getRecordingPayload,
   streamRecording,
   applyWorkerResult,
+  applyTranscriptChunk,
+  applySummaryResult,
   deleteMeetingStorage,
   resolveRoomKey,
   computeDurationSec,

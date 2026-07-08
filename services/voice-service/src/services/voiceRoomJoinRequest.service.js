@@ -51,7 +51,7 @@ async function createOrRefreshRequest({ roomId, userId, displayName }) {
   const lobby = await voiceRoomLobbyService.getLobby(rid);
   if (!lobby) {
     const err = new Error('Room host has not started the session yet');
-    err.statusCode = 404;
+    err.statusCode = 409;
     throw err;
   }
 
@@ -95,7 +95,7 @@ async function getRequestForUser(roomId, userId) {
 
 async function listPendingForHost(roomId, hostUserId) {
   const rid = await assertFreeLobbyRoom(roomId);
-  const isHostUser = await voiceRoomLobbyService.isHost(rid, hostUserId);
+  const isHostUser = await voiceRoomLobbyService.canActAsRoomHost(rid, hostUserId);
   if (!isHostUser) {
     const err = new Error('Only the room host can view pending requests');
     err.statusCode = 403;
@@ -109,7 +109,7 @@ async function listPendingForHost(roomId, hostUserId) {
 
 async function resolveRequest({ roomId, requestId, hostUserId, status }) {
   const rid = await assertFreeLobbyRoom(roomId);
-  const isHostUser = await voiceRoomLobbyService.isHost(rid, hostUserId);
+  const isHostUser = await voiceRoomLobbyService.canActAsRoomHost(rid, hostUserId);
   if (!isHostUser) {
     const err = new Error('Only the room host can resolve join requests');
     err.statusCode = 403;

@@ -1,4 +1,31 @@
-export const MIN_VOICE_RECORDING_SEC = 180;
+export const MIN_VOICE_RECORDING_SEC = 1;
+
+/** Opus voice-only — khớp worker FFmpeg và VOICE_RECORDING_OPUS_BITRATE_KBPS (mặc định 16). */
+export const DEFAULT_VOICE_OPUS_BITRATE_KBPS = 16;
+export const HIGH_VOICE_OPUS_BITRATE_KBPS = 24;
+
+/**
+ * Bitrate Opus cho ghi âm giọng nói (8–48 kbps).
+ * Override: VITE_VOICE_RECORDING_OPUS_BITRATE_KBPS trong client/.env (vd. 24).
+ */
+export function resolveVoiceOpusBitrateKbps() {
+  const raw = import.meta.env.VITE_VOICE_RECORDING_OPUS_BITRATE_KBPS;
+  const parsed = parseInt(String(raw || ''), 10);
+  if (Number.isFinite(parsed) && parsed >= 8 && parsed <= 48) {
+    return parsed;
+  }
+  return DEFAULT_VOICE_OPUS_BITRATE_KBPS;
+}
+
+/** MediaRecorder options — Opus 16 kbps ≈ 0.5–1 MB / 5 phút (chỉ audio). */
+export function buildVoiceRecorderOptions(mimeType) {
+  const type = String(mimeType || '').trim();
+  const opts = { mimeType: type };
+  if (type.startsWith('audio/')) {
+    opts.audioBitsPerSecond = resolveVoiceOpusBitrateKbps() * 1000;
+  }
+  return opts;
+}
 
 export function pickVoiceRecorderMime(hasVideo = false) {
   const candidates = hasVideo

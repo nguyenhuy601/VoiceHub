@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Mic,
   Settings,
+  Shield,
   User,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -21,6 +22,8 @@ import useUiRole from '../../hooks/useUiRole';
 import { getRoleMeta } from '../../config/roleMeta';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
@@ -183,10 +186,10 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const { user, logout } = useAuth();
   const { t } = useAppStrings();
   const { navigateToSuite } = useWorkspaceSuite();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, singleOrgMode, company } = useWorkspace();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const activeOrgId = String(
-    activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || ''
+    activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || company?.id || company?._id || ''
   ).trim();
 
   const suiteSegment = segmentFromProp(suiteProp);
@@ -229,12 +232,18 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const initials = getInitials(displayName);
   const { role, meta } = useUiRole();
   const roleKey = role;
+  const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
+  const { canAccessHub, isSystemAdmin } = useCompanyAdminAccess();
+  // System admin dùng shell /app/admin riêng; sidebar nhân viên chỉ hiện hub cho owner|admin|hr org.
+  const showAdminSuite = canAccessHub && !isSystemAdmin;
+  const showApprovalInbox =
+    suiteProp === 'collaborate' && (meta.isManagerOrAbove || ['owner', 'admin', 'manager'].includes(String(company?.myRole || activeWorkspace?.myRole || role || '').toLowerCase()));
   const roleColor = meta.color || ROLE_COLORS[roleKey] || '#2563EB';
   const roleLabel = t(NAV_ROLE_KEYS[roleKey] || 'nav.roleMember');
 
   const navItems = useMemo(() => {
     if (suiteProp === 'communicate') {
-      return [
+      const items = [
         {
           key: 'overview',
           icon: LayoutDashboard,
@@ -271,9 +280,21 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           badge: 0,
         },
       ];
+      if (showAdminSuite) {
+        items.push({
+          key: 'company-admin',
+          icon: Shield,
+          label: t('nav.companyAdmin'),
+          externalNavigate: true,
+          onClick: () => navigate('/app/admin'),
+          path: '/app/admin',
+          badge: 0,
+        });
+      }
+      return items;
     }
     if (suiteProp === 'collaborate') {
-      return [
+      const items = [
         {
           key: 'overview',
           icon: LayoutDashboard,
@@ -284,14 +305,14 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         {
           key: 'workspaces',
           icon: Building2,
-          label: t('nav.workspaces'),
+          label: isSingleCompany ? t('nav.companyWorkspaces') : t('nav.workspaces'),
           path: '/app/collaborate/workspaces',
           badge: 0,
         },
         {
           key: 'tasks',
           icon: ClipboardList,
-          label: t('nav.kanbanTasks'),
+          label: isSingleCompany ? t('nav.projects') : t('nav.kanbanTasks'),
           path: '/app/collaborate/tasks',
           tag: t('common.newBadge'),
           badge: 0,
@@ -311,6 +332,27 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           badge: 0,
         },
       ];
+      if (showApprovalInbox) {
+        items.push({
+          key: 'approvals',
+          icon: ClipboardList,
+          label: t('nav.approvals'),
+          path: '/app/collaborate/approvals',
+          badge: 0,
+        });
+      }
+      if (showAdminSuite) {
+        items.push({
+          key: 'company-admin',
+          icon: Shield,
+          label: t('nav.companyAdmin'),
+          externalNavigate: true,
+          onClick: () => navigate('/app/admin'),
+          path: '/app/admin',
+          badge: 0,
+        });
+      }
+      return items;
     }
     return [
       {
@@ -335,7 +377,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         badge: 0,
       },
     ];
-  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId]);
+  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showAdminSuite, navigate]);
 
   const visibleNavItems = useMemo(
     () => filterNavForRole(navItems, roleKey, suiteProp),
@@ -347,6 +389,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     const base = path.split('?')[0];
     if (base === '/app/communicate/overview') return location.pathname === '/app/communicate/overview';
     if (base === '/app/collaborate/overview') return location.pathname === '/app/collaborate/overview';
+    if (base === '/app/admin') return location.pathname === '/app/admin' || location.pathname.startsWith('/app/admin/');
+    if (base === '/app/collaborate/approvals') return location.pathname === '/app/collaborate/approvals';
     if (base === '/app/me/dashboard') return location.pathname === '/app/me/dashboard';
     if (base === '/app/me/settings') return location.pathname === '/app/me/settings';
     if (base === '/app/collaborate/workspaces') {
@@ -393,7 +437,11 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     }
   };
 
-  const allowedSuites = ['communicate', 'collaborate', 'me'];
+  const allowedSuites = useMemo(() => {
+    const base = ['communicate', 'collaborate', 'me'];
+    if (showAdminSuite) return ['communicate', 'collaborate', 'admin', 'me'];
+    return base;
+  }, [showAdminSuite]);
   const widthClass =
     mobileNavOpen || !collapsed ? FIGMA_SIDEBAR_EXPANDED : FIGMA_SIDEBAR_COLLAPSED;
   const sidebarTranslate = mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0';
@@ -489,6 +537,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
                       communicate: SUITE.COMMUNICATE,
                       collaborate: SUITE.COLLABORATE,
                       me: SUITE.ME,
+                      admin: SUITE.ADMIN,
                     };
                     navigateToSuite(suiteMap[sId], { path: getDefaultPathForSuite(suiteMap[sId]) });
                     setShowSuitePicker(false);

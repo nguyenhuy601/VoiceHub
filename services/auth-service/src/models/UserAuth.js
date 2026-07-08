@@ -111,6 +111,17 @@ const userAuthSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    /** Admin provision — bắt buộc đổi mật khẩu lần đầu */
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
+    /** Vai trò tài khoản hệ thống: admin hoặc nhân viên */
+    systemRole: {
+      type: String,
+      enum: ['admin', 'employee'],
+      default: 'employee',
+    },
   },
   {
     timestamps: true,

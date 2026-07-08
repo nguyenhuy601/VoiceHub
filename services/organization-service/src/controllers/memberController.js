@@ -26,11 +26,27 @@ const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { resolveFrontendUrl, logger } = require('@enterprise/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
-const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+const { provisionUserByAdmin } = require('../clients/authProvision.client');
+const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
+const { searchUserByEmail } = require('../clients/userLookup.client');
+const CompanyInvite = require('../models/CompanyInvite');
+const crypto = require('crypto');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'hr', 'member'];
 const INVITE_LINK_SECRET = String(process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || '').trim();
 const INVITE_LINK_EXPIRES_IN = process.env.INVITE_LINK_EXPIRES_IN || '7d';
+const COMPANY_INVITE_TTL_MS = Math.max(
+  3600000,
+  Number(process.env.COMPANY_INVITE_TTL_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000
+);
+
+function hashInviteToken(token) {
+  return crypto.createHash('sha256').update(String(token || '').trim()).digest('hex');
+}
+
+function generateInviteToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: NOTIFICATION_SERVICE_URL');
 const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
@@ -324,26 +340,32 @@ exports.getMembersWithRoles = async (req, res, next) => {
 
 exports.inviteMember = async (req, res, next) => {
   try {
-    const { userId, role } = req.body;
+    const { email, firstName, lastName, role } = req.body || {};
     const inviterId = req.user?.id || req.user?.userId || req.user?._id;
-    if (!userId) {
-      return orgValidation(res, 'userId is required');
+    const orgId = req.params.orgId;
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      return orgValidation(res, 'email is required');
+    }
+
+    const organization = await Organization.findById(orgId).select('name').lean();
+    if (!organization) {
+      return orgNotFound(res);
     }
 
     const inviterMembership = await Membership.findOne({
       user: inviterId,
-      organization: req.params.orgId,
+      organization: orgId,
       status: 'active',
     })
       .select('role')
       .lean();
     const inviterRole = Membership.normalizeRole(inviterMembership?.role);
     let normalizedRole = Membership.normalizeRole(role || 'member');
-    // HR chỉ được mời theo vai trò member để tránh nâng quyền.
     if (inviterRole === 'hr') {
       normalizedRole = 'member';
     }
-    // Admin không được mời owner/admin để tránh leo thang đặc quyền.
     if (inviterRole === 'admin' && ['owner', 'admin'].includes(normalizedRole)) {
       normalizedRole = 'member';
     }
@@ -351,40 +373,185 @@ exports.inviteMember = async (req, res, next) => {
       return orgValidation(res, 'Invalid role');
     }
 
-    const existingMembership = await Membership.findOne({
-      user: userId,
-      organization: req.params.orgId,
-    });
-
-    if (existingMembership?.status === 'active') {
-      return orgConflict(res, 'Đã là thành viên tổ chức.', 'ORG_ALREADY_MEMBER');
+    const existingProfile = await searchUserByEmail(normalizedEmail);
+    if (existingProfile) {
+      const existingUserId = String(
+        existingProfile.userId || existingProfile.id || existingProfile._id || ''
+      ).trim();
+      if (existingUserId) {
+        const existingMembership = await Membership.findOne({
+          user: existingUserId,
+          organization: orgId,
+          status: 'active',
+        }).lean();
+        if (existingMembership) {
+          return orgConflict(res, 'Đã là thành viên công ty.', 'ORG_ALREADY_MEMBER');
+        }
+      }
     }
 
-    const membership = await Membership.findOneAndUpdate(
-      { user: userId, organization: req.params.orgId },
-      {
-        user: userId,
-        organization: req.params.orgId,
+    await CompanyInvite.updateMany(
+      { organization: orgId, email: normalizedEmail, status: 'pending' },
+      { $set: { status: 'revoked' } }
+    );
+
+    const rawToken = generateInviteToken();
+    const invite = await CompanyInvite.create({
+      organization: orgId,
+      email: normalizedEmail,
+      firstName: String(firstName || '').trim(),
+      lastName: String(lastName || '').trim(),
+      role: normalizedRole,
+      invitedBy: inviterId || null,
+      tokenHash: hashInviteToken(rawToken),
+      status: 'pending',
+      expiresAt: new Date(Date.now() + COMPANY_INVITE_TTL_MS),
+    });
+
+    const frontendUrl = resolveFrontendUrl(req).replace(/\/+$/, '');
+    const inviteUrl = `${frontendUrl}/accept-company-invite?token=${encodeURIComponent(rawToken)}`;
+
+    try {
+      await sendCompanyInviteEmail({
+        email: normalizedEmail,
+        inviteUrl,
+        organizationName: organization.name || 'VoiceHub',
+        firstName: invite.firstName,
+        lastName: invite.lastName,
+      });
+    } catch (emailErr) {
+      await CompanyInvite.findByIdAndUpdate(invite._id, { status: 'revoked' });
+      const status = emailErr.statusCode || 503;
+      return orgFail(
+        res,
+        status,
+        emailErr.message || 'Không gửi được email mời',
+        emailErr.errorCode || 'ORG_INVITE_EMAIL_FAILED'
+      );
+    }
+
+    res.status(201).json({
+      status: 'success',
+      data: {
+        inviteId: String(invite._id),
+        email: normalizedEmail,
         role: normalizedRole,
-        status: 'pending',
-        invitedBy: inviterId || null,
+        expiresAt: invite.expiresAt,
+        emailSent: true,
+      },
+      message: 'Đã gửi email lời mời nhận tài khoản',
+      ...(process.env.NODE_ENV !== 'production' ? { inviteUrl } : {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Public — nhân viên mở link trong email: tạo tài khoản (nếu chưa có) + membership active.
+ * Trả email + temporaryPassword đúng một lần (khi vừa tạo mới).
+ */
+exports.acceptCompanyInvite = async (req, res, next) => {
+  try {
+    const rawToken = String(req.body?.token || req.query?.token || '').trim();
+    if (!rawToken) {
+      return orgValidation(res, 'token is required');
+    }
+
+    const tokenHash = hashInviteToken(rawToken);
+    const invite = await CompanyInvite.findOne({ tokenHash }).lean();
+    if (!invite) {
+      return orgFail(res, 404, 'Lời mời không hợp lệ hoặc đã hết hạn.', 'ORG_INVITE_INVALID');
+    }
+
+    if (invite.status === 'accepted' && invite.acceptedUserId) {
+      return res.json({
+        status: 'success',
+        data: {
+          email: invite.email,
+          temporaryPassword: null,
+          alreadyAccepted: true,
+          alreadyHadAccount: true,
+          mustChangePassword: false,
+          organizationId: String(invite.organization),
+        },
+        message: 'Tài khoản đã được tạo trước đó. Vui lòng đăng nhập.',
+      });
+    }
+
+    if (invite.status !== 'pending') {
+      return orgFail(res, 400, 'Lời mời không còn hiệu lực.', 'ORG_INVITE_INVALID');
+    }
+
+    if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
+      await CompanyInvite.updateOne({ _id: invite._id }, { $set: { status: 'expired' } });
+      return orgFail(res, 400, 'Lời mời đã hết hạn.', 'ORG_INVITE_EXPIRED');
+    }
+
+    let provisionMeta;
+    try {
+      provisionMeta = await provisionUserByAdmin({
+        email: invite.email,
+        firstName: invite.firstName,
+        lastName: invite.lastName,
+      });
+    } catch (provisionErr) {
+      const status = provisionErr.statusCode || 400;
+      return orgFail(
+        res,
+        status,
+        provisionErr.message || 'Provision failed',
+        provisionErr.errorCode || 'ORG_PROVISION_FAILED'
+      );
+    }
+
+    const resolvedUserId = String(provisionMeta.userId || '').trim();
+    if (!resolvedUserId) {
+      return orgFail(res, 500, 'Không tạo được tài khoản', 'ORG_PROVISION_FAILED');
+    }
+
+    const normalizedRole = Membership.normalizeRole(invite.role || 'member');
+    const membership = await Membership.findOneAndUpdate(
+      { user: resolvedUserId, organization: invite.organization },
+      {
+        user: resolvedUserId,
+        organization: invite.organization,
+        role: normalizedRole,
+        status: 'active',
+        invitedBy: invite.invitedBy || null,
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    await emitRealtimeEvent({
-      event: 'organization:invitation_received',
-      userId: String(userId),
-      payload: {
-        invitationId: String(membership._id),
-        organizationId: String(req.params.orgId),
-        role: normalizedRole,
-        invitedBy: inviterId || null,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    await syncUserOrgRole(resolvedUserId, invite.organization, normalizedRole);
+    await CompanyInvite.updateOne(
+      { _id: invite._id },
+      {
+        $set: {
+          status: 'accepted',
+          acceptedAt: new Date(),
+          acceptedUserId: resolvedUserId,
+        },
+      }
+    );
 
-    res.json({ status: 'success', data: membership, message: 'Invitation sent successfully' });
+    const created = Boolean(provisionMeta.created);
+    res.json({
+      status: 'success',
+      data: {
+        email: invite.email,
+        temporaryPassword: created ? provisionMeta.temporaryPassword || null : null,
+        alreadyAccepted: false,
+        alreadyHadAccount: !created,
+        mustChangePassword: created || Boolean(provisionMeta.mustChangePassword),
+        organizationId: String(invite.organization),
+        membershipId: String(membership._id),
+        userId: resolvedUserId,
+      },
+      message: created
+        ? 'Tài khoản đã được tạo. Vui lòng đăng nhập bằng thông tin được cấp.'
+        : 'Tài khoản đã tồn tại và đã được thêm vào công ty. Vui lòng đăng nhập.',
+    });
   } catch (error) {
     next(error);
   }

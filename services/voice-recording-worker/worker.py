@@ -7,6 +7,7 @@ import time
 import pika
 from dotenv import load_dotenv
 
+from rabbit_quorum import declare_queue
 from src.processor import patch_meeting_recording, summarize_transcript, transcribe_audio, transcode_to_opus
 from src.storage import build_opus_path, delete_object, download_to_temp, upload_file
 
@@ -23,53 +24,70 @@ def process_job(payload: dict) -> None:
     meeting_id = str(payload.get("meetingId") or "")
     room_key = str(payload.get("roomKey") or meeting_id)
     temp_path_key = str(payload.get("tempStoragePath") or "")
+    audio_storage_path = str(payload.get("audioStoragePath") or "")
     duration_sec = int(payload.get("durationSec") or 0)
     bitrate = int(payload.get("opusBitrateKbps") or 16)
+    skip_transcode = bool(payload.get("skipTranscode"))
+    skip_transcript = bool(payload.get("skipTranscript"))
+    segment_id = str(payload.get("segmentId") or "")
+    job_type = str(payload.get("jobType") or "legacy_full")
 
-    if not meeting_id or not temp_path_key:
-        raise ValueError("Missing meetingId or tempStoragePath")
+    if not meeting_id:
+        raise ValueError("Missing meetingId")
 
     webm_local = None
     opus_local = None
+    opus_key = audio_storage_path
     try:
-        webm_local = download_to_temp(temp_path_key)
-        fd, opus_local = tempfile.mkstemp(suffix=".opus")
-        os.close(fd)
+        if skip_transcode and audio_storage_path:
+            opus_local = download_to_temp(audio_storage_path)
+            opus_key = audio_storage_path
+        else:
+            if not temp_path_key:
+                raise ValueError("Missing tempStoragePath")
+            webm_local = download_to_temp(temp_path_key)
+            fd, opus_local = tempfile.mkstemp(suffix=".opus")
+            os.close(fd)
+            transcode_to_opus(webm_local, opus_local, bitrate)
+            if segment_id and audio_storage_path:
+                opus_key = audio_storage_path
+            else:
+                opus_key = build_opus_path(room_key, meeting_id)
+            upload_file(opus_local, opus_key, "audio/opus")
 
-        transcode_to_opus(webm_local, opus_local, bitrate)
-        opus_key = build_opus_path(room_key, meeting_id)
-        upload_file(opus_local, opus_key, "audio/opus")
+        patch_payload = {
+            "recordingStatus": "ready",
+            "audioStoragePath": opus_key,
+            "durationSec": duration_sec,
+        }
+        if segment_id:
+            patch_payload["segmentId"] = segment_id
 
-        transcript = ""
-        if not payload.get("skipTranscript"):
+        if not skip_transcript and job_type == "legacy_full":
             transcript = transcribe_audio(opus_local)
+            summary = summarize_transcript(transcript) if transcript else ""
+            patch_payload["transcript"] = transcript
+            patch_payload["summary"] = summary
+            patch_payload["transcriptSource"] = "post_audio"
 
-        summary = summarize_transcript(transcript) if transcript else ""
+        if temp_path_key:
+            patch_payload["tempStoragePath"] = temp_path_key
 
-        patch_meeting_recording(
-            meeting_id,
-            {
-                "recordingStatus": "ready",
-                "audioStoragePath": opus_key,
-                "transcript": transcript,
-                "summary": summary,
-                "durationSec": duration_sec,
-                "tempStoragePath": temp_path_key,
-            },
-        )
-        delete_object(temp_path_key)
-        logger.info("Recording ready meeting=%s path=%s", meeting_id, opus_key)
+        patch_meeting_recording(meeting_id, patch_payload)
+        if temp_path_key:
+            delete_object(temp_path_key)
+        logger.info("Recording ready meeting=%s path=%s job=%s", meeting_id, opus_key, job_type)
     except Exception as exc:
         logger.exception("Job failed meeting=%s: %s", meeting_id, exc)
         try:
-            patch_meeting_recording(
-                meeting_id,
-                {
-                    "recordingStatus": "failed",
-                    "error": str(exc)[:500],
-                    "tempStoragePath": temp_path_key,
-                },
-            )
+            fail_payload = {
+                "recordingStatus": "failed",
+                "error": str(exc)[:500],
+                "tempStoragePath": temp_path_key,
+            }
+            if segment_id:
+                fail_payload["segmentId"] = segment_id
+            patch_meeting_recording(meeting_id, fail_payload)
         except Exception as patch_exc:
             logger.error("Failed to patch meeting status: %s", patch_exc)
         raise
@@ -108,7 +126,7 @@ def main():
         try:
             conn = pika.BlockingConnection(pika.URLParameters(url))
             ch = conn.channel()
-            ch.queue_declare(queue=QUEUE, durable=True)
+            declare_queue(ch, QUEUE)
             ch.basic_qos(prefetch_count=1)
             ch.basic_consume(queue=QUEUE, on_message_callback=on_message)
             logger.info("Consuming queue=%s", QUEUE)

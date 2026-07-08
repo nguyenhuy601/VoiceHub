@@ -4,12 +4,14 @@ export const SUITE_COLORS = {
   communicate: '#3B82F6',
   collaborate: '#10B981',
   me: '#F59E0B',
+  admin: '#DC2626',
 };
 
 export const SUITE_SEGMENT = {
   communicate: 'communicate',
   collaborate: 'collaborate',
   me: 'me',
+  admin: 'admin',
 };
 
 export const FIGMA_SHELL_ROOT = 'flex h-screen flex-col overflow-hidden bg-background';

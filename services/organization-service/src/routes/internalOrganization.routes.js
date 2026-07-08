@@ -175,4 +175,92 @@ router.post('/backfill-role-scope-assignments', async (req, res) => {
   }
 });
 
+/**
+ * Single-company reset — liệt kê mọi org.
+ * Chỉ gọi với x-gateway-internal-token (internalGatewayAuth).
+ */
+router.get('/organizations', async (req, res) => {
+  try {
+    const list = await Organization.find({})
+      .select('_id name slug ownerId status createdAt')
+      .sort({ createdAt: 1 })
+      .lean();
+    return res.json({
+      success: true,
+      data: list.map((o) => ({
+        id: String(o._id),
+        name: o.name,
+        slug: o.slug,
+        ownerId: o.ownerId ? String(o.ownerId) : null,
+        status: o.status,
+        createdAt: o.createdAt,
+      })),
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/**
+ * Xóa 1 org + dữ liệu liên quan trên các service (cascade).
+ */
+router.post('/purge-organization', async (req, res) => {
+  try {
+    const organizationId = String(req.body?.organizationId || '').trim();
+    if (!organizationId) {
+      return orgValidation(res, 'organizationId is required');
+    }
+    const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
+    await purgeOrganizationEverywhere(organizationId);
+    return res.json({ success: true, data: { organizationId, purged: true } });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/**
+ * Xóa toàn bộ tổ chức trong DB (single-company pivot / reset môi trường).
+ */
+router.post('/purge-all-organizations', async (req, res) => {
+  try {
+    const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
+    const list = await Organization.find({}).select('_id name slug').lean();
+    const results = [];
+    for (const org of list) {
+      const id = String(org._id);
+      try {
+        await purgeOrganizationEverywhere(id);
+        results.push({ id, name: org.name, slug: org.slug, ok: true });
+      } catch (error) {
+        results.push({
+          id,
+          name: org.name,
+          slug: org.slug,
+          ok: false,
+          error: String(error?.message || error),
+        });
+      }
+    }
+    // Dọn invite/membership mồ côi nếu còn sót
+    try {
+      const CompanyInvite = require('../models/CompanyInvite');
+      await CompanyInvite.deleteMany({});
+    } catch {
+      // ignore
+    }
+    await Membership.deleteMany({});
+    const failed = results.filter((r) => !r.ok);
+    return res.status(failed.length ? 207 : 200).json({
+      success: failed.length === 0,
+      data: {
+        purgedCount: results.filter((r) => r.ok).length,
+        failedCount: failed.length,
+        results,
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 module.exports = router;

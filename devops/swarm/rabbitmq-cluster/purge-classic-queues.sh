@@ -40,6 +40,12 @@ QUEUES=(
   voicehub.org.events.notification.dlq
   voicehub.message.search.index
   voicehub.message.search.index.dlq
+  voice.recording.process
+  voice.recording.dlq
+  voice.stt.chunk
+  voice.stt.dlq
+  voice.summary.process
+  voice.summary.dlq
 )
 
 echo "Purging/deleting queues on $CONTAINER (staging)"

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Bell,
   Bot,
   Building2,
@@ -60,6 +60,8 @@ import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 function truncateText(value, maxLength = 56) {
   const text = String(value || '').trim();
@@ -307,7 +309,9 @@ function DashboardPage({
   const [recentDmContacts, setRecentDmContacts] = useState([]);
   const [recentNotifications, setRecentNotifications] = useState([]);
   const { user } = useAuth();
-  const { role, isGuest, isPersonal, isManagerOrAbove } = useUiRole();
+  const { role, isGuest, isPersonal, isManagerOrAbove, meta } = useUiRole();
+  const { singleOrgMode, company } = useWorkspace();
+  const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
   const { onlineUsers, connected: socketConnected, on, off } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
   const location = useLocation();
@@ -1103,22 +1107,46 @@ function DashboardPage({
     };
     const loadingDetail = t('dashboard.loading');
     return [
-      {
-        key: 'org',
-        icon: '📊',
-        label: t('dashboard.statOrg'),
-        value: fmt(metrics.orgCount),
-        change: '+1',
-        color: 'from-cyan-600 to-teal-600',
-        iconBg: 'from-[#0891b2] to-[#0d9488]',
-        sparkClass: 'text-emerald-400',
-        trend: 'up',
-        detail: metrics.loading ? loadingDetail : t('dashboard.detailOrg'),
-        drilldown: {
-          nguon: t('dashboard.drilldownSourceOrgApi'),
-          soToChuc: metrics.orgCount ?? '—',
-        },
-      },
+      ...(isSingleCompany
+        ? []
+        : [
+            {
+              key: 'org',
+              icon: '📊',
+              label: t('dashboard.statOrg'),
+              value: fmt(metrics.orgCount),
+              change: '+1',
+              color: 'from-cyan-600 to-teal-600',
+              iconBg: 'from-[#0891b2] to-[#0d9488]',
+              sparkClass: 'text-emerald-400',
+              trend: 'up',
+              detail: metrics.loading ? loadingDetail : t('dashboard.detailOrg'),
+              drilldown: {
+                nguon: t('dashboard.drilldownSourceOrgApi'),
+                soToChuc: metrics.orgCount ?? '—',
+              },
+            },
+          ]),
+      ...(isSingleCompany && meta.canManageMembers
+        ? [
+            {
+              key: 'approvals',
+              icon: '📋',
+              label: t('companyAdmin.pendingJoin'),
+              value: fmt(metrics.pendingApprovals),
+              change: '—',
+              color: 'from-amber-500 to-orange-600',
+              iconBg: 'from-[#F59E0B] to-[#ea580c]',
+              sparkClass: 'text-amber-400',
+              trend: 'up',
+              detail: metrics.loading ? loadingDetail : t('companyAdmin.overviewHint'),
+              drilldown: {
+                nguon: t('dashboard.drilldownSourceOrgApi'),
+                choDuyet: metrics.pendingApprovals ?? '—',
+              },
+            },
+          ]
+        : []),
       {
         key: 'tasks',
         icon: '✅',
@@ -1172,7 +1200,7 @@ function DashboardPage({
         },
       },
     ];
-  }, [metrics, t]);
+  }, [metrics, t, isSingleCompany, meta.canManageMembers]);
 
   const enterpriseStats = useMemo(() => {
     const fmtNumber = (n) => {
@@ -1472,11 +1500,13 @@ function DashboardPage({
         }),
       },
       {
-        label: t('dashboard.quickNavOrg'),
+        label: isSingleCompany ? t('nav.companyWorkspaces') : t('dashboard.quickNavOrg'),
         icon: Building2,
-        path: '/app/collaborate/workspaces',
+        path: isSingleCompany ? '/app/collaborate/workspaces' : '/app/collaborate/workspaces',
         color: '#06B6D4',
-        desc: t('dashboard.quickNavDescOrgs', { n: metrics.orgCount ?? 0 }),
+        desc: isSingleCompany
+          ? t('dashboard.quickNavDescCompany')
+          : t('dashboard.quickNavDescOrgs', { n: metrics.orgCount ?? 0 }),
       },
       {
         label: t('dashboard.quickNavMeetings'),
@@ -1509,14 +1539,20 @@ function DashboardPage({
         desc: t('dashboard.quickNavDescPending', { n: metrics.unread || 0 }),
       },
       {
-        label: t('dashboard.quickNavAdmin'),
+        label: isSingleCompany && meta.canManageMembers ? t('nav.companyAdmin') : t('dashboard.quickNavAdmin'),
         icon: Settings,
-        path: '/app/me/settings',
+        path:
+          isSingleCompany && meta.canManageMembers
+            ? '/app/admin'
+            : '/app/me/settings',
         color: '#64748B',
-        desc: t('dashboard.quickNavDescSystemSettings'),
+        desc:
+          isSingleCompany && meta.canManageMembers
+            ? t('companyAdmin.overviewHint')
+            : t('dashboard.quickNavDescSystemSettings'),
       },
     ],
-    [t, metrics.unread, metrics.orgCount, upcomingMeetings, pendingQuery.pendingCount, metrics.pendingCount]
+    [t, metrics.unread, metrics.orgCount, upcomingMeetings, pendingQuery.pendingCount, metrics.pendingCount, isSingleCompany, meta.canManageMembers]
   );
 
   const filteredQuickNav = useMemo(() => {

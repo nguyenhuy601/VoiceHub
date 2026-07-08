@@ -7,16 +7,22 @@ const ShellLayoutContext = createContext({
   mobileNavOpen: false,
   openMobileNav: () => {},
   closeMobileNav: () => {},
+  immersiveChrome: false,
+  setImmersiveChrome: () => {},
 });
 
 export function ShellLayoutProvider({ children }) {
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [immersiveChrome, setImmersiveChrome] = useState(false);
 
   const openJoinModal = useCallback(() => setJoinModalOpen(true), []);
   const closeJoinModal = useCallback(() => setJoinModalOpen(false), []);
   const openMobileNav = useCallback(() => setMobileNavOpen(true), []);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  const setImmersiveChromeSafe = useCallback((next) => {
+    setImmersiveChrome(Boolean(next));
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -26,8 +32,19 @@ export function ShellLayoutProvider({ children }) {
       mobileNavOpen,
       openMobileNav,
       closeMobileNav,
+      immersiveChrome,
+      setImmersiveChrome: setImmersiveChromeSafe,
     }),
-    [joinModalOpen, openJoinModal, closeJoinModal, mobileNavOpen, openMobileNav, closeMobileNav]
+    [
+      joinModalOpen,
+      openJoinModal,
+      closeJoinModal,
+      mobileNavOpen,
+      openMobileNav,
+      closeMobileNav,
+      immersiveChrome,
+      setImmersiveChromeSafe,
+    ]
   );
 
   return (

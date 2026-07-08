@@ -1,4 +1,5 @@
 const Meeting = require('../models/Meeting');
+const MeetingRecordingSegment = require('../models/MeetingRecordingSegment');
 const objectStorage = require('../utils/objectStorage');
 const meetingRecordingService = require('../services/meetingRecording.service');
 const { logger } = require('@enterprise/shared');
@@ -16,6 +17,25 @@ async function expireColdTierAudio() {
   if (days <= 0 || !objectStorage.isEnabled()) return { expired: 0 };
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  let expired = 0;
+
+  const segmentRows = await MeetingRecordingSegment.find({
+    status: 'ready',
+    audioStoragePath: { $ne: null },
+    updatedAt: { $lte: cutoff },
+  })
+    .select('_id audioStoragePath tempStoragePath meetingId')
+    .limit(50)
+    .lean();
+
+  for (const row of segmentRows) {
+    await objectStorage.deleteObjects([row.audioStoragePath, row.tempStoragePath].filter(Boolean));
+    await MeetingRecordingSegment.findByIdAndUpdate(row._id, {
+      $set: { status: 'audio_expired', audioStoragePath: null, tempStoragePath: null },
+    });
+    expired += 1;
+  }
+
   const rows = await Meeting.find({
     recordingStatus: 'ready',
     audioStoragePath: { $ne: null },
@@ -25,7 +45,6 @@ async function expireColdTierAudio() {
     .limit(50)
     .lean();
 
-  let expired = 0;
   for (const row of rows) {
     await meetingRecordingService.deleteMeetingStorage(row);
     await Meeting.findByIdAndUpdate(row._id, {

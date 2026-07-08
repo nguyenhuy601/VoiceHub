@@ -61,6 +61,18 @@ class RoomManager {
     return this.rooms.get(roomId) || null;
   }
 
+  findProducer(roomId, producerId) {
+    const room = this.getRoom(roomId);
+    if (!room) return null;
+    for (const peer of room.peers.values()) {
+      const producer = peer.producers.get(producerId);
+      if (producer) {
+        return { producer, peer };
+      }
+    }
+    return null;
+  }
+
   _ensurePeer(room, socketId, userInfo = {}) {
     if (room.peers.has(socketId)) {
       return room.peers.get(socketId);

@@ -8,6 +8,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { HOME_LOCALES } from '../../locales/homePage';
 import LandingFeatureEmbed from '../../components/Landing/LandingFeatureEmbed';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 
 const TECH_STACK = ['React', 'Node.js', 'Socket.io', 'WebRTC', 'MongoDB', 'Redis', 'Docker', 'JWT'];
 
@@ -104,6 +105,7 @@ function HomePage() {
   const { isAuthenticated } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const hidePublicRegister = readSingleOrgModeFlag();
 
   useEffect(() => {
     setStoryFocusId(copy.storySteps[0].featureId);
@@ -189,12 +191,14 @@ function HomePage() {
                 >
                   {copy.nav.login}
                 </Link>
+                {!hidePublicRegister ? (
                 <Link
                   to="/register"
                   className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-2 text-sm font-bold text-white shadow-md sm:px-4 sm:py-2.5"
                 >
                   {copy.nav.register}
                 </Link>
+                ) : null}
               </>
             )}
           </div>
@@ -238,7 +242,7 @@ function HomePage() {
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   type="button"
-                  onClick={() => navigate(isAuthenticated ? '/app' : '/register')}
+                  onClick={() => navigate(isAuthenticated ? '/app' : hidePublicRegister ? '/login' : '/register')}
                   className="inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-600 to-teal-600 px-8 text-lg font-bold text-white shadow-[0_12px_32px_-8px_rgba(6,182,212,0.45)] transition hover:-translate-y-0.5 hover:from-cyan-500 hover:to-teal-500 motion-reduce:hover:translate-y-0"
                 >
                   {isAuthenticated ? copy.nav.enterApp : copy.hero.ctaPrimary}
@@ -446,7 +450,7 @@ function HomePage() {
               >
                 {copy.finalCta.login}
               </Link>
-              {!isAuthenticated ? (
+              {!isAuthenticated && !hidePublicRegister ? (
                 <Link
                   to="/register"
                   className={`inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl border-2 px-8 text-lg font-semibold ${
@@ -455,7 +459,7 @@ function HomePage() {
                 >
                   {copy.finalCta.register}
                 </Link>
-              ) : (
+              ) : !isAuthenticated ? null : (
                 <button
                   type="button"
                   onClick={() => navigate('/app')}
@@ -517,6 +521,7 @@ function HomePage() {
                 </GradientButton>
               ) : (
                 <>
+                  {!hidePublicRegister ? (
                   <Link
                     to="/register"
                     className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-4 py-2 text-sm font-bold text-white hover:from-cyan-500 hover:to-teal-500"
@@ -524,6 +529,7 @@ function HomePage() {
                   >
                     {copy.modal.register}
                   </Link>
+                  ) : null}
                   <Link
                     to="/login"
                     className={`inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold ${

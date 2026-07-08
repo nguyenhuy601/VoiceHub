@@ -22,7 +22,14 @@ async function handleBootstrap(req, res) {
       cacheKey,
       coalesceKey: cacheKey,
       ttlSec: TTL_SEC,
-      loader: () => buildBootstrap(userId, req.user?.email, suite),
+      loader: () =>
+        buildBootstrap(
+          userId,
+          req.user?.email,
+          suite,
+          req.user?.systemRole,
+          req.user?.mustChangePassword
+        ),
     });
 
     if (fromCache) res.setHeader('X-Bff-Cache', 'HIT');

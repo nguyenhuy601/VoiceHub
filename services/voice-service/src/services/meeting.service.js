@@ -321,6 +321,34 @@ class MeetingService {
     return meetings.map((m) => meetingRecordingService.enrichMeetingRecordingFields(m));
   }
 
+  async enrichMeetingsWithRecordingFieldsAsync(meetings) {
+    const meetingRecordingService = require('./meetingRecording.service');
+    const meetingRecordingSegmentService = require('./meetingRecordingSegment.service');
+    if (!Array.isArray(meetings) || !meetings.length) return meetings;
+
+    const meetingIds = meetings
+      .map((m) => m?._id || m?.id)
+      .filter(Boolean);
+
+    const segmentsByMeeting = new Map();
+    if (meetingIds.length) {
+      const MeetingRecordingSegment = require('../models/MeetingRecordingSegment');
+      const rows = await MeetingRecordingSegment.find({ meetingId: { $in: meetingIds } })
+        .sort({ segmentIndex: 1 })
+        .lean();
+      for (const row of rows) {
+        const mid = String(row.meetingId);
+        if (!segmentsByMeeting.has(mid)) segmentsByMeeting.set(mid, []);
+        segmentsByMeeting.get(mid).push(meetingRecordingSegmentService.mapSegment(row));
+      }
+    }
+
+    return meetings.map((m) => {
+      const mid = String(m?._id || m?.id || '');
+      return meetingRecordingService.enrichMeetingRecordingFields(m, segmentsByMeeting.get(mid) || []);
+    });
+  }
+
   async enrichMeetingsWithHostProfiles(meetings) {
     if (!Array.isArray(meetings) || !meetings.length) return meetings;
     const hostIds = [

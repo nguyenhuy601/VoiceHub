@@ -342,7 +342,7 @@ class MeetingController {
       });
 
       const enrichedMeetings = await meetingService.enrichMeetingsWithHostProfiles(result.meetings);
-      const withRecording = meetingService.enrichMeetingsWithRecordingFields(enrichedMeetings);
+      const withRecording = await meetingService.enrichMeetingsWithRecordingFieldsAsync(enrichedMeetings);
 
       res.json({
         success: true,

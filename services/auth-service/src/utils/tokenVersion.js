@@ -15,6 +15,8 @@ function accessTokenPayload(userAuth, email) {
     id: String(userAuth.userId),
     email: String(email || ''),
     tv: Number(userAuth.tokenVersion || 0),
+    systemRole: String(userAuth.systemRole || 'employee').toLowerCase() === 'admin' ? 'admin' : 'employee',
+    mustChangePassword: Boolean(userAuth.mustChangePassword),
   };
 }
 

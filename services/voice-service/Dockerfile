@@ -11,7 +11,7 @@ ENV npm_config_fetch_retries=10 \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      python3 python3-pip make g++ pkg-config libssl-dev && \
+      python3 python3-pip make g++ pkg-config libssl-dev ffmpeg && \
     pip3 install --no-cache-dir invoke && \
     rm -rf /var/lib/apt/lists/*
 

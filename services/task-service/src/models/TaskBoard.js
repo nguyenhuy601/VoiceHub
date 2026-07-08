@@ -31,6 +31,18 @@ const taskBoardSchema = new mongoose.Schema(
       trim: true,
       maxlength: 180,
     },
+    projectCode: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 64,
+    },
+    description: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 2000,
+    },
     background: {
       type: String,
       trim: true,

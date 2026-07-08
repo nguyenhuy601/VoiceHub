@@ -12,7 +12,26 @@ alwaysApply: true
 - **Microservice**: Mỗi service chỉ có các model đăng ký trong repo đó — `populate()` ref tới model chưa đăng ký (ví dụ `User`) sẽ gây 500; dùng bỏ populate, lean, hoặc đăng ký model tối thiểu có chủ đích.
 - **@enterprise/shared**: Chỉ import qua package `@enterprise/shared` hoặc subpath (`@enterprise/shared/middleware/auth`). **Cấm** `require('/shared')` và thêm business logic / HTTP client gọi service khác vào `shared/` — đặt trong `services/<name>/src/clients/`. Event schema chéo service được phép trong `shared/messaging/` và `shared/cache/`.
 
-## Làm nhóm — ưu tiên phần đang chạy ổn
+## Giao tiếp service & request (bắt buộc)
+
+Luồng **API user** (browser / client qua gateway):
+
+1. **Kiểm tra internal token** — `x-gateway-internal-token` hoặc alias `x-internal-token` trùng `GATEWAY_INTERNAL_TOKEN` (`gatewayTrust` / `isTrustedGatewayForward`). Chứng minh request đi qua gateway hoặc S2S được ủy quyền.
+2. **Verify JWT** — Gateway verify `Authorization: Bearer` trước khi proxy; service có thể tin `x-user-id` đã forward **khi** bước 1 hợp lệ, hoặc tự verify JWT (`shared/middleware/auth.js`, `protect` từng service).
+3. **Phân quyền** — Lấy `userId` (và `role` membership/org) từ JWT hoặc `x-user-id` đã tin cậy; **không** tin `x-user-id` nếu thiếu/sai internal token.
+
+| Lớp | Trách nhiệm |
+|-----|-------------|
+| **API Gateway** | Public route hoặc JWT + gắn `x-gateway-internal-token` + `x-user-id` khi proxy |
+| **Service (route user)** | `isTrustedGatewayForward` + user context; authorize theo role membership |
+| **Service (`/internal/*`)** | Chỉ `internalGatewayAuth` (bootstrap/S2S) — **không** JWT user; ví dụ seed IT, org → auth provision |
+
+**Không** thêm route public cho `/api/auth/internal/*` — gateway cho qua khi có internal token hợp lệ; auth-service verify lại.
+
+**Client S2S / script seed:** gửi `x-gateway-internal-token` (= `GATEWAY_INTERNAL_TOKEN` trong `.env`); không gửi JWT trên route bootstrap.
+
+**Cấm:** tin `x-user-id` từ client không qua gateway; đặt business logic HTTP chéo service trong `shared/` (dùng `services/<name>/src/clients/`).
+
 
 - **Không thêm REST route mới** khi có thể dùng endpoint hiện có: query param trên route sẵn (`GET /messages?…`), alias/legacy (`POST /friends/block`), gộp dữ liệu ở client (ví dụ `GET /friends` + `GET /friends?status=blocked`), socket event đã có. Chỉ thêm route khi task ghi rõ bắt buộc và không gộp được — nêu lý do trong PR.
 - **Không sửa service/module ngoài scope task**: Ví dụ task chat/DM thì không refactor org-service, auth, gateway permissions trừ khi yêu cầu nói rõ. Sửa tối thiểu trong service sở hữu feature (thường `client/`, `chat-service`, `friend-service`, `socket-service` cho DM).
@@ -68,3 +87,34 @@ Dấu hiệu plan đạt chuẩn:
 - Có success criteria cụ thể, không mô tả chung chung.
 
 Sau khi vá rủi ro bảo mật: chạy `bash devops/scripts/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
+
+## Hoàn tất plan — bắt buộc kiểm thử trước khi kết thúc
+
+**Không** đánh dấu plan/task “done” hoặc báo hoàn thành cho user khi chưa chạy test plan (hoặc ghi rõ blocker nếu stack không lên được).
+
+### Trước khi kết thúc mọi plan (BE/FE/full-stack)
+
+1. **Đọc mục Test plan** trong plan (§ hoặc bảng T1, T2, …) — chạy đủ kịch bản in-scope.
+2. **Unit test** liên quan (nếu có file `*.test.js` hoặc thêm test tối thiểu cho policy/logic mới):
+   - `node --test shared/tests/*.test.js`
+   - `node --test services/<service>/tests/*.test.js` (service vừa sửa)
+3. **Smoke / integration** khi đụng API hoặc deploy:
+   - Stack local: `docker compose up` (hoặc swarm dev) rồi script smoke tương ứng (ví dụ pivot single-company: `node devops/scripts/smoke-single-company.js` sau `node devops/scripts/seed-single-company.js`).
+   - Ghi trong báo cáo: pass/fail từng mã T*, command đã chạy, và **blocker** nếu gateway không lên (không giả vờ pass).
+4. **FE** (khi sửa `client/`): build hoặc lint file đã đổi — `cd client && npm run build` (hoặc `npm run lint` nếu có).
+5. **Regression tối thiểu** theo plan: chat DM, voice, notifications — ít nhất health/login/bootstrap không 500.
+
+### Báo cáo kết thúc plan (cho user)
+
+- Bảng ngắn: test id → pass/fail/skip + lý do skip.
+- Nếu skip do môi trường: nêu command user cần chạy để verify tay (`https://voicehub.local`, seed, v.v.).
+
+### Single-company pivot (tham chiếu nhanh)
+
+| Mã | Command / kiểm tra |
+|----|-------------------|
+| Unit | `node --test shared/tests/singleCompany.test.js` |
+| Unit org | `node --test services/organization-service/tests/singleCompanyPolicy.test.js` |
+| Seed | `node devops/scripts/seed-single-company.js` |
+| Smoke T1–T4 | `node devops/scripts/smoke-single-company.js` |
+| Manual FE | Login admin → không org picker; `/app/collaborate/admin`; `/register` → login |

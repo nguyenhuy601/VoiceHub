@@ -54,7 +54,8 @@ export default function VoiceLobbyView({
   rooms = [],
   meetings = rooms,
   onJoinRoom,
-  onPlayRecording,
+  onListenAgain,
+  onViewSummary,
   locale = 'vi-VN',
   createTitle,
   createDescription,
@@ -196,7 +197,8 @@ export default function VoiceLobbyView({
                 <VoiceActiveRoomsList
                   meetings={meetings}
                   onJoinMeeting={onJoinRoom}
-                  onPlayRecording={onPlayRecording}
+                  onListenAgain={onListenAgain}
+                  onViewSummary={onViewSummary}
                   locale={locale}
                   compact
                   showPagination

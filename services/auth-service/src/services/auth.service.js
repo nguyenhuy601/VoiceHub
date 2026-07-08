@@ -1,7 +1,12 @@
 const UserAuth = require('../models/UserAuth');
 const axios = require('axios');
 const { validateRegistrationDateOfBirth } = require('../utils/dateOfBirth');
-const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
+const {
+  hashPassword,
+  comparePassword,
+  validatePasswordStrength,
+  generateTemporaryPassword,
+} = require('../utils/password');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
 const { bumpTokenVersion, accessTokenPayload } = require('../utils/tokenVersion');
 const { cacheTokenVersion } = require('@enterprise/shared/utils/tokenVersionAuth');
@@ -54,8 +59,24 @@ async function syncUserProfileEmail(userId, email) {
 }
 
 class AuthService {
+  normalizeSystemRole(role) {
+    const raw = String(role || '').trim().toLowerCase();
+    return raw === 'admin' ? 'admin' : 'employee';
+  }
+
   // Đăng ký user mới
   async register(userData, frontendUrl) {
+    // Policy: tài khoản chỉ được cấp bởi admin hệ thống (internal provision).
+    // Không cho self-register trong mọi môi trường.
+    throw createServiceError(
+      'Đăng ký công khai đã tắt. Liên hệ quản trị hệ thống để cấp tài khoản.',
+      403,
+      'AUTH_REGISTER_DISABLED'
+    );
+    /*
+     * Giữ lại implementation cũ phía dưới để dễ rollback nếu policy thay đổi trong tương lai.
+     * eslint-disable-next-line no-unreachable
+     */
     try {
       const { email, password, firstName, lastName, dateOfBirth } = userData;
       const normalizedEmail = normalizeEmail(email);
@@ -126,6 +147,7 @@ class AuthService {
         password: hashedPassword,
         firstName,
         lastName,
+        systemRole: 'employee',
         emailVerificationToken,
         emailVerificationExpiresAt,
         isEmailVerified: false,
@@ -280,6 +302,8 @@ class AuthService {
         user: {
           id: userAuth.userId,
           email: plainEmail,
+          systemRole: this.normalizeSystemRole(userAuth.systemRole),
+          mustChangePassword: Boolean(userAuth.mustChangePassword),
         },
       };
     } catch (error) {
@@ -370,6 +394,7 @@ class AuthService {
 
       // Cập nhật password và vô hiệu token cũ
       userAuth.password = hashedPassword;
+      userAuth.mustChangePassword = false;
       userAuth.refreshToken = null;
       userAuth.refreshTokenExpiresAt = null;
       await bumpTokenVersion(userAuth);
@@ -637,6 +662,80 @@ class AuthService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * IT/HR provision — tạo tài khoản active, verified (single-company).
+   */
+  async provisionUserByAdmin({ email, firstName, lastName, password, systemRole }) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      throw createServiceError('Email là bắt buộc', 400, 'VALIDATION_REQUIRED');
+    }
+    const fn = String(firstName || '').trim() || 'Nhân';
+    const ln = String(lastName || '').trim() || 'Viên';
+
+    const normalizedSystemRole = this.normalizeSystemRole(systemRole);
+
+    await ensureMongoReady('PROVISION');
+
+    const existingUser = await findUserAuthByEmail(normalizedEmail, {
+      maxTimeMS: 15000,
+      lean: true,
+    });
+    if (existingUser?.userId) {
+      return {
+        userId: String(existingUser.userId),
+        email: normalizedEmail,
+        created: false,
+        systemRole: this.normalizeSystemRole(existingUser.systemRole),
+        mustChangePassword: Boolean(existingUser.mustChangePassword),
+      };
+    }
+    if (existingUser && !existingUser.userId) {
+      throw createServiceError('Email đang chờ xác thực', 409, 'AUTH_EMAIL_PENDING');
+    }
+
+    const providedPassword = String(password || '').trim();
+    const tempPassword = providedPassword || generateTemporaryPassword(12);
+
+    const passwordValidation = validatePasswordStrength(tempPassword);
+    if (!passwordValidation.isValid) {
+      throw createServiceError(
+        passwordValidation.errors.join(', '),
+        400,
+        'AUTH_WEAK_PASSWORD'
+      );
+    }
+
+    const hashedPassword = await hashPassword(tempPassword);
+    const userId = new mongoose.Types.ObjectId();
+
+    const userAuth = new UserAuth({
+      userId,
+      ...writeEmailFields(normalizedEmail),
+      password: hashedPassword,
+      firstName: fn,
+      lastName: ln,
+      systemRole: normalizedSystemRole,
+      isEmailVerified: true,
+      isActive: true,
+      mustChangePassword: true,
+      emailVerificationToken: null,
+      emailVerificationExpiresAt: null,
+    });
+
+    await userAuth.save();
+    await bootstrapUserProfile(userAuth, userId);
+
+    return {
+      userId: userId.toString(),
+      email: normalizedEmail,
+      created: true,
+      systemRole: normalizedSystemRole,
+      temporaryPassword: tempPassword,
+      mustChangePassword: true,
+    };
   }
 
   // Xác thực email

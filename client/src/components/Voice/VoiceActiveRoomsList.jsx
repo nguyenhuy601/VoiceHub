@@ -29,6 +29,20 @@ function formatMeetingDate(value, locale) {
   });
 }
 
+function endedMeetingFooterLabel(meeting, t) {
+  const segments = Array.isArray(meeting.segments) ? meeting.segments : [];
+  const segmentProcessing = segments.some((s) => s.status === 'processing');
+  const recordingBusy =
+    ['processing', 'pending_upload'].includes(String(meeting.recordingStatus || '')) ||
+    segmentProcessing;
+  const summaryBusy = meeting.summaryStatus === 'processing';
+  if (recordingBusy || summaryBusy) return t('voiceRoom.recordingProcessing');
+  if (meeting.hasRecording && meeting.recordingStatus === 'failed') {
+    return t('voiceRoom.recordingFailed');
+  }
+  return t('voiceRoom.noRecording');
+}
+
 function MeetingCard({
   meeting,
   compact,
@@ -36,32 +50,42 @@ function MeetingCard({
   joinText,
   t,
   onJoinMeeting,
-  onPlayRecording,
+  onListenAgain,
+  onViewSummary,
 }) {
   const active = meeting.active === true;
   const color = meeting.color || 'var(--primary)';
-  const canPlay = !active && meeting.hasAudio === true && meeting.recordingStatus === 'ready';
-  const canViewNotes =
+  const canListen = !active && meeting.hasAudio === true && meeting.recordingStatus === 'ready';
+  const canSummary =
     !active &&
-    (meeting.hasTranscript === true || meeting.hasSummary === true || Boolean(meeting.summaryPreview));
-  const clickable = active || canPlay || canViewNotes;
+    (meeting.hasTranscript === true ||
+      meeting.hasSummary === true ||
+      meeting.summaryStatus === 'ready' ||
+      Boolean(meeting.summaryPreview));
+  const isRecordingProcessing =
+    !active &&
+    !canListen &&
+    (['processing', 'pending_upload'].includes(String(meeting.recordingStatus || '')) ||
+      (Array.isArray(meeting.segments) &&
+        meeting.segments.some((s) => s.status === 'processing')));
+  const isSummaryProcessing = !active && !canSummary && meeting.summaryStatus === 'processing';
+  const isProcessing = isRecordingProcessing || isSummaryProcessing;
+  const showHoverActions = !active && (canListen || canSummary || isProcessing);
 
   return (
     <div
-      className={`${FIGMA_VOICE_LOBBY_ROOM_CARD} ${compact ? 'flex-col items-stretch gap-2.5 p-3' : ''} ${clickable ? 'cursor-pointer' : 'cursor-default opacity-90'}`}
+      className={`group relative ${FIGMA_VOICE_LOBBY_ROOM_CARD} ${compact ? 'flex-col items-stretch gap-2.5 p-3' : ''} ${active ? 'cursor-pointer' : 'cursor-default'}`}
       onClick={() => {
         if (active) onJoinMeeting?.(meeting);
-        else if (canPlay || canViewNotes) onPlayRecording?.(meeting);
       }}
       onKeyDown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && clickable) {
+        if ((e.key === 'Enter' || e.key === ' ') && active) {
           e.preventDefault();
-          if (active) onJoinMeeting?.(meeting);
-          else if (canPlay || canViewNotes) onPlayRecording?.(meeting);
+          onJoinMeeting?.(meeting);
         }
       }}
-      role={clickable ? 'button' : undefined}
-      tabIndex={clickable ? 0 : undefined}
+      role={active ? 'button' : undefined}
+      tabIndex={active ? 0 : undefined}
     >
       <div className={`flex min-w-0 gap-2.5 ${compact ? 'w-full items-start' : 'flex-1 items-center'}`}>
         <div
@@ -148,35 +172,48 @@ function MeetingCard({
             {joinText}
           </button>
         ) : null}
-        {!compact && !active && canPlay ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlayRecording?.(meeting);
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15"
-          >
-            <Play className="h-3.5 w-3.5" aria-hidden />
-            {t('voiceRoom.playRecording')}
-          </button>
-        ) : null}
-        {!compact && !active && !canPlay && canViewNotes ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlayRecording?.(meeting);
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted"
-          >
-            {t('voiceRoom.viewTranscript')}
-          </button>
-        ) : null}
-        {!compact && !active && !canPlay && !canViewNotes ? (
-          <span className="shrink-0 text-xs text-muted-foreground">{t('voiceRoom.noRecording')}</span>
-        ) : null}
       </div>
+
+      {!active && showHoverActions ? (
+        <div
+          className={`absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-[inherit] bg-background/80 opacity-0 backdrop-blur-[2px] transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 ${compact ? 'mt-0' : ''}`}
+        >
+          {canListen ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onListenAgain?.(meeting);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 px-3 py-2 text-xs font-semibold text-primary shadow-sm hover:bg-primary/25"
+            >
+              <Play className="h-3.5 w-3.5" aria-hidden />
+              {t('voiceRoom.playRecording')}
+            </button>
+          ) : null}
+          {canSummary ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewSummary?.(meeting);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-muted"
+            >
+              {t('voiceRoom.viewTranscript')}
+            </button>
+          ) : null}
+          {!canListen && !canSummary && isProcessing ? (
+            <span className="text-xs text-muted-foreground">{t('voiceRoom.recordingProcessing')}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!active && !showHoverActions && !compact ? (
+        <div className="mt-1 shrink-0 text-center">
+          <span className="text-xs text-muted-foreground">{endedMeetingFooterLabel(meeting, t)}</span>
+        </div>
+      ) : null}
 
       {compact ? (
         <div className="flex w-full">
@@ -194,21 +231,42 @@ function MeetingCard({
             >
               {joinText}
             </button>
-          ) : canPlay || canViewNotes ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayRecording?.(meeting);
-              }}
-              className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
-            >
-              <Play className="h-3.5 w-3.5" aria-hidden />
-              {canPlay ? t('voiceRoom.playRecording') : t('voiceRoom.viewTranscript')}
-            </button>
+          ) : showHoverActions ? (
+            <div className="flex w-full gap-2">
+              {canListen ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onListenAgain?.(meeting);
+                  }}
+                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
+                >
+                  <Play className="h-3.5 w-3.5" aria-hidden />
+                  {t('voiceRoom.playRecording')}
+                </button>
+              ) : null}
+              {canSummary ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewSummary?.(meeting);
+                  }}
+                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-muted"
+                >
+                  {t('voiceRoom.viewTranscript')}
+                </button>
+              ) : null}
+              {!canListen && !canSummary && isProcessing ? (
+                <span className="flex h-8 w-full items-center justify-center text-[0.6875rem] text-muted-foreground">
+                  {t('voiceRoom.recordingProcessing')}
+                </span>
+              ) : null}
+            </div>
           ) : (
             <span className="w-full text-center text-[0.6875rem] text-muted-foreground">
-              {t('voiceRoom.noRecording')}
+              {endedMeetingFooterLabel(meeting, t)}
             </span>
           )}
         </div>
@@ -220,7 +278,8 @@ function MeetingCard({
 export default function VoiceActiveRoomsList({
   meetings = [],
   onJoinMeeting,
-  onPlayRecording,
+  onListenAgain,
+  onViewSummary,
   joinLabel,
   emptyLabel,
   sectionTitle,
@@ -282,7 +341,8 @@ export default function VoiceActiveRoomsList({
             joinText={joinText}
             t={t}
             onJoinMeeting={onJoinMeeting}
-            onPlayRecording={onPlayRecording}
+            onListenAgain={onListenAgain}
+            onViewSummary={onViewSummary}
           />
         ))}
       </div>

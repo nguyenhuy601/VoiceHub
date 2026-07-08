@@ -8,11 +8,11 @@ export const FIGMA_VOICE_ROOM_ROOT =
 
 /** Thanh trạng thái trên — floating pill (mobile / legacy) */
 export const FIGMA_VOICE_TOP_BAR =
-  'absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-surface-raised/95 px-4 py-2 text-sm text-foreground shadow-xl backdrop-blur-md md:left-6 md:top-5';
+  'absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-2 text-sm text-foreground shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-surface-raised/95 dark:shadow-xl md:left-6 md:top-5';
 
 /** Thanh trạng thái full-width (Figma in-room desktop) */
 export const FIGMA_VOICE_TOP_BAR_FULL =
-  'flex shrink-0 flex-wrap items-center gap-2 border-b border-white/[0.07] bg-white/[0.04] px-5 py-2.5 text-sm text-foreground';
+  'flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card/90 px-5 py-2.5 text-sm text-foreground backdrop-blur-sm dark:border-white/[0.07] dark:bg-white/[0.04]';
 
 export const FIGMA_VOICE_TOP_TITLE = 'max-w-[12rem] truncate font-semibold text-[0.9375rem] text-foreground md:max-w-[18rem]';
 
@@ -33,12 +33,12 @@ export const FIGMA_VOICE_GRID_AREA_INLINE =
   'relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden';
 
 export const FIGMA_VOICE_GRID_SCROLL =
-  'min-h-0 flex-1 overflow-y-auto p-4 pb-36 md:pb-32';
+  'min-h-0 flex-1 overflow-y-auto bg-background p-4 pb-36 dark:bg-transparent md:pb-32';
 
 export const FIGMA_VOICE_STATUS_DOT =
   'h-2 w-2 shrink-0 rounded-full bg-success shadow-[0_0_6px] shadow-success';
 
-export const FIGMA_VOICE_TOP_DIVIDER = 'text-white/25';
+export const FIGMA_VOICE_TOP_DIVIDER = 'text-muted-foreground/40 dark:text-white/25';
 
 export const FIGMA_VOICE_TOP_META = 'tabular-nums text-foreground/90';
 
@@ -104,35 +104,37 @@ export const FIGMA_VOICE_CTRL_OUTER =
   'pointer-events-none absolute bottom-4 left-0 right-0 z-30 flex shrink-0 justify-center px-5 pb-5 pt-4 md:bottom-5';
 
 export const FIGMA_VOICE_CTRL_PILL =
-  'pointer-events-auto flex max-w-[min(100%,56rem)] flex-nowrap items-center justify-center gap-1.5 overflow-x-auto rounded-full border border-white/12 bg-surface-raised/95 px-3 py-2 shadow-[0_16px_40px_rgba(0,0,0,0.5),0_4px_12px_rgba(0,0,0,0.3)] backdrop-blur-xl md:gap-1.5 md:px-3';
+  'pointer-events-auto flex max-w-[min(100%,56rem)] flex-nowrap items-center justify-center gap-1.5 overflow-x-auto rounded-full border border-border bg-card/95 px-3 py-2 shadow-lg backdrop-blur-xl dark:border-white/12 dark:bg-surface-raised/95 dark:shadow-[0_16px_40px_rgba(0,0,0,0.5),0_4px_12px_rgba(0,0,0,0.3)] md:gap-1.5 md:px-3';
 
 export const FIGMA_VOICE_CTRL_GROUP = 'flex items-center gap-1 sm:gap-1.5';
 
-export const FIGMA_VOICE_CTRL_DIVIDER = 'mx-0.5 h-7 w-px shrink-0 bg-white/12';
+export const FIGMA_VOICE_CTRL_DIVIDER = 'mx-0.5 h-7 w-px shrink-0 bg-border dark:bg-white/12';
 
 export const FIGMA_VOICE_CTRL_BTN =
-  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
-export const FIGMA_VOICE_CTRL_BTN_IDLE = 'bg-white/[0.07] hover:bg-white/12';
+export const FIGMA_VOICE_CTRL_BTN_IDLE =
+  'bg-muted text-foreground hover:bg-muted/80 dark:bg-white/[0.07] dark:text-white dark:hover:bg-white/12';
 
 export const FIGMA_VOICE_CTRL_BTN_ACTIVE =
-  'bg-primary/90 shadow-[0_2px_8px_rgba(37,99,235,0.4)]';
+  'bg-primary/90 text-primary-foreground shadow-[0_2px_8px_rgba(37,99,235,0.35)] dark:shadow-[0_2px_8px_rgba(37,99,235,0.4)]';
 
-export const FIGMA_VOICE_CTRL_BTN_DANGER = 'bg-destructive/85 hover:bg-destructive';
+export const FIGMA_VOICE_CTRL_BTN_DANGER =
+  'bg-destructive/90 text-destructive-foreground hover:bg-destructive dark:bg-destructive/85';
 
 export const FIGMA_VOICE_CTRL_END =
   'flex items-center gap-1.5 rounded-full border-0 bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground shadow-[0_4px_14px_rgba(239,68,68,0.4)] transition-shadow hover:shadow-[0_6px_20px_rgba(239,68,68,0.55)]';
 
 /** Panel phải inline (desktop Figma) */
 export const FIGMA_VOICE_SIDE_PANEL_INLINE =
-  'flex h-full w-[17.5rem] shrink-0 flex-col border-l border-white/[0.07] bg-surface-raised';
+  'flex h-full w-[17.5rem] shrink-0 flex-col border-l border-border bg-surface-raised dark:border-white/[0.07]';
 
 /** Panel phải overlay (mobile) */
 export const FIGMA_VOICE_SIDE_PANEL =
-  'fixed inset-y-0 right-0 z-40 flex h-full w-[min(100vw,17.5rem)] flex-col border-l border-white/10 bg-surface-raised shadow-2xl transition-transform duration-300 ease-out vh-anim-scale-in';
+  'fixed inset-y-0 right-0 z-40 flex h-full w-[min(100vw,17.5rem)] flex-col border-l border-border bg-surface-raised shadow-2xl transition-transform duration-300 ease-out vh-anim-scale-in dark:border-white/10';
 
 export const FIGMA_VOICE_SIDE_TAB_ROW =
-  'flex shrink-0 items-center border-b border-white/[0.07]';
+  'flex shrink-0 items-center border-b border-border dark:border-white/[0.07]';
 
 export const FIGMA_VOICE_SIDE_TAB_BTN =
   'flex-1 border-0 bg-transparent py-[11px] text-[0.8125rem] font-medium transition-colors duration-150';
@@ -146,25 +148,39 @@ export const FIGMA_VOICE_SIDE_CLOSE_BTN =
   'flex h-9 w-9 shrink-0 items-center justify-center border-0 bg-transparent text-muted-foreground transition hover:text-foreground';
 
 export const FIGMA_VOICE_PEOPLE_ROW =
-  'flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition hover:bg-white/5';
+  'flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition hover:bg-muted dark:hover:bg-white/5';
 
 export const FIGMA_VOICE_PEOPLE_AVATAR =
   'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold';
 
 export const FIGMA_VOICE_CHAT_INPUT =
-  'h-8 min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.07] px-2.5 text-[0.8125rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/40';
+  'h-8 min-w-0 flex-1 rounded-md border border-border bg-input-background px-2.5 text-[0.8125rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/40 dark:border-white/10 dark:bg-white/[0.07]';
 
 export const FIGMA_VOICE_CHAT_SEND_BTN =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-0 bg-primary text-primary-foreground';
 
 export const FIGMA_VOICE_MODAL_BACKDROP =
-  'fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm';
+  'fixed inset-0 z-[250] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm';
 
 export const FIGMA_VOICE_MODAL_SHELL =
-  'flex max-h-[min(92vh,640px)] w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-surface-raised text-foreground shadow-2xl vh-anim-scale-in';
+  'flex max-h-[min(92vh,640px)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised text-foreground shadow-2xl vh-anim-scale-in dark:border-white/10';
 
 export const FIGMA_VOICE_MODAL_HEADER =
-  'flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3';
+  'flex shrink-0 items-center justify-between border-b border-border px-4 py-3 dark:border-white/10';
+
+/** Menu «...» trên thanh điều khiển phòng họp */
+export const FIGMA_VOICE_MORE_MENU =
+  'fixed z-[260] w-[min(calc(100vw-2rem),17rem)] -translate-x-1/2 -translate-y-full rounded-xl border border-border bg-popover py-1.5 text-popover-foreground shadow-xl backdrop-blur-md';
+
+export const FIGMA_VOICE_MORE_MENU_ITEM =
+  'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-popover-foreground hover:bg-muted';
+
+export const FIGMA_VOICE_MORE_MENU_ITEM_RECORDING =
+  'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-destructive hover:bg-muted';
+
+export const FIGMA_VOICE_MORE_MENU_SEPARATOR = 'my-1 border-t border-border dark:border-white/10';
+
+export const FIGMA_VOICE_MORE_MENU_ICON = 'h-4 w-4 shrink-0 text-muted-foreground';
 
 export const FIGMA_VOICE_TILE_ROLE_BADGE =
   'rounded px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase tracking-wide text-white';
@@ -191,7 +207,7 @@ export const figmaVoiceRoomRoot = (suiteLayout) =>
 
 export const figmaVoiceTopBar = (suiteLayout, { fullWidth = false } = {}) => {
   if (!suiteLayout) {
-    return 'absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-zinc-900/95 px-4 py-2 text-sm text-white shadow-xl backdrop-blur-md md:left-8 md:top-6';
+    return 'absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-2 text-sm text-foreground shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-surface-raised/95 dark:text-white dark:shadow-xl md:left-8 md:top-6';
   }
   return fullWidth ? FIGMA_VOICE_TOP_BAR_FULL : FIGMA_VOICE_TOP_BAR;
 };
@@ -230,7 +246,7 @@ export const figmaVoiceCtrlOuter = (suiteLayout) =>
 export const figmaVoiceCtrlPill = (suiteLayout) =>
   suiteLayout
     ? FIGMA_VOICE_CTRL_PILL
-    : 'pointer-events-auto flex max-w-[min(100%,56rem)] flex-wrap items-end justify-between gap-3 rounded-2xl border border-white/10 bg-black/85 px-3 py-3 shadow-2xl backdrop-blur-xl md:gap-6 md:px-6';
+    : 'pointer-events-auto flex max-w-[min(100%,56rem)] flex-wrap items-end justify-between gap-3 rounded-2xl border border-border bg-card/95 px-3 py-3 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-black/85 dark:shadow-2xl md:gap-6 md:px-6';
 
 export const figmaVoiceSidePanel = (suiteLayout, open, { inline = false } = {}) => {
   if (suiteLayout && inline && open) {
@@ -330,7 +346,7 @@ export const FIGMA_VOICE_AI_TRANSCRIBE_BTN =
   'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border-none px-3.5 py-2 text-xs font-bold transition-all duration-150';
 
 export const FIGMA_VOICE_AI_TRANSCRIBE_IDLE =
-  'bg-white/[0.08] text-muted-foreground hover:bg-primary/15 hover:text-primary';
+  'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary dark:bg-white/[0.08] dark:hover:bg-primary/15';
 
 export const FIGMA_VOICE_AI_TRANSCRIBE_ACTIVE =
   'bg-gradient-to-br from-primary to-cyan-400 text-primary-foreground shadow-[0_4px_16px_rgba(37,99,235,0.45)]';

@@ -17,6 +17,18 @@ router.patch(
   meetingRecordingController.internalPatchRecording.bind(meetingRecordingController)
 );
 
+router.patch(
+  '/internal/:meetingId/transcript-chunk',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchTranscriptChunk.bind(meetingRecordingController)
+);
+
+router.patch(
+  '/internal/:meetingId/summary',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchSummary.bind(meetingRecordingController)
+);
+
 router.use(authenticate);
 
 // Cuộc gọi 1-1 bạn bè — đặt trước route động `/:meetingId`

@@ -24,6 +24,10 @@ import {
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
 } from '../../utils/suitePathUtils';
+import {
+  isVoiceRoomInviteNotification,
+  resolveVoiceRoomInvitePath,
+} from '../../utils/notificationNavigation';
 
 function getNotificationTimeGroup(createdAt) {
   if (!createdAt) return 'earlier';
@@ -92,6 +96,7 @@ function resolveNotificationOrgId(notif, { organizations = [], organizationIdFil
 function getNotifActionKind(notif) {
   if (!notif || notif.read || notif.data?.resolved) return 'none';
   if (notif.data?.kind === 'voice_room_join_request') return 'voice_join';
+  if (isVoiceRoomInviteNotification(notif)) return 'voice_invite';
   if (notif.rawType === 'friend_request') return 'friend_request';
   return 'navigate';
 }
@@ -568,14 +573,22 @@ function NotificationsPage({ orgScope = false } = {}) {
         break;
       case 'meeting':
         if (
-          notif.data?.kind === 'voice_room_invite' ||
+          isVoiceRoomInviteNotification(notif) ||
           notif.data?.kind === 'voice_room_join_request'
         ) {
+          if (isVoiceRoomInviteNotification(notif)) {
+            const invitePath = resolveVoiceRoomInvitePath(notif);
+            navigate(invitePath || '/app/communicate/voice');
+            toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
+            break;
+          }
           const voiceUrl = String(notif.actionUrl || '').trim();
-          if (voiceUrl.startsWith('/voice') || voiceUrl.startsWith('/app/communicate/voice')) {
+          if (voiceUrl.startsWith('/app/communicate/voice')) {
+            navigate(voiceUrl);
+          } else if (voiceUrl.startsWith('/voice')) {
             navigate(voiceUrl.replace(/^\/voice/, '/app/communicate/voice'));
           } else if (notif.data?.roomId) {
-            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}?join=1`);
+            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}`);
           } else {
             navigate('/app/communicate/voice');
           }

@@ -406,6 +406,26 @@ class AuthController {
     }
   }
 
+  /** IT/HR — provision user (S2S only) */
+  async provisionUserInternal(req, res) {
+    try {
+      const { email, firstName, lastName, password, systemRole } = req.body || {};
+      const result = await authService.provisionUserByAdmin({
+        email,
+        firstName,
+        lastName,
+        password,
+        systemRole,
+      });
+      return res.status(result.created ? 201 : 200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return sendError(res, error, error.statusCode || 400, 'Không tạo được tài khoản', 'AUTH_PROVISION_FAILED');
+    }
+  }
+
   // Lấy thông tin user hiện tại
   async getMe(req, res) {
     try {
@@ -418,16 +438,60 @@ class AuthController {
         });
       }
 
-      // TODO: Lấy thông tin user từ user-service
+      const UserAuth = require('../models/UserAuth');
+      const userAuth = await UserAuth.findOne({ userId }).select('systemRole mustChangePassword').lean();
+
       res.json({
         success: true,
         data: {
           id: userId,
           email: req.user.email,
+          systemRole: userAuth?.systemRole || req.user.systemRole || 'employee',
+          mustChangePassword: Boolean(userAuth?.mustChangePassword),
         },
       });
     } catch (error) {
       return sendError(res, error, 500, 'Không tải được thông tin tài khoản', 'AUTH_ME_FAILED');
+    }
+  }
+
+  /** S2S — org-service gửi email mời nhận tài khoản công ty */
+  async sendCompanyInviteEmail(req, res) {
+    try {
+      const { email, inviteUrl, organizationName, firstName, lastName } = req.body || {};
+      const normalized = String(email || '').trim().toLowerCase();
+      if (!normalized || !normalized.includes('@')) {
+        return res.status(400).json({ success: false, message: 'email is required', errorCode: 'VALIDATION_REQUIRED' });
+      }
+      const url = String(inviteUrl || '').trim();
+      if (!url) {
+        return res.status(400).json({ success: false, message: 'inviteUrl is required', errorCode: 'VALIDATION_REQUIRED' });
+      }
+      if (!emailService.isAvailable()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Email service is not configured',
+          errorCode: 'AUTH_EMAIL_UNAVAILABLE',
+          messageUser: 'Dịch vụ email chưa được cấu hình.',
+        });
+      }
+      const info = await emailService.sendCompanyInviteEmail(normalized, {
+        inviteUrl: url,
+        organizationName: String(organizationName || '').trim(),
+        firstName: String(firstName || '').trim(),
+        lastName: String(lastName || '').trim(),
+      });
+      if (!info) {
+        return res.status(503).json({
+          success: false,
+          message: 'Failed to send invite email',
+          errorCode: 'AUTH_INVITE_EMAIL_FAILED',
+          messageUser: 'Không gửi được email mời. Vui lòng thử lại.',
+        });
+      }
+      return res.json({ success: true, data: { sent: true } });
+    } catch (error) {
+      return sendError(res, error, 500, 'Không gửi được email mời', 'AUTH_INVITE_EMAIL_FAILED');
     }
   }
 

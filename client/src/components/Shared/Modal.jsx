@@ -10,14 +10,22 @@ import {
   FIGMA_MODAL_TITLE,
 } from './figmaSharedClasses';
 
-const Modal = ({ isOpen, onClose, title, children, size = 'md', layerClassName = 'z-[200]' }) => {
+const Modal = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  layerClassName = 'z-[200]',
+  closable = true,
+}) => {
   const { t } = useAppStrings();
   if (!isOpen) return null;
 
   return (
     <div
       className={`${FIGMA_MODAL_OVERLAY} ${layerClassName}`}
-      onClick={onClose}
+      onClick={closable ? onClose : undefined}
       role="dialog"
       aria-modal="true"
     >
@@ -28,14 +36,18 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md', layerClassName =
       >
         <div className={FIGMA_MODAL_HEADER}>
           <h2 className={FIGMA_MODAL_TITLE}>{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className={FIGMA_MODAL_CLOSE_BTN}
-            aria-label={t('common.close')}
-          >
-            ✕
-          </button>
+          {closable ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className={FIGMA_MODAL_CLOSE_BTN}
+              aria-label={t('common.close')}
+            >
+              ✕
+            </button>
+          ) : (
+            <span className="h-8 w-8" aria-hidden />
+          )}
         </div>
         <div className={FIGMA_MODAL_BODY}>{children}</div>
       </div>

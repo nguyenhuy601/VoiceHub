@@ -3,6 +3,12 @@ const { logger } = require('@enterprise/shared');
 const roomManager = require('../sfu/roomManager');
 const voiceRoomSessionService = require('../services/voiceRoomSession.service');
 const voiceRoomLobby = require('../services/voiceRoomLobby.service');
+const roomServerRecording = require('../services/roomServerRecording.service');
+const roomServerSttTap = require('../services/roomServerSttTap.service');
+const meetingFeaturePermission = require('../services/meetingFeaturePermission.service');
+const meetingAiSummary = require('../services/meetingAiSummary.service');
+const Meeting = require('../models/Meeting');
+const voiceBroadcast = require('./voiceBroadcast');
 
 const getUserFromSocket = (socket) => socket.data?.user || socket.user || {};
 const callbackError = (error, eventName = 'voice') => {
@@ -11,8 +17,73 @@ const callbackError = (error, eventName = 'voice') => {
   return { success: false, error: msg };
 };
 
+/** Grace period trước khi đóng phòng khi disconnect (F5 / mất mạng tạm thời). */
+const pendingRoomFinalize = new Map();
+
+function getDisconnectGraceMs() {
+  return Math.max(5000, Number(process.env.VOICE_DISCONNECT_GRACE_MS || 45000));
+}
+
+function cancelPendingRoomFinalize(roomId) {
+  const roomKey = String(roomId || '').trim();
+  if (!roomKey) return;
+  const pending = pendingRoomFinalize.get(roomKey);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRoomFinalize.delete(roomKey);
+  logger.info(`[voice] cancelled pending room finalize room=${roomKey}`);
+}
+
+async function finalizeEmptyVoiceRoom(voiceNamespace, roomId) {
+  const roomKey = String(roomId || '').trim();
+  if (!roomKey) return null;
+
+  pendingRoomFinalize.delete(roomKey);
+
+  const room = roomManager.getRoom(roomKey);
+  if (room && room.peers.size > 0) {
+    logger.info(`[voice] skip finalize — peer rejoined room=${roomKey}`);
+    return null;
+  }
+
+  let closedPayload = { roomId: roomKey, recordingSaved: false };
+  try {
+    const finalized = await voiceRoomSessionService.finalizeRoomSession(roomKey);
+    if (finalized) {
+      closedPayload = { ...closedPayload, ...finalized };
+    }
+  } catch (finalizeErr) {
+    logger.error(`[voice] finalize session failed room=${roomKey}:`, finalizeErr);
+  }
+
+  const roomTag = `voice:${roomKey}`;
+  voiceNamespace.to(roomTag).emit('voice:roomClosed', closedPayload);
+  logger.info(`[voice] room finalized after grace room=${roomKey}`);
+  return closedPayload;
+}
+
+function scheduleEmptyRoomFinalize(voiceNamespace, roomId) {
+  const roomKey = String(roomId || '').trim();
+  if (!roomKey) return;
+  cancelPendingRoomFinalize(roomKey);
+  const graceMs = getDisconnectGraceMs();
+  const timer = setTimeout(() => {
+    finalizeEmptyVoiceRoom(voiceNamespace, roomKey).catch((err) => {
+      logger.error(`[voice] delayed finalize failed room=${roomKey}:`, err);
+    });
+  }, graceMs);
+  pendingRoomFinalizeUnref(timer);
+  pendingRoomFinalize.set(roomKey, { timer });
+  logger.info(`[voice] scheduled room finalize room=${roomKey} in ${graceMs}ms`);
+}
+
+function pendingRoomFinalizeUnref(timer) {
+  if (typeof timer?.unref === 'function') timer.unref();
+}
+
 function registerVoiceNamespace(io) {
   const voiceNamespace = io.of('/voice');
+  voiceBroadcast.setVoiceNamespace(voiceNamespace);
   voiceNamespace.use(socketAuth);
 
   voiceNamespace.on('connection', (socket) => {
@@ -25,6 +96,8 @@ function registerVoiceNamespace(io) {
       try {
         const roomId = payload.roomId;
         if (!roomId) throw new Error('roomId is required');
+
+        cancelPendingRoomFinalize(roomId);
 
         const voiceRoomAccess = require('../services/voiceRoomAccess.service');
         const authHeader = socket.handshake?.headers?.authorization;
@@ -59,12 +132,26 @@ function registerVoiceNamespace(io) {
         socket.data.voiceJoinedAt = Date.now();
         socket.join(joined.roomTag);
 
+        if (sessionMeta?.meetingId) {
+          roomServerRecording.bindMeeting(String(roomId), sessionMeta.meetingId);
+          roomServerSttTap.bindMeeting(String(roomId), sessionMeta.meetingId);
+        }
+
+        const hostId = sessionMeta?.hostId || null;
+        const grantedFeatures = hostId
+          ? await meetingFeaturePermission.getGrantedFeaturesForUser(String(roomId), userId, hostId)
+          : [];
+
         callback({
           success: true,
           roomId,
           rtpCapabilities: joined.rtpCapabilities,
           peers: joined.peers,
           meetingId: sessionMeta?.meetingId || null,
+          hostId,
+          recordingMode: roomServerRecording.getRecordingMode(),
+          grantedFeatures,
+          legacyAutoRecord: roomServerRecording.isLegacyAutoRecord(),
         });
 
         socket.to(joined.roomTag).emit('voice:peerJoined', {
@@ -121,6 +208,25 @@ function registerVoiceNamespace(io) {
         });
 
         callback({ success: true, ...result });
+
+        if (result.kind === 'audio') {
+          const roomKey = String(roomId);
+          const sessionMeetingId = voiceRoomSessionService.getActiveMeetingId(roomKey);
+          void roomServerRecording.attachProducer({
+            roomId: roomKey,
+            producerId: result.producerId,
+            userId: result.userId,
+            displayName: result.displayName,
+            meetingId: sessionMeetingId,
+          });
+          void roomServerSttTap.attachProducerTap({
+            roomId: roomKey,
+            producerId: result.producerId,
+            userId: result.userId,
+            displayName: result.displayName,
+            meetingId: sessionMeetingId,
+          });
+        }
 
         socket.to(`voice:${roomId}`).emit('voice:newProducer', {
           producerId: result.producerId,
@@ -202,7 +308,7 @@ function registerVoiceNamespace(io) {
       }
     });
 
-    const leave = async () => {
+    const leave = async ({ immediate = false } = {}) => {
       const roomId = socket.data.voiceRoomId;
       if (!roomId) return;
       const roomTag = `voice:${roomId}`;
@@ -214,26 +320,16 @@ function registerVoiceNamespace(io) {
           displayName: left.displayName,
         });
       }
-        if (left.roomClosed) {
-        let closedPayload = { roomId: String(roomId), recordingSaved: false };
-        try {
-          const finalized = await voiceRoomSessionService.finalizeRoomSession(roomId);
-          if (finalized) {
-            closedPayload = { ...closedPayload, ...finalized };
+      if (left.roomClosed) {
+        if (immediate) {
+          cancelPendingRoomFinalize(roomId);
+          const closedPayload = await finalizeEmptyVoiceRoom(voiceNamespace, roomId);
+          if (closedPayload) {
+            socket.emit('voice:roomClosed', closedPayload);
           }
-        } catch (finalizeErr) {
-          logger.error(`[voice] finalize session failed room=${roomId}:`, finalizeErr);
+        } else {
+          scheduleEmptyRoomFinalize(voiceNamespace, roomId);
         }
-        try {
-          const { isFreePublicLobbyRoom } = require('../utils/voiceRoomKind');
-          if (isFreePublicLobbyRoom(roomId)) {
-            await voiceRoomLobby.destroyLobby(roomId);
-          }
-        } catch (lobbyErr) {
-          logger.warn(`[voice] lobby destroy on room close failed room=${roomId}: ${lobbyErr.message}`);
-        }
-        socket.emit('voice:roomClosed', closedPayload);
-        voiceNamespace.to(roomTag).emit('voice:roomClosed', closedPayload);
       }
       socket.leave(roomTag);
       delete socket.data.voiceRoomId;
@@ -241,6 +337,7 @@ function registerVoiceNamespace(io) {
     };
 
     const finalizeAndBroadcastRoomClosed = async (roomId) => {
+      cancelPendingRoomFinalize(roomId);
       const roomTag = `voice:${roomId}`;
       let closedPayload = { roomId: String(roomId), recordingSaved: false };
       try {
@@ -255,12 +352,190 @@ function registerVoiceNamespace(io) {
       return closedPayload;
     };
 
+    socket.on('voice:feature:request', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const session = voiceRoomSessionService.getActiveSession(roomId);
+        const request = await meetingFeaturePermission.createFeatureRequest({
+          roomId: String(roomId),
+          meetingId: session?.meetingId,
+          userId,
+          displayName,
+          type: payload.type,
+        });
+        const roomTag = `voice:${roomId}`;
+        socket.to(roomTag).emit('voice:feature:requestPending', { request });
+        callback({ success: true, request });
+      } catch (error) {
+        callback(callbackError(error, 'voice:feature:request'));
+      }
+    });
+
+    socket.on('voice:feature:resolve', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const request = await meetingFeaturePermission.resolveFeatureRequest({
+          roomId: String(roomId),
+          requestId: payload.requestId,
+          hostUserId: userId,
+          approved: Boolean(payload.approved),
+        });
+        const roomTag = `voice:${roomId}`;
+        voiceNamespace.to(roomTag).emit('voice:feature:granted', {
+          userId: request.userId,
+          type: request.type,
+          approved: request.status === 'approved',
+        });
+        callback({ success: true, request });
+      } catch (error) {
+        callback(callbackError(error, 'voice:feature:resolve'));
+      }
+    });
+
+    socket.on('voice:recording:start', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const session = voiceRoomSessionService.getActiveSession(roomId);
+        if (!session?.meetingId) throw new Error('No active meeting');
+
+        const canRecord = await meetingFeaturePermission.userCanUseFeature({
+          roomId: String(roomId),
+          userId,
+          type: 'recording',
+          hostId: session.hostId,
+        });
+        if (!canRecord) {
+          callback({ success: false, error: 'Forbidden — recording permission required' });
+          return;
+        }
+
+        const meeting = await Meeting.findById(session.meetingId).lean();
+        const skipTranscript = meeting?.transcriptSource === 'realtime';
+
+        const result = await roomServerRecording.startUserSegment({
+          roomId: String(roomId),
+          userId,
+          meetingId: session.meetingId,
+          skipTranscript,
+        });
+
+        await Meeting.findByIdAndUpdate(session.meetingId, { $set: { isRecording: true } });
+
+        const roomTag = `voice:${roomId}`;
+        voiceNamespace.to(roomTag).emit('voice:recording:started', {
+          startedBy: String(userId),
+          displayName,
+          startedAt: result.startedAt,
+        });
+
+        callback({ success: true, ...result });
+      } catch (error) {
+        callback(callbackError(error, 'voice:recording:start'));
+      }
+    });
+
+    socket.on('voice:recording:stop', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const session = voiceRoomSessionService.getActiveSession(roomId);
+        if (!session?.meetingId) throw new Error('No active meeting');
+
+        const meeting = await Meeting.findById(session.meetingId).lean();
+        const skipTranscript = meeting?.transcriptSource === 'realtime';
+
+        const result = await roomServerRecording.stopUserSegment({
+          roomId: String(roomId),
+          meetingId: session.meetingId,
+          skipTranscript,
+        });
+
+        await Meeting.findByIdAndUpdate(session.meetingId, { $set: { isRecording: false } });
+
+        const roomTag = `voice:${roomId}`;
+        if (result.segment) {
+          voiceNamespace.to(roomTag).emit('voice:recording:segmentReady', {
+            segment: result.segment,
+            stoppedBy: String(userId),
+          });
+        }
+
+        callback({ success: true, ...result });
+      } catch (error) {
+        callback(callbackError(error, 'voice:recording:stop'));
+      }
+    });
+
+    socket.on('voice:aiSummary:enable', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const session = voiceRoomSessionService.getActiveSession(roomId);
+        if (!session?.meetingId) throw new Error('No active meeting');
+
+        const canEnable = await meetingFeaturePermission.userCanUseFeature({
+          roomId: String(roomId),
+          userId,
+          type: 'ai_summary',
+          hostId: session.hostId,
+        });
+        if (!canEnable) {
+          callback({ success: false, error: 'Forbidden — AI summary permission required' });
+          return;
+        }
+
+        await meetingAiSummary.enableRoomSummary({
+          roomId: String(roomId),
+          meetingId: session.meetingId,
+        });
+        await roomServerSttTap.startRoomSttTap({
+          roomId: String(roomId),
+          meetingId: session.meetingId,
+        });
+
+        const roomTag = `voice:${roomId}`;
+        voiceNamespace.to(roomTag).emit('voice:aiSummary:enabled', {
+          enabledBy: String(userId),
+          displayName,
+        });
+
+        callback({ success: true, enabled: true });
+      } catch (error) {
+        callback(callbackError(error, 'voice:aiSummary:enable'));
+      }
+    });
+
+    socket.on('voice:aiSummary:disable', async (payload = {}, callback = () => {}) => {
+      try {
+        const roomId = payload.roomId || socket.data.voiceRoomId;
+        if (!roomId) throw new Error('roomId is required');
+        const session = voiceRoomSessionService.getActiveSession(roomId);
+        await meetingAiSummary.disableRoomSummary({
+          roomId: String(roomId),
+          meetingId: session?.meetingId,
+        });
+        await roomServerSttTap.stopRoomSttTap(String(roomId));
+
+        const roomTag = `voice:${roomId}`;
+        voiceNamespace.to(roomTag).emit('voice:aiSummary:disabled', {
+          disabledBy: String(userId),
+        });
+
+        callback({ success: true, enabled: false });
+      } catch (error) {
+        callback(callbackError(error, 'voice:aiSummary:disable'));
+      }
+    });
+
     socket.on('voice:endRoomAsHost', async (payload = {}, callback = () => {}) => {
       try {
         const roomId = payload.roomId || socket.data.voiceRoomId;
         if (!roomId) throw new Error('roomId is required');
 
-        const allowed = await voiceRoomLobby.isHost(roomId, userId);
+        const allowed = await voiceRoomLobby.canActAsRoomHost(roomId, userId);
         if (!allowed) {
           callback({ success: false, error: 'Forbidden' });
           return;
@@ -298,13 +573,13 @@ function registerVoiceNamespace(io) {
       }
     });
 
-    socket.on('voice:leaveRoom', (_payload, callback = () => {}) => {
-      leave();
+    socket.on('voice:leaveRoom', async (_payload, callback = () => {}) => {
+      await leave({ immediate: true });
       callback({ success: true });
     });
 
     socket.on('disconnect', () => {
-      leave();
+      void leave({ immediate: false });
       logger.info(`[voice] user disconnected ${userId} socket:${socket.id}`);
     });
   });

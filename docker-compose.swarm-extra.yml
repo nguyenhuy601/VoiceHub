@@ -1,13 +1,47 @@
-# Infra bổ sung cho Swarm dev — gắn overlay voicehub_enterprise-network
-# DNS alias minio / meilisearch để stack voicehub resolve được.
+# Infra / AI bổ sung cho Swarm dev — gắn overlay voicehub_enterprise-network
+# DNS alias khớp tên service Swarm (minio, ollama, paddleocr-service, meilisearch).
+#
+# Trước khi bật: scale Swarm trùng tên về 0 (dev-enable-profile.sh làm giúp):
+#   docker service scale voicehub_ollama=0 voicehub_paddleocr-service=0
 #
 #   bash devops/swarm/dev-enable-profile.sh
 
 name: voicehub-extra
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    platform: linux/amd64
+    volumes:
+      - ollama_data:/root/.ollama
+    mem_limit: 3072m
+    cpus: 4
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 45s
+    networks:
+      enterprise-network:
+        aliases:
+          - ollama
+
+  paddleocr-service:
+    image: blazordevlab/paddleocrapi:latest
+    platform: linux/amd64
+    mem_limit: 512m
+    cpus: 2
+    restart: unless-stopped
+    networks:
+      enterprise-network:
+        aliases:
+          - paddleocr-service
+
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    platform: linux/amd64
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
@@ -27,6 +61,7 @@ services:
 
   minio-init:
     image: minio/mc:latest
+    platform: linux/amd64
     depends_on:
       minio:
         condition: service_healthy
@@ -64,21 +99,51 @@ services:
       - .env
     environment:
       RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_QUORUM_QUEUES: ${RABBITMQ_QUORUM_QUEUES:-true}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
       VOICE_SERVICE_URL: ${VOICE_SERVICE_URL}
     depends_on:
       minio-init:
         condition: service_completed_successfully
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - enterprise-network
+
+  voice-stt-worker:
+    build:
+      context: .
+      dockerfile: services/voice-stt-worker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_QUORUM_QUEUES: ${RABBITMQ_QUORUM_QUEUES:-true}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
+      VOICE_SERVICE_URL: ${VOICE_SERVICE_URL}
+      VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-self_hosted}
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_started
     restart: unless-stopped
     networks:
       - enterprise-network
 
 volumes:
+  ollama_data:
   minio_data:
   meilisearch_data:
 

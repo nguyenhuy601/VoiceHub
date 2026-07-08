@@ -119,10 +119,17 @@ async function buildOrganizationStructureData(orgId) {
     divisions: divisionsByBranch.get(String(branch._id)) || [],
   }));
 
+  const divisionsFlat = divisions.map((division) => ({
+    ...division,
+    channels: channelsByDivision.get(String(division._id)) || [],
+    departments: departmentsByDivision.get(String(division._id)) || [],
+  }));
+
   syncHierarchyRoles(orgId, { divisions, departments, teams }).catch(() => null);
 
   return {
     branches: tree,
+    divisionsFlat,
     provisioning: organization?.provisioning?.structure || {
       status: STRUCTURE_PROVISION.READY,
       startedAt: null,

@@ -6,10 +6,12 @@
 ## Kiến trúc
 
 ```text
-rabbitmq-1 (seed) ← rabbitmq-2, rabbitmq-3 join_cluster
+rabbitmq-1 (seed) ← rabbitmq-2, rabbitmq-3 join_cluster  (HA, RABBITMQ_CLUSTER_SIZE=3)
 RABBITMQ_ERLANG_COOKIE đồng bộ (root .env)
 hostname cố định: rabbitmq-1 | rabbitmq-2 | rabbitmq-3
 ```
+
+**Tạm thời single-node (tiết kiệm RAM):** `RABBITMQ_CLUSTER_SIZE=1` (mặc định deploy) — chỉ `rabbitmq-1`, override `docker-compose.cluster.single.yml` scale `rabbitmq-2/3` về 0. Khôi phục HA: đặt `RABBITMQ_CLUSTER_SIZE=3` rồi `bash devops/swarm/rabbitmq-cluster/deploy-cluster-stack.sh`.
 
 Overlay: `enterprise-network` — **không publish** `5672` / `15672` ra host public.
 

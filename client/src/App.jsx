@@ -5,6 +5,7 @@ import BrandPageLoader from './components/Shared/BrandPageLoader';
 import SuiteShellLayout from './components/Layout/SuiteShellLayout';
 import CommunicateSidebar from './components/Layout/CommunicateSidebar';
 import CollaborateSidebar from './components/Layout/CollaborateSidebar';
+import AdminShellLayout from './components/Layout/AdminShellLayout';
 import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
@@ -13,8 +14,9 @@ import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
 const HomePage = lazy(() => import('./pages/Auth/HomePage'));
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
-const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage'));
+const RegisterRedirect = lazy(() => import('./components/Auth/RegisterRedirect'));
 const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
+const AcceptCompanyInvitePage = lazy(() => import('./pages/Auth/AcceptCompanyInvitePage'));
 const ForgotPasswordPage = lazy(() => import('./pages/Auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/Auth/ResetPasswordPage'));
 const TermsOfServicePage = lazy(() => import('./pages/Auth/TermsOfServicePage'));
@@ -24,6 +26,13 @@ const FriendChatPage = lazy(() => import('./pages/Chat/FriendChatPage'));
 const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
 const OrganizationsPage = lazy(() => import('./pages/Workspace/OrganizationsPage'));
 const OrganizationSettingsPage = lazy(() => import('./pages/Workspace/OrganizationSettingsPage'));
+const CompanyAdminLayout = lazy(() => import('./pages/Admin/CompanyAdminLayout'));
+const CompanyAdminOverviewPage = lazy(() => import('./pages/Admin/CompanyAdminOverviewPage'));
+const CompanyAdminPeoplePage = lazy(() => import('./pages/Admin/CompanyAdminPeoplePage'));
+const CompanyAdminApprovalsPage = lazy(() => import('./pages/Admin/CompanyAdminApprovalsPage'));
+const CompanyAdminSettingsPage = lazy(() => import('./pages/Admin/CompanyAdminSettingsPage'));
+const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
+const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
@@ -40,9 +49,10 @@ function App() {
         <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register" element={<RegisterRedirect />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email-change" element={<VerifyEmailPage />} />
+        <Route path="/accept-company-invite" element={<AcceptCompanyInvitePage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
@@ -104,10 +114,32 @@ function App() {
             element={<NotificationsPage orgScope suiteLayout />}
           />
           <Route path="organizations/:orgId/settings" element={<OrganizationSettingsPage suiteLayout />} />
+          <Route path="admin" element={<AdminLegacyRedirect />} />
+          <Route path="approvals" element={<ApprovalInboxPage suiteLayout />} />
           <Route path="join/:orgId" element={<JoinApplicationPage suiteLayout />} />
         </Route>
 
-        {/* Me suite */}
+        {/* Admin suite — menu quản lý tách khỏi collaborate */}
+        <Route
+          path="/app/admin"
+          element={
+            <Protected>
+              <AdminShellLayout />
+            </Protected>
+          }
+        >
+          <Route element={<CompanyAdminLayout />}>
+            <Route index element={<CompanyAdminOverviewPage />} />
+            <Route path="people" element={<CompanyAdminPeoplePage />} />
+            <Route path="approvals" element={<CompanyAdminApprovalsPage />} />
+            <Route path="general" element={<CompanyAdminSettingsPage />} />
+            <Route path="structure" element={<CompanyAdminSettingsPage />} />
+            <Route path="roles" element={<CompanyAdminSettingsPage />} />
+            <Route path="policy" element={<CompanyAdminSettingsPage />} />
+            <Route path="security" element={<CompanyAdminSettingsPage />} />
+          </Route>
+        </Route>
+
         <Route
           path="/app/me"
           element={

@@ -1,9 +1,21 @@
 const jwt = require('jsonwebtoken');
-const { isPublicRoute } = require('../config/services');
+const { isPublicRoute, isAuthInternalS2SPath } = require('../config/services');
 const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
 const { sendApiError } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
+
+function getInternalTokenFromRequest(req) {
+  return String(
+    req.headers['x-gateway-internal-token'] || req.headers['x-internal-token'] || ''
+  ).trim();
+}
+
+function isInternalGatewayTokenValid(req) {
+  const expected = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (!expected) return false;
+  return getInternalTokenFromRequest(req) === expected;
+}
 
 /**
  * Middleware xác thực JWT
@@ -38,6 +50,19 @@ async function authMiddlewareAsync(req, res, next) {
       console.log(`[API-Gateway] Public route: ${pathWithoutQuery}`);
     }
     return next();
+  }
+
+  // Route S2S /internal/* qua gateway: chỉ kiểm tra internal token (bootstrap IT), không JWT user.
+  // Service đích (auth internalGatewayAuth) verify lại cùng token.
+  if (isAuthInternalS2SPath(pathWithoutQuery) || isAuthInternalS2SPath(fromOriginal)) {
+    if (isInternalGatewayTokenValid(req)) {
+      return next();
+    }
+    return sendApiError(res, 401, {
+      errorCode: 'GATEWAY_TRUST_INVALID',
+      message: 'Invalid internal token',
+      messageUser: 'Yêu cầu không hợp lệ.',
+    });
   }
 
   try {

@@ -1,50 +1,92 @@
 const amqp = require('amqplib');
-const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { assertQuorumQueue, isQuorumQueuesEnabled } = require('@enterprise/shared/messaging/rabbitQuorum');
 
 let conn = null;
-let channel = null;
+let confirmChannel = null;
 
-async function getChannel() {
-  if (channel) return channel;
+async function getConfirmChannel() {
+  if (confirmChannel) return confirmChannel;
   const url = process.env.RABBITMQ_URL;
   if (!url) throw new Error('RABBITMQ_URL is not set');
 
   conn = await amqp.connect(url);
-  channel = await conn.createChannel();
+  confirmChannel = await conn.createConfirmChannel();
   conn.on('error', () => {
-    channel = null;
+    confirmChannel = null;
     conn = null;
   });
   conn.on('close', () => {
-    channel = null;
+    confirmChannel = null;
     conn = null;
   });
-  return channel;
+  return confirmChannel;
+}
+
+async function assertPublishQueue(channel, queue) {
+  if (isQuorumQueuesEnabled()) {
+    await assertQuorumQueue(channel, queue);
+  } else {
+    await channel.assertQueue(queue, { durable: true });
+  }
+}
+
+function sendToQueueConfirmed(channel, queue, buf, opts) {
+  return new Promise((resolve, reject) => {
+    const onSent = (err) => {
+      if (err) reject(err);
+      else resolve();
+    };
+    const trySend = () => channel.sendToQueue(queue, buf, opts, onSent);
+    if (!trySend()) {
+      channel.once('drain', () => {
+        if (!channel.sendToQueue(queue, buf, opts, onSent)) {
+          reject(new Error('RabbitMQ publish drain retry failed'));
+        }
+      });
+    }
+  });
 }
 
 async function publishJson(queue, payload) {
-  const ch = await getChannel();
-  await assertQuorumQueue(ch, queue);
   const buf = Buffer.from(JSON.stringify(payload));
   const opts = {
     persistent: true,
     contentType: 'application/json',
   };
-  const trySend = () => ch.sendToQueue(queue, buf, opts);
-  if (!trySend()) {
-    await new Promise((resolve) => ch.once('drain', resolve));
-    trySend();
+
+  const publishOnce = async () => {
+    const ch = await getConfirmChannel();
+    await assertPublishQueue(ch, queue);
+    await sendToQueueConfirmed(ch, queue, buf, opts);
+    return true;
+  };
+
+  try {
+    return await publishOnce();
+  } catch (err) {
+    const msg = String(err?.message || err || '');
+    const recoverable =
+      msg.includes('Channel closed') ||
+      msg.includes('Connection closed') ||
+      msg.includes('IllegalOperationError');
+    if (!recoverable) throw err;
+    confirmChannel = null;
+    conn = null;
+    return publishOnce();
   }
-  return true;
+}
+
+async function getChannel() {
+  return getConfirmChannel();
 }
 
 async function closeRabbit() {
   try {
-    if (channel) await channel.close();
+    if (confirmChannel) await confirmChannel.close();
   } catch {
     /* ignore */
   }
-  channel = null;
+  confirmChannel = null;
   try {
     if (conn) await conn.close();
   } catch {

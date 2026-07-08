@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.js",
     "./config/mongo": "./config/mongo.js",
+    "./config/singleCompany": "./config/singleCompany.js",
     "./config/redis": "./config/redis.js",
     "./config/redisConnection": "./config/redisConnection.js",
     "./middleware/auth": "./middleware/auth.js",

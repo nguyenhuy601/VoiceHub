@@ -271,6 +271,24 @@ export const organizationAPI = {
     return response;
   },
 
+  /** HR mời nhân viên bằng email — gửi mail, user accept để provision */
+  inviteMemberByEmail: async (orgId, data) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members/invite`, data, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Public — nhân viên xác nhận lời mời → tạo tài khoản */
+  acceptCompanyInvite: async (token) => {
+    const response = await apiClient.post(
+      '/organizations/company-invites/accept',
+      { token },
+      { skipGlobalErrorHandling: true }
+    );
+    return response;
+  },
+
   // Update member role
   updateMemberRole: async (orgId, userId, role) => {
     const response = await apiClient.put(`/organizations/${orgId}/members/${userId}/role`, { role });

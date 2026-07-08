@@ -90,9 +90,37 @@ const meetingSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    transcriptChunks: [
+      {
+        seq: { type: Number, required: true },
+        text: { type: String, default: '' },
+        speakerId: { type: String, default: '' },
+        displayName: { type: String, default: '' },
+        at: { type: Date, default: Date.now },
+      },
+    ],
+    transcriptSource: {
+      type: String,
+      enum: ['none', 'realtime', 'post_audio'],
+      default: 'none',
+    },
     summary: {
       type: String,
       default: '',
+    },
+    summaryStructured: {
+      summary: { type: String, default: '' },
+      keyPoints: [{ type: String }],
+      actionItems: [{ type: String }],
+    },
+    summaryStatus: {
+      type: String,
+      enum: ['none', 'processing', 'ready', 'failed'],
+      default: 'none',
+    },
+    aiSummaryEnabled: {
+      type: Boolean,
+      default: false,
     },
     recordingStatus: {
       type: String,
@@ -112,6 +140,7 @@ const meetingSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Runtime: có phiên ghi âm đang active trong phòng (opt-in) */
     isRecording: {
       type: Boolean,
       default: false,

@@ -48,6 +48,7 @@ const {
   normalizeRoleChannelPermissions,
   hasAnyRoleChannelPermission,
 } = require('../utils/orgChannelAclHelpers');
+const { assertCanCreateOrganization } = require('../utils/singleCompanyPolicy');
 
 const getUserId = (req) => {
   const raw = req.user?.id || req.user?.userId || req.user?._id;
@@ -446,6 +447,9 @@ exports.getMyOrganizations = async (req, res, next) => {
 
 exports.createOrganization = async (req, res, next) => {
   try {
+    const canCreate = await assertCanCreateOrganization(req, res, orgConflict);
+    if (!canCreate) return;
+
     const { name, description, logo, slug, status, type, teamSize, industry, structureBlueprint } = req.body;
     const userId = getUserId(req);
     if (!userId) {
@@ -469,8 +473,9 @@ exports.createOrganization = async (req, res, next) => {
       role: 'owner',
       status: 'active',
     });
-    if (ownerCount >= MAX_OWNED_ORGS_PER_USER) {
-      return orgConflict(res, `Owner can create up to ${MAX_OWNED_ORGS_PER_USER} organizations`, 'ORG_SLUG_EXISTS');
+    const maxOwned = process.env.SINGLE_ORG_MODE === 'true' ? 1 : MAX_OWNED_ORGS_PER_USER;
+    if (ownerCount >= maxOwned) {
+      return orgConflict(res, `Owner can create up to ${maxOwned} organizations`, 'ORG_SLUG_EXISTS');
     }
 
     const slugExists = await Organization.exists({ slug: normalizedSlug });

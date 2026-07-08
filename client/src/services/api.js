@@ -227,7 +227,8 @@ api.interceptors.response.use(
       error.config?.skipGlobalAuthFailure &&
       requestUrlEarly.includes('/users/me') &&
       error.response?.status === 404;
-    if (!isOptionalProfileMiss) {
+    const skipOptionalErrorLog = Boolean(error.config?.skipGlobalErrorHandling);
+    if (!isOptionalProfileMiss && !skipOptionalErrorLog) {
       console.error('[API] Request error:', {
         message: error.message,
         code: error.code,

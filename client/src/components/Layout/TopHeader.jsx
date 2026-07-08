@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   Bell,
   Bot,
@@ -8,6 +8,7 @@ import {
   MessageCircle,
   PanelLeft,
   Search,
+  Shield,
   User,
   X,
   Zap,
@@ -21,12 +22,13 @@ import { useTheme } from '../../context/ThemeContext';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { useNotificationBadge } from '../../hooks/queries';
-import { getDefaultPathForSuite } from '../../utils/suitePathUtils';
+import { getDefaultPathForSuite, normalizeSuite } from '../../utils/suitePathUtils';
 import { getInitials, getUserDisplayName } from '../../utils/helpers';
 import { FIGMA_TOP_HEADER } from './figmaShellClasses';
 import ShellCommandPalette from './ShellCommandPalette';
 import AppSwitcherOverlay from './AppSwitcherOverlay';
 import useUiRole from '../../hooks/useUiRole';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 
 function getSuiteMeta(t) {
@@ -60,6 +62,16 @@ function getSuiteMeta(t) {
       gradStart: '#D97706',
       gradEnd: '#FBBF24',
       bgGlow: 'rgba(245,158,11,0.12)',
+    },
+    [SUITE.ADMIN]: {
+      label: t('nav.suite.admin.label'),
+      shortLabel: t('nav.suite.admin.label'),
+      sublabel: t('nav.suite.admin.sublabel'),
+      Icon: Shield,
+      color: '#DC2626',
+      gradStart: '#B91C1C',
+      gradEnd: '#DC2626',
+      bgGlow: 'rgba(220,38,38,0.12)',
     },
   };
 }
@@ -161,7 +173,14 @@ export default function TopHeader() {
   const { openMobileNav } = useShellLayout();
   const { currentSuite, navigateToSuite } = useWorkspaceSuite();
   const { unreadCount } = useNotificationBadge({ scope: 'personal', enabled: Boolean(user) });
-  const { allowedSuites } = useUiRole();
+  const { allowedSuites: roleSuites } = useUiRole();
+  const { canAccessHub } = useCompanyAdminAccess();
+  const allowedSuites = useMemo(() => {
+    const normalized = roleSuites.map((s) => normalizeSuite(s));
+    if (!canAccessHub) return normalized;
+    if (normalized.includes(SUITE.ADMIN)) return normalized;
+    return [...normalized, SUITE.ADMIN];
+  }, [roleSuites, canAccessHub]);
 
   const SUITE_META = getSuiteMeta(t);
   const activeMeta = SUITE_META[currentSuite] || SUITE_META[SUITE.COMMUNICATE];
@@ -196,7 +215,9 @@ export default function TopHeader() {
   const notifPath =
     currentSuite === SUITE.COLLABORATE
       ? '/app/collaborate/notifications'
-      : '/app/communicate/notifications';
+      : currentSuite === SUITE.ADMIN
+        ? '/app/collaborate/notifications'
+        : '/app/communicate/notifications';
 
   const suiteLabel = activeMeta.shortLabel;
 

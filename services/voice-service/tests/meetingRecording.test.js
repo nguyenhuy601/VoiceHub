@@ -1,22 +1,24 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-// Inline copy of enrich logic to avoid @enterprise/shared in unit test
 const MIN_RECORDING_SEC = 180;
 
-function enrichMeetingRecordingFields(meeting) {
+function enrichMeetingRecordingFields(meeting, segments = []) {
   const row = { ...meeting };
   const durationSec = row.durationSec || 0;
   const status = row.recordingStatus || 'none';
-  const hasAudio = status === 'ready' && Boolean(row.audioStoragePath);
+  const segmentHasAudio = segments.some((s) => s.hasAudio || s.status === 'ready');
+  const hasAudio =
+    segmentHasAudio || (status === 'ready' && Boolean(row.audioStoragePath));
   const hasTranscript = Boolean(String(row.transcript || '').trim());
-  const legacyRecording = Boolean(row.recordingUrl) && !row.audioStoragePath;
+  const hasSummary =
+    Boolean(String(row.summary || '').trim()) || row.summaryStatus === 'ready';
   const hasRecording =
-    durationSec >= MIN_RECORDING_SEC &&
-    (hasAudio ||
-      hasTranscript ||
-      legacyRecording ||
-      ['pending_upload', 'processing', 'audio_expired'].includes(status));
+    segments.length > 0 ||
+    hasAudio ||
+    hasTranscript ||
+    hasSummary ||
+    ['pending_upload', 'processing', 'audio_expired'].includes(status);
 
   return {
     ...row,
@@ -24,7 +26,8 @@ function enrichMeetingRecordingFields(meeting) {
     hasRecording,
     hasAudio,
     hasTranscript,
-    summaryPreview: String(row.summary || '').trim().slice(0, 160),
+    hasSummary,
+    segments,
   };
 }
 
@@ -49,5 +52,27 @@ describe('meeting recording enrich', () => {
     assert.equal(row.hasAudio, false);
     assert.equal(row.hasRecording, true);
     assert.equal(row.hasTranscript, true);
+  });
+
+  it('summary only without audio', () => {
+    const row = enrichMeetingRecordingFields({
+      durationSec: 90,
+      recordingStatus: 'none',
+      transcript: 'notes',
+      summary: 'short summary',
+      audioStoragePath: null,
+    });
+    assert.equal(row.hasAudio, false);
+    assert.equal(row.hasRecording, true);
+    assert.equal(row.hasSummary, true);
+  });
+
+  it('multi-segment marks hasRecording', () => {
+    const row = enrichMeetingRecordingFields(
+      { durationSec: 200, recordingStatus: 'processing' },
+      [{ segmentIndex: 0, status: 'ready', hasAudio: true }]
+    );
+    assert.equal(row.hasRecording, true);
+    assert.equal(row.segments.length, 1);
   });
 });

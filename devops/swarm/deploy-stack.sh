@@ -15,6 +15,24 @@ if [[ -f "$ROOT/.env" ]]; then
   set +a
 fi
 
+# Swarm bỏ qua env_file — nạp .env service voice để ${VAR} trong docker-stack.yml có giá trị khi deploy.
+# Git Bash trên Windows: không convert VOICE_SIGNAL_PATH (/voice-socket → C:/Program Files/Git/...).
+export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:-}:VOICE_SIGNAL_PATH"
+
+source_env_file() {
+  local env_path="$1"
+  [[ -f "$env_path" ]] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  source <(sed $'s/\r$//' "$env_path" | sed $'1s/^\xEF\xBB\xBF//')
+  set +a
+}
+
+source_env_file "$ROOT/services/voice-service/.env"
+# Git Bash trên Windows convert /voice-socket → C:/Program Files/Git/voice-socket khi source .env
+export VOICE_SIGNAL_PATH='/voice-socket'
+export PORT="${PORT:-3005}"
+
 # shellcheck disable=SC1091
 source "$ROOT/devops/swarm/resolve-swarm-images.sh"
 resolve_swarm_images

@@ -1,7 +1,8 @@
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
 const { buildSuiteEnrichment } = require('./bootstrapEnrichment');
+const { isSingleOrgMode } = require('@enterprise/shared/config/singleCompany');
 
-function mapBootstrapUser(profile, authEmail) {
+function mapBootstrapUser(profile, authEmail, systemRole, mustChangePassword) {
   if (!profile || typeof profile !== 'object') return null;
   const id = profile.userId || profile.id || profile._id;
   if (!id) return null;
@@ -15,7 +16,11 @@ function mapBootstrapUser(profile, authEmail) {
     displayName: profile.displayName || profile.username || profile.name || null,
     username: profile.username || null,
     avatar: profile.avatar || null,
+    phone: profile.phone || null,
+    preferences: profile.preferences || undefined,
     status: profile.status,
+    systemRole: String(systemRole || '').trim().toLowerCase() === 'admin' ? 'admin' : 'employee',
+    mustChangePassword: Boolean(mustChangePassword),
   };
 }
 
@@ -44,7 +49,7 @@ function mapPendingList(raw) {
 /**
  * Gom shell app: user, organizations, badges (+ pending cho hydrate FE).
  */
-async function buildBootstrap(userId, userEmail, suite = '') {
+async function buildBootstrap(userId, userEmail, suite = '', systemRole = '', mustChangePassword = false) {
   const headers = buildTrustedHeaders(userId, userEmail);
   const userUrl = `${services.user.url}/api/users/me`;
   const orgUrl = `${services.organization.url}/api/organizations/my`;
@@ -58,7 +63,12 @@ async function buildBootstrap(userId, userEmail, suite = '') {
     fetchJson(friendUrl, headers, 'friends/pending'),
   ]);
 
-  const user = mapBootstrapUser(unwrapPayload(userRes.ok ? userRes.data : null), userEmail);
+  const user = mapBootstrapUser(
+    unwrapPayload(userRes.ok ? userRes.data : null),
+    userEmail,
+    systemRole,
+    mustChangePassword
+  );
   if (!user) {
     const err = new Error('User profile unavailable');
     err.statusCode = userRes.status === 404 ? 404 : 503;
@@ -66,6 +76,8 @@ async function buildBootstrap(userId, userEmail, suite = '') {
   }
 
   const organizations = orgRes.ok ? mapOrganizations(unwrapPayload(orgRes.data)) : [];
+  const company = organizations.length > 0 ? organizations[0] : null;
+  const singleOrgMode = isSingleOrgMode();
   const friendsPending = friendRes.ok ? mapPendingList(unwrapPayload(friendRes.data)) : [];
 
   let notificationsUnreadPersonal = 0;
@@ -77,6 +89,8 @@ async function buildBootstrap(userId, userEmail, suite = '') {
   const base = {
     user,
     organizations,
+    company,
+    singleOrgMode,
     badges: {
       notificationsUnreadPersonal,
       friendPending: friendsPending.length,

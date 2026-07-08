@@ -11,7 +11,7 @@ const {
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,
 } = require('../config/permissions');
-const { isPublicRoute, normalizePath } = require('../config/services');
+const { isPublicRoute, normalizePath, isAuthInternalS2SPath } = require('../config/services');
 const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
@@ -37,6 +37,11 @@ const permissionMiddleware = async (req, res, next) => {
     // Bỏ qua routes public (đăng ký, đăng nhập, ...),
     // và các routes được đánh dấu không cần kiểm tra permission
     if (isPublicRoute(req.path) || noPermissionRoutes.some((route) => req.path.startsWith(route))) {
+      return next();
+    }
+
+    // Bootstrap S2S — auth-service tự internalGatewayAuth; không cần req.user ở gateway
+    if (isAuthInternalS2SPath(pathOnly) || isAuthInternalS2SPath(req.path)) {
       return next();
     }
 

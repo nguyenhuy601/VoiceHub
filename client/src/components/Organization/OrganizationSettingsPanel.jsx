@@ -149,6 +149,12 @@ function OrganizationSettingsPanel({
   /** ?tab=join trên URL */
   initialTab = null,
   suiteLayout = false,
+  /** Nhúng trong CompanyAdminConsole — chỉ render nội dung tab */
+  hideChrome = false,
+  /** Khóa một tab (structure | roles | join | …) */
+  lockTab = null,
+  /** Single-company: ẩn UI chọn chi nhánh */
+  hideBranchUi = false,
 }) {
   const { t } = useAppStrings();
   const { user, updateUser } = useAuth();
@@ -351,9 +357,9 @@ function OrganizationSettingsPanel({
 
   useEffect(() => {
     if (!orgId) return;
-    const first = isFullAccess ? 'general' : 'profile';
+    const first = lockTab || (isFullAccess ? 'general' : 'profile');
     const allowed = (isFullAccess ? buildAdminTabs(t) : buildMemberTabs(t)).map((tab) => tab.id);
-    const urlTab = searchParams.get('tab') || initialTab;
+    const urlTab = lockTab || searchParams.get('tab') || initialTab;
     const nextTab = urlTab && allowed.includes(urlTab) ? urlTab : first;
     setActiveTab(nextTab);
     loadOrgFromApi();
@@ -376,7 +382,7 @@ function OrganizationSettingsPanel({
     } catch {
       /* ignore */
     }
-  }, [orgId, isFullAccess, initialTab, searchParams, loadOrgFromApi, t]);
+  }, [orgId, isFullAccess, initialTab, lockTab, searchParams, loadOrgFromApi, t]);
 
   useEffect(() => {
     if (!user) return;
@@ -964,6 +970,7 @@ function OrganizationSettingsPanel({
                 ) : (
                   <div className="space-y-4">
                     <div className="grid gap-2 md:grid-cols-2">
+                      {!hideBranchUi ? (
                       <label className="text-sm text-gray-300">{t('organizationSettings.branchLabel')}
                         <select value={manageBranchId} onChange={(e) => {
                           const nextBranchId = e.target.value;
@@ -976,6 +983,7 @@ function OrganizationSettingsPanel({
                           {structureBranches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}
                         </select>
                       </label>
+                      ) : null}
                       <label className="text-sm text-gray-300">{t('organizationSettings.divisionLabel')}
                         <select value={manageDivisionId} onChange={(e) => {
                           const nextDivisionId = e.target.value;
@@ -1536,7 +1544,9 @@ function OrganizationSettingsPanel({
 
   return (
     <>
-      {suiteLayout ? (
+      {hideChrome ? (
+        <div className="min-w-0">{tabPanels}</div>
+      ) : suiteLayout ? (
         <OrganizationSettingsFigmaLayout
           organizationName={organization.name}
           roleLabel={roleLabel}

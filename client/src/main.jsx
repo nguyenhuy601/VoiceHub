@@ -20,6 +20,7 @@ import { BrowserRouter } from 'react-router-dom';
 // Import App component chính - chứa tất cả routes
 // File: ./App.jsx
 import App from './App';
+import FirstLoginOnboardingGate from './components/Auth/FirstLoginOnboardingGate';
 
 // Import global CSS - styles cho toàn bộ app
 // File này có Tailwind directives (@tailwind base/components/utilities)
@@ -51,6 +52,7 @@ import { FriendCallSessionProvider } from './context/FriendCallSessionContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { LocaleProvider } from './context/LocaleContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
+import BootstrapCompanySync from './components/Bootstrap/BootstrapCompanySync';
 import { WorkspaceSuiteProvider } from './context/WorkspaceSuiteContext';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
@@ -111,6 +113,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <QueryClientProvider client={queryClient}>
           <FriendCallSessionProvider>
             <WorkspaceProvider>
+            <BootstrapCompanySync />
             <WorkspaceSuiteProvider>
             {/* SocketProvider: quản lý Socket.IO connection
                 - Kết nối đến backend socket server
@@ -123,6 +126,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                   - File: ./App.jsx
                   - Có thể access tất cả contexts ở trên */}
               <App />
+              <FirstLoginOnboardingGate />
               <FriendCallRealtimeHost />
 
               {/* Toaster: hiển thị toast notifications

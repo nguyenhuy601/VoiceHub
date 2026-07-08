@@ -13,6 +13,7 @@ import { useNotificationsInfinite } from '../../hooks/queries';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { resolveVoiceRoomInvitePath, isVoiceRoomInviteNotification } from '../../utils/notificationNavigation';
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -173,6 +174,12 @@ export default function OrganizationNotificationsWorkspacePanel({
   const handleOpenTarget = (notif) => {
     if (!notif) return;
     if (!notif.read) handleMarkAsRead(notif.id);
+
+    if (isVoiceRoomInviteNotification(notif)) {
+      const invitePath = resolveVoiceRoomInvitePath(notif);
+      navigate(invitePath || '/app/communicate/voice');
+      return;
+    }
 
     const orgId = String(notif.organizationId || organizationId || '').trim();
     if (orgId) {

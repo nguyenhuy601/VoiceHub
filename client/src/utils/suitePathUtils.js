@@ -4,6 +4,7 @@ export const SUITE = {
   COMMUNICATE: 'COMMUNICATE',
   COLLABORATE: 'COLLABORATE',
   ME: 'ME',
+  ADMIN: 'ADMIN',
 };
 
 export const SUITE_STORAGE_KEY = 'voicehub:current-suite';
@@ -13,6 +14,7 @@ const SUITE_SEGMENT = {
   [SUITE.COMMUNICATE]: 'communicate',
   [SUITE.COLLABORATE]: 'collaborate',
   [SUITE.ME]: 'me',
+  [SUITE.ADMIN]: 'admin',
 };
 
 const SEGMENT_TO_SUITE = Object.fromEntries(
@@ -23,6 +25,7 @@ export const SUITE_DEFAULT_PATH = {
   [SUITE.COMMUNICATE]: '/app/communicate/overview',
   [SUITE.COLLABORATE]: '/app/collaborate/overview',
   [SUITE.ME]: '/app/me/dashboard',
+  [SUITE.ADMIN]: '/app/admin',
 };
 
 export function normalizeSuite(value) {
@@ -68,10 +71,19 @@ export function getDefaultPathForSuite(suite) {
 
 export function detectSuiteFromPath(pathname) {
   const path = String(pathname || '');
+  if (path.startsWith('/app/admin')) return SUITE.ADMIN;
   if (path.startsWith('/app/communicate')) return SUITE.COMMUNICATE;
   if (path.startsWith('/app/collaborate')) return SUITE.COLLABORATE;
   if (path.startsWith('/app/me')) return SUITE.ME;
   return null;
+}
+
+import { LEGACY_ADMIN_TAB_TO_PATH } from '../config/adminNavConfig';
+
+/** Map legacy ?tab= trên /app/collaborate/admin sang route admin mới. */
+export function mapLegacyAdminTabToPath(tab) {
+  const raw = String(tab || 'overview').trim().toLowerCase();
+  return LEGACY_ADMIN_TAB_TO_PATH[raw] || LEGACY_ADMIN_TAB_TO_PATH.overview;
 }
 
 /** Org-scoped paths (không dùng slug trên URL). */

@@ -78,6 +78,7 @@ import {
   findDeptChannelByType,
 } from '../../utils/departmentChannelUtils';
 import WorkspacesOrgPickerView from '../../components/Workspace/WorkspacesOrgPickerView';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import OrganizationTeamGrid from '../../components/Workspace/OrganizationTeamGrid';
 import OrganizationDepartmentGrid from '../../components/Workspace/OrganizationDepartmentGrid';
 import WorkspaceSlugFigmaShell from '../../components/Workspace/WorkspaceSlugFigmaShell';
@@ -176,7 +177,7 @@ function OrganizationsPage({
 } = {}) {
   const { t, locale } = useAppStrings();
   const { user, loading: authLoading, isAuthenticated, accessToken } = useAuth();
-  const { setActiveWorkspace, lastWorkspaceSlug, setLastWorkspaceSlug, lastOrganizationId } =
+  const { setActiveWorkspace, lastWorkspaceSlug, setLastWorkspaceSlug, lastOrganizationId, singleOrgMode } =
     useWorkspace();
   const { isDarkMode } = useTheme();
   const { on, off, onlineUsers, connected: socketConnected, joinRoom, leaveRoom } = useSocket();
@@ -439,7 +440,7 @@ function OrganizationsPage({
     [suiteLayout, landingDemo, workspaceTabProp, orgIdFromQuery, suiteMode, location.pathname]
   );
 
-  const showOrgPicker = orgPickerRouteActive;
+  const showOrgPicker = orgPickerRouteActive && !singleOrgMode && !readSingleOrgModeFlag();
 
   const showTeamHub = useMemo(
     () =>

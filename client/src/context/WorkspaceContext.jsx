@@ -5,6 +5,11 @@ import {
   readStoredLastOrganizationId,
   writeStoredLastOrganizationId,
 } from '../utils/suitePathUtils';
+import {
+  readCompanySnapshot,
+  readSingleOrgModeFlag,
+  resolveCompanyFromBootstrap,
+} from '../utils/singleCompanyMode';
 
 const LAST_WORKSPACE_SLUG_KEY = 'voicehub:last-workspace-slug';
 
@@ -18,6 +23,9 @@ const WorkspaceContext = createContext({
   setActiveWorkspace: () => {},
   lastWorkspaceSlug: '',
   lastOrganizationId: '',
+  singleOrgMode: false,
+  company: null,
+  applyBootstrapCompany: () => {},
   setLastWorkspaceSlug: () => {},
   getLastWorkspacePath: () => '/app/collaborate/workspaces',
   getLastCommunicatePath: () => '/app/communicate/channels',
@@ -32,6 +40,8 @@ export function WorkspaceProvider({ children }) {
   const [lastOrganizationIdState, setLastOrganizationIdState] = useState(() =>
     readStoredLastOrganizationId()
   );
+  const [singleOrgMode, setSingleOrgMode] = useState(() => readSingleOrgModeFlag());
+  const [company, setCompany] = useState(() => readCompanySnapshot());
 
   const setLastWorkspaceSlug = useCallback((slug) => {
     const normalized = String(slug || '').trim();
@@ -71,6 +81,19 @@ export function WorkspaceProvider({ children }) {
     [setLastWorkspaceSlug, setLastOrganizationId]
   );
 
+  const applyBootstrapCompany = useCallback(
+    (bootstrap) => {
+      const resolved = resolveCompanyFromBootstrap(bootstrap);
+      const mode = Boolean(bootstrap?.singleOrgMode) || readSingleOrgModeFlag();
+      setSingleOrgMode(mode);
+      if (resolved) {
+        setCompany(resolved);
+        setActiveWorkspaceWithPersist(resolved);
+      }
+    },
+    [setActiveWorkspaceWithPersist]
+  );
+
   const getLastCommunicatePath = useCallback(() => {
     const orgId =
       String(activeWorkspace?._id || activeWorkspace?.id || lastOrganizationIdState || '').trim();
@@ -91,6 +114,9 @@ export function WorkspaceProvider({ children }) {
       setActiveWorkspace: setActiveWorkspaceWithPersist,
       lastWorkspaceSlug: lastWorkspaceSlugState,
       lastOrganizationId: lastOrganizationIdState,
+      singleOrgMode,
+      company,
+      applyBootstrapCompany,
       setLastWorkspaceSlug,
       setLastOrganizationId,
       getLastWorkspacePath,
@@ -101,6 +127,9 @@ export function WorkspaceProvider({ children }) {
       activeWorkspace,
       lastWorkspaceSlugState,
       lastOrganizationIdState,
+      singleOrgMode,
+      company,
+      applyBootstrapCompany,
       setLastWorkspaceSlug,
       setLastOrganizationId,
       getLastWorkspacePath,

@@ -165,6 +165,12 @@ async function purgeLocalOrganizationRecords(organizationId) {
   await Branch.deleteMany({ organization: oid });
   await Server.deleteMany({ organizationId: oid });
   await JoinApplication.deleteMany({ organization: oid });
+  try {
+    const CompanyInvite = require('../models/CompanyInvite');
+    await CompanyInvite.deleteMany({ organization: oid });
+  } catch (e) {
+    logger.warn(`[organizationCascadePurge] CompanyInvite wipe skipped: ${e?.message || e}`);
+  }
   await ChannelAccess.deleteMany({ organization: oid });
   await ChannelRoleAccess.deleteMany({ organization: oid });
   await ScopeRoleAccess.deleteMany({ organization: oid });

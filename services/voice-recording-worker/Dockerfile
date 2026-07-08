@@ -9,6 +9,7 @@ RUN apt-get update && \
 COPY services/voice-recording-worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY shared/messaging/rabbit_quorum.py ./rabbit_quorum.py
 COPY services/voice-recording-worker/ .
 
 CMD ["python", "worker.py"]

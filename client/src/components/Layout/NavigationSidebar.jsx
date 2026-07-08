@@ -25,6 +25,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import api from '../../services/api';
 import {
   buildCollaborateDocumentsPath,
@@ -156,6 +157,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   ).trim();
   const { locale } = useLocale();
   const { t, dict } = useAppStrings();
+  const singleOrgMode = readSingleOrgModeFlag();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -807,7 +809,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                     </Tooltip>
                   );
                 })}
-                {!landingDemo && (
+                {!landingDemo && !singleOrgMode && (
                   <Tooltip label={createOrgShortLabel}>
                     <button
                       type="button"
@@ -867,7 +869,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
 
       <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
       {tooltipPortal}
-      {createOrgMenuOpen &&
+      {createOrgMenuOpen && !singleOrgMode &&
         createPortal(
           <>
             <div

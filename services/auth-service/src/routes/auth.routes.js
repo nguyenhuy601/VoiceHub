@@ -38,6 +38,18 @@ router.post(
   authController.sendVoiceRoomInviteEmail.bind(authController)
 );
 
+router.post(
+  '/internal/provision',
+  internalGatewayAuth,
+  authController.provisionUserInternal.bind(authController)
+);
+
+router.post(
+  '/internal/company-invite-email',
+  internalGatewayAuth,
+  authController.sendCompanyInviteEmail.bind(authController)
+);
+
 // Public routes
 router.post('/register', authController.register.bind(authController));
 router.post('/login', authController.login.bind(authController));

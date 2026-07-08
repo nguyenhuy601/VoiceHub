@@ -332,6 +332,54 @@ class EmailService {
   }
 
   /**
+   * Email mời nhận tài khoản doanh nghiệp (company invite).
+   */
+  async sendCompanyInviteEmail(email, { inviteUrl, organizationName, firstName, lastName }) {
+    try {
+      if (!this.isAvailable()) {
+        console.warn('[EmailService] Company invite email skipped: service not configured');
+        return null;
+      }
+      const url = String(inviteUrl || '').trim();
+      if (!url) return null;
+      const orgLabel = String(organizationName || 'công ty').trim();
+      const nameParts = [firstName, lastName].map((s) => String(s || '').trim()).filter(Boolean);
+      const greet = nameParts.length ? nameParts.join(' ') : 'bạn';
+
+      const mailOptions = {
+        from: `"${process.env.EMAIL_FROM_NAME || 'VoiceHub'}" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: `Lời mời nhận tài khoản — ${orgLabel}`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"></head>
+          <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+            <div style="max-width:560px;margin:0 auto;padding:24px;">
+              <h2 style="margin:0 0 12px;">Xin chào ${greet},</h2>
+              <p>Bạn được mời nhận tài khoản doanh nghiệp trên <strong>VoiceHub</strong> cho <strong>${orgLabel}</strong>.</p>
+              <p>Nhấn nút bên dưới để xác nhận. Hệ thống sẽ tạo tài khoản bằng email này, sau đó chuyển bạn tới trang đăng nhập.</p>
+              <p style="margin:28px 0;">
+                <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
+                  Xác nhận nhận tài khoản
+                </a>
+              </p>
+              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${url}</p>
+              <p style="font-size:12px;color:#888;">Link có hiệu lực trong thời gian giới hạn. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+            </div>
+          </body>
+          </html>
+        `,
+        text: `Xin chào ${greet}, bạn được mời nhận tài khoản ${orgLabel} trên VoiceHub. Xác nhận tại: ${url}`,
+      };
+      return await this.transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('Error sending company invite email:', error);
+      return null;
+    }
+  }
+
+  /**
    * Gửi email mời vào phòng thoại (public room link).
    */
   async sendVoiceRoomInviteEmail(email, { inviteUrl, roomId, hostName }) {

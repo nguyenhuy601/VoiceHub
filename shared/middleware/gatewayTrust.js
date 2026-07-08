@@ -1,6 +1,6 @@
 /**
  * Tin `x-user-id` / `x-user-email` chỉ khi request đi qua API Gateway đã ký
- * bằng `x-gateway-internal-token` trùng `GATEWAY_INTERNAL_TOKEN`.
+ * bằng `x-gateway-internal-token` (hoặc alias `x-internal-token`) trùng `GATEWAY_INTERNAL_TOKEN`.
  */
 const { sendApiError } = require('./httpErrorResponse');
 
@@ -27,7 +27,9 @@ function gatewayUserFromTrustedHeaders(req, res, next) {
     });
   }
 
-  const got = String(req.headers['x-gateway-internal-token'] || '').trim();
+  const got = String(
+    req.headers['x-gateway-internal-token'] || req.headers['x-internal-token'] || ''
+  ).trim();
   if (got !== expected) {
     return sendApiError(res, 401, {
       errorCode: 'GATEWAY_TRUST_INVALID',
@@ -50,7 +52,9 @@ function gatewayUserFromTrustedHeaders(req, res, next) {
 function isTrustedGatewayForward(req) {
   const expected = getExpectedToken();
   if (!expected) return false;
-  const got = String(req.headers['x-gateway-internal-token'] || '').trim();
+  const got = String(
+    req.headers['x-gateway-internal-token'] || req.headers['x-internal-token'] || ''
+  ).trim();
   return got === expected;
 }
 

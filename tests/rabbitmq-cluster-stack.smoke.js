@@ -13,10 +13,10 @@ const read = (rel) => fs.readFileSync(path.join(base, rel), 'utf8');
 const required = [
   'docker-compose.cluster.yml',
   'docker-compose.cluster.local.yml',
+  'docker-compose.cluster.single.yml',
   'README.md',
   'scripts/rabbitmq-cluster-entrypoint.sh',
   'deploy-cluster-stack.sh',
-  'run-cluster-node-kill-test.sh',
 ];
 
 for (const f of required) {
@@ -24,12 +24,16 @@ for (const f of required) {
 }
 
 const compose = read('docker-compose.cluster.yml');
+const single = read('docker-compose.cluster.single.yml');
+const deploy = read('deploy-cluster-stack.sh');
 const readme = read('README.md');
 const entry = read('scripts/rabbitmq-cluster-entrypoint.sh');
 
 assert.ok(compose.includes('rabbitmq-1'));
 assert.ok(compose.includes('rabbitmq-2'));
 assert.ok(compose.includes('rabbitmq-3'));
+assert.ok(single.includes('replicas: 0'));
+assert.ok(deploy.includes('RABBITMQ_CLUSTER_SIZE'));
 assert.ok(compose.includes('RABBITMQ_ERLANG_COOKIE'));
 assert.ok(compose.includes('spread: node.id'));
 assert.ok(!compose.match(/^\s*ports:/m), 'must not publish host ports');

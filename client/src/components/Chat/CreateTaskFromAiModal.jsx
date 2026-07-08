@@ -408,7 +408,7 @@ export default function CreateTaskFromAiModal({
               onClick={handleConfirm}
               className="rounded-lg bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
             >
-              {confirming ? t('taskBoard.creatingTask') : t('taskBoard.createTask')}
+              {confirming ? t('taskBoard.creatingTask') : t('taskBoard.approveAiDraft')}
             </button>
           </div>
         </div>

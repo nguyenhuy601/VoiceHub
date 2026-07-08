@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 
 const SALT_ROUNDS = 12;
 
@@ -68,10 +69,33 @@ const validatePasswordStrength = (password) => {
   };
 };
 
+/**
+ * Mật khẩu tạm đạt đủ rule validatePasswordStrength (khác base64url — thiếu ký tự đặc biệt).
+ */
+const generateTemporaryPassword = (length = 12) => {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const digits = '23456789';
+  const special = '!@#$%&*';
+  const all = upper + lower + digits + special;
+  const pick = (alphabet) => alphabet[crypto.randomInt(0, alphabet.length)];
+  const chars = [pick(upper), pick(lower), pick(digits), pick(special)];
+  const targetLen = Math.max(8, Number(length) || 12);
+  while (chars.length < targetLen) {
+    chars.push(pick(all));
+  }
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+};
+
 module.exports = {
   hashPassword,
   comparePassword,
   validatePasswordStrength,
+  generateTemporaryPassword,
 };
 
 

@@ -90,6 +90,7 @@ const publicRoutes = [
   '/api/auth/reset-password',
   '/api/auth/verify-email',
   '/api/auth/verify-email-change',
+  '/api/organizations/company-invites/accept',
   '/api/health/gateway-trust',
   '/health',
   '/metrics',
@@ -146,10 +147,20 @@ const isPublicRoute = (path) => {
   });
 };
 
+/** Route S2S bootstrap — không JWT user ở gateway (auth + org internal). */
+function isAuthInternalS2SPath(path) {
+  const normalized = String(path || '').split('?')[0].replace(/\/+/g, '/');
+  return (
+    normalized.startsWith('/api/auth/internal/') ||
+    normalized.startsWith('/api/organizations/internal/')
+  );
+}
+
 module.exports = {
   services,
   getServiceByPath,
   isPublicRoute,
+  isAuthInternalS2SPath,
   normalizePath,
   resolveReqApiPath,
   isWorkspaceTaskBoardPath,

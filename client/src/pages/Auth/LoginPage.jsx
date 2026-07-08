@@ -4,11 +4,13 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
+import OneTimeCredentialsModal from '../../components/Auth/OneTimeCredentialsModal';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
+import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -22,6 +24,7 @@ function LoginPage({ landingDemo = false } = {}) {
   const [loading, setLoading] = useState(false);
   /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   const [gatewayTrust, setGatewayTrust] = useState(null);
+  const [oneTimeCreds, setOneTimeCreds] = useState(null);
 
   const inputBase = authInputSurface(isDarkMode);
   const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
@@ -39,8 +42,21 @@ function LoginPage({ landingDemo = false } = {}) {
     loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
 
   useEffect(() => {
+    const creds = consumeOneTimeLoginCredentials();
+    if (creds) {
+      setOneTimeCreds(creds);
+      setFormData((prev) => ({
+        ...prev,
+        email: creds.email || prev.email,
+        password: creds.password || prev.password,
+      }));
+    } else if (location.state?.prefillEmail) {
+      setFormData((prev) => ({ ...prev, email: String(location.state.prefillEmail) }));
+    }
     if (location.state?.message) {
       toast.success(location.state.message);
+    }
+    if (location.state?.message || location.state?.prefillEmail || location.state?.fromCompanyInvite) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
@@ -52,11 +68,11 @@ function LoginPage({ landingDemo = false } = {}) {
     }
     let cancelled = false;
     (async () => {
-      const t = await authService.checkGatewayTrust();
+      const trust = await authService.checkGatewayTrust();
       if (!cancelled) {
         setGatewayTrust({
-          ok: t.gatewayTrustConfigured,
-          message: t.message || '',
+          ok: trust.gatewayTrustConfigured,
+          message: trust.message || '',
         });
       }
     })();
@@ -175,6 +191,13 @@ function LoginPage({ landingDemo = false } = {}) {
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>
+
+      <OneTimeCredentialsModal
+        open={Boolean(oneTimeCreds)}
+        email={oneTimeCreds?.email}
+        password={oneTimeCreds?.password}
+        onClose={() => setOneTimeCreds(null)}
+      />
     </AuthPageLayout>
   );
 }
