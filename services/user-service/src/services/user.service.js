@@ -1,6 +1,7 @@
 const UserProfile = require('../models/UserProfile');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { phoneBlindIndex } = require('@enterprise/shared/utils/fieldCrypto');
+const { emailLookupFilter } = require('@enterprise/shared/utils/emailPii');
 const {
   writePiiPatch,
   writeEmailPatch,
@@ -17,18 +18,98 @@ function serviceError(message, statusCode = 400, errorCode = 'USER_VALIDATION') 
 }
 
 class UserService {
+  /**
+   * Profile mồ côi: cùng email (emailBlindIndex) nhưng userId auth khác — gán lại userId hiện tại.
+   */
+  async reclaimProfileByEmail(userId, email, displayName) {
+    const uid = String(userId || '').trim();
+    const filter = emailLookupFilter(email);
+    if (!uid || !filter) return null;
+
+    const byEmail = await UserProfile.findOne(filter);
+    if (!byEmail) return null;
+
+    if (String(byEmail.userId) === uid) {
+      return byEmail;
+    }
+
+    const collision = await UserProfile.findOne({ userId: uid });
+    if (collision) {
+      return collision;
+    }
+
+    const patch = { userId: uid };
+    const dn = String(displayName || '').trim();
+    if (dn && !String(byEmail.displayName || '').trim()) {
+      patch.displayName = dn;
+    }
+
+    const reclaimed = await UserProfile.findOneAndUpdate(
+      { _id: byEmail._id },
+      { $set: patch },
+      { new: true }
+    );
+
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.del(`user:${byEmail.userId}`);
+      await redis.del(`user:${uid}`);
+    }
+
+    logger.warn(
+      `Reclaimed profile ${byEmail._id} for email=${String(email).trim().toLowerCase()} userId ${byEmail.userId} -> ${uid}`
+    );
+    return reclaimed;
+  }
+
+  /** Tạo profile tối thiểu nếu chưa có (provision / lazy bootstrap / onboarding). */
+  async ensureUserProfile(userId, { email, displayName, username, dateOfBirth } = {}) {
+    const uid = String(userId || '').trim();
+    if (!uid) return null;
+
+    const existing = await UserProfile.findOne({ userId: uid });
+    if (existing) return existing;
+
+    const normalizedEmail = String(email || '')
+      .trim()
+      .toLowerCase();
+    if (!normalizedEmail) return null;
+
+    const reclaimed = await this.reclaimProfileByEmail(uid, normalizedEmail, displayName);
+    if (reclaimed) return reclaimed;
+
+    const baseUsername = String(username || '').trim()
+      || normalizedEmail.split('@')[0]
+      || `user${uid.slice(-6)}`;
+    try {
+      return await this.createUserProfile({
+        userId: uid,
+        username: baseUsername,
+        email: normalizedEmail,
+        displayName: String(displayName || '').trim() || baseUsername,
+        dateOfBirth,
+      });
+    } catch (error) {
+      if (Number(error?.code) === 11000) {
+        const fallback = await this.reclaimProfileByEmail(uid, normalizedEmail, displayName);
+        if (fallback) return fallback;
+        return UserProfile.findOne({ userId: uid });
+      }
+      throw error;
+    }
+  }
+
   // Tạo user profile mới
   async createUserProfile(userData) {
+    const { userId, username, email, displayName, dateOfBirth } = userData || {};
+    const normalizedEmail = String(email || '').trim().toLowerCase();
     try {
-      const { userId, username, email, displayName, dateOfBirth } = userData;
-
       if (!userId) {
         throw serviceError('Thiếu userId', 400, 'USER_VALIDATION');
       }
-      if (!email || typeof email !== 'string' || !String(email).trim()) {
+      if (!normalizedEmail) {
         throw serviceError('Thiếu email', 400, 'USER_VALIDATION');
       }
-      const normalizedEmail = String(email).trim().toLowerCase();
 
       let finalUsername = String(username || '')
         .trim()
@@ -69,7 +150,6 @@ class UserService {
 
       await userProfile.save();
 
-      // Cache user profile trong Redis (plaintext cho API)
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `user:${userId}`;
@@ -82,6 +162,14 @@ class UserService {
       logger.info(`User profile created: ${userId}`);
       return userProfile;
     } catch (error) {
+      if (Number(error?.code) === 11000) {
+        const reclaimed = await this.reclaimProfileByEmail(
+          userId,
+          normalizedEmail,
+          displayName
+        );
+        if (reclaimed) return reclaimed;
+      }
       logger.error('Error creating user profile:', error);
       throw error;
     }
@@ -144,14 +232,33 @@ class UserService {
   // Cập nhật user profile
   async updateUserProfile(userId, updateData) {
     try {
-      const allowedFields = ['displayName', 'avatar', 'preferences', 'isInvisible', 'status'];
+      const allowedFields = ['displayName', 'avatar', 'preferences', 'isInvisible', 'status', 'jobTitle'];
 
       const existingProfile = await UserProfile.findOne({ userId }).lean();
 
       const updateFields = {};
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
-          updateFields[field] = updateData[field];
+          if (field === 'preferences' && updateData.preferences && typeof updateData.preferences === 'object') {
+            const prev =
+              existingProfile?.preferences && typeof existingProfile.preferences === 'object'
+                ? existingProfile.preferences
+                : {};
+            updateFields.preferences = { ...prev, ...updateData.preferences };
+          } else {
+            updateFields[field] = updateData[field];
+          }
+        }
+      }
+
+      const prefJob = updateFields.preferences?.jobTitle;
+      if (prefJob !== undefined && String(prefJob).trim()) {
+        updateFields.jobTitle = String(prefJob).trim();
+      }
+      if (updateData.jobTitle !== undefined && String(updateData.jobTitle).trim()) {
+        updateFields.jobTitle = String(updateData.jobTitle).trim();
+        if (updateFields.preferences) {
+          updateFields.preferences.jobTitle = updateFields.jobTitle;
         }
       }
 
@@ -164,19 +271,22 @@ class UserService {
           typeof updateData.orgNicknames === 'object' ? updateData.orgNicknames : {};
         updateFields.orgNicknames = { ...prev, ...patch };
       }
-      Object.assign(
-        updateFields,
-        writePiiPatch({
-          bio: updateData.bio,
-          phone: updateData.phone,
-          location: updateData.location,
-          dateOfBirth: updateData.dateOfBirth,
-        })
-      );
+      const { patch: piiPatch, unset: piiUnset } = writePiiPatch({
+        bio: updateData.bio,
+        phone: updateData.phone,
+        location: updateData.location,
+        dateOfBirth: updateData.dateOfBirth,
+      });
+      Object.assign(updateFields, piiPatch);
+
+      const updateOp = { $set: updateFields };
+      if (piiUnset.length > 0) {
+        updateOp.$unset = Object.fromEntries(piiUnset.map((field) => [field, '']));
+      }
 
       const userProfile = await UserProfile.findOneAndUpdate(
         { userId },
-        { $set: updateFields },
+        updateOp,
         { new: true, runValidators: true }
       );
 

@@ -10,6 +10,11 @@ const {
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
 const { bumpTokenVersion, accessTokenPayload } = require('../utils/tokenVersion');
 const { cacheTokenVersion } = require('@enterprise/shared/utils/tokenVersionAuth');
+const { hashRefreshToken, refreshTokenMatches } = require('../utils/refreshTokenHash');
+const {
+  refreshTokenExpiresAtFromNow,
+  refreshTokenRedisTtlSeconds,
+} = require('../utils/jwtDuration');
 const { getRedisClient } = require('@enterprise/shared');
 const emailService = require('../utils/email');
 const { bootstrapUserProfile } = require('../utils/bootstrapUserProfile');
@@ -62,6 +67,64 @@ class AuthService {
   normalizeSystemRole(role) {
     const raw = String(role || '').trim().toLowerCase();
     return raw === 'admin' ? 'admin' : 'employee';
+  }
+
+  /** Cấp access + refresh token mới (login, đổi mật khẩu). Bump tv — vô hiệu session/tab cũ. */
+  async issueSessionTokens(userAuth, plainEmail) {
+    await bumpTokenVersion(userAuth);
+    const payload = accessTokenPayload(userAuth, plainEmail);
+    await cacheTokenVersion(userAuth.userId, payload.tv);
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+
+    userAuth.refreshToken = hashRefreshToken(refreshToken);
+    userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
+    await userAuth.save();
+
+    const redis = getRedisClient();
+    if (redis && userAuth.userId) {
+      await redis.setex(
+        `refresh_token:${userAuth.userId}`,
+        refreshTokenRedisTtlSeconds(),
+        hashRefreshToken(refreshToken)
+      );
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: userAuth.userId,
+        email: plainEmail,
+        systemRole: this.normalizeSystemRole(userAuth.systemRole),
+        mustChangePassword: Boolean(userAuth.mustChangePassword),
+      },
+    };
+  }
+
+  /** Rotate refresh token — không bump tv. */
+  async rotateRefreshTokens(userAuth, plainEmail) {
+    const payload = accessTokenPayload(userAuth, plainEmail);
+    await cacheTokenVersion(userAuth.userId, payload.tv);
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+
+    userAuth.refreshToken = hashRefreshToken(refreshToken);
+    userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
+    await userAuth.save();
+
+    const redis = getRedisClient();
+    if (redis && userAuth.userId) {
+      await redis.setex(
+        `refresh_token:${userAuth.userId}`,
+        refreshTokenRedisTtlSeconds(),
+        hashRefreshToken(refreshToken)
+      );
+    }
+
+    return { accessToken, refreshToken };
   }
 
   // Đăng ký user mới
@@ -274,69 +337,33 @@ class AuthService {
       userAuth.lastLoginAt = new Date();
       await userAuth.save();
 
-      // Tạo tokens (kèm tokenVersion để revoke sau logout/đổi mật khẩu)
-      const payload = accessTokenPayload(userAuth, plainEmail);
-      await cacheTokenVersion(userAuth.userId, payload.tv);
-
-      const accessToken = generateAccessToken(payload);
-      const refreshToken = generateRefreshToken(payload);
-
-      // Lưu refresh token vào database
-      userAuth.refreshToken = refreshToken;
-      userAuth.refreshTokenExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-      await userAuth.save();
-
-      // Cache refresh token trong Redis
-      const redis = getRedisClient();
-      if (redis) {
-        const cacheKey = `refresh_token:${userAuth.userId}`;
-        await redis.setex(cacheKey, 30 * 24 * 60 * 60, refreshToken); // 30 days
-      }
-
       // Đảm bảo UserProfile tồn tại (phòng bootstrap verify email lỗi trước đó)
       void bootstrapUserProfile(userAuth, userAuth.userId);
 
-      return {
-        accessToken,
-        refreshToken,
-        user: {
-          id: userAuth.userId,
-          email: plainEmail,
-          systemRole: this.normalizeSystemRole(userAuth.systemRole),
-          mustChangePassword: Boolean(userAuth.mustChangePassword),
-        },
-      };
+      return await this.issueSessionTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
   }
 
-  // Refresh access token
-  async refreshToken(refreshToken) {
+  // Refresh access token (+ rotate refresh token)
+  async refreshToken(refreshTokenRaw) {
     try {
-      // Verify refresh token
-      const decoded = verifyRefreshToken(refreshToken);
+      const decoded = verifyRefreshToken(refreshTokenRaw);
 
-      // Kiểm tra refresh token trong database
-      const userAuth = await UserAuth.findOne({
-        userId: decoded.id,
-        refreshToken,
-      });
+      const userAuth = await UserAuth.findOne({ userId: decoded.id });
 
       if (!userAuth || userAuth.refreshTokenExpiresAt < new Date()) {
         throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
       }
 
+      if (!refreshTokenMatches(userAuth, refreshTokenRaw)) {
+        throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
+      }
+
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
-      const payload = accessTokenPayload(userAuth, plainEmail);
-      await cacheTokenVersion(userAuth.userId, payload.tv);
-
-      const accessToken = generateAccessToken(payload);
-
-      return {
-        accessToken,
-      };
+      return await this.rotateRefreshTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
@@ -392,20 +419,13 @@ class AuthService {
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
-      // Cập nhật password và vô hiệu token cũ
+      // Cập nhật password, thu hồi session cũ rồi cấp JWT mới (bump tv trong issueSessionTokens)
       userAuth.password = hashedPassword;
       userAuth.mustChangePassword = false;
-      userAuth.refreshToken = null;
-      userAuth.refreshTokenExpiresAt = null;
-      await bumpTokenVersion(userAuth);
       await userAuth.save();
 
-      const redis = getRedisClient();
-      if (redis && userAuth.userId) {
-        await redis.del(`refresh_token:${userAuth.userId}`);
-      }
-
-      return true;
+      const plainEmail = await hydrateAuthEmailDoc(userAuth);
+      return await this.issueSessionTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
@@ -453,7 +473,7 @@ class AuthService {
             'http://localhost:5173'
         ).replace(/\/+$/, '');
         response.resetToken = passwordResetToken;
-        response.resetUrl = `${baseNormalized}/reset-password?token=${passwordResetToken}`;
+        response.resetUrl = `${baseNormalized}/reset-password#token=${encodeURIComponent(passwordResetToken)}`;
       }
 
       return response;
@@ -520,7 +540,7 @@ class AuthService {
             'http://localhost:5173'
         ).replace(/\/+$/, '');
         response.verificationToken = emailVerificationToken;
-        response.verificationUrl = `${baseNormalized}/verify-email?token=${emailVerificationToken}`;
+        response.verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(emailVerificationToken)}`;
       }
 
       return response;
@@ -576,7 +596,7 @@ class AuthService {
           'http://localhost:5173'
       ).replace(/\/+$/, '');
       response.verificationToken = token;
-      response.verificationUrl = `${baseNormalized}/verify-email-change?token=${token}`;
+      response.verificationUrl = `${baseNormalized}/verify-email-change#token=${encodeURIComponent(token)}`;
     }
     return response;
   }

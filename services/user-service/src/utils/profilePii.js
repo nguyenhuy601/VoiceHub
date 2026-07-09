@@ -66,37 +66,41 @@ async function maybeMigrateProfilePii(UserProfile, doc) {
   }
 }
 
-/** Chuẩn bị $set khi PATCH profile — mã hóa at-rest khi bật ENCRYPTION_MASTER_KEY. */
+/**
+ * Chuẩn bị PATCH profile — mã hóa at-rest khi bật ENCRYPTION_MASTER_KEY.
+ * @returns {{ patch: object, unset: string[] }}
+ */
 function writePiiPatch(input = {}) {
-  const out = {};
+  const patch = {};
+  const unset = [];
   if (input.bio !== undefined) {
     const plain = String(input.bio ?? '').trim();
-    out.bio = plain && isEncryptionEnabled() ? encryptField(plain) : plain;
+    patch.bio = plain && isEncryptionEnabled() ? encryptField(plain) : plain;
   }
   if (input.location !== undefined) {
     const plain = String(input.location ?? '').trim();
-    out.location = plain && isEncryptionEnabled() ? encryptField(plain) : plain;
+    patch.location = plain && isEncryptionEnabled() ? encryptField(plain) : plain;
   }
   if (input.phone !== undefined) {
     const plain = String(input.phone ?? '').trim();
     if (!plain) {
-      out.phone = '';
-      out.phoneBlindIndex = null;
+      patch.phone = '';
+      unset.push('phoneBlindIndex');
     } else if (isEncryptionEnabled()) {
-      out.phone = encryptField(plain);
-      out.phoneBlindIndex = phoneBlindIndex(plain);
+      patch.phone = encryptField(plain);
+      patch.phoneBlindIndex = phoneBlindIndex(plain);
     } else {
-      out.phone = plain;
-      out.phoneBlindIndex = null;
+      patch.phone = plain;
+      unset.push('phoneBlindIndex');
     }
   }
   if (input.dateOfBirth !== undefined) {
-    Object.assign(out, writeDateOfBirthFields(input.dateOfBirth));
+    Object.assign(patch, writeDateOfBirthFields(input.dateOfBirth));
   }
-  if (Object.keys(out).length > 0 && isEncryptionEnabled()) {
-    out.encV = 1;
+  if (Object.keys(patch).length > 0 && isEncryptionEnabled()) {
+    patch.encV = 1;
   }
-  return out;
+  return { patch, unset };
 }
 
 module.exports = {

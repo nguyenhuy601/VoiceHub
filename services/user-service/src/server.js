@@ -1,12 +1,19 @@
 require('dotenv').config();
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
+const { ensureProfileIndexes } = require('./utils/profileIndexes');
 
 const PORT = process.env.PORT || 3004;
 
 // Kết nối MongoDB
 connectDB()
-  .then(() => {
+  .then(async () => {
+    try {
+      await ensureProfileIndexes();
+    } catch (indexErr) {
+      logger.error('[user-service] ensureProfileIndexes failed:', indexErr);
+    }
+
     // Kết nối Redis
     connectRedis();
 

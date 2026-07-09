@@ -92,7 +92,7 @@ export const FIGMA_CHAT_DATE_DIVIDER_LINE = 'h-px flex-1 bg-border';
 
 export const FIGMA_CHAT_DATE_DIVIDER_LABEL = 'shrink-0 text-xs text-muted-foreground';
 
-export const FIGMA_CHAT_BUBBLE_ROW = 'group/msg relative flex items-end gap-2.5';
+export const FIGMA_CHAT_BUBBLE_ROW = 'group/msg relative flex items-end gap-3';
 
 export const FIGMA_CHAT_BUBBLE_ROW_MINE = 'flex-row-reverse';
 
@@ -102,7 +102,7 @@ export const FIGMA_CHAT_BUBBLE_ROW_TIGHT = 'mt-0.5';
 
 export const FIGMA_CHAT_BUBBLE_ROW_LOOSE = 'mt-3';
 
-export const FIGMA_CHAT_BUBBLE_AVATAR_SLOT = 'w-8 shrink-0';
+export const FIGMA_CHAT_BUBBLE_AVATAR_SLOT = 'flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden';
 
 export const FIGMA_CHAT_BUBBLE_AVATAR_HIDDEN = 'invisible';
 

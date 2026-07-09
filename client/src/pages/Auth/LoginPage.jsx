@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import OneTimeCredentialsModal from '../../components/Auth/OneTimeCredentialsModal';
+import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -15,7 +16,7 @@ import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredenti
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -81,6 +82,13 @@ function LoginPage({ landingDemo = false } = {}) {
     };
   }, [landingDemo]);
 
+  useEffect(() => {
+    if (landingDemo || authLoading) return;
+    if (isAuthenticated) {
+      navigate('/app', { replace: true });
+    }
+  }, [landingDemo, authLoading, isAuthenticated, navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -105,6 +113,10 @@ function LoginPage({ landingDemo = false } = {}) {
       setLoading(false);
     }
   };
+
+  if (!landingDemo && !authLoading && isAuthenticated) {
+    return <BrandPageLoader />;
+  }
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>

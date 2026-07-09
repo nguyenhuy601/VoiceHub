@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m';
 const JWT_REFRESH_SECRET = String(process.env.JWT_REFRESH_SECRET || '').trim();
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
 
@@ -58,6 +58,8 @@ module.exports = {
   decodeToken,
   JWT_SECRET,
   JWT_EXPIRES_IN,
+  JWT_REFRESH_SECRET,
+  JWT_REFRESH_EXPIRES_IN,
 };
 
 

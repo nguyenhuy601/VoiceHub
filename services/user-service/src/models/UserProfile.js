@@ -46,14 +46,17 @@ const userProfileSchema = new mongoose.Schema(
     phone: {
       type: String,
       trim: true,
-      default: null,
+    },
+    /** Chức danh / vị trí làm việc (onboarding first-login) */
+    jobTitle: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: '',
     },
     /** HMAC blind index cho tra cứu / unique khi phone được mã hóa at-rest */
     phoneBlindIndex: {
       type: String,
-      default: null,
-      sparse: true,
-      unique: true,
     },
     /** Phiên bản mã hóa trường PII (0 = legacy plaintext) */
     encV: {
@@ -101,6 +104,16 @@ const userProfileSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      jobTitle: {
+        type: String,
+        trim: true,
+        maxlength: 120,
+        default: '',
+      },
+      profileCompletedAt: {
+        type: String,
+        default: null,
+      },
     },
     /** Biệt danh hiển thị theo tổ chức — key: organizationId */
     orgNicknames: {
@@ -115,6 +128,15 @@ const userProfileSchema = new mongoose.Schema(
 
 // Virtual để lấy thông tin cơ bản
 userProfileSchema.index({ email: 1 });
+userProfileSchema.index(
+  { phoneBlindIndex: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      phoneBlindIndex: { $type: 'string' },
+    },
+  }
+);
 
 userProfileSchema.virtual('publicInfo').get(function () {
   return {

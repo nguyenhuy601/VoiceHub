@@ -40,6 +40,7 @@ import { useFriendCallSession } from '../../context/FriendCallSessionContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { getResolvedBearerToken } from '../../utils/tokenStorage';
 import {
   VoiceSessionRecorder,
   loadVoiceMeetingRecording,
@@ -1946,7 +1947,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         setIsLocalSpeaking(speaking && !isMuted);
       });
 
-      const token = normalizeToken(localStorage.getItem('token'));
+      const token = getResolvedBearerToken();
       const socket = io(`${getSignalBaseUrl()}/voice`, {
         path: getSignalPath(),
         // Qua reverse proxy HTTPS, ưu tiên polling trước để giảm lỗi WS handshake sớm.

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { isPublicRoute, isAuthInternalS2SPath } = require('../config/services');
 const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
+const { fetchTokenVersionFromAuth } = require('../clients/authTokenVersionClient');
 const { sendApiError } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
@@ -108,7 +109,9 @@ async function authMiddlewareAsync(req, res, next) {
         });
       }
 
-      const versionOk = await isAccessTokenVersionValid(normalizedUserId, decoded.tv);
+      const versionOk = await isAccessTokenVersionValid(normalizedUserId, decoded.tv, {
+        resolveVersion: fetchTokenVersionFromAuth,
+      });
       if (!versionOk) {
         return sendApiError(res, 401, {
           errorCode: 'AUTH_TOKEN_INVALID',

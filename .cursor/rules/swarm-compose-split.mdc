@@ -1,0 +1,54 @@
+---
+description: VoiceHub dev — phân tách Docker Swarm (app) vs Compose (extra infra/AI)
+alwaysApply: true
+---
+
+# Swarm vs Compose — môi trường dev VoiceHub
+
+## Quy tắc nhớ nhanh
+
+| Runtime | File / lệnh | Services |
+|---------|-------------|----------|
+| **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ app microservices: `api-gateway`, `auth-service`, `user-service`, `chat-service`, `socket-service`, `voice-service`, … |
+| **Docker Compose** | `docker-compose.swarm-extra.yml` | **Chỉ** infra/AI bổ sung: `ollama`, `paddleocr-service`, `minio`, `minio-init`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker` |
+
+**Không** dùng `docker compose up` cho `api-gateway`, `user-service`, hay bất kỳ service trong `docker-stack.yml`.
+
+## Compose extra (`docker-compose.swarm-extra.yml`)
+
+- Gắn overlay `voicehub_enterprise-network` (external) — cùng network với Swarm.
+- Trước khi bật: scale Swarm trùng tên về 0 (`ollama`, `paddleocr-service`) — script `bash devops/swarm/dev-enable-profile.sh`.
+- Lệnh chuẩn:
+
+```bash
+docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --build
+```
+
+## Swarm app — rebuild sau khi sửa code
+
+Build image local (context repo root, tag `voicehub-<service>:latest`):
+
+```bash
+bash devops/swarm/build-local-images.sh <service-name>
+# ví dụ: user-service api-gateway
+```
+
+Rolling recreate task (không rebuild toàn stack):
+
+```bash
+docker service update --force --update-parallelism 1 --update-order start-first voicehub_user-service
+docker service update --force --update-parallelism 1 --update-order start-first voicehub_api-gateway
+```
+
+Hoặc redeploy + rolling tất cả app services:
+
+```bash
+SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/deploy-stack.sh
+bash devops/swarm/rolling-update-phase1-env.sh
+```
+
+## Khi agent gợi ý lệnh Docker
+
+- Sửa `services/user-service`, `api-gateway`, `shared/` → **build Swarm image + `docker service update --force`**.
+- Sửa worker/OCR/minio trong extra compose → **`docker compose -f docker-compose.swarm-extra.yml …`**.
+- Không nhầm `docker compose up` root/stack yml cho microservices đã deploy Swarm.

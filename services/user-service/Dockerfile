@@ -14,6 +14,7 @@ RUN npm install --ignore-scripts && npm install -g nodemon
 COPY shared /shared
 RUN cd /shared && npm install --omit=dev --ignore-scripts
 COPY services/user-service/ .
+RUN test -s package.json && node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
 RUN node /shared/postinstall-link.cjs
 
 EXPOSE 3004

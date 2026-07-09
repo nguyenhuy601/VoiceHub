@@ -49,12 +49,22 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
     if (!canSubmit || saving) return;
     setSaving(true);
     try {
+      let authPatch = {};
       if (needsPassword) {
-        await authService.changePassword(form.currentPassword, form.newPassword);
+        const pwResult = await authService.changePassword(form.currentPassword, form.newPassword);
+        if (pwResult?.user) {
+          authPatch = {
+            ...pwResult.user,
+            mustChangePassword: false,
+          };
+        } else {
+          authPatch = { mustChangePassword: false };
+        }
       }
       const patch = {
         displayName: String(form.displayName).trim(),
         phone: String(form.phone).trim(),
+        jobTitle: String(form.jobTitle).trim(),
         preferences: {
           ...(user?.preferences && typeof user.preferences === 'object' ? user.preferences : {}),
           jobTitle: String(form.jobTitle).trim(),
@@ -65,12 +75,18 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
       const profile = unwrapApiData(updated) || updated;
       if (typeof updateUser === 'function') {
         updateUser({
+          ...authPatch,
           ...profile,
           mustChangePassword: false,
           displayName: profile?.displayName || patch.displayName,
           phone: profile?.phone || patch.phone,
-          preferences: patch.preferences,
-          jobTitle: patch.preferences.jobTitle,
+          jobTitle: profile?.jobTitle || patch.jobTitle,
+          preferences: {
+            ...(profile?.preferences && typeof profile.preferences === 'object'
+              ? profile.preferences
+              : {}),
+            ...patch.preferences,
+          },
         });
       }
       toast.success(t('firstLogin.saved'));

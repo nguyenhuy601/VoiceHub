@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useAppStrings } from '../../locales/appStrings';
-import { getToken } from '../../utils/tokenStorage';
+import { getResolvedBearerToken } from '../../utils/tokenStorage';
 import { getUserDisplayName } from '../../utils/helpers';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
 import UserAvatar from '../Shared/UserAvatar';
@@ -626,7 +626,7 @@ export default function OrganizationVoiceChannelView({
           setLocalVoiceEnergy(speaking);
         });
 
-        const token = normalizeToken(getToken()) || normalizeToken(localStorage.getItem('token'));
+        const token = getResolvedBearerToken();
         const socket = io(`${getSignalBaseUrl()}/voice`, {
           path: getSignalPath(),
           // Qua reverse proxy HTTPS, ưu tiên polling trước để giảm lỗi WS handshake sớm.

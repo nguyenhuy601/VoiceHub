@@ -17,6 +17,7 @@ function mapBootstrapUser(profile, authEmail, systemRole, mustChangePassword) {
     username: profile.username || null,
     avatar: profile.avatar || null,
     phone: profile.phone || null,
+    jobTitle: profile.jobTitle || profile.preferences?.jobTitle || null,
     preferences: profile.preferences || undefined,
     status: profile.status,
     systemRole: String(systemRole || '').trim().toLowerCase() === 'admin' ? 'admin' : 'employee',

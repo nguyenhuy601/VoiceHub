@@ -64,6 +64,15 @@ const loginLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts, please try again later' },
 });
 app.use('/api/auth/login', loginLimiter);
+
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.GATEWAY_REFRESH_RATE_MAX || 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many refresh attempts, please try again later' },
+});
+app.use('/api/auth/refresh-token', refreshLimiter);
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
 // Middleware — production: chỉ origin trong whitelist; dev: cho phép không có Origin (mobile/curl)

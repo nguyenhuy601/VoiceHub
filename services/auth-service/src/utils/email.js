@@ -80,7 +80,7 @@ class EmailService {
         process.env.FRONTEND_URL ||
         'http://localhost:5173';
       const baseNormalized = String(base).replace(/\/+$/, '');
-      const verificationUrl = `${baseNormalized}/verify-email?token=${verificationToken}`;
+      const verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(verificationToken)}`;
       console.log(`[EmailService] Verification URL: ${verificationUrl}`);
       console.log(`[EmailService] From: ${process.env.EMAIL_USER}`);
       console.log(`[EmailService] To: ${email}`);
@@ -209,7 +209,7 @@ class EmailService {
         process.env.FRONTEND_URL ||
         'http://localhost:5173';
       const baseNormalized = String(base).replace(/\/+$/, '');
-      const resetUrl = `${baseNormalized}/reset-password?token=${resetToken}`;
+      const resetUrl = `${baseNormalized}/reset-password#token=${encodeURIComponent(resetToken)}`;
 
       const mailOptions = {
         from: `"${process.env.EMAIL_FROM_NAME || 'VoiceChat App'}" <${process.env.EMAIL_USER}>`,
@@ -301,7 +301,7 @@ class EmailService {
         process.env.FRONTEND_URL ||
         'http://localhost:5173';
       const baseNormalized = String(base).replace(/\/+$/, '');
-      const verificationUrl = `${baseNormalized}/verify-email-change?token=${verificationToken}`;
+      const verificationUrl = `${baseNormalized}/verify-email-change#token=${encodeURIComponent(verificationToken)}`;
 
       const mailOptions = {
         from: `"${process.env.EMAIL_FROM_NAME || 'VoiceChat App'}" <${process.env.EMAIL_USER}>`,

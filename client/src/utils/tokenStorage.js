@@ -1,5 +1,5 @@
 /**
- * Lưu JWT: mặc định localStorage; đặt VITE_TOKEN_STORAGE=sessionStorage để giảm rủi ro persist XSS.
+ * Lưu JWT: mặc định sessionStorage; đặt VITE_TOKEN_STORAGE=localStorage để persist qua đóng tab.
  * getToken() đọc cả hai storage (tránh lệch env / login cũ).
  */
 const KEY = 'token';
@@ -20,7 +20,7 @@ export function onTokenChange(listener) {
 
 export function getTokenStorage() {
   if (typeof window === 'undefined') return null;
-  return import.meta.env.VITE_TOKEN_STORAGE === 'sessionStorage' ? sessionStorage : localStorage;
+  return import.meta.env.VITE_TOKEN_STORAGE === 'localStorage' ? localStorage : sessionStorage;
 }
 
 /** Đọc JWT — ưu tiên storage cấu hình, fallback storage còn lại. */

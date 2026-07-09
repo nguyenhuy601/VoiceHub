@@ -9,6 +9,7 @@ import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { readAuthTokenFromUrl } from '../../utils/authUrlToken';
 
 function VerifyEmailPage() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [verified, setVerified] = useState(false);
-  const token = searchParams.get('token');
+  const token = readAuthTokenFromUrl(searchParams);
   const mode = String(searchParams.get('mode') || '').trim().toLowerCase();
   const isEmailChangeMode = mode === 'email-change' || window.location.pathname === '/verify-email-change';
   const hasRunRef = useRef(false);

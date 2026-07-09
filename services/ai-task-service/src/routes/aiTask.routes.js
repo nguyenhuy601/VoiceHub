@@ -27,10 +27,8 @@ function fail(res, status, message, errorCode) {
 router.post('/extract', async (req, res) => {
   const { messageId, organizationId, titleHint, mentions, channelId } = req.body || {};
 
-  // Phase 2: auth sẽ đi qua API Gateway; tạm lấy userId từ header để test nội bộ
-  const generatedBy = req.user?.id || req.headers['x-user-id'] || req.headers['x-generated-by'];
-
-  if (!generatedBy) return res.status(401).json({ success: false, message: 'Missing user context' });
+  const generatedBy = req.user?.id;
+  if (!generatedBy) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
   if (!messageId || !organizationId) {
     return res.status(400).json({ success: false, message: 'messageId and organizationId are required' });
   }

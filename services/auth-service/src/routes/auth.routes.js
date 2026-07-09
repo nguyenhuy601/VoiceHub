@@ -4,9 +4,10 @@ const authController = require('../controllers/auth.controller');
 const { verifyAccessToken } = require('../config/jwt');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const { sendServiceError } = require('../middleware/sendServiceError');
+const UserAuth = require('../models/UserAuth');
 
-// Middleware xác thực
-const authenticate = (req, res, next) => {
+// Middleware xác thực — verify JWT + tokenVersion (tv) khớp MongoDB
+const authenticate = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
 
@@ -19,6 +20,34 @@ const authenticate = (req, res, next) => {
     }
 
     const decoded = verifyAccessToken(token);
+    const userId = String(decoded.id || decoded.userId || decoded._id || '').trim();
+    if (!userId) {
+      return sendServiceError(res, 401, {
+        errorCode: 'AUTH_TOKEN_INVALID',
+        messageUser: 'Phiên đăng nhập không hợp lệ.',
+        message: 'Invalid token payload',
+      });
+    }
+
+    const userAuth = await UserAuth.findOne({ userId }).select('tokenVersion').lean();
+    if (!userAuth) {
+      return sendServiceError(res, 401, {
+        errorCode: 'AUTH_TOKEN_INVALID',
+        messageUser: 'Phiên đăng nhập không hợp lệ.',
+        message: 'User not found',
+      });
+    }
+
+    const expected = Number(userAuth.tokenVersion || 0);
+    const got = Number(decoded.tv ?? 0);
+    if (got !== expected) {
+      return sendServiceError(res, 401, {
+        errorCode: 'AUTH_TOKEN_INVALID',
+        messageUser: 'Phiên đăng nhập không hợp lệ.',
+        message: 'Token revoked',
+      });
+    }
+
     req.user = decoded;
     next();
   } catch (error) {
@@ -48,6 +77,12 @@ router.post(
   '/internal/company-invite-email',
   internalGatewayAuth,
   authController.sendCompanyInviteEmail.bind(authController)
+);
+
+router.get(
+  '/internal/token-version/:userId',
+  internalGatewayAuth,
+  authController.getTokenVersionInternal.bind(authController)
 );
 
 // Public routes

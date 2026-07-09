@@ -231,11 +231,12 @@ class AuthController {
         });
       }
 
-      await authService.changePassword(userId, oldPassword, newPassword);
+      const result = await authService.changePassword(userId, oldPassword, newPassword);
 
       res.json({
         success: true,
         message: 'Password changed successfully',
+        data: result,
       });
     } catch (error) {
       return sendError(res, error, 400, 'Đổi mật khẩu thất bại', 'AUTH_CHANGE_PASSWORD_FAILED');
@@ -439,7 +440,26 @@ class AuthController {
       }
 
       const UserAuth = require('../models/UserAuth');
-      const userAuth = await UserAuth.findOne({ userId }).select('systemRole mustChangePassword').lean();
+      const userAuth = await UserAuth.findOne({ userId })
+        .select('systemRole mustChangePassword tokenVersion')
+        .lean();
+
+      if (!userAuth) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const got = Number(req.user?.tv ?? 0);
+      const expected = Number(userAuth.tokenVersion || 0);
+      if (got !== expected) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token revoked',
+          errorCode: 'AUTH_TOKEN_INVALID',
+        });
+      }
 
       res.json({
         success: true,
@@ -452,6 +472,27 @@ class AuthController {
       });
     } catch (error) {
       return sendError(res, error, 500, 'Không tải được thông tin tài khoản', 'AUTH_ME_FAILED');
+    }
+  }
+
+  /** S2S — gateway đọc tokenVersion khi Redis cache miss */
+  async getTokenVersionInternal(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+      const UserAuth = require('../models/UserAuth');
+      const userAuth = await UserAuth.findOne({ userId }).select('tokenVersion').lean();
+      if (!userAuth) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      return res.json({
+        success: true,
+        data: { tokenVersion: Number(userAuth.tokenVersion || 0) },
+      });
+    } catch (error) {
+      return sendError(res, error, 500, 'Không đọc được token version', 'AUTH_TOKEN_VERSION_FAILED');
     }
   }
 

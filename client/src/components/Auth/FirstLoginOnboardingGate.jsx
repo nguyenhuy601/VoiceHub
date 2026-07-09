@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import FirstLoginProfileModal from './FirstLoginProfileModal';
 
@@ -18,16 +19,20 @@ function profileIncomplete(user) {
  * Tài khoản hệ thống (systemRole=admin) không bắt buộc bổ sung hồ sơ.
  */
 export default function FirstLoginOnboardingGate() {
+  const { pathname } = useLocation();
   const { user, isAuthenticated } = useAuth();
   const [dismissed, setDismissed] = useState(false);
 
+  const inAppShell = pathname.startsWith('/app');
   const isSystemAdmin = String(user?.systemRole || '').trim().toLowerCase() === 'admin';
   const mustChangePassword = Boolean(user?.mustChangePassword) && !isSystemAdmin;
   const needsProfile = useMemo(
     () => !isSystemAdmin && profileIncomplete(user),
     [user, isSystemAdmin]
   );
-  const open = Boolean(isAuthenticated && user && !dismissed && (mustChangePassword || needsProfile));
+  const open = Boolean(
+    inAppShell && isAuthenticated && user && !dismissed && (mustChangePassword || needsProfile)
+  );
 
   if (!open) return null;
 

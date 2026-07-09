@@ -21,12 +21,13 @@ import {
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { readAuthTokenFromUrl } from '../../utils/authUrlToken';
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const token = readAuthTokenFromUrl(searchParams);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

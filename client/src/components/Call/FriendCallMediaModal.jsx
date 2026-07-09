@@ -25,6 +25,7 @@ import {
   resolveFriendProfileFromList,
 } from '../../utils/resolveFriendDisplayName';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
+import { getResolvedBearerToken } from '../../utils/tokenStorage';
 import UserAvatar from '../Shared/UserAvatar';
 import {
   FIGMA_VOICE_CTRL_BTN,
@@ -461,7 +462,7 @@ export default function FriendCallMediaModal() {
           setIsCameraOff(true);
         }
 
-        const token = normalizeToken(localStorage.getItem('token'));
+        const token = getResolvedBearerToken();
         const socket = io(`${getSignalBaseUrl()}/voice`, {
           path: getSignalPath(),
           transports: ['polling', 'websocket'],

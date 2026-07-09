@@ -2224,22 +2224,24 @@ const OrganizationMainPanel = ({
                             )}
                           </div>
                         )}
-                        <div className="flex w-full items-start justify-start gap-3">
-                        <UserAvatar
-                          avatar={avatarUrl}
-                          userId={senderUserId(message, isMine, currentUser)}
-                          name={displayName}
-                          size="md"
-                          className="mt-0.5"
-                          title={displayName}
-                          ringClassName="shadow-inner"
-                        />
+                        <div className="flex w-full items-start justify-start gap-3.5">
+                        {/* Slot cố định — tránh khung/tai avatar đụng sát tên & nội dung */}
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl">
+                          <UserAvatar
+                            avatar={avatarUrl}
+                            userId={senderUserId(message, isMine, currentUser)}
+                            name={displayName}
+                            size="md"
+                            title={displayName}
+                            ringClassName="shadow-inner"
+                          />
+                        </div>
                         <div className="min-w-0 max-w-[min(100%,42rem)] flex-1">
                           <div
-                            className="mb-1 flex flex-wrap items-center gap-2 justify-start"
+                            className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
                           >
                             <span
-                              className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                              className={`text-sm font-bold leading-snug ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
                             >
                               {displayName}
                             </span>
@@ -2258,7 +2260,7 @@ const OrganizationMainPanel = ({
                             </span>
                             ) : null}
                             <span
-                              className={`text-[11px] tabular-nums ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
+                              className={`text-[11px] tabular-nums leading-snug ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
                             >
                               {formatTime(message.createdAt)}
                             </span>

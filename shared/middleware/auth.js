@@ -208,6 +208,10 @@ const socketAuth = (socket, next) => {
  * Nếu có token thì verify, không có thì bỏ qua
  */
 const optionalAuth = (req, res, next) => {
+  Promise.resolve(optionalAuthAsync(req, res, next)).catch(() => next());
+};
+
+async function optionalAuthAsync(req, res, next) {
   try {
     const jwtSecret = getJwtSecret();
     if (!jwtSecret) {
@@ -221,26 +225,29 @@ const optionalAuth = (req, res, next) => {
       if (!token) {
         return next();
       }
-      
+
       try {
         const decoded = jwt.verify(token, jwtSecret);
+        const userId = decoded.id || decoded.userId || decoded._id;
+        const versionOk = await isAccessTokenVersionValid(userId, decoded.tv);
+        if (!versionOk) {
+          return next();
+        }
         req.user = {
           id: decoded.id,
           email: decoded.email,
           ...decoded,
         };
       } catch (error) {
-        // Ignore error, continue without user
         logger.debug('Optional auth failed, continuing without user');
       }
     }
 
     next();
   } catch (error) {
-    // Ignore error, continue without user
     next();
   }
-};
+}
 
 module.exports = {
   authenticate,

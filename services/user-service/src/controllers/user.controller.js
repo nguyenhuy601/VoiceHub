@@ -108,11 +108,10 @@ class UserController {
           ? String(displayName).trim()
           : email.trim().toLowerCase().split('@')[0];
 
-      const userProfile = await userService.createUserProfile({
-        userId,
-        username,
+      const userProfile = await userService.ensureUserProfile(userId, {
         email: email.trim().toLowerCase(),
         displayName: displayFromBody,
+        username,
         dateOfBirth,
       });
 
@@ -230,34 +229,33 @@ class UserController {
         });
       }
 
-      // Update status to 'online' khi user active
-      try {
-        await userService.updateStatus(userId, 'online');
-      } catch (statusError) {
-        logger.warn('Failed to update user status:', statusError.message);
-        // Không throw error, vẫn lấy user profile
-      }
-
+      const authEmail = authEmailFromReq(req);
       let userProfile = await userService.getUserProfileById(userId);
 
-      if (!userProfile) {
-        const email = String(req.headers['x-user-email'] || req.user?.email || '')
-          .trim()
-          .toLowerCase();
-        if (email) {
-          try {
-            const baseUsername = email.split('@')[0] || `user${String(userId).slice(-6)}`;
-            userProfile = await userService.createUserProfile({
-              userId,
-              username: baseUsername,
-              email,
-              displayName: email.split('@')[0] || baseUsername,
-            });
-            logger.info(`Lazy user profile created for ${userId}`);
-          } catch (bootstrapErr) {
-            logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
+      if (!userProfile && authEmail) {
+        try {
+          userProfile = await userService.ensureUserProfile(userId, {
+            email: authEmail,
+            displayName: authEmail.split('@')[0],
+          });
+          if (userProfile) {
+            logger.info(`Lazy user profile ensured for ${userId}`);
           }
+        } catch (bootstrapErr) {
+          logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
         }
+      }
+
+      if (userProfile) {
+        try {
+          await userService.updateStatus(userId, 'online');
+        } catch (statusError) {
+          logger.warn('Failed to update user status:', statusError.message);
+        }
+      }
+
+      if (!userProfile) {
+        userProfile = await userService.getUserProfileById(userId);
       }
 
       if (!userProfile) {
@@ -298,6 +296,14 @@ class UserController {
       const userId = actorId;
 
       const body = req.body && typeof req.body === 'object' ? req.body : {};
+      try {
+        await userService.ensureUserProfile(userId, {
+          email: authEmailFromReq(req),
+          displayName: body.displayName,
+        });
+      } catch (ensureErr) {
+        logger.warn(`ensureUserProfile before update failed for ${userId}:`, ensureErr.message);
+      }
       const userProfile = await userService.updateUserProfile(userId, body);
 
       res.json({

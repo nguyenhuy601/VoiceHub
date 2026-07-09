@@ -11,7 +11,13 @@ let refreshPromise = null;
 
 export function isAuthRefreshDisabled() {
   const raw = String(import.meta.env.VITE_DISABLE_AUTH_REFRESH || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
+  const disabled = raw === '1' || raw === 'true' || raw === 'yes';
+  if (disabled && import.meta.env.PROD) {
+    console.warn(
+      '[VoiceHub] VITE_DISABLE_AUTH_REFRESH is enabled in production — expired sessions may not auto-refresh.'
+    );
+  }
+  return disabled;
 }
 
 async function callRefreshEndpoint() {

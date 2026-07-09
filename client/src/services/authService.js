@@ -176,16 +176,20 @@ const authService = {
      Server verify oldPassword trước khi đổi
      Được gọi từ: SettingsPage → Security tab */
   changePassword: async (oldPassword, newPassword) => {
-    // Gửi cả old và new password
-    // Server sẽ:
-    // 1. Verify oldPassword đúng
-    // 2. Hash newPassword
-    // 3. Update database
     const response = await api.post('/auth/change-password', {
       oldPassword,
       newPassword,
     });
-    return response;
+    const payload = response?.data || response;
+    const accessToken = payload?.accessToken;
+    const refreshToken = payload?.refreshToken;
+    if (accessToken) {
+      setToken(accessToken);
+    }
+    if (refreshToken) {
+      setRefreshToken(refreshToken);
+    }
+    return payload;
   },
 
   /* ----- FORGOT PASSWORD: Quên mật khẩu -----

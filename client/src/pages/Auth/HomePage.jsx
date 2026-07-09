@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Moon, Sun } from 'lucide-react';
 import { GradientButton, Modal } from '../../components/Shared';
+import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -102,14 +103,24 @@ function HomePage() {
   const { locale, toggleLocale } = useLocale();
   const copy = HOME_LOCALES[locale];
   const [storyFocusId, setStoryFocusId] = useState(() => HOME_LOCALES.vi.storySteps[0].featureId);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const hidePublicRegister = readSingleOrgModeFlag();
 
   useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate('/app', { replace: true });
+    }
+  }, [loading, isAuthenticated, navigate]);
+
+  useEffect(() => {
     setStoryFocusId(copy.storySteps[0].featureId);
   }, [locale]);
+
+  if (!loading && isAuthenticated) {
+    return <BrandPageLoader />;
+  }
 
   const selectedFeature = useMemo(
     () => copy.features.find((f) => f.id === selectedFeatureId) ?? null,
