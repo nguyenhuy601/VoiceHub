@@ -1,0 +1,48 @@
+---
+description: Checklist xóa page/route FE — tránh sót import, broken reference, dead code
+globs: client/src/**/*
+alwaysApply: false
+---
+
+# Xóa page / route — cleanup bắt buộc
+
+Khi **gỡ** một page, route hoặc feature UI (ví dụ landing, màn marketing), **không** chỉ xóa `<Route>` — phải dọn sạch toàn bộ reference và **không** đụng import khác trong file routing.
+
+## Checklist (theo thứ tự)
+
+1. **Routing** (`client/src/App.jsx`)
+   - Xóa `lazy(() => import(...))` của page đó.
+   - Xóa `<Route path="..." element={...} />`.
+   - Thay redirect/link cũ (`/`, `/home`) bằng đích mới (ví dụ `/login`).
+   - **Sau khi sửa import block**: đọc lại toàn bộ file — mỗi component dùng trong JSX phải còn `import` (ví dụ `AdminShellLayout`, `SuiteShellLayout`). Không xóa nhầm import không liên quan.
+
+2. **Grep toàn `client/src`**
+   ```bash
+   rg -i "PageName|path/to/Page|/old-path" client/src
+   ```
+   - Cập nhật `Link to=`, `Navigate to=`, `navigate()`, `window.location.href`.
+   - `ProtectedRoute`, redirect legacy, comment trong `main.jsx`.
+
+3. **Phụ thuộc chỉ dùng cho page đó**
+   - Component con (`components/Landing/*`), locale (`locales/homePage.js`), util (`landingEmbedMode.js`) — xóa hoặc gỡ logic nếu không còn caller.
+   - Nếu util còn dùng ở chỗ khác: giữ file, bỏ comment/route guard chỉ phục vụ page đã xóa.
+
+4. **Verify**
+   - `cd client && npm run build` — bắt buộc pass trước khi báo xong.
+   - Hard refresh dev (`https://voicehub.local`) — không `ReferenceError`, route `/` và guest `/app/*` đúng hành vi mong muốn.
+
+## Ví dụ lỗi cần tránh
+
+```jsx
+// ❌ Xóa HomePage nhưng vô tình xóa luôn import AdminShellLayout
+import SuiteShellLayout from './components/Layout/SuiteShellLayout';
+// thiếu: import AdminShellLayout from '...'
+<Route path="/app/admin" element={<AdminShellLayout />} /> // ReferenceError
+
+// ✅ Chỉ xóa dòng HomePage; giữ nguyên mọi import layout khác
+```
+
+## Phạm vi
+
+- Chỉ áp dụng khi task yêu cầu **loại bỏ** page/route/feature UI.
+- Không refactor lan sang module không liên quan (auth, gateway, service) trừ khi grep chỉ ra reference bắt buộc.

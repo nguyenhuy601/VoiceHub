@@ -59,10 +59,14 @@ async function authenticateAsync(req, res, next) {
 
   const forwardedUserId = getHeader(req.headers, 'x-user-id');
   if (forwardedUserId && isTrustedGatewayForward(req)) {
+    const systemRole = String(getHeader(req.headers, 'x-user-system-role') || '')
+      .trim()
+      .toLowerCase();
     req.user = {
       id: String(forwardedUserId).trim(),
       userId: String(forwardedUserId).trim(),
       email: getHeader(req.headers, 'x-user-email') || null,
+      ...(systemRole ? { systemRole } : {}),
     };
     return next();
   }

@@ -87,6 +87,8 @@ services:
       - ./services/organization-service/.env
     environment:
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - FRIEND_SERVICE_URL=${FRIEND_SERVICE_URL}
+      - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
     networks:
       - enterprise-network
     deploy:

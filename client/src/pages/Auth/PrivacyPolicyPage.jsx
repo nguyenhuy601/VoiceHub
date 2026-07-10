@@ -61,7 +61,7 @@ function PrivacyPolicyPage() {
             <ArrowLeft size={16} aria-hidden />
             {t('privacyPolicy.backToRegister')}
           </Link>
-          <Link to="/" className={FIGMA_LEGAL_LINK_SECONDARY}>
+          <Link to="/login" className={FIGMA_LEGAL_LINK_SECONDARY}>
             {t('common.backHome')}
           </Link>
         </div>

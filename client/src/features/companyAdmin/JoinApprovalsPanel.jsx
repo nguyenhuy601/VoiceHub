@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
@@ -11,6 +11,7 @@ export default function JoinApprovalsPanel({ orgId }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState('');
+  const [pendingOnly, setPendingOnly] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,6 +34,11 @@ export default function JoinApprovalsPanel({ orgId }) {
     load();
   }, [load]);
 
+  const visibleItems = useMemo(() => {
+    if (!pendingOnly) return items;
+    return items.filter((a) => String(a.status || 'pending').toLowerCase() === 'pending');
+  }, [items, pendingOnly]);
+
   const review = async (applicationId, action) => {
     if (!orgId || !applicationId) return;
     setBusyId(String(applicationId));
@@ -51,10 +57,16 @@ export default function JoinApprovalsPanel({ orgId }) {
     return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
   }
 
-  if (!items.length) {
+  if (!visibleItems.length) {
     return (
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold">{t('companyAdmin.tabApprovals')}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">{t('companyAdmin.tabApprovals')}</h2>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} />
+            {t('adminUsers.filterPendingOnly')}
+          </label>
+        </div>
         <p className="text-sm text-muted-foreground">{t('companyAdmin.noPendingApplications')}</p>
       </div>
     );
@@ -62,9 +74,15 @@ export default function JoinApprovalsPanel({ orgId }) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">{t('companyAdmin.tabApprovals')}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">{t('companyAdmin.tabApprovals')}</h2>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} />
+          {t('adminUsers.filterPendingOnly')}
+        </label>
+      </div>
       <ul className="space-y-3">
-        {items.map((app) => {
+        {visibleItems.map((app) => {
           const appId = app.applicationId || app._id || app.id;
           const name =
             app?.applicantSnapshot?.fullName ||

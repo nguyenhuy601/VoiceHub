@@ -64,7 +64,11 @@ class MeetingRecordingController {
       if (!userId) {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
-      const data = await meetingRecordingService.getRecordingPayload(req.params.meetingId, userId);
+      const data = await meetingRecordingService.getRecordingPayload(
+        req.params.meetingId,
+        userId,
+        req.user
+      );
       return res.json({ success: true, data });
     } catch (error) {
       logger.error('getRecording error:', error);
@@ -84,7 +88,8 @@ class MeetingRecordingController {
       const { stream, contentType } = await meetingRecordingService.streamRecording(
         req.params.meetingId,
         userId,
-        req.query?.segmentId || null
+        req.query?.segmentId || null,
+        req.user
       );
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'private, max-age=3600');

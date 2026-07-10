@@ -770,6 +770,123 @@ class FriendService {
       throw new Error(`Error getting relationship: ${error.message}`);
     }
   }
+
+  /**
+   * Đảm bảo hai user là bạn (accepted, 2 chiều) — bỏ qua lời mời.
+   * Không ghi đè quan hệ blocked. Idempotent nếu đã accepted.
+   */
+  async ensureAcceptedFriendship(userIdA, userIdB, { source = 'system' } = {}) {
+    try {
+      await ensureMongoReady();
+      const a = toObjectId(userIdA);
+      const b = toObjectId(userIdB);
+      if (!a || !b) {
+        return { status: 'skipped', reason: 'invalid_id' };
+      }
+      if (String(a) === String(b)) {
+        return { status: 'skipped', reason: 'self' };
+      }
+
+      const existing = await Friend.find({
+        $or: [
+          { userId: a, friendId: b },
+          { userId: b, friendId: a },
+        ],
+      });
+
+      if (existing.some((row) => row.status === 'blocked')) {
+        return { status: 'blocked' };
+      }
+
+      const alreadyAccepted =
+        existing.length >= 2 && existing.every((row) => row.status === 'accepted');
+      if (alreadyAccepted) {
+        return { status: 'already_friends' };
+      }
+
+      await cancelGraceIfActive(String(userIdA), String(userIdB));
+
+      const now = new Date();
+      const pairs = [
+        [a, b],
+        [b, a],
+      ];
+      for (const [uid, fid] of pairs) {
+        const row = await Friend.findOne({ userId: uid, friendId: fid });
+        if (!row) {
+          await Friend.create({
+            userId: uid,
+            friendId: fid,
+            status: 'accepted',
+            requestedBy: a,
+            acceptedAt: now,
+          });
+        } else if (row.status !== 'accepted') {
+          row.status = 'accepted';
+          row.acceptedAt = now;
+          await row.save();
+        }
+      }
+
+      await clearFriendsListCache(userIdA, userIdB);
+
+      try {
+        await emitRealtimeEvent({
+          event: 'friend:request_accepted',
+          userIds: [String(userIdA), String(userIdB)],
+          payload: {
+            userId: String(userIdA),
+            friendId: String(userIdB),
+            source: String(source || 'system'),
+            acceptedAt: now,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } catch (emitErr) {
+        logger.warn('ensureAcceptedFriendship realtime emit failed:', emitErr.message);
+      }
+
+      logger.info(`Friendship ensured (${source}): ${userIdA} <-> ${userIdB}`);
+      return { status: 'accepted', source };
+    } catch (error) {
+      normalizeMongoError(error);
+      logger.error('Error ensuring accepted friendship:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Kết bạn user với danh sách peers (S2S / department auto-friend).
+   */
+  async ensureAcceptedWithPeers(userId, peerUserIds = [], { source = 'system' } = {}) {
+    const uid = String(userId || '').trim();
+    const peers = [
+      ...new Set(
+        (Array.isArray(peerUserIds) ? peerUserIds : [])
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && id !== uid)
+      ),
+    ];
+    const results = [];
+    for (const peerId of peers) {
+      try {
+        const result = await this.ensureAcceptedFriendship(uid, peerId, { source });
+        results.push({ peerUserId: peerId, ...result });
+      } catch (error) {
+        results.push({
+          peerUserId: peerId,
+          status: 'error',
+          reason: error.message,
+        });
+      }
+    }
+    return {
+      userId: uid,
+      source,
+      ensured: results.filter((r) => r.status === 'accepted' || r.status === 'already_friends').length,
+      results,
+    };
+  }
 }
 
 module.exports = new FriendService();

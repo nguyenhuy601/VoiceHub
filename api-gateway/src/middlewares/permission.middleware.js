@@ -2,7 +2,7 @@ const roleService = require('../services/role.service');
 const {
   getAction,
   extractServerId,
-  noPermissionRoutes,
+  isNoPermissionRoute,
   isTaskAuthBypassRoute,
   isDownstreamAuthorizedRoute,
   isSelfRoleReadRequest,
@@ -11,7 +11,7 @@ const {
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,
 } = require('../config/permissions');
-const { isPublicRoute, normalizePath, isAuthInternalS2SPath } = require('../config/services');
+const { isPublicRoute, isAuthInternalS2SPath, resolveReqApiPath } = require('../config/services');
 const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
@@ -30,18 +30,23 @@ function cacheKey(userId, serverId, action) {
  */
 const permissionMiddleware = async (req, res, next) => {
   try {
+    const apiPath = resolveReqApiPath(req);
     const pathOnly = String(req.originalUrl || req.url || req.path || '')
       .split('?')[0]
       .replace(/\/+/g, '/');
 
-    // Bỏ qua routes public (đăng ký, đăng nhập, ...),
-    // và các routes được đánh dấu không cần kiểm tra permission
-    if (isPublicRoute(req.path) || noPermissionRoutes.some((route) => req.path.startsWith(route))) {
+    // Bỏ qua routes public và routes chỉ cần JWT (service đích tự authorize)
+    if (
+      isPublicRoute(apiPath) ||
+      isPublicRoute(req.path) ||
+      isNoPermissionRoute(apiPath) ||
+      isNoPermissionRoute(req.path)
+    ) {
       return next();
     }
 
     // Bootstrap S2S — auth-service tự internalGatewayAuth; không cần req.user ở gateway
-    if (isAuthInternalS2SPath(pathOnly) || isAuthInternalS2SPath(req.path)) {
+    if (isAuthInternalS2SPath(apiPath) || isAuthInternalS2SPath(req.path)) {
       return next();
     }
 
@@ -56,15 +61,19 @@ const permissionMiddleware = async (req, res, next) => {
     }
 
     // Task / Work / AI-task / workspace boards — task-service tự authorize.
-    if (isTaskAuthBypassRoute(pathOnly)) {
+    if (isTaskAuthBypassRoute(apiPath) || isTaskAuthBypassRoute(pathOnly)) {
       return next();
     }
 
-    // Lấy action từ route và method
-    const action = getAction(req.method, req.path);
+    // Lấy action từ route và method (chuẩn hóa /api prefix)
+    const action = getAction(req.method, apiPath);
 
     if (!action) {
-      if (isDownstreamAuthorizedRoute(pathOnly)) {
+      // null action = không cần role-service HOẶC chưa map — phân biệt rõ
+      if (isNoPermissionRoute(apiPath) || isNoPermissionRoute(req.path)) {
+        return next();
+      }
+      if (isDownstreamAuthorizedRoute(apiPath) || isDownstreamAuthorizedRoute(pathOnly)) {
         return next();
       }
       console.warn(

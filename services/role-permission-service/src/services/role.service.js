@@ -101,7 +101,17 @@ class RoleService {
   // Tạo role mới
   async createRole(roleData) {
     try {
-      const { name, serverId, organizationId, permissions, color, isDefault, priority } = roleData;
+      const {
+        name,
+        description,
+        scope,
+        serverId,
+        organizationId,
+        permissions,
+        color,
+        isDefault,
+        priority,
+      } = roleData;
 
       // Kiểm tra role name đã tồn tại trong server chưa
       const existingRole = await Role.findOne({ name, serverId });
@@ -109,8 +119,16 @@ class RoleService {
         throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 400, 'ROLE_NAME_EXISTS');
       }
 
+      const normalizedScope = String(scope || 'ORGANIZATION').toUpperCase();
+      const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
+      if (!allowedScopes.includes(normalizedScope)) {
+        throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
+      }
+
       const role = new Role({
         name,
+        description: description != null ? String(description).trim() : '',
+        scope: normalizedScope,
         serverId,
         organizationId,
         permissions: permissions || [],
@@ -318,13 +336,26 @@ class RoleService {
   // Cập nhật role
   async updateRole(roleId, updateData) {
     try {
-      const allowedFields = ['name', 'permissions', 'color', 'priority', 'isDefault'];
+      const allowedFields = ['name', 'description', 'scope', 'permissions', 'color', 'priority', 'isDefault'];
       const updateFields = {};
 
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
           updateFields[field] = updateData[field];
         }
+      }
+
+      if (updateFields.scope !== undefined) {
+        const normalizedScope = String(updateFields.scope || '').toUpperCase();
+        const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
+        if (!allowedScopes.includes(normalizedScope)) {
+          throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
+        }
+        updateFields.scope = normalizedScope;
+      }
+
+      if (updateFields.description !== undefined) {
+        updateFields.description = String(updateFields.description || '').trim();
       }
 
       const role = await Role.findByIdAndUpdate(

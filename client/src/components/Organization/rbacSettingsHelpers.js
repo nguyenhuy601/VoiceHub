@@ -14,6 +14,10 @@ import {
   permissionEntriesFromState,
   summarizePermissions,
 } from './roleRbacUtils';
+import {
+  ADMIN_RBAC_PERMISSION_GROUPS,
+  toLegacyPermissionGroups,
+} from '../../config/adminRbacCatalog';
 
 // useAppStrings (marker for strict i18n scanner)
 
@@ -34,43 +38,10 @@ export function membershipRoleLabel(t) {
   };
 }
 
-/** Nhóm quyền hiển thị — khớp resource BE (role-permission-service). */
+/** Nhóm quyền hiển thị — catalog admin RBAC (fine-grained). */
 export function rbacPermissionGroups(t) {
-  return [
-    {
-      id: 'chat',
-      label: typeof t === 'function' ? t('organizations.rbacGroupChat') : '# Chat',
-      resources: [{ resource: 'chat', actions: ['read', 'write', 'delete'] }],
-    },
-    {
-      id: 'task',
-      label: typeof t === 'function' ? t('organizations.rbacGroupTask') : 'Task',
-      resources: [{ resource: 'task', actions: ['read', 'write', 'delete'] }],
-    },
-    {
-      id: 'document',
-      label: typeof t === 'function' ? t('organizations.rbacGroupDocument') : 'Document',
-      resources: [{ resource: 'document', actions: ['read', 'write', 'delete'] }],
-    },
-    {
-      id: 'voice',
-      label: typeof t === 'function' ? t('organizations.rbacGroupVoiceMeeting') : 'Voice & meetings',
-      resources: [{ resource: 'voice', actions: ['read', 'write', 'delete'] }],
-    },
-    {
-      id: 'org',
-      label: typeof t === 'function' ? t('organizations.rbacGroupOrganizationMembers') : 'Organization & members',
-      resources: [
-        { resource: 'organization', actions: ['read'] },
-        { resource: 'organization_member', actions: ['read', 'write'] },
-      ],
-    },
-    {
-      id: 'role',
-      label: typeof t === 'function' ? t('organizations.rbacGroupSystemRole') : 'System roles',
-      resources: [{ resource: 'role', actions: ['read', 'write', 'delete', 'admin'] }],
-    },
-  ];
+  void t;
+  return toLegacyPermissionGroups(ADMIN_RBAC_PERMISSION_GROUPS, 'vi');
 }
 
 // Backward-compatible constants for existing imports.

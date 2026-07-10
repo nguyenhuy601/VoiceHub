@@ -1,0 +1,48 @@
+---
+description: Chuẩn thiết kế UI admin/enterprise — form phức tạp, RBAC, catalog lớn phải chi tiết như PermissionEditorGrid (2 cột, summary, search, bảng)
+globs: client/src/**/*.{jsx,tsx,css}
+alwaysApply: false
+---
+
+# Thiết kế giao diện admin / catalog lớn — bắt buộc chi tiết
+
+Khi thiết kế hoặc refactor **màn admin**, **form cấu hình**, **gán quyền / catalog nhiều mục** (RBAC, settings, matrix, picker lớn): **không** xếp toàn bộ thành card dài một trang. Làm **chi tiết, có cấu trúc**, ưu tiên quản lý hàng trăm mục.
+
+Tham chiếu chuẩn: `client/src/components/adminRbac/PermissionEditorGrid.jsx`.
+
+## Bắt buộc có
+
+1. **Summary bar** (trên cùng): đối tượng đang sửa (tên role/user…), ngữ cảnh (scope/org), **số đã chọn / tổng**, hành động toàn cục (Chọn tất cả / Bỏ chọn).
+2. **Layout 2 cột** (desktop):
+   - **Trái**: danh sách nhóm/module — icon, nhãn, `đã chọn/tổng`, trạng thái (none / partial / all), search.
+   - **Phải**: chỉ nội dung **nhóm đang chọn** — không render hết mọi nhóm cùng lúc.
+3. **Nội dung nhóm dạng bảng** (hoặc list dày đặc), không card lớn từng permission:
+   - Cột: tên · mô tả · access (checkbox/toggle).
+   - Select all theo nhóm / theo section; indeterminate khi chọn một phần.
+4. **Chia cột trong panel phải** khi một nhóm có nhiều section (vd. Department | Team) — `grid` 2 cột, không xếp dọc vô hạn.
+5. **Search** lọc nhóm + permission theo tên/mô tả; đổi nhóm active nếu kết quả không còn nhóm hiện tại.
+6. **Accordion / preview** ở sidebar: mở rộng nhóm → xem nhanh các mục đã chọn (không thay bảng chính).
+7. **Ít scroll trang**: scroll nội bộ sidebar + panel (`max-h` + `overflow-y-auto`); viewport chính gọn.
+8. **Responsive**: mobile xếp dọc (sidebar trên / detail dưới); desktop 2 cột.
+9. **Mở rộng được**: nhóm mới chỉ thêm vào catalog/config — UI đọc catalog, không hardcode từng card.
+
+## Cấm
+
+- Một trang dài toàn card permission/module xếp chồng.
+- Hiển thị đồng thời mọi nhóm chi tiết khi catalog > ~2–3 nhóm.
+- Chỉ có toggle không có mô tả / không có đếm đã chọn.
+- Thiếu search khi số mục có thể > 20.
+
+## Checklist trước khi coi “xong UI”
+
+- [ ] Summary: đối tượng + scope/context + count
+- [ ] Sidebar nhóm + trạng thái chọn + search
+- [ ] Detail chỉ 1 nhóm; bảng Permission | Description | Access
+- [ ] Select all / clear (global + theo nhóm)
+- [ ] Section nhiều → chia cột
+- [ ] Locale vi/en cho nhãn mới
+- [ ] Không phá pattern admin hiện có (picker, toast, ConfirmDialog)
+
+## Phạm vi
+
+Áp dụng khi task nói **thiết kế giao diện**, admin panel, RBAC, form gán quyền, matrix, settings nhiều mục. Không bắt buộc cho trang marketing/landing (vẫn theo user rule frontend design riêng).

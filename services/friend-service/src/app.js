@@ -16,6 +16,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'friend-service' });
 });
 
+// S2S — chỉ internal token (không JWT user)
+const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
+const internalFriendRoutes = require('./routes/internalFriend.routes');
+app.use('/api/friends/internal', internalGatewayAuth, internalFriendRoutes);
+
 // Friend routes
 const friendRoutes = require('./routes/friend.routes');
 app.use('/api/friends', friendRoutes);

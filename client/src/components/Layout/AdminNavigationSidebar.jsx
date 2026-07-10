@@ -1,21 +1,37 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
+  BarChart3,
+  Bell,
   Building2,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
-  ClipboardList,
-  LayoutDashboard,
+  Database,
+  FolderOpen,
+  Hash,
+  Kanban,
+  LayoutGrid,
   Lock,
   LogOut,
+  MessageSquare,
+  Mic,
+  ScrollText,
   Settings,
   Shield,
+  Sparkles,
   User,
-  UserCheck,
   Users,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ADMIN_SECTIONS, ADMIN_SUITE_COLOR } from '../../config/adminNavConfig';
+import {
+  ADMIN_DOMAIN_STORAGE_KEY,
+  ADMIN_SUITE_COLOR,
+  getVisibleAdminDomains,
+  normalizeAdminPath,
+  resolveAdminDomainFromPath,
+} from '../../config/adminDomainsConfig';
 import { useAuth } from '../../context/AuthContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
@@ -39,35 +55,138 @@ import {
 const COLLAPSE_KEY = 'vh_admin_sidebar_collapsed';
 const ADMIN_COLOR = ADMIN_SUITE_COLOR;
 
-const ICONS = {
-  overview: LayoutDashboard,
-  people: Users,
-  approvals: UserCheck,
-  general: Settings,
-  structure: Building2,
-  roles: Shield,
-  policy: ClipboardList,
-  security: Lock,
+const DOMAIN_ICONS = {
+  Users,
+  Building2,
+  Shield,
+  Hash,
+  MessageSquare,
+  Mic,
+  Kanban,
+  FolderOpen,
+  Bell,
+  Sparkles,
+  Lock,
+  ScrollText,
+  Database,
+  Settings,
+  Activity,
+  BarChart3,
+  LayoutGrid,
 };
 
 const unwrap = (payload) => payload?.data ?? payload;
 
+function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
+  const { t } = useAppStrings();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [selectedDomain?.id]);
+
+  const Icon = selectedDomain ? DOMAIN_ICONS[selectedDomain.icon] || LayoutGrid : LayoutGrid;
+
+  return (
+    <div ref={rootRef} className="relative z-20 mb-3 px-1">
+      <label className="mb-1 block text-[0.625rem] font-semibold uppercase tracking-wider text-white/35">
+        {t('adminDomains.selectDomain')}
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="flex w-full items-center gap-2 rounded-lg border border-red-500/25 bg-[#0f0a12] py-2 pl-2.5 pr-2 text-left outline-none transition hover:border-red-500/40 focus:border-red-500/50 focus:ring-1 focus:ring-red-500/30"
+      >
+        <Icon size={14} className="shrink-0 text-red-400" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-white/90">
+          {selectedDomain ? t(selectedDomain.labelKey) : t('adminDomains.allDomains')}
+        </span>
+        <ChevronDown
+          size={14}
+          className={`shrink-0 text-white/40 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+
+      {open ? (
+        <>
+          <button
+            type="button"
+            aria-label={t('common.close')}
+            className="fixed inset-0 z-30 cursor-default bg-black/40"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="listbox"
+            className="absolute left-1 right-1 z-40 mt-1 max-h-[min(16rem,42vh)] overflow-y-auto rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)]"
+          >
+            {domains.map((domain) => {
+              const DomainItemIcon = DOMAIN_ICONS[domain.icon] || LayoutGrid;
+              const active = domain.id === selectedDomain?.id;
+              return (
+                <button
+                  key={domain.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onSelect(domain);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-[0.8125rem] transition ${
+                    active
+                      ? 'bg-red-500/20 font-medium text-red-100'
+                      : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
+                  }`}
+                >
+                  <DomainItemIcon
+                    size={14}
+                    className={`shrink-0 ${active ? 'text-red-400' : 'text-white/45'}`}
+                    aria-hidden
+                  />
+                  <span className="truncate">{t(domain.labelKey)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
   const { t } = useAppStrings();
-  const Icon = ICONS[item.id] || Settings;
   const label = t(item.labelKey);
 
   return (
     <Link
       to={item.path}
-      className={figmaNavItemClass(isActive, ADMIN_COLOR, collapsed)}
+      className={`${figmaNavItemClass(isActive, ADMIN_COLOR, collapsed)} ${isActive ? '!text-white' : ''}`}
       style={figmaNavItemBg(isActive, ADMIN_COLOR)}
       title={collapsed ? label : undefined}
     >
-      <Icon size={15} className="shrink-0" style={{ color: isActive ? ADMIN_COLOR : undefined }} />
+      <span
+        className={`h-[6px] w-[6px] shrink-0 rounded-full ${isActive ? 'bg-red-400' : 'bg-white/25'}`}
+        aria-hidden
+      />
       {!collapsed ? (
         <>
-          <span className="flex-1 truncate text-[0.8125rem]">{label}</span>
+          <span className={`flex-1 truncate text-[0.8125rem] ${isActive ? 'font-medium text-white' : ''}`}>
+            {label}
+          </span>
           {badge > 0 ? (
             <span
               className="rounded-full px-1.5 py-px text-[0.625rem] font-bold text-white"
@@ -79,6 +198,75 @@ function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
         </>
       ) : null}
     </Link>
+  );
+}
+
+function AdminNavSectionGroup({
+  section,
+  collapsed,
+  isAccordion,
+  isExpanded,
+  onToggle,
+  isActivePath,
+  badgeForItem,
+}) {
+  const { t } = useAppStrings();
+  const hasActive = section.items.some((item) => isActivePath(item));
+
+  if (!section.labelKey || !isAccordion) {
+    return (
+      <div className="mb-2">
+        {!collapsed && section.labelKey ? (
+          <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t(section.labelKey)}</div>
+        ) : null}
+        {section.items.map((item) => (
+          <AdminNavItem
+            key={item.id}
+            item={item}
+            collapsed={collapsed}
+            isActive={isActivePath(item)}
+            badge={badgeForItem(item)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-1">
+      {!collapsed ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isExpanded}
+          className={`flex w-full items-center justify-between gap-2 rounded-[7px] px-2.5 py-2 text-left transition ${
+            hasActive
+              ? 'bg-red-500/15 text-red-200'
+              : 'text-white/50 hover:bg-white/[0.05] hover:text-white/75'
+          }`}
+        >
+          <span className="text-[0.625rem] font-bold uppercase tracking-[0.08em]">{t(section.labelKey)}</span>
+          <ChevronDown
+            size={13}
+            className={`shrink-0 opacity-70 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+      ) : null}
+      {isExpanded && !collapsed ? (
+        <div className="mb-1 ml-1.5 mt-0.5 space-y-px border-l border-red-500/20 pl-1">
+          {section.items.map((item) => (
+            <AdminNavItem
+              key={item.id}
+              item={item}
+              collapsed={collapsed}
+              isActive={isActivePath(item)}
+              badge={badgeForItem(item)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -98,9 +286,58 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     }
   });
   const [pendingJoinCount, setPendingJoinCount] = useState(0);
+  const [expandedSectionByDomain, setExpandedSectionByDomain] = useState({});
 
   const displayName = getUserDisplayName(user);
   const initials = getInitials(displayName);
+
+  const visibleDomains = useMemo(
+    () => getVisibleAdminDomains(isFullAccess),
+    [isFullAccess]
+  );
+
+  const currentPath = normalizeAdminPath(location.pathname);
+  const activeDomain = resolveAdminDomainFromPath(currentPath);
+
+  const [selectedDomainId, setSelectedDomainId] = useState(() => {
+    if (activeDomain?.id) return activeDomain.id;
+    try {
+      return localStorage.getItem(ADMIN_DOMAIN_STORAGE_KEY) || visibleDomains[0]?.id || 'users';
+    } catch {
+      return visibleDomains[0]?.id || 'users';
+    }
+  });
+
+  useEffect(() => {
+    if (activeDomain?.id) {
+      setSelectedDomainId(activeDomain.id);
+      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, activeDomain.id);
+    }
+  }, [activeDomain?.id]);
+
+  const selectedDomain = useMemo(
+    () => visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null,
+    [visibleDomains, selectedDomainId]
+  );
+
+  const isActivePath = (item) => {
+    const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');
+    const current = currentPath.replace(/\/+$/, '');
+    if (item.end) return current === base;
+    return current === base || current.startsWith(`${base}/`);
+  };
+
+  useEffect(() => {
+    if (!selectedDomain?.navAccordion) return;
+    const activeSection = selectedDomain.sections.find((section) =>
+      section.items.some((item) => isActivePath(item))
+    );
+    if (!activeSection) return;
+    setExpandedSectionByDomain((prev) => ({
+      ...prev,
+      [selectedDomain.id]: activeSection.id,
+    }));
+  }, [selectedDomain, currentPath]);
 
   useEffect(() => {
     if (!orgId) return undefined;
@@ -145,16 +382,23 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     }
   };
 
-  const navSections = useMemo(
-    () => ADMIN_SECTIONS.filter((section) => !section.adminOnly || isFullAccess),
-    [isFullAccess]
-  );
+  const handleDomainSelect = (domain) => {
+    setSelectedDomainId(domain.id);
+    localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, domain.id);
+    navigate(domain.path);
+  };
 
-  const isActivePath = (item) => {
-    const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');
-    const current = location.pathname.replace(/\/+$/, '');
-    if (item.end) return current === base;
-    return current === base || current.startsWith(`${base}/`);
+  const toggleNavSection = (sectionId) => {
+    if (!selectedDomain) return;
+    setExpandedSectionByDomain((prev) => ({
+      ...prev,
+      [selectedDomain.id]: prev[selectedDomain.id] === sectionId ? null : sectionId,
+    }));
+  };
+
+  const isSectionExpanded = (section) => {
+    if (!selectedDomain?.navAccordion || !section.labelKey) return true;
+    return expandedSectionByDomain[selectedDomain.id] === section.id;
   };
 
   const badgeForItem = (item) => {
@@ -186,8 +430,9 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
           >
             {!collapsed ? (
               <>
-                <div
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 py-1"
+                <Link
+                  to="/app/admin"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 py-1 transition hover:opacity-90"
                   style={{
                     background: `${ADMIN_COLOR}18`,
                     borderColor: `${ADMIN_COLOR}22`,
@@ -200,7 +445,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
                   >
                     {t('nav.suite.admin.label')}
                   </span>
-                </div>
+                </Link>
                 <button
                   type="button"
                   onClick={toggleCollapsed}
@@ -230,25 +475,28 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
           </div>
         </div>
 
-        <nav className={FIGMA_SIDEBAR_NAV}>
-          {navSections.map((section) => (
-            <div key={section.id} className="mb-2">
-              {!collapsed ? (
-                <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t(section.labelKey)}</div>
-              ) : null}
-              {section.items.map((item) => (
-                <AdminNavItem
-                  key={item.id}
-                  item={item}
-                  collapsed={collapsed}
-                  isActive={isActivePath(item)}
-                  badge={badgeForItem(item)}
-                />
-              ))}
-            </div>
+        <nav className={`${FIGMA_SIDEBAR_NAV} relative`}>
+          {!collapsed ? (
+            <AdminDomainPicker
+              domains={visibleDomains}
+              selectedDomain={selectedDomain}
+              onSelect={handleDomainSelect}
+            />
+          ) : null}
+
+          {selectedDomain?.sections.map((section) => (
+            <AdminNavSectionGroup
+              key={section.id}
+              section={section}
+              collapsed={collapsed}
+              isAccordion={Boolean(selectedDomain.navAccordion)}
+              isExpanded={isSectionExpanded(section)}
+              onToggle={() => toggleNavSection(section.id)}
+              isActivePath={isActivePath}
+              badgeForItem={badgeForItem}
+            />
           ))}
 
-          {/* Chỉ owner/admin/hr công ty (không phải system admin) có lối về shell nhân viên. */}
           {!collapsed && !isSystemAdmin ? (
             <Link
               to="/app/collaborate/workspaces"
@@ -260,13 +508,13 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
         </nav>
 
         <div className={FIGMA_SIDEBAR_FOOTER}>
-          <Link to="/app/admin/general" className="mb-0.5 block">
+          <Link to="/app/admin/system-config" className="mb-0.5 block">
             <div
               className={`flex items-center gap-2.5 rounded-[7px] transition ${
                 collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-[7px]'
               } ${
-                location.pathname.startsWith('/app/admin/general') ||
-                location.pathname.startsWith('/app/admin/security')
+                currentPath.startsWith('/app/admin/system-config') ||
+                currentPath.startsWith('/app/admin/security')
                   ? 'bg-red-500/15 text-red-300'
                   : 'text-white/40 hover:bg-white/[0.06]'
               }`}

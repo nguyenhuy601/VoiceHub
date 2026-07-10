@@ -1,11 +1,24 @@
 const { mongoose } = require('@enterprise/shared/config/mongo');
 
+const ROLE_SCOPES = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
+
 const roleSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
       trim: true,
+    },
+    description: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 1000,
+    },
+    scope: {
+      type: String,
+      enum: ROLE_SCOPES,
+      default: 'ORGANIZATION',
     },
     serverId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -22,11 +35,13 @@ const roleSchema = new mongoose.Schema(
         resource: {
           type: String,
           required: true,
+          trim: true,
         },
+        // Fine-grained actions (view, create, …) + legacy read/write/delete/admin
         actions: [
           {
             type: String,
-            enum: ['read', 'write', 'delete', 'admin'],
+            trim: true,
           },
         ],
       },
@@ -61,6 +76,4 @@ roleSchema.index({ name: 1, serverId: 1 }, { unique: true });
 const Role = mongoose.model('Role', roleSchema);
 
 module.exports = Role;
-
-
-
+module.exports.ROLE_SCOPES = ROLE_SCOPES;

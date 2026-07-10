@@ -4,6 +4,8 @@ const authController = require('../controllers/auth.controller');
 const { verifyAccessToken } = require('../config/jwt');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const { sendServiceError } = require('../middleware/sendServiceError');
+const { adminUserController, internalAuthSummaryBatch } = require('../controllers/adminUser.controller');
+const { companyAdminAuth } = require('../middleware/companyAdminAuth');
 const UserAuth = require('../models/UserAuth');
 
 // Middleware xác thực — verify JWT + tokenVersion (tv) khớp MongoDB
@@ -85,6 +87,8 @@ router.get(
   authController.getTokenVersionInternal.bind(authController)
 );
 
+router.post('/internal/users-auth-summary', internalGatewayAuth, internalAuthSummaryBatch);
+
 // Public routes
 router.post('/register', authController.register.bind(authController));
 router.post('/login', authController.login.bind(authController));
@@ -101,6 +105,38 @@ router.post('/logout', authenticate, authController.logout.bind(authController))
 router.post('/change-password', authenticate, authController.changePassword.bind(authController));
 router.post('/change-email/request', authenticate, authController.requestEmailChange.bind(authController));
 router.get('/me', authenticate, authController.getMe.bind(authController));
+
+// Company admin — user account management (JWT + org admin check at service)
+router.get(
+  '/admin/users/:userId/summary',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: false }),
+  adminUserController.getSummary.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/lock',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.lockUser.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/force-password',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.forcePasswordChange.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/reset-password',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.triggerPasswordReset.bind(adminUserController)
+);
+router.get(
+  '/admin/users/:userId/login-events',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: false }),
+  adminUserController.listLoginEvents.bind(adminUserController)
+);
 
 module.exports = router;
 

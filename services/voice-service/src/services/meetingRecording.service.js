@@ -103,19 +103,23 @@ function enrichMeetingRecordingFields(meeting, segments = []) {
   };
 }
 
-async function assertParticipantAccess(meetingId, userId) {
+async function assertParticipantAccess(meetingId, userId, actor = null) {
   const meeting = await Meeting.findById(meetingId).lean();
   if (!meeting) {
     const err = new Error('Meeting not found');
     err.statusCode = 404;
     throw err;
   }
-  if (!userCanAccessMeetingRecording(meeting, userId)) {
-    const err = new Error('Forbidden');
-    err.statusCode = 403;
-    throw err;
+  if (userCanAccessMeetingRecording(meeting, userId)) {
+    return meeting;
   }
-  return meeting;
+  const { isOrgMeetingAdmin } = require('../clients/orgMembership.client');
+  if (await isOrgMeetingAdmin(actor || { id: userId }, meeting)) {
+    return meeting;
+  }
+  const err = new Error('Forbidden');
+  err.statusCode = 403;
+  throw err;
 }
 
 async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationSec, segmentIndex = null }) {
@@ -203,8 +207,8 @@ async function handleUpload({ meetingId, userId, fileBuffer, mimeType, durationS
   return { meetingId: String(meetingId), recordingStatus: 'processing' };
 }
 
-async function getRecordingPayload(meetingId, userId) {
-  const meeting = await assertParticipantAccess(meetingId, userId);
+async function getRecordingPayload(meetingId, userId, actor = null) {
+  const meeting = await assertParticipantAccess(meetingId, userId, actor || { id: userId });
   const segments = await loadSegmentsForMeeting(meetingId, meeting);
   const enriched = enrichMeetingRecordingFields(meeting, segments);
 
@@ -226,8 +230,8 @@ async function getRecordingPayload(meetingId, userId) {
   };
 }
 
-async function streamRecording(meetingId, userId, segmentId = null) {
-  const meeting = await assertParticipantAccess(meetingId, userId);
+async function streamRecording(meetingId, userId, segmentId = null, actor = null) {
+  const meeting = await assertParticipantAccess(meetingId, userId, actor || { id: userId });
 
   if (segmentId) {
     return meetingRecordingSegmentService.streamSegment(segmentId, meetingId);

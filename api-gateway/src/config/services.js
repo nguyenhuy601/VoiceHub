@@ -152,7 +152,8 @@ function isAuthInternalS2SPath(path) {
   const normalized = String(path || '').split('?')[0].replace(/\/+/g, '/');
   return (
     normalized.startsWith('/api/auth/internal/') ||
-    normalized.startsWith('/api/organizations/internal/')
+    normalized.startsWith('/api/organizations/internal/') ||
+    normalized.startsWith('/api/friends/internal/')
   );
 }
 

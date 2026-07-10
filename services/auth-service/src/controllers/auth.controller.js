@@ -1,4 +1,5 @@
 const authService = require('../services/auth.service');
+const adminUserService = require('../services/adminUser.service');
 const emailService = require('../utils/email');
 const { resolveFrontendUrl } = require('@enterprise/shared');
 const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
@@ -144,6 +145,9 @@ class AuthController {
 
   // Đăng nhập
   async login(req, res) {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const userAgent = String(req.headers['user-agent'] || '').trim();
+    let attemptedUserId = null;
     try {
       const { email, password } = req.body;
 
@@ -155,12 +159,26 @@ class AuthController {
       }
 
       const result = await authService.login(email, password);
+      attemptedUserId = result?.user?.id || result?.user?.userId || result?.userId || null;
+      void adminUserService.recordLoginEvent({
+        userId: attemptedUserId,
+        success: true,
+        ip,
+        userAgent,
+      });
 
       res.json({
         success: true,
         data: result,
       });
     } catch (error) {
+      void adminUserService.recordLoginEvent({
+        userId: attemptedUserId,
+        success: false,
+        ip,
+        userAgent,
+        errorCode: error?.errorCode || 'AUTH_LOGIN_FAILED',
+      });
       return sendError(res, error, 401, 'Đăng nhập thất bại', 'AUTH_LOGIN_FAILED');
     }
   }

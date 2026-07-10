@@ -188,6 +188,9 @@ const proxyMiddleware = (req, res, next) => {
     if (req.user.email) {
       req.headers['x-user-email'] = req.user.email;
     }
+    if (req.user.systemRole) {
+      req.headers['x-user-system-role'] = req.user.systemRole;
+    }
   }
   
   // Đảm bảo Content-Type được forward

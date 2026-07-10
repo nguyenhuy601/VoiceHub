@@ -2,8 +2,10 @@ const path = require('path');
 const fs = require('fs');
 const userService = require('../services/user.service');
 const { logger, getRedisClient } = require('@enterprise/shared');
+const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
 const { uploadsDir } = require('../config/uploadsPath');
+const { fetchAuthSummaryByUserId, fetchAuthSummaryByUserIds } = require('../clients/authSummary.client');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -35,9 +37,16 @@ async function reconcileProfileEmail(req, userId, userProfile) {
     Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
   const authEmail = authEmailFromReq(req);
   if (!profileEmail && hasStoredEmailArtifact) {
-    logger.warn(
-      `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
-    );
+    const authSummary = await fetchAuthSummaryByUserId(userId);
+    const recoveredEmail = String(authSummary?.email || '').trim();
+    if (recoveredEmail) {
+      return userProfile;
+    }
+    if (isEncryptionEnabled()) {
+      logger.warn(
+        `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
+      );
+    }
     return userProfile;
   }
   if (!profileEmail && authEmail) {
@@ -54,13 +63,23 @@ async function reconcileProfileEmail(req, userId, userProfile) {
   return userProfile;
 }
 
-function withAuthEmailFallback(req, payload) {
+function withAuthEmailFallback(req, payload, authSummary = null) {
   if (!payload || typeof payload !== 'object') return payload;
-  const authEmail = authEmailFromReq(req);
+  const authEmail =
+    String(payload.email || '').trim() ||
+    String(authSummary?.email || '').trim() ||
+    authEmailFromReq(req);
   if (!String(payload.email || '').trim() && authEmail) {
     return { ...payload, email: authEmail };
   }
   return payload;
+}
+
+async function enrichPayloadEmailFromAuth(userId, payload, authSummary = null) {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (String(payload.email || '').trim()) return payload;
+  const auth = authSummary || (await fetchAuthSummaryByUserId(userId));
+  return withAuthEmailFallback(null, payload, auth);
 }
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
@@ -149,7 +168,10 @@ class UserController {
 
       res.json({
         success: true,
-        data: withAuthEmailFallback(req, safeProfilePayload(userProfile)),
+        data: await enrichPayloadEmailFromAuth(
+          userId,
+          withAuthEmailFallback(req, safeProfilePayload(userProfile))
+        ),
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -541,6 +563,64 @@ class UserController {
     } catch (error) {
       logger.error('Upload avatar error:', error);
       return sendError(res, error, 400, 'Không thể tải ảnh đại diện lên', 'USER_AVATAR_UPLOAD_FAILED');
+    }
+  }
+
+  // Batch profiles — S2S enrich (organization-service admin list)
+  async internalProfilesBatch(req, res) {
+    try {
+      const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+      const ids = [...new Set(userIds.map((id) => String(id || '').trim()).filter(Boolean))];
+      const authMap = await fetchAuthSummaryByUserIds(ids);
+      const profiles = await Promise.all(
+        ids.map(async (userId) => {
+          const profile = await userService.getUserProfileById(userId);
+          if (!profile) return null;
+          const payload = safeProfilePayload(profile);
+          const enriched = await enrichPayloadEmailFromAuth(userId, payload, authMap.get(userId));
+          return { ...enriched, userId: String(enriched.userId || userId) };
+        })
+      );
+      return res.json({
+        success: true,
+        data: {
+          profiles: profiles.filter(Boolean),
+        },
+      });
+    } catch (error) {
+      logger.error('internalProfilesBatch error:', error);
+      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_BATCH_FAILED');
+    }
+  }
+
+  async adminGetProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const profile = await userService.getUserProfileById(userId);
+      if (!profile) {
+        return res.status(404).json({ success: false, message: 'User profile not found' });
+      }
+      const authSummary = await fetchAuthSummaryByUserId(userId);
+      const payload = await enrichPayloadEmailFromAuth(
+        userId,
+        withAuthEmailFallback(req, safeProfilePayload(profile), authSummary)
+      );
+      return res.json({ success: true, data: payload });
+    } catch (error) {
+      logger.error('adminGetProfile error:', error);
+      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_GET_FAILED');
+    }
+  }
+
+  async adminPatchProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const userProfile = await userService.updateUserProfile(userId, body);
+      return res.json({ success: true, data: safeProfilePayload(userProfile) });
+    } catch (error) {
+      logger.error('adminPatchProfile error:', error);
+      return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');
     }
   }
 

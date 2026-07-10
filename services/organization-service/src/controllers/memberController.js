@@ -28,7 +28,8 @@ const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('.
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
-const { searchUserByEmail } = require('../clients/userLookup.client');
+const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
+const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
 const CompanyInvite = require('../models/CompanyInvite');
 const crypto = require('crypto');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
@@ -322,6 +323,44 @@ exports.getMembers = async (req, res, next) => {
   }
 };
 
+async function enrichMembersForAdminList(members) {
+  const userIds = members
+    .map((m) => String(m.user?._id || m.user || m.userId || '').trim())
+    .filter(Boolean);
+  const [profileMap, authMap] = await Promise.all([
+    fetchProfilesByUserIds(userIds),
+    fetchAuthSummaryByUserIds(userIds),
+  ]);
+
+  return members.map((member) => {
+    const userId = String(member.user?._id || member.user || member.userId || '').trim();
+    const profile = profileMap.get(userId) || {};
+    const auth = authMap.get(userId) || {};
+    const email = String(profile.email || auth.email || '').trim() || null;
+    const emailLocal = email && email.includes('@') ? email.split('@')[0] : '';
+    const displayName =
+      profile.displayName ||
+      profile.fullName ||
+      [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim() ||
+      profile.username ||
+      emailLocal ||
+      null;
+    return {
+      ...member,
+      userId,
+      email,
+      displayName,
+      username: profile.username || null,
+      avatar: profile.avatar || null,
+      jobTitle: profile.jobTitle || profile.preferences?.jobTitle || null,
+      isActive: auth.isActive,
+      mustChangePassword: auth.mustChangePassword,
+      isLocked: auth.isLocked,
+      lastLoginAt: auth.lastLoginAt || null,
+    };
+  });
+}
+
 /** Gom members + roles RBAC — một request cho sidebar (wave-2d). */
 exports.getMembersWithRoles = async (req, res, next) => {
   try {
@@ -330,7 +369,8 @@ exports.getMembersWithRoles = async (req, res, next) => {
       listMembersForOrg(req),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
-    return res.json({ status: 'success', data: { members, roles } });
+    const enriched = await enrichMembersForAdminList(members);
+    return res.json({ status: 'success', data: { members: enriched, roles } });
   } catch (error) {
     const handled = orgOperationalError(res, error);
     if (handled) return handled;

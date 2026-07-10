@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Shield,
@@ -14,13 +15,12 @@ import {
   Info,
 } from 'lucide-react';
 import { GradientButton } from '../Shared';
+import PermissionEditorGrid from '../adminRbac/PermissionEditorGrid';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import api from '../../services/api';
 import userService from '../../services/userService';
 import {
-  ACTION_LABEL,
-  RBAC_PERMISSION_GROUPS,
   MEMBERSHIP_ROLE_LABEL,
   buildStructurePath,
   grantedPermissionCount,
@@ -355,6 +355,15 @@ export default function OrganizationRbacSettings({ orgId }) {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="flex flex-col gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-300">{t('adminRbac.adminHubHint')}</p>
+        <Link
+          to="/app/admin/rbac/roles"
+          className="shrink-0 text-sm font-medium text-cyan-300 underline-offset-2 hover:text-cyan-200 hover:underline"
+        >
+          {t('adminRbac.adminHubLink')}
+        </Link>
+      </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-xl font-bold text-white">
@@ -542,39 +551,30 @@ export default function OrganizationRbacSettings({ orgId }) {
                 </div>
 
                 <div className="space-y-4">
-                  {RBAC_PERMISSION_GROUPS.map((group) => (
-                    <div key={group.id} className="rounded-xl border border-border bg-card p-4">
-                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {group.label}
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {group.resources.flatMap((res) =>
-                          res.actions.map((action) => {
-                            const key = `${res.resource}:${action}`;
-                            const on = Boolean(permDraft[key]);
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                disabled={!permEditMode}
-                                onClick={() =>
-                                  setPermDraft((prev) => ({ ...prev, [key]: !prev[key] }))
-                                }
-                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                                  on
-                                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
-                                    : 'border-slate-700 bg-slate-900 text-slate-500'
-                                } ${permEditMode ? 'cursor-pointer hover:border-slate-500' : 'cursor-default opacity-90'}`}
-                              >
-                                {on ? <Check className="h-3 w-3" /> : null}
-                                {ACTION_LABEL[action] || action}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                  <PermissionEditorGrid
+                    permDraft={permDraft}
+                    editable={permEditMode}
+                    roleName={normalizeRoleDisplayName(selectedRole.name)}
+                    roleScope={selectedRole.scope || 'ORGANIZATION'}
+                    onToggle={(key) =>
+                      setPermDraft((prev) => {
+                        const next = { ...prev };
+                        if (next[key]) delete next[key];
+                        else next[key] = true;
+                        return next;
+                      })
+                    }
+                    onSetMany={(keys, value) => {
+                      setPermDraft((prev) => {
+                        const next = { ...prev };
+                        for (const key of keys) {
+                          if (value) next[key] = true;
+                          else delete next[key];
+                        }
+                        return next;
+                      });
+                    }}
+                  />
                 </div>
               </>
             )}

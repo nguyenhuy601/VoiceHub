@@ -79,7 +79,7 @@ class MeetingController {
       if (!existing) {
         return res.status(404).json({ success: false, message: 'Meeting not found' });
       }
-      meetingService.assertMeetingHost(existing, userId);
+      await meetingService.assertCanManageMeeting(existing, req.user || { id: userId });
       const meeting = await meetingService.endMeeting(meetingId);
 
       res.json({
@@ -88,9 +88,10 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('End meeting error:', error);
-      res.status(400).json({
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
         success: false,
-        message: safeErrorMessage(error, 'Không thể tải danh sách cuộc họp'),
+        message: safeErrorMessage(error, 'Không thể kết thúc cuộc họp'),
       });
     }
   }

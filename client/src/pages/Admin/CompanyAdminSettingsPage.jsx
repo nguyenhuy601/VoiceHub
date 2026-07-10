@@ -1,13 +1,13 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import OrganizationSettingsPanel from '../../components/Organization/OrganizationSettingsPanel';
-import { adminSettingsEmbedTab, resolveAdminSectionFromPath } from '../../config/adminNavConfig';
+import { adminSettingsEmbedTabFromItem, findAdminNavItem } from '../../config/adminDomainsConfig';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
 
 export default function CompanyAdminSettingsPage() {
   const location = useLocation();
-  const section = resolveAdminSectionFromPath(location.pathname);
+  const match = findAdminNavItem(location.pathname);
+  const settingsTab = adminSettingsEmbedTabFromItem(match?.item);
   const { organization, isFullAccess, refreshOrganization } = useCompanyAdminContext();
-  const settingsTab = adminSettingsEmbedTab(section);
 
   if (!isFullAccess) {
     return <Navigate to="/app/admin" replace />;

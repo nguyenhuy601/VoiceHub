@@ -19,4 +19,10 @@ export const meetingAPI = {
   createMeeting: (data) => apiClient.post('/meetings', data),
 
   getMeetingById: (meetingId) => apiClient.get(`/meetings/${meetingId}`),
+
+  startMeeting: (meetingId) => apiClient.post(`/meetings/${meetingId}/start`),
+
+  endMeeting: (meetingId) => apiClient.post(`/meetings/${meetingId}/end`),
 };
+
+export default meetingAPI;

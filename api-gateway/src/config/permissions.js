@@ -73,10 +73,14 @@ const routeActionMap = {
   'PUT /api/organizations/:orgId/departments': 'organization:write',
   'DELETE /api/organizations/:orgId/departments': 'organization:delete',
   'GET /api/organizations/:orgId/members': 'organization:read',
+  'GET /api/organizations/:orgId/members/with-roles': 'organization:read',
+  'POST /api/organizations/:orgId/members/invite': 'organization:write',
+  'PUT /api/organizations/:orgId/members/:userId/role': 'organization:write',
+  'DELETE /api/organizations/:orgId/members/:userId': 'organization:delete',
+  'GET /api/organizations/:orgId/join-applications': 'organization:read',
+  'PATCH /api/organizations/:orgId/join-applications/:applicationId': 'organization:write',
+  'GET /api/organizations/my/join-applications-to-review': 'organization:read',
   'POST /api/organizations/:orgId/members/leave': 'organization:read',
-  'POST /api/organizations/:orgId/members': 'organization:write',
-  'PUT /api/organizations/:orgId/members': 'organization:write',
-  'DELETE /api/organizations/:orgId/members': 'organization:delete',
   'GET /api/organizations/:orgId/departments/:deptId/channels': 'organization:read',
   'POST /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
   'PUT /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
@@ -135,12 +139,21 @@ const TASK_AUTH_BYPASS_PREFIXES = [
 const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
 
 /**
+ * Admin user management — auth/user-service tự `companyAdminAuth`; gateway chỉ cần JWT.
+ */
+const ADMIN_SERVICE_AUTH_PREFIXES = [
+  '/api/auth/admin',
+  '/api/users/admin',
+];
+
+/**
  * Routes không cần kiểm tra permission (chỉ cần authentication)
  * Bao gồm:
  * - Auth routes (logout, change-password, me) - không cần server context
  * - User profile routes
  * - Friend routes
  * - Notification routes
+ * - Admin user management (downstream authorize)
  */
 const noPermissionRoutes = [
   '/api/auth/logout',
@@ -150,10 +163,12 @@ const noPermissionRoutes = [
   // User profile & avatar không phụ thuộc server/organization
   '/api/users/me',
   '/api/users/avatar',
+  ...ADMIN_SERVICE_AUTH_PREFIXES,
   '/api/bootstrap',
   '/api/dashboard/summary',
   // Friend routes không cần server context
   '/api/friends',
+  '/api/friends/internal',
   '/api/notifications',
   '/api/organizations/my',
   '/api/organizations/company-invites',
@@ -188,6 +203,11 @@ function isNoPermissionRoute(path) {
   return noPermissionRoutes.some(
     (route) => pathWithoutQuery.startsWith(route) || apiPath.startsWith(route)
   );
+}
+
+function isAdminServiceAuthRoute(path) {
+  const apiPath = normalizeToApiPath(String(path || '').split('?')[0]);
+  return ADMIN_SERVICE_AUTH_PREFIXES.some((prefix) => apiPath.startsWith(prefix));
 }
 
 function isTaskAuthBypassRoute(path) {
@@ -403,16 +423,40 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/ai/summaries/sum1'],
   ['GET', '/api/voice/calls/active'],
   ['GET', '/api/meetings'],
+  ['POST', '/api/meetings/meeting1/end'],
+  ['GET', '/api/meetings/meeting1/recording'],
   ['GET', '/api/roles/server/org1'],
   ['GET', '/api/workspaces/ws1/task-boards'],
+  ['GET', '/api/organizations/org1/members/with-roles'],
+  ['POST', '/api/organizations/org1/members/invite'],
+  ['DELETE', '/api/organizations/org1/members/user1'],
+  ['PUT', '/api/organizations/org1/members/user1/role'],
+  ['GET', '/api/organizations/my/join-applications-to-review'],
+  ['PATCH', '/api/organizations/org1/join-applications/app1'],
+  ['GET', '/api/auth/admin/users/user1/summary'],
+  ['POST', '/api/auth/admin/users/user1/lock'],
+  ['POST', '/api/auth/admin/users/user1/force-password'],
+  ['POST', '/api/auth/admin/users/user1/reset-password'],
+  ['GET', '/api/auth/admin/users/user1/login-events'],
+  ['GET', '/api/users/admin/user1'],
+  ['PATCH', '/api/users/admin/user1'],
+  ['POST', '/api/roles/assign'],
+  ['POST', '/api/roles/remove'],
+  ['POST', '/api/roles'],
+  ['PATCH', '/api/roles/role1'],
+  ['DELETE', '/api/roles/role1'],
+  ['GET', '/api/roles/user/user1/server/org1'],
+  ['GET', '/api/permissions/user/user1/server/org1'],
 ];
 
 module.exports = {
   getAction,
   extractServerId,
   noPermissionRoutes,
+  ADMIN_SERVICE_AUTH_PREFIXES,
   DOWNSTREAM_AUTH_PREFIXES,
   isNoPermissionRoute,
+  isAdminServiceAuthRoute,
   isTaskAuthBypassRoute,
   isDownstreamAuthorizedRoute,
   classifyPermissionRoute,

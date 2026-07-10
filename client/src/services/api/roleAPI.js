@@ -18,13 +18,11 @@ export const roleAPI = {
     return apiClient.get(`/roles/server/${id}`);
   },
 
-  /* ----- GET ROLES BY SERVER -----
-     Lấy danh sách roles trong 1 server cụ thể
-     Query: GET /servers/{serverId}/roles
-     Return: [{ id, name, permissions, members, color, icon, ... }]
-  */
+  /* ----- GET ROLES BY SERVER (legacy — use getRolesByOrganization) ----- */
   getRolesByServer: (serverId) => {
-    return apiClient.get(`/servers/${serverId}/roles`);
+    console.warn('[roleAPI] getRolesByServer is deprecated; use getRolesByOrganization');
+    const id = encodeURIComponent(serverId);
+    return apiClient.get(`/roles/server/${id}`);
   },
 
   /* ----- GET ROLE BY ID -----
@@ -95,7 +93,13 @@ export const roleAPI = {
   */
   getUserRoles: (userId, serverId) => {
     return apiClient.get(`/roles/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`);
-  }
+  },
+
+  getUserPermissions: (userId, serverId) => {
+    return apiClient.get(
+      `/permissions/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`
+    );
+  },
 };
 
 export default roleAPI;

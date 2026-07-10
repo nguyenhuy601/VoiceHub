@@ -9,18 +9,12 @@ import {
   ClipboardList,
   FileText,
   LayoutDashboard,
-  LogOut,
   MessageCircle,
   Mic,
-  Settings,
   Shield,
-  User,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import useUiRole from '../../hooks/useUiRole';
-import { getRoleMeta } from '../../config/roleMeta';
-import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
@@ -33,14 +27,11 @@ import {
   buildCommunicateChannelsPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
-import { getInitials, getUserDisplayName } from '../../utils/helpers';
-import { removeToken } from '../../utils/tokenStorage';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
   FIGMA_SIDEBAR_EXPANDED,
-  FIGMA_SIDEBAR_FOOTER,
   FIGMA_SIDEBAR_NAV,
   FIGMA_SIDEBAR_SECTION_LABEL,
   FIGMA_SIDEBAR_SUITE_STRIP,
@@ -51,24 +42,6 @@ import {
 } from './figmaShellClasses';
 
 const COLLAPSE_KEY = 'vh_sidebar_collapsed';
-
-const NAV_ROLE_KEYS = {
-  admin: 'nav.roleAdmin',
-  owner: 'nav.roleOwner',
-  manager: 'nav.roleManager',
-  member: 'nav.roleMember',
-  guest: 'nav.roleGuest',
-  personal: 'nav.rolePersonal',
-};
-
-const ROLE_COLORS = {
-  admin: '#EF4444',
-  owner: '#EF4444',
-  manager: '#3B82F6',
-  member: '#10B981',
-  guest: '#9CA3AF',
-  personal: '#2563EB',
-};
 
 function filterNavForRole(items, roleKey, suiteProp) {
   if (roleKey === 'guest') {
@@ -183,7 +156,6 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const aiButtonRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
   const { t } = useAppStrings();
   const { navigateToSuite } = useWorkspaceSuite();
   const { activeWorkspace, singleOrgMode, company } = useWorkspace();
@@ -228,8 +200,6 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (next) setShowSuitePicker(false);
   };
 
-  const displayName = getUserDisplayName(user);
-  const initials = getInitials(displayName);
   const { role, meta } = useUiRole();
   const roleKey = role;
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
@@ -238,8 +208,6 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   const showApprovalInbox =
     suiteProp === 'collaborate' && (meta.isManagerOrAbove || ['owner', 'admin', 'manager'].includes(String(company?.myRole || activeWorkspace?.myRole || role || '').toLowerCase()));
-  const roleColor = meta.color || ROLE_COLORS[roleKey] || '#2563EB';
-  const roleLabel = t(NAV_ROLE_KEYS[roleKey] || 'nav.roleMember');
 
   const navItems = useMemo(() => {
     if (suiteProp === 'communicate') {
@@ -415,26 +383,6 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       return isActivePath(item.path);
     }
     return isActivePath(item.path);
-  };
-
-  const handleLogout = async () => {
-    if (landingDemo) {
-      toast(t('nav.toastDemoLogout') || 'Demo mode', { icon: '🔒' });
-      return;
-    }
-    try {
-      await Promise.race([logout(), new Promise((r) => setTimeout(r, 1500))]);
-    } catch {
-      // ignore
-    } finally {
-      try {
-        removeToken();
-      } catch {
-        // ignore
-      }
-      navigate('/login');
-      toast.success(t('nav.loggedOut'));
-    }
   };
 
   const allowedSuites = useMemo(() => {
@@ -618,79 +566,13 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         )}
       </nav>
 
-      <div className={FIGMA_SIDEBAR_FOOTER}>
-        <Link to="/app/me/settings" className="mb-0.5 block">
-          <div
-            className={`flex items-center gap-2.5 rounded-[7px] transition ${
-              collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-[7px]'
-            } ${
-              location.pathname === '/app/me/settings'
-                ? 'bg-blue-500/15 text-blue-300'
-                : 'text-white/40 hover:bg-white/[0.06]'
-            }`}
-          >
-            <Settings size={15} className="shrink-0" />
-            {!collapsed && (
-              <span className="text-[0.8125rem] font-normal">{t('nav.settings')}</span>
-            )}
-          </div>
-        </Link>
-
-        {showAIPanel && (
-          <VoiceHubAIPanel
-            onClose={() => setShowAIPanel(false)}
-            anchorRef={aiButtonRef}
-            collapsed={collapsed}
-          />
-        )}
-
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/app/me/settings')}
-          onKeyDown={(e) => e.key === 'Enter' && navigate('/app/me/settings')}
-          className={`flex cursor-pointer items-center gap-2 rounded-[7px] transition ${
-            collapsed ? 'justify-center px-0 py-1.5' : 'px-2 py-1.5'
-          }`}
-          style={{ background: `${roleColor}0A`, border: `1px solid ${roleColor}18` }}
-        >
-          <div
-            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-bold text-white"
-            style={{
-              background: `linear-gradient(135deg, ${roleColor}, ${roleColor}CC)`,
-              boxShadow: `0 2px 6px ${roleColor}44`,
-            }}
-          >
-            {initials || <User size={10} />}
-          </div>
-          {!collapsed && (
-            <>
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="truncate text-[0.7rem] font-semibold leading-tight text-white/80">
-                  {displayName}
-                </div>
-                <div
-                  className="mt-0.5 truncate text-[0.575rem] font-bold tracking-wide"
-                  style={{ color: roleColor }}
-                >
-                  {roleLabel}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleLogout();
-                }}
-                className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] border-none bg-transparent text-white/25 transition hover:bg-red-400/10 hover:text-red-400"
-                title={t('nav.logout')}
-              >
-                <LogOut size={12} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      {showAIPanel ? (
+        <VoiceHubAIPanel
+          onClose={() => setShowAIPanel(false)}
+          anchorRef={aiButtonRef}
+          collapsed={collapsed}
+        />
+      ) : null}
     </div>
     </>
   );

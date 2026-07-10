@@ -7,7 +7,36 @@ const {
   resolveUserHierarchyScopes,
 } = require('../utils/memberPlacementScope');
 const { upsertAssignmentsFromScopes, pickPrimaryScope } = require('./memberScopePolicy.service');
+const { ensureAcceptedWithPeers } = require('../clients/departmentAutoFriend.client');
 const { logger } = require('@enterprise/shared');
+
+/**
+ * Khi user thuộc phòng ban: tự kết bạn (accepted) với mọi member khác trong các phòng đó.
+ */
+async function autoFriendDepartmentPeers(userId, organizationId, departmentIds) {
+  const uid = String(userId || '').trim();
+  const oid = String(organizationId || '').trim();
+  const depIds = (departmentIds || []).map(String).filter(Boolean);
+  if (!uid || !oid || !depIds.length) return { skipped: true };
+
+  const departments = await Department.find({
+    organization: oid,
+    _id: { $in: depIds },
+  })
+    .select('members')
+    .lean();
+
+  const peers = new Set();
+  for (const dep of departments) {
+    for (const member of dep.members || []) {
+      const mid = String(member || '').trim();
+      if (mid && mid !== uid) peers.add(mid);
+    }
+  }
+  if (!peers.size) return { skipped: true, reason: 'no_peers' };
+
+  return ensureAcceptedWithPeers(uid, [...peers], { source: 'department' });
+}
 
 /**
  * Đồng bộ RoleScopeAssignment từ các role hierarchy (div_/dep_/team_).
@@ -105,6 +134,16 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
   });
   const placement = pickPrimaryScope(scopes);
 
+  let departmentAutoFriend = null;
+  if (targetDepartmentIds.length) {
+    try {
+      departmentAutoFriend = await autoFriendDepartmentPeers(uid, oid, targetDepartmentIds);
+    } catch (error) {
+      logger.warn('[membershipPlacementSync] department auto-friend failed:', error.message);
+      departmentAutoFriend = { ok: false, reason: error.message };
+    }
+  }
+
   logger.info('[membershipPlacementSync] synced', {
     userId: uid,
     organizationId: oid,
@@ -112,15 +151,20 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
     departmentId: placement.departmentId,
     divisionId: placement.divisionId,
     roleCount: roleNames.length,
+    departmentAutoFriend: departmentAutoFriend?.ok
+      ? { ensured: departmentAutoFriend?.data?.ensured }
+      : departmentAutoFriend,
   });
 
   return {
     ok: true,
     placement,
     roleNames,
+    departmentAutoFriend,
   };
 }
 
 module.exports = {
   syncMembershipPlacementFromRoles,
+  autoFriendDepartmentPeers,
 };

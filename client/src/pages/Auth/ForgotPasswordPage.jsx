@@ -126,7 +126,7 @@ function ForgotPasswordPage() {
           </div>
         )}
 
-        <Link to="/" className={`mt-8 ${FIGMA_LINK_BACK} justify-center`}>
+        <Link to="/login" className={`mt-8 ${FIGMA_LINK_BACK} justify-center`}>
           <ArrowLeft size={16} aria-hidden />
           {t('common.backHome')}
         </Link>

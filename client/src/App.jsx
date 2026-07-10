@@ -12,7 +12,6 @@ import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
 import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
-const HomePage = lazy(() => import('./pages/Auth/HomePage'));
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
 const RegisterRedirect = lazy(() => import('./components/Auth/RegisterRedirect'));
 const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
@@ -27,10 +26,8 @@ const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
 const OrganizationsPage = lazy(() => import('./pages/Workspace/OrganizationsPage'));
 const OrganizationSettingsPage = lazy(() => import('./pages/Workspace/OrganizationSettingsPage'));
 const CompanyAdminLayout = lazy(() => import('./pages/Admin/CompanyAdminLayout'));
-const CompanyAdminOverviewPage = lazy(() => import('./pages/Admin/CompanyAdminOverviewPage'));
-const CompanyAdminPeoplePage = lazy(() => import('./pages/Admin/CompanyAdminPeoplePage'));
-const CompanyAdminApprovalsPage = lazy(() => import('./pages/Admin/CompanyAdminApprovalsPage'));
-const CompanyAdminSettingsPage = lazy(() => import('./pages/Admin/CompanyAdminSettingsPage'));
+const AdminHubPage = lazy(() => import('./pages/Admin/AdminHubPage'));
+const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
 const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
 const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
@@ -47,7 +44,7 @@ function App() {
     <RouteErrorBoundary>
       <Suspense fallback={<BrandPageLoader />}>
         <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterRedirect />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -129,14 +126,15 @@ function App() {
           }
         >
           <Route element={<CompanyAdminLayout />}>
-            <Route index element={<CompanyAdminOverviewPage />} />
-            <Route path="people" element={<CompanyAdminPeoplePage />} />
-            <Route path="approvals" element={<CompanyAdminApprovalsPage />} />
-            <Route path="general" element={<CompanyAdminSettingsPage />} />
-            <Route path="structure" element={<CompanyAdminSettingsPage />} />
-            <Route path="roles" element={<CompanyAdminSettingsPage />} />
-            <Route path="policy" element={<CompanyAdminSettingsPage />} />
-            <Route path="security" element={<CompanyAdminSettingsPage />} />
+            <Route index element={<AdminHubPage />} />
+            <Route path="overview" element={<Navigate to="/app/admin" replace />} />
+            <Route path="people" element={<Navigate to="/app/admin/users" replace />} />
+            <Route path="approvals" element={<Navigate to="/app/admin/users/join-approvals" replace />} />
+            <Route path="general" element={<Navigate to="/app/admin/system-config" replace />} />
+            <Route path="structure" element={<Navigate to="/app/admin/system-config/structure" replace />} />
+            <Route path="roles" element={<Navigate to="/app/admin/rbac/roles" replace />} />
+            <Route path="policy" element={<Navigate to="/app/admin/system-config/policy" replace />} />
+            <Route path=":domain/*" element={<AdminDomainPage />} />
           </Route>
         </Route>
 

@@ -37,7 +37,7 @@ const ProtectedRoute = ({ children }) => {
 
   // Nếu chưa đăng nhập → redirect về trang chủ
   if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Đã đăng nhập → render component con

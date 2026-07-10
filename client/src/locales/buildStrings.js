@@ -1,11 +1,12 @@
 import { mergeDeep } from './mergeDeep.js';
 import { extraStrings } from './appStrings.extra.js';
 import { pageStrings } from './appStrings.pages.js';
+import { adminDomainStrings } from './adminDomains.strings.js';
 import { STRINGS_BASE } from './appStrings.base.js';
 
 export const STRINGS = {
-  vi: mergeDeep(mergeDeep(STRINGS_BASE.vi, extraStrings.vi), pageStrings.vi),
-  en: mergeDeep(mergeDeep(STRINGS_BASE.en, extraStrings.en), pageStrings.en),
+  vi: mergeDeep(mergeDeep(mergeDeep(STRINGS_BASE.vi, extraStrings.vi), pageStrings.vi), adminDomainStrings.vi),
+  en: mergeDeep(mergeDeep(mergeDeep(STRINGS_BASE.en, extraStrings.en), pageStrings.en), adminDomainStrings.en),
 };
 
 export function getPath(obj, path) {

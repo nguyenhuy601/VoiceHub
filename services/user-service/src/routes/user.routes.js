@@ -4,6 +4,7 @@ const userController = require('../controllers/user.controller');
 const userContext = require('../middlewares/userContext');
 const internalServiceAuth = require('../middlewares/internalServiceAuth');
 const { protect } = require('../middleware/auth');
+const { companyAdminAuth } = require('../middlewares/companyAdminAuth');
 const upload = require('../middleware/upload');
 
 // Presence từ socket-service (trước userContext — không cần x-user-id)
@@ -49,9 +50,27 @@ router.post(
   userController.createUserProfile.bind(userController)
 );
 
+router.post(
+  '/internal/profiles/batch',
+  internalServiceAuth,
+  userController.internalProfilesBatch.bind(userController)
+);
+
 // Các route còn lại: JWT bắt buộc (giống friend-service), rồi enrich profile
 router.use(protect);
 router.use(userContext);
+
+// Company admin profile management
+router.get(
+  '/admin/:userId',
+  companyAdminAuth({ requireFullAccess: false }),
+  userController.adminGetProfile.bind(userController)
+);
+router.patch(
+  '/admin/:userId',
+  companyAdminAuth({ requireFullAccess: false }),
+  userController.adminPatchProfile.bind(userController)
+);
 
 // Lấy thông tin user hiện tại
 router.get('/me', userController.getCurrentUser.bind(userController));

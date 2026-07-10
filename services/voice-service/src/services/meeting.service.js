@@ -26,6 +26,18 @@ function assertMeetingHost(meeting, userId) {
   }
 }
 
+async function assertCanManageMeeting(meeting, actor) {
+  const uid = String(actor?.id || actor?.userId || actor?._id || '').trim();
+  try {
+    assertMeetingHost(meeting, uid);
+    return;
+  } catch (hostErr) {
+    const { isOrgMeetingAdmin } = require('../clients/orgMembership.client');
+    if (await isOrgMeetingAdmin(actor, meeting)) return;
+    throw hostErr;
+  }
+}
+
 class MeetingService {
   // Tạo meeting mới
   async createMeeting(meetingData) {
@@ -380,6 +392,7 @@ class MeetingService {
 const meetingServiceInstance = new MeetingService();
 meetingServiceInstance.userCanAccessMeeting = userCanAccessMeeting;
 meetingServiceInstance.assertMeetingHost = assertMeetingHost;
+meetingServiceInstance.assertCanManageMeeting = assertCanManageMeeting;
 
 module.exports = meetingServiceInstance;
 
