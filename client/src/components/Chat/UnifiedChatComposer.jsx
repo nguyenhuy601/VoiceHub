@@ -50,7 +50,7 @@ function UnifiedChatComposer({
   onPaste,
   forceLight = false,
 }) {
-  const MAX_TEXTAREA_HEIGHT = 100;
+  const MAX_TEXTAREA_HEIGHT = 240;
   const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
   const composerDark = isDarkMode && !forceLight;
@@ -79,7 +79,11 @@ function UnifiedChatComposer({
   const filteredMentionItems = useMemo(() => {
     const q = mentionQuery.trim().toLowerCase();
     if (!q) return safeMentionItems;
-    return safeMentionItems.filter((item) => String(item.label || '').toLowerCase().includes(q));
+    return safeMentionItems.filter((item) => {
+      const label = String(item.label || '').toLowerCase();
+      const username = String(item.username || '').toLowerCase();
+      return label.includes(q) || username.includes(q);
+    });
   }, [safeMentionItems, mentionQuery]);
   const resolvedPlaceholder = placeholder ?? t('chat.placeholderInput');
   const resolvedSendLabel = sendLabel ?? t('chat.send');
@@ -244,12 +248,12 @@ function UnifiedChatComposer({
     ? 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40'
     : 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40';
   const textareaClass = composerDark
-    ? `scrollbar-composer max-h-[100px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60 ${
+    ? `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60 ${
         richToolbar
           ? 'min-h-[36px] py-1.5 leading-normal'
           : 'min-h-[44px] py-2 leading-relaxed'
       }`
-    : `scrollbar-composer max-h-[100px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60 ${
+    : `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60 ${
         richToolbar
           ? 'min-h-[36px] py-1.5 leading-normal'
           : 'min-h-[44px] py-2 leading-relaxed'
@@ -344,7 +348,14 @@ function UnifiedChatComposer({
                     : 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100'}
                 >
                   <UserAvatar avatar={item.avatar} name={item.label} size="chip" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{item.label}</span>
+                    {item.username ? (
+                      <span className={`block truncate text-xs ${composerDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        @{item.username}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               ))}
             </div>

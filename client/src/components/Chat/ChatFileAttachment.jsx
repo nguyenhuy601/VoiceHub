@@ -283,6 +283,7 @@ export function ChatMessageAttachmentBody({
   compact = false,
   mentionVariant = null,
   mentionLabels = [],
+  mentionContacts = [],
   onImageClick,
   currentUserId = null,
   onFriendCallBack = null,
@@ -438,6 +439,7 @@ export function ChatMessageAttachmentBody({
       text={content}
       mentionVariant={mentionVariant}
       mentionLabels={mentionLabels}
+      mentionContacts={mentionContacts}
       isDarkMode={isDarkMode}
       className="whitespace-pre-wrap break-words leading-relaxed text-inherit"
     />
