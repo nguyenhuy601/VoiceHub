@@ -176,6 +176,159 @@ router.post('/backfill-role-scope-assignments', async (req, res) => {
 });
 
 /**
+ * Seed/UAT — đồng bộ hierarchy roles (div_/dep_/team_) bất chấp structure cache.
+ * Body: { organizationId }
+ */
+router.post('/sync-hierarchy-roles', async (req, res) => {
+  try {
+    const organizationId = String(req.body?.organizationId || '').trim();
+    if (!organizationId) {
+      return orgValidation(res, 'organizationId is required');
+    }
+    const org = await Organization.findById(organizationId).select('_id').lean();
+    if (!org) return orgNotFound(res);
+
+    const Division = require('../models/Division');
+    const Department = require('../models/Department');
+    const Team = require('../models/Team');
+    const { syncHierarchyRoles } = require('../services/hierarchyRoleSync');
+    const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
+
+    const [divisions, departments, teams] = await Promise.all([
+      Division.find({ organization: organizationId, isActive: true }).select('_id name').lean(),
+      Department.find({ organization: organizationId }).select('_id name').lean(),
+      Team.find({ organization: organizationId, isActive: true }).select('_id name').lean(),
+    ]);
+    await syncHierarchyRoles(organizationId, { divisions, departments, teams });
+    try {
+      await invalidateOrgReadCache(organizationId);
+    } catch {
+      /* ignore */
+    }
+    return res.json({
+      success: true,
+      data: {
+        organizationId,
+        divisions: divisions.length,
+        departments: departments.length,
+        teams: teams.length,
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/**
+ * Seed/UAT — upsert membership (S2S). Body: { organizationId, userId, role? }
+ */
+router.post('/ensure-membership', async (req, res) => {
+  try {
+    const organizationId = String(req.body?.organizationId || '').trim();
+    const userId = String(req.body?.userId || '').trim();
+    const role = Membership.normalizeRole(req.body?.role || 'member');
+    if (!organizationId || !userId) {
+      return orgValidation(res, 'organizationId and userId are required');
+    }
+    if (!['owner', 'admin', 'hr', 'member'].includes(role)) {
+      return orgValidation(res, 'Invalid role');
+    }
+    const org = await Organization.findById(organizationId).select('_id').lean();
+    if (!org) return orgNotFound(res);
+
+    const { ensureDefaultOrgRoles, syncUserOrgRole } = require('../services/rolePermissionOrgSync');
+    const membership = await Membership.findOneAndUpdate(
+      { user: userId, organization: organizationId },
+      {
+        user: userId,
+        organization: organizationId,
+        role,
+        status: 'active',
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    await ensureDefaultOrgRoles(organizationId);
+    await syncUserOrgRole(userId, organizationId, role);
+    return res.json({
+      success: true,
+      data: {
+        userId,
+        organizationId,
+        role: Membership.normalizeRole(membership.role),
+        membershipId: String(membership._id),
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/**
+ * Seed/UAT — chuyển owner. Body: { organizationId, newOwnerUserId }
+ * Demote owner cũ → admin; set owner mới; cập nhật Organization.ownerId.
+ */
+router.post('/transfer-owner', async (req, res) => {
+  try {
+    const organizationId = String(req.body?.organizationId || '').trim();
+    const newOwnerUserId = String(req.body?.newOwnerUserId || '').trim();
+    if (!organizationId || !newOwnerUserId) {
+      return orgValidation(res, 'organizationId and newOwnerUserId are required');
+    }
+    const org = await Organization.findById(organizationId);
+    if (!org) return orgNotFound(res);
+
+    const { ensureDefaultOrgRoles, syncUserOrgRole } = require('../services/rolePermissionOrgSync');
+
+    const previousOwners = await Membership.find({
+      organization: organizationId,
+      status: 'active',
+      role: 'owner',
+    })
+      .select('user')
+      .lean();
+
+    for (const row of previousOwners) {
+      const uid = String(row.user || '');
+      if (!uid || uid === newOwnerUserId) continue;
+      await Membership.updateOne(
+        { _id: row._id },
+        { $set: { role: 'admin' } }
+      );
+      await syncUserOrgRole(uid, organizationId, 'admin');
+    }
+
+    await Membership.findOneAndUpdate(
+      { user: newOwnerUserId, organization: organizationId },
+      {
+        user: newOwnerUserId,
+        organization: organizationId,
+        role: 'owner',
+        status: 'active',
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    await ensureDefaultOrgRoles(organizationId);
+    await syncUserOrgRole(newOwnerUserId, organizationId, 'owner');
+
+    org.ownerId = newOwnerUserId;
+    await org.save();
+
+    return res.json({
+      success: true,
+      data: {
+        organizationId,
+        ownerId: newOwnerUserId,
+        demotedOwners: previousOwners
+          .map((r) => String(r.user || ''))
+          .filter((uid) => uid && uid !== newOwnerUserId),
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/**
  * Single-company reset — liệt kê mọi org.
  * Chỉ gọi với x-gateway-internal-token (internalGatewayAuth).
  */

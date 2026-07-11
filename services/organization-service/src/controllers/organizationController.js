@@ -431,11 +431,38 @@ exports.getMyOrganizations = async (req, res, next) => {
       : [];
     const orgMap = Object.fromEntries(orgDocs.map((o) => [String(o._id), o]));
 
+    /** head / leader theo cấu trúc phòng-team — hiển thị chức vụ (không thay membership.role). */
+    const headOrgIds = new Set();
+    const leaderOrgIds = new Set();
+    if (orgIds.length) {
+      const [headDepts, leaderTeams] = await Promise.all([
+        Department.find({ organization: { $in: orgIds }, head: userRef })
+          .select('organization')
+          .lean(),
+        Team.find({ organization: { $in: orgIds }, leader: userRef })
+          .select('organization')
+          .lean(),
+      ]);
+      for (const d of headDepts) {
+        if (d?.organization) headOrgIds.add(String(d.organization));
+      }
+      for (const t of leaderTeams) {
+        if (t?.organization) leaderOrgIds.add(String(t.organization));
+      }
+    }
+
     const organizations = memberships
       .map((membership) => {
         const org = orgMap[String(membership.organization)];
         if (!org) return null;
-        return toPublicOrganization(org, { myRole: membership.role });
+        const oid = String(membership.organization);
+        let myStructureRole = null;
+        if (headOrgIds.has(oid)) myStructureRole = 'head';
+        else if (leaderOrgIds.has(oid)) myStructureRole = 'leader';
+        return toPublicOrganization(org, {
+          myRole: membership.role,
+          myStructureRole,
+        });
       })
       .filter(Boolean);
 
