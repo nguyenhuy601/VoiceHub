@@ -208,8 +208,8 @@ export default function TopHeader() {
     } catch {
       // ignore
     }
+    // Toast đăng xuất chỉ trong AuthContext.logout — tránh 2 thông báo
     navigate('/login');
-    toast.success(t('header.loggedOutSuccess'));
   };
 
   const notifPath =

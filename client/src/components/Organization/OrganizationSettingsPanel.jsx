@@ -29,6 +29,10 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import OrganizationRbacSettings from './OrganizationRbacSettings';
 import { hasBackendCapability } from '../../config/backendCapabilities';
+import {
+  enrichMembershipsWithProfiles,
+  enrichUserIdsWithProfiles,
+} from '../../features/search/enrichOrgMembers';
 
 const ADMIN_TAB_ICONS = {
   general: Settings,
@@ -754,11 +758,15 @@ function OrganizationSettingsPanel({
       const payload = await organizationAPI.getMembers(orgId);
       const raw = unwrap(payload);
       const rows = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
-      setOrgMembers(rows);
+      const enriched = await enrichMembershipsWithProfiles(rows, {
+        fallback: t('organizations.memberFallbackShort'),
+        limit: 120,
+      });
+      setOrgMembers(enriched);
     } catch {
       setOrgMembers([]);
     }
-  }, [orgId, isFullAccess]);
+  }, [orgId, isFullAccess, t]);
 
   const loadChannelAccessRows = useCallback(async () => {
     if (!orgId || !renameChannelId) {
@@ -769,11 +777,26 @@ function OrganizationSettingsPanel({
       const payload = await organizationAPI.listChannelAccess(orgId, renameChannelId);
       const raw = unwrap(payload);
       const data = raw?.data ?? raw;
-      setAccessRows(Array.isArray(data?.accesses) ? data.accesses : []);
+      const accesses = Array.isArray(data?.accesses) ? data.accesses : [];
+      const profileById = await enrichUserIdsWithProfiles(
+        accesses.map((row) => row?.user),
+        { fallback: t('organizations.memberFallbackShort') }
+      );
+      setAccessRows(
+        accesses.map((row) => {
+          const uid = String(row?.user || '');
+          const profile = profileById[uid];
+          return {
+            ...row,
+            userId: uid,
+            displayName: profile?.displayName || uid.slice(-6) || '—',
+          };
+        })
+      );
     } catch {
       setAccessRows([]);
     }
-  }, [orgId, renameChannelId]);
+  }, [orgId, renameChannelId, t]);
 
   useEffect(() => {
     if (!orgId || !isFullAccess || activeTab !== 'structure') return;
@@ -1067,14 +1090,18 @@ function OrganizationSettingsPanel({
                           className="rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground"
                         >
                           <option value="">{t('organizationSettings.selectMember')}</option>
-                          {orgMembers.map((member) => (
-                            <option key={member._id} value={member?.user?._id || member?.user}>
-                              {member?.user?.displayName ||
-                                member?.user?.fullName ||
-                                member?.user?.username ||
-                                String(member.user)}
-                            </option>
-                          ))}
+                          {orgMembers.map((member) => {
+                            const uid = String(member.userId || '');
+                            if (!uid) return null;
+                            const label = member.email
+                              ? `${member.displayName} (${member.email})`
+                              : member.displayName;
+                            return (
+                              <option key={uid} value={uid}>
+                                {label}
+                              </option>
+                            );
+                          })}
                         </select>
                         <div className="flex items-center gap-4 text-xs text-gray-300">
                           <label className="flex items-center gap-1">
@@ -1103,17 +1130,18 @@ function OrganizationSettingsPanel({
                       <div className="mt-3 space-y-1">
                         {accessRows.map((row) => (
                           <div
-                            key={`${row.user}-${row.channel || 'c'}`}
+                            key={`${row.userId || row.user}-${row.channel || 'c'}`}
                             className="flex items-center justify-between rounded-lg border border-border bg-slate-900/50 px-3 py-2 text-xs text-gray-200"
                           >
                             <span>
-                              {String(row.user)} — R:{row.permissions?.canRead ? 'Y' : 'N'} W:
+                              {row.displayName || String(row.user)} — R:
+                              {row.permissions?.canRead ? 'Y' : 'N'} W:
                               {row.permissions?.canWrite ? 'Y' : 'N'} V:
                               {row.permissions?.canVoice ? 'Y' : 'N'}
                             </span>
                             <button
                               type="button"
-                              onClick={() => handleRevokeChannelAccess(row.user)}
+                              onClick={() => handleRevokeChannelAccess(row.userId || row.user)}
                               className="text-red-300 hover:text-red-200"
                             >
                               {t('organizationSettings.revoke')}

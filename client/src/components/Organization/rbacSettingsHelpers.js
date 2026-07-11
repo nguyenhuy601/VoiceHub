@@ -108,42 +108,102 @@ export function groupStructuralRoles(roles) {
   return columns;
 }
 
+function findNameByIdOrSuffix(map, rawId) {
+  const id = String(rawId || '').trim();
+  if (!id || !map) return '';
+  if (map.get(id)) return map.get(id);
+  const lower = id.toLowerCase();
+  const suffix = lower.slice(-6);
+  for (const [key, name] of map.entries()) {
+    const k = String(key).toLowerCase();
+    if (k === lower || k.endsWith(suffix) || k.slice(-6) === suffix) return name;
+  }
+  return '';
+}
+
+function findIdBySuffix(map, suffix) {
+  const s = String(suffix || '')
+    .trim()
+    .toLowerCase();
+  if (!s || !map) return '';
+  for (const key of map.keys()) {
+    const k = String(key).toLowerCase();
+    if (k.endsWith(s) || k.slice(-6) === s.slice(-6)) return String(key);
+  }
+  return '';
+}
+
 export function buildStructurePath(member, structureMaps) {
+  const maps = structureMaps || { divisions: new Map(), departments: new Map(), teams: new Map() };
   const parts = [];
   const teamId = member?.teamId || member?.team;
   const depId = member?.departmentId || member?.department;
   const divId = member?.divisionId || member?.division;
-  if (divId && structureMaps.divisions.get(String(divId))) {
-    parts.push(structureMaps.divisions.get(String(divId)));
-  }
-  if (depId && structureMaps.departments.get(String(depId))) {
-    parts.push(structureMaps.departments.get(String(depId)));
-  }
-  if (teamId && structureMaps.teams.get(String(teamId))) {
-    parts.push(structureMaps.teams.get(String(teamId)));
-  }
+  const divName = findNameByIdOrSuffix(maps.divisions, divId);
+  const depName = findNameByIdOrSuffix(maps.departments, depId);
+  const teamName = findNameByIdOrSuffix(maps.teams, teamId);
+  if (divName) parts.push(divName);
+  if (depName) parts.push(depName);
+  if (teamName) parts.push(teamName);
   return parts.length ? parts.join(' › ') : '—';
 }
 
+/**
+ * Suy ra division/department/team từ tên role hierarchy (div_/dep_/team_).
+ * Dùng khi membership admin không kèm field team/department.
+ */
+export function memberScopeFromRoleNames(roleNames, structureMaps) {
+  const maps = structureMaps || { divisions: new Map(), departments: new Map(), teams: new Map() };
+  let divisionId = '';
+  let departmentId = '';
+  let teamId = '';
+  for (const name of roleNames || []) {
+    const lower = String(name || '').toLowerCase();
+    const divMatch = lower.match(/div_([a-z0-9_-]{6,})/);
+    const depMatch = lower.match(/dep_([a-z0-9_-]{6,})/);
+    const teamMatch = lower.match(/team_([a-z0-9_-]{6,})/);
+    if (!divisionId && divMatch) divisionId = findIdBySuffix(maps.divisions, divMatch[1]);
+    if (!departmentId && depMatch) departmentId = findIdBySuffix(maps.departments, depMatch[1]);
+    if (!teamId && teamMatch) teamId = findIdBySuffix(maps.teams, teamMatch[1]);
+  }
+  return { divisionId, departmentId, teamId };
+}
+
+function putNamedEntity(map, entity, fallbackName) {
+  const id = String(entity?._id || entity?.id || '').trim();
+  if (!id) return;
+  map.set(id, entity?.name || fallbackName);
+}
+
+/**
+ * API GET /structure trả { branches, divisionsFlat } — không phải divisions/departments/teams phẳng.
+ */
 export function structureMapsFromPayload(structure, t) {
   const divisions = new Map();
   const departments = new Map();
   const teams = new Map();
-  for (const d of structure?.divisions || []) {
-    divisions.set(
-      String(d._id || d.id),
-      d.name || (typeof t === 'function' ? t('organizations.scopeDivision') : 'Division')
-    );
+  const divFallback = typeof t === 'function' ? t('organizations.scopeDivision') : 'Division';
+  const depFallback = typeof t === 'function' ? t('organizations.scopeDepartment') : 'Department';
+
+  const ingestDivisionNode = (div) => {
+    putNamedEntity(divisions, div, divFallback);
+    for (const dept of div?.departments || []) {
+      putNamedEntity(departments, dept, depFallback);
+      for (const team of dept?.teams || []) {
+        putNamedEntity(teams, team, 'Team');
+      }
+    }
+  };
+
+  for (const d of structure?.divisions || []) ingestDivisionNode(d);
+  for (const d of structure?.divisionsFlat || []) ingestDivisionNode(d);
+  for (const d of structure?.departments || []) putNamedEntity(departments, d, depFallback);
+  for (const team of structure?.teams || []) putNamedEntity(teams, team, 'Team');
+
+  for (const branch of structure?.branches || []) {
+    for (const div of branch?.divisions || []) ingestDivisionNode(div);
   }
-  for (const d of structure?.departments || []) {
-    departments.set(
-      String(d._id || d.id),
-      d.name || (typeof t === 'function' ? t('organizations.scopeDepartment') : 'Department')
-    );
-  }
-  for (const t of structure?.teams || []) {
-    teams.set(String(t._id || t.id), t.name || 'Team');
-  }
+
   return { divisions, departments, teams };
 }
 

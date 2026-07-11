@@ -43,6 +43,52 @@ import {
 
 const COLLAPSE_KEY = 'vh_sidebar_collapsed';
 
+const NAV_ROLE_KEYS = {
+  admin: 'nav.roleAdmin',
+  orgAdmin: 'nav.roleOrgAdmin',
+  owner: 'nav.roleOwner',
+  manager: 'nav.roleManager',
+  hr: 'nav.roleHr',
+  deptHead: 'nav.roleDeptHead',
+  teamLeader: 'nav.roleTeamLeader',
+  member: 'nav.roleMember',
+  guest: 'nav.roleGuest',
+  personal: 'nav.rolePersonal',
+};
+
+const ROLE_COLORS = {
+  admin: '#EF4444',
+  orgAdmin: '#EF4444',
+  owner: '#F59E0B',
+  manager: '#3B82F6',
+  hr: '#8B5CF6',
+  deptHead: '#3B82F6',
+  teamLeader: '#06B6D4',
+  member: '#10B981',
+  guest: '#9CA3AF',
+  personal: '#2563EB',
+};
+
+/**
+ * Sidebar footer:
+ * owner/admin/hr org → membership;
+ * member + trưởng phòng/nhóm → chức vụ cấu trúc;
+ * không map systemRole employee → «Thành viên».
+ */
+function resolveSidebarDisplayRole({ uiRole, myOrgRole, myStructureRole, isSystemAdmin }) {
+  const org = String(myOrgRole || '').toLowerCase();
+  if (org === 'owner') return 'owner';
+  if (org === 'admin') return 'orgAdmin';
+  if (org === 'hr') return 'hr';
+  if (org === 'manager') return 'manager';
+  if (isSystemAdmin) return 'admin';
+  const structure = String(myStructureRole || '').toLowerCase();
+  if (structure === 'head') return 'deptHead';
+  if (structure === 'leader') return 'teamLeader';
+  if (org === 'member') return 'member';
+  return String(uiRole || 'member').toLowerCase();
+}
+
 function filterNavForRole(items, roleKey, suiteProp) {
   if (roleKey === 'guest') {
     const allowed = new Set(['notifications', 'friends', 'profile', 'settings']);
@@ -201,13 +247,32 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   };
 
   const { role, meta } = useUiRole();
-  const roleKey = role;
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
-  const { canAccessHub, isSystemAdmin } = useCompanyAdminAccess();
+  const { canAccessHub, isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
   // System admin dùng shell /app/admin riêng; sidebar nhân viên chỉ hiện hub cho owner|admin|hr org.
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   const showApprovalInbox =
-    suiteProp === 'collaborate' && (meta.isManagerOrAbove || ['owner', 'admin', 'manager'].includes(String(company?.myRole || activeWorkspace?.myRole || role || '').toLowerCase()));
+    suiteProp === 'collaborate' &&
+    (meta.isManagerOrAbove ||
+      ['owner', 'admin', 'manager', 'hr'].includes(String(myOrgRole || role || '').toLowerCase()));
+  const myStructureRole = String(
+    company?.myStructureRole || activeWorkspace?.myStructureRole || ''
+  ).toLowerCase();
+  const displayRoleKey = resolveSidebarDisplayRole({
+    uiRole: role,
+    myOrgRole,
+    myStructureRole,
+    isSystemAdmin,
+  });
+  const metaRoleKey =
+    displayRoleKey === 'hr' || displayRoleKey === 'orgAdmin'
+      ? 'admin'
+      : displayRoleKey === 'deptHead' || displayRoleKey === 'teamLeader'
+        ? 'manager'
+        : displayRoleKey;
+  const displayMeta = getRoleMeta(metaRoleKey);
+  const roleColor = displayMeta.color || ROLE_COLORS[displayRoleKey] || '#2563EB';
+  const roleLabel = t(NAV_ROLE_KEYS[displayRoleKey] || 'nav.roleMember');
 
   const navItems = useMemo(() => {
     if (suiteProp === 'communicate') {
@@ -348,8 +413,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showAdminSuite, navigate]);
 
   const visibleNavItems = useMemo(
-    () => filterNavForRole(navItems, roleKey, suiteProp),
-    [navItems, roleKey, suiteProp]
+    () => filterNavForRole(navItems, role, suiteProp),
+    [navItems, role, suiteProp]
   );
 
   const isActivePath = (path) => {
@@ -383,6 +448,26 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       return isActivePath(item.path);
     }
     return isActivePath(item.path);
+  };
+
+  const handleLogout = async () => {
+    if (landingDemo) {
+      toast(t('nav.toastDemoLogout') || 'Demo mode', { icon: '🔒' });
+      return;
+    }
+    try {
+      await Promise.race([logout(), new Promise((r) => setTimeout(r, 1500))]);
+    } catch {
+      // ignore
+    } finally {
+      try {
+        removeToken();
+      } catch {
+        // ignore
+      }
+      // Toast đăng xuất chỉ trong AuthContext.logout — tránh 2 thông báo
+      navigate('/login');
+    }
   };
 
   const allowedSuites = useMemo(() => {

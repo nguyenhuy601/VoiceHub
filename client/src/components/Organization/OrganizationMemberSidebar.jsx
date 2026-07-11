@@ -22,6 +22,7 @@ import OrgMemberSidebarAttachments from '../../features/orgAttachments/OrgMember
 import UserAvatar from '../Shared/UserAvatar';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
 import { usePresenceSubscribe } from '../../hooks/usePresenceSubscribe';
+import { enrichMembershipsWithProfiles } from '../../features/search/enrichOrgMembers';
 import {
   FIGMA_ORG_MEMBER_SIDEBAR_HEAD,
   FIGMA_ORG_MEMBER_SIDEBAR_ROOT,
@@ -84,43 +85,7 @@ async function fetchMembersWithRolesBundle(orgId) {
 }
 
 async function enrichMembersWithProfiles(members, memberFallback) {
-  const out = await Promise.all(
-    members.map(async (m) => {
-      const uid = memberUserId(m);
-      let displayName = uid.slice(-6) || memberFallback;
-      let avatar = null;
-      let username = null;
-      if (uid) {
-        try {
-          const res = await userService.getProfile(uid);
-          const u = unwrapBody(res)?.data ?? unwrapBody(res);
-          const profile = u?.data ?? u;
-          displayName =
-            profile?.displayName ||
-            profile?.fullName ||
-            profile?.username ||
-            profile?.email?.split('@')[0] ||
-            displayName;
-          avatar = profile?.avatar || null;
-          username = profile?.username || null;
-        } catch {
-          /* giữ mặc định */
-        }
-      }
-      return {
-        membershipId: String(m._id),
-        userId: uid,
-        role: String(m.role || 'member').toLowerCase(),
-        divisionId: m?.division ? String(m.division) : '',
-        departmentId: m?.department ? String(m.department) : '',
-        teamId: m?.team ? String(m.team) : '',
-        displayName,
-        username,
-        avatar,
-      };
-    })
-  );
-  return out;
+  return enrichMembershipsWithProfiles(members, { fallback: memberFallback });
 }
 
 /**
@@ -546,7 +511,7 @@ function OrganizationMemberSidebar({
   const groupedByMembershipRole = useMemo(() => {
     const roleLabel = {
       owner: t('organizations.memberGroupManagement'),
-      admin: t('organizations.memberGroupLeads'),
+      admin: t('organizations.memberGroupAdmins'),
       member: t('organizations.memberGroupMembers'),
     };
     const buckets = { owner: [], admin: [], member: [] };
@@ -814,7 +779,9 @@ function OrganizationMemberSidebar({
   }, [memberConfirm, organizationId, onMemberRemoved, t]);
 
   const mentionText = (m) => {
-    const tag = m.username || String(m.displayName || 'user').replace(/\s+/g, '_');
+    const display = String(m.displayName || m.name || '').trim();
+    if (display) return `@${display} `;
+    const tag = m.username || String(m.displayName || m.name || 'user').replace(/\s+/g, '_');
     return `@${tag} `;
   };
 

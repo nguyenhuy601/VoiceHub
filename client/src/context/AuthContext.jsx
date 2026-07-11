@@ -360,6 +360,8 @@ function AuthProvider({ children }) {
       removeToken();
       setAccessToken(null);
       setUser(null);
+      clearStoredUiRole();
+      toast.success(t('authSession.logoutSuccess'));
     }
   }, [t]);
 

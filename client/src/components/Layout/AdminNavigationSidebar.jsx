@@ -377,8 +377,8 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
       } catch {
         // ignore
       }
+      // Toast đăng xuất chỉ trong AuthContext.logout — tránh 2 thông báo
       navigate('/login');
-      toast.success(t('nav.loggedOut'));
     }
   };
 

@@ -28,6 +28,7 @@ import {
   isProtectedDefaultRole,
   isStructuralRole,
   isSystemCatalogRole,
+  memberScopeFromRoleNames,
   normalizeRoleDisplayName,
   normalizeRoleId,
   permissionEntriesFromState,
@@ -136,7 +137,7 @@ export default function OrganizationRbacSettings({ orgId }) {
       setMembers(memberRows);
 
       const structureBody = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
-      setStructureMaps(structureMapsFromPayload(structureBody || {}));
+      setStructureMaps(structureMapsFromPayload(structureBody || {}, t));
 
       const assignmentEntries = await Promise.all(
         memberRows.map(async (m) => {
@@ -177,7 +178,7 @@ export default function OrganizationRbacSettings({ orgId }) {
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, t]);
 
   useEffect(() => {
     loadAll();
@@ -317,12 +318,17 @@ export default function OrganizationRbacSettings({ orgId }) {
       .map((m) => {
         const uid = String(m?.user?._id || m?.user || m?.userId || '');
         const profile = memberProfiles[uid];
-        const assigned = (assignmentsByUser[uid] || [])
+        const userAssignments = assignmentsByUser[uid] || [];
+        const assigned = userAssignments
           .map((row) => {
             const rid = String(row?.roleId || row?._id || row?.id || row?.role?._id || '');
             return systemRoles.find((r) => normalizeRoleId(r) === rid);
           })
           .filter(Boolean);
+        const roleNames = userAssignments
+          .map((row) => String(row?.name || row?.role?.name || row?.displayName || ''))
+          .filter(Boolean);
+        const fromRoles = memberScopeFromRoleNames(roleNames, structureMaps);
         const membershipRole = String(m?.role || 'member').toLowerCase();
         return {
           member: m,
@@ -332,9 +338,9 @@ export default function OrganizationRbacSettings({ orgId }) {
           membershipLabel: MEMBERSHIP_ROLE_LABEL[membershipRole] || membershipRole,
           path: buildStructurePath(
             {
-              teamId: m?.team,
-              departmentId: m?.department,
-              divisionId: m?.division,
+              teamId: m?.team || fromRoles.teamId,
+              departmentId: m?.department || fromRoles.departmentId,
+              divisionId: m?.division || fromRoles.divisionId,
             },
             structureMaps
           ),

@@ -4,6 +4,7 @@ import { Modal, GradientButton } from '../../components/Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { enrichMembershipsWithProfiles } from '../../features/search/enrichOrgMembers';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -28,7 +29,12 @@ export default function PeoplePanel({ orgId }) {
       const res = await organizationAPI.getMembersWithRoles(orgId);
       const data = unwrap(res);
       const list = data?.data?.members || data?.members || data;
-      setMembers(Array.isArray(list) ? list : []);
+      const raw = Array.isArray(list) ? list : [];
+      const enriched = await enrichMembershipsWithProfiles(raw, {
+        fallback: t('organizations.memberFallbackShort'),
+        limit: 120,
+      });
+      setMembers(enriched);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.loadMembersFail') }));
     } finally {
@@ -96,14 +102,12 @@ export default function PeoplePanel({ orgId }) {
             </thead>
             <tbody>
               {members.map((m) => {
-                const id = String(m.userId || m.user?._id || m._id || m.id || '');
+                const id = String(m.userId || m.membershipId || '');
                 return (
-                  <tr key={id} className="border-t border-border/60">
-                    <td className="px-3 py-2">
-                      {m.displayName || m.fullName || m.username || id.slice(-6)}
-                    </td>
+                  <tr key={id || m.displayName} className="border-t border-border/60">
+                    <td className="px-3 py-2">{m.displayName || '—'}</td>
                     <td className="px-3 py-2">{m.email || '—'}</td>
-                    <td className="px-3 py-2">{m.role || m.orgRole || 'member'}</td>
+                    <td className="px-3 py-2">{m.role || 'member'}</td>
                   </tr>
                 );
               })}
