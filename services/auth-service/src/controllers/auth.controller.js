@@ -428,13 +428,23 @@ class AuthController {
   /** IT/HR — provision user (S2S only) */
   async provisionUserInternal(req, res) {
     try {
-      const { email, firstName, lastName, password, systemRole } = req.body || {};
+      const {
+        email,
+        firstName,
+        lastName,
+        password,
+        systemRole,
+        resetPassword,
+        readyForLogin,
+      } = req.body || {};
       const result = await authService.provisionUserByAdmin({
         email,
         firstName,
         lastName,
         password,
         systemRole,
+        resetPassword,
+        readyForLogin,
       });
       return res.status(result.created ? 201 : 200).json({
         success: true,

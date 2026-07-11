@@ -155,7 +155,9 @@ class UserService {
         const cacheKey = `user:${userId}`;
         const plain =
           typeof userProfile.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
-        const forCache = { ...plain, ...readPiiFromProfile(plain) };
+        const pii = readPiiFromProfile(plain);
+        const forCache = { ...plain };
+        if (pii.email) forCache.email = pii.email;
         await redis.setex(cacheKey, 3600, JSON.stringify(forCache));
       }
 
@@ -206,7 +208,14 @@ class UserService {
         const cacheKey = `user:${userId}`;
         const plain =
           typeof userProfile.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
-        const forCache = { ...plain, ...readPiiFromProfile(plain) };
+        const pii = readPiiFromProfile(plain);
+        // Chỉ ghi đè email plaintext khi decrypt OK — tránh cache email:'' che ciphertext.
+        const forCache = { ...plain };
+        if (pii.email) forCache.email = pii.email;
+        if (pii.bio !== undefined) forCache.bio = pii.bio;
+        if (pii.phone) forCache.phone = pii.phone;
+        if (pii.location) forCache.location = pii.location;
+        if (pii.dateOfBirth != null) forCache.dateOfBirth = pii.dateOfBirth;
         await redis.setex(cacheKey, 3600, JSON.stringify(forCache));
       }
 

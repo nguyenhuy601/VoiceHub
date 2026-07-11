@@ -28,8 +28,20 @@ function authEmailFromReq(req) {
     .toLowerCase();
 }
 
+function isSelfProfileRequest(req, targetUserId) {
+  const actor = String(actorUserId(req) || '').trim();
+  const target = String(targetUserId || '').trim();
+  return Boolean(actor && target && actor === target);
+}
+
+/**
+ * Chỉ reconcile / fallback email khi xem hồ sơ của CHÍNH mình.
+ * Tránh admin mở Nhân sự → ghi/đổ email admin vào mọi profile thiếu email.
+ */
 async function reconcileProfileEmail(req, userId, userProfile) {
   if (!userProfile || !userId) return userProfile;
+  if (!isSelfProfileRequest(req, userId)) return userProfile;
+
   const plain =
     typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
   const profileEmail = readPiiFromProfile(plain).email;
@@ -291,7 +303,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: withAuthEmailFallback(req, safeProfilePayload(userProfile)),
+        data: withAuthEmailFallback(req, safeProfilePayload(userProfile), userId),
       });
     } catch (error) {
       logger.error('Get current user error:', error);

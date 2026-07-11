@@ -20,8 +20,13 @@ const userProfileSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      lowercase: true,
       trim: true,
+      // Không dùng lowercase: true — phá hủy ciphertext enc:e1: / enc:v1: (base64 phân biệt hoa thường).
+      set(value) {
+        const raw = String(value ?? '');
+        if (raw.startsWith('enc:e1:') || raw.startsWith('enc:v1:')) return raw;
+        return raw.trim().toLowerCase();
+      },
     },
     emailBlindIndex: {
       type: String,

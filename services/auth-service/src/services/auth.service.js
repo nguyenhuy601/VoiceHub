@@ -687,7 +687,15 @@ class AuthService {
   /**
    * IT/HR provision — tạo tài khoản active, verified (single-company).
    */
-  async provisionUserByAdmin({ email, firstName, lastName, password, systemRole }) {
+  async provisionUserByAdmin({
+    email,
+    firstName,
+    lastName,
+    password,
+    systemRole,
+    resetPassword = false,
+    readyForLogin = false,
+  }) {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) {
       throw createServiceError('Email là bắt buộc', 400, 'VALIDATION_REQUIRED');
@@ -699,24 +707,60 @@ class AuthService {
 
     await ensureMongoReady('PROVISION');
 
+    const providedPassword = String(password || '').trim();
+
     const existingUser = await findUserAuthByEmail(normalizedEmail, {
       maxTimeMS: 15000,
-      lean: true,
+      lean: false,
     });
     if (existingUser?.userId) {
+      let touched = false;
+      if (resetPassword && providedPassword) {
+        const passwordValidation = validatePasswordStrength(providedPassword);
+        if (!passwordValidation.isValid) {
+          throw createServiceError(
+            passwordValidation.errors.join(', '),
+            400,
+            'AUTH_WEAK_PASSWORD'
+          );
+        }
+        existingUser.password = await hashPassword(providedPassword);
+        existingUser.mustChangePassword = false;
+        touched = true;
+      }
+      if (readyForLogin && normalizedSystemRole) {
+        existingUser.systemRole = normalizedSystemRole;
+        touched = true;
+      }
+      if (readyForLogin) {
+        existingUser.mustChangePassword = false;
+        existingUser.isActive = true;
+        existingUser.isEmailVerified = true;
+        touched = true;
+      }
+      if (touched) await existingUser.save();
+      // Luôn sync email profile (kể cả không touched) — sửa data bị ghi nhầm email admin.
+      try {
+        await syncUserProfileEmail(existingUser.userId, normalizedEmail);
+      } catch (syncErr) {
+        console.warn(
+          '[AuthService] syncUserProfileEmail (existing) failed:',
+          syncErr?.message || syncErr
+        );
+      }
       return {
         userId: String(existingUser.userId),
         email: normalizedEmail,
         created: false,
         systemRole: this.normalizeSystemRole(existingUser.systemRole),
         mustChangePassword: Boolean(existingUser.mustChangePassword),
+        temporaryPassword: resetPassword && providedPassword ? providedPassword : undefined,
       };
     }
     if (existingUser && !existingUser.userId) {
       throw createServiceError('Email đang chờ xác thực', 409, 'AUTH_EMAIL_PENDING');
     }
 
-    const providedPassword = String(password || '').trim();
     const tempPassword = providedPassword || generateTemporaryPassword(12);
 
     const passwordValidation = validatePasswordStrength(tempPassword);
@@ -730,6 +774,8 @@ class AuthService {
 
     const hashedPassword = await hashPassword(tempPassword);
     const userId = new mongoose.Types.ObjectId();
+    /** Seed/UAT: admin đã đặt mật khẩu → không bắt đổi MK lần đầu. */
+    const mustChangePassword = !(providedPassword && readyForLogin);
 
     const userAuth = new UserAuth({
       userId,
@@ -740,13 +786,21 @@ class AuthService {
       systemRole: normalizedSystemRole,
       isEmailVerified: true,
       isActive: true,
-      mustChangePassword: true,
+      mustChangePassword,
       emailVerificationToken: null,
       emailVerificationExpiresAt: null,
     });
 
     await userAuth.save();
     await bootstrapUserProfile(userAuth, userId);
+    try {
+      await syncUserProfileEmail(userId, normalizedEmail);
+    } catch (syncErr) {
+      console.warn(
+        '[AuthService] syncUserProfileEmail (created) failed:',
+        syncErr?.message || syncErr
+      );
+    }
 
     return {
       userId: userId.toString(),
@@ -754,7 +808,7 @@ class AuthService {
       created: true,
       systemRole: normalizedSystemRole,
       temporaryPassword: tempPassword,
-      mustChangePassword: true,
+      mustChangePassword,
     };
   }
 

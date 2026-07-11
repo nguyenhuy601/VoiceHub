@@ -40,9 +40,15 @@ function resolveOrganizationId(req) {
   );
 }
 
-/** Chỉ owner/admin của tổ chức mới được CRUD role / gán role. */
+/** Chỉ owner/admin của tổ chức mới được CRUD role / gán role. S2S (hierarchy sync) được phép. */
 async function requireOrgRoleManager(req, res, next) {
   try {
+    if (req.isInternalServiceCall) {
+      const organizationId = resolveOrganizationId(req);
+      if (organizationId) req.resolvedOrganizationId = String(organizationId);
+      return next();
+    }
+
     const userId = req.user?.id || req.user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
