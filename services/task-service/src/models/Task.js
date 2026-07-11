@@ -53,6 +53,13 @@ const taskSchema = new mongoose.Schema(
       ref: 'Team',
       default: null,
     },
+    /** Swimlane: team sở hữu việc (khác teamId = scope board). null = chưa gán team. */
+    ownerTeamId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Team',
+      default: null,
+      index: true,
+    },
     boardId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'TaskBoard',
@@ -151,6 +158,7 @@ taskSchema.index({ organizationId: 1, divisionId: 1, status: 1 });
 taskSchema.index({ organizationId: 1, departmentId: 1, status: 1 });
 taskSchema.index({ organizationId: 1, teamId: 1, status: 1 });
 taskSchema.index({ boardId: 1, listId: 1, position: 1, isActive: 1 });
+taskSchema.index({ boardId: 1, ownerTeamId: 1, listId: 1, isActive: 1 });
 taskSchema.index({ boardId: 1, status: 1, createdAt: -1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });

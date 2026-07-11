@@ -13,6 +13,9 @@ const {
   canCreateTaskInScope,
   canAssignUser,
 } = require('./taskWorkspaceScope');
+const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
+const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
+const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -144,6 +147,42 @@ async function userCanAdminBoard(userId, board) {
   return orgRole === 'owner' || orgRole === 'admin';
 }
 
+/**
+ * Capability matrix cho FE + policy BE (P0).
+ * elevated = creator | org owner/admin | canCreateTask (PM/TL/head).
+ */
+async function resolveBoardCapabilities(userId, board) {
+  if (!userId || !board) {
+    return buildBoardCapabilities({});
+  }
+  const userOid = toOid(userId);
+  const isCreator = String(board.createdBy) === String(userId);
+  const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
+  const canCreateTask = canCreateTaskInScope(scope);
+  const orgRole = String(scope?.membershipRole || '').toLowerCase();
+  const isOrgAdmin = orgRole === 'owner' || orgRole === 'admin';
+  let memberCanView = false;
+  let memberCanEdit = false;
+  if (userOid) {
+    const member = await TaskBoardMember.findOne({ boardId: board._id, userId: userOid })
+      .select('canView canEdit role')
+      .lean();
+    if (member) {
+      memberCanView = member.canView !== false;
+      memberCanEdit = Boolean(member.canEdit) || member.role === 'owner' || member.role === 'editor';
+    }
+  }
+  const inWorkspaceScope = await userMatchesWorkspaceBoardScope(board, userId);
+  return buildBoardCapabilities({
+    isCreator,
+    isOrgAdmin,
+    canCreateTask,
+    inWorkspaceScope,
+    memberCanView,
+    memberCanEdit,
+  });
+}
+
 function resolveListArchivePolicy({ list, cardCount, activeListCount, canAdmin }) {
   if (!canAdmin) {
     return { canArchive: false, archiveBlockReason: 'Chỉ Owner/Admin board hoặc tổ chức mới được lưu trữ danh sách' };
@@ -202,6 +241,27 @@ async function fetchOrganizationMembers(userId, organizationId) {
     .filter(Boolean);
 }
 
+/** Board visibility=workspace: user trong cùng scope phòng/team (qua task-workspace-scope) được xem/sửa. */
+async function userMatchesWorkspaceBoardScope(board, userId) {
+  if (!board || String(board.visibility || '') !== 'workspace') return false;
+  const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
+  if (!scope) return false;
+  if (scope.visibility === 'org') return true;
+  const scopeId = String(board.scopeId || board.teamId || '');
+  if (!scopeId) return false;
+  const type = String(board.scopeType || (board.teamId ? 'team' : '')).toLowerCase();
+  if (type === 'department') {
+    return (scope.departmentIds || []).map(String).includes(scopeId);
+  }
+  if (type === 'team') {
+    return (scope.teamIds || []).map(String).includes(scopeId);
+  }
+  if (type === 'division') {
+    return (scope.divisionIds || []).map(String).includes(scopeId);
+  }
+  return false;
+}
+
 async function ensureBoardViewAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
@@ -217,26 +277,35 @@ async function ensureBoardViewAccess(boardId, userId) {
   })
     .select('_id canEdit')
     .lean();
-  if (!member) return null;
-  return board;
+  if (member) return board;
+  if (await userMatchesWorkspaceBoardScope(board, userId)) return board;
+  return null;
 }
 
 async function ensureBoardEditAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  if (String(board.createdBy) === String(userId)) return board;
-  const userOid = mongoose.Types.ObjectId.isValid(userId)
-    ? new mongoose.Types.ObjectId(String(userId))
-    : null;
-  if (!userOid) return null;
-  const member = await TaskBoardMember.findOne({
-    boardId: board._id,
-    userId: userOid,
-    canEdit: true,
-  })
-    .select('_id')
-    .lean();
-  if (!member) return null;
+  const caps = await resolveBoardCapabilities(userId, board);
+  // Edit “nặng” (tạo thẻ/list/sửa) — không còn workspace-scope = full edit
+  if (caps.canCreateCards || caps.canManageLists || caps.canEditCards || caps.canManageBoard) {
+    return board;
+  }
+  return null;
+}
+
+async function ensureBoardManageLists(boardId, userId) {
+  const board = await TaskBoard.findById(boardId).lean();
+  if (!board || !board.isActive) return null;
+  const caps = await resolveBoardCapabilities(userId, board);
+  if (!caps.canManageLists) return null;
+  return board;
+}
+
+async function ensureBoardCreateCards(boardId, userId) {
+  const board = await TaskBoard.findById(boardId).lean();
+  if (!board || !board.isActive) return null;
+  const caps = await resolveBoardCapabilities(userId, board);
+  if (!caps.canCreateCards) return null;
   return board;
 }
 
@@ -248,7 +317,19 @@ function resolveBoardScope({ scopeType, scopeId, teamId }) {
   return { scopeType: 'team', scopeId: String(teamId || '') };
 }
 
-async function createBoard({ userId, organizationId, teamId, scopeType, scopeId, title, background, visibility }) {
+async function createBoard({
+  userId,
+  organizationId,
+  teamId,
+  scopeType,
+  scopeId,
+  title,
+  description,
+  projectCode,
+  dueDate,
+  background,
+  visibility,
+}) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateTaskInScope(scope)) {
     throw new Error('Bạn không có quyền tạo task board');
@@ -256,12 +337,22 @@ async function createBoard({ userId, organizationId, teamId, scopeType, scopeId,
   const nextScope = resolveBoardScope({ scopeType, scopeId, teamId });
   if (!nextScope.scopeId) throw new Error('scopeId/teamId là bắt buộc');
 
+  let due = null;
+  if (dueDate !== undefined && dueDate !== null && String(dueDate).trim() !== '') {
+    const parsed = new Date(dueDate);
+    if (Number.isNaN(parsed.getTime())) throw new Error('dueDate không hợp lệ');
+    due = parsed;
+  }
+
   const board = await TaskBoard.create({
     organizationId,
     teamId: nextScope.scopeType === 'team' ? nextScope.scopeId : null,
     scopeType: nextScope.scopeType,
     scopeId: nextScope.scopeId,
     title: String(title || '').trim(),
+    description: String(description || '').trim(),
+    projectCode: String(projectCode || '').trim(),
+    dueDate: due,
     background: String(background || '').trim(),
     visibility: visibility === 'workspace' ? 'workspace' : 'private',
     createdBy: userId,
@@ -278,29 +369,62 @@ async function createBoard({ userId, organizationId, teamId, scopeType, scopeId,
   });
 
   if (board.visibility === 'workspace') {
-    const members = await fetchOrganizationMembers(userId, organizationId);
-    const rows = members
-      .filter((m) => {
-        if (String(m.userId) === String(userId)) return false;
-        if (board.scopeType === 'team') return String(m.teamId) === String(board.scopeId);
-        if (board.scopeType === 'department') return String(m.departmentId) === String(board.scopeId);
-        if (board.scopeType === 'division') return String(m.divisionId) === String(board.scopeId);
-        return false;
-      })
-      .map((m) => ({
-        boardId: board._id,
-        userId: m.userId,
-        role: 'viewer',
-        canView: true,
-        canEdit: true,
-        addedBy: userId,
-      }));
-    if (rows.length) await TaskBoardMember.insertMany(rows, { ordered: false });
+    const memberIds = new Set();
+    for (const id of scope.assignableUserIds || []) {
+      if (id && String(id) !== String(userId)) memberIds.add(String(id));
+    }
+    try {
+      const members = await fetchOrganizationMembers(userId, organizationId);
+      for (const m of members) {
+        if (String(m.userId) === String(userId)) continue;
+        if (board.scopeType === 'team' && String(m.teamId) === String(board.scopeId)) {
+          memberIds.add(String(m.userId));
+        } else if (
+          board.scopeType === 'department' &&
+          String(m.departmentId) === String(board.scopeId)
+        ) {
+          memberIds.add(String(m.userId));
+        } else if (
+          board.scopeType === 'division' &&
+          String(m.divisionId) === String(board.scopeId)
+        ) {
+          memberIds.add(String(m.userId));
+        }
+      }
+    } catch (err) {
+      logger.warn('[task-board] workspace member seed from org members failed: %s', err.message);
+    }
+    const rows = [...memberIds].map((uid) => ({
+      boardId: board._id,
+      userId: uid,
+      role: 'viewer',
+      canView: true,
+      canEdit: false,
+      addedBy: userId,
+    }));
+    if (rows.length) {
+      try {
+        await TaskBoardMember.insertMany(rows, { ordered: false });
+      } catch (err) {
+        logger.warn('[task-board] workspace member insertMany: %s', err.message);
+      }
+    }
   }
 
   return board.toObject();
 }
 
+function toOidList(ids = []) {
+  return (ids || [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+}
+
+/**
+ * Khớp ensureBoardViewAccess: creator / member / workspace trong phạm vi task-workspace-scope.
+ * (Trước đây Owner/Admin xem detail được nhưng list trống vì thiếu nhánh workspace.)
+ */
 async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }) {
   const userOid = mongoose.Types.ObjectId.isValid(userId)
     ? new mongoose.Types.ObjectId(String(userId))
@@ -331,6 +455,36 @@ async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }
   const ids = memberBoardIds.map((r) => r.boardId).filter((id) => id != null);
   const accessOr = [{ createdBy: userOid }];
   if (ids.length) accessOr.push({ _id: { $in: ids } });
+
+  const workspaceScope = await fetchTaskWorkspaceScope(userId, organizationId);
+  if (workspaceScope?.visibility === 'org') {
+    accessOr.push({ visibility: 'workspace' });
+  } else if (workspaceScope) {
+    const deptOids = toOidList(workspaceScope.departmentIds);
+    const teamOids = toOidList(workspaceScope.teamIds);
+    const divOids = toOidList(workspaceScope.divisionIds);
+    if (deptOids.length) {
+      accessOr.push({
+        visibility: 'workspace',
+        scopeType: 'department',
+        scopeId: { $in: deptOids },
+      });
+    }
+    if (teamOids.length) {
+      accessOr.push({
+        visibility: 'workspace',
+        scopeType: 'team',
+        scopeId: { $in: teamOids },
+      });
+    }
+    if (divOids.length) {
+      accessOr.push({
+        visibility: 'workspace',
+        scopeType: 'division',
+        scopeId: { $in: divOids },
+      });
+    }
+  }
 
   const boards = await TaskBoard.find({
     ...base,
@@ -365,6 +519,7 @@ async function getBoardDetail({ userId, boardId }) {
     .lean();
 
   const canAdmin = await userCanAdminBoard(userId, board);
+  const capabilities = await resolveBoardCapabilities(userId, board);
   const activeListCount = lists.length;
   const cardCountByList = new Map();
   for (const c of cards) {
@@ -398,6 +553,7 @@ async function getBoardDetail({ userId, boardId }) {
     _id: c._id,
     boardId: c.boardId,
     listId: c.listId,
+    ownerTeamId: c.ownerTeamId || null,
     title: c.title,
     description: c.description,
     summary: c.summary,
@@ -436,12 +592,12 @@ async function getBoardDetail({ userId, boardId }) {
       : [],
   }));
 
-  return { board, lists: listsEnriched, cards: sanitizedCards };
+  return { board, lists: listsEnriched, cards: sanitizedCards, capabilities };
 }
 
 async function createList({ userId, boardId, title }) {
-  const board = await ensureBoardEditAccess(boardId, userId);
-  if (!board) throw new Error('Không có quyền sửa board này');
+  const board = await ensureBoardManageLists(boardId, userId);
+  if (!board) throw new Error('Chỉ PM/TL/Admin mới được tạo danh sách trên board');
   const last = await TaskBoardList.findOne({ boardId }).sort({ order: -1 }).lean();
   const nextOrder = (Number(last?.order) || 0) + 1000;
   const row = await TaskBoardList.create({
@@ -462,6 +618,7 @@ async function createCard({
   summary,
   description,
   assigneeId,
+  ownerTeamId,
   dueDate,
   priority,
   tags,
@@ -469,14 +626,25 @@ async function createCard({
   sourceMessageId,
   aiGenerated,
 }) {
-  const board = await ensureBoardEditAccess(boardId, userId);
-  if (!board) throw new Error('Không có quyền sửa board này');
+  const board = await ensureBoardCreateCards(boardId, userId);
+  if (!board) throw new Error('Chỉ PM/TL/Admin mới được tạo thẻ trên board');
   const list = await TaskBoardList.findOne({ _id: listId, boardId, isArchived: false }).lean();
   if (!list) throw new Error('List không tồn tại trong board đã chọn');
 
   const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
   if (assigneeId && !canAssignUser(scope, assigneeId)) {
     throw new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
+  }
+  const nextOwnerTeamId = normalizeOwnerTeamId(ownerTeamId);
+  if (ownerTeamId !== undefined && ownerTeamId !== null && ownerTeamId !== '' && !nextOwnerTeamId) {
+    throw new Error('ownerTeamId không hợp lệ');
+  }
+  if (!canAssignOwnerTeam(scope, nextOwnerTeamId)) {
+    throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
+  }
+  if (assigneeId) {
+    const assignCheck = assertCanSetCardAssignee(scope, nextOwnerTeamId);
+    if (!assignCheck.ok) throw new Error(assignCheck.message);
   }
 
   const last = await Task.findOne({ boardId, listId, isActive: true })
@@ -489,6 +657,7 @@ async function createCard({
     listId,
     organizationId: board.organizationId,
     ...boardScopeTaskFields(board),
+    ownerTeamId: nextOwnerTeamId,
     title: String(title || '').trim(),
     summary: String(summary || '').trim(),
     description: String(description || '').trim(),
@@ -544,15 +713,31 @@ function computeCardInsertPosition(siblings, index) {
   return (prev + next) / 2;
 }
 
-async function moveCard({ userId, cardId, toListId, position, index }) {
+async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId }) {
   const card = await Task.findById(cardId);
   if (!card || !card.boardId) throw new Error('Card không tồn tại');
-  const board = await ensureBoardEditAccess(card.boardId, userId);
-  if (!board) throw new Error('Không có quyền sửa board này');
+  const board = await ensureBoardViewAccess(card.boardId, userId);
+  if (!board) throw new Error('Không có quyền xem board này');
+
+  const caps = await resolveBoardCapabilities(userId, board);
+  if (!caps.canMoveCards) throw new Error('Không có quyền kéo thẻ trên board này');
 
   const targetListId = toListId || card.listId;
   const list = await TaskBoardList.findOne({ _id: targetListId, boardId: board._id, isArchived: false }).lean();
   if (!list) throw new Error('List đích không hợp lệ');
+
+  const movingToDone = isDoneListTitle(list.title);
+  if (movingToDone && !caps.canMoveToDone) {
+    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+  }
+
+  const isAssignee = card.assigneeId && String(card.assigneeId) === String(userId);
+  const canFreelyMove = caps.canCreateCards || caps.canEditCards || caps.canManageBoard;
+  if (!canFreelyMove) {
+    if (!isAssignee) {
+      throw new Error('Bạn chỉ được kéo thẻ được gán cho mình');
+    }
+  }
 
   const siblings = await Task.find({
     boardId: board._id,
@@ -576,6 +761,24 @@ async function moveCard({ userId, cardId, toListId, position, index }) {
 
   card.listId = targetListId;
   card.position = computeCardInsertPosition(siblings, targetIndex);
+  if (ownerTeamId !== undefined) {
+    const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
+    const nextOwner = normalizeOwnerTeamId(ownerTeamId);
+    if (ownerTeamId !== null && ownerTeamId !== '' && !nextOwner) {
+      throw new Error('ownerTeamId không hợp lệ');
+    }
+    if (!canAssignOwnerTeam(scope, nextOwner)) {
+      throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
+    }
+    card.ownerTeamId = nextOwner;
+  }
+  if (movingToDone) {
+    card.status = 'done';
+    card.completedAt = card.completedAt || new Date();
+  } else if (card.status === 'done') {
+    card.status = 'todo';
+    card.completedAt = null;
+  }
   await card.save();
   const moved = card.toObject();
   await notifyListWatchers({
@@ -598,6 +801,7 @@ async function updateCard({
   dueDate,
   tags,
   assigneeId,
+  ownerTeamId,
   attachments,
   status,
 }) {
@@ -637,6 +841,30 @@ async function updateCard({
       : [];
   }
   if (assigneeId !== undefined) next.assigneeId = assigneeId || null;
+  if (ownerTeamId !== undefined) {
+    const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
+    const nextOwner = normalizeOwnerTeamId(ownerTeamId);
+    if (ownerTeamId !== null && ownerTeamId !== '' && !nextOwner) {
+      throw new Error('ownerTeamId không hợp lệ');
+    }
+    if (!canAssignOwnerTeam(scope, nextOwner)) {
+      throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
+    }
+    next.ownerTeamId = nextOwner;
+  }
+
+  if (assigneeId !== undefined && assigneeId) {
+    const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
+    const effectiveTeam =
+      ownerTeamId !== undefined
+        ? normalizeOwnerTeamId(ownerTeamId)
+        : normalizeOwnerTeamId(card.ownerTeamId);
+    const assignCheck = assertCanSetCardAssignee(scope, effectiveTeam);
+    if (!assignCheck.ok) throw new Error(assignCheck.message);
+    if (!canAssignUser(scope, assigneeId)) {
+      throw new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
+    }
+  }
 
   if (next.title != null && !next.title) throw new Error('title không hợp lệ');
 
@@ -912,6 +1140,17 @@ async function archiveList({ userId, boardId, listId }) {
   return { listId: String(list._id), archived: true };
 }
 
+/** Đóng dự án — soft archive board (isActive=false). */
+async function archiveBoard({ userId, boardId }) {
+  const board = await TaskBoard.findById(boardId);
+  if (!board || !board.isActive) throw new Error('Board không tồn tại hoặc đã đóng');
+  const canAdmin = await userCanAdminBoard(userId, board);
+  if (!canAdmin) throw new Error('Chỉ Owner/Admin board hoặc tổ chức mới được đóng dự án');
+  board.isActive = false;
+  await board.save();
+  return board.toObject();
+}
+
 async function setListWatch({ userId, listId, watching }) {
   const list = await TaskBoardList.findById(listId).lean();
   if (!list || list.isArchived) throw new Error('List không tồn tại');
@@ -1007,7 +1246,9 @@ module.exports = {
   moveAllCardsInList,
   setListWatch,
   archiveList,
+  archiveBoard,
   userCanAdminBoard,
+  resolveBoardCapabilities,
   ensureBoardViewAccess,
   ensureBoardEditAccess,
   ensureAssigneeBoardAccess,

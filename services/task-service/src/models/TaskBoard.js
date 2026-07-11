@@ -43,6 +43,11 @@ const taskBoardSchema = new mongoose.Schema(
       default: '',
       maxlength: 2000,
     },
+    /** Hạn dự án (tuỳ chọn) — chuẩn vàng “hạn nếu có” */
+    dueDate: {
+      type: Date,
+      default: null,
+    },
     background: {
       type: String,
       trim: true,

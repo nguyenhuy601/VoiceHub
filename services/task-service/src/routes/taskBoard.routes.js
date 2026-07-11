@@ -36,6 +36,7 @@ router.delete('/lists/:listId/watch', controller.unwatchList.bind(controller));
 
 router.get('/:boardId/assignable-members', controller.listAssignableMembers.bind(controller));
 router.get('/:boardId', controller.getBoardDetail.bind(controller));
+router.post('/:boardId/archive', controller.archiveBoard.bind(controller));
 router.post('/:boardId/lists', controller.createList.bind(controller));
 router.post('/:boardId/cards', controller.createCard.bind(controller));
 

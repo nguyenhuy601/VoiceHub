@@ -26,6 +26,10 @@ router.post('/from-chat-file', taskController.createTaskFromChatFile.bind(taskCo
 // Task boards — mount trước /:taskId (tránh GET /api/tasks/boards → getTaskById("boards") → 500)
 router.use('/boards', taskBoardRoutes);
 
+// Project briefs (BGĐ → PM) — trước /:taskId
+const projectBriefRoutes = require('./projectBrief.routes');
+router.use('/project-briefs', projectBriefRoutes);
+
 // Lấy task theo ID
 router.get('/:taskId', taskController.getTaskById.bind(taskController));
 

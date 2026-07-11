@@ -4,6 +4,8 @@ const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/ga
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 
+const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
+
 async function fetchTaskWorkspaceScope(userId, organizationId) {
   if (!userId || !organizationId) return null;
   try {
@@ -144,5 +146,7 @@ module.exports = {
   buildTaskVisibilityFilter,
   canCreateTaskInScope,
   canAssignUser,
+  canAssignOwnerTeam,
+  normalizeOwnerTeamId,
   userCanAccessTask,
 };

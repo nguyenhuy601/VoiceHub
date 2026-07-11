@@ -32,7 +32,18 @@ class TaskBoardController {
   async createBoard(req, res) {
     try {
       const userId = asUserId(req);
-      const { organizationId, teamId, scopeType, scopeId, title, background, visibility } = req.body || {};
+      const {
+        organizationId,
+        teamId,
+        scopeType,
+        scopeId,
+        title,
+        description,
+        projectCode,
+        dueDate,
+        background,
+        visibility,
+      } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       const nextScopeType = String(scopeType || (teamId ? 'team' : '')).toLowerCase();
       const requiresScope = ['team', 'department', 'division'].includes(nextScopeType);
@@ -52,6 +63,9 @@ class TaskBoardController {
         scopeType: requiresScope ? nextScopeType : null,
         scopeId: finalScopeId,
         title,
+        description,
+        projectCode,
+        dueDate,
         background,
         visibility,
       });
@@ -153,12 +167,19 @@ class TaskBoardController {
     try {
       const userId = asUserId(req);
       const { cardId } = req.params;
-      const { toListId, position, index } = req.body || {};
+      const { toListId, position, index, ownerTeamId } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId) || !validOid(toListId)) {
         return res.status(400).json({ success: false, message: 'cardId/toListId không hợp lệ' });
       }
-      const data = await boardService.moveCard({ userId, cardId, toListId, position, index });
+      const data = await boardService.moveCard({
+        userId,
+        cardId,
+        toListId,
+        position,
+        index,
+        ownerTeamId,
+      });
       return res.json({ success: true, data });
     } catch (err) {
       return sendError(res, err, 400, 'Không thể di chuyển card', 'TASK_BOARD_CARD_MOVE_FAILED');
@@ -302,12 +323,37 @@ class TaskBoardController {
     }
   }
 
+  async archiveBoard(req, res) {
+    try {
+      const userId = asUserId(req);
+      const { boardId } = req.params;
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(boardId)) {
+        return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+      }
+      const data = await boardService.archiveBoard({ userId, boardId });
+      return res.json({ success: true, data });
+    } catch (err) {
+      return sendError(res, err, 400, 'Không thể đóng dự án', 'TASK_BOARD_ARCHIVE_FAILED');
+    }
+  }
+
   async updateCard(req, res) {
     try {
       const userId = asUserId(req);
       const { cardId } = req.params;
-      const { title, description, summary, priority, dueDate, tags, assigneeId, attachments, status } =
-        req.body || {};
+      const {
+        title,
+        description,
+        summary,
+        priority,
+        dueDate,
+        tags,
+        assigneeId,
+        ownerTeamId,
+        attachments,
+        status,
+      } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
       const data = await boardService.updateCard({
@@ -320,6 +366,7 @@ class TaskBoardController {
         dueDate,
         tags,
         assigneeId,
+        ownerTeamId,
         attachments,
         status,
       });
