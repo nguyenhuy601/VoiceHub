@@ -1,28 +1,27 @@
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Zap } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 
-const FEATURE_DOT_COLORS = ['#8B5CF6', '#06B6D4', '#10B981', '#F59E0B'];
+const FEATURE_DOT_COLORS = ['#3B82F6', '#34D399', '#FBBF24', '#22D3EE'];
 
 /**
  * Left panel Login — 420px / p-10 (figmaAuthClasses.js).
  */
 function AuthMarketingAside() {
   const { t, dict } = useAppStrings();
-  const features = dict.authMarketing.features || [];
+  const features = dict.authMarketing?.features ?? [];
 
   return (
     <div className="flex max-w-lg flex-col gap-8 lg:gap-10">
       <div>
-        <p className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.04] px-4 py-2 text-xs font-medium tracking-wide backdrop-blur-sm sm:text-sm text-[#A0A0C0]">
-          <span className="font-semibold text-sidebar-foreground-active">VoiceHub</span>
-          <span className="text-[#5E5E7E]" aria-hidden>
-            /
+        <div className="flex items-center gap-[10px] mb-14">
+          <div className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center bg-primary shadow-md shadow-primary/40">
+            <Zap size={17} className="fill-primary-foreground text-primary-foreground" aria-hidden />
+          </div>
+          <span className="font-display text-[1.0625rem] font-bold tracking-tight text-sidebar-foreground-active">
+            VoiceHub
           </span>
-          <span>{t('authMarketing.badgeSub')}</span>
-        </p>
-      </div>
+        </div>
 
-      <div>
         <h2 className="font-display text-[1.75rem] font-bold leading-[1.3] tracking-[-0.03em] text-sidebar-foreground-active mb-3.5">
           {t('authMarketing.h1a')}
           <br />

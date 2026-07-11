@@ -7,9 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { HOME_LOCALES } from '../../locales/homePage';
-import LandingFeatureEmbed from '../../components/Landing/LandingFeatureEmbed';
-import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
-import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
+import { HOME_LANDING } from '../../locales/homePageLanding';
 
 const TECH_STACK = ['React', 'Node.js', 'Socket.io', 'WebRTC', 'MongoDB', 'Redis', 'Docker', 'JWT'];
 
@@ -106,7 +104,6 @@ function HomePage() {
   const { isAuthenticated, loading } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const hidePublicRegister = readSingleOrgModeFlag();
 
   useEffect(() => {
     if (!loading && isAuthenticated) {
@@ -202,79 +199,24 @@ function HomePage() {
                 >
                   {copy.nav.login}
                 </Link>
-                {!hidePublicRegister ? (
-                <Link
-                  to="/register"
-                  className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-2 text-sm font-bold text-white shadow-md sm:px-4 sm:py-2.5"
-                >
-                  {copy.nav.register}
+                <Link to="/register" className={FIGMA_HOME_NAV_CTA}>
+                  {landing.nav.registerCta}
                 </Link>
-                ) : null}
               </>
             )}
           </div>
         </div>
       </header>
 
-      <main className="relative z-10">
-        {/* 1) HERO */}
-        <section className={`${pageMax} pb-20 pt-12 sm:pb-24 sm:pt-16 lg:pb-28 lg:pt-20`}>
-          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-            <div>
-              <p
-                className={`inline-flex rounded-full border px-3 py-1.5 text-[12px] font-semibold uppercase tracking-wider ${
-                  isDarkMode ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200' : 'border-cyan-500/30 bg-cyan-50 text-cyan-900'
-                }`}
-              >
-                {copy.hero.badge}
-              </p>
-              <h1
-                className={`mt-6 text-[2rem] font-extrabold leading-[1.12] tracking-tight sm:text-5xl lg:text-[3.25rem] xl:text-[4rem] ${
-                  isDarkMode ? 'text-white' : 'text-slate-900'
-                }`}
-              >
-                {copy.hero.titleBefore}{' '}
-                <span
-                  className={
-                    isDarkMode
-                      ? 'bg-gradient-to-r from-cyan-200 via-teal-200 to-cyan-300 bg-clip-text text-transparent'
-                      : 'bg-gradient-to-r from-teal-900 via-cyan-900 to-teal-800 bg-clip-text text-transparent'
-                  }
-                >
-                  {copy.hero.titleGradient}
-                </span>{' '}
-                {copy.hero.titleAfter}
-              </h1>
-              <p
-                className={`mt-6 max-w-xl text-lg leading-[1.75] sm:text-[1.35rem] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}
-              >
-                {copy.hero.desc}
-              </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <button
-                  type="button"
-                  onClick={() => navigate(isAuthenticated ? '/app' : hidePublicRegister ? '/login' : '/register')}
-                  className="inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-600 to-teal-600 px-8 text-lg font-bold text-white shadow-[0_12px_32px_-8px_rgba(6,182,212,0.45)] transition hover:-translate-y-0.5 hover:from-cyan-500 hover:to-teal-500 motion-reduce:hover:translate-y-0"
-                >
-                  {isAuthenticated ? copy.nav.enterApp : copy.hero.ctaPrimary}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToId('features-story')}
-                  className={`inline-flex h-14 min-w-[180px] items-center justify-center rounded-2xl border-2 px-8 text-lg font-semibold transition hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 ${
-                    isDarkMode
-                      ? 'border-slate-600 bg-slate-900/50 text-slate-100 hover:border-cyan-500/40 hover:bg-slate-800/80'
-                      : 'border-slate-300 bg-white text-slate-800 hover:border-cyan-400 hover:shadow-md'
-                  }`}
-                >
-                  {copy.hero.ctaSecondary}
-                </button>
-              </div>
-              <p
-                className={`mt-6 max-w-lg text-sm leading-relaxed sm:text-base ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}
-              >
-                {copy.hero.footnote}
-              </p>
+      <section className={FIGMA_HOME_HERO}>
+        <div className={FIGMA_HOME_HERO_GLOW_CENTER} aria-hidden />
+        <div className={FIGMA_HOME_HERO_GLOW_LEFT} aria-hidden />
+        <div className={FIGMA_HOME_HERO_GLOW_RIGHT} aria-hidden />
+
+        <div className="relative z-10">
+          <div className={FIGMA_HOME_HERO_BADGE}>
+            <div className={FIGMA_HOME_HERO_BADGE_ICON}>
+              <Sparkles className="h-[11px] w-[11px] text-primary-foreground" aria-hidden />
             </div>
             <FloatingHeroMockup isDarkMode={isDarkMode} labels={copy.mock.floating} />
           </div>
@@ -415,102 +357,19 @@ function HomePage() {
           </div>
         </section>
 
-        {/* 5) TECH */}
-        <section className={`py-20 sm:py-24 lg:py-28 ${pageMax}`}>
-          <p className={`text-center text-xs font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
-            {copy.tech.kicker}
-          </p>
-          <h2 className={`mt-2 text-center text-2xl font-bold sm:text-3xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {copy.tech.title}
-          </h2>
-          <div className="mx-auto mt-10 flex max-w-4xl flex-wrap justify-center gap-3 sm:gap-4">
-            {TECH_STACK.map((name) => (
-              <span
-                key={name}
-                className={`rounded-2xl border px-5 py-3 text-sm font-semibold shadow-sm transition hover:-translate-y-1 hover:shadow-md motion-reduce:hover:translate-y-0 ${
-                  isDarkMode
-                    ? 'border-slate-700/80 bg-slate-900/80 text-slate-200 hover:border-cyan-500/35 hover:shadow-cyan-900/20'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-300/80'
-                }`}
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        {/* 6) FINAL CTA */}
-        <section className={`pb-24 pt-4 sm:pb-28`}>
-          <div
-            className={`${pageMax} overflow-hidden rounded-3xl border px-6 py-14 text-center sm:px-10 sm:py-16 lg:py-20 ${
-              isDarkMode
-                ? 'border-cyan-500/20 bg-gradient-to-br from-cyan-950/80 via-slate-950 to-slate-900'
-                : 'border-cyan-200/80 bg-gradient-to-br from-cyan-50 via-white to-teal-50'
-            }`}
-          >
-            <h2 className={`text-2xl font-bold sm:text-3xl lg:text-4xl ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              {copy.finalCta.title}
-            </h2>
-            <p className={`mx-auto mt-4 max-w-xl text-base leading-relaxed sm:text-lg ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-              {copy.finalCta.body}
-            </p>
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link
-                to="/login"
-                className="inline-flex h-14 min-w-[240px] items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-600 to-teal-600 px-8 text-lg font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:from-cyan-500 hover:to-teal-500 motion-reduce:hover:translate-y-0"
-              >
-                {copy.finalCta.login}
-              </Link>
-              {!isAuthenticated && !hidePublicRegister ? (
-                <Link
-                  to="/register"
-                  className={`inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl border-2 px-8 text-lg font-semibold ${
-                    isDarkMode ? 'border-white/20 text-white hover:bg-white/5' : 'border-slate-300 text-slate-800 hover:bg-white/80'
-                  }`}
-                >
-                  {copy.finalCta.register}
-                </Link>
-              ) : !isAuthenticated ? null : (
-                <button
-                  type="button"
-                  onClick={() => navigate('/app')}
-                  className={`inline-flex h-14 min-w-[200px] items-center justify-center rounded-2xl border-2 px-8 text-lg font-semibold ${
-                    isDarkMode ? 'border-white/20 text-white hover:bg-white/5' : 'border-slate-300 text-slate-800 hover:bg-white/80'
-                  }`}
-                >
-                  {copy.finalCta.openDashboard}
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <Modal isOpen={Boolean(selectedFeature)} onClose={closeModal} title={selectedFeature?.title ?? ''} size="lg">
-        {selectedFeature && (
-          <div className="space-y-5">
-            <p className={`text-[15px] leading-relaxed sm:text-base ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-              {selectedFeature.detail.intro}
-            </p>
-            <ul className="space-y-2">
-              {selectedFeature.detail.bullets.map((b) => (
-                <li key={b} className={`flex gap-2 text-sm leading-relaxed sm:text-[15px] ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-500" />
-                  {b}
-                </li>
-              ))}
-            </ul>
-            {selectedFeature.detail.tags?.length ? (
-              <div className="flex flex-wrap gap-2">
-                {selectedFeature.detail.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
-                      isDarkMode ? 'border-slate-600 bg-slate-800/80 text-slate-200' : 'border-slate-200 bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    {tag}
-                  </span>
+        <div className={FIGMA_HOME_TESTIMONIAL_GRID}>
+          {landing.testimonials.items.map((testimonial, index) => (
+            <div
+              key={testimonial.name}
+              className={FIGMA_HOME_TESTIMONIAL_CARD}
+              style={{
+                background: index === activeTestimonial ? 'rgba(37,99,235,0.08)' : undefined,
+                borderColor: index === activeTestimonial ? 'rgba(37,99,235,0.25)' : undefined,
+              }}
+            >
+              <div className={FIGMA_HOME_TESTIMONIAL_STARS}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star key={star} className="h-[13px] w-[13px] text-warning" fill="#F59E0B" aria-hidden />
                 ))}
               </div>
             ) : null}
@@ -528,30 +387,50 @@ function HomePage() {
                     navigate('/app');
                   }}
                 >
-                  {copy.modal.goDashboard}
-                </GradientButton>
-              ) : (
-                <>
-                  {!hidePublicRegister ? (
-                  <Link
-                    to="/register"
-                    className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-4 py-2 text-sm font-bold text-white hover:from-cyan-500 hover:to-teal-500"
-                    onClick={closeModal}
-                  >
-                    {copy.modal.register}
-                  </Link>
-                  ) : null}
-                  <Link
-                    to="/login"
-                    className={`inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold ${
-                      isDarkMode ? 'border-slate-600 text-slate-100 hover:bg-white/10' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
-                    }`}
-                    onClick={closeModal}
-                  >
-                    {copy.modal.login}
-                  </Link>
-                </>
-              )}
+                  {testimonial.avatar}
+                </div>
+                <div>
+                  <div className={FIGMA_HOME_TESTIMONIAL_NAME}>{testimonial.name}</div>
+                  <div className={FIGMA_HOME_TESTIMONIAL_ROLE}>{testimonial.role}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className={FIGMA_HOME_TESTIMONIAL_DOTS}>
+          {landing.testimonials.items.map((testimonial, index) => (
+            <button
+              key={testimonial.name}
+              type="button"
+              onClick={() => setActiveTestimonial(index)}
+              className="h-1.5 rounded-full border-0 p-0 vh-transition"
+              style={{
+                width: index === activeTestimonial ? '20px' : '6px',
+                background: index === activeTestimonial ? '#2563EB' : 'rgba(255,255,255,0.15)',
+              }}
+              aria-label={`Testimonial ${index + 1}`}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section id="techstack-section" className={FIGMA_HOME_TECH}>
+        <div className={FIGMA_HOME_TECH_CARD}>
+          <div className={FIGMA_HOME_TECH_GLOW} aria-hidden />
+          <div className="relative z-10">
+            <div className={FIGMA_HOME_TECH_KICKER_ROW}>
+              <Lock className="h-[15px] w-[15px] text-primary" aria-hidden />
+              <span className={FIGMA_HOME_KICKER_TEXT}>{landing.techStack.kicker}</span>
+            </div>
+            <h3 className={FIGMA_HOME_TECH_TITLE}>{landing.techStack.title}</h3>
+            <p className={FIGMA_HOME_TECH_SUB}>{landing.techStack.subtitle}</p>
+            <div className={FIGMA_HOME_TECH_TAGS}>
+              {landing.techStack.items.map((tech) => (
+                <span key={tech} className={FIGMA_HOME_TECH_TAG}>
+                  {tech}
+                </span>
+              ))}
             </div>
           </div>
         )}
