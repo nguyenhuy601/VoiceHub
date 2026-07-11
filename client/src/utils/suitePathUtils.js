@@ -100,10 +100,19 @@ export function buildCommunicateChannelsPath(orgId = '', query = {}) {
   return qs ? `${base}?${qs}` : base;
 }
 
-export function buildCollaborateTasksPath(orgId = '') {
+export function buildCollaborateTasksPath(orgId = '', query = {}) {
   const base = '/app/collaborate/tasks';
+  const params = new URLSearchParams();
   const id = String(orgId || '').trim();
-  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+  if (id) params.set('organizationId', id);
+  const deptId = String(query?.departmentId || '').trim();
+  const teamId = String(query?.teamId || '').trim();
+  const boardId = String(query?.boardId || '').trim();
+  if (deptId) params.set('departmentId', deptId);
+  if (teamId) params.set('teamId', teamId);
+  if (boardId) params.set('boardId', boardId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export function buildCollaborateDocumentsPath(orgId = '') {
@@ -131,6 +140,11 @@ export function orgQueryFromSearch(search) {
 export function departmentQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('departmentId') || '').trim();
+}
+
+export function teamQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('teamId') || '').trim();
 }
 
 export function channelQueryFromSearch(search) {

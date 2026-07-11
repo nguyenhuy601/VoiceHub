@@ -76,6 +76,12 @@ export default function OrganizationWorkspaceStructureSidebar({
     y: 0,
     team: null,
   });
+  const [deptMenu, setDeptMenu] = useState({
+    open: false,
+    x: 0,
+    y: 0,
+    department: null,
+  });
   const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
   const divisionList = Array.isArray(selectedBranch?.divisions) ? selectedBranch.divisions : [];
 
@@ -489,6 +495,17 @@ export default function OrganizationWorkspaceStructureSidebar({
                         <div className="group relative">
                         <button
                           type="button"
+                          onContextMenu={(e) => {
+                            if (!canAccessDept || !canCreateTaskBoard) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDeptMenu({
+                              open: true,
+                              x: e.clientX,
+                              y: e.clientY,
+                              department,
+                            });
+                          }}
                           onClick={() =>
                             toggleDepartment(department._id, { notifyParent: canAccessDept })
                           }
@@ -642,8 +659,34 @@ export default function OrganizationWorkspaceStructureSidebar({
               isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'
             }`}
             onClick={() => {
-              onCreateTaskBoard?.(teamMenu.team);
+              onCreateTaskBoard?.({ ...teamMenu.team, scopeType: 'team' });
               setTeamMenu((prev) => ({ ...prev, open: false }));
+            }}
+          >
+            {t('orgPanel.createTaskBoard')}
+          </button>
+        </div>
+      ) : null}
+      {deptMenu.open && deptMenu.department ? (
+        <div
+          className={`fixed z-[1000] min-w-[180px] rounded-lg border p-1 shadow-xl ${
+            isDarkMode ? 'border-white/10 bg-[#171B24]' : 'border-slate-200 bg-white'
+          }`}
+          style={{ left: deptMenu.x, top: deptMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className={`w-full rounded-md px-3 py-2 text-left text-sm ${
+              isDarkMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'
+            }`}
+            onClick={() => {
+              onCreateTaskBoard?.({
+                _id: deptMenu.department._id,
+                name: deptMenu.department.name,
+                scopeType: 'department',
+              });
+              setDeptMenu((prev) => ({ ...prev, open: false }));
             }}
           >
             {t('orgPanel.createTaskBoard')}

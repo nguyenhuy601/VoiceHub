@@ -202,6 +202,16 @@ export const taskAPI = {
     });
   },
 
+  archiveBoard: (boardId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/archive`),
+      legacyRequest: () => apiClient.post(`${legacyBoardBase()}/${boardId}/archive`),
+    });
+  },
+
   getBoardAssignableMembers: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
     return requestWithWorkspaceFallback({
@@ -386,6 +396,23 @@ export const taskAPI = {
         apiClient.post(`${legacyBoardBase()}/cards/${cardId}/comments`, { content }),
     });
   },
+
+  /** Brief dự án (BGĐ → chỉ định PM) — luôn legacy /tasks/project-briefs */
+  createProjectBrief: (payload = {}) => apiClient.post('/tasks/project-briefs', payload),
+
+  listProjectBriefs: (filters = {}) => {
+    const params = buildQueryParams(filters);
+    const q = params.toString();
+    return apiClient.get(q ? `/tasks/project-briefs?${q}` : '/tasks/project-briefs');
+  },
+
+  getProjectBrief: (briefId) => apiClient.get(`/tasks/project-briefs/${encodeURIComponent(briefId)}`),
+
+  acceptProjectBrief: (briefId, payload = {}) =>
+    apiClient.post(`/tasks/project-briefs/${encodeURIComponent(briefId)}/accept`, payload),
+
+  cancelProjectBrief: (briefId) =>
+    apiClient.post(`/tasks/project-briefs/${encodeURIComponent(briefId)}/cancel`, {}),
 };
 
 /** @deprecated dùng getTaskApiMode — export để test */

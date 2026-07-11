@@ -21,6 +21,7 @@ import { TASK_BOARD_LABELS, labelById, parseCardLabelIds } from './taskBoardCard
 import { uploadTaskBoardAttachment } from './taskBoardAttachmentUpload';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { canSetCardAssignee } from '../../utils/goldenAssignPolicy';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
@@ -54,6 +55,7 @@ export default function TaskBoardCardDetailModal({
   listTitle = '',
   lists = [],
   initialPanel = 'detail',
+  taskWorkspaceScope = null,
   onClose,
   onUpdateCard,
   onRefresh,
@@ -426,6 +428,11 @@ export default function TaskBoardCardDetailModal({
                   assigneeId === m.id ? 'bg-white/10' : 'hover:bg-white/5'
                 }`}
                 onClick={async () => {
+                  const check = canSetCardAssignee(taskWorkspaceScope, card?.ownerTeamId);
+                  if (!check.ok) {
+                    toast.error(t(check.messageKey));
+                    return;
+                  }
                   setAssigneeId(m.id);
                   await save({
                     assigneeId: m.id,
