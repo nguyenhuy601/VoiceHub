@@ -39,6 +39,7 @@ function mapOrganizations(raw) {
         slug: org.slug,
         icon: org.logo || org.icon || null,
         myRole: org.myRole,
+        myStructureRole: org.myStructureRole || null,
       };
     });
 }

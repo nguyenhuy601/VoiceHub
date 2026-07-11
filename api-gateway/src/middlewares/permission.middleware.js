@@ -103,6 +103,17 @@ const permissionMiddleware = async (req, res, next) => {
       return next();
     }
 
+    // Role CRUD/assign: ủy quyền xuống role-service (gateway không parse JSON body → không lấy được serverId từ body).
+    if (
+      isSelfRoleReadRequest(req, action) ||
+      isOrgRoleCatalogRead(req, action) ||
+      isDelegatedUserRoleRead(req, action) ||
+      isDelegatedUserPermissionRead(req, action) ||
+      isDelegatedRoleManageRoute(req, action)
+    ) {
+      return next();
+    }
+
     const pathWithoutQuery = req.path.split('?')[0];
     const isOrganizationGlobalRoute =
       (req.method === 'GET' && pathWithoutQuery === '/api/organizations/my') ||
@@ -157,16 +168,6 @@ const permissionMiddleware = async (req, res, next) => {
         success: false,
         message: 'serverId or organizationId is required',
       });
-    }
-
-    if (
-      isSelfRoleReadRequest(req, action) ||
-      isOrgRoleCatalogRead(req, action) ||
-      isDelegatedUserRoleRead(req, action) ||
-      isDelegatedUserPermissionRead(req, action) ||
-      isDelegatedRoleManageRoute(req, action)
-    ) {
-      return next();
     }
 
     const ck = cacheKey(userId, serverId, action);

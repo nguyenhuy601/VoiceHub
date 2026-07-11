@@ -22,6 +22,11 @@ const routeActionMap = {
   'PUT /api/tasks': 'task:write',
   'PATCH /api/tasks': 'task:write',
   'DELETE /api/tasks': 'task:delete',
+  'POST /api/tasks/project-briefs': 'task:write',
+  'GET /api/tasks/project-briefs': 'task:read',
+  'GET /api/tasks/project-briefs/:briefId': 'task:read',
+  'POST /api/tasks/project-briefs/:briefId/accept': 'task:write',
+  'POST /api/tasks/project-briefs/:briefId/cancel': 'task:write',
   'GET /api/work': 'task:read',
   'POST /api/work': 'task:write',
 
@@ -29,6 +34,11 @@ const routeActionMap = {
   'POST /api/ai/tasks/extract': 'task:write',
   'GET /api/ai/tasks/extractions': 'task:read',
   'POST /api/ai/tasks/confirm': 'task:write',
+  'POST /api/ai/tasks/project-draft': 'task:write',
+  'GET /api/ai/tasks/project-drafts': 'task:read',
+  'POST /api/ai/tasks/project-drafts': 'task:write',
+  'POST /api/ai/tasks/boards': 'task:write',
+  'POST /api/ai/tasks/team-assign-drafts': 'task:write',
 
   // Summary Service
   'POST /api/ai/summaries': 'chat:write',
