@@ -1,10 +1,16 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { GradientButton } from '../../components/Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 
 export default function UserCreatePanel({ orgId }) {
   const { t } = useAppStrings();
@@ -44,47 +50,57 @@ export default function UserCreatePanel({ orgId }) {
   };
 
   return (
-    <div className="mx-auto max-w-xl space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.create')}</h2>
-        <p className="text-sm text-muted-foreground">{t('adminUsers.createHint')}</p>
-      </div>
-      <form className="space-y-3 rounded-xl border border-border bg-card/40 p-4" onSubmit={handleSubmit}>
-        <input
-          type="email"
-          required
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          placeholder={t('companyAdmin.emailPlaceholder')}
-          value={form.email}
-          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            placeholder={t('companyAdmin.firstName')}
-            value={form.firstName}
-            onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-          />
-          <input
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            placeholder={t('companyAdmin.lastName')}
-            value={form.lastName}
-            onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-          />
-        </div>
-        <select
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          value={form.role}
-          onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-        >
-          <option value="member">member</option>
-          <option value="hr">hr</option>
-          <option value="admin">admin</option>
-        </select>
-        <GradientButton type="submit" disabled={saving}>
-          {saving ? t('common.saving') : t('companyAdmin.sendInvite')}
-        </GradientButton>
-      </form>
-    </div>
+    <AdminUserPanelShell title={t('adminDomains.users.create')} hint={t('adminUsers.createHint')}>
+      <AdminUserFormCard>
+        <form className="mx-auto max-w-lg space-y-4" onSubmit={handleSubmit}>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('companyAdmin.emailPlaceholder')}</span>
+            <input
+              type="email"
+              required
+              className={adminInputClass()}
+              placeholder={t('companyAdmin.emailPlaceholder')}
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className={adminLabelClass()}>{t('companyAdmin.firstName')}</span>
+              <input
+                className={adminInputClass()}
+                placeholder={t('companyAdmin.firstName')}
+                value={form.firstName}
+                onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+              />
+            </label>
+            <label className="block">
+              <span className={adminLabelClass()}>{t('companyAdmin.lastName')}</span>
+              <input
+                className={adminInputClass()}
+                placeholder={t('companyAdmin.lastName')}
+                value={form.lastName}
+                onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
+            <select
+              className={adminInputClass()}
+              value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+            >
+              <option value="member">member</option>
+              <option value="hr">hr</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <button type="submit" disabled={saving} className={adminPrimaryBtnClass('w-full sm:w-auto')}>
+            {saving ? t('common.saving') : t('companyAdmin.sendInvite')}
+          </button>
+        </form>
+      </AdminUserFormCard>
+    </AdminUserPanelShell>
   );
 }

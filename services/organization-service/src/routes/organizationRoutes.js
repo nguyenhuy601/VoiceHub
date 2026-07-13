@@ -51,6 +51,29 @@ router.patch(
 router.get('/:orgId/shell', organizationController.getOrgShell);
 router.get('/:orgId/documents-overview', organizationController.getDocumentsOverview);
 router.get('/:orgId/structure', organizationController.getOrganizationStructure);
+
+// Huy: Dynamic Organizational Structure API
+const structureController = require('../controllers/structureController');
+router.get('/:orgId/structure/templates', structureController.listTemplates);
+router.get('/:orgId/structure/levels', authorize(['owner', 'admin']), structureController.getLevels);
+router.put('/:orgId/structure/levels', authorize(['owner', 'admin']), structureController.putLevels);
+router.get('/:orgId/structure/units', authorize(['owner', 'admin']), structureController.listUnits);
+router.post('/:orgId/structure/units', authorize(['owner', 'admin']), structureController.createUnitHandler);
+router.put('/:orgId/structure/units/:unitId', authorize(['owner', 'admin']), structureController.updateUnitHandler);
+router.delete('/:orgId/structure/units/:unitId', authorize(['owner', 'admin']), structureController.deleteUnitHandler);
+router.post('/:orgId/structure/apply-template', authorize(['owner', 'admin']), structureController.applyTemplate);
+router.post('/:orgId/structure/backfill', authorize(['owner', 'admin']), structureController.backfill);
+router.get(
+  '/:orgId/structure/units/:unitId/members',
+  authorize(['owner', 'admin']),
+  structureController.listUnitMembers
+);
+router.put(
+  '/:orgId/structure/units/:unitId/members',
+  authorize(['owner', 'admin']),
+  structureController.setUnitMembers
+);
+
 router.get('/:orgId/accessible-channel-ids', organizationController.getAccessibleChannelIds);
 router.get('/:orgId/task-workspace-scope', organizationController.getTaskWorkspaceScope);
 router.get(

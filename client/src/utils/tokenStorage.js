@@ -56,18 +56,27 @@ export function getResolvedBearerToken() {
   return normalizeBearerToken(getToken());
 }
 
-/** Đọc claim email từ JWT access token (fallback khi profile/BFF không trả email). */
-export function getJwtEmail() {
+/** Decode payload JWT access (không verify — chỉ đọc claim phía client). */
+export function getJwtPayload() {
   const token = getResolvedBearerToken();
-  if (!token) return '';
+  if (!token) return null;
   try {
     const segment = token.split('.')[1];
-    if (!segment) return '';
-    const payload = JSON.parse(atob(segment.replace(/-/g, '+').replace(/_/g, '/')));
-    return String(payload?.email || '').trim().toLowerCase();
+    if (!segment) return null;
+    return JSON.parse(atob(segment.replace(/-/g, '+').replace(/_/g, '/')));
   } catch {
-    return '';
+    return null;
   }
+}
+
+/** Đọc claim email từ JWT access token (fallback khi profile/BFF không trả email). */
+export function getJwtEmail() {
+  return String(getJwtPayload()?.email || '').trim().toLowerCase();
+}
+
+/** systemRole từ JWT — nguồn tin cậy khi profile/BFF không trả field này. */
+export function getJwtSystemRole() {
+  return String(getJwtPayload()?.systemRole || '').trim().toLowerCase();
 }
 
 /**

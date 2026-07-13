@@ -19,7 +19,11 @@ export function useAdminMembers(orgId) {
       const data = unwrapApi(res);
       const bundle = data?.data ?? data;
       const list = bundle?.members || bundle;
-      setMembers(Array.isArray(list) ? list : []);
+      // Ẩn tài khoản hệ thống (systemRole=admin) khỏi danh sách quản lý user.
+      const visible = (Array.isArray(list) ? list : []).filter(
+        (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
+      );
+      setMembers(visible);
       setRoles(Array.isArray(bundle?.roles) ? bundle.roles : []);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.loadMembersFail') }));

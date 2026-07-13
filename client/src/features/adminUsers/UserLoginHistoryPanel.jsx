@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+} from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -41,42 +45,55 @@ export default function UserLoginHistoryPanel({ orgId }) {
   }, [orgId, userId, t]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.historyPickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.loginHistory')}</h2>
-        {loading ? (
-          <p className="mt-2 text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : !userId ? (
-          <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-2 py-2">{t('adminUsers.colTime')}</th>
-                  <th className="px-2 py-2">{t('adminUsers.colResult')}</th>
-                  <th className="px-2 py-2">IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((row) => (
-                  <tr key={row.id} className="border-t border-border/60">
-                    <td className="px-2 py-2">{row.at ? new Date(row.at).toLocaleString() : '—'}</td>
-                    <td className="px-2 py-2">
-                      {row.success ? t('adminUsers.loginSuccess') : t('adminUsers.loginFailed')}
-                    </td>
-                    <td className="px-2 py-2">{row.ip || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!items.length ? (
-              <p className="py-4 text-sm text-muted-foreground">{t('adminUsers.noHistory')}</p>
-            ) : null}
-          </div>
-        )}
+    <AdminUserPanelShell title={t('adminDomains.users.loginHistory')} hint={t('adminUsers.historyPickerHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.historyPickerHint')} />
+        <AdminUserFormCard title={t('adminDomains.users.loginHistory')}>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : !userId ? (
+            <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border/70">
+              <div className="max-h-[420px] overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2.5">{t('adminUsers.colTime')}</th>
+                      <th className="px-3 py-2.5">{t('adminUsers.colResult')}</th>
+                      <th className="px-3 py-2.5">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {items.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/20">
+                        <td className="whitespace-nowrap px-3 py-2.5 text-foreground">
+                          {row.at ? new Date(row.at).toLocaleString() : '—'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {row.success ? (
+                            <span className="inline-flex rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+                              {t('adminUsers.loginSuccess')}
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-red-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-500/20 dark:text-red-300">
+                              {t('adminUsers.loginFailed')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{row.ip || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!items.length ? (
+                <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('adminUsers.noHistory')}</p>
+              ) : null}
+            </div>
+          )}
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

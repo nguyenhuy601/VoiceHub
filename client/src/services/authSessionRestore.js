@@ -1,10 +1,19 @@
 import authService from './authService';
-import { getJwtEmail, getToken } from '../utils/tokenStorage';
+import { getJwtEmail, getJwtSystemRole, getToken } from '../utils/tokenStorage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 import { loadBootstrapShell } from './bootstrapService';
 import { readStoredSuite } from '../utils/suitePathUtils';
 
 let inflightRestore = null;
+
+function sessionBaseFromJwt(extra = {}) {
+  const systemRole = getJwtSystemRole();
+  return {
+    email: getJwtEmail() || undefined,
+    ...(systemRole ? { systemRole } : {}),
+    ...extra,
+  };
+}
 
 /**
  * Khôi phục phiên sau reload — một flight (StrictMode / tab song song).
@@ -25,7 +34,7 @@ export async function restoreAuthSession() {
       const boot = await loadBootstrapShell({ suite: readStoredSuite() });
       if (boot?.user) {
         return {
-          user: mergeAuthUserFromProfile({ email: getJwtEmail() || undefined }, boot.user),
+          user: mergeAuthUserFromProfile(sessionBaseFromJwt(), boot.user),
           fromBootstrap: true,
         };
       }
@@ -34,9 +43,9 @@ export async function restoreAuthSession() {
     }
 
     const userData = await authService.getCurrentUser();
-    const profile = unwrapApiData(userData);
+    const profile = unwrapApiData(userData) || userData;
     return {
-      user: mergeAuthUserFromProfile({ email: getJwtEmail() || undefined }, profile),
+      user: mergeAuthUserFromProfile(sessionBaseFromJwt(), profile),
       fromBootstrap: false,
     };
   })();
@@ -49,10 +58,11 @@ export async function restoreAuthSession() {
 }
 
 export async function restoreAuthSessionAfterLogin(loginUser) {
+  const base = mergeAuthUserFromProfile(sessionBaseFromJwt(), loginUser || {});
   try {
     const boot = await loadBootstrapShell({ suite: readStoredSuite() });
     if (boot?.user) {
-      return mergeAuthUserFromProfile(loginUser, boot.user);
+      return mergeAuthUserFromProfile(base, boot.user);
     }
   } catch (bootErr) {
     console.warn('[authSession] Bootstrap after login failed:', bootErr?.message || bootErr);
@@ -60,8 +70,8 @@ export async function restoreAuthSessionAfterLogin(loginUser) {
 
   try {
     const me = await authService.getCurrentUser();
-    return mergeAuthUserFromProfile(loginUser, unwrapApiData(me) || me);
+    return mergeAuthUserFromProfile(base, unwrapApiData(me) || me);
   } catch {
-    return loginUser;
+    return base;
   }
 }

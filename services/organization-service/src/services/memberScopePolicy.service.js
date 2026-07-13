@@ -73,6 +73,18 @@ async function upsertAssignmentsFromScopes({
       source,
     });
   }
+  // Huy: dynamic OU scopes
+  for (const ouId of scopeSets.ouIds || []) {
+    docs.push({
+      organization: organizationId,
+      user: userId,
+      roleId: roleHint,
+      scopeType: 'ou',
+      scopeId: ouId,
+      active: true,
+      source,
+    });
+  }
 
   await RoleScopeAssignment.deleteMany({ organization: organizationId, user: userId });
   if (docs.length) {
@@ -86,6 +98,7 @@ function mergeAssignmentsIntoScopes(scopes, assignments = []) {
     divisionIds: new Set(scopes?.divisionIds || []),
     departmentIds: new Set(scopes?.departmentIds || []),
     teamIds: new Set(scopes?.teamIds || []),
+    ouIds: new Set(scopes?.ouIds || []),
   };
   for (const row of assignments) {
     const id = row?.scopeId ? String(row.scopeId) : '';
@@ -93,6 +106,7 @@ function mergeAssignmentsIntoScopes(scopes, assignments = []) {
     if (row.scopeType === 'division') next.divisionIds.add(id);
     if (row.scopeType === 'department') next.departmentIds.add(id);
     if (row.scopeType === 'team') next.teamIds.add(id);
+    if (row.scopeType === 'ou') next.ouIds.add(id);
   }
   return next;
 }
@@ -102,12 +116,30 @@ async function resolveEffectiveScopesFromAssignments(organizationId, userId) {
   const teamIds = [];
   const departmentIds = [];
   const divisionIds = [];
+  const ouIds = [];
   for (const row of assignments) {
     const id = row?.scopeId ? String(row.scopeId) : '';
     if (!id) continue;
     if (row.scopeType === 'team') teamIds.push(id);
     if (row.scopeType === 'department') departmentIds.push(id);
     if (row.scopeType === 'division') divisionIds.push(id);
+    if (row.scopeType === 'ou') ouIds.push(id);
+  }
+
+  // Huy: bổ sung OU membership matrix
+  try {
+    const OrgUnitMembership = require('../models/OrgUnitMembership');
+    const memberships = await OrgUnitMembership.find({
+      organization: organizationId,
+      userId,
+    })
+      .select('unitId isPrimary')
+      .lean();
+    for (const m of memberships) {
+      if (m.unitId) ouIds.push(String(m.unitId));
+    }
+  } catch {
+    // model may be unavailable in partial tests
   }
 
   const [teams, departments] = await Promise.all([
@@ -135,6 +167,7 @@ async function resolveEffectiveScopesFromAssignments(organizationId, userId) {
     divisionIds: new Set(divisionIds),
     departmentIds: new Set(departmentIds),
     teamIds: new Set(teamIds),
+    ouIds: new Set(ouIds),
   };
   for (const team of teams) {
     if (team?.department) scope.departmentIds.add(String(team.department));
@@ -151,11 +184,14 @@ function pickPrimaryScope(scope) {
   const teamId = scope?.teamIds?.values?.().next?.().value || null;
   const departmentId = scope?.departmentIds?.values?.().next?.().value || null;
   const divisionId = scope?.divisionIds?.values?.().next?.().value || null;
+  const ouId = scope?.ouIds?.values?.().next?.().value || null;
   return {
     branchId: null,
     divisionId: divisionId ? String(divisionId) : null,
     departmentId: departmentId ? String(departmentId) : null,
     teamId: teamId ? String(teamId) : null,
+    // Huy: primary OU (matrix)
+    ouId: ouId ? String(ouId) : null,
   };
 }
 

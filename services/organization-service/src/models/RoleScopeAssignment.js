@@ -21,7 +21,8 @@ const roleScopeAssignmentSchema = new mongoose.Schema(
     },
     scopeType: {
       type: String,
-      enum: ['division', 'department', 'team'],
+      // Huy: thêm 'ou' cho dynamic Organizational Unit (giữ enum cũ trong transition)
+      enum: ['division', 'department', 'team', 'ou'],
       required: true,
       index: true,
     },

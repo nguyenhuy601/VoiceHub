@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { KeyRound } from 'lucide-react';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -29,20 +35,34 @@ export default function UserForcePasswordPanel({ orgId }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.forcePickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.forcePassword')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.forceHint')}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <GradientButton type="button" disabled={!userId || busy} onClick={() => apply(true)}>
-            {t('adminUsers.requireChangeOnLogin')}
-          </GradientButton>
-          <GradientButton type="button" variant="secondary" disabled={!userId || busy} onClick={() => apply(false)}>
-            {t('adminUsers.clearRequireChange')}
-          </GradientButton>
-        </div>
+    <AdminUserPanelShell title={t('adminDomains.users.forcePassword')} hint={t('adminUsers.forceHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.forcePickerHint')} />
+        <AdminUserFormCard title={t('adminDomains.users.forcePassword')} hint={t('adminUsers.forceHint')}>
+          {!userId ? (
+            <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!userId || busy}
+              className={adminPrimaryBtnClass()}
+              onClick={() => apply(true)}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              {t('adminUsers.requireChangeOnLogin')}
+            </button>
+            <button
+              type="button"
+              disabled={!userId || busy}
+              className={adminSecondaryBtnClass()}
+              onClick={() => apply(false)}
+            >
+              {t('adminUsers.clearRequireChange')}
+            </button>
+          </div>
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

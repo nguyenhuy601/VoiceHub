@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { ConfirmDialog, GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminDangerBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../components/Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
@@ -39,25 +44,30 @@ export default function UserDeletePanel({ orgId }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.deletePickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.delete')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.deleteHint')}</p>
-        {isSystemAdmin ? (
-          <label className="mt-4 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={deactivate} onChange={(e) => setDeactivate(e.target.checked)} />
-            {t('adminUsers.deactivateAccount')}
-          </label>
-        ) : null}
-        <GradientButton
-          type="button"
-          className="mt-4"
-          disabled={!userId}
-          onClick={() => setOpen(true)}
-        >
-          {t('adminUsers.removeMember')}
-        </GradientButton>
+    <AdminUserPanelShell title={t('adminDomains.users.delete')} hint={t('adminUsers.deleteHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.deletePickerHint')} />
+        <AdminUserFormCard title={t('adminUsers.removeMember')} hint={t('adminUsers.deleteHint')} danger>
+          {isSystemAdmin ? (
+            <label className="mb-4 flex items-start gap-2.5 text-sm text-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-border"
+                checked={deactivate}
+                onChange={(e) => setDeactivate(e.target.checked)}
+              />
+              <span>{t('adminUsers.deactivateAccount')}</span>
+            </label>
+          ) : null}
+          <button
+            type="button"
+            disabled={!userId}
+            className={adminDangerBtnClass()}
+            onClick={() => setOpen(true)}
+          >
+            {t('adminUsers.removeMember')}
+          </button>
+        </AdminUserFormCard>
       </div>
       <ConfirmDialog
         isOpen={open}
@@ -68,6 +78,6 @@ export default function UserDeletePanel({ orgId }) {
         confirmText={t('adminUsers.removeMember')}
         cancelText={t('common.cancel')}
       />
-    </div>
+    </AdminUserPanelShell>
   );
 }

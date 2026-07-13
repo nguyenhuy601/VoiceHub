@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getJwtSystemRole } from '../../utils/tokenStorage';
 import FirstLoginProfileModal from './FirstLoginProfileModal';
 
 function profileIncomplete(user) {
@@ -14,6 +15,13 @@ function profileIncomplete(user) {
   return !hasName || !hasPhone || !hasJob;
 }
 
+/** Tài khoản hệ thống duy nhất (systemRole=admin) — không bắt buộc hồ sơ / đổi MK. */
+function isSystemAdminAccount(user) {
+  if (String(user?.systemRole || '').trim().toLowerCase() === 'admin') return true;
+  if (getJwtSystemRole() === 'admin') return true;
+  return false;
+}
+
 /**
  * Gate sau login: bắt buộc đổi MK / hoàn thiện hồ sơ trước khi dùng app.
  * Tài khoản hệ thống (systemRole=admin) không bắt buộc bổ sung hồ sơ.
@@ -24,7 +32,7 @@ export default function FirstLoginOnboardingGate() {
   const [dismissed, setDismissed] = useState(false);
 
   const inAppShell = pathname.startsWith('/app');
-  const isSystemAdmin = String(user?.systemRole || '').trim().toLowerCase() === 'admin';
+  const isSystemAdmin = isSystemAdminAccount(user);
   const mustChangePassword = Boolean(user?.mustChangePassword) && !isSystemAdmin;
   const needsProfile = useMemo(
     () => !isSystemAdmin && profileIncomplete(user),

@@ -17,6 +17,7 @@
 // api đã có sẵn: base URL, interceptors, auth headers
 import api from './api';
 import { getRefreshToken, setRefreshToken, setToken } from '../utils/tokenStorage';
+import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 
 const GATEWAY_TRUST_TIMEOUT_MS = 8000;
 
@@ -141,11 +142,20 @@ const authService = {
       api.get('/auth/me'),
       api.get('/users/me', { skipGlobalAuthFailure: true }),
     ]);
-    if (profileSettled.status === 'fulfilled') {
-      return profileSettled.value;
-    }
-    if (authSettled.status === 'fulfilled') {
-      return authSettled.value;
+    const authBody =
+      authSettled.status === 'fulfilled'
+        ? authSettled.value?.data ?? authSettled.value
+        : null;
+    const profileBody =
+      profileSettled.status === 'fulfilled'
+        ? profileSettled.value?.data ?? profileSettled.value
+        : null;
+    // /users/me không có systemRole — phải gộp với /auth/me để không mất admin hệ thống.
+    if (profileBody || authBody) {
+      return mergeAuthUserFromProfile(
+        unwrapApiData(authBody) || authBody || {},
+        unwrapApiData(profileBody) || profileBody || authBody
+      );
     }
     throw authSettled.reason || profileSettled.reason;
   },

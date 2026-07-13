@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { Lock, Unlock } from 'lucide-react';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminDangerBtnClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
@@ -64,26 +70,50 @@ export default function UserLockPanel({ orgId }) {
   const isLocked = summary?.isActive === false;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.lockPickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.lock')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.lockHint')}</p>
-        {userId && summary ? (
-          <p className="mt-3 text-sm">
-            {t('adminUsers.currentStatus')}:{' '}
-            <span className="font-medium">{isLocked ? t('adminUsers.statusInactive') : t('adminUsers.statusActive')}</span>
-          </p>
-        ) : null}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <GradientButton type="button" disabled={!userId || busy || isLocked} onClick={() => toggleLock(true)}>
-            {t('adminUsers.lockAccount')}
-          </GradientButton>
-          <GradientButton type="button" variant="secondary" disabled={!userId || busy || !isLocked} onClick={() => toggleLock(false)}>
-            {t('adminUsers.unlockAccount')}
-          </GradientButton>
-        </div>
+    <AdminUserPanelShell title={t('adminDomains.users.lock')} hint={t('adminUsers.lockHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.lockPickerHint')} />
+        <AdminUserFormCard title={t('adminDomains.users.lock')} hint={t('adminUsers.lockHint')}>
+          {!userId ? (
+            <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : summary ? (
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">{t('adminUsers.currentStatus')}:</span>
+              <span
+                className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
+                  isLocked
+                    ? 'bg-amber-500/12 text-amber-800 ring-amber-500/25 dark:text-amber-200'
+                    : 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
+                }`}
+              >
+                {isLocked ? t('adminUsers.statusInactive') : t('adminUsers.statusActive')}
+              </span>
+            </div>
+          ) : (
+            <p className="mb-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!userId || busy || isLocked}
+              className={adminDangerBtnClass()}
+              onClick={() => toggleLock(true)}
+            >
+              <Lock className="h-3.5 w-3.5" />
+              {t('adminUsers.lockAccount')}
+            </button>
+            <button
+              type="button"
+              disabled={!userId || busy || !isLocked}
+              className={adminSecondaryBtnClass()}
+              onClick={() => toggleLock(false)}
+            >
+              <Unlock className="h-3.5 w-3.5" />
+              {t('adminUsers.unlockAccount')}
+            </button>
+          </div>
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

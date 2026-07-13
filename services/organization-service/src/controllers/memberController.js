@@ -357,8 +357,17 @@ async function enrichMembersForAdminList(members) {
       mustChangePassword: auth.mustChangePassword,
       isLocked: auth.isLocked,
       lastLoginAt: auth.lastLoginAt || null,
+      // Huy: gắn systemRole để FE/BE lọc tài khoản admin hệ thống khỏi danh sách user
+      systemRole: String(auth.systemRole || 'employee').toLowerCase() === 'admin' ? 'admin' : 'employee',
     };
   });
+}
+
+/** Huy: ẩn tài khoản systemRole=admin khỏi danh sách quản lý user */
+function excludeSystemAdminAccounts(members) {
+  return (Array.isArray(members) ? members : []).filter(
+    (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
+  );
 }
 
 /** Gom members + roles RBAC — một request cho sidebar (wave-2d). */
@@ -369,7 +378,8 @@ exports.getMembersWithRoles = async (req, res, next) => {
       listMembersForOrg(req),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
-    const enriched = await enrichMembersForAdminList(members);
+    // Huy: không trả system admin trong members
+    const enriched = excludeSystemAdminAccounts(await enrichMembersForAdminList(members));
     return res.json({ status: 'success', data: { members: enriched, roles } });
   } catch (error) {
     const handled = orgOperationalError(res, error);

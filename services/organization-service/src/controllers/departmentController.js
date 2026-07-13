@@ -65,16 +65,37 @@ exports.createDepartment = async (req, res, next) => {
 
 exports.updateDepartment = async (req, res, next) => {
   try {
-    const { name, description, head } = req.body;
+    // Huy: mở rộng patch — division (phòng ban cha), members (điều chuyển), head
+    const { name, description, head, division, members } = req.body || {};
+    const patch = {};
+    if (name !== undefined) patch.name = name;
+    if (description !== undefined) patch.description = description;
+    if (head !== undefined) patch.head = head || null;
+    if (members !== undefined && Array.isArray(members)) patch.members = members;
 
-    const department = await Department.findByIdAndUpdate(
-      req.params.id,
-      { name, description, head },
+    if (division !== undefined) {
+      const Division = require('../models/Division');
+      const div = await Division.findOne({
+        _id: division,
+        organization: req.params.orgId,
+        isActive: true,
+      }).lean();
+      if (!div) {
+        return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      }
+      patch.division = div._id;
+      patch.branch = div.branch || null;
+    }
+
+    const department = await Department.findOneAndUpdate(
+      { _id: req.params.id, organization: req.params.orgId },
+      patch,
       { new: true }
     );
-    if (department) {
-      await ensureDepartmentRole(req.params.orgId, department._id, department.name);
+    if (!department) {
+      return res.status(404).json({ status: 'fail', message: 'Department not found' });
     }
+    await ensureDepartmentRole(req.params.orgId, department._id, department.name);
 
     res.json({ status: 'success', data: department });
   } catch (error) {

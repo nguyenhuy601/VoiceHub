@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { Mail } from 'lucide-react';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminPrimaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -31,20 +36,30 @@ export default function UserResetPasswordPanel({ orgId }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.resetPickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.resetPassword')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.resetHint')}</p>
-        <GradientButton type="button" className="mt-4" disabled={!userId || busy} onClick={sendReset}>
-          {busy ? t('common.saving') : t('adminUsers.sendResetEmail')}
-        </GradientButton>
-        {result?.resetUrl ? (
-          <p className="mt-3 break-all text-xs text-muted-foreground">
-            {t('adminUsers.devResetUrl')}: {result.resetUrl}
-          </p>
-        ) : null}
+    <AdminUserPanelShell title={t('adminDomains.users.resetPassword')} hint={t('adminUsers.resetHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.resetPickerHint')} />
+        <AdminUserFormCard title={t('adminUsers.sendResetEmail')} hint={t('adminUsers.resetHint')}>
+          {!userId ? (
+            <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : null}
+          <button
+            type="button"
+            disabled={!userId || busy}
+            className={adminPrimaryBtnClass()}
+            onClick={sendReset}
+          >
+            <Mail className="h-3.5 w-3.5" />
+            {busy ? t('common.saving') : t('adminUsers.sendResetEmail')}
+          </button>
+          {result?.resetUrl ? (
+            <div className="mt-4 rounded-xl border border-border/70 bg-muted/20 p-3">
+              <p className="text-xs font-medium text-muted-foreground">{t('adminUsers.devResetUrl')}</p>
+              <p className="mt-1 break-all font-mono text-xs text-foreground">{result.resetUrl}</p>
+            </div>
+          ) : null}
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

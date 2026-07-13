@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unwrapApi } from '../../utils/adminUserUtils';
 
 export default function UserAssignOrgPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -42,46 +47,49 @@ export default function UserAssignOrgPanel({ orgId }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.assignPickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.assignOrg')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.assignHint')}</p>
-        <div className="mt-4 space-y-3">
-          <label className="block text-sm">
-            <span className="mb-1 block text-muted-foreground">{t('adminUsers.rbacRole')}</span>
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              value={selectedRoleId}
-              onChange={(e) => setSelectedRoleId(e.target.value)}
-            >
-              {roles.map((role) => {
-                const id = String(role._id || role.id);
-                return (
-                  <option key={id} value={id}>
-                    {role.name || id}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-muted-foreground">{t('adminUsers.membershipRole')}</span>
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              value={membershipRole}
-              onChange={(e) => setMembershipRole(e.target.value)}
-            >
-              <option value="member">member</option>
-              <option value="hr">hr</option>
-              <option value="admin">admin</option>
-            </select>
-          </label>
-          <GradientButton type="button" disabled={!userId || busy} onClick={assign}>
-            {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
-          </GradientButton>
-        </div>
+    <AdminUserPanelShell title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.assignPickerHint')} />
+        <AdminUserFormCard title={t('adminUsers.assignRole')} hint={t('adminUsers.assignHint')}>
+          {!userId ? (
+            <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : null}
+          <div className="space-y-4">
+            <label className="block">
+              <span className={adminLabelClass()}>{t('adminUsers.rbacRole')}</span>
+              <select
+                className={adminInputClass()}
+                value={selectedRoleId}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+              >
+                {roles.map((role) => {
+                  const id = String(role._id || role.id);
+                  return (
+                    <option key={id} value={id}>
+                      {role.name || id}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label className="block">
+              <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
+              <select
+                className={adminInputClass()}
+                value={membershipRole}
+                onChange={(e) => setMembershipRole(e.target.value)}
+              >
+                <option value="member">member</option>
+                <option value="hr">hr</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <button type="button" disabled={!userId || busy} className={adminPrimaryBtnClass()} onClick={assign}>
+              {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
+            </button>
+          </div>
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

@@ -7,8 +7,15 @@ const router = express.Router({ mergeParams: true });
 
 router.use(protect);
 
+/**
+ * Huy P5: Legacy Branch→Division→Department→Team routes — DEPRECATED for new admin UI.
+ * Prefer GET/PUT /:orgId/structure/levels|units|apply-template. Kept for dual-read clients
+ * and workspace until cutover; new writes should go through structureController + OU.
+ */
 router.get('/branches', hierarchyController.listBranches);
 router.post('/branches', authorize(['owner', 'admin']), hierarchyController.createBranch);
+// Huy: PUT chi nhánh — sửa / vô hiệu hóa (domain Cơ cấu tổ chức)
+router.put('/branches/:branchId', authorize(['owner', 'admin']), hierarchyController.updateBranch);
 
 router.get('/branches/:branchId/divisions', hierarchyController.listDivisions);
 router.post('/branches/:branchId/divisions', authorize(['owner', 'admin']), hierarchyController.createDivision);

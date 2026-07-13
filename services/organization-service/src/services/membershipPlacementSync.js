@@ -125,14 +125,56 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
         )
       : null,
   ]);
+  // Huy P4: dual-sync OrgUnitMembership từ legacy dept/team (qua legacyRef)
+  let ouIds = [];
+  try {
+    const OrganizationalUnit = require('../models/OrganizationalUnit');
+    const OrgUnitMembership = require('../models/OrgUnitMembership');
+    const legacyPairs = [
+      ...targetDivisionIds.map((id) => ({ collection: 'Division', id })),
+      ...targetDepartmentIds.map((id) => ({ collection: 'Department', id })),
+      ...targetTeamIds.map((id) => ({ collection: 'Team', id })),
+    ];
+    if (legacyPairs.length) {
+      const or = legacyPairs.map((p) => ({
+        'legacyRef.collection': p.collection,
+        'legacyRef.id': p.id,
+      }));
+      const ous = await OrganizationalUnit.find({
+        organization: oid,
+        $or: or,
+        'attributes.isActive': { $ne: false },
+      })
+        .select('_id')
+        .lean();
+      ouIds = ous.map((u) => String(u._id));
+    }
+    await OrgUnitMembership.deleteMany({ organization: oid, userId: uid });
+    if (ouIds.length) {
+      const primaryId = ouIds[ouIds.length - 1];
+      await OrgUnitMembership.insertMany(
+        ouIds.map((unitId) => ({
+          organization: oid,
+          userId: uid,
+          unitId,
+          roleInUnit: 'member',
+          isPrimary: String(unitId) === String(primaryId),
+        })),
+        { ordered: false }
+      );
+    }
+  } catch (error) {
+    logger.warn('[membershipPlacementSync] OU membership sync skipped:', error.message);
+  }
+
   await upsertAssignmentsFromScopes({
     organizationId: oid,
     userId: uid,
     roleNames,
-    scopeSets: scopes,
+    scopeSets: { ...scopes, ouIds },
     source: 'role_sync',
   });
-  const placement = pickPrimaryScope(scopes);
+  const placement = pickPrimaryScope({ ...scopes, ouIds: new Set(ouIds) });
 
   let departmentAutoFriend = null;
   if (targetDepartmentIds.length) {

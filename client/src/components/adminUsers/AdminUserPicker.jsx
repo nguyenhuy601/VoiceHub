@@ -1,15 +1,36 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMembers from '../../hooks/useAdminMembers';
-import { memberDisplayName, memberEmail, memberOrgRole, memberUserId } from '../../utils/adminUserUtils';
+import { getInitials } from '../../utils/helpers';
+import {
+  memberDisplayName,
+  memberEmail,
+  memberOrgRole,
+  memberStatusKey,
+  memberStatusLabel,
+  memberUserId,
+} from '../../utils/adminUserUtils';
+import { adminInputClass } from './adminUserPanelUi';
 
-export default function AdminUserPicker({
-  orgId,
-  selectedUserId,
-  onSelect,
-  hint,
-}) {
+function StatusDot({ member, t }) {
+  const key = memberStatusKey(member);
+  const color =
+    key === 'active'
+      ? 'bg-emerald-500'
+      : key === 'locked' || key === 'mustChangePassword'
+        ? 'bg-amber-500'
+        : 'bg-slate-400';
+  return (
+    <span
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color}`}
+      title={memberStatusLabel(member, t)}
+    />
+  );
+}
+
+export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
@@ -25,6 +46,7 @@ export default function AdminUserPicker({
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
+        memberOrgRole(m).includes(q) ||
         id.toLowerCase().includes(q)
       );
     });
@@ -40,50 +62,63 @@ export default function AdminUserPicker({
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-card/40 p-4">
-      <div>
-        <h3 className="text-sm font-semibold">{t('adminUsers.pickerTitle')}</h3>
+    <div className="flex h-full min-h-[320px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-foreground">{t('adminUsers.pickerTitle')}</h3>
         {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
       </div>
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t('adminUsers.searchPlaceholder')}
-        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-      />
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('adminUsers.searchPlaceholder')}
+          className={`${adminInputClass()} pl-9`}
+        />
+      </div>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : (
-        <div className="max-h-64 overflow-auto rounded-lg border border-border/70">
-          <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-muted/80 text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">{t('companyAdmin.colName')}</th>
-                <th className="px-3 py-2">{t('companyAdmin.colEmail')}</th>
-                <th className="px-3 py-2">{t('companyAdmin.colRole')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((m) => {
-                const id = memberUserId(m);
-                const active = id === activeId;
-                return (
-                  <tr
-                    key={id}
-                    className={`cursor-pointer border-t border-border/60 transition ${active ? 'bg-red-500/10' : 'hover:bg-muted/30'}`}
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/70">
+          <ul className="divide-y divide-border/50">
+            {filtered.map((m) => {
+              const id = memberUserId(m);
+              const name = memberDisplayName(m);
+              const active = id === activeId;
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
                     onClick={() => pick(id)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                      active ? 'bg-red-500/10' : 'hover:bg-muted/30'
+                    }`}
                   >
-                    <td className="px-3 py-2 font-medium">{memberDisplayName(m)}</td>
-                    <td className="px-3 py-2">{memberEmail(m)}</td>
-                    <td className="px-3 py-2">{memberOrgRole(m)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    {m.avatar ? (
+                      <img src={m.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[10px] font-bold text-white">
+                        {getInitials(name)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <StatusDot member={m} t={t} />
+                        <span className="truncate text-sm font-medium text-foreground">{name}</span>
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground">{memberEmail(m)}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">
+                      {memberOrgRole(m)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
           {!filtered.length ? (
-            <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminUsers.noUsers')}</p>
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('adminUsers.noUsers')}</p>
           ) : null}
         </div>
       )}

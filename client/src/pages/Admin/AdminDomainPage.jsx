@@ -38,6 +38,34 @@ import {
   MeetingAiSummaryPanel,
 } from '../../features/adminVoice/MeetingArtifactPanels';
 import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
+import {
+  DeptListPanel,
+  DeptCreatePanel,
+  DeptEditPanel,
+  DeptDisablePanel,
+  DeptParentPanel,
+  DeptHeadPanel,
+  DeptTransferPanel,
+  TeamListPanel,
+  TeamCreatePanel,
+  TeamEditPanel,
+  TeamArchivePanel,
+  TeamMembersPanel,
+  TeamLeaderPanel,
+  TeamDeptPanel,
+  BranchListPanel,
+  BranchCreatePanel,
+  BranchEditPanel,
+  BranchDisablePanel,
+  BranchDeptPanel,
+  PosListPanel,
+  PosCreatePanel,
+  PosEditPanel,
+  PosDisablePanel,
+  PosAssignPanel,
+  OrgLevelsPanel,
+  OrgUnitTreePanel,
+} from '../../features/adminOrgStructure';
 
 const USER_PANELS = {
   people: UsersListPanel,
@@ -76,6 +104,36 @@ const VOICE_PANELS = {
   'voice-history': MeetingHistoryPanel,
 };
 
+const ORG_PANELS = {
+  // Huy: Domain Cơ cấu tổ chức — map implementation → panel
+  'org-levels': OrgLevelsPanel,
+  'org-unit-tree': OrgUnitTreePanel,
+  'org-dept-list': DeptListPanel,
+  'org-dept-create': DeptCreatePanel,
+  'org-dept-edit': DeptEditPanel,
+  'org-dept-disable': DeptDisablePanel,
+  'org-dept-parent': DeptParentPanel,
+  'org-dept-head': DeptHeadPanel,
+  'org-dept-transfer': DeptTransferPanel,
+  'org-team-list': TeamListPanel,
+  'org-team-create': TeamCreatePanel,
+  'org-team-edit': TeamEditPanel,
+  'org-team-archive': TeamArchivePanel,
+  'org-team-members': TeamMembersPanel,
+  'org-team-leader': TeamLeaderPanel,
+  'org-team-dept': TeamDeptPanel,
+  'org-branch-list': BranchListPanel,
+  'org-branch-create': BranchCreatePanel,
+  'org-branch-edit': BranchEditPanel,
+  'org-branch-disable': BranchDisablePanel,
+  'org-branch-dept': BranchDeptPanel,
+  'org-pos-list': PosListPanel,
+  'org-pos-create': PosCreatePanel,
+  'org-pos-edit': PosEditPanel,
+  'org-pos-disable': PosDisablePanel,
+  'org-pos-assign': PosAssignPanel,
+};
+
 export default function AdminDomainPage() {
   const location = useLocation();
   const { orgId } = useCompanyAdminContext();
@@ -93,6 +151,11 @@ export default function AdminDomainPage() {
   const impl = match.item.implementation;
 
   if (impl?.startsWith('settings-')) return <CompanyAdminSettingsPage />;
+
+  const OrgPanel = ORG_PANELS[impl];
+  if (OrgPanel) {
+    return <OrgPanel orgId={orgId} />;
+  }
 
   const VoicePanel = VOICE_PANELS[impl];
   if (VoicePanel) {

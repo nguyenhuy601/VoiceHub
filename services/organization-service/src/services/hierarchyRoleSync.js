@@ -233,6 +233,33 @@ async function ensureTeamRole(organizationId, teamId, teamName) {
   }
 }
 
+/** Huy: Role cho Organizational Unit động — map levelKey → priority/tag */
+const PRIORITY_OU = 50;
+function ouRoleName(name, unitId, levelKey) {
+  const label = String(levelKey || 'ou');
+  return `${label}: ${String(name || '').trim() || 'Unit'} · ou_${shortId(unitId)}`;
+}
+
+async function ensureOuRole(organizationId, unitId, unitName, levelKey) {
+  if (!GATEWAY_INTERNAL_TOKEN || !unitId) return;
+  const key = String(levelKey || '').toLowerCase();
+  // Huy: Wave A — legacy tags khi levelKey khớp division/department/team
+  if (key === 'division') return ensureDivisionRole(organizationId, unitId, unitName);
+  if (key === 'department') return ensureDepartmentRole(organizationId, unitId, unitName);
+  if (key === 'team') return ensureTeamRole(organizationId, unitId, unitName);
+  try {
+    const roles = await listRoles(organizationId);
+    await ensureRoleByTag(organizationId, roles, {
+      tag: `ou_${shortId(unitId)}`,
+      expectedName: ouRoleName(unitName, unitId, levelKey),
+      expectedPermissions: PERMS_NONE,
+      expectedPriority: PRIORITY_OU,
+    });
+  } catch (error) {
+    logger.warn('[hierarchyRoleSync] ensureOuRole failed', error.message);
+  }
+}
+
 async function syncHierarchyRoles(organizationId, { divisions = [], departments = [], teams = [] } = {}) {
   if (!GATEWAY_INTERNAL_TOKEN) return;
   try {
@@ -276,5 +303,6 @@ module.exports = {
   ensureDivisionRole,
   ensureDepartmentRole,
   ensureTeamRole,
+  ensureOuRole,
   syncHierarchyRoles,
 };

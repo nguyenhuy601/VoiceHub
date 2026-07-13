@@ -23,11 +23,27 @@ export function memberOrgRole(member) {
   return String(member?.role || member?.orgRole || 'member').toLowerCase();
 }
 
+export function memberStatusKey(member) {
+  if (member?.isLocked) return 'locked';
+  if (member?.isActive === false) return 'inactive';
+  if (member?.mustChangePassword) return 'mustChangePassword';
+  return 'active';
+}
+
 export function memberStatusLabel(member, t) {
-  if (member?.isLocked) return t('adminUsers.statusLocked');
-  if (member?.isActive === false) return t('adminUsers.statusInactive');
-  if (member?.mustChangePassword) return t('adminUsers.statusMustChangePassword');
+  const key = memberStatusKey(member);
+  if (key === 'locked') return t('adminUsers.statusLocked');
+  if (key === 'inactive') return t('adminUsers.statusInactive');
+  if (key === 'mustChangePassword') return t('adminUsers.statusMustChangePassword');
   return t('adminUsers.statusActive');
+}
+
+export function memberDepartmentId(member) {
+  return String(member?.department || member?.departmentId || '').trim();
+}
+
+export function memberTeamId(member) {
+  return String(member?.team || member?.teamId || '').trim();
 }
 
 export function unwrapApi(payload) {

@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { GradientButton } from '../../components/Shared';
+import {
+  AdminUserFormCard,
+  AdminUserPanelShell,
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -60,34 +66,41 @@ export default function UserEditPanel({ orgId }) {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.editPickerHint')} />
-      <div className="rounded-xl border border-border bg-card/40 p-4">
-        <h2 className="text-lg font-semibold">{t('adminDomains.users.edit')}</h2>
-        {!userId ? (
-          <p className="mt-2 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-        ) : loading ? (
-          <p className="mt-2 text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : (
-          <form className="mt-4 space-y-3" onSubmit={save}>
-            <input
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              placeholder={t('adminUsers.displayName')}
-              value={form.displayName}
-              onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-            />
-            <input
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              placeholder={t('adminUsers.jobTitle')}
-              value={form.jobTitle}
-              onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
-            />
-            <GradientButton type="submit" disabled={saving}>
-              {saving ? t('common.saving') : t('common.save')}
-            </GradientButton>
-          </form>
-        )}
+    <AdminUserPanelShell title={t('adminDomains.users.edit')} hint={t('adminUsers.editPickerHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.editPickerHint')} />
+        <AdminUserFormCard title={t('adminUsers.editInfo')}>
+          {!userId ? (
+            <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : loading ? (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : (
+            <form className="space-y-4" onSubmit={save}>
+              <label className="block">
+                <span className={adminLabelClass()}>{t('adminUsers.displayName')}</span>
+                <input
+                  className={adminInputClass()}
+                  placeholder={t('adminUsers.displayName')}
+                  value={form.displayName}
+                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className={adminLabelClass()}>{t('adminUsers.jobTitle')}</span>
+                <input
+                  className={adminInputClass()}
+                  placeholder={t('adminUsers.jobTitle')}
+                  value={form.jobTitle}
+                  onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
+                />
+              </label>
+              <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+                {saving ? t('common.saving') : t('common.save')}
+              </button>
+            </form>
+          )}
+        </AdminUserFormCard>
       </div>
-    </div>
+    </AdminUserPanelShell>
   );
 }

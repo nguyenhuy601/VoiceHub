@@ -53,13 +53,48 @@ export const organizationAPI = {
     return response;
   },
 
-  getBranches: async (orgId) => {
-    const response = await apiClient.get(`/organizations/${orgId}/hierarchy/branches`);
+  // Huy: Dynamic Organizational Structure API
+  listStructureTemplates: async (orgId) =>
+    apiClient.get(`/organizations/${orgId}/structure/templates`),
+  getStructureLevels: async (orgId) =>
+    apiClient.get(`/organizations/${orgId}/structure/levels`),
+  putStructureLevels: async (orgId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/levels`, data),
+  listStructureUnits: async (orgId, { includeInactive = false } = {}) =>
+    apiClient.get(`/organizations/${orgId}/structure/units`, {
+      params: includeInactive ? { includeInactive: '1' } : undefined,
+    }),
+  createStructureUnit: async (orgId, data) =>
+    apiClient.post(`/organizations/${orgId}/structure/units`, data),
+  updateStructureUnit: async (orgId, unitId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/units/${unitId}`, data),
+  deleteStructureUnit: async (orgId, unitId) =>
+    apiClient.delete(`/organizations/${orgId}/structure/units/${unitId}`),
+  applyStructureTemplate: async (orgId, data) =>
+    apiClient.post(`/organizations/${orgId}/structure/apply-template`, data),
+  backfillStructureOu: async (orgId) =>
+    apiClient.post(`/organizations/${orgId}/structure/backfill`),
+  listStructureUnitMembers: async (orgId, unitId) =>
+    apiClient.get(`/organizations/${orgId}/structure/units/${unitId}/members`),
+  setStructureUnitMembers: async (orgId, unitId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/units/${unitId}/members`, data),
+
+  // Huy: Domain Cơ cấu tổ chức — getBranches hỗ trợ includeInactive
+  getBranches: async (orgId, { includeInactive = false } = {}) => {
+    const response = await apiClient.get(`/organizations/${orgId}/hierarchy/branches`, {
+      params: includeInactive ? { includeInactive: '1' } : undefined,
+    });
     return response;
   },
 
   createBranch: async (orgId, data) => {
     const response = await apiClient.post(`/organizations/${orgId}/hierarchy/branches`, data);
+    return response;
+  },
+
+  // Huy: PUT chi nhánh — sửa / vô hiệu hóa
+  updateBranch: async (orgId, branchId, data) => {
+    const response = await apiClient.put(`/organizations/${orgId}/hierarchy/branches/${branchId}`, data);
     return response;
   },
 

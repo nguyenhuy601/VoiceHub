@@ -29,7 +29,11 @@ const allowedChannelTypes = new Set(['chat', 'voice', 'announcement']);
 
 exports.listBranches = async (req, res, next) => {
   try {
-    const rows = await Branch.find({ organization: req.params.orgId, isActive: true }).sort({ createdAt: 1 });
+    // Huy: cho phép ?includeInactive=1 để admin xem chi nhánh đã vô hiệu
+    const includeInactive = String(req.query?.includeInactive || '') === '1';
+    const filter = { organization: req.params.orgId };
+    if (!includeInactive) filter.isActive = true;
+    const rows = await Branch.find(filter).sort({ createdAt: 1 });
     res.json({ status: 'success', data: rows });
   } catch (error) {
     next(error);
@@ -47,6 +51,29 @@ exports.createBranch = async (req, res, next) => {
     res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
     next(error);
+  }
+};
+
+/** Huy: Cập nhật / vô hiệu hóa chi nhánh (cùng resource branches — domain Cơ cấu tổ chức). */
+exports.updateBranch = async (req, res, next) => {
+  try {
+    const patch = {};
+    if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Chi nhánh');
+    if (req.body?.location !== undefined) patch.location = String(req.body.location || '').trim();
+    if (req.body?.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
+
+    const doc = await Branch.findOneAndUpdate(
+      { _id: req.params.branchId, organization: req.params.orgId },
+      { $set: patch },
+      { new: true }
+    );
+    if (!doc) {
+      return orgFail(res, 404, 'Branch not found', 'ORG_NOT_FOUND');
+    }
+    await bumpOrgReadCache(req.params.orgId);
+    return res.json({ status: 'success', data: doc });
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -214,23 +241,43 @@ exports.createTeamByDepartment = async (req, res, next) => {
 
 exports.updateTeamByHierarchy = async (req, res, next) => {
   try {
+    // Huy: mở rộng body — description, leader, department, members, isActive (archive)
+    const patch = {};
+    if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Team');
+    if (req.body?.description !== undefined) patch.description = String(req.body.description || '').trim();
+    if (req.body?.leader !== undefined) patch.leader = req.body.leader || null;
+    if (req.body?.department !== undefined) patch.department = req.body.department || null;
+    if (req.body?.members !== undefined && Array.isArray(req.body.members)) {
+      patch.members = req.body.members;
+    }
+    if (req.body?.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
+
+    if (patch.department) {
+      const department = await Department.findOne({
+        _id: patch.department,
+        organization: req.params.orgId,
+      }).lean();
+      if (!department) {
+        return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
+      }
+      patch.branch = department.branch || null;
+      patch.division = department.division || null;
+    }
+
     const doc = await Team.findOneAndUpdate(
       {
         _id: req.params.teamId,
         organization: req.params.orgId,
-        isActive: true,
       },
-      {
-        $set: {
-          name: unwrapName(req.body?.name, 'Team mới'),
-        },
-      },
+      { $set: patch },
       { new: true }
     );
     if (!doc) {
       return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
-    await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    if (doc.isActive !== false) {
+      await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {

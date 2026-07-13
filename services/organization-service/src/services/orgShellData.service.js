@@ -47,6 +47,40 @@ if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: N
 const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
 
 async function buildOrganizationStructureData(orgId) {
+  // Huy: Dual-read — ưu tiên OU tree nếu có; vẫn build legacy + gắn levels/unitsTree
+  const {
+    isDynamicStructureEnabled,
+    listUnitsTree,
+    projectOuTreeToLegacyBranches,
+    getOrCreateLevelSchema,
+  } = require('./orgUnitTree.service');
+
+  let levels = null;
+  let unitsTree = null;
+  let usedOu = false;
+
+  if (isDynamicStructureEnabled()) {
+    try {
+      const schema = await getOrCreateLevelSchema(orgId, 'enterprise-compat');
+      levels = schema.levels;
+      unitsTree = await listUnitsTree(orgId);
+      const ouCount = await require('../models/OrganizationalUnit').countDocuments({
+        organization: orgId,
+      });
+      if (ouCount === 0) {
+        // Huy: lazy backfill từ legacy khi chưa có OU
+        const { backfillOrganizationToOu } = require('./orgStructureMigrate.service');
+        await backfillOrganizationToOu(orgId);
+        unitsTree = await listUnitsTree(orgId);
+      }
+      if (unitsTree?.length) {
+        usedOu = true;
+      }
+    } catch (e) {
+      console.warn('[orgShellData] OU dual-read fallback:', e.message);
+    }
+  }
+
   const [branches, divisions, departments, teams, channels, organization] = await Promise.all([
     Branch.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
     Division.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
@@ -114,10 +148,19 @@ async function buildOrganizationStructureData(orgId) {
     });
   }
 
-  const tree = branches.map((branch) => ({
+  let tree = branches.map((branch) => ({
     ...branch,
     divisions: divisionsByBranch.get(String(branch._id)) || [],
   }));
+
+  // Huy: nếu OU tree có dữ liệu và legacy trống (hoặc prefer OU), project sang branches
+  if (usedOu && unitsTree?.length && (!tree.length || String(process.env.ORG_STRUCTURE_PREFER_OU || '1') === '1')) {
+    const projected = projectOuTreeToLegacyBranches(unitsTree);
+    if (projected.length) {
+      // gắn channels legacy theo legacyRef id nếu trùng
+      tree = projected;
+    }
+  }
 
   const divisionsFlat = divisions.map((division) => ({
     ...division,
@@ -130,6 +173,10 @@ async function buildOrganizationStructureData(orgId) {
   return {
     branches: tree,
     divisionsFlat,
+    // Huy: dynamic structure payload
+    levels: levels || null,
+    unitsTree: unitsTree || null,
+    structureSource: usedOu ? 'ou' : 'legacy',
     provisioning: organization?.provisioning?.structure || {
       status: STRUCTURE_PROVISION.READY,
       startedAt: null,
