@@ -43,7 +43,7 @@ const DOMAIN_ICONS = {
 
 export default function AdminHubPage() {
   const { t } = useAppStrings();
-  const { pendingJoinCount, memberCount } = useCompanyAdminContext();
+  const { memberCount } = useCompanyAdminContext();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -55,7 +55,6 @@ export default function AdminHubPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {ADMIN_DOMAINS.map((domain) => {
           const Icon = DOMAIN_ICONS[domain.icon] || LayoutGrid;
-          const badge = domain.id === 'users' && pendingJoinCount > 0 ? pendingJoinCount : 0;
           return (
             <Link
               key={domain.id}
@@ -67,14 +66,7 @@ export default function AdminHubPage() {
                   <Icon size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-sm font-semibold">{t(domain.labelKey)}</h3>
-                    {badge > 0 ? (
-                      <span className="rounded-full bg-red-500 px-1.5 py-px text-[0.625rem] font-bold text-white">
-                        {badge > 99 ? '99+' : badge}
-                      </span>
-                    ) : null}
-                  </div>
+                  <h3 className="truncate text-sm font-semibold">{t(domain.labelKey)}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">{t('adminDomains.openModule')}</p>
                 </div>
               </div>
@@ -86,8 +78,7 @@ export default function AdminHubPage() {
       <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
         {t('companyAdmin.overviewHint')}{' '}
         <span className="font-medium text-foreground">
-          {t('companyAdmin.pendingJoin')}: {pendingJoinCount} · {t('companyAdmin.activeMembers')}:{' '}
-          {memberCount}
+          {t('companyAdmin.activeMembers')}: {memberCount}
         </span>
       </div>
     </div>

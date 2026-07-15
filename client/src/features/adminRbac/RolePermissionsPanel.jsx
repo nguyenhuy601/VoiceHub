@@ -10,8 +10,8 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
   normalizeRoleDisplayName,
-  permissionEntriesFromState,
-  permissionStateFromEntries,
+  permissionDraftForEditor,
+  permissionEntriesForPersist,
 } from '../../utils/adminRbacUtils';
 
 export default function RolePermissionsPanel({ orgId }) {
@@ -28,7 +28,7 @@ export default function RolePermissionsPanel({ orgId }) {
       setPermDraft({});
       return;
     }
-    setPermDraft(permissionStateFromEntries(role.permissions));
+    setPermDraft(permissionDraftForEditor(role.permissions));
   }, [role]);
 
   const setMany = (keys, value) => {
@@ -47,7 +47,7 @@ export default function RolePermissionsPanel({ orgId }) {
     setBusy(true);
     try {
       await roleAPI.updateRole(roleId, {
-        permissions: permissionEntriesFromState(permDraft),
+        permissions: permissionEntriesForPersist(permDraft),
         serverId: orgId,
         organizationId: orgId,
       });

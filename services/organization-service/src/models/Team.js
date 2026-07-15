@@ -28,7 +28,8 @@ const teamSchema = new mongoose.Schema(
     department: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Department',
-      required: true,
+      default: null,
+      index: true,
     },
     leader: {
       type: mongoose.Schema.Types.ObjectId,

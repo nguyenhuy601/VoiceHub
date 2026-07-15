@@ -24,6 +24,12 @@ export { default as BranchEditPanel } from './BranchEditPanel';
 export { default as BranchDisablePanel } from './BranchDisablePanel';
 export { default as BranchDeptPanel } from './BranchDeptPanel';
 
+export { default as DivisionListPanel } from './DivisionListPanel';
+export { default as DivisionCreatePanel } from './DivisionCreatePanel';
+export { default as DivisionEditPanel } from './DivisionEditPanel';
+export { default as DivisionDisablePanel } from './DivisionDisablePanel';
+export { default as DivisionDeptPanel } from './DivisionDeptPanel';
+
 export { default as PosListPanel } from './PosListPanel';
 export { default as PosCreatePanel } from './PosCreatePanel';
 export { default as PosEditPanel } from './PosEditPanel';
@@ -33,3 +39,4 @@ export { default as PosAssignPanel } from './PosAssignPanel';
 // Huy: Dynamic OU
 export { default as OrgLevelsPanel } from './OrgLevelsPanel';
 export { default as OrgUnitTreePanel } from './OrgUnitTreePanel';
+export { default as OrgStructureSetupModal } from './OrgStructureSetupModal';

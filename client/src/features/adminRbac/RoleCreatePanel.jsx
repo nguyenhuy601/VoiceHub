@@ -8,7 +8,7 @@ import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
-  permissionEntriesFromState,
+  permissionEntriesForPersist,
   priorityFromTier,
   TIER_EXEC,
 } from '../../utils/adminRbacUtils';
@@ -47,7 +47,7 @@ export default function RoleCreatePanel({ orgId }) {
         scope,
         serverId: orgId,
         organizationId: orgId,
-        permissions: permissionEntriesFromState(permDraft),
+        permissions: permissionEntriesForPersist(permDraft),
         priority: Number(priority) || priorityFromTier(TIER_EXEC),
         color: color || undefined,
         isDefault: false,

@@ -7,6 +7,7 @@ import { getInitials } from '../../utils/helpers';
 import {
   memberDisplayName,
   memberEmail,
+  memberMatchesQuery,
   memberOrgRole,
   memberStatusKey,
   memberStatusLabel,
@@ -30,7 +31,26 @@ function StatusDot({ member, t }) {
   );
 }
 
-export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint }) {
+/**
+ * @param {{
+ *   orgId: string,
+ *   selectedUserId?: string,
+ *   onSelect?: (userId: string) => void,
+ *   hint?: string,
+ *   filterFn?: (member: object) => boolean,
+ *   subtitleFn?: (member: object) => string,
+ *   emptyLabel?: string,
+ * }} props
+ */
+export default function AdminUserPicker({
+  orgId,
+  selectedUserId,
+  onSelect,
+  hint,
+  filterFn,
+  subtitleFn,
+  emptyLabel,
+}) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
@@ -39,18 +59,9 @@ export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint 
   const activeId = String(selectedUserId || searchParams.get('userId') || '').trim();
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) => {
-      const id = memberUserId(m);
-      return (
-        memberDisplayName(m).toLowerCase().includes(q) ||
-        memberEmail(m).toLowerCase().includes(q) ||
-        memberOrgRole(m).includes(q) ||
-        id.toLowerCase().includes(q)
-      );
-    });
-  }, [members, query]);
+    const base = typeof filterFn === 'function' ? members.filter(filterFn) : members;
+    return base.filter((m) => memberMatchesQuery(m, query));
+  }, [members, query, filterFn]);
 
   const pick = (userId) => {
     const id = String(userId || '').trim();
@@ -86,6 +97,7 @@ export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint 
               const id = memberUserId(m);
               const name = memberDisplayName(m);
               const active = id === activeId;
+              const subtitle = typeof subtitleFn === 'function' ? subtitleFn(m) : memberEmail(m);
               return (
                 <li key={id}>
                   <button
@@ -107,7 +119,7 @@ export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint 
                         <StatusDot member={m} t={t} />
                         <span className="truncate text-sm font-medium text-foreground">{name}</span>
                       </div>
-                      <p className="truncate text-xs text-muted-foreground">{memberEmail(m)}</p>
+                      <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">
                       {memberOrgRole(m)}
@@ -118,7 +130,9 @@ export default function AdminUserPicker({ orgId, selectedUserId, onSelect, hint 
             })}
           </ul>
           {!filtered.length ? (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('adminUsers.noUsers')}</p>
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+              {emptyLabel || t('adminUsers.noUsers')}
+            </p>
           ) : null}
         </div>
       )}

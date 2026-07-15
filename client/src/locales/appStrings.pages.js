@@ -402,6 +402,9 @@ export const pageStrings = {
       infoAccurateTitle: 'Điền thông tin chính xác',
       infoSecureTitle: 'Dữ liệu được bảo mật',
       toastSent: 'Đã gửi đơn gia nhập. Bạn sẽ nhận thông báo khi được duyệt.',
+      removedTitle: 'Đơn gia nhập đã tắt',
+      removedBody:
+        'Công ty dùng lời mời email / tạo tài khoản thay vì đơn xin gia nhập. Liên hệ quản trị viên nếu bạn cần truy cập.',
     },
     joinForm: {
       loadError: 'Không tải được form',
@@ -2731,6 +2734,10 @@ export const pageStrings = {
       loadDeptFail: 'Không thể tải phòng ban',
       loadChannelsFail: 'Không thể tải danh sách kênh',
       loadMessagesFail: 'Không thể tải tin nhắn kênh',
+      memberNotReadyTitle: 'Tài khoản chưa đủ điều kiện',
+      memberNotReadyBody:
+        'Tài khoản của bạn chưa được phân phòng ban và vai trò trong công ty. Liên hệ quản trị viên để được gán trước khi vào tổ chức.',
+      memberNotReadyHint: 'Sau khi được gán phòng ban / nhóm, tải lại trang hoặc đăng nhập lại.',
       orgNameRequired: 'Vui lòng nhập tên tổ chức',
       orgCreated: 'Đã tạo tổ chức mới',
       orgCreateFail: 'Tạo tổ chức thất bại',
@@ -3056,7 +3063,9 @@ export const pageStrings = {
       rbacTierDepartmentTitle: 'Phòng',
       rbacTierDepartmentHint: 'Phạm vi phòng ban',
       rbacTierTeamTitle: 'Team',
-      rbacTierTeamHint: 'Vận hành team, thành viên',
+      rbacTierTeamHint: 'Vận hành team, leader nhóm',
+      rbacTierEmployeeTitle: 'Nhân viên',
+      rbacTierEmployeeHint: 'Cấp thấp nhất — nhân viên / Thành viên mặc định',
       rbacNoPermission: 'Không có quyền',
       rbacGroupChat: '# Chat',
       rbacGroupTask: 'Công việc',
@@ -3729,6 +3738,9 @@ export const pageStrings = {
       infoAccurateTitle: 'Provide accurate information',
       infoSecureTitle: 'Your data is protected',
       toastSent: 'Application sent. You will be notified when approved.',
+      removedTitle: 'Join applications disabled',
+      removedBody:
+        'The company uses email invites / account creation instead of join applications. Contact an admin if you need access.',
     },
     joinForm: {
       loadError: 'Could not load form',
@@ -6056,6 +6068,10 @@ export const pageStrings = {
       loadDeptFail: 'Could not load departments',
       loadChannelsFail: 'Could not load channels',
       loadMessagesFail: 'Could not load channel messages',
+      memberNotReadyTitle: 'Account is not ready',
+      memberNotReadyBody:
+        'Your account has not been assigned a department and role yet. Contact an administrator before entering the organization.',
+      memberNotReadyHint: 'After you are assigned a department/team, refresh the page or sign in again.',
       orgNameRequired: 'Enter organization name',
       orgCreated: 'Organization created',
       orgCreateFail: 'Could not create organization',
@@ -6377,7 +6393,9 @@ export const pageStrings = {
       rbacTierDepartmentTitle: 'Department',
       rbacTierDepartmentHint: 'Department scope',
       rbacTierTeamTitle: 'Team',
-      rbacTierTeamHint: 'Team operations and members',
+      rbacTierTeamHint: 'Team operations and leaders',
+      rbacTierEmployeeTitle: 'Employee',
+      rbacTierEmployeeHint: 'Lowest tier — employees and default members',
       rbacNoPermission: 'No permissions',
       rbacGroupChat: '# Chat',
       rbacGroupTask: 'Task',

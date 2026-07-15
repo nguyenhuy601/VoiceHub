@@ -31,9 +31,9 @@ const ORG_STRUCTURE_TEMPLATES = {
   product: {
     id: 'product',
     label: 'Product Company',
-    description: 'Division → Team (product-oriented).',
+    description: 'Khối → Team (product-oriented).',
     levels: [
-      { key: 'division', label: 'Division', order: 1, enabled: true, allowsChildren: true },
+      { key: 'division', label: 'Khối', order: 1, enabled: true, allowsChildren: true },
       { key: 'team', label: 'Team', order: 2, enabled: true, allowsChildren: true },
     ],
     seedUnits: [
@@ -53,9 +53,9 @@ const ORG_STRUCTURE_TEMPLATES = {
   outsourcing: {
     id: 'outsourcing',
     label: 'IT Outsourcing / Delivery',
-    description: 'Delivery Division → Project Teams.',
+    description: 'Delivery Khối → Project Teams.',
     levels: [
-      { key: 'division', label: 'Division', order: 1, enabled: true, allowsChildren: true },
+      { key: 'division', label: 'Khối', order: 1, enabled: true, allowsChildren: true },
       { key: 'team', label: 'Project Team', order: 2, enabled: true, allowsChildren: true },
     ],
     seedUnits: [
@@ -74,9 +74,9 @@ const ORG_STRUCTURE_TEMPLATES = {
   'enterprise-software': {
     id: 'enterprise-software',
     label: 'Enterprise Software',
-    description: 'Division → Department → Team.',
+    description: 'Khối → Phòng ban → Nhóm.',
     levels: [
-      { key: 'division', label: 'Division', order: 1, enabled: true, allowsChildren: true },
+      { key: 'division', label: 'Khối', order: 1, enabled: true, allowsChildren: true },
       { key: 'department', label: 'Department', order: 2, enabled: true, allowsChildren: true },
       { key: 'team', label: 'Team', order: 3, enabled: true, allowsChildren: true },
     ],
@@ -129,14 +129,14 @@ const ORG_STRUCTURE_TEMPLATES = {
       },
     ],
   },
-  /** Huy: tương thích VoiceHub hiện tại Branch→Division→Department→Team */
+  /** Huy: tương thích VoiceHub hiện tại Branch→Khối→Department→Team */
   'enterprise-compat': {
     id: 'enterprise-compat',
     label: 'VoiceHub Legacy Compat',
-    description: 'Branch → Division → Department → Team (map 1:1 data hiện có).',
+    description: 'Branch → Khối → Department → Team (map 1:1 data hiện có).',
     levels: [
       { key: 'branch', label: 'Branch', order: 1, enabled: true, allowsChildren: true },
-      { key: 'division', label: 'Division', order: 2, enabled: true, allowsChildren: true },
+      { key: 'division', label: 'Khối', order: 2, enabled: true, allowsChildren: true },
       { key: 'department', label: 'Department', order: 3, enabled: true, allowsChildren: true },
       { key: 'team', label: 'Team', order: 4, enabled: true, allowsChildren: true },
     ],

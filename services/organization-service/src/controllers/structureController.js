@@ -6,7 +6,7 @@ const { orgUnauthorized, orgAccessDenied, orgFail } = require('../utils/orgApiEr
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const {
-  getOrCreateLevelSchema,
+  getLevelsForApi,
   replaceLevels,
   createUnit,
   updateUnit,
@@ -62,7 +62,7 @@ exports.getLevels = async (req, res, next) => {
   try {
     const ctx = await requireOrgAdmin(req, res);
     if (!ctx) return;
-    const schema = await getOrCreateLevelSchema(ctx.orgId);
+    const schema = await getLevelsForApi(ctx.orgId);
     return res.json({ status: 'success', data: schema });
   } catch (error) {
     return next(error);

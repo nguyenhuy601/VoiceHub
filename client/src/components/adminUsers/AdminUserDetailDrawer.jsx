@@ -13,7 +13,9 @@ import {
   memberStatusLabel,
   memberTeamId,
   memberUserId,
+  formatRbacRoleLabels,
 } from '../../utils/adminUserUtils';
+import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 
 const TABS = [
   { id: 'info', labelKey: 'adminUsers.tabInfo' },
@@ -59,6 +61,7 @@ export default function AdminUserDetailDrawer({
   onClose,
   departmentName,
   teamName,
+  rbacRoles = [],
   formatWhen,
 }) {
   const { t } = useAppStrings();
@@ -96,6 +99,10 @@ export default function AdminUserDetailDrawer({
   }, [open, orgId, userId, tab]);
 
   if (!open || !member) return null;
+
+  const userRoleLabels = formatRbacRoleLabels(rbacRoles, (row) =>
+    normalizeRoleDisplayName(row?.name || row?.role?.name)
+  );
 
   return (
     <div className="fixed inset-0 z-[10030] flex justify-end">
@@ -158,9 +165,28 @@ export default function AdminUserDetailDrawer({
                 <dd>{memberEmail(member)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">{t('companyAdmin.colRole')}</dt>
+                <dt className="text-xs text-muted-foreground">{t('adminUsers.colAccountRole')}</dt>
                 <dd className="mt-1">
                   <RoleBadge role={memberOrgRole(member)} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t('adminUsers.colUserRole')}</dt>
+                <dd className="mt-1">
+                  {userRoleLabels.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {userRoleLabels.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">{t('adminUsers.userRoleNone')}</span>
+                  )}
                 </dd>
               </div>
               <div>
@@ -196,6 +222,25 @@ export default function AdminUserDetailDrawer({
                 <p className="text-xs text-muted-foreground">{t('adminUsers.currentRole')}</p>
                 <div className="mt-1">
                   <RoleBadge role={memberOrgRole(member)} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('adminUsers.currentUserRoles')}</p>
+                <div className="mt-1">
+                  {userRoleLabels.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {userRoleLabels.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">{t('adminUsers.userRoleNone')}</span>
+                  )}
                 </div>
               </div>
               <div>

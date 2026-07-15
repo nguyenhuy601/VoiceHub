@@ -80,11 +80,11 @@ const DEFAULT_STRUCTURE_BLUEPRINT = {
   ],
 };
 
-const normalizeHierarchyBlueprint = (raw) => {
+const normalizeHierarchyBlueprint = (raw, { allowEmpty = false } = {}) => {
   const fallback = DEFAULT_STRUCTURE_BLUEPRINT;
-  if (!raw || typeof raw !== 'object') return fallback;
+  if (!raw || typeof raw !== 'object') return allowEmpty ? { branches: [] } : fallback;
   const sourceBranches = Array.isArray(raw.branches) ? raw.branches : [];
-  if (sourceBranches.length === 0) return fallback;
+  if (sourceBranches.length === 0) return allowEmpty ? { branches: [] } : fallback;
   const branches = sourceBranches
     .map((branch, bIdx) => {
       const branchName = String(branch?.name || '').trim() || `Chi nhánh ${bIdx + 1}`;
@@ -477,7 +477,8 @@ exports.createOrganization = async (req, res, next) => {
     const canCreate = await assertCanCreateOrganization(req, res, orgConflict);
     if (!canCreate) return;
 
-    const { name, description, logo, slug, status, type, teamSize, industry, structureBlueprint } = req.body;
+    const { name, description, logo, slug, status, type, teamSize, industry, structureBlueprint, skipDefaultStructure } =
+      req.body;
     const userId = getUserId(req);
     if (!userId) {
       return orgUnauthorized(res);
@@ -510,7 +511,11 @@ exports.createOrganization = async (req, res, next) => {
       return orgConflict(res, 'Slug tổ chức đã tồn tại.', 'ORG_SLUG_EXISTS');
     }
 
-    const normalizedBlueprint = normalizeHierarchyBlueprint(structureBlueprint);
+    const allowEmptyStructure = Boolean(skipDefaultStructure) || process.env.SINGLE_ORG_MODE === 'true';
+    const normalizedBlueprint = normalizeHierarchyBlueprint(structureBlueprint, {
+      allowEmpty: allowEmptyStructure,
+    });
+    const skipStructureSeed = normalizedBlueprint.branches.length === 0;
     const organization = await Organization.create({
       name: normalizedName,
       description,
@@ -523,9 +528,9 @@ exports.createOrganization = async (req, res, next) => {
       industry: String(industry || '').trim(),
       provisioning: {
         structure: {
-          status: STRUCTURE_PROVISION.PENDING,
+          status: skipStructureSeed ? STRUCTURE_PROVISION.READY : STRUCTURE_PROVISION.PENDING,
           startedAt: null,
-          completedAt: null,
+          completedAt: skipStructureSeed ? new Date() : null,
           error: '',
         },
       },
@@ -540,11 +545,13 @@ exports.createOrganization = async (req, res, next) => {
     });
 
     await syncUserOrgRole(userId, organization._id, 'owner');
-    runStructureSeedInBackground({
-      organizationId: organization._id,
-      ownerId: userId,
-      normalizedBlueprint,
-    });
+    if (!skipStructureSeed) {
+      runStructureSeedInBackground({
+        organizationId: organization._id,
+        ownerId: userId,
+        normalizedBlueprint,
+      });
+    }
 
     emitRealtimeEvent({
       event: 'organization:created',
@@ -694,7 +701,11 @@ exports.getOrganizationStructure = async (req, res, next) => {
       return orgAccessDenied(res);
     }
 
-    const data = await getCachedOrganizationStructureData(orgId, buildOrganizationStructureData);
+    const includeInactive = String(req.query?.includeInactive || '') === '1';
+    // Huy: includeInactive bypass cache — panel vô hiệu cần thấy unit đã tắt
+    const data = includeInactive
+      ? await buildOrganizationStructureData(orgId, { includeInactive: true })
+      : await getCachedOrganizationStructureData(orgId, buildOrganizationStructureData);
     return res.json({ status: 'success', data });
   } catch (error) {
     return next(error);
@@ -779,6 +790,15 @@ exports.getOrgShell = async (req, res, next) => {
       ? Membership.normalizeRole(access.membership.role)
       : null;
 
+    const scope = accessData.scope || {};
+    const isElevated = ['owner', 'admin', 'hr'].includes(String(membershipRole || ''));
+    const hasPlacement =
+      Boolean(scope.departmentId) ||
+      Boolean(scope.teamId) ||
+      (Array.isArray(scope.scopedDepartmentIds) && scope.scopedDepartmentIds.length > 0) ||
+      (Array.isArray(scope.scopedTeamIds) && scope.scopedTeamIds.length > 0);
+    const memberReady = Boolean(isElevated || scope.canSeeAllStructure || hasPlacement);
+
     return res.json({
       status: 'success',
       data: {
@@ -791,11 +811,21 @@ exports.getOrgShell = async (req, res, next) => {
         },
         structureSummary,
         access: {
-          channelIds: accessData.channelIds,
-          permissionsByChannelId: accessData.permissionsByChannelId,
-          scope: accessData.scope,
+          channelIds: memberReady ? accessData.channelIds : [],
+          permissionsByChannelId: memberReady ? accessData.permissionsByChannelId : {},
+          scope,
+          memberReady,
+          memberReadyCode: memberReady ? null : 'ORG_MEMBER_NOT_READY',
         },
-        taskWorkspaceScope,
+        taskWorkspaceScope: memberReady
+          ? taskWorkspaceScope
+          : {
+              ...taskWorkspaceScope,
+              visibility: 'self',
+              canCreateTask: false,
+              canUseAiTask: false,
+              assignableUserIds: [],
+            },
         badges: { notificationsUnreadOrg },
         shellVersion,
       },

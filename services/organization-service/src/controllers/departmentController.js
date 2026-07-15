@@ -65,13 +65,14 @@ exports.createDepartment = async (req, res, next) => {
 
 exports.updateDepartment = async (req, res, next) => {
   try {
-    // Huy: mở rộng patch — division (phòng ban cha), members (điều chuyển), head
-    const { name, description, head, division, members } = req.body || {};
+    // Huy: mở rộng patch — division (phòng ban cha), members (điều chuyển), head, isActive (vô hiệu)
+    const { name, description, head, division, members, isActive } = req.body || {};
     const patch = {};
     if (name !== undefined) patch.name = name;
     if (description !== undefined) patch.description = description;
     if (head !== undefined) patch.head = head || null;
     if (members !== undefined && Array.isArray(members)) patch.members = members;
+    if (isActive !== undefined) patch.isActive = Boolean(isActive);
 
     if (division !== undefined) {
       const Division = require('../models/Division');
@@ -95,7 +96,18 @@ exports.updateDepartment = async (req, res, next) => {
     if (!department) {
       return res.status(404).json({ status: 'fail', message: 'Department not found' });
     }
-    await ensureDepartmentRole(req.params.orgId, department._id, department.name);
+    if (department.isActive !== false) {
+      await ensureDepartmentRole(req.params.orgId, department._id, department.name);
+    }
+    if (req.body?.isActive !== undefined) {
+      const { dualWriteSyncOuActive } = require('../services/orgOuDualWrite.service');
+      await dualWriteSyncOuActive(
+        req.params.orgId,
+        'Department',
+        department._id,
+        department.isActive !== false
+      );
+    }
 
     res.json({ status: 'success', data: department });
   } catch (error) {
@@ -105,8 +117,27 @@ exports.updateDepartment = async (req, res, next) => {
 
 exports.deleteDepartment = async (req, res, next) => {
   try {
-    await Department.findByIdAndDelete(req.params.id);
-    res.json({ status: 'success', message: 'Department deleted' });
+    const department = await Department.findOneAndUpdate(
+      { _id: req.params.id, organization: req.params.orgId },
+      { $set: { isActive: false } },
+      { new: true }
+    );
+    if (!department) {
+      return res.status(404).json({ status: 'error', message: 'Department not found' });
+    }
+    const orgId = req.params.orgId;
+    try {
+      const { dualWriteSyncOuActive } = require('../services/orgOuDualWrite.service');
+      await dualWriteSyncOuActive(orgId, 'Department', department._id, false);
+      const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
+      const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+      await invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
+        () => null
+      );
+    } catch (e) {
+      console.warn('[deleteDepartment] OU sync:', e.message);
+    }
+    res.json({ status: 'success', message: 'Department disabled', data: department });
   } catch (error) {
     next(error);
   }

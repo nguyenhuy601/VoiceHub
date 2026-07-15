@@ -12,6 +12,10 @@ import {
   totalPermissionSlotCount,
   unwrapList,
 } from '../components/Organization/rbacSettingsHelpers';
+import {
+  permissionDraftForEditor,
+  permissionEntriesForPersist,
+} from './rbacPermissionBridge';
 
 export {
   ACTION_LABEL,
@@ -24,11 +28,27 @@ export {
   normalizeRoleId,
   permissionEntriesFromState,
   permissionStateFromEntries,
+  permissionDraftForEditor,
+  permissionEntriesForPersist,
   totalPermissionSlotCount,
   unwrapList,
 };
 
-export { priorityFromTier, TIER_EXEC } from '../components/Organization/roleRbacUtils';
+export {
+  TIER_ORDER,
+  TIER_EXEC,
+  TIER_DIVISION,
+  TIER_DEPARTMENT,
+  TIER_TEAM,
+  TIER_EMPLOYEE,
+  groupRolesByTier,
+  groupRolesByPriority,
+  moveRoleInColumns,
+  prioritiesFromColumns,
+  priorityFromTier,
+  resolveRoleTier,
+  tierMeta,
+} from '../components/Organization/roleRbacUtils';
 
 export function roleDisplayName(role) {
   return normalizeRoleDisplayName(role?.name || '');

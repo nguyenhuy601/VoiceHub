@@ -32,6 +32,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useOrgShell } from '../../hooks/queries/useOrgShell';
+import { isOrgMemberAccessIncomplete } from '../../utils/orgMemberAccessGate';
 import {
   buildOrgFilesFromOverview,
   fetchOrganizationDocumentsOverview,
@@ -785,62 +786,17 @@ function OrganizationsPage({
   };
 
   const loadPendingJoinApplications = async () => {
-    try {
-      const payload = await organizationAPI.getMyPendingJoinApplications();
-      const list = unwrapData(payload);
-      setPendingJoinApplications(Array.isArray(list) ? list : []);
-    } catch (error) {
-      setPendingJoinApplications([]);
-    }
+    setPendingJoinApplications([]);
   };
 
   const loadJoinApplicationsToReview = async () => {
-    setLoadingJoinApplicationsToReview(true);
-    try {
-      const payload = await organizationAPI.getJoinApplicationsToReview();
-      const list = unwrapData(payload);
-      setJoinApplicationsToReview(Array.isArray(list) ? list : []);
-    } catch (error) {
-      setJoinApplicationsToReview([]);
-    } finally {
-      setLoadingJoinApplicationsToReview(false);
-    }
+    setJoinApplicationsToReview([]);
+    setLoadingJoinApplicationsToReview(false);
   };
 
-  const joinReviewKey = (orgId, applicationId) => `${orgId}:${applicationId}`;
+  const handleApproveJoinApplication = async () => {};
 
-  const handleApproveJoinApplication = async (orgId, applicationId) => {
-    if (!orgId || !applicationId) return;
-    const key = joinReviewKey(orgId, applicationId);
-    setRespondingJoinReviewKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
-    try {
-      await organizationAPI.reviewJoinApplication(orgId, applicationId, { action: 'approve' });
-      notifySuccess(t('organizations.approveOk'));
-      await Promise.all([loadJoinApplicationsToReview(), loadOrganizations()]);
-    } catch (error) {
-      notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.approveFail') }));
-    } finally {
-      setRespondingJoinReviewKeys((prev) => prev.filter((k) => k !== key));
-    }
-  };
-
-  const handleRejectJoinApplication = async (orgId, applicationId, rejectionReason) => {
-    if (!orgId || !applicationId) return;
-    const key = joinReviewKey(orgId, applicationId);
-    setRespondingJoinReviewKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
-    try {
-      await organizationAPI.reviewJoinApplication(orgId, applicationId, {
-        action: 'reject',
-        rejectionReason: String(rejectionReason || '').trim(),
-      });
-      notifySuccess(t('organizations.rejectOk'));
-      await loadJoinApplicationsToReview();
-    } catch (error) {
-      notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.rejectFail') }));
-    } finally {
-      setRespondingJoinReviewKeys((prev) => prev.filter((k) => k !== key));
-    }
-  };
+  const handleRejectJoinApplication = async () => {};
 
   const loadChatContacts = async (organizationIdArg = selectedOrganizationId) => {
     setLoadingChatContacts(true);
@@ -1138,6 +1094,16 @@ function OrganizationsPage({
   const { data: orgShellData, isError: orgShellError, error: orgShellQueryError } = useOrgShell(selectedOrganizationId, {
     enabled: !landingDemo && !authLoading,
   });
+
+  const memberAccessIncomplete = useMemo(() => {
+    if (landingDemo || !selectedOrganizationId || !orgShellData || orgShellError) return false;
+    if (orgShellData?.access?.memberReady === false) return true;
+    if (orgShellData?.access?.memberReady === true) return false;
+    return isOrgMemberAccessIncomplete(
+      orgShellData?.organization?.myRole,
+      orgShellData?.access?.scope
+    );
+  }, [landingDemo, selectedOrganizationId, orgShellData, orgShellError]);
 
   const hasAuthToken = Boolean(getResolvedBearerToken());
 
@@ -4049,8 +4015,25 @@ function OrganizationsPage({
     />
   );
 
-  const orgCenterContent =
-    suiteLayout && selectedOrganizationId ? (
+  const memberNotReadyPanel = (
+    <div className={`${orgCenterShell} items-center justify-center px-6 py-12`}>
+      <div className="mx-auto max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+        <h2 className="text-xl font-semibold text-foreground">
+          {t('organizations.memberNotReadyTitle')}
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          {t('organizations.memberNotReadyBody')}
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t('organizations.memberNotReadyHint')}
+        </p>
+      </div>
+    </div>
+  );
+
+  const orgCenterContent = memberAccessIncomplete
+    ? memberNotReadyPanel
+    : suiteLayout && selectedOrganizationId ? (
       <WorkspaceSlugFigmaShell
         organizationName={selectedOrganization?.name}
         activeTab={shellActiveTab}
@@ -4136,7 +4119,7 @@ function OrganizationsPage({
         centerScrollable={!isLgViewport}
         center={orgCenterContent}
         right={
-          showTeamHub
+          memberAccessIncomplete || showTeamHub
             ? null
             : selectedOrganizationId ? (
             selectedChannelType === 'voice' && !workspaceSearchOpen && !voiceChatDismissed ? (
@@ -4194,16 +4177,12 @@ function OrganizationsPage({
               refreshKey={memberListRefreshKey}
               currentUserId={user?.userId || user?._id || user?.id}
               myRole={selectedOrganization?.myRole}
-              canReviewJoinApplications={['owner', 'admin'].includes(
-                String(selectedOrganization?.myRole || '').toLowerCase()
-              )}
-              joinApplicationsToReview={joinApplicationsToReview.filter(
-                (app) => String(app.organizationId) === String(selectedOrganizationId)
-              )}
-              loadingJoinApplicationsToReview={loadingJoinApplicationsToReview}
-              respondingJoinReviewKeys={respondingJoinReviewKeys}
-              onApproveJoinApplication={handleApproveJoinApplication}
-              onRejectJoinApplication={handleRejectJoinApplication}
+              canReviewJoinApplications={false}
+              joinApplicationsToReview={[]}
+              loadingJoinApplicationsToReview={false}
+              respondingJoinReviewKeys={[]}
+              onApproveJoinApplication={undefined}
+              onRejectJoinApplication={undefined}
               onMentionUser={(text) => {
                 if (selectedChannelType === 'voice') {
                   setVoiceMessageInput((prev) => `${prev || ''}${text}`);

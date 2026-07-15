@@ -6,10 +6,13 @@ import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMe
 import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDrawer';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import roleAPI from '../../services/api/roleAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { normalizeRoleDisplayName, unwrapList } from '../../utils/adminRbacUtils';
 import {
+  formatRbacRoleLabels,
   memberDepartmentId,
   memberDisplayName,
   memberEmail,
@@ -37,7 +40,7 @@ function StatusBadge({ member, t }) {
   );
 }
 
-function RoleBadge({ role }) {
+function AccountRoleBadge({ role }) {
   const r = String(role || 'member').toLowerCase();
   const color =
     r === 'owner' || r === 'admin'
@@ -49,6 +52,24 @@ function RoleBadge({ role }) {
     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${color}`}>
       {r}
     </span>
+  );
+}
+
+function UserRoleCell({ labels, emptyLabel }) {
+  if (!labels.length) {
+    return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
+  }
+  return (
+    <div className="flex max-w-[200px] flex-wrap gap-1">
+      {labels.map((name) => (
+        <span
+          key={name}
+          className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-700 ring-1 ring-red-500/15 dark:text-red-300"
+        >
+          {name}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -89,6 +110,7 @@ export default function UsersListPanel({ orgId }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
+  const [rbacByUser, setRbacByUser] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
 
@@ -108,6 +130,34 @@ export default function UsersListPanel({ orgId }) {
       cancelled = true;
     };
   }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || !members.length) {
+      setRbacByUser({});
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        members.map(async (m) => {
+          const uid = memberUserId(m);
+          if (!uid) return ['', []];
+          try {
+            const res = await roleAPI.getUserRoles(uid, orgId);
+            return [uid, unwrapList(res)];
+          } catch {
+            return [uid, []];
+          }
+        })
+      );
+      if (!cancelled) {
+        setRbacByUser(Object.fromEntries(entries.filter(([uid]) => uid)));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, members]);
 
   const formatWhen = (value) => {
     if (!value) return '—';
@@ -147,16 +197,20 @@ export default function UsersListPanel({ orgId }) {
       const id = memberUserId(m);
       const dep = structureMaps.departments.get(memberDepartmentId(m)) || '';
       const team = structureMaps.teams.get(memberTeamId(m)) || '';
+      const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
+        normalizeRoleDisplayName(row?.name || row?.role?.name)
+      );
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
+        rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
         team.toLowerCase().includes(q) ||
         id.toLowerCase().includes(q)
       );
     });
-  }, [members, query, roleFilter, statusFilter, scopeFilter, structureMaps]);
+  }, [members, query, roleFilter, statusFilter, scopeFilter, structureMaps, rbacByUser]);
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -256,7 +310,8 @@ export default function UsersListPanel({ orgId }) {
                 <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">{t('adminUsers.colUser')}</th>
                   <th className="px-4 py-3">{t('companyAdmin.colEmail')}</th>
-                  <th className="px-4 py-3">{t('companyAdmin.colRole')}</th>
+                  <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
+                  <th className="px-4 py-3">{t('adminUsers.colUserRole')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
@@ -273,6 +328,9 @@ export default function UsersListPanel({ orgId }) {
                   const teamId = memberTeamId(m);
                   const depName = structureMaps.departments.get(depId);
                   const teamName = structureMaps.teams.get(teamId);
+                  const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
+                    normalizeRoleDisplayName(row?.name || row?.role?.name)
+                  );
                   return (
                     <tr
                       key={id}
@@ -298,7 +356,10 @@ export default function UsersListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
                       <td className="px-4 py-3">
-                        <RoleBadge role={memberOrgRole(m)} />
+                        <AccountRoleBadge role={memberOrgRole(m)} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="max-w-[160px] truncate">
@@ -347,6 +408,9 @@ export default function UsersListPanel({ orgId }) {
         }
         teamName={
           detailMember ? structureMaps.teams.get(memberTeamId(detailMember)) || '' : ''
+        }
+        rbacRoles={
+          detailMember ? rbacByUser[memberUserId(detailMember)] || [] : []
         }
         formatWhen={formatWhen}
       />

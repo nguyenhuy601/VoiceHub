@@ -5,7 +5,6 @@ import {
   resolveAdminDomainFromPath,
 } from '../../config/adminDomainsConfig';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
-import CompanyAdminApprovalsPage from './CompanyAdminApprovalsPage';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
 import AdminModulePlaceholderPage from './AdminModulePlaceholderPage';
 import UsersListPanel from '../../features/adminUsers/UsersListPanel';
@@ -18,8 +17,8 @@ import UserForcePasswordPanel from '../../features/adminUsers/UserForcePasswordP
 import UserImportPanel from '../../features/adminUsers/UserImportPanel';
 import UserAssignOrgPanel from '../../features/adminUsers/UserAssignOrgPanel';
 import UserLoginHistoryPanel from '../../features/adminUsers/UserLoginHistoryPanel';
-import JoinApprovalsPanel from '../../features/companyAdmin/JoinApprovalsPanel';
 import RolesListPanel from '../../features/adminRbac/RolesListPanel';
+import RolesHierarchyPanel from '../../features/adminRbac/RolesHierarchyPanel';
 import RoleCreatePanel from '../../features/adminRbac/RoleCreatePanel';
 import RoleEditPanel from '../../features/adminRbac/RoleEditPanel';
 import RoleDeletePanel from '../../features/adminRbac/RoleDeletePanel';
@@ -58,6 +57,11 @@ import {
   BranchEditPanel,
   BranchDisablePanel,
   BranchDeptPanel,
+  DivisionListPanel,
+  DivisionCreatePanel,
+  DivisionEditPanel,
+  DivisionDisablePanel,
+  DivisionDeptPanel,
   PosListPanel,
   PosCreatePanel,
   PosEditPanel,
@@ -78,11 +82,11 @@ const USER_PANELS = {
   'users-import': UserImportPanel,
   'users-assign-org': UserAssignOrgPanel,
   'users-login-history': UserLoginHistoryPanel,
-  approvals: JoinApprovalsPanel,
 };
 
 const RBAC_PANELS = {
   'rbac-list': RolesListPanel,
+  'rbac-hierarchy': RolesHierarchyPanel,
   'rbac-create': RoleCreatePanel,
   'rbac-edit': RoleEditPanel,
   'rbac-delete': RoleDeletePanel,
@@ -127,6 +131,11 @@ const ORG_PANELS = {
   'org-branch-edit': BranchEditPanel,
   'org-branch-disable': BranchDisablePanel,
   'org-branch-dept': BranchDeptPanel,
+  'org-division-list': DivisionListPanel,
+  'org-division-create': DivisionCreatePanel,
+  'org-division-edit': DivisionEditPanel,
+  'org-division-disable': DivisionDisablePanel,
+  'org-division-dept': DivisionDeptPanel,
   'org-pos-list': PosListPanel,
   'org-pos-create': PosCreatePanel,
   'org-pos-edit': PosEditPanel,
@@ -169,9 +178,6 @@ export default function AdminDomainPage() {
 
   const Panel = USER_PANELS[impl];
   if (Panel) {
-    if (impl === 'approvals') {
-      return <CompanyAdminApprovalsPage />;
-    }
     return <Panel orgId={orgId} />;
   }
 

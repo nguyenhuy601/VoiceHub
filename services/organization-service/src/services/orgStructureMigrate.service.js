@@ -152,9 +152,24 @@ async function applyStructureTemplate(organizationId, templateId, { mode = 'merg
     throw err;
   }
 
+  const existingSchema = await OrgLevelSchema.findOne({ organization: organizationId });
+  const { isStructureSetupCompleted } = require('./orgUnitTree.service');
+  if (existingSchema && isStructureSetupCompleted(existingSchema)) {
+    const err = new Error('Cơ cấu tổ chức đã được thiết lập — không thể đổi template/levels');
+    err.statusCode = 409;
+    err.errorCode = 'ORG_STRUCTURE_SETUP_LOCKED';
+    throw err;
+  }
+
   await OrgLevelSchema.findOneAndUpdate(
     { organization: organizationId },
-    { $set: { levels: cloneLevels(tpl.levels), templateId: tpl.id } },
+    {
+      $set: {
+        levels: cloneLevels(tpl.levels),
+        templateId: tpl.id,
+        setupCompletedAt: new Date(),
+      },
+    },
     { upsert: true, new: true }
   );
 

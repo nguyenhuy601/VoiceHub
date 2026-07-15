@@ -22,7 +22,7 @@ const departmentSchema = new mongoose.Schema(
     division: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Division',
-      required: true,
+      default: null,
       index: true,
     },
     head: {
@@ -34,6 +34,7 @@ const departmentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     }],
+    isActive: { type: Boolean, default: true },
   },
   {
     timestamps: true,

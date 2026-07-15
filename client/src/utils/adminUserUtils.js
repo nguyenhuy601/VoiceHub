@@ -46,6 +46,79 @@ export function memberTeamId(member) {
   return String(member?.team || member?.teamId || '').trim();
 }
 
+/** Chưa gắn phòng ban và chưa gắn nhóm — dùng picker «Gán phòng ban / nhóm». */
+export function memberIsUnplaced(member) {
+  return !memberDepartmentId(member) && !memberTeamId(member);
+}
+
+/**
+ * Chưa có UserRole RBAC trong org — dùng picker «Gán vai trò».
+ * @param {object} member
+ * @param {Record<string, unknown[]>|Map<string, unknown[]>} [assignmentsByUserId]
+ *   map userId → danh sách role từ getUserRoles; thiếu key = chưa load → không đưa vào hàng đợi.
+ */
+export function memberIsWithoutRbacRole(member, assignmentsByUserId) {
+  const uid = memberUserId(member);
+  if (!uid) return false;
+
+  if (assignmentsByUserId != null) {
+    const roles =
+      typeof assignmentsByUserId.get === 'function'
+        ? assignmentsByUserId.get(uid)
+        : assignmentsByUserId[uid];
+    if (roles === undefined) return false;
+    return !Array.isArray(roles) || roles.length === 0;
+  }
+
+  if (Array.isArray(member?.rbacRoles)) return member.rbacRoles.length === 0;
+  if (Array.isArray(member?.rbacRoleIds)) return member.rbacRoleIds.length === 0;
+  return false;
+}
+
+/** Huy: chuẩn hoá chuỗi tìm kiếm (bỏ dấu) — tìm «Lan» khớp «Trần Lan». */
+export function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+export function memberMatchesQuery(member, query) {
+  const q = normalizeSearchText(query);
+  if (!q) return true;
+  const hay = normalizeSearchText(
+    [
+      memberDisplayName(member, ''),
+      memberEmail(member),
+      member?.username,
+      member?.jobTitle,
+      memberOrgRole(member),
+      memberUserId(member),
+      member?.departmentName,
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+  return hay.includes(q);
+}
+
+/**
+ * Nhãn hiển thị cho danh sách UserRole RBAC.
+ * @param {unknown[]} roles
+ * @param {(role: object) => string} [displayNameFn]
+ */
+export function formatRbacRoleLabels(roles, displayNameFn) {
+  const list = Array.isArray(roles) ? roles : [];
+  const names = list
+    .map((row) => {
+      if (typeof displayNameFn === 'function') return displayNameFn(row);
+      return String(row?.name || row?.role?.name || row?.displayName || '').trim();
+    })
+    .filter(Boolean);
+  return names;
+}
+
 export function unwrapApi(payload) {
   return payload?.data ?? payload;
 }

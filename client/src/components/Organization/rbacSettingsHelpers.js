@@ -7,6 +7,7 @@ import {
   TIER_DIVISION,
   TIER_DEPARTMENT,
   TIER_TEAM,
+  TIER_EMPLOYEE,
   tierMeta,
   normalizeRoleDisplayName,
   normalizePermissionEntries,
@@ -88,7 +89,8 @@ export function unwrapList(payload) {
 }
 
 export function structureTierSections() {
-  return tierMeta().filter((item) => item.id !== TIER_EXEC);
+  // Chỉ khối / phòng / team — không gồm Điều hành hay Nhân viên (catalog hệ thống).
+  return tierMeta().filter((item) => item.id !== TIER_EXEC && item.id !== TIER_EMPLOYEE);
 }
 
 export function groupStructuralRoles(roles) {

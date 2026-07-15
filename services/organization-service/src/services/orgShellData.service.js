@@ -46,13 +46,13 @@ const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || 
 if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: NOTIFICATION_SERVICE_URL');
 const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
 
-async function buildOrganizationStructureData(orgId) {
+async function buildOrganizationStructureData(orgId, { includeInactive = false } = {}) {
   // Huy: Dual-read — ưu tiên OU tree nếu có; vẫn build legacy + gắn levels/unitsTree
   const {
     isDynamicStructureEnabled,
     listUnitsTree,
     projectOuTreeToLegacyBranches,
-    getOrCreateLevelSchema,
+    findLevelSchema,
   } = require('./orgUnitTree.service');
 
   let levels = null;
@@ -61,34 +61,75 @@ async function buildOrganizationStructureData(orgId) {
 
   if (isDynamicStructureEnabled()) {
     try {
-      const schema = await getOrCreateLevelSchema(orgId, 'enterprise-compat');
-      levels = schema.levels;
-      unitsTree = await listUnitsTree(orgId);
-      const ouCount = await require('../models/OrganizationalUnit').countDocuments({
-        organization: orgId,
-      });
-      if (ouCount === 0) {
-        // Huy: lazy backfill từ legacy khi chưa có OU
-        const { backfillOrganizationToOu } = require('./orgStructureMigrate.service');
-        await backfillOrganizationToOu(orgId);
-        unitsTree = await listUnitsTree(orgId);
-      }
-      if (unitsTree?.length) {
-        usedOu = true;
+      const schema = await findLevelSchema(orgId);
+      if (schema?.levels?.length) {
+        levels = schema.levels;
+        unitsTree = await listUnitsTree(orgId, { includeInactive });
+        const ouCount = await require('../models/OrganizationalUnit').countDocuments({
+          organization: orgId,
+        });
+        if (ouCount === 0) {
+          // Huy: lazy backfill từ legacy khi chưa có OU (schema đã setup)
+          const { backfillOrganizationToOu } = require('./orgStructureMigrate.service');
+          await backfillOrganizationToOu(orgId);
+          unitsTree = await listUnitsTree(orgId, { includeInactive });
+        }
+        if (unitsTree?.length) {
+          usedOu = true;
+        }
       }
     } catch (e) {
       console.warn('[orgShellData] OU dual-read fallback:', e.message);
     }
   }
 
+  const branchFilter = { organization: orgId };
+  const divisionFilter = { organization: orgId };
+  const departmentFilter = { organization: orgId };
+  const teamFilter = { organization: orgId };
+  if (!includeInactive) {
+    branchFilter.isActive = true;
+    divisionFilter.isActive = true;
+    departmentFilter.isActive = { $ne: false };
+    teamFilter.isActive = true;
+  }
+
   const [branches, divisions, departments, teams, channels, organization] = await Promise.all([
-    Branch.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
-    Division.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
-    Department.find({ organization: orgId }).sort({ createdAt: 1 }).lean(),
-    Team.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
+    Branch.find(branchFilter).sort({ createdAt: 1 }).lean(),
+    Division.find(divisionFilter).sort({ createdAt: 1 }).lean(),
+    Department.find(departmentFilter).sort({ createdAt: 1 }).lean(),
+    Team.find(teamFilter).sort({ createdAt: 1 }).lean(),
     Channel.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
     Organization.findById(orgId).select('provisioning.structure').lean(),
   ]);
+
+  // Huy: đơn vị tạo qua hierarchy trước khi có reverse DW — sync sang OU rồi đọc lại tree
+  if (isDynamicStructureEnabled() && levels?.length) {
+    try {
+      const { syncMissingLegacyToOu, dualWriteSyncOuActive } = require('./orgOuDualWrite.service');
+      const { created } = await syncMissingLegacyToOu(orgId, {
+        branches,
+        divisions,
+        departments,
+        teams,
+      });
+      // Huy: đồng bộ isActive legacy → OU (vô hiệu trước khi có sync)
+      await Promise.all([
+        ...branches.map((b) => dualWriteSyncOuActive(orgId, 'Branch', b._id, b.isActive !== false)),
+        ...divisions.map((d) => dualWriteSyncOuActive(orgId, 'Division', d._id, d.isActive !== false)),
+        ...departments.map((dep) =>
+          dualWriteSyncOuActive(orgId, 'Department', dep._id, dep.isActive !== false)
+        ),
+        ...teams.map((t) => dualWriteSyncOuActive(orgId, 'Team', t._id, t.isActive !== false)),
+      ]);
+      if (created > 0 || includeInactive) {
+        unitsTree = await listUnitsTree(orgId, { includeInactive });
+        if (unitsTree?.length) usedOu = true;
+      }
+    } catch (e) {
+      console.warn('[orgShellData] syncMissingLegacyToOu:', e.message);
+    }
+  }
 
   const channelsByTeam = new Map();
   const channelsByDepartment = new Map();
@@ -113,45 +154,17 @@ async function buildOrganizationStructureData(orgId) {
     }
   }
 
-  const teamsByDepartment = new Map();
-  for (const team of teams) {
-    const key = String(team.department || '');
-    if (!key) continue;
-    if (!teamsByDepartment.has(key)) teamsByDepartment.set(key, []);
-    teamsByDepartment.get(key).push({
-      ...team,
-      channels: channelsByTeam.get(String(team._id)) || [],
-    });
-  }
-
-  const departmentsByDivision = new Map();
-  for (const department of departments) {
-    const key = String(department.division || '');
-    if (!key) continue;
-    if (!departmentsByDivision.has(key)) departmentsByDivision.set(key, []);
-    departmentsByDivision.get(key).push({
-      ...department,
-      channels: channelsByDepartment.get(String(department._id)) || [],
-      teams: teamsByDepartment.get(String(department._id)) || [],
-    });
-  }
-
-  const divisionsByBranch = new Map();
-  for (const division of divisions) {
-    const key = String(division.branch || '');
-    if (!key) continue;
-    if (!divisionsByBranch.has(key)) divisionsByBranch.set(key, []);
-    divisionsByBranch.get(key).push({
-      ...division,
-      channels: channelsByDivision.get(String(division._id)) || [],
-      departments: departmentsByDivision.get(String(division._id)) || [],
-    });
-  }
-
-  let tree = branches.map((branch) => ({
-    ...branch,
-    divisions: divisionsByBranch.get(String(branch._id)) || [],
-  }));
+  const { nestLegacyOrgStructure } = require('./nestLegacyOrgStructure');
+  let { branches: tree, divisionsFlat } = nestLegacyOrgStructure({
+    orgId,
+    branches,
+    divisions,
+    departments,
+    teams,
+    channelsByTeam,
+    channelsByDepartment,
+    channelsByDivision,
+  });
 
   // Huy: nếu OU tree có dữ liệu và legacy trống (hoặc prefer OU), project sang branches
   if (usedOu && unitsTree?.length && (!tree.length || String(process.env.ORG_STRUCTURE_PREFER_OU || '1') === '1')) {
@@ -161,12 +174,6 @@ async function buildOrganizationStructureData(orgId) {
       tree = projected;
     }
   }
-
-  const divisionsFlat = divisions.map((division) => ({
-    ...division,
-    channels: channelsByDivision.get(String(division._id)) || [],
-    departments: departmentsByDivision.get(String(division._id)) || [],
-  }));
 
   syncHierarchyRoles(orgId, { divisions, departments, teams }).catch(() => null);
 

@@ -637,25 +637,7 @@ function DashboardPage({
         setUpcomingMeetings(mergedUpcoming);
 
         const pendingCount = summary?.pendingCount ?? pendingQuery.pendingCount ?? 0;
-        let pendingApprovals = summary?.pendingApprovals ?? null;
-        if (pendingApprovals == null) {
-          const [myJoinAppsRes, reviewAppsRes] = await Promise.all([
-            organizationAPI.getMyPendingJoinApplications().catch(() => null),
-            organizationAPI.getJoinApplicationsToReview().catch(() => null),
-          ]);
-          const readCount = (payload) => {
-            const body = payload?.data ?? payload;
-            const inner = body?.data ?? body;
-            const rows =
-              inner?.applications ||
-              inner?.joinApplications ||
-              inner?.pendingApplications ||
-              inner?.items ||
-              inner;
-            return Array.isArray(rows) ? rows.length : 0;
-          };
-          pendingApprovals = pendingCount + readCount(myJoinAppsRes) + readCount(reviewAppsRes);
-        }
+        const pendingApprovals = summary?.pendingApprovals ?? pendingCount;
         const unread =
           summary?.unread ?? (Number(notificationsQuery.data?.unreadCount) || 0);
         const notifRows = Array.isArray(notificationsQuery.data?.notifications)
@@ -1127,26 +1109,6 @@ function DashboardPage({
               },
             },
           ]),
-      ...(isSingleCompany && meta.canManageMembers
-        ? [
-            {
-              key: 'approvals',
-              icon: '📋',
-              label: t('companyAdmin.pendingJoin'),
-              value: fmt(metrics.pendingApprovals),
-              change: '—',
-              color: 'from-amber-500 to-orange-600',
-              iconBg: 'from-[#F59E0B] to-[#ea580c]',
-              sparkClass: 'text-amber-400',
-              trend: 'up',
-              detail: metrics.loading ? loadingDetail : t('companyAdmin.overviewHint'),
-              drilldown: {
-                nguon: t('dashboard.drilldownSourceOrgApi'),
-                choDuyet: metrics.pendingApprovals ?? '—',
-              },
-            },
-          ]
-        : []),
       {
         key: 'tasks',
         icon: '✅',

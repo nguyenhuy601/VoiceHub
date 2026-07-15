@@ -1,16 +1,23 @@
 import { Link } from 'react-router-dom';
-import { Rocket } from 'lucide-react';
-import { GradientButton } from '../../components/Shared';
-import { useTheme } from '../../context/ThemeContext';
+import { ArrowLeft, Home, Zap } from 'lucide-react';
+import {
+  FIGMA_404_ACTIONS,
+  FIGMA_404_BODY,
+  FIGMA_404_BTN_PRIMARY,
+  FIGMA_404_BTN_SECONDARY,
+  FIGMA_404_CODE,
+  FIGMA_404_CODE_GRADIENT,
+  FIGMA_404_INNER,
+  FIGMA_404_LOGO_ICON,
+  FIGMA_404_LOGO_ROW,
+  FIGMA_404_LOGO_TEXT,
+  FIGMA_404_ROOT,
+  FIGMA_404_TITLE,
+} from '../../components/Auth/figmaAuthClasses';
 import { useAppStrings } from '../../locales/appStrings';
-import { appShellBg } from '../../theme/shellTheme';
 
 function NotFoundPage() {
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
-  const shell = isDarkMode
-    ? 'min-h-screen flex items-center justify-center bg-[#050810] px-6'
-    : `min-h-screen flex items-center justify-center px-6 ${appShellBg(false)}`;
 
   return (
     <div className={`${FIGMA_404_ROOT} min-h-[100dvh]`}>

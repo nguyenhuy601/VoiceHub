@@ -11,10 +11,13 @@ import {
   LayoutDashboard,
   MessageCircle,
   Mic,
+  Settings,
   Shield,
+  User,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useUiRole from '../../hooks/useUiRole';
+import { getRoleMeta } from '../../config/roleMeta';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';

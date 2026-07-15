@@ -32,6 +32,11 @@ const orgLevelSchemaSchema = new mongoose.Schema(
       default: 'enterprise-compat',
       trim: true,
     },
+    /** Huy: Setup một lần — sau khi set không cho PUT đổi levels/template */
+    setupCompletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

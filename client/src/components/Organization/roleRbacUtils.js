@@ -26,24 +26,34 @@ export const PRIORITY_EXEC = 200;
 export const PRIORITY_DIVISION = 140;
 export const PRIORITY_DEPARTMENT = 80;
 export const PRIORITY_TEAM = 20;
+/** Cấp thấp nhất — nhân viên / Thành viên hệ thống. */
+export const PRIORITY_EMPLOYEE = 5;
 
 export const TIER_EXEC = 'tier-exec';
 export const TIER_DIVISION = 'tier-division';
 export const TIER_DEPARTMENT = 'tier-department';
 export const TIER_TEAM = 'tier-team';
+export const TIER_EMPLOYEE = 'tier-employee';
 
 /** Giữ alias để code cũ không vỡ. */
 export const TIER_HIGH = TIER_EXEC;
 export const TIER_MID = TIER_DEPARTMENT;
-export const TIER_LOW = TIER_TEAM;
+export const TIER_LOW = TIER_EMPLOYEE;
 
-export const TIER_ORDER = [TIER_EXEC, TIER_DIVISION, TIER_DEPARTMENT, TIER_TEAM];
+export const TIER_ORDER = [
+  TIER_EXEC,
+  TIER_DIVISION,
+  TIER_DEPARTMENT,
+  TIER_TEAM,
+  TIER_EMPLOYEE,
+];
 
 const TIER_BASE_PRIORITY = {
   [TIER_EXEC]: PRIORITY_EXEC,
   [TIER_DIVISION]: PRIORITY_DIVISION,
   [TIER_DEPARTMENT]: PRIORITY_DEPARTMENT,
   [TIER_TEAM]: PRIORITY_TEAM,
+  [TIER_EMPLOYEE]: PRIORITY_EMPLOYEE,
 };
 
 export function tierMeta(t) {
@@ -72,9 +82,16 @@ export function tierMeta(t) {
     {
       id: TIER_TEAM,
       title: tr(t, 'organizations.rbacTierTeamTitle', 'Team'),
-      hint: tr(t, 'organizations.rbacTierTeamHint', 'Team operations and members'),
+      hint: tr(t, 'organizations.rbacTierTeamHint', 'Team operations and leaders'),
       accent: 'from-slate-600/30 to-slate-700/20',
       border: 'border-slate-600/40',
+    },
+    {
+      id: TIER_EMPLOYEE,
+      title: tr(t, 'organizations.rbacTierEmployeeTitle', 'Employee'),
+      hint: tr(t, 'organizations.rbacTierEmployeeHint', 'Lowest tier — employees and default members'),
+      accent: 'from-stone-500/25 to-stone-600/15',
+      border: 'border-stone-500/35',
     },
   ];
 }
@@ -158,7 +175,8 @@ export function tierFromPriority(priority) {
   if (p >= PRIORITY_EXEC) return TIER_EXEC;
   if (p >= PRIORITY_DIVISION) return TIER_DIVISION;
   if (p >= PRIORITY_DEPARTMENT) return TIER_DEPARTMENT;
-  return TIER_TEAM;
+  if (p >= PRIORITY_TEAM) return TIER_TEAM;
+  return TIER_EMPLOYEE;
 }
 
 function executiveTierFromRoleName(name) {
@@ -170,6 +188,14 @@ function executiveTierFromRoleName(name) {
   }
   if (norm.includes('nhan su') || norm === 'hr' || norm.includes('human resource')) {
     return TIER_EXEC;
+  }
+  if (
+    norm.includes('thanh vien') ||
+    norm.includes('nhan vien') ||
+    norm === 'member' ||
+    norm === 'employee'
+  ) {
+    return TIER_EMPLOYEE;
   }
   return null;
 }
@@ -191,7 +217,7 @@ export function isOrgMembershipStructureAdmin(role) {
 /** Priority mặc định khi chọn cấp trong form tạo/sửa vai trò. */
 export function priorityFromTier(tierId) {
   const base = TIER_BASE_PRIORITY[tierId];
-  return base != null ? base : TIER_BASE_PRIORITY[TIER_TEAM];
+  return base != null ? base : TIER_BASE_PRIORITY[TIER_EMPLOYEE];
 }
 
 /** Bật tất cả quyền trong editor. */
@@ -231,6 +257,23 @@ export function groupRolesByTier(roles) {
   return columns;
 }
 
+/**
+ * Nhóm theo priority (không theo tên) — dùng kanban Phân cấp vai trò
+ * để kéo thả + lưu priority vẫn giữ đúng cột sau reload.
+ */
+export function groupRolesByPriority(roles) {
+  const columns = emptyColumns();
+  for (const role of roles || []) {
+    const id = String(role.id || role._id || '');
+    if (!id) continue;
+    columns[tierFromPriority(role?.priority)].push({ ...role, id });
+  }
+  for (const tier of TIER_ORDER) {
+    columns[tier].sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0));
+  }
+  return columns;
+}
+
 /** Tính priority mới sau khi kéo thả — cấp cao = số lớn hơn. */
 export function prioritiesFromColumns(columns) {
   const updates = [];
@@ -251,7 +294,7 @@ export function findRoleTier(columns, roleId) {
   for (const tier of TIER_ORDER) {
     if ((columns[tier] || []).some((r) => String(r.id) === String(roleId))) return tier;
   }
-  return TIER_TEAM;
+  return TIER_EMPLOYEE;
 }
 
 export function moveRoleInColumns(columns, activeId, overId) {

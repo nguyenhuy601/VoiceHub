@@ -15,6 +15,7 @@ const {
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
+const { dualWriteCreateOu, dualWriteSyncOuActive } = require('../services/orgOuDualWrite.service');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -47,6 +48,11 @@ exports.createBranch = async (req, res, next) => {
       name: unwrapName(req.body?.name, 'Chi nhánh mới'),
       location: String(req.body?.location || '').trim(),
     });
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'branch',
+      legacyCollection: 'Branch',
+      legacyDoc: doc,
+    });
     await bumpOrgReadCache(req.params.orgId);
     res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
@@ -70,6 +76,9 @@ exports.updateBranch = async (req, res, next) => {
     if (!doc) {
       return orgFail(res, 404, 'Branch not found', 'ORG_NOT_FOUND');
     }
+    if (patch.isActive !== undefined) {
+      await dualWriteSyncOuActive(req.params.orgId, 'Branch', doc._id, doc.isActive !== false);
+    }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {
@@ -79,11 +88,14 @@ exports.updateBranch = async (req, res, next) => {
 
 exports.listDivisions = async (req, res, next) => {
   try {
-    const rows = await Division.find({
+    const query = {
       organization: req.params.orgId,
-      branch: req.params.branchId,
       isActive: true,
-    }).sort({ createdAt: 1 });
+    };
+    if (req.params.branchId) {
+      query.branch = req.params.branchId;
+    }
+    const rows = await Division.find(query).sort({ createdAt: 1 });
     res.json({ status: 'success', data: rows });
   } catch (error) {
     next(error);
@@ -92,12 +104,30 @@ exports.listDivisions = async (req, res, next) => {
 
 exports.createDivision = async (req, res, next) => {
   try {
+    const branchParam = String(req.params.branchId || req.body?.branchId || '').trim();
+    const branchId = branchParam && branchParam !== '_' && branchParam !== 'root' ? branchParam : null;
+    if (branchId) {
+      const branch = await Branch.findOne({
+        _id: branchId,
+        organization: req.params.orgId,
+        isActive: { $ne: false },
+      }).lean();
+      if (!branch) {
+        return orgFail(res, 404, 'Branch not found', 'ORG_NOT_FOUND');
+      }
+    }
     const doc = await Division.create({
       organization: req.params.orgId,
-      branch: req.params.branchId,
+      branch: branchId,
       name: unwrapName(req.body?.name, 'Khối mới'),
     });
     await ensureDivisionRole(req.params.orgId, doc._id, doc.name);
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'division',
+      legacyCollection: 'Division',
+      legacyDoc: doc,
+      parentLegacy: branchId ? { collection: 'Branch', id: branchId } : null,
+    });
     await bumpOrgReadCache(req.params.orgId);
     res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
@@ -105,25 +135,30 @@ exports.createDivision = async (req, res, next) => {
   }
 };
 
+/** Huy: Cập nhật / vô hiệu hóa khối (parity updateBranch — domain Cơ cấu tổ chức). */
 exports.updateDivision = async (req, res, next) => {
   try {
+    const patch = {};
+    if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Khối mới');
+    if (req.body?.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
+    if (!Object.keys(patch).length) {
+      return orgFail(res, 400, 'No fields to update', 'ORG_VALIDATION');
+    }
+
     const doc = await Division.findOneAndUpdate(
-      {
-        _id: req.params.divisionId,
-        organization: req.params.orgId,
-        isActive: true,
-      },
-      {
-        $set: {
-          name: unwrapName(req.body?.name, 'Khối mới'),
-        },
-      },
+      { _id: req.params.divisionId, organization: req.params.orgId },
+      { $set: patch },
       { new: true }
     );
     if (!doc) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
-    await ensureDivisionRole(req.params.orgId, doc._id, doc.name);
+    if (doc.isActive !== false) {
+      await ensureDivisionRole(req.params.orgId, doc._id, doc.name);
+    }
+    if (patch.isActive !== undefined) {
+      await dualWriteSyncOuActive(req.params.orgId, 'Division', doc._id, doc.isActive !== false);
+    }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {
@@ -155,7 +190,7 @@ exports.createDepartmentByDivision = async (req, res, next) => {
     }
     const doc = await Department.create({
       organization: req.params.orgId,
-      branch: division.branch,
+      branch: division.branch || null,
       division: division._id,
       name: unwrapName(req.body?.name, 'Phòng ban mới'),
       description: String(req.body?.description || '').trim(),
@@ -168,6 +203,44 @@ exports.createDepartmentByDivision = async (req, res, next) => {
       departmentId: doc._id,
       department: doc,
       actorId,
+    });
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'department',
+      legacyCollection: 'Department',
+      legacyDoc: doc,
+      parentLegacy: { collection: 'Division', id: division._id },
+    });
+    await bumpOrgReadCache(req.params.orgId);
+    return res.status(201).json({ status: 'success', data: doc });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Huy: Tạo phòng ban gốc (template không có division). */
+exports.createDepartmentRoot = async (req, res, next) => {
+  try {
+    const doc = await Department.create({
+      organization: req.params.orgId,
+      branch: null,
+      division: null,
+      name: unwrapName(req.body?.name, 'Phòng ban mới'),
+      description: String(req.body?.description || '').trim(),
+      head: req.body?.head || null,
+    });
+    await ensureDepartmentRole(req.params.orgId, doc._id, doc.name);
+    const actorId = req.user?.id || req.user?.userId || req.user?._id || doc.head || null;
+    await ensureDepartmentDefaultChannels({
+      orgId: req.params.orgId,
+      departmentId: doc._id,
+      department: doc,
+      actorId,
+    });
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'department',
+      legacyCollection: 'Department',
+      legacyDoc: doc,
+      parentLegacy: null,
     });
     await bumpOrgReadCache(req.params.orgId);
     return res.status(201).json({ status: 'success', data: doc });
@@ -206,32 +279,77 @@ exports.createTeamByDepartment = async (req, res, next) => {
       name: unwrapName(req.body?.name, 'Team mới'),
       description: String(req.body?.description || '').trim(),
       leader: req.body?.leader || null,
+      isActive: true,
     });
     await ensureTeamRole(req.params.orgId, doc._id, doc.name);
-    await Channel.insertMany([
-      {
-        name: 'general',
-        type: 'chat',
-        description: 'Team text chat',
-        organization: req.params.orgId,
-        branch: department.branch || null,
-        division: department.division || null,
-        department: department._id,
-        team: doc._id,
-        leader: req.body?.leader || null,
-      },
-      {
-        name: 'voice',
-        type: 'voice',
-        description: 'Team voice channel',
-        organization: req.params.orgId,
-        branch: department.branch || null,
-        division: department.division || null,
-        department: department._id,
-        team: doc._id,
-        leader: req.body?.leader || null,
-      },
-    ]);
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'team',
+      legacyCollection: 'Team',
+      legacyDoc: doc,
+      parentLegacy: { collection: 'Department', id: department._id },
+    });
+    await bumpOrgReadCache(req.params.orgId);
+    return res.status(201).json({ status: 'success', data: doc });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Huy: Tạo team dưới division (template product/outsourcing — không có department). */
+exports.createTeamByDivision = async (req, res, next) => {
+  try {
+    const division = await Division.findOne({
+      _id: req.params.divisionId,
+      organization: req.params.orgId,
+      isActive: true,
+    }).lean();
+    if (!division) {
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
+    }
+    const doc = await Team.create({
+      organization: req.params.orgId,
+      branch: division.branch || null,
+      division: division._id,
+      department: null,
+      name: unwrapName(req.body?.name, 'Team mới'),
+      description: String(req.body?.description || '').trim(),
+      leader: req.body?.leader || null,
+      isActive: true,
+    });
+    await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'team',
+      legacyCollection: 'Team',
+      legacyDoc: doc,
+      parentLegacy: { collection: 'Division', id: division._id },
+    });
+    await bumpOrgReadCache(req.params.orgId);
+    return res.status(201).json({ status: 'success', data: doc });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Huy: Tạo team gốc (template startup — chỉ team). */
+exports.createTeamRoot = async (req, res, next) => {
+  try {
+    const doc = await Team.create({
+      organization: req.params.orgId,
+      branch: null,
+      division: null,
+      department: null,
+      name: unwrapName(req.body?.name, 'Team mới'),
+      description: String(req.body?.description || '').trim(),
+      leader: req.body?.leader || null,
+      isActive: true,
+    });
+    await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    await dualWriteCreateOu(req.params.orgId, {
+      levelKey: 'team',
+      legacyCollection: 'Team',
+      legacyDoc: doc,
+      parentLegacy: null,
+    });
     await bumpOrgReadCache(req.params.orgId);
     return res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
@@ -277,6 +395,9 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
     }
     if (doc.isActive !== false) {
       await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    }
+    if (patch.isActive !== undefined) {
+      await dualWriteSyncOuActive(req.params.orgId, 'Team', doc._id, doc.isActive !== false);
     }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });

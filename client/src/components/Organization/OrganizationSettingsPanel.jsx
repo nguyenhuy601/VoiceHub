@@ -56,7 +56,6 @@ function buildAdminTabs(t) {
   return [
     { id: 'general', label: t('organizationSettings.tabGeneral'), icon: '⚙️' },
     { id: 'structure', label: t('organizationSettings.tabStructure'), icon: '🏢' },
-    { id: 'join', label: t('organizationSettings.tabJoin'), icon: '📋' },
     { id: 'roles', label: t('organizationSettings.tabRoles'), icon: '🔐' },
     { id: 'security', label: t('organizationSettings.tabSecurity'), icon: '🛡️' },
     ...(hasBackendCapability('integrations')

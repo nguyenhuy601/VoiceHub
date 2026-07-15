@@ -7,21 +7,20 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminDangerBtnClass,
+  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import { ConfirmDialog } from '../../components/Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { unitId } from '../../utils/adminOrgStructureUtils';
 
 export default function DeptDisablePanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
   const [selectedId, setSelectedId] = useState(unitParam);
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -33,21 +32,21 @@ export default function DeptDisablePanel({ orgId }) {
     [departments, selectedId]
   );
 
-  const confirm = async () => {
+  const toggle = async (isActive) => {
     if (!orgId || !selectedId || busy) return;
     setBusy(true);
     try {
-      await organizationAPI.deleteDepartment(orgId, selectedId);
-      toast.success(t('adminOrg.deleted'));
-      setOpen(false);
-      setSelectedId('');
+      await organizationAPI.updateDepartment(orgId, selectedId, { isActive });
+      toast.success(t('adminOrg.deptToggled'));
       await loadStructure();
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.deleteFail') }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.deptToggleFail') }));
     } finally {
       setBusy(false);
     }
   };
+
+  const active = selected?.isActive !== false;
 
   return (
     <AdminUserPanelShell
@@ -63,26 +62,36 @@ export default function DeptDisablePanel({ orgId }) {
           onSelect={setSelectedId}
           hint={t('adminOrg.deptDisablePickerHint')}
           subtitleFn={(row) => row.divisionName || ''}
+          badgeFn={(row) => (row.isActive === false ? t('adminOrg.inactive') : t('adminOrg.active'))}
         />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.deptDisable')} danger>
+        <AdminUserFormCard title={t('adminDomains.orgStructure.deptDisable')} danger={!active}>
           {!selected ? (
             <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
           ) : (
-            <button type="button" className={adminDangerBtnClass()} onClick={() => setOpen(true)}>
-              {t('adminDomains.orgStructure.deptDisable')}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {active ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={adminDangerBtnClass()}
+                  onClick={() => toggle(false)}
+                >
+                  {t('adminOrg.deptDisable')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={adminPrimaryBtnClass()}
+                  onClick={() => toggle(true)}
+                >
+                  {t('adminOrg.deptEnable')}
+                </button>
+              )}
+            </div>
           )}
         </AdminUserFormCard>
       </div>
-      <ConfirmDialog
-        isOpen={open}
-        onClose={() => !busy && setOpen(false)}
-        onConfirm={confirm}
-        title={t('adminDomains.orgStructure.deptDisable')}
-        message={t('adminOrg.deptDisableConfirm', { name: unitName(selected) })}
-        confirmText={t('adminDomains.orgStructure.deptDisable')}
-        cancelText={t('common.cancel')}
-      />
     </AdminUserPanelShell>
   );
 }

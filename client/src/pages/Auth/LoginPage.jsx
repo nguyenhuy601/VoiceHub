@@ -3,8 +3,6 @@ import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import { ArrowRight } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import OneTimeCredentialsModal from '../../components/Auth/OneTimeCredentialsModal';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
@@ -25,7 +23,6 @@ function LoginPage({ landingDemo = false } = {}) {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   const [gatewayTrust, setGatewayTrust] = useState(null);
   const [oneTimeCreds, setOneTimeCreds] = useState(null);
@@ -125,9 +122,6 @@ function LoginPage({ landingDemo = false } = {}) {
     <AuthPageLayout aside={<AuthMarketingAside />}>
       <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
       <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
-    <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
 
       {gatewayTrust && !gatewayTrust.ok && (
         <div
@@ -187,46 +181,7 @@ function LoginPage({ landingDemo = false } = {}) {
             </button>
           </div>
         </div>
-        <div>
-          <div className="mb-2.5 flex items-center justify-between gap-2">
-            <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
-              {t('login.password')}
-            </label>
-            <Link to="/forgot-password" className={`text-base font-semibold transition ${linkCyan}`}>
-              {t('login.forgot')}
-            </Link>
-          </div>
-          <div className="relative">
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className={`${inputBase} pr-14`}
-              placeholder={t('login.placeholderPwd')}
-              autoComplete="current-password"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${showPwdBtn}`}
-            >
-              {showPassword ? t('login.hide') : t('login.show')}
-            </button>
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between gap-3">
-          <label className={`flex cursor-pointer items-center gap-2.5 text-base ${mutedCls}`}>
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className={`rounded border focus:ring-cyan-600/30 ${chk}`}
-            />
-            {t('login.remember')}
-          </label>
-        </div>
         <div className="flex items-center justify-between gap-3">
           <label className={`flex cursor-pointer items-center gap-2.5 text-base ${mutedCls}`}>
             <input

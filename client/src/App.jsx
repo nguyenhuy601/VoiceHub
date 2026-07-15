@@ -129,7 +129,7 @@ function App() {
             <Route index element={<AdminHubPage />} />
             <Route path="overview" element={<Navigate to="/app/admin" replace />} />
             <Route path="people" element={<Navigate to="/app/admin/users" replace />} />
-            <Route path="approvals" element={<Navigate to="/app/admin/users/join-approvals" replace />} />
+            <Route path="approvals" element={<Navigate to="/app/admin/users" replace />} />
             <Route path="general" element={<Navigate to="/app/admin/system-config" replace />} />
             <Route path="structure" element={<Navigate to="/app/admin/system-config/structure" replace />} />
             <Route path="roles" element={<Navigate to="/app/admin/rbac/roles" replace />} />

@@ -19,7 +19,7 @@ export default function BranchDisablePanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { branches, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { branches, loading, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 

@@ -41,7 +41,6 @@ export const ADMIN_DOMAINS = [
           { id: 'import', path: '/app/admin/users/import', labelKey: 'adminDomains.users.import', implementation: 'users-import' },
           { id: 'assign-org', path: '/app/admin/users/assign-org', labelKey: 'adminDomains.users.assignOrg', implementation: 'users-assign-org' },
           { id: 'login-history', path: '/app/admin/users/login-history', labelKey: 'adminDomains.users.loginHistory', implementation: 'users-login-history' },
-          { id: 'join-approvals', path: '/app/admin/users/join-approvals', labelKey: 'adminDomains.users.joinApprovals', implementation: 'approvals', badgeKey: 'pendingJoin' },
         ],
       },
     ],
@@ -100,6 +99,17 @@ export const ADMIN_DOMAINS = [
         ],
       },
       {
+        id: 'divisions',
+        labelKey: 'adminDomains.orgStructure.sectionDivisions',
+        items: [
+          { id: 'division-list', path: '/app/admin/org-structure/divisions', labelKey: 'adminDomains.orgStructure.divisionList', end: true, implementation: 'org-division-list' },
+          { id: 'division-create', path: '/app/admin/org-structure/divisions/create', labelKey: 'adminDomains.orgStructure.divisionCreate', implementation: 'org-division-create' },
+          { id: 'division-edit', path: '/app/admin/org-structure/divisions/edit', labelKey: 'adminDomains.orgStructure.divisionEdit', implementation: 'org-division-edit' },
+          { id: 'division-disable', path: '/app/admin/org-structure/divisions/disable', labelKey: 'adminDomains.orgStructure.divisionDisable', implementation: 'org-division-disable' },
+          { id: 'division-dept', path: '/app/admin/org-structure/divisions/departments', labelKey: 'adminDomains.orgStructure.divisionDept', implementation: 'org-division-dept' },
+        ],
+      },
+      {
         id: 'branches',
         labelKey: 'adminDomains.orgStructure.sectionBranches',
         items: [
@@ -123,6 +133,7 @@ export const ADMIN_DOMAINS = [
         id: 'main',
         items: [
           { id: 'roles', path: '/app/admin/rbac/roles', labelKey: 'adminDomains.rbac.roles', end: true, implementation: 'rbac-list' },
+          { id: 'hierarchy', path: '/app/admin/rbac/hierarchy', labelKey: 'adminDomains.rbac.hierarchy', implementation: 'rbac-hierarchy' },
           { id: 'create', path: '/app/admin/rbac/create', labelKey: 'adminDomains.rbac.create', implementation: 'rbac-create' },
           { id: 'edit', path: '/app/admin/rbac/edit', labelKey: 'adminDomains.rbac.edit', implementation: 'rbac-edit' },
           { id: 'delete', path: '/app/admin/rbac/delete', labelKey: 'adminDomains.rbac.delete', implementation: 'rbac-delete' },
@@ -352,7 +363,6 @@ export const ADMIN_DOMAINS = [
           { id: 'work-hours', path: '/app/admin/system-config/work-hours', labelKey: 'adminDomains.systemConfig.workHours' },
           { id: 'holidays', path: '/app/admin/system-config/holidays', labelKey: 'adminDomains.systemConfig.holidays' },
           { id: 'retention', path: '/app/admin/system-config/retention', labelKey: 'adminDomains.systemConfig.retention' },
-          { id: 'policy', path: '/app/admin/system-config/policy', labelKey: 'adminDomains.systemConfig.policy', implementation: 'settings-policy', settingsTab: 'join' },
           { id: 'structure', path: '/app/admin/system-config/structure', labelKey: 'adminDomains.systemConfig.structure', implementation: 'settings-structure', settingsTab: 'structure' },
         ],
       },
@@ -404,18 +414,20 @@ export const ADMIN_DOMAINS = [
 export const LEGACY_ADMIN_TAB_TO_PATH = {
   overview: '/app/admin',
   people: '/app/admin/users',
-  approvals: '/app/admin/users/join-approvals',
+  approvals: '/app/admin/users',
   general: '/app/admin/system-config',
   structure: '/app/admin/system-config/structure',
   roles: '/app/admin/rbac/roles',
   policy: '/app/admin/system-config/policy',
-  join: '/app/admin/system-config/policy',
+  join: '/app/admin/users',
   security: '/app/admin/security',
 };
 
 const LEGACY_PATH_REDIRECTS = {
   '/app/admin/people': '/app/admin/users',
-  '/app/admin/approvals': '/app/admin/users/join-approvals',
+  '/app/admin/approvals': '/app/admin/users',
+  '/app/admin/users/join-approvals': '/app/admin/users',
+  '/app/admin/system-config/policy': '/app/admin/system-config',
   '/app/admin/general': '/app/admin/system-config',
   '/app/admin/structure': '/app/admin/system-config/structure',
   '/app/admin/roles': '/app/admin/rbac/roles',
@@ -468,4 +480,51 @@ export function getVisibleAdminDomains(isFullAccess) {
 
 export function flattenAdminNavItems(domain) {
   return domain.sections.flatMap((s) => s.items);
+}
+
+/** Map OrgLevelSchema.key → admin org-structure section.id */
+export const ORG_LEVEL_KEY_TO_SECTION = {
+  branch: 'branches',
+  division: 'divisions',
+  department: 'departments',
+  team: 'teams',
+};
+
+/** Sections luôn hiện (không gắn level hierarchy). */
+export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['dynamic', 'positions']);
+
+/**
+ * Lọc sections Cơ cấu tổ chức theo trạng thái setup + levels đã lưu.
+ * - Chưa setup (`setupCompleted !== true`): chỉ Positions (tránh menu hierarchy “ảo”).
+ * - Đã setup: section theo level; ẩn `dynamic` (Levels) — setup một lần qua modal.
+ */
+export function filterOrgStructureSections(sections, levels, { setupCompleted } = {}) {
+  const list = Array.isArray(sections) ? sections : [];
+
+  if (setupCompleted !== true) {
+    return list.filter((section) => section.id === 'positions');
+  }
+
+  const enabledKeys = (Array.isArray(levels) ? levels : [])
+    .filter((l) => l && l.enabled !== false && l.key)
+    .map((l) => String(l.key).toLowerCase().trim());
+
+  const allowed = new Set(['positions']);
+  for (const key of enabledKeys) {
+    const sectionId = ORG_LEVEL_KEY_TO_SECTION[key];
+    if (sectionId) allowed.add(sectionId);
+  }
+
+  return list.filter((section) => allowed.has(section.id));
+}
+
+/**
+ * Domain với sections đã filter (chỉ domain org-structure).
+ */
+export function applyOrgLevelFilterToDomain(domain, levels, options = {}) {
+  if (!domain || domain.id !== 'org-structure') return domain;
+  return {
+    ...domain,
+    sections: filterOrgStructureSections(domain.sections, levels, options),
+  };
 }

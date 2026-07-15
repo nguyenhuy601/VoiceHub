@@ -48,6 +48,12 @@ export default function RolesListPanel({ orgId }) {
             {t('adminDomains.rbac.create')}
           </Link>
           <Link
+            to="/app/admin/rbac/hierarchy"
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
+          >
+            {t('adminDomains.rbac.hierarchy')}
+          </Link>
+          <Link
             to="/app/admin/rbac/matrix"
             className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
           >

@@ -100,10 +100,18 @@ async function purgeRemoteDocuments(organizationId) {
 
 async function purgeRemoteMeetings(organizationId) {
   const url = `${VOICE_SERVICE_URL}/api/meetings/internal/purge-organization/${encodeURIComponent(organizationId)}`;
-  await requestWithRetry(
-    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
-    'voice-service purge'
-  );
+  try {
+    // Huy: soft-fail nhanh — voice Mongo thường lệch env; không được kéo dài cascade > gateway timeout
+    await requestWithRetry(
+      () => axios.delete(url, { headers: gatewayHeaders(), timeout: 15000, validateStatus: () => true }),
+      'voice-service purge',
+      { maxRetries: 1 }
+    );
+  } catch (error) {
+    logger.warn(
+      `[organizationCascadePurge] voice-service purge skipped for ${organizationId}: ${error?.message || error}`
+    );
+  }
 }
 
 async function purgeRemoteChatMessages(organizationId) {
@@ -157,6 +165,17 @@ async function purgeRemoteRoles(organizationId) {
 
 async function purgeLocalOrganizationRecords(organizationId) {
   const oid = new mongoose.Types.ObjectId(String(organizationId));
+
+  try {
+    const OrganizationalUnit = require('../models/OrganizationalUnit');
+    const OrgUnitMembership = require('../models/OrgUnitMembership');
+    const OrgLevelSchema = require('../models/OrgLevelSchema');
+    await OrgUnitMembership.deleteMany({ organization: oid });
+    await OrganizationalUnit.deleteMany({ organization: oid });
+    await OrgLevelSchema.deleteMany({ organization: oid });
+  } catch (e) {
+    logger.warn(`[organizationCascadePurge] OU/schema wipe skipped: ${e?.message || e}`);
+  }
 
   await Team.deleteMany({ organization: oid });
   await Channel.deleteMany({ organization: oid });

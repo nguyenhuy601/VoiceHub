@@ -24,7 +24,6 @@ export default function CompanyAdminLayout() {
 
   const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [pendingJoinCount, setPendingJoinCount] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
 
   const refreshOrganization = useCallback(async () => {
@@ -39,21 +38,11 @@ export default function CompanyAdminLayout() {
   const refreshStats = useCallback(async () => {
     if (!orgId) return;
     try {
-      const [joinRes, membersRes] = await Promise.all([
-        organizationAPI.getJoinApplicationsToReview(),
-        organizationAPI.getMembersWithRoles(orgId),
-      ]);
-      const joinData = unwrap(joinRes);
-      const joinList = Array.isArray(joinData) ? joinData : joinData?.data || [];
-      const filteredJoin = joinList.filter(
-        (a) => String(a.organizationId || a.organization?._id || '') === String(orgId)
-      );
+      const membersRes = await organizationAPI.getMembersWithRoles(orgId);
       const membersData = unwrap(membersRes);
       const members = membersData?.data?.members || membersData?.members || membersData;
-      setPendingJoinCount(filteredJoin.length);
       setMemberCount(Array.isArray(members) ? members.length : 0);
     } catch {
-      setPendingJoinCount(0);
       setMemberCount(0);
     }
   }, [orgId]);
@@ -91,12 +80,11 @@ export default function CompanyAdminLayout() {
       orgId,
       organization,
       isFullAccess,
-      pendingJoinCount,
       memberCount,
       refreshOrganization,
       refreshStats,
     }),
-    [orgId, organization, isFullAccess, pendingJoinCount, memberCount, refreshOrganization, refreshStats]
+    [orgId, organization, isFullAccess, memberCount, refreshOrganization, refreshStats]
   );
 
   if (!canAccessHub) {

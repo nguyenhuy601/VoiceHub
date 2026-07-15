@@ -5,18 +5,12 @@ import { useCompanyAdminContext } from './CompanyAdminLayout';
 
 export default function CompanyAdminOverviewPage() {
   const navigate = useNavigate();
-  const { pendingJoinCount, memberCount } = useCompanyAdminContext();
+  const { memberCount } = useCompanyAdminContext();
 
   const selectTab = (tabId) => {
     const path = LEGACY_ADMIN_TAB_TO_PATH[tabId] || LEGACY_ADMIN_TAB_TO_PATH.overview;
     navigate(path);
   };
 
-  return (
-    <OverviewPanel
-      pendingJoinCount={pendingJoinCount}
-      memberCount={memberCount}
-      onSelectTab={selectTab}
-    />
-  );
+  return <OverviewPanel memberCount={memberCount} onSelectTab={selectTab} />;
 }

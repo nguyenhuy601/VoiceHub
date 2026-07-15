@@ -426,7 +426,7 @@ function RegisterPage({ suiteLayout = false } = {}) {
           <button
             type="submit"
             disabled={submitDisabled}
-            className={`${FIGMA_BTN} ${authPrimaryButtonClass()}`}
+            className={`${FIGMA_BTN} ${btnPrimary}`}
           >
             {loading ? (
               <span className="flex items-center gap-2">

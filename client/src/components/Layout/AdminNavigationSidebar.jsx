@@ -13,38 +13,34 @@ import {
   Kanban,
   LayoutGrid,
   Lock,
-  LogOut,
   MessageSquare,
   Mic,
   ScrollText,
   Settings,
   Shield,
   Sparkles,
-  User,
   Users,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import {
   ADMIN_DOMAIN_STORAGE_KEY,
   ADMIN_SUITE_COLOR,
+  applyOrgLevelFilterToDomain,
   getVisibleAdminDomains,
   normalizeAdminPath,
   resolveAdminDomainFromPath,
 } from '../../config/adminDomainsConfig';
-import { useAuth } from '../../context/AuthContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import { getInitials, getUserDisplayName } from '../../utils/helpers';
-import { removeToken } from '../../utils/tokenStorage';
+import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
   FIGMA_SIDEBAR_EXPANDED,
   FIGMA_SIDEBAR_EXPAND_BTN,
-  FIGMA_SIDEBAR_FOOTER,
   FIGMA_SIDEBAR_NAV,
   FIGMA_SIDEBAR_SECTION_LABEL,
   FIGMA_SIDEBAR_SUITE_STRIP,
@@ -74,8 +70,6 @@ const DOMAIN_ICONS = {
   BarChart3,
   LayoutGrid,
 };
-
-const unwrap = (payload) => payload?.data ?? payload;
 
 function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
   const { t } = useAppStrings();
@@ -274,7 +268,6 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   const { t } = useAppStrings();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const { isSystemAdmin, orgId } = useCompanyAdminAccess();
 
@@ -285,11 +278,10 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
       return false;
     }
   });
-  const [pendingJoinCount, setPendingJoinCount] = useState(0);
   const [expandedSectionByDomain, setExpandedSectionByDomain] = useState({});
-
-  const displayName = getUserDisplayName(user);
-  const initials = getInitials(displayName);
+  const [orgStructureLevels, setOrgStructureLevels] = useState([]);
+  /** null = chưa load; true/false sau GET levels */
+  const [orgStructureSetupCompleted, setOrgStructureSetupCompleted] = useState(null);
 
   const visibleDomains = useMemo(
     () => getVisibleAdminDomains(isFullAccess),
@@ -315,10 +307,49 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     }
   }, [activeDomain?.id]);
 
-  const selectedDomain = useMemo(
-    () => visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null,
-    [visibleDomains, selectedDomainId]
-  );
+  const selectedDomain = useMemo(() => {
+    const raw = visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null;
+    if (!raw || raw.id !== 'org-structure') return raw;
+    return applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
+      setupCompleted: orgStructureSetupCompleted === true,
+    });
+  }, [visibleDomains, selectedDomainId, orgStructureLevels, orgStructureSetupCompleted]);
+
+  const reloadOrgStructureLevels = async () => {
+    if (!orgId) return;
+    try {
+      const res = await organizationAPI.getStructureLevels(orgId);
+      const schema = unwrapOrgApi(res);
+      setOrgStructureLevels(Array.isArray(schema?.levels) ? schema.levels : []);
+      setOrgStructureSetupCompleted(Boolean(schema?.setupCompleted));
+    } catch {
+      setOrgStructureLevels([]);
+      setOrgStructureSetupCompleted(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!orgId || selectedDomainId !== 'org-structure') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await organizationAPI.getStructureLevels(orgId);
+        const schema = unwrapOrgApi(res);
+        if (!cancelled) {
+          setOrgStructureLevels(Array.isArray(schema?.levels) ? schema.levels : []);
+          setOrgStructureSetupCompleted(Boolean(schema?.setupCompleted));
+        }
+      } catch {
+        if (!cancelled) {
+          setOrgStructureLevels([]);
+          setOrgStructureSetupCompleted(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, selectedDomainId, location.pathname]);
 
   const isActivePath = (item) => {
     const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');
@@ -339,47 +370,10 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     }));
   }, [selectedDomain, currentPath]);
 
-  useEffect(() => {
-    if (!orgId) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await organizationAPI.getJoinApplicationsToReview();
-        const data = unwrap(res);
-        const list = Array.isArray(data) ? data : data?.data || [];
-        const count = list.filter(
-          (a) => String(a.organizationId || a.organization?._id || '') === String(orgId)
-        ).length;
-        if (!cancelled) setPendingJoinCount(count);
-      } catch {
-        if (!cancelled) setPendingJoinCount(0);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, location.pathname]);
-
   const toggleCollapsed = () => {
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
-  };
-
-  const handleLogout = async () => {
-    try {
-      await Promise.race([logout(), new Promise((r) => setTimeout(r, 1500))]);
-    } catch {
-      // ignore
-    } finally {
-      try {
-        removeToken();
-      } catch {
-        // ignore
-      }
-      // Toast đăng xuất chỉ trong AuthContext.logout — tránh 2 thông báo
-      navigate('/login');
-    }
   };
 
   const handleDomainSelect = (domain) => {
@@ -401,14 +395,10 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     return expandedSectionByDomain[selectedDomain.id] === section.id;
   };
 
-  const badgeForItem = (item) => {
-    if (item.badgeKey === 'pendingJoin') return pendingJoinCount;
-    return 0;
-  };
+  const badgeForItem = () => 0;
 
   const widthClass = mobileNavOpen || !collapsed ? FIGMA_SIDEBAR_EXPANDED : FIGMA_SIDEBAR_COLLAPSED;
   const sidebarTranslate = mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0';
-  const roleBadge = isSystemAdmin ? t('adminNav.systemRoleBadge') : t('adminNav.roleBadge');
 
   return (
     <>
@@ -506,60 +496,22 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
             </Link>
           ) : null}
         </nav>
-
-        <div className={FIGMA_SIDEBAR_FOOTER}>
-          <Link to="/app/admin/system-config" className="mb-0.5 block">
-            <div
-              className={`flex items-center gap-2.5 rounded-[7px] transition ${
-                collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-[7px]'
-              } ${
-                currentPath.startsWith('/app/admin/system-config') ||
-                currentPath.startsWith('/app/admin/security')
-                  ? 'bg-red-500/15 text-red-300'
-                  : 'text-white/40 hover:bg-white/[0.06]'
-              }`}
-            >
-              <Settings size={15} className="shrink-0" />
-              {!collapsed ? <span className="text-[0.8125rem] font-normal">{t('nav.settings')}</span> : null}
-            </div>
-          </Link>
-
-          <div
-            className={`flex items-center gap-2 rounded-[7px] ${
-              collapsed ? 'justify-center px-0 py-1.5' : 'px-2 py-1.5'
-            }`}
-            style={{ background: `${ADMIN_COLOR}0A`, border: `1px solid ${ADMIN_COLOR}18` }}
-          >
-            <div
-              className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-bold text-white"
-              style={{
-                background: `linear-gradient(135deg, ${ADMIN_COLOR}, ${ADMIN_COLOR}CC)`,
-                boxShadow: `0 2px 6px ${ADMIN_COLOR}44`,
-              }}
-            >
-              {initials || <User size={10} />}
-            </div>
-            {!collapsed ? (
-              <>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="truncate text-[0.7rem] font-semibold leading-tight text-white/80">{displayName}</div>
-                  <div className="mt-0.5 truncate text-[0.575rem] font-bold tracking-wide" style={{ color: ADMIN_COLOR }}>
-                    {roleBadge}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] border-none bg-transparent text-white/25 transition hover:bg-red-400/10 hover:text-red-400"
-                  title={t('nav.logout')}
-                >
-                  <LogOut size={12} />
-                </button>
-              </>
-            ) : null}
-          </div>
-        </div>
       </div>
+
+      <OrgStructureSetupModal
+        orgId={orgId}
+        open={Boolean(orgId) && selectedDomainId === 'org-structure' && orgStructureSetupCompleted === false}
+        onCompleted={async (payload) => {
+          const levels = Array.isArray(payload?.levels) ? payload.levels : [];
+          setOrgStructureLevels(levels);
+          setOrgStructureSetupCompleted(true);
+          await reloadOrgStructureLevels();
+          const raw = visibleDomains.find((d) => d.id === 'org-structure');
+          const filtered = applyOrgLevelFilterToDomain(raw, levels, { setupCompleted: true });
+          const firstItem = filtered?.sections?.flatMap((s) => s.items || []).find((item) => item?.path);
+          if (firstItem?.path) navigate(firstItem.path);
+        }}
+      />
     </>
   );
 }

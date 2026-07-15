@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+/** Huy: Gán phòng ban / nhóm — chỉ list + search nhân viên chưa có dept và team. */
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
@@ -9,82 +10,147 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  memberDisplayName,
+  memberEmail,
+  memberIsUnplaced,
+  memberUserId,
+} from '../../utils/adminUserUtils';
+import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
 export default function UserAssignOrgPanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { roles, loadMembers } = useAdminMembers(orgId);
-  const [selectedRoleId, setSelectedRoleId] = useState('');
-  const [membershipRole, setMembershipRole] = useState('member');
+  const { departments, teams, loadStructure } = useAdminOrgStructure(orgId);
+  const { loadMembers, membersById } = useAdminMembers(orgId);
+  const [departmentId, setDepartmentId] = useState('');
+  const [teamId, setTeamId] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const unplacedFilter = useCallback((m) => memberIsUnplaced(m), []);
+
+  const selectedMember = membersById.get(userId) || null;
+  const selectedIsUnplaced = selectedMember ? memberIsUnplaced(selectedMember) : false;
+
+  const teamsInDept = useMemo(
+    () => teams.filter((row) => String(row.departmentId || '') === String(departmentId || '')),
+    [teams, departmentId]
+  );
+
   useEffect(() => {
-    if (!roles.length) return;
-    setSelectedRoleId(String(roles[0]?._id || roles[0]?.id || ''));
-  }, [roles]);
+    if (!teamId) return;
+    if (!teamsInDept.some((row) => unitId(row) === teamId)) {
+      setTeamId('');
+    }
+  }, [teamsInDept, teamId]);
+
+  const validationMessage = useMemo(() => {
+    if (!userId) return t('adminUsers.selectUserFirst');
+    if (!selectedIsUnplaced) return t('adminUsers.assignOrgAlreadyPlaced');
+    if (!departments.length) return t('adminOrg.noDepartments');
+    if (!departmentId) return t('adminUsers.assignOrgNeedDept');
+    return '';
+  }, [userId, selectedIsUnplaced, departments.length, departmentId, t]);
+
+  const canSubmit = !validationMessage && !busy;
 
   const assign = async () => {
-    if (!orgId || !userId || busy) return;
+    if (!orgId || busy || validationMessage) {
+      if (validationMessage) toast.error(validationMessage);
+      return;
+    }
     setBusy(true);
     try {
-      if (selectedRoleId) {
-        await roleAPI.assignRoleToUser(selectedRoleId, userId, orgId);
+      const dep = departments.find((d) => unitId(d) === departmentId);
+      const depMembers = (dep?.memberIds || []).map(String);
+      if (!depMembers.includes(userId)) {
+        await organizationAPI.updateDepartment(orgId, departmentId, {
+          members: Array.from(new Set([...depMembers, userId])),
+        });
       }
-      await organizationAPI.updateMemberRole(orgId, userId, membershipRole);
-      toast.success(t('adminUsers.assignSaved'));
-      await loadMembers();
+      if (teamId) {
+        const team = teams.find((row) => unitId(row) === teamId);
+        const teamMembers = (team?.memberIds || []).map(String);
+        if (!teamMembers.includes(userId)) {
+          await organizationAPI.updateTeamByHierarchy(orgId, teamId, {
+            members: Array.from(new Set([...teamMembers, userId])),
+          });
+        }
+      }
+      toast.success(t('adminUsers.assignOrgSaved'));
+      setDepartmentId('');
+      setTeamId('');
+      await Promise.all([loadStructure(), loadMembers()]);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.assignFail') }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.assignOrgFail') }));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignOrgHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.assignPickerHint')} />
-        <AdminUserFormCard title={t('adminUsers.assignRole')} hint={t('adminUsers.assignHint')}>
+        <AdminUserPicker
+          orgId={orgId}
+          selectedUserId={userId}
+          hint={t('adminUsers.assignOrgPickerHint')}
+          filterFn={unplacedFilter}
+          emptyLabel={t('adminUsers.assignOrgNoUnplaced')}
+          subtitleFn={(m) => `${memberEmail(m)} · ${t('adminOrg.deptTransferUnassignedBadge')}`}
+        />
+        <AdminUserFormCard title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignOrgHint')}>
           {!userId ? (
             <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
           ) : null}
           <div className="space-y-4">
             <label className="block">
-              <span className={adminLabelClass()}>{t('adminUsers.rbacRole')}</span>
+              <span className={adminLabelClass()}>{t('adminOrg.toDept')}</span>
               <select
                 className={adminInputClass()}
-                value={selectedRoleId}
-                onChange={(e) => setSelectedRoleId(e.target.value)}
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
               >
-                {roles.map((role) => {
-                  const id = String(role._id || role.id);
-                  return (
-                    <option key={id} value={id}>
-                      {role.name || id}
-                    </option>
-                  );
-                })}
+                <option value="">{t('adminOrg.selectDepartment')}</option>
+                {departments.map((d) => (
+                  <option key={unitId(d)} value={unitId(d)}>
+                    {unitName(d)}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="block">
-              <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
+              <span className={adminLabelClass()}>{t('adminUsers.assignOrgTeamOptional')}</span>
               <select
                 className={adminInputClass()}
-                value={membershipRole}
-                onChange={(e) => setMembershipRole(e.target.value)}
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+                disabled={!departmentId}
               >
-                <option value="member">member</option>
-                <option value="hr">hr</option>
-                <option value="admin">admin</option>
+                <option value="">{t('adminUsers.assignOrgTeamNone')}</option>
+                {teamsInDept.map((row) => (
+                  <option key={unitId(row)} value={unitId(row)}>
+                    {unitName(row)}
+                  </option>
+                ))}
               </select>
             </label>
-            <button type="button" disabled={!userId || busy} className={adminPrimaryBtnClass()} onClick={assign}>
+            {validationMessage ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
+            ) : selectedMember ? (
+              <p className="text-xs text-muted-foreground">
+                {t('adminUsers.assignOrgReady', {
+                  name: memberDisplayName(selectedMember) || memberUserId(selectedMember),
+                })}
+              </p>
+            ) : null}
+            <button type="button" disabled={!canSubmit} className={adminPrimaryBtnClass()} onClick={assign}>
               {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
             </button>
           </div>

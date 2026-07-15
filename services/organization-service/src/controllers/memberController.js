@@ -13,7 +13,6 @@ const {
   orgFail,
 } = require('../utils/orgApiError');
 const Organization = require('../models/Organization');
-const JoinApplication = require('../models/JoinApplication');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
 const Team = require('../models/Team');
@@ -27,6 +26,7 @@ const { resolveFrontendUrl, logger } = require('@enterprise/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
+const { searchUserByEmail } = require('../clients/userLookup.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
@@ -60,17 +60,6 @@ function notificationServiceAxiosOpts() {
   return opts;
 }
 
-function getApplicantSnapshotFromReq(req) {
-  const raw = req.user || {};
-  return {
-    userId: String(raw.id || raw.userId || raw._id || ''),
-    username: String(raw.username || '').trim(),
-    fullName: String(raw.fullName || raw.displayName || raw.name || '').trim(),
-    email: String(raw.email || '').trim(),
-    avatar: String(raw.avatar || '').trim(),
-  };
-}
-
 function canAdminManageTarget(targetRole) {
   const normalizedTarget = Membership.normalizeRole(targetRole);
   return normalizedTarget !== 'owner' && normalizedTarget !== 'admin';
@@ -83,106 +72,6 @@ async function getActiveOrgUserIds(orgId) {
     status: 'active',
   });
   return [...new Set((userIds || []).map((id) => String(id)).filter(Boolean))];
-}
-
-async function notifyModeratorsNewApplication({ orgId, orgName, applicationId, frontendUrl }) {
-  const admins = await Membership.find({
-    organization: orgId,
-    status: 'active',
-    role: { $in: ['owner', 'admin'] },
-  })
-    .select('user')
-    .lean();
-  const userIds = [...new Set(admins.map((a) => String(a.user)))];
-  if (!userIds.length) return;
-  try {
-    await axios.post(
-      `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
-      {
-        userIds,
-        type: 'org_join_application',
-        title: 'Đơn gia nhập mới',
-        content: `${orgName}: có đơn gia nhập chờ duyệt.`,
-        data: {
-          organizationId: String(orgId),
-          applicationId: String(applicationId),
-        },
-        actionUrl: `${frontendUrl}/organizations/${encodeURIComponent(
-          String(orgId)
-        )}/settings?tab=join`,
-      },
-      notificationServiceAxiosOpts()
-    );
-  } catch (e) {
-    console.warn('[memberController] notify moderators failed:', e.message);
-  }
-}
-
-async function createPendingJoinApplication({
-  org,
-  userId,
-  answers = {},
-  req,
-}) {
-  const frontendUrl = resolveFrontendUrl(req);
-  const orgId = String(org._id);
-  const jf = org.settings?.joinApplicationForm || {};
-  const formFields = Array.isArray(jf.fields) ? jf.fields : [];
-  const formVersion = jf.formVersion || 1;
-  const formSnapshot = {
-    formVersion,
-    fields: formFields.map((f) => ({
-      id: f.id,
-      label: f.label,
-      type: f.type,
-      required: f.required,
-      options: f.options || [],
-    })),
-  };
-
-  const existingPending = await JoinApplication.findOne({
-    organization: orgId,
-    applicantUser: userId,
-    status: 'pending',
-  });
-  if (existingPending) {
-    return { application: existingPending, alreadyPending: true };
-  }
-
-  const application = await JoinApplication.create({
-    organization: orgId,
-    applicantUser: userId,
-    applicantSnapshot: getApplicantSnapshotFromReq(req),
-    status: 'pending',
-    formVersion,
-    formSnapshot,
-    answers,
-    submittedAt: new Date(),
-  });
-
-  await notifyModeratorsNewApplication({
-    orgId,
-    orgName: org.name,
-    applicationId: application._id,
-    frontendUrl,
-  });
-
-  const modUserIds = await Membership.distinct('user', {
-    organization: orgId,
-    status: 'active',
-    role: { $in: ['owner', 'admin'] },
-  });
-  await emitRealtimeEvent({
-    event: 'organization:join_application_created',
-    userIds: modUserIds.map(String),
-    payload: {
-      organizationId: String(orgId),
-      applicationId: String(application._id),
-      timestamp: new Date().toISOString(),
-    },
-  });
-
-  return { application, alreadyPending: false };
 }
 
 const MEMBER_LIST_FULL_ACCESS_ROLES = ['owner', 'admin', 'hr'];
@@ -363,6 +252,67 @@ async function enrichMembersForAdminList(members) {
   });
 }
 
+/**
+ * Huy: Gắn department/team từ members[] legacy — owner/admin listMembersForOrg không trả placement.
+ */
+async function attachPlacementFromStructure(orgId, members) {
+  const list = Array.isArray(members) ? members : [];
+  if (!orgId || !list.length) return list;
+
+  const [departments, teams] = await Promise.all([
+    Department.find({ organization: orgId }).select('_id name members').lean(),
+    Team.find({ organization: orgId, isActive: { $ne: false } })
+      .select('_id name department members')
+      .lean(),
+  ]);
+
+  const deptByUser = new Map();
+  const deptNameByUser = new Map();
+  for (const dep of departments) {
+    const depId = String(dep._id);
+    const depName = String(dep.name || '').trim();
+    for (const mid of dep.members || []) {
+      const uid = String(mid?._id || mid || '').trim();
+      if (!uid || deptByUser.has(uid)) continue;
+      deptByUser.set(uid, depId);
+      deptNameByUser.set(uid, depName);
+    }
+  }
+
+  const teamByUser = new Map();
+  for (const team of teams) {
+    const teamId = String(team._id);
+    const deptId = team.department ? String(team.department) : '';
+    for (const mid of team.members || []) {
+      const uid = String(mid?._id || mid || '').trim();
+      if (!uid) continue;
+      if (!teamByUser.has(uid)) teamByUser.set(uid, teamId);
+      if (deptId && !deptByUser.has(uid)) {
+        deptByUser.set(uid, deptId);
+        const dep = departments.find((d) => String(d._id) === deptId);
+        if (dep) deptNameByUser.set(uid, String(dep.name || '').trim());
+      }
+    }
+  }
+
+  return list.map((member) => {
+    const userId = String(member.userId || member.user?._id || member.user || '').trim();
+    const department =
+      String(member.department || member.departmentId || '').trim() || deptByUser.get(userId) || null;
+    const team = String(member.team || member.teamId || '').trim() || teamByUser.get(userId) || null;
+    return {
+      ...member,
+      department: department || null,
+      departmentId: department || null,
+      departmentName: department
+        ? deptNameByUser.get(userId) || member.departmentName || null
+        : null,
+      team: team || null,
+      teamId: team || null,
+    };
+  });
+}
+
 /** Huy: ẩn tài khoản systemRole=admin khỏi danh sách quản lý user */
 function excludeSystemAdminAccounts(members) {
   return (Array.isArray(members) ? members : []).filter(
@@ -378,9 +328,9 @@ exports.getMembersWithRoles = async (req, res, next) => {
       listMembersForOrg(req),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
-    // Huy: không trả system admin trong members
     const enriched = excludeSystemAdminAccounts(await enrichMembersForAdminList(members));
-    return res.json({ status: 'success', data: { members: enriched, roles } });
+    const withPlacement = await attachPlacementFromStructure(req.params.orgId, enriched);
+    return res.json({ status: 'success', data: { members: withPlacement, roles } });
   } catch (error) {
     const handled = orgOperationalError(res, error);
     if (handled) return handled;
@@ -674,45 +624,6 @@ exports.respondToInvitation = async (req, res, next) => {
       if (!org || !org.isActive) {
         return orgNotFound(res);
       }
-      const joinForm = org.settings?.joinApplicationForm || {};
-      const joinFields = Array.isArray(joinForm.fields) ? joinForm.fields : [];
-      const requiresReview = Boolean(joinForm.enabled);
-      const requiresAnswers = requiresReview && joinFields.length > 0;
-
-      if (requiresReview) {
-        if (requiresAnswers) {
-          return res.json({
-            status: 'success',
-            data: {
-              requiresJoinApplication: true,
-              requiresAnswers: true,
-              organizationId: String(org._id),
-              organizationName: org.name,
-            },
-            message: 'Vui lòng điền form gia nhập để gửi xét duyệt',
-          });
-        }
-
-        const { application } = await createPendingJoinApplication({
-          org,
-          userId,
-          answers: {},
-          req,
-        });
-        await Membership.deleteOne({ _id: invitation._id });
-
-        return res.json({
-          status: 'success',
-          data: {
-            requiresJoinApplication: true,
-            requiresAnswers: false,
-            applicationId: String(application._id),
-            organizationId: String(org._id),
-            organizationName: org.name,
-          },
-          message: 'Đã gửi đơn, vui lòng chờ quản trị viên xét duyệt',
-        });
-      }
 
       // Chuẩn hoá role mặc định khi tham gia thành công: luôn là member.
       invitation.role = 'member';
@@ -879,41 +790,6 @@ exports.joinViaLink = async (req, res, next) => {
     const org = await Organization.findById(req.params.orgId).lean();
     if (!org || !org.isActive) {
       return orgNotFound(res);
-    }
-
-    const joinForm = org.settings?.joinApplicationForm;
-    if (joinForm?.enabled) {
-      const joinFields = Array.isArray(joinForm.fields) ? joinForm.fields : [];
-      if (joinFields.length > 0) {
-        return res.json({
-          status: 'success',
-          data: {
-            requiresJoinApplication: true,
-            requiresAnswers: true,
-            organizationId: String(org._id),
-            organizationName: org.name,
-          },
-          message: 'Vui lòng điền form gia nhập',
-        });
-      }
-
-      const { application } = await createPendingJoinApplication({
-        org,
-        userId,
-        answers: {},
-        req,
-      });
-      return res.json({
-        status: 'success',
-        data: {
-          requiresJoinApplication: true,
-          requiresAnswers: false,
-          applicationId: String(application._id),
-          organizationId: String(org._id),
-          organizationName: org.name,
-        },
-        message: 'Đã gửi đơn, vui lòng chờ quản trị viên xét duyệt',
-      });
     }
 
     const inviteContext = decoded?.inviteContext || {};

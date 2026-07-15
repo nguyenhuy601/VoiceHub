@@ -22,20 +22,73 @@ function levelOrderMap(levels) {
   return map;
 }
 
+/** Huy: Doc đã setup (flag hoặc grandfather có levels). */
+function isStructureSetupCompleted(doc) {
+  if (!doc) return false;
+  if (doc.setupCompletedAt) return true;
+  return Array.isArray(doc.levels) && doc.levels.length > 0;
+}
+
+async function findLevelSchema(organizationId) {
+  return OrgLevelSchema.findOne({ organization: organizationId });
+}
+
+/**
+ * Huy: Backfill/migrate nội bộ — tạo schema kèm setupCompletedAt.
+ * Không dùng cho GET public (tránh ép enterprise-compat trước khi admin setup).
+ */
 async function getOrCreateLevelSchema(organizationId, templateId = 'enterprise-compat') {
   let doc = await OrgLevelSchema.findOne({ organization: organizationId });
-  if (doc) return doc;
+  if (doc) {
+    if (!doc.setupCompletedAt && Array.isArray(doc.levels) && doc.levels.length > 0) {
+      doc.setupCompletedAt = doc.updatedAt || new Date();
+      await doc.save();
+    }
+    return doc;
+  }
   const tpl = getOrgStructureTemplate(templateId) || getOrgStructureTemplate('enterprise-compat');
   doc = await OrgLevelSchema.create({
     organization: organizationId,
     levels: cloneLevels(tpl.levels),
     templateId: tpl.id,
+    setupCompletedAt: new Date(),
   });
   return doc;
 }
 
+/**
+ * Huy: Payload GET levels — không auto-create; lazy grandfather setupCompletedAt.
+ */
+async function getLevelsForApi(organizationId) {
+  let doc = await findLevelSchema(organizationId);
+  if (!doc) {
+    return {
+      organization: organizationId,
+      levels: [],
+      templateId: null,
+      setupCompleted: false,
+      setupCompletedAt: null,
+    };
+  }
+  if (!doc.setupCompletedAt && Array.isArray(doc.levels) && doc.levels.length > 0) {
+    doc.setupCompletedAt = doc.updatedAt || new Date();
+    await doc.save();
+  }
+  const plain = doc.toObject ? doc.toObject() : doc;
+  return {
+    ...plain,
+    setupCompleted: Boolean(doc.setupCompletedAt),
+  };
+}
+
 async function assertCanCreateChild({ organizationId, parentUnitId, levelKey }) {
-  const schema = await getOrCreateLevelSchema(organizationId);
+  const schema = await findLevelSchema(organizationId);
+  if (!schema || !isStructureSetupCompleted(schema)) {
+    const err = new Error('Chưa thiết lập cơ cấu tổ chức — hoàn tất setup trước khi tạo đơn vị');
+    err.statusCode = 400;
+    err.errorCode = 'ORG_STRUCTURE_NOT_SETUP';
+    throw err;
+  }
   const orders = levelOrderMap(schema.levels);
   if (!orders.has(levelKey)) {
     const err = new Error(`levelKey "${levelKey}" không có trong schema hoặc đã tắt`);
@@ -246,9 +299,13 @@ async function listUnitsTree(organizationId, { includeInactive = false } = {}) {
  * Huy: Project OU tree → legacy branches[] shape (dual-read cho client cũ).
  */
 function asLegacyNode(u) {
+  // Huy: ưu tiên legacyRef.id để FE updateDivision/Branch khớp Mongo legacy (tránh trùng OU+_id vs Division._id)
+  const legacyId = u.legacyRef?.id || null;
+  const publicId = legacyId || u._id;
   return {
-    _id: u._id,
-    id: String(u._id),
+    _id: publicId,
+    id: String(publicId),
+    ouId: String(u._id),
     name: u.name,
     description: u.description || '',
     organization: u.organization,
@@ -314,6 +371,7 @@ function flattenAsDepartments(root) {
   const kids = root.children || [];
   if (!kids.length) {
     if (root.levelKey === 'team') return [];
+    if (root.levelKey === 'division' || root.levelKey === 'branch') return [];
     return [{ ...asLegacyNode(root), teams: [] }];
   }
   return kids.map((c) => {
@@ -329,6 +387,14 @@ function flattenAsDepartments(root) {
 }
 
 async function replaceLevels(organizationId, levels, templateId) {
+  const existing = await findLevelSchema(organizationId);
+  if (existing && isStructureSetupCompleted(existing)) {
+    const err = new Error('Cơ cấu tổ chức đã được thiết lập — không thể đổi template/levels');
+    err.statusCode = 409;
+    err.errorCode = 'ORG_STRUCTURE_SETUP_LOCKED';
+    throw err;
+  }
+
   const cleaned = cloneLevels(levels);
   if (!cleaned.length) {
     const err = new Error('Cần ít nhất một level');
@@ -348,12 +414,14 @@ async function replaceLevels(organizationId, levels, templateId) {
       throw err;
     }
   }
+  const now = new Date();
   const doc = await OrgLevelSchema.findOneAndUpdate(
     { organization: organizationId },
     {
       $set: {
         levels: cleaned,
         ...(templateId ? { templateId: String(templateId) } : {}),
+        setupCompletedAt: now,
       },
     },
     { upsert: true, new: true }
@@ -365,6 +433,9 @@ module.exports = {
   MAX_DEPTH,
   MAX_UNITS_PER_ORG,
   isDynamicStructureEnabled,
+  isStructureSetupCompleted,
+  findLevelSchema,
+  getLevelsForApi,
   getOrCreateLevelSchema,
   assertCanCreateChild,
   createUnit,

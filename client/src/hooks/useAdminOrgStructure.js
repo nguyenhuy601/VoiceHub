@@ -6,7 +6,12 @@ import { useAppStrings } from '../locales/appStrings';
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { flattenOrgStructure, unwrapOrgApi } from '../utils/adminOrgStructureUtils';
 
-export function useAdminOrgStructure(orgId) {
+/**
+ * @param {string} orgId
+ * @param {{ includeInactive?: boolean }} [options] — panel vô hiệu cần includeInactive
+ */
+export function useAdminOrgStructure(orgId, options = {}) {
+  const includeInactive = Boolean(options.includeInactive);
   const { t } = useAppStrings();
   const [structure, setStructure] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -15,7 +20,7 @@ export function useAdminOrgStructure(orgId) {
     if (!orgId) return;
     setLoading(true);
     try {
-      const res = await organizationAPI.getStructure(orgId);
+      const res = await organizationAPI.getStructure(orgId, { includeInactive });
       setStructure(unwrapOrgApi(res) || null);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
@@ -23,7 +28,7 @@ export function useAdminOrgStructure(orgId) {
     } finally {
       setLoading(false);
     }
-  }, [orgId, t]);
+  }, [orgId, includeInactive, t]);
 
   useEffect(() => {
     loadStructure();

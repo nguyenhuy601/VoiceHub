@@ -31,13 +31,15 @@ import {
   memberScopeFromRoleNames,
   normalizeRoleDisplayName,
   normalizeRoleId,
-  permissionEntriesFromState,
-  permissionStateFromEntries,
   structureMapsFromPayload,
   structureTierSections,
   totalPermissionSlotCount,
   unwrapList,
 } from './rbacSettingsHelpers';
+import {
+  permissionDraftForEditor,
+  permissionEntriesForPersist,
+} from '../../utils/rbacPermissionBridge';
 import { priorityFromTier, TIER_EXEC } from './roleRbacUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -192,7 +194,7 @@ export default function OrganizationRbacSettings({ orgId }) {
 
   useEffect(() => {
     if (!selectedRole) return;
-    setPermDraft(permissionStateFromEntries(selectedRole.permissions));
+    setPermDraft(permissionDraftForEditor(selectedRole.permissions));
     setPermEditMode(false);
   }, [selectedRole]);
 
@@ -201,7 +203,7 @@ export default function OrganizationRbacSettings({ orgId }) {
     setSavingPerms(true);
     try {
       await roleAPI.updateRole(normalizeRoleId(selectedRole), {
-        permissions: permissionEntriesFromState(permDraft),
+        permissions: permissionEntriesForPersist(permDraft),
         serverId: orgId,
         organizationId: orgId,
       });
@@ -227,7 +229,7 @@ export default function OrganizationRbacSettings({ orgId }) {
         name,
         serverId: orgId,
         organizationId: orgId,
-        permissions: permissionEntriesFromState(permDraft),
+        permissions: permissionEntriesForPersist(permDraft),
         priority: priorityFromTier(TIER_EXEC),
         isDefault: false,
       });
@@ -528,7 +530,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                           type="button"
                           onClick={() => {
                             setPermEditMode(false);
-                            setPermDraft(permissionStateFromEntries(selectedRole.permissions));
+                            setPermDraft(permissionDraftForEditor(selectedRole.permissions));
                           }}
                           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300"
                         >
