@@ -42,6 +42,37 @@ const STRUCTURE_PROVISION = {
   FAILED: 'failed',
 };
 
+/** Gắn head/leader từ collection legacy lên cây OU đã project — nguồn tin cậy khi OU attributes lệch. */
+function overlayLegacyLeadershipOnBranches(branches, { departments = [], teams = [] } = {}) {
+  const headByDept = new Map();
+  for (const dep of departments) {
+    const id = String(dep?._id || '').trim();
+    if (id) headByDept.set(id, dep.head ? String(dep.head) : null);
+  }
+  const leaderByTeam = new Map();
+  for (const team of teams) {
+    const id = String(team?._id || '').trim();
+    if (id) leaderByTeam.set(id, team.leader ? String(team.leader) : null);
+  }
+  for (const branch of branches || []) {
+    for (const division of branch.divisions || []) {
+      for (const department of division.departments || []) {
+        const depId = String(department._id || department.id || '').trim();
+        if (depId && headByDept.has(depId)) {
+          department.head = headByDept.get(depId);
+        }
+        for (const team of department.teams || []) {
+          const teamId = String(team._id || team.id || '').trim();
+          if (teamId && leaderByTeam.has(teamId)) {
+            team.leader = leaderByTeam.get(teamId);
+          }
+        }
+      }
+    }
+  }
+  return branches;
+}
+
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: NOTIFICATION_SERVICE_URL');
 const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
@@ -106,14 +137,18 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
   // Huy: đơn vị tạo qua hierarchy trước khi có reverse DW — sync sang OU rồi đọc lại tree
   if (isDynamicStructureEnabled() && levels?.length) {
     try {
-      const { syncMissingLegacyToOu, dualWriteSyncOuActive } = require('./orgOuDualWrite.service');
-      const { created } = await syncMissingLegacyToOu(orgId, {
+      const {
+        syncMissingLegacyToOu,
+        dualWriteSyncOuActive,
+        dualWriteSyncOuLeadership,
+      } = require('./orgOuDualWrite.service');
+      await syncMissingLegacyToOu(orgId, {
         branches,
         divisions,
         departments,
         teams,
       });
-      // Huy: đồng bộ isActive legacy → OU (vô hiệu trước khi có sync)
+      // Huy: đồng bộ isActive + head/leader legacy → OU (repair dữ liệu cũ / write path thiếu sync)
       await Promise.all([
         ...branches.map((b) => dualWriteSyncOuActive(orgId, 'Branch', b._id, b.isActive !== false)),
         ...divisions.map((d) => dualWriteSyncOuActive(orgId, 'Division', d._id, d.isActive !== false)),
@@ -121,11 +156,15 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
           dualWriteSyncOuActive(orgId, 'Department', dep._id, dep.isActive !== false)
         ),
         ...teams.map((t) => dualWriteSyncOuActive(orgId, 'Team', t._id, t.isActive !== false)),
+        ...departments.map((dep) =>
+          dualWriteSyncOuLeadership(orgId, 'Department', dep._id, { headUserId: dep.head || null })
+        ),
+        ...teams.map((t) =>
+          dualWriteSyncOuLeadership(orgId, 'Team', t._id, { leaderUserId: t.leader || null })
+        ),
       ]);
-      if (created > 0 || includeInactive) {
-        unitsTree = await listUnitsTree(orgId, { includeInactive });
-        if (unitsTree?.length) usedOu = true;
-      }
+      unitsTree = await listUnitsTree(orgId, { includeInactive });
+      if (unitsTree?.length) usedOu = true;
     } catch (e) {
       console.warn('[orgShellData] syncMissingLegacyToOu:', e.message);
     }
@@ -170,8 +209,7 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
   if (usedOu && unitsTree?.length && (!tree.length || String(process.env.ORG_STRUCTURE_PREFER_OU || '1') === '1')) {
     const projected = projectOuTreeToLegacyBranches(unitsTree);
     if (projected.length) {
-      // gắn channels legacy theo legacyRef id nếu trùng
-      tree = projected;
+      tree = overlayLegacyLeadershipOnBranches(projected, { departments, teams });
     }
   }
 

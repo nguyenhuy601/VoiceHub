@@ -437,6 +437,7 @@ module.exports = {
   findLevelSchema,
   getLevelsForApi,
   getOrCreateLevelSchema,
+  levelOrderMap,
   assertCanCreateChild,
   createUnit,
   updateUnit,

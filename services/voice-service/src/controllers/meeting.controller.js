@@ -124,30 +124,92 @@ class MeetingController {
     }
   }
 
-  // Xóa participant
+  // Xóa / kick participant — DELETE …/participants/:userId
   async removeParticipant(req, res) {
     try {
-      const { meetingId } = req.params;
-      const userId = req.user?.id || req.userContext?.userId;
+      const { meetingId, userId: targetParam } = req.params;
+      const actorId = req.user?.id || req.userContext?.userId;
 
-      if (!userId) {
+      if (!actorId) {
         return res.status(401).json({
           success: false,
           message: 'Unauthorized',
         });
       }
 
-      const meeting = await meetingService.removeParticipant(meetingId, userId);
+      const { mode, targetUserId } = meetingService.resolveParticipantRemoval({
+        actorId,
+        targetUserId: targetParam,
+      });
+
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+
+      if (mode === 'kick') {
+        await meetingService.assertCanManageMeeting(existing, req.user || { id: actorId });
+      }
+
+      const meeting = await meetingService.removeParticipant(meetingId, targetUserId);
+
+      if (mode === 'kick') {
+        const { notifyParticipantKicked } = require('../services/meetingModerateNotify');
+        await notifyParticipantKicked(meeting, { targetUserId, byUserId: actorId });
+      }
+
+      res.json({
+        success: true,
+        data: meeting,
+        meta: { mode },
+      });
+    } catch (error) {
+      logger.error('Remove participant error:', error);
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
+        success: false,
+        message: safeErrorMessage(error, 'Không thể xóa người tham gia'),
+      });
+    }
+  }
+
+  // Mute / unmute participant
+  async muteParticipant(req, res) {
+    try {
+      const { meetingId, userId: targetParam } = req.params;
+      const actorId = req.user?.id || req.userContext?.userId;
+      const muted = req.body?.muted !== false && req.body?.muted !== 'false';
+
+      if (!actorId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      const targetUserId = String(targetParam || '').trim();
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+
+      await meetingService.assertCanManageMeeting(existing, req.user || { id: actorId });
+      const meeting = await meetingService.muteParticipant(meetingId, targetUserId, muted);
+
+      const { notifyParticipantMuted } = require('../services/meetingModerateNotify');
+      await notifyParticipantMuted(meeting, { targetUserId, byUserId: actorId, muted });
 
       res.json({
         success: true,
         data: meeting,
       });
     } catch (error) {
-      logger.error('Remove participant error:', error);
-      res.status(400).json({
+      logger.error('Mute participant error:', error);
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
         success: false,
-        message: safeErrorMessage(error, 'Không thể xóa cuộc họp'),
+        message: safeErrorMessage(error, 'Không thể mute người tham gia'),
       });
     }
   }

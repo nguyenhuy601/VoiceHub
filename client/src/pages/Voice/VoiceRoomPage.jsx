@@ -37,6 +37,7 @@ import friendService from '../../services/friendService';
 import { useAuth } from '../../context/AuthContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useFriendCallSession } from '../../context/FriendCallSessionContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -52,6 +53,13 @@ import { uploadMeetingRecording, getMeetingRecording, fetchMeetingRecordingStrea
 import { appShellBg } from '../../theme/shellTheme';
 import { PageSearchBar } from '../../features/search';
 import { useLocale } from '../../context/LocaleContext';
+import {
+  getMyAssignedDepartmentIds,
+  getMyAssignedTeamIds,
+  hasMyOrgStructureAssignment,
+  parseMembershipScopeFromAccess,
+  resolveMyMeetingNotifyUnits,
+} from '../../utils/orgMemberStructureScope';
 import {
   buildLayoutTiles,
   gridWrapperClass,
@@ -403,6 +411,29 @@ function deptMatchesMember(m, deptId) {
   return String(did || '') === String(deptId || '');
 }
 
+function teamMatchesMember(m, teamId) {
+  const t = m?.team ?? m?.teams ?? m?.membership?.team ?? m?.membershipTeams?.[0];
+  if (Array.isArray(t)) {
+    return t.some((row) => String(row?._id || row?.id || '') === String(teamId || ''));
+  }
+  const tid = t && typeof t === 'object' ? t._id || t.id : t;
+  return String(tid || '') === String(teamId || '');
+}
+
+function hasPermissionAction(permissions, resource, action) {
+  if (!Array.isArray(permissions)) return false;
+  const resKey = String(resource || '').trim();
+  const actionKey = String(action || '').trim();
+  if (!resKey || !actionKey) return false;
+  return permissions.some((perm) => {
+    const permRes = String(perm?.resource || '').trim();
+    if (!permRes) return false;
+    if (permRes !== resKey && permRes !== '*') return false;
+    const actions = Array.isArray(perm?.actions) ? perm.actions : [];
+    return actions.includes(actionKey) || actions.includes('*') || actions.includes('admin');
+  });
+}
+
 function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -412,11 +443,18 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const voiceRouteBase = suiteLayout ? '/app/communicate/voice' : '/voice';
   const { openFriendCall, session: friendCallSession } = useFriendCallSession();
   const { user } = useAuth();
+  const { activeWorkspace, lastOrganizationId, company, singleOrgMode } = useWorkspace();
   const { setImmersiveChrome } = useShellLayout();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const currentUserId = useMemo(() => String(user?._id || user?.id || user?.userId || ''), [user]);
+  const activeOrgIdForPermissions = useMemo(() => {
+    const fromWorkspace = activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || '';
+    const fromCompany = company?._id || company?.id || '';
+    const fromLast = lastOrganizationId || '';
+    return String(fromWorkspace || fromCompany || fromLast || '').trim();
+  }, [activeWorkspace, company, lastOrganizationId]);
   const initialVoiceAudioPrefs = useMemo(
     () => loadVoiceAudioPrefs(currentUserId),
     [currentUserId]
@@ -448,13 +486,20 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [prejoinAudioEnabled, setPrejoinAudioEnabled] = useState(true);
   const [prejoinVideoEnabled, setPrejoinVideoEnabled] = useState(true);
 
-  /** free = phòng tự do (mời bạn bè); org = theo tổ chức + phòng ban */
+  /** free = phòng tự do (mời bạn bè); org = theo phòng ban/team */
   const [roomKind, setRoomKind] = useState('free');
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState('');
-  const [organizations, setOrganizations] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [orgsLoading, setOrgsLoading] = useState(false);
+  const [membershipScope, setMembershipScope] = useState(null);
+  const [orgStructureLoading, setOrgStructureLoading] = useState(false);
+
+  const [notifyScopeType, setNotifyScopeType] = useState('department'); // department | team
+  const [selectedTeamId, setSelectedTeamId] = useState('');
+  const [teams, setTeams] = useState([]);
+
+  const [orgPermissions, setOrgPermissions] = useState([]);
+  const [orgPermissionsLoaded, setOrgPermissionsLoaded] = useState(false);
 
   const [rightPanel, setRightPanel] = useState(null); // null | 'chat' | 'people'
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
@@ -577,6 +622,47 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   }, [localDisplayName]);
 
   useEffect(() => {
+    if (!currentUserId || !activeOrgIdForPermissions) {
+      setOrgPermissions([]);
+      setOrgPermissionsLoaded(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setOrgPermissionsLoaded(false);
+      try {
+        const res = await api.get(
+          `/permissions/user/${encodeURIComponent(String(currentUserId))}/server/${encodeURIComponent(
+            String(activeOrgIdForPermissions)
+          )}`,
+          { skipPermissionDeniedToast: true }
+        );
+        const raw = res?.data ?? res;
+        const list = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+        if (!cancelled) setOrgPermissions(list);
+      } catch {
+        if (!cancelled) setOrgPermissions([]);
+      } finally {
+        if (!cancelled) setOrgPermissionsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, activeOrgIdForPermissions]);
+
+  const canCreateVoiceRoom = useMemo(() => {
+    if (!orgPermissionsLoaded) return false;
+    return (
+      hasPermissionAction(orgPermissions, 'voice', 'create_room') ||
+      hasPermissionAction(orgPermissions, 'voice', 'manage_room') ||
+      hasPermissionAction(orgPermissions, 'meeting', 'create')
+    );
+  }, [orgPermissionsLoaded, orgPermissions]);
+
+  useEffect(() => {
     const prefs = loadVoiceAudioPrefs(currentUserId);
     setSelectedMicId(prefs.micDeviceId || '');
     setSelectedSpeakerId(prefs.speakerDeviceId || '');
@@ -632,6 +718,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     if (oid) setSelectedOrgId(oid);
     const did = searchParams.get('deptId');
     if (did) setSelectedDeptId(did);
+    const tid = searchParams.get('teamId');
+    if (tid) setSelectedTeamId(tid);
+    if (tid) setNotifyScopeType('team');
+    else if (did) setNotifyScopeType('department');
   }, [searchParams]);
 
   useEffect(() => {
@@ -771,47 +861,82 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   useEffect(() => {
     const prejoinActive = createMeetingModalOpen || viewStage === 'prejoin';
-    if (!prejoinActive || roomKind !== 'org') return undefined;
-    let cancelled = false;
-    (async () => {
-      setOrgsLoading(true);
-      try {
-        const res = await organizationAPI.getOrganizations();
-        const list = parseOrgListRes(res);
-        if (!cancelled) setOrganizations(list);
-      } catch {
-        if (!cancelled) setOrganizations([]);
-      } finally {
-        if (!cancelled) setOrgsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [createMeetingModalOpen, viewStage, roomKind]);
-
-  useEffect(() => {
-    const prejoinActive = createMeetingModalOpen || viewStage === 'prejoin';
     if (!prejoinActive || roomKind !== 'org' || !selectedOrgId) {
       setDepartments([]);
+      setTeams([]);
+      setMembershipScope(null);
       return undefined;
     }
+
     let cancelled = false;
     (async () => {
+      setOrgStructureLoading(true);
       try {
-        const res = await organizationAPI.getDepartments(selectedOrgId);
-        const raw = res?.data ?? res;
-        const arr = raw?.data ?? raw;
-        const list = Array.isArray(arr) ? arr : [];
-        if (!cancelled) setDepartments(list);
+        const res = await organizationAPI.getOrgShell(selectedOrgId);
+        const shell = res?.data?.data ?? res?.data ?? res;
+        const scope = parseMembershipScopeFromAccess(shell?.access?.scope);
+        const notifyUnits = resolveMyMeetingNotifyUnits({
+          structureSummary: shell?.structureSummary,
+          membershipScope: scope,
+        });
+        if (!cancelled) {
+          setMembershipScope(scope);
+          setDepartments(notifyUnits.departments);
+          setTeams(notifyUnits.teams);
+        }
       } catch {
-        if (!cancelled) setDepartments([]);
+        if (!cancelled) {
+          setMembershipScope(null);
+          setDepartments([]);
+          setTeams([]);
+        }
+      } finally {
+        if (!cancelled) setOrgStructureLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [createMeetingModalOpen, viewStage, roomKind, selectedOrgId]);
+
+  const hasMyDeptAssignment = useMemo(
+    () => getMyAssignedDepartmentIds(membershipScope).length > 0,
+    [membershipScope]
+  );
+  const hasMyTeamAssignment = useMemo(
+    () => getMyAssignedTeamIds(membershipScope).length > 0,
+    [membershipScope]
+  );
+  const hasMyStructureAssignment = useMemo(
+    () => hasMyOrgStructureAssignment(membershipScope),
+    [membershipScope]
+  );
+
+  useEffect(() => {
+    if (roomKind !== 'org' || orgStructureLoading) return;
+    if (hasMyDeptAssignment && !hasMyTeamAssignment) {
+      setNotifyScopeType('department');
+    } else if (!hasMyDeptAssignment && hasMyTeamAssignment) {
+      setNotifyScopeType('team');
+    }
+  }, [roomKind, orgStructureLoading, hasMyDeptAssignment, hasMyTeamAssignment]);
+
+  useEffect(() => {
+    if (roomKind !== 'org' || notifyScopeType !== 'department') return;
+    if (departments.length !== 1) return;
+    const onlyId = String(departments[0]?._id || departments[0]?.id || '');
+    if (!onlyId) return;
+    setSelectedDeptId((prev) => (prev === onlyId ? prev : onlyId));
+  }, [roomKind, notifyScopeType, departments]);
+
+  useEffect(() => {
+    if (roomKind !== 'org' || notifyScopeType !== 'team') return;
+    if (teams.length !== 1) return;
+    const onlyId = String(teams[0]?._id || teams[0]?.id || '');
+    if (!onlyId) return;
+    setSelectedTeamId((prev) => (prev === onlyId ? prev : onlyId));
+  }, [roomKind, notifyScopeType, teams]);
 
   useEffect(() => {
     const id = setInterval(() => setClockTick((t) => t + 1), 1000);
@@ -1801,15 +1926,24 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         );
         return;
       }
-      if (roomKind === 'org' && selectedOrgId && selectedDeptId) {
+      if (roomKind === 'org' && selectedOrgId) {
+        const hasDepartmentScope = notifyScopeType === 'department' && Boolean(selectedDeptId);
+        const hasTeamScope = notifyScopeType === 'team' && Boolean(selectedTeamId);
+        if (!hasDepartmentScope && !hasTeamScope) {
+          setInviteCandidates([]);
+          return;
+        }
         const res = await organizationAPI.getMembers(selectedOrgId);
         const members = parseMembersRes(res);
-        const filtered = members.filter(
-          (m) =>
-            String(m?.status || 'active') === 'active' &&
-            deptMatchesMember(m, selectedDeptId) &&
-            memberUserId(m) !== currentUserId
-        );
+        const filtered = members.filter((m) => {
+          const active = String(m?.status || 'active') === 'active';
+          const memberId = memberUserId(m);
+          const notSelf = memberId && String(memberId) !== String(currentUserId);
+          if (!active || !notSelf) return false;
+
+          if (notifyScopeType === 'department') return deptMatchesMember(m, selectedDeptId);
+          return teamMatchesMember(m, selectedTeamId);
+        });
         const rows = await Promise.all(
           filtered.map(async (m) => {
             const uid = memberUserId(m);
@@ -1841,7 +1975,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     } finally {
       setInviteLoading(false);
     }
-  }, [roomKind, selectedOrgId, selectedDeptId, currentUserId]);
+  }, [roomKind, selectedOrgId, notifyScopeType, selectedDeptId, selectedTeamId, currentUserId]);
 
   useEffect(() => {
     if (!inviteModalOpen) return;
@@ -1910,9 +2044,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       currentRoomRef.current = roomTarget;
       setActiveRoomId(roomTarget);
 
-      await api.get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`, {
-        skipGlobalErrorHandling: true,
-      }).catch(() => null);
+      await api
+        .get(`/voice/rooms/${encodeURIComponent(roomTarget)}/bootstrap`, {
+          skipGlobalErrorHandling: true,
+        })
+        .catch(() => null);
 
       if (initToken !== voiceInitTokenRef.current) return;
 
@@ -2008,6 +2144,29 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
           stream.getTracks().forEach((track) => track.stop());
           mediasoupRef.current.remoteStreams.delete(payload.socketId);
         }
+      });
+
+      socket.on('voice:participantKicked', (payload) => {
+        if (initToken !== voiceInitTokenRef.current) return;
+        if (String(payload?.userId || '') !== String(currentUserId)) return;
+        toast.error(t('voiceRoom.kickedFromRoom'));
+        teardownVoiceSession({ notifyServer: false });
+        resetAfterRoomExit();
+        navigate(voiceRouteBase);
+      });
+
+      socket.on('voice:participantMuted', (payload) => {
+        if (initToken !== voiceInitTokenRef.current) return;
+        if (String(payload?.userId || '') !== String(currentUserId)) return;
+        if (!payload?.muted) return;
+        const localStream = mediasoupRef.current.localStream;
+        localStream?.getAudioTracks?.().forEach((track) => {
+          track.enabled = false;
+        });
+        const producer = mediasoupRef.current.audioProducer;
+        if (producer?.pause) producer.pause().catch(() => {});
+        setIsMuted(true);
+        toast(t('voiceRoom.mutedByHost'));
       });
 
       socket.on('voice:transcript:partial', (payload) => {
@@ -2188,7 +2347,9 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         roomId: roomTarget,
         roomKind,
         orgId: selectedOrgId,
-        deptId: selectedDeptId,
+        deptId: notifyScopeType === 'department' ? selectedDeptId : '',
+        teamId: notifyScopeType === 'team' ? selectedTeamId : '',
+        notifyScopeType,
         prejoinAudioEnabled: audioEnabled,
         prejoinVideoEnabled: videoEnabled,
         displayName: displayName || displayNameInput || localDisplayName,
@@ -2202,7 +2363,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       qs.set('kind', roomKind);
       if (roomKind === 'org') {
         if (selectedOrgId) qs.set('orgId', selectedOrgId);
-        if (selectedDeptId) qs.set('deptId', selectedDeptId);
+        if (notifyScopeType === 'department' && selectedDeptId) qs.set('deptId', selectedDeptId);
+        if (notifyScopeType === 'team' && selectedTeamId) qs.set('teamId', selectedTeamId);
       }
       const cid = searchParams.get('callId');
       if (cid) qs.set('callId', cid);
@@ -2482,9 +2644,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     }
 
     const invitedJoin = searchParams.get('join') === '1';
+    const desiredRoomKind = searchParams.get('kind') === 'org' ? 'org' : 'free';
     if (invitedJoin) {
       setPrejoinMode('join');
-      setRoomKind('free');
+      setRoomKind(desiredRoomKind);
       setJoinRequestStatus('none');
       setViewStage((prev) => (prev === 'inRoom' ? 'inRoom' : 'prejoin'));
       return undefined;
@@ -2509,11 +2672,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         if (viewStageRef.current !== 'inRoom') {
           setPrejoinMode(isLobbyHost ? 'create' : 'join');
         }
-        setRoomKind('free');
+        setRoomKind(desiredRoomKind);
       } catch {
         if (!cancelled) {
           if (viewStageRef.current !== 'inRoom') setPrejoinMode('join');
-          setRoomKind('free');
+          setRoomKind(desiredRoomKind);
           resolvedAsHost = false;
         }
       }
@@ -2561,6 +2724,14 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     }
     if (saved.orgId) setSelectedOrgId(String(saved.orgId));
     if (saved.deptId) setSelectedDeptId(String(saved.deptId));
+    if (saved.teamId) setSelectedTeamId(String(saved.teamId));
+    if (saved.notifyScopeType) {
+      setNotifyScopeType(String(saved.notifyScopeType));
+    } else if (saved.teamId) {
+      setNotifyScopeType('team');
+    } else if (saved.deptId) {
+      setNotifyScopeType('department');
+    }
     if (saved.prejoinAudioEnabled != null) setPrejoinAudioEnabled(Boolean(saved.prejoinAudioEnabled));
     if (saved.prejoinVideoEnabled != null) setPrejoinVideoEnabled(Boolean(saved.prejoinVideoEnabled));
     if (saved.hostUserId) setRoomHostUserId(String(saved.hostUserId));
@@ -2583,7 +2754,6 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
 
     return undefined;
     // initVoiceRoom: stable enough; chỉ chạy một lần nhờ voiceRestoreAttemptedRef
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeRoomId, currentUserId, landingDemo, searchParams, user]);
 
   useEffect(() => {
@@ -2636,6 +2806,10 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   }, [viewStage, hasLocalVideoTrack, isCameraOff, joining, landingDemo]);
 
   const handleNewMeeting = () => {
+    if (!canCreateVoiceRoom) {
+      toast.error(t('errors.forbidden'));
+      return;
+    }
     clearLegacyReservedMeetingCode();
     const code = generateMeetingCode();
     setMeetingCode(code);
@@ -2645,6 +2819,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
     setRoomKind('free');
     setSelectedOrgId('');
     setSelectedDeptId('');
+    setSelectedTeamId('');
+    setNotifyScopeType('department');
     setJoinModalOpen(false);
     setJoining(false);
     setJoinRequestSubmitting(false);
@@ -3003,7 +3179,16 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
         toast.error(t('voiceRoom.selectOrg'));
         return;
       }
-      if (!selectedDeptId) {
+      if (!hasMyStructureAssignment) {
+        toast.error(t('voiceRoom.noOrgStructureAssignment'));
+        return;
+      }
+      if (notifyScopeType === 'team') {
+        if (!selectedTeamId) {
+          toast.error(t('voiceRoom.selectTeam'));
+          return;
+        }
+      } else if (!selectedDeptId) {
         toast.error(t('voiceRoom.selectDept'));
         return;
       }
@@ -3134,7 +3319,12 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const prejoinPrimaryDisabled =
     joinRequestSubmitting ||
     ((createMeetingModalOpen || viewStage === 'prejoin') && joining) ||
-    (roomKind === 'free' && !isCreatorPrejoin && prejoinMode === 'join' && joinRequestStatus === 'pending');
+    (roomKind === 'free' && !isCreatorPrejoin && prejoinMode === 'join' && joinRequestStatus === 'pending') ||
+    (roomKind === 'org' &&
+      (orgStructureLoading ||
+        !hasMyStructureAssignment ||
+        (notifyScopeType === 'department' && !selectedDeptId) ||
+        (notifyScopeType === 'team' && !selectedTeamId)));
 
   const clockNow = new Date();
   const dateLine = clockNow
@@ -3657,7 +3847,9 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {[
                             { id: 'free', label: t('voiceRoom.roomTypeFree') },
-                            { id: 'org', label: t('voiceRoom.roomTypeOrg') },
+                            ...(canCreateVoiceRoom
+                              ? [{ id: 'org', label: t('voiceRoom.roomTypeOrg') }]
+                              : []),
                           ].map((kind) => (
                             <button
                               key={kind.id}
@@ -3667,6 +3859,13 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                                 if (kind.id === 'free') {
                                   setSelectedOrgId('');
                                   setSelectedDeptId('');
+                                  setSelectedTeamId('');
+                                  setNotifyScopeType('department');
+                                } else {
+                                  setSelectedOrgId(activeOrgIdForPermissions);
+                                  setSelectedDeptId('');
+                                  setSelectedTeamId('');
+                                  setNotifyScopeType('department');
                                 }
                               }}
                               className={`rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
@@ -3682,48 +3881,99 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       </div>
 
                       {roomKind === 'org' ? (
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="block">
-                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
-                              {t('voiceRoom.orgLabel')}
-                            </span>
-                            <select
-                              value={selectedOrgId}
-                              onChange={(e) => {
-                                setSelectedOrgId(e.target.value);
-                                setSelectedDeptId('');
-                              }}
-                              disabled={orgsLoading}
-                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
-                            >
-                              <option value="">
-                                {orgsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectOrgPh')}
-                              </option>
-                              {organizations.map((o) => (
-                                <option key={String(o._id || o.id)} value={String(o._id || o.id)}>
-                                  {o.name || t('common.org')}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="block">
-                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
-                              {t('voiceRoom.deptLabel')}
-                            </span>
-                            <select
-                              value={selectedDeptId}
-                              onChange={(e) => setSelectedDeptId(e.target.value)}
-                              disabled={!selectedOrgId}
-                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
-                            >
-                              <option value="">{t('voiceRoom.selectDeptPh')}</option>
-                              {departments.map((d) => (
-                                <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
-                                  {d.name || t('common.department')}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                        <div className="space-y-3">
+                          {!orgStructureLoading && !hasMyStructureAssignment ? (
+                            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-100">
+                              {t('voiceRoom.noOrgStructureAssignment')}
+                            </p>
+                          ) : (
+                            <>
+                              {hasMyDeptAssignment && hasMyTeamAssignment ? (
+                                <div>
+                                  <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                                    {t('voiceRoom.roomScopeTypeLabel')}
+                                  </span>
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {[
+                                      { id: 'department', label: t('voiceRoom.roomScopeDeptLabel') },
+                                      { id: 'team', label: t('voiceRoom.roomScopeTeamLabel') },
+                                    ].map((opt) => (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setNotifyScopeType(opt.id);
+                                          if (opt.id === 'department') {
+                                            setSelectedTeamId('');
+                                          } else {
+                                            setSelectedDeptId('');
+                                          }
+                                        }}
+                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                                          notifyScopeType === opt.id
+                                            ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
+                                            : 'border-border bg-surface text-foreground hover:border-primary/25 hover:bg-muted'
+                                        }`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {notifyScopeType === 'department' && hasMyDeptAssignment ? (
+                                <label className="block">
+                                  <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                                    {t('voiceRoom.deptLabel')}
+                                  </span>
+                                  <select
+                                    value={selectedDeptId}
+                                    onChange={(e) => setSelectedDeptId(e.target.value)}
+                                    disabled={orgStructureLoading || !hasMyStructureAssignment}
+                                    className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                                  >
+                                    <option value="">
+                                      {orgStructureLoading
+                                        ? t('common.loadingEllipsis')
+                                        : t('voiceRoom.selectDeptPh')}
+                                    </option>
+                                    {departments.map((d) => (
+                                      <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
+                                        {d.name || t('common.department')}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : notifyScopeType === 'team' && hasMyTeamAssignment ? (
+                                <label className="block">
+                                  <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                                    {t('voiceRoom.teamScopeLabel')}
+                                  </span>
+                                  <select
+                                    value={selectedTeamId}
+                                    onChange={(e) => setSelectedTeamId(e.target.value)}
+                                    disabled={orgStructureLoading || !hasMyStructureAssignment}
+                                    className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                                  >
+                                    <option value="">
+                                      {orgStructureLoading
+                                        ? t('common.loadingEllipsis')
+                                        : t('voiceRoom.selectTeamPh')}
+                                    </option>
+                                    {teams.map((team) => (
+                                      <option
+                                        key={String(team._id || team.id)}
+                                        value={String(team._id || team.id)}
+                                      >
+                                        {team.name || team.title || ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       ) : null}
 
@@ -4095,78 +4345,141 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                                 setRoomKind('free');
                                 setSelectedOrgId('');
                                 setSelectedDeptId('');
+                                setSelectedTeamId('');
+                                setNotifyScopeType('department');
                               }}
                               className={`h-4 w-4 text-violet-600 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
                             />
                             {t('voiceRoom.roomTypeFree')}
                           </label>
-                          <label className="flex cursor-pointer items-center gap-2">
-                            <input
-                              type="radio"
-                              name="voice-room-kind"
-                              checked={roomKind === 'org'}
-                              onChange={() => setRoomKind('org')}
-                              className={`h-4 w-4 text-violet-600 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
-                            />
-                            {t('voiceRoom.roomTypeOrg')}
-                          </label>
+                          {canCreateVoiceRoom ? (
+                            <label className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="radio"
+                                name="voice-room-kind"
+                                checked={roomKind === 'org'}
+                                onChange={() => {
+                                  setRoomKind('org');
+                                  setSelectedOrgId(activeOrgIdForPermissions);
+                                  setSelectedDeptId('');
+                                  setSelectedTeamId('');
+                                  setNotifyScopeType('department');
+                                }}
+                                className={`h-4 w-4 text-violet-600 ${isDarkMode ? 'border-white/20 bg-black/50' : 'border-slate-300 bg-white'}`}
+                              />
+                              {t('voiceRoom.roomTypeOrg')}
+                            </label>
+                          ) : null}
                         </div>
                       </div>
                       {roomKind === 'org' && (
                         <div className="space-y-3">
-                          <div>
-                            <label
-                              className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
-                            >
-                              {t('voiceRoom.orgLabel')}
-                            </label>
-                            <select
-                              value={selectedOrgId}
-                              onChange={(e) => {
-                                setSelectedOrgId(e.target.value);
-                                setSelectedDeptId('');
-                              }}
-                              disabled={orgsLoading}
-                              className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
+                          {!orgStructureLoading && !hasMyStructureAssignment ? (
+                            <p
+                              className={`rounded-xl border px-4 py-3 text-sm ${
                                 isDarkMode
-                                  ? 'border-white/10 bg-black/50 text-white'
-                                  : 'border-slate-200 bg-white text-slate-900'
+                                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                                  : 'border-amber-300 bg-amber-50 text-amber-900'
                               }`}
                             >
-                              <option value="">
-                                {orgsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectOrgPh')}
-                              </option>
-                              {organizations.map((o) => (
-                                <option key={String(o._id || o.id)} value={String(o._id || o.id)}>
-                                  {o.name || t('common.org')}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label
-                              className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
-                            >
-                              {t('voiceRoom.deptLabel')}
-                            </label>
-                            <select
-                              value={selectedDeptId}
-                              onChange={(e) => setSelectedDeptId(e.target.value)}
-                              disabled={!selectedOrgId}
-                              className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
-                                isDarkMode
-                                  ? 'border-white/10 bg-black/50 text-white'
-                                  : 'border-slate-200 bg-white text-slate-900'
-                              }`}
-                            >
-                              <option value="">{t('voiceRoom.selectDeptPh')}</option>
-                              {departments.map((d) => (
-                                <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
-                                  {d.name || t('common.department')}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                              {t('voiceRoom.noOrgStructureAssignment')}
+                            </p>
+                          ) : (
+                            <>
+                              {hasMyDeptAssignment && hasMyTeamAssignment ? (
+                                <div>
+                                  <label
+                                    className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                                  >
+                                    {t('voiceRoom.roomScopeTypeLabel')}
+                                  </label>
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {[
+                                      { id: 'department', label: t('voiceRoom.roomScopeDeptLabel') },
+                                      { id: 'team', label: t('voiceRoom.roomScopeTeamLabel') },
+                                    ].map((opt) => (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setNotifyScopeType(opt.id);
+                                          if (opt.id === 'department') setSelectedTeamId('');
+                                          else setSelectedDeptId('');
+                                        }}
+                                        className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
+                                          notifyScopeType === opt.id
+                                            ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
+                                            : 'border-border bg-surface text-foreground hover:border-primary/25 hover:bg-muted'
+                                        }`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {notifyScopeType === 'department' && hasMyDeptAssignment ? (
+                                <div>
+                                  <label
+                                    className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                                  >
+                                    {t('voiceRoom.deptLabel')}
+                                  </label>
+                                  <select
+                                    value={selectedDeptId}
+                                    onChange={(e) => setSelectedDeptId(e.target.value)}
+                                    disabled={orgStructureLoading || !hasMyStructureAssignment}
+                                    className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
+                                      isDarkMode
+                                        ? 'border-white/10 bg-black/50 text-white'
+                                        : 'border-slate-200 bg-white text-slate-900'
+                                    }`}
+                                  >
+                                    <option value="">
+                                      {orgStructureLoading
+                                        ? t('common.loadingEllipsis')
+                                        : t('voiceRoom.selectDeptPh')}
+                                    </option>
+                                    {departments.map((d) => (
+                                      <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
+                                        {d.name || t('common.department')}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ) : notifyScopeType === 'team' && hasMyTeamAssignment ? (
+                                <div>
+                                  <label
+                                    className={`mb-1.5 block text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}
+                                  >
+                                    {t('voiceRoom.teamScopeLabel')}
+                                  </label>
+                                  <select
+                                    value={selectedTeamId}
+                                    onChange={(e) => setSelectedTeamId(e.target.value)}
+                                    disabled={orgStructureLoading || !hasMyStructureAssignment}
+                                    className={`w-full rounded-xl border px-4 py-3 focus:border-violet-500/50 focus:outline-none focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50 ${
+                                      isDarkMode
+                                        ? 'border-white/10 bg-black/50 text-white'
+                                        : 'border-slate-200 bg-white text-slate-900'
+                                    }`}
+                                  >
+                                    <option value="">
+                                      {orgStructureLoading
+                                        ? t('common.loadingEllipsis')
+                                        : t('voiceRoom.selectTeamPh')}
+                                    </option>
+                                    {teams.map((team) => (
+                                      <option key={String(team._id || team.id)} value={String(team._id || team.id)}>
+                                        {team.name || team.title || ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       )}
                       <div>
@@ -4283,7 +4596,6 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     }
                   }}
                   autoPlay
-                  playsInline
                 />
               ))}
             </div>
@@ -5125,18 +5437,27 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                 if (kind === 'free') {
                   setSelectedOrgId('');
                   setSelectedDeptId('');
+                  setSelectedTeamId('');
+                  setNotifyScopeType('department');
                 }
-              }}
-              selectedOrgId={selectedOrgId}
-              onSelectedOrgIdChange={(value) => {
-                setSelectedOrgId(value);
-                setSelectedDeptId('');
+                if (kind === 'org' && !selectedOrgId) {
+                  setSelectedOrgId(activeOrgIdForPermissions);
+                }
               }}
               selectedDeptId={selectedDeptId}
               onSelectedDeptIdChange={setSelectedDeptId}
-              organizations={organizations}
               departments={departments}
-              orgsLoading={orgsLoading}
+              departmentsLoading={orgStructureLoading}
+              notifyScopeType={notifyScopeType}
+              onNotifyScopeTypeChange={setNotifyScopeType}
+              selectedTeamId={selectedTeamId}
+              onSelectedTeamIdChange={setSelectedTeamId}
+              teams={teams}
+              teamsLoading={orgStructureLoading}
+              hasMyDeptAssignment={hasMyDeptAssignment}
+              hasMyTeamAssignment={hasMyTeamAssignment}
+              hasMyStructureAssignment={hasMyStructureAssignment}
+              showOrgRoomKind={canCreateVoiceRoom}
               displayNameInput={displayNameInput}
               onDisplayNameInputChange={setDisplayNameInput}
               localDisplayName={localDisplayName}

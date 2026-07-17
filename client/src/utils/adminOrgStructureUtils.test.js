@@ -97,3 +97,30 @@ test('flatten excludes division node from department picker list', () => {
   assert.equal(departments.length, 1);
   assert.equal(departments[0]._id, 'dep1');
 });
+
+test('flatten maps department.head string to headId', () => {
+  const { departments } = flattenOrgStructure({
+    branches: [
+      {
+        _id: 'synth',
+        isSynthetic: true,
+        divisions: [
+          {
+            _id: 'd1',
+            name: 'Khối',
+            departments: [
+              {
+                _id: '6a5772a9bb384e64c0ef0684',
+                name: 'Backend',
+                head: '6a59e6cc81b638829ba7b085',
+                teams: [],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(departments.length, 1);
+  assert.equal(departments[0].headId, '6a59e6cc81b638829ba7b085');
+});

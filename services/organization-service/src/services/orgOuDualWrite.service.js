@@ -143,11 +143,24 @@ async function dualWriteCreateOu(organizationId, {
 } = {}) {
   if (!dualWriteEnabled() || !legacyDoc?._id || !levelKey || !legacyCollection) return null;
   try {
-    const { isDynamicStructureEnabled, createUnit } = require('./orgUnitTree.service');
+    const {
+      isDynamicStructureEnabled,
+      createUnit,
+      findLevelSchema,
+      levelOrderMap,
+    } = require('./orgUnitTree.service');
     if (!isDynamicStructureEnabled()) return null;
 
     const existing = await findOuByLegacyRef(organizationId, legacyCollection, legacyDoc._id);
     if (existing) return existing;
+
+    // Huy: template không có branch (enterprise-software) — bỏ qua, không gọi createUnit
+    const schema = await findLevelSchema(organizationId);
+    const orders = levelOrderMap(schema?.levels || []);
+    const key = String(levelKey).trim();
+    if (!orders.has(key)) {
+      return null;
+    }
 
     let parentUnitId = null;
     if (parentLegacy?.collection && parentLegacy?.id) {
@@ -162,7 +175,7 @@ async function dualWriteCreateOu(organizationId, {
     return await createUnit({
       organizationId,
       parentUnitId,
-      levelKey: String(levelKey).trim(),
+      levelKey: key,
       name: legacyDoc.name,
       description: legacyDoc.description || '',
       attributes: {
@@ -197,6 +210,36 @@ async function dualWriteSyncOuActive(organizationId, legacyCollection, legacyId,
     );
   } catch (e) {
     console.warn('[orgOuDualWrite] sync active failed:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Huy: Sync trưởng phòng / trưởng nhóm legacy → OU attributes.
+ * GET /structure (prefer-OU) đọc headUserId / leaderUserId — không chỉ Department.head / Team.leader.
+ */
+async function dualWriteSyncOuLeadership(organizationId, legacyCollection, legacyId, attrs = {}) {
+  if (!dualWriteEnabled() || !legacyId || !legacyCollection) return null;
+  const set = {};
+  if (attrs.headUserId !== undefined) {
+    set['attributes.headUserId'] = attrs.headUserId || null;
+  }
+  if (attrs.leaderUserId !== undefined) {
+    set['attributes.leaderUserId'] = attrs.leaderUserId || null;
+  }
+  if (!Object.keys(set).length) return null;
+  try {
+    return await OrganizationalUnit.findOneAndUpdate(
+      {
+        organization: organizationId,
+        'legacyRef.collection': legacyCollection,
+        'legacyRef.id': legacyId,
+      },
+      { $set: set },
+      { new: true }
+    );
+  } catch (e) {
+    console.warn('[orgOuDualWrite] sync leadership failed:', e.message);
     return null;
   }
 }
@@ -264,5 +307,6 @@ module.exports = {
   findOuByLegacyRef,
   syncMissingLegacyToOu,
   dualWriteSyncOuActive,
+  dualWriteSyncOuLeadership,
   dualWriteSoftDeleteOu,
 };

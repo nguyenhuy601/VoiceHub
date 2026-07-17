@@ -27,13 +27,20 @@ export default function VoiceCreateMeetingModal({
   meetingCode,
   roomKind,
   onRoomKindChange,
-  selectedOrgId,
-  onSelectedOrgIdChange,
   selectedDeptId,
   onSelectedDeptIdChange,
-  organizations = [],
   departments = [],
-  orgsLoading = false,
+  departmentsLoading = false,
+  notifyScopeType = 'department',
+  onNotifyScopeTypeChange,
+  selectedTeamId,
+  onSelectedTeamIdChange,
+  teams = [],
+  teamsLoading = false,
+  hasMyDeptAssignment = true,
+  hasMyTeamAssignment = true,
+  hasMyStructureAssignment = true,
+  showOrgRoomKind = true,
   displayNameInput,
   onDisplayNameInputChange,
   localDisplayName,
@@ -171,7 +178,7 @@ export default function VoiceCreateMeetingModal({
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {[
                       { id: 'free', label: t('voiceRoom.roomTypeFree') },
-                      { id: 'org', label: t('voiceRoom.roomTypeOrg') },
+                      ...(showOrgRoomKind ? [{ id: 'org', label: t('voiceRoom.roomTypeOrg') }] : []),
                     ].map((kind) => (
                       <button
                         key={kind.id}
@@ -190,45 +197,87 @@ export default function VoiceCreateMeetingModal({
                 </div>
 
                 {roomKind === 'org' ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
-                        {t('voiceRoom.orgLabel')}
-                      </span>
-                      <select
-                        value={selectedOrgId}
-                        onChange={(e) => onSelectedOrgIdChange?.(e.target.value)}
-                        disabled={orgsLoading}
-                        className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
-                      >
-                        <option value="">
-                          {orgsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectOrgPh')}
-                        </option>
-                        {organizations.map((o) => (
-                          <option key={String(o._id || o.id)} value={String(o._id || o.id)}>
-                            {o.name || t('common.org')}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
-                        {t('voiceRoom.deptLabel')}
-                      </span>
-                      <select
-                        value={selectedDeptId}
-                        onChange={(e) => onSelectedDeptIdChange?.(e.target.value)}
-                        disabled={!selectedOrgId}
-                        className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
-                      >
-                        <option value="">{t('voiceRoom.selectDeptPh')}</option>
-                        {departments.map((d) => (
-                          <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
-                            {d.name || t('common.department')}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  <div className="space-y-3">
+                    {!departmentsLoading && !hasMyStructureAssignment ? (
+                      <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-100">
+                        {t('voiceRoom.noOrgStructureAssignment')}
+                      </p>
+                    ) : (
+                      <>
+                        {hasMyDeptAssignment && hasMyTeamAssignment ? (
+                          <div>
+                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                              {t('voiceRoom.roomScopeTypeLabel')}
+                            </span>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {[
+                                { id: 'department', label: t('voiceRoom.roomScopeDeptLabel') },
+                                { id: 'team', label: t('voiceRoom.roomScopeTeamLabel') },
+                              ].map((opt) => (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => onNotifyScopeTypeChange?.(opt.id)}
+                                  className={`rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                                    notifyScopeType === opt.id
+                                      ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
+                                      : 'border-border bg-surface text-foreground hover:border-primary/25 hover:bg-muted'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {notifyScopeType === 'department' && hasMyDeptAssignment ? (
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                              {t('voiceRoom.deptLabel')}
+                            </span>
+                            <select
+                              value={selectedDeptId}
+                              onChange={(e) => onSelectedDeptIdChange?.(e.target.value)}
+                              disabled={departmentsLoading || !hasMyStructureAssignment}
+                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                            >
+                              <option value="">
+                                {departmentsLoading
+                                  ? t('common.loadingEllipsis')
+                                  : t('voiceRoom.selectDeptPh')}
+                              </option>
+                              {departments.map((d) => (
+                                <option key={String(d._id || d.id)} value={String(d._id || d.id)}>
+                                  {d.name || t('common.department')}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : notifyScopeType === 'team' && hasMyTeamAssignment ? (
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">
+                              {t('voiceRoom.teamScopeLabel')}
+                            </span>
+                            <select
+                              value={selectedTeamId}
+                              onChange={(e) => onSelectedTeamIdChange?.(e.target.value)}
+                              disabled={teamsLoading || !hasMyStructureAssignment}
+                              className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-50"
+                            >
+                              <option value="">
+                                {teamsLoading ? t('common.loadingEllipsis') : t('voiceRoom.selectTeamPh')}
+                              </option>
+                              {teams.map((team) => (
+                                <option key={String(team._id || team.id)} value={String(team._id || team.id)}>
+                                  {team.name || team.title || ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 ) : null}
 

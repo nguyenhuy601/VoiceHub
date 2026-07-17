@@ -23,6 +23,15 @@ export const meetingAPI = {
   startMeeting: (meetingId) => apiClient.post(`/meetings/${meetingId}/start`),
 
   endMeeting: (meetingId) => apiClient.post(`/meetings/${meetingId}/end`),
+
+  /** Self-leave or kick (when actor ≠ userId and has manage rights). */
+  removeParticipant: (meetingId, userId) =>
+    apiClient.delete(`/meetings/${meetingId}/participants/${encodeURIComponent(userId)}`),
+
+  muteParticipant: (meetingId, userId, muted = true) =>
+    apiClient.post(`/meetings/${meetingId}/participants/${encodeURIComponent(userId)}/mute`, {
+      muted: Boolean(muted),
+    }),
 };
 
 export default meetingAPI;

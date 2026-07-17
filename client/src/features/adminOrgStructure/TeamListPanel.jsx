@@ -10,8 +10,8 @@ import {
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
-import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
-import { memberDisplayName } from '../../utils/adminUserUtils';
+import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { memberLabelById } from '../../utils/adminUserUtils';
 
 const ACTION_LINKS = [
   { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
@@ -23,7 +23,7 @@ const ACTION_LINKS = [
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { teams, loading } = useAdminOrgStructure(orgId);
-  const { membersById } = useAdminMembers(orgId);
+  const { membersByIdAll } = useAdminMembers(orgId);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -31,9 +31,8 @@ export default function TeamListPanel({ orgId }) {
     if (!q) return teams;
     return teams.filter((row) => {
       const id = unitId(row);
-      const leaderName = row.leaderId
-        ? memberDisplayName(membersById.get(row.leaderId) || { userId: row.leaderId })
-        : '';
+      const leaderId = teamLeaderId(row);
+      const leaderName = leaderId ? memberLabelById(membersByIdAll, leaderId, '') : '';
       return (
         unitName(row).toLowerCase().includes(q) ||
         String(row.departmentName || '').toLowerCase().includes(q) ||
@@ -41,7 +40,7 @@ export default function TeamListPanel({ orgId }) {
         id.toLowerCase().includes(q)
       );
     });
-  }, [teams, query, membersById]);
+  }, [teams, query, membersByIdAll]);
 
   return (
     <AdminUserPanelShell
@@ -87,10 +86,8 @@ export default function TeamListPanel({ orgId }) {
               <tbody>
                 {filtered.map((row) => {
                   const id = unitId(row);
-                  const leaderMember = row.leaderId ? membersById.get(row.leaderId) : null;
-                  const leaderLabel = row.leaderId
-                    ? memberDisplayName(leaderMember || { userId: row.leaderId })
-                    : '—';
+                  const leaderId = teamLeaderId(row);
+                  const leaderLabel = leaderId ? memberLabelById(membersByIdAll, leaderId) : '—';
                   const active = row.isActive !== false;
                   return (
                     <tr key={id} className="border-b border-border/50 transition hover:bg-muted/20">

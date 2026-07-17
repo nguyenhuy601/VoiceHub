@@ -1,0 +1,72 @@
+---
+description: Dev Docker Desktop — tránh phình VHDX (pull/update, hạn chế build, GC Swarm)
+alwaysApply: true
+---
+
+# Docker Desktop — tránh phình VHDX (VoiceHub dev)
+
+Docker Desktop trên Windows lưu data trong file VHDX trên ổ C. VHDX **chỉ phình ra**, hiếm khi tự co sau khi xóa image/container bên trong.
+
+## Nguyên tắc vàng
+
+| Ưu tiên | Tránh trên máy dev / ổ gần đầy |
+|---------|----------------------------------|
+| **`docker pull`** image ghcr/public đã có sẵn | `build-local-images.sh` cho **cả stack** |
+| **`docker service update --force`** một service | `rolling-update-phase1-env.sh` / redeploy toàn stack khi không bắt buộc |
+| **Compose `up -d --no-build`** khi image local đã có | `compose up -d --build` mọi lần |
+| **Build local đúng 1 service** vừa sửa code | Build lại voice-service + 18 microservice “cho chắc” |
+
+## Luồng deploy nhẹ disk
+
+**Image remote (ghcr) đã push:**
+
+```bash
+# pull tag cần → deploy (không build)
+SWARM_USE_LOCAL_IMAGES=0 bash devops/swarm/deploy-stack.sh
+docker service update --force voicehub_<service>
+```
+
+**Code local chưa có trên registry** (`SWARM_USE_LOCAL_IMAGES=1` trong `.env`):
+
+```bash
+bash devops/swarm/build-local-images.sh <service-name>   # CHỈ service đó
+docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>
+```
+
+**Compose extra** (ollama, minio, workers): xem [swarm-compose-split.mdc](./swarm-compose-split.mdc).
+
+```bash
+bash devops/swarm/dev-enable-profile.sh --skip-deploy
+docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
+```
+
+## GC định kỳ (giảm layer + container Exited)
+
+Swarm **không** tự xóa task container đã chết — mỗi `service update` / crash loop để lại container `Exited`.
+
+```bash
+bash devops/swarm/swarm-exited-task-gc.sh          # hoặc chạy nền
+docker container prune -f
+docker image prune -f
+docker volume prune -f    # chỉ volume không gắn container
+```
+
+**Không** chạy `docker system prune -a --volumes` nếu chưa chắc — có thể xóa volume Compose đang dùng (`voicehub-extra_*`).
+
+## Khi agent gợi ý lệnh Docker
+
+- Trước build: kiểm tra đã có `voicehub-<service>:latest` hoặc có thể `docker pull` từ ghcr không.
+- Không gợi ý `build-local-images.sh` không tham số (build all) trừ khi user yêu cầu hoặc image local hoàn toàn thiếu.
+- Sau nhiều deploy: nhắc `swarm-exited-task-gc.sh` + prune.
+- Ổ C < ~5GB trống: **không** build image nặng (voice-service ~2.3GB, workers ~1.5GB, ollama pull); nhắc giải phóng disk trước.
+
+## Thu hồi dung lượng Windows (VHDX)
+
+`docker rmi` / prune **không** luôn trả GB về ổ C. Nếu vẫn đầy:
+
+1. Docker Desktop → **Troubleshoot → Clean / Purge data** (hoặc compact VHDX).
+2. Cân nhắc **Settings → Resources → Disk image location** sang ổ D: nếu C nhỏ.
+
+## Image “cố định” dev (~15–20GB cần giữ)
+
+ollama (~8GB), voice-service (~2.3GB), voice workers Compose (~3GB), ~18 microservice Swarm (~7–8GB). Phần còn lại của 30GB+ thường là **container Exited**, build cache, volume orphan — đó là mục tiêu GC, không phải xóa hết stack.

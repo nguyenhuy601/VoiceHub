@@ -1,6 +1,6 @@
 /** Huy: Domain Cơ cấu tổ chức — admin org-structure */
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
   AdminUserPanelShell,
@@ -11,8 +11,8 @@ import {
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
-import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
-import { memberDisplayName } from '../../utils/adminUserUtils';
+import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { memberLabelById } from '../../utils/adminUserUtils';
 
 const ACTION_LINKS = [
   { path: '/app/admin/org-structure/departments/edit', labelKey: 'adminDomains.orgStructure.deptEdit' },
@@ -22,18 +22,30 @@ const ACTION_LINKS = [
 
 export default function DeptListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { departments, loading } = useAdminOrgStructure(orgId);
-  const { membersById } = useAdminMembers(orgId);
+  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { membersByIdAll } = useAdminMembers(orgId);
   const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const reload = () => {
+      if (document.visibilityState === 'hidden') return;
+      loadStructure();
+    };
+    window.addEventListener('focus', reload);
+    document.addEventListener('visibilitychange', reload);
+    return () => {
+      window.removeEventListener('focus', reload);
+      document.removeEventListener('visibilitychange', reload);
+    };
+  }, [loadStructure]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return departments;
     return departments.filter((row) => {
       const id = unitId(row);
-      const headName = row.headId
-        ? memberDisplayName(membersById.get(row.headId) || { userId: row.headId })
-        : '';
+      const headId = departmentHeadId(row);
+      const headName = headId ? memberLabelById(membersByIdAll, headId, '') : '';
       return (
         unitName(row).toLowerCase().includes(q) ||
         String(row.divisionName || '').toLowerCase().includes(q) ||
@@ -42,7 +54,7 @@ export default function DeptListPanel({ orgId }) {
         id.toLowerCase().includes(q)
       );
     });
-  }, [departments, query, membersById]);
+  }, [departments, query, membersByIdAll]);
 
   return (
     <AdminUserPanelShell
@@ -93,10 +105,8 @@ export default function DeptListPanel({ orgId }) {
               <tbody>
                 {filtered.map((row) => {
                   const id = unitId(row);
-                  const headMember = row.headId ? membersById.get(row.headId) : null;
-                  const headLabel = row.headId
-                    ? memberDisplayName(headMember || { userId: row.headId })
-                    : '—';
+                  const headId = departmentHeadId(row);
+                  const headLabel = headId ? memberLabelById(membersByIdAll, headId) : '—';
                   return (
                     <tr key={id} className="border-b border-border/50 transition hover:bg-muted/20">
                       <td className="px-4 py-3 font-medium text-foreground">{unitName(row)}</td>

@@ -82,6 +82,30 @@ export default function VoiceManageRoomsPanel({ orgId }) {
     }
   };
 
+  const deleteRoom = async () => {
+    if (!orgId || !selected || busy) return;
+    const channelId = String(selected._id || selected.id);
+    const roomName = selected.name || channelId;
+    if (!window.confirm(t('adminVoice.deleteRoomConfirm', { name: roomName }))) return;
+    const deptId = String(selected.department || selected.departmentId || '').trim();
+    setBusy(true);
+    try {
+      if (deptId) {
+        await organizationAPI.deleteChannel(orgId, deptId, channelId);
+      } else {
+        await organizationAPI.deleteChannelByScope(orgId, channelId);
+      }
+      toast.success(t('adminVoice.roomDeleted'));
+      setSelectedId('');
+      setName('');
+      await loadRooms();
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminVoice.roomDeleteFail') }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -149,9 +173,19 @@ export default function VoiceManageRoomsPanel({ orgId }) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-              <GradientButton type="button" disabled={busy || !name.trim()} onClick={saveRename}>
-                {busy ? t('common.saving') : t('common.save')}
-              </GradientButton>
+              <div className="flex flex-wrap gap-2">
+                <GradientButton type="button" disabled={busy || !name.trim()} onClick={saveRename}>
+                  {busy ? t('common.saving') : t('common.save')}
+                </GradientButton>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={deleteRoom}
+                  className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-600 hover:bg-red-500/10 dark:text-red-300"
+                >
+                  {t('adminVoice.deleteRoom')}
+                </button>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t('adminVoice.selectRoomFirst')}</p>

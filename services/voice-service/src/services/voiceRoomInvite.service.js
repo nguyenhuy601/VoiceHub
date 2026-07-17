@@ -3,8 +3,8 @@ const voiceRoomNotify = require('./voiceRoomNotify.service');
 
 async function sendInvites({ roomId, hostUserId, hostName, friendIds = [], emails = [], req }) {
   const rid = String(roomId || '').trim();
-  const isHost = await voiceRoomLobbyService.isHost(rid, hostUserId);
-  if (!isHost) {
+  const canHost = await voiceRoomLobbyService.canActAsRoomHost(rid, hostUserId);
+  if (!canHost) {
     const err = new Error('Only the room host can send invites');
     err.statusCode = 403;
     throw err;

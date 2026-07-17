@@ -38,6 +38,9 @@ async function assertCanManageMeeting(meeting, actor) {
   }
 }
 
+const { resolveParticipantRemoval } = require('./meetingModeratePolicy');
+
+
 class MeetingService {
   // Tạo meeting mới
   async createMeeting(meetingData) {
@@ -175,17 +178,20 @@ class MeetingService {
     }
   }
 
-  // Xóa participant khỏi meeting
+  // Xóa participant khỏi meeting (self-leave hoặc kick — authorize ở controller)
   async removeParticipant(meetingId, userId) {
     try {
       const meeting = await Meeting.findById(meetingId);
 
       if (!meeting) {
-        throw new Error('Meeting not found');
+        const err = new Error('Meeting not found');
+        err.statusCode = 404;
+        throw err;
       }
 
+      const targetId = String(userId || '').trim();
       const participant = meeting.participants.find(
-        (p) => p.userId.toString() === userId.toString() && !p.leftAt
+        (p) => p.userId.toString() === targetId && !p.leftAt
       );
 
       if (participant) {
@@ -193,11 +199,42 @@ class MeetingService {
         await meeting.save();
       }
 
-      logger.info(`Participant removed from meeting: ${meetingId}, user: ${userId}`);
+      logger.info(`Participant removed from meeting: ${meetingId}, user: ${targetId}`);
       return meeting;
     } catch (error) {
       logger.error('Error removing participant:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error removing participant: ${error.message}`);
+    }
+  }
+
+  async muteParticipant(meetingId, userId, muted = true) {
+    try {
+      const meeting = await Meeting.findById(meetingId);
+      if (!meeting) {
+        const err = new Error('Meeting not found');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const targetId = String(userId || '').trim();
+      const participant = meeting.participants.find(
+        (p) => p.userId.toString() === targetId && !p.leftAt
+      );
+      if (!participant) {
+        const err = new Error('Participant not found in meeting');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      participant.isMuted = Boolean(muted);
+      await meeting.save();
+      logger.info(`Participant mute=${participant.isMuted} meeting=${meetingId} user=${targetId}`);
+      return meeting;
+    } catch (error) {
+      logger.error('Error muting participant:', error);
+      if (error.statusCode) throw error;
+      throw new Error(`Error muting participant: ${error.message}`);
     }
   }
 
@@ -393,6 +430,10 @@ const meetingServiceInstance = new MeetingService();
 meetingServiceInstance.userCanAccessMeeting = userCanAccessMeeting;
 meetingServiceInstance.assertMeetingHost = assertMeetingHost;
 meetingServiceInstance.assertCanManageMeeting = assertCanManageMeeting;
+meetingServiceInstance.resolveParticipantRemoval = resolveParticipantRemoval;
 
 module.exports = meetingServiceInstance;
+module.exports.resolveParticipantRemoval = resolveParticipantRemoval;
+module.exports.assertCanManageMeeting = assertCanManageMeeting;
+module.exports.assertMeetingHost = assertMeetingHost;
 

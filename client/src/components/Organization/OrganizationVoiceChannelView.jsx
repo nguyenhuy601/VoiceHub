@@ -668,6 +668,26 @@ export default function OrganizationVoiceChannelView({
           audioElsRef.current.delete(payload.socketId);
         });
 
+        socket.on('voice:participantKicked', (payload) => {
+          if (cancelled || !voiceSocket?.connected) return;
+          if (String(payload?.userId || '') !== String(voiceUserId)) return;
+          toast.error(t('voiceRoom.kickedFromRoom'));
+          onRoomSessionEnd?.(payload);
+        });
+
+        socket.on('voice:participantMuted', (payload) => {
+          if (cancelled || !voiceSocket?.connected) return;
+          if (String(payload?.userId || '') !== String(voiceUserId)) return;
+          if (!payload?.muted) return;
+          mediasoupRef.current.localStream?.getAudioTracks?.().forEach((track) => {
+            track.enabled = false;
+          });
+          const producer = mediasoupRef.current.audioProducer;
+          if (producer?.pause) producer.pause().catch(() => {});
+          setIsMuted(true);
+          toast(t('voiceRoom.mutedByHost'));
+        });
+
         socket.on('voice:roomClosed', (payload) => {
           if (cancelled || !voiceSocket?.connected) return;
           onRoomSessionEnd?.(payload);

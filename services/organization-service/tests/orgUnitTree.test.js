@@ -55,8 +55,8 @@ describe('orgUnitTree nest + project', () => {
                 _id: 'dep1',
                 name: 'BE',
                 levelKey: 'department',
-                attributes: {},
-                children: [{ _id: 't1', name: 'API', levelKey: 'team', attributes: {}, children: [] }],
+                attributes: { headUserId: 'user-head-1' },
+                children: [{ _id: 't1', name: 'API', levelKey: 'team', attributes: { leaderUserId: 'user-lead-1' }, children: [] }],
               },
             ],
           },
@@ -66,6 +66,8 @@ describe('orgUnitTree nest + project', () => {
     const branches = projectOuTreeToLegacyBranches(tree);
     assert.equal(branches.length, 1);
     assert.equal(branches[0].name, 'HQ');
+    assert.equal(branches[0].divisions[0].departments[0].head, 'user-head-1');
+    assert.equal(branches[0].divisions[0].departments[0].teams[0].leader, 'user-lead-1');
     assert.equal(branches[0].divisions[0].departments[0].teams[0].name, 'API');
   });
 });

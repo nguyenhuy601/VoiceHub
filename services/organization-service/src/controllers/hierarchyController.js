@@ -15,7 +15,11 @@ const {
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
-const { dualWriteCreateOu, dualWriteSyncOuActive } = require('../services/orgOuDualWrite.service');
+const {
+  dualWriteCreateOu,
+  dualWriteSyncOuActive,
+  dualWriteSyncOuLeadership,
+} = require('../services/orgOuDualWrite.service');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -398,6 +402,11 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
     }
     if (patch.isActive !== undefined) {
       await dualWriteSyncOuActive(req.params.orgId, 'Team', doc._id, doc.isActive !== false);
+    }
+    if (patch.leader !== undefined) {
+      await dualWriteSyncOuLeadership(req.params.orgId, 'Team', doc._id, {
+        leaderUserId: doc.leader || null,
+      });
     }
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', data: doc });

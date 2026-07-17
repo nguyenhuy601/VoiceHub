@@ -117,9 +117,13 @@ async function requireOrgMember(req, res, next) {
   }
 }
 
-/** Chỉ xem role của chính mình hoặc org admin. */
+/** Chỉ xem role của chính mình hoặc org admin. S2S (sync membership) được phép. */
 async function requireSelfOrOrgManager(req, res, next) {
   try {
+    if (req.isInternalServiceCall) {
+      return next();
+    }
+
     const userId = req.user?.id || req.user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });

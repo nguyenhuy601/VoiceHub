@@ -11,6 +11,8 @@ export function useAdminMembers(orgId) {
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const [membersByIdAll, setMembersByIdAll] = useState(() => new Map());
+
   const loadMembers = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
@@ -19,16 +21,25 @@ export function useAdminMembers(orgId) {
       const data = unwrapApi(res);
       const bundle = data?.data ?? data;
       const list = bundle?.members || bundle;
+      const all = Array.isArray(list) ? list : [];
       // Ẩn tài khoản hệ thống (systemRole=admin) khỏi danh sách quản lý user.
-      const visible = (Array.isArray(list) ? list : []).filter(
+      const visible = all.filter(
         (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
       );
       setMembers(visible);
       setRoles(Array.isArray(bundle?.roles) ? bundle.roles : []);
+      // Map đầy đủ để resolve tên trưởng phòng/nhóm kể cả user bị ẩn khỏi list.
+      const byId = new Map();
+      for (const m of all) {
+        const id = memberUserId(m);
+        if (id) byId.set(id, m);
+      }
+      setMembersByIdAll(byId);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.loadMembersFail') }));
       setMembers([]);
       setRoles([]);
+      setMembersByIdAll(new Map());
     } finally {
       setLoading(false);
     }
@@ -47,7 +58,15 @@ export function useAdminMembers(orgId) {
     return map;
   }, [members]);
 
-  return { members, roles, loading, loadMembers, membersById };
+  return {
+    members,
+    roles,
+    loading,
+    loadMembers,
+    membersById,
+    /** Lookup tên (gồm system admin) — dùng cột Trưởng phòng / Trưởng nhóm. */
+    membersByIdAll,
+  };
 }
 
 export default useAdminMembers;

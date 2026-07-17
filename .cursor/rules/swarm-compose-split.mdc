@@ -21,34 +21,26 @@ alwaysApply: true
 - Lệnh chuẩn:
 
 ```bash
-docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --build
+docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
+# Chỉ --build khi đổi Dockerfile worker hoặc image chưa có
 ```
 
-## Swarm app — rebuild sau khi sửa code
+## Swarm app — cập nhật sau khi sửa code
 
-Build image local (context repo root, tag `voicehub-<service>:latest`):
+**Ưu tiên pull/update, hạn chế build** — chi tiết: [docker-vhdx-disk.mdc](./docker-vhdx-disk.mdc).
+
+Chỉ build **một** service vừa sửa (tag `voicehub-<service>:latest`):
 
 ```bash
 bash devops/swarm/build-local-images.sh <service-name>
-# ví dụ: user-service api-gateway
+docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service-name>
 ```
 
-Rolling recreate task (không rebuild toàn stack):
-
-```bash
-docker service update --force --update-parallelism 1 --update-order start-first voicehub_user-service
-docker service update --force --update-parallelism 1 --update-order start-first voicehub_api-gateway
-```
-
-Hoặc redeploy + rolling tất cả app services:
-
-```bash
-SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/deploy-stack.sh
-bash devops/swarm/rolling-update-phase1-env.sh
-```
+Compose extra: dùng `--no-build` nếu image `voicehub-extra-*` đã có; chỉ `--build` khi đổi Dockerfile worker.
 
 ## Khi agent gợi ý lệnh Docker
 
-- Sửa `services/user-service`, `api-gateway`, `shared/` → **build Swarm image + `docker service update --force`**.
+- Sửa một microservice → **build đúng service đó** + `service update --force`; tránh `build-local-images.sh` không tham số.
 - Sửa worker/OCR/minio trong extra compose → **`docker compose -f docker-compose.swarm-extra.yml …`**.
 - Không nhầm `docker compose up` root/stack yml cho microservices đã deploy Swarm.
+- Tránh `rolling-update-phase1-env.sh` / redeploy toàn stack khi chỉ cần rolling một service.

@@ -1,0 +1,50 @@
+---
+description: Thiết kế API REST sạch — verb HTTP đúng nghĩa resource, không invent POST /action khi DELETE/PATCH đã khớp
+globs: services/**/routes/**/*.{js,ts},services/**/controllers/**/*.{js,ts},api-gateway/**/*.{js,ts},client/src/services/api/**/*.{js,ts}
+alwaysApply: false
+---
+
+# REST API clean — VoiceHub
+
+Khi thiết kế hoặc sửa HTTP API (route / controller / `client/src/services/api`): ưu tiên **resource + HTTP method**, không thêm verb giả trong path.
+
+Bổ sung (không thay) quy tắc «không thêm REST route mới khi gộp được» trong `voicehub-constraints.mdc`.
+
+## Nguyên tắc
+
+1. **Path = danh từ (resource)**, không gắn hành động (`/kick`, `/delete`, `/getList`).
+2. **Method = hành động**: `GET` đọc · `POST` tạo · `PATCH`/`PUT` cập nhật · `DELETE` xóa / gỡ khỏi tập hợp.
+3. **Ưu tiên sửa semantics endpoint hiện có** trước khi thêm path song song cùng ý nghĩa.
+4. **Lọc / phân trang** = query trên collection (`GET /meetings?status=ended`), không `GET /meetings/history` nếu cùng resource.
+5. **Nested resource** khi thuộc cha: `/meetings/:id/participants/:userId`.
+6. **Action không phải CRUD** (mute, approve, start) mới dùng `POST …/:id/<action>` hoặc `PATCH` field trạng thái — giải thích vì sao không phải DELETE/PATCH thuần.
+
+## Kick / remove — ví dụ chuẩn
+
+Kick participant = **gỡ resource khỏi collection** → dùng DELETE.
+
+```http
+# ❌ BAD — invent action path khi DELETE đã có
+POST /api/meetings/:meetingId/participants/:userId/kick
+
+# ✅ GOOD — DELETE + authorize theo ngữ cảnh
+DELETE /api/meetings/:meetingId/participants/:userId
+# actor === :userId → self-leave
+# actor !== :userId → yêu cầu quyền manage (host/admin) = kick
+```
+
+Mute **không** phải xóa → không dùng DELETE:
+
+```http
+# ✅ GOOD
+POST /api/meetings/:meetingId/participants/:userId/mute
+# body: { "muted": true }
+# hoặc PATCH participant với field isMuted
+```
+
+## Checklist trước khi thêm route
+
+- [ ] Đã có method+path gần đúng chưa? Sửa handler thay vì path mới.
+- [ ] Path có động từ thừa không? (`/createX`, `/doY`)
+- [ ] Gateway permission map / client API cập nhật theo **cùng** contract (không alias trùng nghĩa).
+- [ ] Self vs admin trên cùng DELETE/PATCH: phân nhánh theo `actor` + policy, **không** bỏ qua `:id` trong params.

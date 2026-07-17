@@ -291,7 +291,43 @@ class RoomManager {
       roomClosed,
       userId: peer.userId,
       displayName: peer.displayName,
+      socketId: peer.socketId,
     };
+  }
+
+  /** Evict all SFU peers for a user (admin kick / force leave). */
+  leaveRoomByUserId({ roomId, userId }) {
+    const room = this.getRoom(roomId);
+    if (!room) return { removed: [], roomClosed: false };
+
+    const uid = String(userId || '').trim();
+    const matches = [...room.peers.values()].filter((p) => String(p.userId) === uid);
+    const removed = [];
+    for (const peer of matches) {
+      removed.push(this.leaveRoom({ roomId, socketId: peer.socketId }));
+    }
+    return {
+      removed,
+      roomClosed: !this.getRoom(roomId),
+    };
+  }
+
+  /** Pause audio producers for a user (force mute). */
+  async pauseAudioProducersByUserId({ roomId, userId }) {
+    const room = this.getRoom(roomId);
+    if (!room) return { paused: 0 };
+
+    const uid = String(userId || '').trim();
+    let paused = 0;
+    for (const peer of room.peers.values()) {
+      if (String(peer.userId) !== uid) continue;
+      for (const producer of peer.producers.values()) {
+        if (producer.kind !== 'audio') continue;
+        await producer.pause();
+        paused += 1;
+      }
+    }
+    return { paused };
   }
 
   closeRoom(roomId) {

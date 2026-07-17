@@ -19,6 +19,8 @@ import {
   Users,
 } from 'lucide-react';
 import { ADMIN_DOMAINS } from '../../config/adminDomainsConfig';
+import AdminInsightTicker from '../../components/Admin/AdminInsightTicker';
+import useAdminHubInsights from '../../hooks/useAdminHubInsights';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
 
@@ -43,7 +45,8 @@ const DOMAIN_ICONS = {
 
 export default function AdminHubPage() {
   const { t } = useAppStrings();
-  const { memberCount } = useCompanyAdminContext();
+  const { memberCount, orgId } = useCompanyAdminContext();
+  const { loading, messages, pendingCount, usersHref } = useAdminHubInsights(orgId);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -51,6 +54,12 @@ export default function AdminHubPage() {
         <h2 className="text-2xl font-bold tracking-tight">{t('adminDomains.hubTitle')}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t('adminDomains.hubSubtitle')}</p>
       </div>
+
+      <AdminInsightTicker
+        loading={loading}
+        messages={messages}
+        href={pendingCount > 0 ? usersHref : ''}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {ADMIN_DOMAINS.map((domain) => {

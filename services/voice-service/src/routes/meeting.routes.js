@@ -65,8 +65,11 @@ router.post('/:meetingId/end', meetingController.endMeeting.bind(meetingControll
 // Thêm participant
 router.post('/:meetingId/participants', meetingController.addParticipant.bind(meetingController));
 
-// Xóa participant
+// Xóa / kick participant
 router.delete('/:meetingId/participants/:userId', meetingController.removeParticipant.bind(meetingController));
+
+// Mute participant (host / org admin)
+router.post('/:meetingId/participants/:userId/mute', meetingController.muteParticipant.bind(meetingController));
 
 module.exports = router;
 

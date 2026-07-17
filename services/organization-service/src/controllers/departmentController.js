@@ -108,6 +108,18 @@ exports.updateDepartment = async (req, res, next) => {
         department.isActive !== false
       );
     }
+    if (head !== undefined) {
+      const { dualWriteSyncOuLeadership } = require('../services/orgOuDualWrite.service');
+      await dualWriteSyncOuLeadership(req.params.orgId, 'Department', department._id, {
+        headUserId: department.head || null,
+      });
+    }
+
+    const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
+    const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+    await invalidateOrgReadCache(req.params.orgId, {
+      eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED,
+    }).catch(() => null);
 
     res.json({ status: 'success', data: department });
   } catch (error) {

@@ -4,16 +4,18 @@ import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
 import {
   formatMeetingWhen,
+  isActiveMeeting,
   meetingId,
   meetingStatus,
   meetingTitle,
 } from '../../utils/adminVoiceUtils';
 
 const LINKS = [
-  { path: '/app/admin/voice/end-meeting', labelKey: 'adminDomains.voice.endMeeting' },
-  { path: '/app/admin/voice/recording', labelKey: 'adminDomains.voice.recording' },
-  { path: '/app/admin/voice/transcript', labelKey: 'adminDomains.voice.transcript' },
-  { path: '/app/admin/voice/ai-summary', labelKey: 'adminDomains.voice.aiSummary' },
+  { path: '/app/admin/voice/end-meeting', labelKey: 'adminDomains.voice.endMeeting', activeOnly: true },
+  { path: '/app/admin/voice/moderate', labelKey: 'adminDomains.voice.moderate', activeOnly: true },
+  { path: '/app/admin/voice/recording', labelKey: 'adminDomains.voice.recording', activeOnly: false },
+  { path: '/app/admin/voice/transcript', labelKey: 'adminDomains.voice.transcript', activeOnly: false },
+  { path: '/app/admin/voice/ai-summary', labelKey: 'adminDomains.voice.aiSummary', activeOnly: false },
 ];
 
 export default function MeetingsListPanel({ orgId }) {
@@ -77,7 +79,7 @@ export default function MeetingsListPanel({ orgId }) {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
-                      {LINKS.map((link) => (
+                      {LINKS.filter((link) => !link.activeOnly || isActiveMeeting(m)).map((link) => (
                         <Link
                           key={link.path}
                           to={`${link.path}?meetingId=${encodeURIComponent(id)}`}

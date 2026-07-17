@@ -695,8 +695,9 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PORT:-3005}
-      JWT_SECRET: ${JWT_SECRET}
-      MONGODB_URI: ${MONGODB_URI}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
+      # Huy: bắt buộc từ services/voice-service/.env (deploy-stack.sh source trước). Rỗng → Mongo fail + CORS block.
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -708,7 +709,7 @@ services:
       FRIEND_SERVICE_URL: ${FRIEND_SERVICE_URL}
       SOCKET_SERVICE_URL: ${SOCKET_SERVICE_URL}
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL}
-      CORS_ORIGIN: ${CORS_ORIGIN}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://voicehub.local}
       VOICE_SIGNAL_PATH: /voice-socket
       MEDIASOUP_LISTEN_IP: ${MEDIASOUP_LISTEN_IP:-0.0.0.0}
       MEDIASOUP_ANNOUNCED_IP: ${MEDIASOUP_ANNOUNCED_IP}

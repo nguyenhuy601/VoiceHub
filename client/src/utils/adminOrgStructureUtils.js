@@ -7,6 +7,16 @@ export function unitName(row, fallback = '—') {
   return String(row?.name || '').trim() || fallback;
 }
 
+/** headId từ flatten hoặc field `head` thô từ GET /structure. */
+export function departmentHeadId(row) {
+  return String(row?.headId || row?.head?._id || row?.head || '').trim() || null;
+}
+
+/** leaderId từ flatten hoặc field `leader` thô. */
+export function teamLeaderId(row) {
+  return String(row?.leaderId || row?.leader?._id || row?.leader || '').trim() || null;
+}
+
 function pushUnique(list, seen, row) {
   const id = unitId(row);
   if (!id || seen.has(id)) return false;
