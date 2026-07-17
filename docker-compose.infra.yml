@@ -60,9 +60,10 @@ services:
 
     container_name: enterprise-meilisearch
 
-    ports:
-
-      - "7700:7700"
+    # Không publish ra host — Windows Hyper-V thường reserve dải ~7600–7800.
+    # Service trong mạng Docker vẫn gọi meilisearch:7700 bình thường.
+    expose:
+      - "7700"
 
     environment:
 
