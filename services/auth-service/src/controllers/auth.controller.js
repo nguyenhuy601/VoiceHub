@@ -5,6 +5,11 @@ const { resolveFrontendUrl } = require('@enterprise/shared');
 const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const { requireParam } = require('../utils/validateInput');
+const {
+  readRefreshTokenFromReq,
+  setRefreshCookie,
+  clearRefreshCookie,
+} = require('../utils/refreshCookie');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'AUTH_INTERNAL_ERROR');
@@ -160,6 +165,11 @@ class AuthController {
 
       const result = await authService.login(email, password);
       attemptedUserId = result?.user?.id || result?.user?.userId || result?.userId || null;
+
+      // Refresh token is HttpOnly cookie only (opaque refresh -> stored as hash server-side).
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
       void adminUserService.recordLoginEvent({
         userId: attemptedUserId,
         success: true,
@@ -167,9 +177,10 @@ class AuthController {
         userAgent,
       });
 
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
       res.json({
         success: true,
-        data: result,
+        data: safeData,
       });
     } catch (error) {
       void adminUserService.recordLoginEvent({
@@ -186,20 +197,26 @@ class AuthController {
   // Refresh token
   async refreshToken(req, res) {
     try {
-      const { refreshToken } = req.body;
-
-      if (!refreshToken) {
-        return res.status(400).json({
-          success: false,
-          message: 'Refresh token is required',
+      const refreshTokenRaw = readRefreshTokenFromReq(req);
+      if (!refreshTokenRaw) {
+        return sendServiceError(res, 401, {
+          errorCode: 'AUTH_REFRESH_INVALID',
+          messageUser: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.',
+          message: 'Refresh token is required (HttpOnly cookie missing)',
         });
       }
 
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken(refreshTokenRaw);
+
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
+
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
 
       res.json({
         success: true,
-        data: result,
+        data: safeData,
       });
     } catch (error) {
       return sendError(res, error, 401, 'Làm mới phiên thất bại', 'AUTH_REFRESH_FAILED');
@@ -219,6 +236,7 @@ class AuthController {
       }
 
       await authService.logout(userId);
+      clearRefreshCookie(res, req);
 
       res.json({
         success: true,
@@ -251,10 +269,18 @@ class AuthController {
 
       const result = await authService.changePassword(userId, oldPassword, newPassword);
 
+      // Khi đổi mật khẩu, refresh token được rotate/bump tokenVersion.
+      // Vì refresh token nằm trong HttpOnly cookie nên phải update cookie để silent-refresh tiếp tục hoạt động.
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
+
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
+
       res.json({
         success: true,
         message: 'Password changed successfully',
-        data: result,
+        data: safeData,
       });
     } catch (error) {
       return sendError(res, error, 400, 'Đổi mật khẩu thất bại', 'AUTH_CHANGE_PASSWORD_FAILED');

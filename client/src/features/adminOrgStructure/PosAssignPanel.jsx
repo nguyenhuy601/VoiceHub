@@ -1,4 +1,4 @@
-/** Huy: Domain Cơ cấu tổ chức — admin org-structure */
+/** Position (HR) — admin RBAC */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -65,10 +65,10 @@ export default function PosAssignPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.orgStructure.posAssign')} hint={t('adminOrg.posAssignHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.rbac.posAssign')} hint={t('adminOrg.posAssignHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminOrg.posAssignUserHint')} />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.posAssign')}>
+        <AdminUserFormCard title={t('adminDomains.rbac.posAssign')}>
           <form className="space-y-4" onSubmit={save}>
             <div className="flex flex-wrap gap-3 text-sm">
               <label className="inline-flex items-center gap-2">
@@ -124,7 +124,7 @@ export default function PosAssignPanel({ orgId }) {
               disabled={saving || !userId || !jobTitle}
               className={adminPrimaryBtnClass()}
             >
-              {saving ? t('common.saving') : t('adminDomains.orgStructure.posAssign')}
+              {saving ? t('common.saving') : t('adminDomains.rbac.posAssign')}
             </button>
           </form>
         </AdminUserFormCard>

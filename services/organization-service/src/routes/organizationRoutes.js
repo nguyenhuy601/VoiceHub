@@ -40,6 +40,77 @@ router.put(
 
 router.get('/:orgId/accessible-channel-ids', organizationController.getAccessibleChannelIds);
 router.get('/:orgId/task-workspace-scope', organizationController.getTaskWorkspaceScope);
+
+const orgRoleAdminController = require('../controllers/orgRoleAdmin.controller');
+router.get(
+  '/:orgId/org-roles',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.listCatalog
+);
+router.post(
+  '/:orgId/org-roles',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.createCatalog
+);
+router.patch(
+  '/:orgId/org-roles/:roleId',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.updateCatalog
+);
+router.delete(
+  '/:orgId/org-roles/:roleId',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.deleteCatalog
+);
+
+router.get(
+  '/:orgId/org-role-assignments',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.listAssignments
+);
+router.put(
+  '/:orgId/org-role-assignments',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.setAssignments
+);
+
+const responsibilityController = require('../controllers/responsibilityController');
+router.get(
+  '/:orgId/responsibilities',
+  authorize(['owner', 'admin']),
+  responsibilityController.list
+);
+router.post(
+  '/:orgId/responsibilities',
+  authorize(['owner', 'admin']),
+  responsibilityController.create
+);
+router.post(
+  '/:orgId/responsibilities/seed-default',
+  authorize(['owner', 'admin']),
+  responsibilityController.seed
+);
+router.patch(
+  '/:orgId/responsibilities/:key',
+  authorize(['owner', 'admin']),
+  responsibilityController.patch
+);
+router.get(
+  '/:orgId/responsibilities/users-by-key/:key',
+  authorize(['owner', 'admin']),
+  responsibilityController.usersByKey
+);
+router.get(
+  '/:orgId/responsibilities/users/:userId',
+  authorize(['owner', 'admin']),
+  responsibilityController.getUser
+);
+router.put(
+  '/:orgId/responsibilities/users/:userId',
+  authorize(['owner', 'admin']),
+  responsibilityController.putUser
+);
+
 router.get(
   '/:orgId/channels/:channelId/access',
   authorize(['owner', 'admin']),

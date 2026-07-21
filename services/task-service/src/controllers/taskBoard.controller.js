@@ -120,7 +120,14 @@ class TaskBoardController {
       const { boardId } = req.params;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId)) return boardValidation(res, 'boardId không hợp lệ');
-      const data = await boardService.listBoardAssignableMembers({ userId, boardId });
+      const data = await boardService.listBoardAssignableMembers({
+        userId,
+        boardId,
+        responsibilityKey: req.query?.responsibilityKey,
+        evaluateCanAssign:
+          req.query?.evaluateCanAssign === '1' ||
+          req.query?.evaluateCanAssign === 'true',
+      });
       return res.json({ success: true, data });
     } catch (err) {
       return sendError(res, err, 403, 'Không thể tải danh sách thành viên', 'TASK_BOARD_MEMBERS_FAILED');
@@ -369,6 +376,8 @@ class TaskBoardController {
         ownerTeamId,
         attachments,
         status,
+        taskType: req.body?.taskType,
+        assignments: req.body?.assignments,
       });
       return res.json({ success: true, data });
     } catch (err) {

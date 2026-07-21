@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import {
   findAdminNavItem,
   flattenAdminNavItems,
+  normalizeAdminPath,
   resolveAdminDomainFromPath,
 } from '../../config/adminDomainsConfig';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
@@ -11,12 +12,17 @@ import UsersListPanel from '../../features/adminUsers/UsersListPanel';
 import UserCreatePanel from '../../features/adminUsers/UserCreatePanel';
 import UserEditPanel from '../../features/adminUsers/UserEditPanel';
 import UserDeletePanel from '../../features/adminUsers/UserDeletePanel';
-import UserLockPanel from '../../features/adminUsers/UserLockPanel';
-import UserResetPasswordPanel from '../../features/adminUsers/UserResetPasswordPanel';
-import UserForcePasswordPanel from '../../features/adminUsers/UserForcePasswordPanel';
 import UserImportPanel from '../../features/adminUsers/UserImportPanel';
 import UserAssignOrgPanel from '../../features/adminUsers/UserAssignOrgPanel';
-import UserLoginHistoryPanel from '../../features/adminUsers/UserLoginHistoryPanel';
+import AccountsListPanel from '../../features/adminAccounts/AccountsListPanel';
+import AccountDetailPanel from '../../features/adminAccounts/AccountDetailPanel';
+import AccountLockPanel from '../../features/adminAccounts/AccountLockPanel';
+import AccountResetPasswordPanel from '../../features/adminAccounts/AccountResetPasswordPanel';
+import AccountForcePasswordPanel from '../../features/adminAccounts/AccountForcePasswordPanel';
+import AccountSetPasswordPanel from '../../features/adminAccounts/AccountSetPasswordPanel';
+import AccountRevokeSessionsPanel from '../../features/adminAccounts/AccountRevokeSessionsPanel';
+import AccountResendVerificationPanel from '../../features/adminAccounts/AccountResendVerificationPanel';
+import AccountLoginHistoryPanel from '../../features/adminAccounts/AccountLoginHistoryPanel';
 import RolesListPanel from '../../features/adminRbac/RolesListPanel';
 import RolesHierarchyPanel from '../../features/adminRbac/RolesHierarchyPanel';
 import RoleCreatePanel from '../../features/adminRbac/RoleCreatePanel';
@@ -26,6 +32,23 @@ import RolePermissionsPanel from '../../features/adminRbac/RolePermissionsPanel'
 import RoleAssignPanel from '../../features/adminRbac/RoleAssignPanel';
 import RoleRevokePanel from '../../features/adminRbac/RoleRevokePanel';
 import RolesMatrixPanel from '../../features/adminRbac/RolesMatrixPanel';
+import RbacTaxonomyHubPanel from '../../features/adminRbac/RbacTaxonomyHubPanel';
+import ResponsibilityListPanel from '../../features/adminRbac/ResponsibilityListPanel';
+import ResponsibilityAssignPanel from '../../features/adminRbac/ResponsibilityAssignPanel';
+import RbacOrgRoleCatalogPanel from '../../features/adminRbac/RbacOrgRoleCatalogPanel';
+import RbacOrgRoleDirectoryPanel from '../../features/adminRbac/RbacOrgRoleDirectoryPanel';
+import RbacOrgRoleLookupPanel from '../../features/adminRbac/RbacOrgRoleLookupPanel';
+import RbacProjectRoleCatalogPanel from '../../features/adminRbac/RbacProjectRoleCatalogPanel';
+import RbacProjectRoleBoardPanel from '../../features/adminRbac/RbacProjectRoleBoardPanel';
+import OrgRoleListPanel from '../../features/adminRbac/OrgRoleListPanel';
+import OrgRoleCreatePanel from '../../features/adminRbac/OrgRoleCreatePanel';
+import OrgRoleEditPanel from '../../features/adminRbac/OrgRoleEditPanel';
+import OrgRoleDeletePanel from '../../features/adminRbac/OrgRoleDeletePanel';
+import OrgRoleAssignPanel from '../../features/adminRbac/OrgRoleAssignPanel';
+import ProjectRoleListPanel from '../../features/adminRbac/ProjectRoleListPanel';
+import ProjectRoleCreatePanel from '../../features/adminRbac/ProjectRoleCreatePanel';
+import ProjectRoleEditPanel from '../../features/adminRbac/ProjectRoleEditPanel';
+import ProjectRoleDeletePanel from '../../features/adminRbac/ProjectRoleDeletePanel';
 import VoiceRoomsListPanel from '../../features/adminVoice/VoiceRoomsListPanel';
 import VoiceManageRoomsPanel from '../../features/adminVoice/VoiceManageRoomsPanel';
 import MeetingsListPanel from '../../features/adminVoice/MeetingsListPanel';
@@ -37,6 +60,18 @@ import {
   MeetingAiSummaryPanel,
 } from '../../features/adminVoice/MeetingArtifactPanels';
 import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
+import TasksProjectsBoardsPanel from '../../features/adminTasks/TasksProjectsBoardsPanel';
+import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPanel';
+import TasksDelegationPanel from '../../features/adminTasks/TasksDelegationPanel';
+import TasksBriefsPanel from '../../features/adminTasks/TasksBriefsPanel';
+import TasksManagePanel from '../../features/adminTasks/TasksManagePanel';
+import TasksStatusPriorityPanel from '../../features/adminTasks/TasksStatusPriorityPanel';
+import TasksExportPanel from '../../features/adminTasks/TasksExportPanel';
+import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel';
+import TasksTransferInfoPanel from '../../features/adminTasks/TasksTransferInfoPanel';
+import TasksSprintsPanel from '../../features/adminTasks/TasksSprintsPanel';
+import TasksWorkflowPanel from '../../features/adminTasks/TasksWorkflowPanel';
+import TasksTransferPanel from '../../features/adminTasks/TasksTransferPanel';
 import {
   DeptListPanel,
   DeptCreatePanel,
@@ -76,15 +111,43 @@ const USER_PANELS = {
   'users-create': UserCreatePanel,
   'users-edit': UserEditPanel,
   'users-delete': UserDeletePanel,
-  'users-lock': UserLockPanel,
-  'users-reset-password': UserResetPasswordPanel,
-  'users-force-password': UserForcePasswordPanel,
   'users-import': UserImportPanel,
   'users-assign-org': UserAssignOrgPanel,
-  'users-login-history': UserLoginHistoryPanel,
+};
+
+const ACCOUNT_PANELS = {
+  'accounts-list': AccountsListPanel,
+  'accounts-detail': AccountDetailPanel,
+  'accounts-lock': AccountLockPanel,
+  'accounts-reset-password': AccountResetPasswordPanel,
+  'accounts-force-password': AccountForcePasswordPanel,
+  'accounts-set-password': AccountSetPasswordPanel,
+  'accounts-revoke-sessions': AccountRevokeSessionsPanel,
+  'accounts-resend-verification': AccountResendVerificationPanel,
+  'accounts-login-history': AccountLoginHistoryPanel,
 };
 
 const RBAC_PANELS = {
+  'rbac-taxonomy': RbacTaxonomyHubPanel,
+  'rbac-pos-list': PosListPanel,
+  'rbac-pos-create': PosCreatePanel,
+  'rbac-pos-edit': PosEditPanel,
+  'rbac-pos-disable': PosDisablePanel,
+  'rbac-pos-assign': PosAssignPanel,
+  'rbac-org-role-catalog': RbacOrgRoleCatalogPanel,
+  'rbac-org-role-list': OrgRoleListPanel,
+  'rbac-org-role-create': OrgRoleCreatePanel,
+  'rbac-org-role-edit': OrgRoleEditPanel,
+  'rbac-org-role-delete': OrgRoleDeletePanel,
+  'rbac-org-role-assign': OrgRoleAssignPanel,
+  'rbac-org-role-directory': RbacOrgRoleDirectoryPanel,
+  'rbac-org-role-lookup': RbacOrgRoleLookupPanel,
+  'rbac-project-role-catalog': RbacProjectRoleCatalogPanel,
+  'rbac-project-role-list': ProjectRoleListPanel,
+  'rbac-project-role-create': ProjectRoleCreatePanel,
+  'rbac-project-role-edit': ProjectRoleEditPanel,
+  'rbac-project-role-delete': ProjectRoleDeletePanel,
+  'rbac-project-role-board': RbacProjectRoleBoardPanel,
   'rbac-list': RolesListPanel,
   'rbac-hierarchy': RolesHierarchyPanel,
   'rbac-create': RoleCreatePanel,
@@ -94,6 +157,8 @@ const RBAC_PANELS = {
   'rbac-assign': RoleAssignPanel,
   'rbac-revoke': RoleRevokePanel,
   'rbac-matrix': RolesMatrixPanel,
+  'rbac-responsibility-list': ResponsibilityListPanel,
+  'rbac-responsibility-assign': ResponsibilityAssignPanel,
 };
 
 const VOICE_PANELS = {
@@ -136,16 +201,33 @@ const ORG_PANELS = {
   'org-division-edit': DivisionEditPanel,
   'org-division-disable': DivisionDisablePanel,
   'org-division-dept': DivisionDeptPanel,
-  'org-pos-list': PosListPanel,
-  'org-pos-create': PosCreatePanel,
-  'org-pos-edit': PosEditPanel,
-  'org-pos-disable': PosDisablePanel,
-  'org-pos-assign': PosAssignPanel,
+};
+
+const TASK_PANELS = {
+  'tasks-boards': TasksProjectsBoardsPanel,
+  'tasks-project-team': TasksProjectTeamPanel,
+  'tasks-delegation': TasksDelegationPanel,
+  'tasks-briefs': TasksBriefsPanel,
+  'tasks-manage': TasksManagePanel,
+  'tasks-status-priority': TasksStatusPriorityPanel,
+  'tasks-export': TasksExportPanel,
+  'tasks-coming-soon': TasksComingSoonPanel,
+  'tasks-transfer-info': TasksTransferInfoPanel,
+  'tasks-sprints': TasksSprintsPanel,
+  'tasks-workflow': TasksWorkflowPanel,
+  'tasks-transfer': TasksTransferPanel,
 };
 
 export default function AdminDomainPage() {
   const location = useLocation();
   const { orgId } = useCompanyAdminContext();
+  const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
+  const normalizedPath = normalizeAdminPath(location.pathname);
+  if (normalizedPath !== currentPath) {
+    return (
+      <Navigate to={`${normalizedPath}${location.search}${location.hash}`} replace />
+    );
+  }
   const match = findAdminNavItem(location.pathname);
 
   if (!match) {
@@ -166,6 +248,11 @@ export default function AdminDomainPage() {
     return <OrgPanel orgId={orgId} />;
   }
 
+  const TaskPanel = TASK_PANELS[impl];
+  if (TaskPanel) {
+    return <TaskPanel orgId={orgId} />;
+  }
+
   const VoicePanel = VOICE_PANELS[impl];
   if (VoicePanel) {
     return <VoicePanel orgId={orgId} />;
@@ -174,6 +261,11 @@ export default function AdminDomainPage() {
   const RbacPanel = RBAC_PANELS[impl];
   if (RbacPanel) {
     return <RbacPanel orgId={orgId} />;
+  }
+
+  const AccountPanel = ACCOUNT_PANELS[impl];
+  if (AccountPanel) {
+    return <AccountPanel orgId={orgId} />;
   }
 
   const Panel = USER_PANELS[impl];

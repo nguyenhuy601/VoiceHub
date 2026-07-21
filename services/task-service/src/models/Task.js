@@ -24,6 +24,36 @@ const taskSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
+    /**
+     * Multi-slot assignments (P6). Dual-write: primary.userId ↔ assigneeId.
+     * slot: primary | reviewer | approver | collaborator | qa_owner | devops_owner | watcher
+     */
+    assignments: {
+      type: [
+        {
+          userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          slot: {
+            type: String,
+            enum: [
+              'primary',
+              'reviewer',
+              'approver',
+              'collaborator',
+              'qa_owner',
+              'devops_owner',
+              'watcher',
+            ],
+            default: 'primary',
+          },
+          projectRoleId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'ProjectRole',
+            default: null,
+          },
+        },
+      ],
+      default: [],
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
@@ -66,6 +96,21 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Sprint gắn thẻ (nullable). */
+    sprintId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Sprint',
+      default: null,
+      index: true,
+    },
+    /** Responsibility key (org catalog) — gợi ý assignee. */
+    responsibilityKey: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: '',
+      index: true,
+    },
     listId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'TaskBoardList',
@@ -84,8 +129,9 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['todo', 'in_progress', 'review', 'done', 'cancelled'],
+      trim: true,
       default: 'todo',
+      index: true,
     },
     priority: {
       type: String,

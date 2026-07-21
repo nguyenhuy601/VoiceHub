@@ -14,23 +14,17 @@ const sections = [
   { id: 'branches' },
 ];
 
-test('not setup shows only positions', () => {
+test('not setup hides all hierarchy sections', () => {
   const out = filterOrgStructureSections(sections, [], { setupCompleted: false });
-  assert.deepEqual(
-    out.map((s) => s.id),
-    ['positions']
-  );
+  assert.deepEqual(out.map((s) => s.id), []);
 });
 
 test('setup unknown (loading) hides hierarchy', () => {
   const out = filterOrgStructureSections(sections, [], {});
-  assert.deepEqual(
-    out.map((s) => s.id),
-    ['positions']
-  );
+  assert.deepEqual(out.map((s) => s.id), []);
 });
 
-test('legacy compat levels shows branch division department team + positions, hides dynamic', () => {
+test('legacy compat levels shows branch division department team, hides dynamic and positions', () => {
   const levels = [
     { key: 'branch', enabled: true },
     { key: 'division', enabled: true },
@@ -40,10 +34,11 @@ test('legacy compat levels shows branch division department team + positions, hi
   const ids = filterOrgStructureSections(sections, levels, { setupCompleted: true }).map((s) => s.id);
   assert.deepEqual(
     ids.sort(),
-    ['branches', 'departments', 'divisions', 'positions', 'teams'].sort()
+    ['branches', 'departments', 'divisions', 'teams'].sort()
   );
   assert.ok(!ids.includes('dynamic'));
-  assert.ok(ORG_STRUCTURE_ALWAYS_SECTIONS.has('positions'));
+  assert.ok(!ids.includes('positions'));
+  assert.ok(!ORG_STRUCTURE_ALWAYS_SECTIONS.has('positions'));
 });
 
 test('functional template hides branch and division; hides dynamic', () => {
@@ -55,9 +50,9 @@ test('functional template hides branch and division; hides dynamic', () => {
   assert.ok(!ids.includes('branches'));
   assert.ok(!ids.includes('divisions'));
   assert.ok(!ids.includes('dynamic'));
+  assert.ok(!ids.includes('positions'));
   assert.ok(ids.includes('departments'));
   assert.ok(ids.includes('teams'));
-  assert.ok(ids.includes('positions'));
 });
 
 test('enterprise-software hides branch; shows division department team', () => {
@@ -69,9 +64,10 @@ test('enterprise-software hides branch; shows division department team', () => {
   const ids = filterOrgStructureSections(sections, levels, { setupCompleted: true }).map((s) => s.id);
   assert.ok(!ids.includes('branches'));
   assert.ok(!ids.includes('dynamic'));
+  assert.ok(!ids.includes('positions'));
   assert.deepEqual(
     ids.sort(),
-    ['departments', 'divisions', 'positions', 'teams'].sort()
+    ['departments', 'divisions', 'teams'].sort()
   );
 });
 

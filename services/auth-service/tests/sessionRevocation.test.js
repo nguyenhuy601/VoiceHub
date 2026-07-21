@@ -3,6 +3,13 @@ const assert = require('node:assert/strict');
 
 describe('session revocation helpers', () => {
   const savedEnv = {};
+  const redisConfigPath = (() => {
+    try {
+      return require.resolve('@enterprise/shared/config/redis');
+    } catch {
+      return null;
+    }
+  })();
 
   beforeEach(() => {
     for (const key of ['JWT_REFRESH_SECRET', 'REFRESH_TOKEN_PEPPER', 'JWT_REFRESH_EXPIRES_IN']) {
@@ -14,6 +21,15 @@ describe('session revocation helpers', () => {
     delete require.cache[require.resolve('../src/utils/refreshTokenHash')];
     delete require.cache[require.resolve('../src/utils/jwtDuration')];
     delete require.cache[require.resolve('../src/utils/tokenVersion')];
+
+    // Avoid real Redis connections in unit tests (keep event loop clean).
+    if (redisConfigPath) {
+      require.cache[redisConfigPath] = {
+        exports: {
+          getRedisClient: () => null,
+        },
+      };
+    }
   });
 
   afterEach(() => {
@@ -25,6 +41,10 @@ describe('session revocation helpers', () => {
     delete require.cache[require.resolve('../src/utils/refreshTokenHash')];
     delete require.cache[require.resolve('../src/utils/jwtDuration')];
     delete require.cache[require.resolve('../src/utils/tokenVersion')];
+
+    if (redisConfigPath && require.cache[redisConfigPath]) {
+      delete require.cache[redisConfigPath];
+    }
   });
 
   it('hashRefreshToken is stable and refreshTokenMatches supports legacy plaintext', () => {

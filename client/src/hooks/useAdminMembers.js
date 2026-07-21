@@ -1,71 +1,62 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
-import { organizationAPI } from '../services/api/organizationAPI';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useAppStrings } from '../locales/appStrings';
-import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
-import { memberUserId, unwrapApi } from '../utils/adminUserUtils';
+import { memberUserId } from '../utils/adminUserUtils';
+import {
+  fetchAdminMembers,
+  getAdminMembersSnapshot,
+  removeAdminMember,
+  subscribeAdminMembers,
+} from '../stores/adminMembersStore';
 
 export function useAdminMembers(orgId) {
   const { t } = useAppStrings();
-  const [members, setMembers] = useState([]);
-  const [roles, setRoles] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const [membersByIdAll, setMembersByIdAll] = useState(() => new Map());
+  const getSnapshot = useCallback(() => getAdminMembersSnapshot(orgId), [orgId]);
 
-  const loadMembers = useCallback(async () => {
-    if (!orgId) return;
-    setLoading(true);
-    try {
-      const res = await organizationAPI.getMembersWithRoles(orgId);
-      const data = unwrapApi(res);
-      const bundle = data?.data ?? data;
-      const list = bundle?.members || bundle;
-      const all = Array.isArray(list) ? list : [];
-      // Ẩn tài khoản hệ thống (systemRole=admin) khỏi danh sách quản lý user.
-      const visible = all.filter(
-        (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
-      );
-      setMembers(visible);
-      setRoles(Array.isArray(bundle?.roles) ? bundle.roles : []);
-      // Map đầy đủ để resolve tên trưởng phòng/nhóm kể cả user bị ẩn khỏi list.
-      const byId = new Map();
-      for (const m of all) {
-        const id = memberUserId(m);
-        if (id) byId.set(id, m);
-      }
-      setMembersByIdAll(byId);
-    } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.loadMembersFail') }));
-      setMembers([]);
-      setRoles([]);
-      setMembersByIdAll(new Map());
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId, t]);
+  const snapshot = useSyncExternalStore(
+    (cb) => subscribeAdminMembers(orgId, cb),
+    getSnapshot,
+    getSnapshot
+  );
+
+  const loadMembers = useCallback(
+    () => fetchAdminMembers(orgId, { t: tRef.current }),
+    [orgId]
+  );
 
   useEffect(() => {
-    loadMembers();
-  }, [loadMembers]);
+    if (!orgId) return undefined;
+    fetchAdminMembers(orgId, { t: tRef.current });
+    return undefined;
+  }, [orgId]);
 
   const membersById = useMemo(() => {
     const map = new Map();
-    for (const m of members) {
+    for (const m of snapshot.members) {
       const id = memberUserId(m);
       if (id) map.set(id, m);
     }
     return map;
-  }, [members]);
+  }, [snapshot.members]);
+
+  const removeMemberLocally = useCallback(
+    (userId) => {
+      removeAdminMember(orgId, userId);
+    },
+    [orgId]
+  );
 
   return {
-    members,
-    roles,
-    loading,
+    members: snapshot.members,
+    roles: snapshot.roles,
+    loading: snapshot.loading,
     loadMembers,
+    removeMemberLocally,
     membersById,
     /** Lookup tên (gồm system admin) — dùng cột Trưởng phòng / Trưởng nhóm. */
-    membersByIdAll,
+    membersByIdAll: snapshot.membersByIdAll,
   };
 }
 

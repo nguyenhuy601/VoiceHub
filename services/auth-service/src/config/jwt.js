@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m';
@@ -27,6 +28,13 @@ const generateRefreshToken = (payload) => {
   });
 };
 
+// Tạo refresh token opaque (không chứa claim/không verify signature).
+// Vẫn lưu dạng hash trong DB/Redis như refresh token hiện tại.
+const generateOpaqueRefreshToken = () => {
+  // 32 bytes -> 64 hex chars; đủ entropy cho refresh token session.
+  return crypto.randomBytes(32).toString('hex');
+};
+
 // Verify access token
 const verifyAccessToken = (token) => {
   try {
@@ -53,6 +61,7 @@ const decodeToken = (token) => {
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
+  generateOpaqueRefreshToken,
   verifyAccessToken,
   verifyRefreshToken,
   decodeToken,

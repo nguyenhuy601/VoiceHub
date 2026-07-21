@@ -888,13 +888,14 @@ export const pageStrings = {
       aiProjectListsPreview: 'List sẽ tạo',
       aiProjectCreateConfirm: 'Tạo dự án (AI)',
       aiAssignTeam: 'AI giao việc',
-      aiAssignTeamHint: 'Gợi ý thẻ theo team; TL duyệt rồi mới gán NV (chuẩn vàng 2 tầng)',
+      aiAssignTeamHint:
+        'Gợi ý thẻ theo Project Role; Assignment Engine (Delegation Graph) quyết định ai được giao việc — không phụ thuộc chức danh HR.',
       aiAssignConfirm: 'Tạo thẻ đã chọn',
       aiAssignSuccess: 'Đã tạo thẻ từ AI',
       aiAssignFail: 'Không giao việc bằng AI được',
       briefCreateTitle: 'Giao dự án & chỉ định PM',
       briefCreateHint:
-        'Chỉ Ban giám đốc (Owner/Admin) giao dự án và chỉ định PM. PM tạo bảng, giao việc lớn theo team; Trưởng team mới gán nhân viên.',
+        'Owner/Admin giao dự án và chỉ định PM (Project Role). Phân công trong project theo Project Team + Delegation Graph, không theo cây Trưởng team HR.',
       briefTitleLabel: 'Tên dự án',
       briefTitlePh: 'VD: Triển khai ERP khách Á Âu Q3',
       briefBodyLabel: 'Tóm tắt hợp đồng / phạm vi',
@@ -924,11 +925,13 @@ export const pageStrings = {
       briefEmpty: 'Chưa có dự án đang giao',
       briefAcceptFail: 'Đã tạo board nhưng chưa gắn dự án giao',
       assignNeedTeamFirst:
-        'Gắn team cho thẻ trước khi gán nhân viên (PM giao theo team, Trưởng team mới gán NV).',
+        'Gắn team (swimlane) tuỳ chọn. Quyền gán nhân viên do Assignment Engine / Project Role quyết định.',
       assignOnlyTeamLead:
-        'Chỉ Trưởng team của team được gán mới được chỉ định nhân viên trên thẻ này.',
+        'Không có cạnh CanAssign phù hợp trên Delegation Graph của project (hoặc thiếu Project Role).',
+      assignDelegationDenied:
+        'Không được giao việc: thiếu cạnh CanAssign giữa Project Role của bạn và người nhận trên project này.',
       boardEmptyHint:
-        'Phòng này chưa có bảng công việc. Ban giám đốc dùng «Giao dự án / PM» để khởi tạo; PM tạo bảng và giao việc theo team.',
+        'Phòng này chưa có bảng công việc. Ban giám đốc dùng «Giao dự án / PM» để khởi tạo; PM cấu hình Project Team và giao việc theo Delegation Graph.',
       boardSelectHint: 'Chọn một bảng công việc để xem danh sách và tiến độ.',
       createBoardBtn: 'Tạo Task Board',
       createBoardDenied: 'Bạn không có quyền tạo Task Board trong phạm vi này',
@@ -1993,6 +1996,8 @@ export const pageStrings = {
       settingsSpeakerMenu: 'Cài đặt loa',
       recordMeetingStart: 'Bắt đầu ghi âm',
       recordMeetingStop: 'Dừng ghi âm',
+      recordMeetingEmpty:
+        'Không ghi được âm thanh — hãy bật mic, nói vài giây rồi ghi lại',
       recordingActiveBadge: 'REC',
       recordingActiveHint: 'Đang ghi âm cuộc họp',
       recordMeetingServerHint: 'Bật ghi âm để lưu file nghe lại sau cuộc họp.',
@@ -4234,13 +4239,14 @@ export const pageStrings = {
       aiProjectListsPreview: 'Lists to create',
       aiProjectCreateConfirm: 'Create project (AI)',
       aiAssignTeam: 'AI assign work',
-      aiAssignTeamHint: 'Suggest team-scoped cards; TL confirms before assigning people',
+      aiAssignTeamHint:
+        'Suggest cards by Project Role; Assignment Engine (Delegation Graph) decides who can assign — not HR title.',
       aiAssignConfirm: 'Create selected cards',
       aiAssignSuccess: 'Cards created from AI',
       aiAssignFail: 'Could not assign work with AI',
       briefCreateTitle: 'Assign project & appoint PM',
       briefCreateHint:
-        'Only org Owner/Admin assigns a project and appoints a PM. The PM creates the board and assigns large work by team; Team Leads assign people.',
+        'Owner/Admin assigns a project and appoints a PM (Project Role). In-project assignment uses Project Team + Delegation Graph, not HR Team Lead trees.',
       briefTitleLabel: 'Project name',
       briefTitlePh: 'e.g. ERP rollout for client Q3',
       briefBodyLabel: 'Contract / scope summary',
@@ -4270,11 +4276,13 @@ export const pageStrings = {
       briefEmpty: 'No open project assignments',
       briefAcceptFail: 'Board created but project assignment was not linked',
       assignNeedTeamFirst:
-        'Assign a team to the card before assigning a person (PM assigns by team; Team Lead assigns people).',
+        'Team swimlane is optional. Assign rights come from the Assignment Engine / Project Roles.',
       assignOnlyTeamLead:
-        'Only the Team Lead of the assigned team can appoint people on this card.',
+        'No matching CanAssign edge on this project Delegation Graph (or missing Project Role).',
+      assignDelegationDenied:
+        'Cannot assign: no CanAssign edge between your Project Role and the assignee on this project.',
       boardEmptyHint:
-        'This department has no task board yet. Leadership uses «Assign project / PM» to start; the PM creates the board and assigns work by team.',
+        'This department has no task board yet. Leadership uses «Assign project / PM» to start; the PM configures the Project Team and assigns via the Delegation Graph.',
       boardSelectHint: 'Select a task board to view lists and progress.',
       createBoardBtn: 'Create Task Board',
       createBoardDenied: 'You do not have permission to create a Task Board in this scope',
@@ -5338,6 +5346,8 @@ export const pageStrings = {
       settingsSpeakerMenu: 'Speaker settings',
       recordMeetingStart: 'Start recording',
       recordMeetingStop: 'Stop recording',
+      recordMeetingEmpty:
+        'No audio was captured — unmute your mic, speak briefly, then record again',
       recordingActiveBadge: 'REC',
       recordingActiveHint: 'Meeting is being recorded',
       recordMeetingServerHint: 'Enable recording to save audio for playback after the meeting.',

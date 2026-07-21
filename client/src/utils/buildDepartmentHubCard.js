@@ -1,6 +1,12 @@
 import { channelUnreadCount, voicePresenceLabel } from '../components/Organization/organizationStructureTheme';
 import { displayDepartmentName } from './orgEntityDisplay';
 import { channelsForDepartment } from './orgChannelScope';
+import {
+  sanitizeDepartmentDescription,
+  uniqueDepartmentsForHub,
+} from './orgDepartmentHubUtils';
+
+export { sanitizeDepartmentDescription, uniqueDepartmentsForHub, uniqueTeamsForHub } from './orgDepartmentHubUtils';
 
 function asId(value) {
   if (value == null || value === '') return '';
@@ -192,7 +198,7 @@ export function buildDepartmentHubCard({
   return {
     id,
     name,
-    description: String(department?.description || '').trim(),
+    description: sanitizeDepartmentDescription(department?.description),
     initial: String(name).trim().charAt(0).toUpperCase() || 'P',
     memberCount: memberIds.size,
     onlineCount,
@@ -235,7 +241,7 @@ export function buildDepartmentHubCards({
   orgMyRole = '',
   locale = 'vi',
 }) {
-  return departments.map((department) =>
+  return uniqueDepartmentsForHub(departments).map((department) =>
     buildDepartmentHubCard({
       department,
       teams,

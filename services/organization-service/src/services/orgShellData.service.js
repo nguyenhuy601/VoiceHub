@@ -42,6 +42,34 @@ const STRUCTURE_PROVISION = {
   FAILED: 'failed',
 };
 
+/** Giữ department/team theo `_id` lần đầu gặp — bỏ synthetic + bản trùng trong cây. */
+function dedupeDepartmentsInBranchTree(branches = []) {
+  const seenDept = new Set();
+  const seenTeam = new Set();
+  return (Array.isArray(branches) ? branches : []).map((branch) => ({
+    ...branch,
+    divisions: (branch?.divisions || []).map((division) => ({
+      ...division,
+      departments: (division?.departments || []).filter((department) => {
+        if (department?.isSynthetic) return false;
+        const deptId = String(department?._id || department?.id || '').trim();
+        if (!deptId || seenDept.has(deptId)) return false;
+        seenDept.add(deptId);
+        if (Array.isArray(department.teams)) {
+          department.teams = department.teams.filter((team) => {
+            if (team?.isSynthetic) return false;
+            const teamId = String(team?._id || team?.id || '').trim();
+            if (!teamId || seenTeam.has(teamId)) return false;
+            seenTeam.add(teamId);
+            return true;
+          });
+        }
+        return true;
+      }),
+    })),
+  }));
+}
+
 /** Gắn head/leader từ collection legacy lên cây OU đã project — nguồn tin cậy khi OU attributes lệch. */
 function overlayLegacyLeadershipOnBranches(branches, { departments = [], teams = [] } = {}) {
   const headByDept = new Map();
@@ -212,6 +240,9 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
       tree = overlayLegacyLeadershipOnBranches(projected, { departments, teams });
     }
   }
+
+  // Tránh hub FE hiện card trùng khi OU/legacy seed lặp cùng department `_id`.
+  tree = dedupeDepartmentsInBranchTree(tree);
 
   syncHierarchyRoles(orgId, { divisions, departments, teams }).catch(() => null);
 

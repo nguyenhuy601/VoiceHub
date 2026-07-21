@@ -6,9 +6,16 @@ export function isProtectedDefaultChannel(channel) {
   return name === 'general';
 }
 
-/** Kênh gắn team cụ thể */
+/** Kênh gắn team cụ thể (dedupe theo `_id`) */
 export function channelsForTeam(channels, teamId) {
-  return (channels || []).filter((ch) => String(ch.team || '') === String(teamId));
+  const seen = new Set();
+  return (channels || []).filter((ch) => {
+    if (String(ch.team || '') !== String(teamId)) return false;
+    const id = String(ch._id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 /** Kênh chung phòng ban (department có, team null) */
@@ -32,7 +39,11 @@ export function isDeptOnlyChannel(channel) {
   return Boolean(channel?.department) && !String(channel?.team || '');
 }
 
-/** Kênh hiển thị theo ngữ cảnh workspace: team (+ dept parent) hoặc chỉ dept. */
+/**
+ * Kênh theo ngữ cảnh workspace.
+ * Khi chọn team: chỉ kênh của team (không lẫn kênh phòng cùng tên general/voice).
+ * departmentOnly / chỉ dept: kênh chung phòng (team null).
+ */
 export function resolveScopedWorkspaceChannels(
   channels,
   { teamId = '', departmentId = '', departmentOnly = false } = {}
@@ -41,11 +52,7 @@ export function resolveScopedWorkspaceChannels(
   const team = String(teamId || '');
   const dept = String(departmentId || '');
   if (team && !departmentOnly) {
-    return list.filter(
-      (ch) =>
-        String(ch.team || '') === team ||
-        (!String(ch.team || '') && dept && String(ch.department || '') === dept)
-    );
+    return channelsForTeam(list, team);
   }
   if (dept) return channelsForDepartment(list, dept);
   return list;

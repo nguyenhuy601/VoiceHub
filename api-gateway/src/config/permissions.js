@@ -151,6 +151,7 @@ const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
 const ADMIN_SERVICE_AUTH_PREFIXES = [
   '/api/auth/admin',
   '/api/users/admin',
+  '/api/tasks/admin',
 ];
 
 /**
@@ -442,6 +443,9 @@ const AUDITED_CLIENT_API_PATHS = [
   ['POST', '/api/auth/admin/users/user1/lock'],
   ['POST', '/api/auth/admin/users/user1/force-password'],
   ['POST', '/api/auth/admin/users/user1/reset-password'],
+  ['POST', '/api/auth/admin/users/user1/revoke-sessions'],
+  ['POST', '/api/auth/admin/users/user1/set-password'],
+  ['POST', '/api/auth/admin/users/user1/resend-verification'],
   ['GET', '/api/auth/admin/users/user1/login-events'],
   ['GET', '/api/users/admin/user1'],
   ['PATCH', '/api/users/admin/user1'],

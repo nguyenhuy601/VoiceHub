@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const UserAuth = require('../models/UserAuth');
 const AuthLoginEvent = require('../models/AuthLoginEvent');
 const emailService = require('../utils/email');
+const { hashPassword, validatePasswordStrength } = require('../utils/password');
 const { bumpTokenVersion } = require('../utils/tokenVersion');
 const { findUserAuthByEmail, hydrateAuthEmailDoc, readEmailFromStored } = require('../utils/authEmailPii');
 
@@ -47,19 +48,29 @@ async function recordLoginEvent({ userId, success, ip, userAgent, errorCode }) {
   }
 }
 
-async function getAuthSummary(userId) {
-  const userAuth = await findAuthByUserId(userId);
-  if (!userAuth) return null;
-  const email = (await hydrateAuthEmailDoc(userAuth)) || readEmailFromStored(userAuth.email) || null;
+function buildAuthSummaryPayload(userAuth, email) {
+  const lockUntil = userAuth.lockUntil || null;
+  const isRateLocked = Boolean(lockUntil && lockUntil > new Date());
   return {
     userId: normalizeUserId(userAuth.userId),
     email,
     isActive: Boolean(userAuth.isActive),
     mustChangePassword: Boolean(userAuth.mustChangePassword),
     lastLoginAt: userAuth.lastLoginAt || null,
-    isLocked: Boolean(userAuth.isLocked),
+    isLocked: !userAuth.isActive || isRateLocked,
+    isEmailVerified: Boolean(userAuth.isEmailVerified),
+    pendingEmail: userAuth.pendingEmail || null,
+    loginAttempts: Number(userAuth.loginAttempts || 0),
+    lockUntil,
     systemRole: userAuth.systemRole || 'employee',
   };
+}
+
+async function getAuthSummary(userId) {
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) return null;
+  const email = (await hydrateAuthEmailDoc(userAuth)) || readEmailFromStored(userAuth.email) || null;
+  return buildAuthSummaryPayload(userAuth, email);
 }
 
 async function getAuthSummaryBatch(userIds) {
@@ -73,17 +84,13 @@ async function getAuthSummaryBatch(userIds) {
     }
   }
   const rows = await UserAuth.find({ userId: { $in: idVariants } })
-    .select('userId email isActive mustChangePassword lastLoginAt lockUntil systemRole')
+    .select(
+      'userId email isActive mustChangePassword lastLoginAt lockUntil loginAttempts isEmailVerified pendingEmail systemRole'
+    )
     .lean();
-  return rows.map((row) => ({
-    userId: normalizeUserId(row.userId),
-    email: readEmailFromStored(row.email) || null,
-    isActive: Boolean(row.isActive),
-    mustChangePassword: Boolean(row.mustChangePassword),
-    lastLoginAt: row.lastLoginAt || null,
-    isLocked: Boolean(row.lockUntil && row.lockUntil > new Date()),
-    systemRole: row.systemRole || 'employee',
-  }));
+  return rows.map((row) =>
+    buildAuthSummaryPayload(row, readEmailFromStored(row.email) || null)
+  );
 }
 
 async function setUserLocked(userId, locked) {
@@ -149,6 +156,91 @@ async function triggerPasswordReset(userId, frontendUrl) {
   };
 }
 
+async function revokeUserSessions(userId) {
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) {
+    throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
+  }
+  userAuth.refreshToken = null;
+  userAuth.refreshTokenExpiresAt = null;
+  await userAuth.save();
+  await bumpTokenVersion(userAuth);
+  return getAuthSummary(userId);
+}
+
+async function setPasswordByAdmin(userId, { password, mustChangePassword = false } = {}) {
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) {
+    throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
+  }
+  const plainPassword = String(password || '').trim();
+  if (!plainPassword) {
+    throw createServiceError('Mật khẩu không được để trống.', 400, 'AUTH_PASSWORD_REQUIRED');
+  }
+  const validation = validatePasswordStrength(plainPassword);
+  if (!validation.isValid) {
+    throw createServiceError(validation.errors[0] || 'Mật khẩu không hợp lệ.', 400, 'AUTH_PASSWORD_WEAK');
+  }
+  userAuth.password = await hashPassword(plainPassword);
+  userAuth.mustChangePassword = Boolean(mustChangePassword);
+  userAuth.passwordResetToken = null;
+  userAuth.passwordResetExpiresAt = null;
+  await userAuth.save();
+  await bumpTokenVersion(userAuth);
+  return getAuthSummary(userId);
+}
+
+async function resendVerificationByUserId(userId, frontendUrl) {
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) {
+    throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
+  }
+  if (userAuth.isEmailVerified) {
+    return {
+      message: 'Email is already verified',
+      emailScheduled: false,
+      alreadyVerified: true,
+    };
+  }
+
+  const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+  userAuth.emailVerificationToken = emailVerificationToken;
+  userAuth.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await userAuth.save();
+
+  const plainEmail = await hydrateAuthEmailDoc(userAuth);
+  if (!plainEmail) {
+    throw createServiceError('Tài khoản không có email.', 400, 'AUTH_EMAIL_MISSING');
+  }
+
+  let emailScheduled = false;
+  if (emailService.isAvailable()) {
+    const emailResult = await emailService.sendVerificationEmail(
+      plainEmail,
+      emailVerificationToken,
+      frontendUrl
+    );
+    emailScheduled = Boolean(emailResult);
+  }
+
+  const response = {
+    message: 'Verification email sent if account exists',
+    emailScheduled,
+    email: plainEmail,
+  };
+
+  if (!emailScheduled && process.env.NODE_ENV !== 'production') {
+    const baseNormalized = String(
+      (frontendUrl && String(frontendUrl).trim()) ||
+        process.env.FRONTEND_URL ||
+        'http://localhost:5173'
+    ).replace(/\/+$/, '');
+    response.verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(emailVerificationToken)}`;
+  }
+
+  return response;
+}
+
 async function listLoginEvents(userId, { limit = 50, page = 1 } = {}) {
   const uid = normalizeUserId(userId);
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
@@ -183,5 +275,8 @@ module.exports = {
   setUserLocked,
   setMustChangePassword,
   triggerPasswordReset,
+  revokeUserSessions,
+  setPasswordByAdmin,
+  resendVerificationByUserId,
   listLoginEvents,
 };

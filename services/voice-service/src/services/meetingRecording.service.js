@@ -277,7 +277,8 @@ async function applyWorkerResult(meetingId, payload) {
     { $set: update },
     { new: true }
   ).lean();
-  if (payload.tempStoragePath) {
+  // Dùng status đã apply (sau error override), không tin payload.recordingStatus đơn độc.
+  if (payload.tempStoragePath && update.recordingStatus === 'ready') {
     await objectStorage.deleteObject(payload.tempStoragePath);
   }
   return meeting;

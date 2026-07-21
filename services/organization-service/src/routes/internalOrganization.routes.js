@@ -416,4 +416,22 @@ router.post('/purge-all-organizations', async (req, res) => {
   }
 });
 
+/** task-service: userIds có Responsibility key (S2S). */
+router.get('/organizations/:orgId/responsibilities/users', async (req, res) => {
+  try {
+    const organizationId = String(req.params.orgId || '').trim();
+    const key = String(req.query.key || '').trim();
+    if (!organizationId) {
+      return orgValidation(res, 'organizationId is required');
+    }
+    const {
+      listUserIdsByResponsibilityKey,
+    } = require('../services/responsibility.service');
+    const userIds = await listUserIdsByResponsibilityKey(organizationId, key);
+    return res.json({ success: true, data: { userIds } });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 module.exports = router;

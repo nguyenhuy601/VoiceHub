@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Hash,
   Kanban,
+  KeyRound,
   LayoutGrid,
   Lock,
   MessageSquare,
@@ -26,6 +27,7 @@ import { useCompanyAdminContext } from './CompanyAdminLayout';
 
 const DOMAIN_ICONS = {
   Users,
+  KeyRound,
   Building2,
   Shield,
   Hash,

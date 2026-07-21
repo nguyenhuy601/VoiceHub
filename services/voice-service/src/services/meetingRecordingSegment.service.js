@@ -140,7 +140,7 @@ async function applySegmentWorkerResult(segmentId, payload) {
 
   await Meeting.findByIdAndUpdate(segment.meetingId, { $set: meetingUpdate });
 
-  if (payload.tempStoragePath) {
+  if (payload.tempStoragePath && update.status === 'ready') {
     await objectStorage.deleteObject(payload.tempStoragePath);
   }
   return mapSegment(segment);

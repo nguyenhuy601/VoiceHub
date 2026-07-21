@@ -64,6 +64,13 @@ const taskBoardSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    /** WorkflowDefinition gắn board — null = dùng enum status mặc định. */
+    workflowId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'WorkflowDefinition',
+      default: null,
+      index: true,
+    },
     isActive: {
       type: Boolean,
       default: true,

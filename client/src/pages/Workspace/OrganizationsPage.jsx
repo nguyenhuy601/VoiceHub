@@ -946,16 +946,25 @@ function OrganizationsPage({
 
     const depList = [];
     const teamList = [];
+    const seenDeptIds = new Set();
+    const seenTeamIds = new Set();
     const departmentIdToBranchAndDivision = new Map();
     for (const branch of branches) {
       const branchId = branch?._id ? String(branch._id) : '';
       for (const division of branch?.divisions || []) {
         const divisionId = division?._id ? String(division._id) : '';
         for (const department of division?.departments || []) {
-          depList.push(department);
+          if (department?.isSynthetic) continue;
           const deptId = department?._id ? String(department._id) : '';
-          if (deptId) departmentIdToBranchAndDivision.set(deptId, { branchId, divisionId });
+          if (!deptId || seenDeptIds.has(deptId)) continue;
+          seenDeptIds.add(deptId);
+          depList.push(department);
+          departmentIdToBranchAndDivision.set(deptId, { branchId, divisionId });
           for (const team of department?.teams || []) {
+            if (team?.isSynthetic) continue;
+            const teamId = team?._id ? String(team._id) : '';
+            if (!teamId || seenTeamIds.has(teamId)) continue;
+            seenTeamIds.add(teamId);
             teamList.push(team);
           }
         }
@@ -1716,7 +1725,15 @@ function OrganizationsPage({
     try {
       const payload = await organizationAPI.getDepartments(orgId);
       const list = unwrapData(payload);
-      const normalized = Array.isArray(list) ? list : [];
+      const raw = Array.isArray(list) ? list : [];
+      const seen = new Set();
+      const normalized = raw.filter((department) => {
+        if (department?.isSynthetic) return false;
+        const id = String(department?._id || department?.id || '').trim();
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
       setDepartments(normalized);
       setTeams([]);
       setSelectedTeamId('');

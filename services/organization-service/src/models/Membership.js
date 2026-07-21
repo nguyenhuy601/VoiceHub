@@ -43,6 +43,12 @@ const membershipSchema = new mongoose.Schema(
 membershipSchema.index({ user: 1, organization: 1 }, { unique: true });
 membershipSchema.index({ organization: 1, role: 1, status: 1 });
 
+/**
+ * System/Tenant membership only (owner|admin|hr|member).
+ * P1: `department_head` / `team_leader` KHÔNG elevate System admin —
+ * chúng là Organization Role trên People Graph (xem organizationRoles.service).
+ * @see @enterprise/shared/config/roleTaxonomy LEGACY_MEMBERSHIP_ALIAS_DEBT
+ */
 membershipSchema.statics.normalizeRole = (role) => {
   const roleMap = {
     owner: 'owner',
@@ -52,7 +58,7 @@ membershipSchema.statics.normalizeRole = (role) => {
     nhan_su: 'hr',
     member: 'member',
     org_admin: 'admin',
-    department_head: 'admin',
+    department_head: 'member',
     team_leader: 'member',
     employee: 'member',
   };

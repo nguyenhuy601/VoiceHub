@@ -8,9 +8,10 @@ const loginEventPath = path.resolve(__dirname, '../src/models/AuthLoginEvent.js'
 const tokenVersionPath = path.resolve(__dirname, '../src/utils/tokenVersion.js');
 const emailServicePath = path.resolve(__dirname, '../src/utils/email.js');
 const authEmailPiiPath = path.resolve(__dirname, '../src/utils/authEmailPii.js');
+const passwordPath = path.resolve(__dirname, '../src/utils/password.js');
 
 function clearServiceModules() {
-  for (const p of [servicePath, userAuthPath, loginEventPath, tokenVersionPath, emailServicePath, authEmailPiiPath]) {
+  for (const p of [servicePath, userAuthPath, loginEventPath, tokenVersionPath, emailServicePath, authEmailPiiPath, passwordPath]) {
     delete require.cache[p];
   }
 }
@@ -74,6 +75,16 @@ describe('adminUser.service', () => {
         hydrateAuthEmailDoc: async (doc) => doc.email || null,
         readEmailFromStored: (stored) => String(stored || '').trim(),
         findUserAuthByEmail: async () => null,
+      },
+    };
+
+    require.cache[passwordPath] = {
+      exports: {
+        hashPassword: async (pwd) => `hashed:${pwd}`,
+        validatePasswordStrength: (pwd) => ({
+          isValid: String(pwd || '').length >= 8,
+          errors: ['Password too short'],
+        }),
       },
     };
   });
@@ -158,5 +169,147 @@ describe('adminUser.service', () => {
     assert.match(result.resetUrl, /reset-password#token=/);
     assert.ok(doc.passwordResetToken);
     assert.ok(doc.passwordResetExpiresAt);
+  });
+
+  it('getAuthSummary includes email verification fields', async () => {
+    const doc = {
+      userId: 'u-summary',
+      email: 'sum@example.com',
+      isActive: true,
+      isEmailVerified: false,
+      pendingEmail: 'pending@example.com',
+      loginAttempts: 2,
+      lockUntil: null,
+      mustChangePassword: false,
+      lastLoginAt: null,
+      systemRole: 'employee',
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    const summary = await adminUserService.getAuthSummary('u-summary');
+
+    assert.equal(summary.isEmailVerified, false);
+    assert.equal(summary.pendingEmail, 'pending@example.com');
+    assert.equal(summary.loginAttempts, 2);
+    assert.equal(summary.isLocked, false);
+  });
+
+  it('revokeUserSessions clears refresh token and bumps token version', async () => {
+    const doc = {
+      userId: 'u-revoke',
+      isActive: true,
+      refreshToken: 'rt',
+      refreshTokenExpiresAt: new Date(),
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    await adminUserService.revokeUserSessions('u-revoke');
+
+    assert.equal(doc.refreshToken, null);
+    assert.equal(doc.refreshTokenExpiresAt, null);
+    assert.equal(bumpCalls, 1);
+  });
+
+  it('setPasswordByAdmin hashes password and optionally requires change', async () => {
+    const doc = {
+      userId: 'u-pwd',
+      isActive: true,
+      mustChangePassword: false,
+      passwordResetToken: 'old',
+      passwordResetExpiresAt: new Date(),
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    const summary = await adminUserService.setPasswordByAdmin('u-pwd', {
+      password: 'NewPass1!',
+      mustChangePassword: true,
+    });
+
+    assert.equal(doc.password, 'hashed:NewPass1!');
+    assert.equal(doc.mustChangePassword, true);
+    assert.equal(doc.passwordResetToken, null);
+    assert.equal(bumpCalls, 1);
+    assert.equal(summary.mustChangePassword, true);
+  });
+
+  it('resendVerificationByUserId returns alreadyVerified when email verified', async () => {
+    const doc = {
+      userId: 'u-verified',
+      email: 'verified@example.com',
+      isEmailVerified: true,
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    const result = await adminUserService.resendVerificationByUserId('u-verified', 'https://voicehub.local');
+
+    assert.equal(result.alreadyVerified, true);
+    assert.equal(result.emailScheduled, false);
+  });
+
+  it('resendVerificationByUserId schedules token when not verified', async () => {
+    const doc = {
+      userId: 'u-unverified',
+      email: 'unverified@example.com',
+      isEmailVerified: false,
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+    process.env.NODE_ENV = 'development';
+
+    require.cache[emailServicePath] = {
+      exports: {
+        isAvailable: () => false,
+        sendVerificationEmail: async () => false,
+        sendPasswordResetEmail: async () => false,
+      },
+    };
+    clearServiceModules();
+    require.cache[userAuthPath] = {
+      exports: {
+        findOne: async ({ userId }) => savedDocs.find((d) => d.userId === userId) || null,
+        find: () => ({ select: () => ({ lean: async () => [] }) }),
+      },
+    };
+    require.cache[tokenVersionPath] = {
+      exports: { bumpTokenVersion: async () => {} },
+    };
+    require.cache[authEmailPiiPath] = {
+      exports: {
+        hydrateAuthEmailDoc: async (doc) => doc.email || null,
+        readEmailFromStored: (stored) => String(stored || '').trim(),
+        findUserAuthByEmail: async () => null,
+      },
+    };
+    require.cache[passwordPath] = {
+      exports: {
+        hashPassword: async (pwd) => `hashed:${pwd}`,
+        validatePasswordStrength: () => ({ isValid: true, errors: [] }),
+      },
+    };
+
+    const adminUserService = require(servicePath);
+    const result = await adminUserService.resendVerificationByUserId(
+      'u-unverified',
+      'https://voicehub.local'
+    );
+
+    assert.equal(result.emailScheduled, false);
+    assert.match(result.verificationUrl, /verify-email#token=/);
+    assert.ok(doc.emailVerificationToken);
   });
 });

@@ -1,30 +1,123 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
-const { logger } = require('@enterprise/shared');
 
-function resolveConsumerOpusPayloadType(consumer) {
-  const codecs = Array.isArray(consumer?.rtpParameters?.codecs) ? consumer.rtpParameters.codecs : [];
-  const opusCodec =
+let logger = { debug() {}, info() {}, warn() {} };
+try {
+  ({ logger } = require('@enterprise/shared'));
+} catch {
+  /* unit tests may run without package link */
+}
+
+function resolveOpusCodec(rtpParameters) {
+  const codecs = Array.isArray(rtpParameters?.codecs) ? rtpParameters.codecs : [];
+  return (
     codecs.find((c) => String(c?.mimeType || '').toLowerCase() === 'audio/opus') ||
     codecs.find((c) => String(c?.mimeType || '').toLowerCase().startsWith('audio/')) ||
-    codecs[0];
+    codecs[0] ||
+    null
+  );
+}
+
+function resolveConsumerOpusPayloadType(consumer) {
+  const opusCodec = resolveOpusCodec(consumer?.rtpParameters);
   const pt = Number(opusCodec?.payloadType);
   return Number.isFinite(pt) ? pt : 111;
 }
 
-function buildAudioSdp({ rtpPort, rtcpPort, payloadType }) {
-  return [
+/**
+ * Build narrow rtpCapabilities for PlainTransport consume (mediasoup-record pattern).
+ * Full router caps can negotiate RTX/feedback FFmpeg cannot handle.
+ */
+function buildAudioConsumeRtpCapabilities(router, producer) {
+  const routerCodecs = Array.isArray(router?.rtpCapabilities?.codecs)
+    ? router.rtpCapabilities.codecs
+    : [];
+  const producerMime = String(producer?.rtpParameters?.codecs?.[0]?.mimeType || 'audio/opus').toLowerCase();
+  const matched =
+    routerCodecs.find((c) => String(c?.mimeType || '').toLowerCase() === producerMime) ||
+    routerCodecs.find((c) => String(c?.mimeType || '').toLowerCase() === 'audio/opus') ||
+    routerCodecs.find((c) => String(c?.kind || '').toLowerCase() === 'audio');
+
+  if (!matched) {
+    return router.rtpCapabilities;
+  }
+
+  return {
+    codecs: [
+      {
+        ...matched,
+        rtcpFeedback: [],
+      },
+    ],
+    headerExtensions: Array.isArray(router.rtpCapabilities?.headerExtensions)
+      ? router.rtpCapabilities.headerExtensions.filter(
+          (ext) => !ext?.kind || String(ext.kind).toLowerCase() === 'audio'
+        )
+      : [],
+  };
+}
+
+function buildAudioSdp({
+  rtpPort,
+  rtcpPort,
+  payloadType,
+  channels = 2,
+  clockRate = 48000,
+  ssrc,
+  cname = 'voicehub-recorder',
+  fmtpParameters,
+}) {
+  const pt = Number.isFinite(Number(payloadType)) ? Number(payloadType) : 111;
+  const ch = Number.isFinite(Number(channels)) && Number(channels) > 0 ? Number(channels) : 2;
+  const rate = Number.isFinite(Number(clockRate)) && Number(clockRate) > 0 ? Number(clockRate) : 48000;
+  const lines = [
     'v=0',
     'o=- 0 0 IN IP4 127.0.0.1',
     's=voicehub-plain-ffmpeg',
     'c=IN IP4 127.0.0.1',
     't=0 0',
-    `m=audio ${rtpPort} RTP/AVPF ${payloadType}`,
+    `m=audio ${rtpPort} RTP/AVP ${pt}`,
     `a=rtcp:${rtcpPort}`,
-    `a=rtpmap:${payloadType} opus/48000/2`,
-    `a=fmtp:${payloadType} minptime=10;useinbandfec=1`,
-    '',
-  ].join('\r\n');
+    `a=rtpmap:${pt} opus/${rate}/${ch}`,
+  ];
+
+  const fmtp =
+    typeof fmtpParameters === 'string' && fmtpParameters.trim()
+      ? fmtpParameters.trim()
+      : 'minptime=10;useinbandfec=1';
+  lines.push(`a=fmtp:${pt} ${fmtp}`);
+
+  if (ssrc != null && Number.isFinite(Number(ssrc))) {
+    lines.push(`a=ssrc:${Number(ssrc)} cname:${cname}`);
+  }
+  lines.push('a=sendonly');
+  lines.push('');
+  return lines.join('\r\n');
+}
+
+function buildAudioSdpFromConsumer({ rtpPort, rtcpPort, consumer }) {
+  const codec = resolveOpusCodec(consumer?.rtpParameters);
+  const payloadType = Number.isFinite(Number(codec?.payloadType)) ? Number(codec.payloadType) : 111;
+  const channels = Number(codec?.channels) > 0 ? Number(codec.channels) : 2;
+  const clockRate = Number(codec?.clockRate) > 0 ? Number(codec.clockRate) : 48000;
+  const ssrc = consumer?.rtpParameters?.encodings?.[0]?.ssrc;
+  const cname = consumer?.rtpParameters?.rtcp?.cname || 'voicehub-recorder';
+  let fmtpParameters;
+  if (codec?.parameters && typeof codec.parameters === 'object') {
+    fmtpParameters = Object.entries(codec.parameters)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(';');
+  }
+  return buildAudioSdp({
+    rtpPort,
+    rtcpPort,
+    payloadType,
+    channels,
+    clockRate,
+    ssrc,
+    cname,
+    fmtpParameters,
+  });
 }
 
 function waitMs(ms) {
@@ -32,8 +125,8 @@ function waitMs(ms) {
 }
 
 /**
- * mediasoup → ffmpeg: consumer tạm pause, ffmpeg listen trước, rồi resume consumer.
- * SDP phải khớp payload type sau negotiate (consumer.rtpParameters), không dùng producer.
+ * mediasoup → ffmpeg: consumer tạm pause, ffmpeg listen, connect PlainTransport, rồi resume.
+ * SDP phải khớp consumer.rtpParameters (PT, channels, ssrc).
  */
 async function startFfmpegRtpListener({
   room,
@@ -52,26 +145,22 @@ async function startFfmpegRtpListener({
     comedia: false,
   });
 
-  await plainTransport.connect({
-    ip: '127.0.0.1',
-    port: rtpPort,
-    rtcpPort,
-  });
-
   const consumer = await plainTransport.consume({
     producerId: producer.id,
-    rtpCapabilities: room.router.rtpCapabilities,
+    rtpCapabilities: buildAudioConsumeRtpCapabilities(room.router, producer),
     paused: true,
   });
 
   const payloadType = resolveConsumerOpusPayloadType(consumer);
-  fs.writeFileSync(sdpPath, buildAudioSdp({ rtpPort, rtcpPort, payloadType }));
+  fs.writeFileSync(sdpPath, buildAudioSdpFromConsumer({ rtpPort, rtcpPort, consumer }));
 
   const ffmpegArgs = [
     '-loglevel',
     'warning',
     '-protocol_whitelist',
     'file,udp,rtp',
+    '-f',
+    'sdp',
     '-i',
     sdpPath,
     ...ffmpegExtraArgs,
@@ -105,6 +194,12 @@ async function startFfmpegRtpListener({
     2000
   );
   await waitMs(listenWaitMs);
+
+  await plainTransport.connect({
+    ip: '127.0.0.1',
+    port: rtpPort,
+    rtcpPort,
+  });
   await consumer.resume();
 
   return {
@@ -120,5 +215,7 @@ async function startFfmpegRtpListener({
 module.exports = {
   resolveConsumerOpusPayloadType,
   buildAudioSdp,
+  buildAudioSdpFromConsumer,
+  buildAudioConsumeRtpCapabilities,
   startFfmpegRtpListener,
 };

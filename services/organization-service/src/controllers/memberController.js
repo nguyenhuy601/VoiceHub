@@ -25,6 +25,7 @@ const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { resolveFrontendUrl, logger } = require('@enterprise/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
+const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { searchUserByEmail } = require('../clients/userLookup.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');

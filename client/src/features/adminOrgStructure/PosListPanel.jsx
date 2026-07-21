@@ -1,23 +1,28 @@
-/** Huy: Domain Cơ cấu tổ chức — admin org-structure */
+/** Position (HR) — admin RBAC */
 import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
+  AdminUserFormCard,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
+import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../utils/roleTaxonomy';
+
+const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
 function memberJobTitle(member) {
   return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
 }
 
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/positions/edit', labelKey: 'adminDomains.orgStructure.posEdit' },
-  { path: '/app/admin/org-structure/positions/assign', labelKey: 'adminDomains.orgStructure.posAssign' },
-  { path: '/app/admin/org-structure/positions/disable', labelKey: 'adminDomains.orgStructure.posDisable' },
+  { path: `${RBAC_POS_BASE}/edit`, labelKey: 'adminDomains.rbac.posEdit' },
+  { path: `${RBAC_POS_BASE}/assign`, labelKey: 'adminDomains.rbac.posAssign' },
+  { path: `${RBAC_POS_BASE}/disable`, labelKey: 'adminDomains.rbac.posDisable' },
 ];
 
 export default function PosListPanel({ orgId }) {
@@ -45,16 +50,39 @@ export default function PosListPanel({ orgId }) {
 
   return (
     <AdminUserPanelShell
-      title={t('adminDomains.orgStructure.posList')}
-      hint={t('adminOrg.posListHint')}
+      title={t('adminDomains.rbac.posList')}
+      hint={t('adminRbac.posListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/positions/create" className={adminPrimaryBtnClass()}>
+        <Link to={`${RBAC_POS_BASE}/create`} className={adminPrimaryBtnClass()}>
           <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.posCreate')}
+          {t('adminDomains.rbac.posCreate')}
         </Link>
       }
     >
+      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        {t('adminRbac.positionCatalogZeroPerm')}
+      </p>
+
+      <AdminUserFormCard title={t('adminRbac.posSuggestedTitles')}>
+        <ul className="flex flex-wrap gap-2">
+          {DEFAULT_HR_ROLE_KEYS.map((key) => {
+            const label = DEFAULT_HR_ROLE_LABELS[key] || key;
+            return (
+              <li key={key}>
+                <Link
+                  to={`${RBAC_POS_BASE}/assign?title=${encodeURIComponent(label)}`}
+                  className={adminSecondaryBtnClass('!px-2 !py-1 text-xs')}
+                  title={`${key} · ${ROLE_KIND.HR}`}
+                >
+                  {label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </AdminUserFormCard>
+
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="relative max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

@@ -17,6 +17,11 @@ const ACTION_LINKS = [
   { path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign' },
 ];
 
+function looksLikeHrSystemRole(role) {
+  const name = normalizeRoleDisplayName(role?.name).toLowerCase();
+  return name.includes('nhân sự') || name === 'hr' || name.includes('human resource');
+}
+
 export default function RolesListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { systemRoles, loading } = useAdminRoles(orgId);
@@ -61,6 +66,32 @@ export default function RolesListPanel({ orgId }) {
           </Link>
         </div>
       </div>
+
+      <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
+        <p className="font-medium text-foreground">{t('adminRbac.listBanner')}</p>
+        <p className="text-muted-foreground">{t('adminRbac.listScopeNote')}</p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Link
+            to="/app/admin/rbac/positions"
+            className="rounded border border-border bg-card px-2 py-1 text-xs hover:bg-muted/40"
+          >
+            {t('adminRbac.listLinkPosition')}
+          </Link>
+          <Link
+            to="/app/admin/rbac/org-roles"
+            className="rounded border border-border bg-card px-2 py-1 text-xs hover:bg-muted/40"
+          >
+            {t('adminRbac.listLinkOrgRole')}
+          </Link>
+          <Link
+            to="/app/admin/rbac/project-roles"
+            className="rounded border border-border bg-card px-2 py-1 text-xs hover:bg-muted/40"
+          >
+            {t('adminRbac.listLinkProjectRole')}
+          </Link>
+        </div>
+      </div>
+
       <input
         type="search"
         value={query}
@@ -86,14 +117,24 @@ export default function RolesListPanel({ orgId }) {
               return (
                 <tr key={id} className="border-t border-border/60">
                   <td className="px-3 py-2 font-medium">
-                    <div>{normalizeRoleDisplayName(role.name)}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{normalizeRoleDisplayName(role.name)}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
+                        {t('adminRbac.listKindBadge')}
+                      </span>
+                    </div>
                     {role.description ? (
                       <div className="mt-0.5 text-xs font-normal text-muted-foreground line-clamp-1">
                         {role.description}
                       </div>
                     ) : null}
                     {isProtectedDefaultRole(role) ? (
-                      <span className="ml-0 text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
+                      <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
+                    ) : null}
+                    {looksLikeHrSystemRole(role) ? (
+                      <div className="mt-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
+                        {t('adminRbac.listConfusingHrHint')}
+                      </div>
                     ) : null}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{role.scope || 'ORGANIZATION'}</td>
@@ -123,7 +164,7 @@ export default function RolesListPanel({ orgId }) {
           <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminRbac.noRoles')}</p>
         ) : null}
         {loading ? (
-          <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+          <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
         ) : null}
       </div>
     </div>

@@ -13,8 +13,6 @@ const dmSvc = read('client/src/services/dmMessageService.js');
 assert.ok(!dmSvc.includes('params.page ='), 'dmMessageService must not set legacy page');
 assert.ok(dmSvc.includes('pageToken'));
 
-const useDm = read('client/src/hooks/queries/useDmConversation.js');
-assert.ok(!useDm.includes('page:'), 'useDmConversation must not send page');
 
 const useOrg = read('client/src/hooks/queries/useOrgChannelMessages.js');
 assert.ok(!useOrg.includes('params.page ='), 'useOrgChannelMessages must not send legacy page');

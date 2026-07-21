@@ -1,4 +1,4 @@
-/** Huy: Domain Cơ cấu tổ chức — admin org-structure */
+/** Position (HR) — admin RBAC */
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -49,10 +49,10 @@ export default function PosCreatePanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.orgStructure.posCreate')} hint={t('adminOrg.posCreateHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.rbac.posCreate')} hint={t('adminOrg.posCreateHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminOrg.posCreateUserHint')} />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.posCreate')} hint={t('adminOrg.posAssignOptional')}>
+        <AdminUserFormCard title={t('adminDomains.rbac.posCreate')} hint={t('adminOrg.posAssignOptional')}>
           <form className="space-y-4" onSubmit={submit}>
             <label className="block">
               <span className={adminLabelClass()}>{t('adminOrg.posTitle')}</span>
@@ -65,7 +65,7 @@ export default function PosCreatePanel({ orgId }) {
               />
             </label>
             <button type="submit" disabled={saving || !userId} className={adminPrimaryBtnClass()}>
-              {saving ? t('common.saving') : t('adminDomains.orgStructure.posCreate')}
+              {saving ? t('common.saving') : t('adminDomains.rbac.posCreate')}
             </button>
           </form>
         </AdminUserFormCard>

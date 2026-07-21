@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { displayDepartmentName } from '../../utils/orgEntityDisplay';
+import { uniqueTeamsForHub } from '../../utils/orgDepartmentHubUtils';
+import { channelsForTeam } from '../../utils/orgChannelScope';
 import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from './figmaWorkspaceClasses';
 
 const GRAD_PAIRS = [
@@ -74,6 +76,41 @@ function buildFallbackDepartmentCards({ departments = [], channels = [] }) {
   }));
 }
 
+function collectTeamMemberIds(team) {
+  const ids = new Set();
+  (team?.members || []).forEach((member) => {
+    const id =
+      member == null || member === ''
+        ? ''
+        : typeof member === 'object'
+          ? String(member._id || member.id || member.userId || '')
+          : String(member);
+    if (id) ids.add(id);
+  });
+  const leader =
+    team?.leader == null || team?.leader === ''
+      ? ''
+      : typeof team.leader === 'object'
+        ? String(team.leader._id || team.leader.id || team.leader.userId || '')
+        : String(team.leader);
+  if (leader) ids.add(leader);
+  return ids;
+}
+
+function dedupeChannelTags(textChannels) {
+  const seen = new Set();
+  const tags = [];
+  for (const ch of textChannels) {
+    const label = `#${String(ch.name || ch.slug || 'channel').trim() || 'channel'}`;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(label);
+    if (tags.length >= 3) break;
+  }
+  return tags;
+}
+
 function buildTeamCards({
   branches = [],
   departments = [],
@@ -83,7 +120,7 @@ function buildTeamCards({
   filterDepartmentId = '',
 }) {
   const treeTeams = collectTeamsFromBranches(branches);
-  const source = treeTeams.length
+  const rawSource = treeTeams.length
     ? treeTeams
     : teams.length
       ? teams
@@ -91,25 +128,23 @@ function buildTeamCards({
 
   const deptFilter = String(filterDepartmentId || '').trim();
   const scopedSource = deptFilter
-    ? source.filter((item) => {
+    ? rawSource.filter((item) => {
         const itemDeptId = String(item.departmentId || item.department || '');
         return itemDeptId === deptFilter;
       })
-    : source;
+    : rawSource;
 
-  return scopedSource.map((item, idx) => {
+  const source = uniqueTeamsForHub(scopedSource);
+
+  return source.map((item, idx) => {
     const id = item._id || item.id || item.departmentId || `team-${idx}`;
     const rawName = item.name || item.departmentName || 'Team';
     const name = displayDepartmentName(rawName, locale);
     const initial = String(name).trim().charAt(0).toUpperCase() || 'T';
     const [gradStart, gradEnd] = pickGrad(id);
-    const departmentId = item.departmentId || item.department || id;
-    const teamChannels = channels.filter(
-      (ch) =>
-        String(ch.team || '') === String(id) ||
-        (!item._id && String(ch.department || '') === String(id)) ||
-        String(ch.department || '') === String(departmentId)
-    );
+    const teamChannels = item._id || item.id
+      ? channelsForTeam(channels, id)
+      : [];
     const textChannels = teamChannels.filter(
       (ch) => String(ch.type || 'text').toLowerCase() !== 'voice'
     );
@@ -125,11 +160,12 @@ function buildTeamCards({
       initials: member.initials || memberInitials(member),
       color: pickGrad(member._id || member.id || member.email || avatarIdx)[0],
     }));
+    const memberIds = collectTeamMemberIds(item);
     const memberCount =
       item.memberCount ??
       item.membersCount ??
       item.totalMembers ??
-      (Array.isArray(item.members) ? item.members.length : 0);
+      (memberIds.size || (Array.isArray(item.members) ? item.members.length : 0));
 
     return {
       id,
@@ -143,7 +179,7 @@ function buildTeamCards({
       members: Number(memberCount) || 0,
       avatars,
       online: Number(item.onlineCount ?? item.onlineNow ?? 0) || 0,
-      channels: textChannels.slice(0, 3).map((ch) => `#${ch.name || ch.slug || 'channel'}`),
+      channels: dedupeChannelTags(textChannels),
       unreadChat:
         Number(item.unreadChat ?? item.unreadCount ?? 0) ||
         teamChannels.reduce((sum, ch) => sum + Number(ch.unreadCount || ch.unread || 0), 0),

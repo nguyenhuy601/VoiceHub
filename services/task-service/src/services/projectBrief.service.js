@@ -85,6 +85,18 @@ async function markBriefAccepted({ userId, briefId, boardId }) {
   row.status = 'accepted';
   if (boardId) row.boardId = boardId;
   await row.save();
+  if (boardId && row.assigneePmId) {
+    try {
+      const { ensurePmMembershipFromBrief } = require('./projectTeam.service');
+      await ensurePmMembershipFromBrief({
+        boardId,
+        pmUserId: row.assigneePmId,
+        addedBy: userId,
+      });
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
   return row.toObject();
 }
 

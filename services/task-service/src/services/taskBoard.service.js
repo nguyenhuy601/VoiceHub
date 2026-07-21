@@ -16,6 +16,17 @@ const {
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
 const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
+const {
+  assertCanAssign,
+  isAssignmentEngineEnabled,
+} = require('./assignmentEngine.service');
+const {
+  ensureOrgProjectRoles,
+  ensureProjectMembership,
+} = require('./projectTeam.service');
+const { applyDelegationTemplate } = require('./delegation.service');
+const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/taskAssignments');
+const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -26,6 +37,44 @@ const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOK
 function hasScopeRolePermission(permissions) {
   const p = permissions || {};
   return Boolean(p.canSee || p.canRead || p.canWrite || p.canDelete || p.canVoice);
+}
+
+/**
+ * Authorize gán người trên card: Assignment Engine (Delegation Graph) khi flag bật;
+ * shim goldenAssignPolicy khi flag tắt (rollback).
+ */
+async function authorizeCardAssignee({
+  userId,
+  board,
+  assigneeId,
+  ownerTeamId,
+  scope,
+  taskType = '*',
+  slot = 'primary',
+}) {
+  if (!assigneeId) return;
+  if (isAssignmentEngineEnabled()) {
+    await ensureAssigneeBoardAccess({
+      boardId: board._id,
+      assigneeId,
+      actorId: userId,
+    });
+    const check = await assertCanAssign({
+      actorUserId: userId,
+      targetUserId: assigneeId,
+      boardId: board._id,
+      taskType,
+      slot,
+      systemMembershipRole: scope?.membershipRole,
+    });
+    if (!check.ok) throw new Error(check.message || 'Không được phép giao việc');
+    return;
+  }
+  if (!canAssignUser(scope, assigneeId)) {
+    throw new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
+  }
+  const assignCheck = assertCanSetCardAssignee(scope, ownerTeamId);
+  if (!assignCheck.ok) throw new Error(assignCheck.message);
 }
 
 async function fetchTeamRoleAccessIds(actorId, organizationId, teamId) {
@@ -368,6 +417,19 @@ async function createBoard({
     addedBy: userId,
   });
 
+  try {
+    await ensureOrgProjectRoles(organizationId);
+    await ensureProjectMembership({
+      boardId: board._id,
+      userId,
+      projectRoleKey: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
+      addedBy: userId,
+    });
+    await applyDelegationTemplate(board._id, 'product');
+  } catch (err) {
+    logger.warn('[task-board] project team bootstrap failed: %s', err.message);
+  }
+
   if (board.visibility === 'workspace') {
     const memberIds = new Set();
     for (const id of scope.assignableUserIds || []) {
@@ -544,7 +606,20 @@ async function getBoardDetail({ userId, boardId }) {
     };
   });
 
-  const assigneeIds = [...new Set(cards.map((c) => (c?.assigneeId ? String(c.assigneeId) : '')).filter(Boolean))];
+  const assigneeIds = [
+    ...new Set(
+      cards
+        .flatMap((c) => {
+          const ids = [];
+          if (c?.assigneeId) ids.push(String(c.assigneeId));
+          for (const a of c.assignments || []) {
+            if (a?.userId) ids.push(String(a.userId));
+          }
+          return ids;
+        })
+        .filter(Boolean)
+    ),
+  ];
   const assigneeRows = assigneeIds.length ? await enrichAssignableProfiles(assigneeIds, userId) : [];
   const assigneeMap = new Map(assigneeRows.map((row) => [String(row.userId), row]));
 
@@ -577,6 +652,31 @@ async function getBoardDetail({ userId, boardId }) {
           },
         ]
       : [],
+    assignments: Array.isArray(c.assignments)
+      ? c.assignments.map((a) => ({
+          userId: String(a.userId),
+          slot: a.slot || 'primary',
+          projectRoleId: a.projectRoleId || null,
+          displayName:
+            assigneeMap.get(String(a.userId))?.displayName ||
+            assigneeMap.get(String(a.userId))?.username ||
+            '',
+          avatar: assigneeMap.get(String(a.userId))?.avatar || '',
+        }))
+      : c.assigneeId
+        ? [
+            {
+              userId: String(c.assigneeId),
+              slot: 'primary',
+              projectRoleId: null,
+              displayName:
+                assigneeMap.get(String(c.assigneeId))?.displayName ||
+                assigneeMap.get(String(c.assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(c.assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
     tags: Array.isArray(c.tags) ? c.tags : [],
     attachments: Array.isArray(c.attachments) ? c.attachments : [],
     status: c.status,
@@ -625,6 +725,9 @@ async function createCard({
   attachments,
   sourceMessageId,
   aiGenerated,
+  taskType,
+  assignments,
+  responsibilityKey,
 }) {
   const board = await ensureBoardCreateCards(boardId, userId);
   if (!board) throw new Error('Chỉ PM/TL/Admin mới được tạo thẻ trên board');
@@ -632,19 +735,39 @@ async function createCard({
   if (!list) throw new Error('List không tồn tại trong board đã chọn');
 
   const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
-  if (assigneeId && !canAssignUser(scope, assigneeId)) {
-    throw new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
-  }
   const nextOwnerTeamId = normalizeOwnerTeamId(ownerTeamId);
   if (ownerTeamId !== undefined && ownerTeamId !== null && ownerTeamId !== '' && !nextOwnerTeamId) {
     throw new Error('ownerTeamId không hợp lệ');
   }
-  if (!canAssignOwnerTeam(scope, nextOwnerTeamId)) {
+  if (!isAssignmentEngineEnabled() && !canAssignOwnerTeam(scope, nextOwnerTeamId)) {
     throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
   }
-  if (assigneeId) {
-    const assignCheck = assertCanSetCardAssignee(scope, nextOwnerTeamId);
-    if (!assignCheck.ok) throw new Error(assignCheck.message);
+
+  let nextAssignments = normalizeAssignmentsPayload(assignments);
+  let nextAssigneeId = assigneeId || null;
+  if (nextAssignments.length) {
+    const synced = syncPrimaryAssignment(
+      primaryFromAssignmentsOr(assigneeId, nextAssignments),
+      nextAssignments
+    );
+    nextAssigneeId = synced.assigneeId;
+    nextAssignments = synced.assignments;
+  } else if (assigneeId) {
+    const synced = syncPrimaryAssignment(assigneeId, []);
+    nextAssigneeId = synced.assigneeId;
+    nextAssignments = synced.assignments;
+  }
+
+  if (nextAssigneeId) {
+    await authorizeCardAssignee({
+      userId,
+      board,
+      assigneeId: nextAssigneeId,
+      ownerTeamId: nextOwnerTeamId,
+      scope,
+      taskType: taskType || '*',
+      slot: 'primary',
+    });
   }
 
   const last = await Task.findOne({ boardId, listId, isActive: true })
@@ -661,7 +784,8 @@ async function createCard({
     title: String(title || '').trim(),
     summary: String(summary || '').trim(),
     description: String(description || '').trim(),
-    assigneeId: assigneeId || null,
+    assigneeId: nextAssigneeId || null,
+    assignments: nextAssignments,
     createdBy: userId,
     priority: priority || 'medium',
     dueDate: dueDate || null,
@@ -678,11 +802,12 @@ async function createCard({
       : [],
     sourceMessageId: sourceMessageId || null,
     aiGenerated: Boolean(aiGenerated),
+    responsibilityKey: String(responsibilityKey || '').trim().toLowerCase(),
   });
 
   await ensureAssigneeBoardAccess({
     boardId: board._id,
-    assigneeId: assigneeId || null,
+    assigneeId: nextAssigneeId || null,
     actorId: userId,
   });
   const created = row.toObject();
@@ -694,6 +819,12 @@ async function createCard({
     content: `Thẻ "${created.title}" vừa được thêm`,
   });
   return created;
+}
+
+function primaryFromAssignmentsOr(assigneeId, assignments) {
+  if (assigneeId) return assigneeId;
+  const p = (assignments || []).find((a) => String(a.slot) === 'primary');
+  return p?.userId || null;
 }
 
 function computeCardInsertPosition(siblings, index) {
@@ -767,15 +898,21 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     if (ownerTeamId !== null && ownerTeamId !== '' && !nextOwner) {
       throw new Error('ownerTeamId không hợp lệ');
     }
-    if (!canAssignOwnerTeam(scope, nextOwner)) {
+    if (!isAssignmentEngineEnabled() && !canAssignOwnerTeam(scope, nextOwner)) {
       throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
     }
     card.ownerTeamId = nextOwner;
   }
   if (movingToDone) {
+    const { assertCanTransition } = require('./workflow.service');
+    const transition = await assertCanTransition(board, card.status, 'done');
+    if (!transition.ok) throw new Error(transition.message || 'Không chuyển được sang Done');
     card.status = 'done';
     card.completedAt = card.completedAt || new Date();
   } else if (card.status === 'done') {
+    const { assertCanTransition } = require('./workflow.service');
+    const transition = await assertCanTransition(board, 'done', 'todo');
+    if (!transition.ok) throw new Error(transition.message || 'Không chuyển được khỏi Done');
     card.status = 'todo';
     card.completedAt = null;
   }
@@ -804,6 +941,9 @@ async function updateCard({
   ownerTeamId,
   attachments,
   status,
+  taskType,
+  assignments,
+  responsibilityKey,
 }) {
   const card = await Task.findById(cardId);
   if (!card || !card.boardId) throw new Error('Card không tồn tại');
@@ -818,9 +958,9 @@ async function updateCard({
   if (dueDate !== undefined) next.dueDate = dueDate ? new Date(dueDate) : null;
   if (status !== undefined) {
     const st = String(status || '').trim();
-    if (!['todo', 'in_progress', 'review', 'done', 'cancelled'].includes(st)) {
-      throw new Error('status không hợp lệ');
-    }
+    const { assertCanTransition } = require('./workflow.service');
+    const transition = await assertCanTransition(board, card.status, st);
+    if (!transition.ok) throw new Error(transition.message || 'status không hợp lệ');
     next.status = st;
     if (st === 'done') {
       next.completedAt = new Date();
@@ -829,6 +969,9 @@ async function updateCard({
     }
   }
   if (tags !== undefined) next.tags = Array.isArray(tags) ? tags : [];
+  if (responsibilityKey !== undefined) {
+    next.responsibilityKey = String(responsibilityKey || '').trim().toLowerCase();
+  }
   if (attachments !== undefined) {
     next.attachments = Array.isArray(attachments)
       ? attachments
@@ -847,30 +990,50 @@ async function updateCard({
     if (ownerTeamId !== null && ownerTeamId !== '' && !nextOwner) {
       throw new Error('ownerTeamId không hợp lệ');
     }
-    if (!canAssignOwnerTeam(scope, nextOwner)) {
+    if (!isAssignmentEngineEnabled() && !canAssignOwnerTeam(scope, nextOwner)) {
       throw new Error('Không thể gán thẻ cho team ngoài phạm vi');
     }
     next.ownerTeamId = nextOwner;
   }
 
-  if (assigneeId !== undefined && assigneeId) {
+  if (assignments !== undefined) {
+    const normalized = normalizeAssignmentsPayload(assignments);
+    const synced = syncPrimaryAssignment(
+      primaryFromAssignmentsOr(assigneeId !== undefined ? assigneeId : card.assigneeId, normalized),
+      normalized
+    );
+    next.assignments = synced.assignments;
+    next.assigneeId = synced.assigneeId;
+  } else if (assigneeId !== undefined) {
+    const synced = syncPrimaryAssignment(assigneeId || null, card.assignments || []);
+    next.assigneeId = synced.assigneeId;
+    next.assignments = synced.assignments;
+  }
+
+  const effectiveAssignee =
+    next.assigneeId !== undefined ? next.assigneeId : card.assigneeId;
+  if ((assigneeId !== undefined || assignments !== undefined) && effectiveAssignee) {
     const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
     const effectiveTeam =
       ownerTeamId !== undefined
         ? normalizeOwnerTeamId(ownerTeamId)
         : normalizeOwnerTeamId(card.ownerTeamId);
-    const assignCheck = assertCanSetCardAssignee(scope, effectiveTeam);
-    if (!assignCheck.ok) throw new Error(assignCheck.message);
-    if (!canAssignUser(scope, assigneeId)) {
-      throw new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
-    }
+    await authorizeCardAssignee({
+      userId,
+      board,
+      assigneeId: effectiveAssignee,
+      ownerTeamId: effectiveTeam,
+      scope,
+      taskType: taskType || '*',
+      slot: 'primary',
+    });
   }
 
   if (next.title != null && !next.title) throw new Error('title không hợp lệ');
 
   await ensureAssigneeBoardAccess({
     boardId: board._id,
-    assigneeId: assigneeId || null,
+    assigneeId: effectiveAssignee || null,
     actorId: userId,
   });
 
@@ -1171,7 +1334,7 @@ async function setListWatch({ userId, listId, watching }) {
   return { watching: false, watcherCount: await TaskBoardListWatcher.countDocuments({ listId: listOid }) };
 }
 
-async function listBoardAssignableMembers({ userId, boardId }) {
+async function listBoardAssignableMembers({ userId, boardId, responsibilityKey, evaluateCanAssign }) {
   const board = await ensureBoardViewAccess(boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
 
@@ -1204,27 +1367,72 @@ async function listBoardAssignableMembers({ userId, boardId }) {
   const allowedRoleIds =
     scopeType === 'team' && scopeId ? await fetchTeamRoleAccessIds(userId, orgId, scopeId) : [];
 
-  // UI "Thành viên" trong card cần ưu tiên hiển thị đầy đủ thành viên cùng team/board.
-  // Không loại theo role-access để tránh ẩn nhầm thành viên hợp lệ của team.
-  const members = await enrichAssignableProfiles([...candidateIds], userId);
+  let members = await enrichAssignableProfiles([...candidateIds], userId);
+
+  const respKey = String(responsibilityKey || '').trim().toLowerCase();
+  if (respKey) {
+    const { fetchUserIdsByResponsibilityKey } = require('../clients/organizationResponsibility.client');
+    const { rankMembersByResponsibility } = require('../utils/responsibilitySuggest');
+    const matchingIds = await fetchUserIdsByResponsibilityKey(orgId, respKey, userId);
+    members = rankMembersByResponsibility(members, matchingIds);
+  } else {
+    members = members.map((m) => ({ ...m, suggested: false }));
+  }
+
+  if (evaluateCanAssign) {
+    const { assertCanAssign } = require('./assignmentEngine.service');
+    const withFlags = [];
+    for (const m of members) {
+      if (respKey && !m.suggested) {
+        withFlags.push(m);
+        continue;
+      }
+      const check = await assertCanAssign({
+        actorUserId: userId,
+        targetUserId: m.userId,
+        boardId: board._id,
+        taskType: '*',
+        systemMembershipRole: null,
+      });
+      withFlags.push({ ...m, canAssign: Boolean(check?.ok) });
+    }
+    members = withFlags;
+  }
+
   return { members, teamId: scopeType === 'team' ? scopeId : '', scopeType, scopeId, allowedRoleIds };
 }
 
 async function ensureAssigneeBoardAccess({ boardId, assigneeId, actorId }) {
   if (!boardId || !assigneeId) return;
   const exists = await TaskBoardMember.findOne({ boardId, userId: assigneeId }).lean();
-  if (exists) return;
+  if (!exists) {
+    try {
+      await TaskBoardMember.create({
+        boardId,
+        userId: assigneeId,
+        role: 'viewer',
+        canView: true,
+        canEdit: false,
+        addedBy: actorId,
+      });
+    } catch (err) {
+      logger.warn('[task-board] ensure assignee access failed: %s', err.message);
+    }
+  }
   try {
-    await TaskBoardMember.create({
-      boardId,
-      userId: assigneeId,
-      role: 'viewer',
-      canView: true,
-      canEdit: false,
-      addedBy: actorId,
-    });
+    const existingPm = await require('../models/ProjectMembership')
+      .findOne({ boardId, userId: assigneeId })
+      .lean();
+    if (!existingPm) {
+      await ensureProjectMembership({
+        boardId,
+        userId: assigneeId,
+        projectRoleKey: DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER,
+        addedBy: actorId,
+      });
+    }
   } catch (err) {
-    logger.warn('[task-board] ensure assignee access failed: %s', err.message);
+    logger.warn('[task-board] ensure project membership failed: %s', err.message);
   }
 }
 

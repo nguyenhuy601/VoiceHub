@@ -302,6 +302,28 @@ function registerVoiceNamespace(io) {
           socketId: socket.id,
           producerId: payload.producerId,
         });
+
+        const roomKey = String(roomId);
+        const found = roomManager.findProducer(roomKey, payload.producerId);
+        const sessionMeetingId = voiceRoomSessionService.getActiveMeetingId(roomKey);
+        const peerUserId = found?.peer?.userInfo?.userId || userId;
+        const peerDisplayName = found?.peer?.userInfo?.displayName || displayName;
+
+        void roomServerRecording.ensureProducerRecordingAfterResume({
+          roomId: roomKey,
+          producerId: payload.producerId,
+          userId: peerUserId,
+          displayName: peerDisplayName,
+          meetingId: sessionMeetingId,
+        });
+        void roomServerSttTap.ensureProducerSttAfterResume({
+          roomId: roomKey,
+          producerId: payload.producerId,
+          userId: peerUserId,
+          displayName: peerDisplayName,
+          meetingId: sessionMeetingId,
+        });
+
         callback({ success: true });
       } catch (error) {
         callback(callbackError(error, 'voice:resumeProducer'));

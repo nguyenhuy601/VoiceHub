@@ -1,9 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
+import AdminCompanyRealtimeSync from '../../components/admin/AdminCompanyRealtimeSync';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useAppStrings } from '../../locales/appStrings';
+import {
+  fetchAdminMembers,
+  getAdminMembersCount,
+  subscribeAdminMembers,
+} from '../../stores/adminMembersStore';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -37,14 +43,8 @@ export default function CompanyAdminLayout() {
 
   const refreshStats = useCallback(async () => {
     if (!orgId) return;
-    try {
-      const membersRes = await organizationAPI.getMembersWithRoles(orgId);
-      const membersData = unwrap(membersRes);
-      const members = membersData?.data?.members || membersData?.members || membersData;
-      setMemberCount(Array.isArray(members) ? members.length : 0);
-    } catch {
-      setMemberCount(0);
-    }
+    await fetchAdminMembers(orgId, { showError: false }).catch(() => null);
+    setMemberCount(getAdminMembersCount(orgId));
   }, [orgId]);
 
   useEffect(() => {
@@ -71,9 +71,15 @@ export default function CompanyAdminLayout() {
 
   useEffect(() => {
     if (!orgId || !canAccessHub) return undefined;
-    refreshStats();
-    return undefined;
-  }, [orgId, canAccessHub, refreshStats]);
+    fetchAdminMembers(orgId, { showError: false }).catch(() => null);
+    const syncCount = () => {
+      const next = getAdminMembersCount(orgId);
+      setMemberCount((prev) => (prev === next ? prev : next));
+    };
+    syncCount();
+    const unsub = subscribeAdminMembers(orgId, syncCount);
+    return unsub;
+  }, [orgId, canAccessHub]);
 
   const contextValue = useMemo(
     () => ({
@@ -120,6 +126,7 @@ export default function CompanyAdminLayout() {
 
   return (
     <CompanyAdminContext.Provider value={contextValue}>
+      <AdminCompanyRealtimeSync />
       <div className={`flex h-[100dvh] flex-col overflow-hidden ${FIGMA_PAGE_SHELL} text-foreground`}>
         <header className="shrink-0 border-b border-border bg-card/40 px-4 py-4 md:px-8">
           <h1 className="text-xl font-bold">{t('companyAdmin.title')}</h1>

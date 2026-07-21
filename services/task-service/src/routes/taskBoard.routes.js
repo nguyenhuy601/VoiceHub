@@ -40,4 +40,28 @@ router.post('/:boardId/archive', controller.archiveBoard.bind(controller));
 router.post('/:boardId/lists', controller.createList.bind(controller));
 router.post('/:boardId/cards', controller.createCard.bind(controller));
 
+// Project Team + Delegation Graph + Assignment evaluate
+const delivery = require('../controllers/projectDelivery.controller');
+router.get('/:boardId/project-roles', delivery.listRoles);
+router.get('/:boardId/project-members', delivery.listMembers);
+router.put('/:boardId/project-members/:memberUserId/roles', delivery.putMemberRoles);
+router.get('/:boardId/delegation', delivery.listDelegation);
+router.put('/:boardId/delegation/edges', delivery.putDelegationEdge);
+router.delete('/:boardId/delegation/edges/:edgeId', delivery.removeDelegationEdge);
+router.post('/:boardId/delegation/apply-template', delivery.postApplyTemplate);
+router.post('/:boardId/assign/evaluate', delivery.evaluateAssign);
+
+// Sprint + Workflow + Transfer
+const boardOps = require('../controllers/boardOps.controller');
+router.get('/:boardId/sprints', boardOps.listSprints);
+router.post('/:boardId/sprints', boardOps.createSprint);
+router.patch('/:boardId/sprints/:sprintId', boardOps.updateSprint);
+router.delete('/:boardId/sprints/:sprintId', boardOps.deleteSprint);
+router.post('/:boardId/sprints/:sprintId/cards', boardOps.assignSprintCards);
+router.delete('/:boardId/sprints/:sprintId/cards/:cardId', boardOps.removeSprintCard);
+router.get('/:boardId/workflow', boardOps.getWorkflow);
+router.put('/:boardId/workflow', boardOps.putWorkflow);
+router.post('/:boardId/workflow/seed-default', boardOps.seedWorkflow);
+router.post('/:boardId/transfer', boardOps.transferBoard);
+
 module.exports = router;

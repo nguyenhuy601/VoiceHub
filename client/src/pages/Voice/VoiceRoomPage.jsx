@@ -1675,17 +1675,36 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
             durationSec: saved.durationSec,
             segmentIndex,
           }).catch((err) => console.warn('uploadMeetingRecording failed', err));
+          meetingRecordingUserActiveRef.current = false;
+          setMeetingRecordingActive(false);
+          toast.success(t('voiceRoom.recordMeetingStop'));
+        } else {
+          meetingRecordingUserActiveRef.current = false;
+          setMeetingRecordingActive(false);
+          toast.error(t('voiceRoom.recordMeetingEmpty'));
         }
-      } else if (roomId) {
+        return;
+      }
+      if (roomId) {
         const socket = mediasoupRef.current.socket;
         if (socket) {
           try {
-            await new Promise((resolve, reject) => {
-              socket.emit('voice:recording:stop', { roomId }, (response) => {
-                if (!response?.success) reject(new Error(response?.error || 'stop failed'));
-                else resolve(response);
+            const response = await new Promise((resolve, reject) => {
+              socket.emit('voice:recording:stop', { roomId }, (res) => {
+                if (!res?.success) reject(new Error(res?.error || 'stop failed'));
+                else resolve(res);
               });
             });
+            meetingRecordingUserActiveRef.current = false;
+            setMeetingRecordingActive(false);
+            const savedCount = Number(response?.savedSegmentCount) || 0;
+            const totalBytes = Number(response?.totalBytes) || 0;
+            if (savedCount <= 0 || totalBytes <= 0) {
+              toast.error(t('voiceRoom.recordMeetingEmpty'));
+            } else {
+              toast.success(t('voiceRoom.recordMeetingStop'));
+            }
+            return;
           } catch (err) {
             if (!isBenignRecordingStopError(err)) {
               toast.error(err?.message || t('voiceRoom.recordMeetingStop'));

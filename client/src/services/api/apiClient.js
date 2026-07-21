@@ -57,6 +57,7 @@ const API_URL = resolveApiBaseUrl();
 const apiClient = axios.create({
   baseURL: API_URL,
   timeout: 60000, // Tăng lên 60s để tránh timeout khi hash password hoặc database operations
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache',

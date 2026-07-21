@@ -64,6 +64,40 @@ class AdminUserController {
       return sendErrorFromCatch(res, error);
     }
   }
+
+  async revokeSessions(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const data = await adminUserService.revokeUserSessions(userId);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return sendErrorFromCatch(res, error);
+    }
+  }
+
+  async setPassword(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const data = await adminUserService.setPasswordByAdmin(userId, {
+        password: req.body?.password,
+        mustChangePassword: req.body?.mustChangePassword,
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return sendErrorFromCatch(res, error);
+    }
+  }
+
+  async resendVerification(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const frontendUrl = String(req.body?.frontendUrl || req.headers.origin || '').trim();
+      const data = await adminUserService.resendVerificationByUserId(userId, frontendUrl);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return sendErrorFromCatch(res, error);
+    }
+  }
 }
 
 async function internalAuthSummaryBatch(req, res) {

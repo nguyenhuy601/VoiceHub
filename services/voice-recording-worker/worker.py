@@ -79,17 +79,8 @@ def process_job(payload: dict) -> None:
         logger.info("Recording ready meeting=%s path=%s job=%s", meeting_id, opus_key, job_type)
     except Exception as exc:
         logger.exception("Job failed meeting=%s: %s", meeting_id, exc)
-        try:
-            fail_payload = {
-                "recordingStatus": "failed",
-                "error": str(exc)[:500],
-                "tempStoragePath": temp_path_key,
-            }
-            if segment_id:
-                fail_payload["segmentId"] = segment_id
-            patch_meeting_recording(meeting_id, fail_payload)
-        except Exception as patch_exc:
-            logger.error("Failed to patch meeting status: %s", patch_exc)
+        # Không patch failed / không gửi tempStoragePath ở đây —
+        # tránh xóa temp trước khi retry; on_message patch sau hết retry.
         raise
     finally:
         for path in (webm_local, opus_local):
@@ -100,18 +91,46 @@ def process_job(payload: dict) -> None:
                     pass
 
 
+def patch_job_failed(payload: dict, error: BaseException) -> None:
+    meeting_id = str(payload.get("meetingId") or "")
+    if not meeting_id:
+        return
+    fail_payload = {
+        "recordingStatus": "failed",
+        "error": str(error)[:500],
+    }
+    segment_id = str(payload.get("segmentId") or "")
+    if segment_id:
+        fail_payload["segmentId"] = segment_id
+    # Không gửi tempStoragePath — voice-service chỉ xóa temp khi ready.
+    try:
+        patch_meeting_recording(meeting_id, fail_payload)
+    except Exception as patch_exc:
+        logger.error("Failed to patch meeting status: %s", patch_exc)
+
+
 def on_message(ch, method, _properties, body):
+    payload = {}
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception as exc:
+        logger.error("Invalid job payload: %s", exc)
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        return
+
     attempt = 0
+    last_error = None
     while attempt < MAX_RETRIES:
         try:
-            payload = json.loads(body.decode("utf-8"))
             process_job(payload)
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
-        except Exception:
+        except Exception as exc:
+            last_error = exc
             attempt += 1
             if attempt >= MAX_RETRIES:
                 logger.error("Giving up after %s retries", MAX_RETRIES)
+                patch_job_failed(payload, last_error)
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
                 return
             time.sleep(2 ** attempt)

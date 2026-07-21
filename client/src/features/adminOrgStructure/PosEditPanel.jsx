@@ -1,4 +1,4 @@
-/** Huy: Domain Cơ cấu tổ chức — admin org-structure */
+/** Position (HR) — admin RBAC */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -71,7 +71,7 @@ export default function PosEditPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.orgStructure.posEdit')} hint={t('adminOrg.posEditHint')}>
+    <AdminUserPanelShell title={t('adminDomains.rbac.posEdit')} hint={t('adminOrg.posEditHint')}>
       <AdminUserFormCard>
         {loading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>

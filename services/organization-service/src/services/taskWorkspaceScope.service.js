@@ -35,6 +35,8 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
       departmentIds: [],
       teamIds: [],
       ledTeamIds: [],
+      organizationRoles: [],
+      ledTeamIdsDeprecatedForAssign: true,
       divisionIds: [],
     };
   }
@@ -147,6 +149,9 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     ledTeams,
   });
 
+  const { resolveOrganizationRoles } = require('./organizationRoles.service');
+  const organizationRoles = await resolveOrganizationRoles(uid, oid);
+
   return {
     visibility,
     canCreateTask,
@@ -154,8 +159,13 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     membershipRole,
     departmentIds,
     teamIds,
-    /** Team mà user là Team.leader (chuẩn vàng: chỉ TL gán NV trên epic team). */
+    /**
+     * @deprecated P1–P5: Team.leader scope for roster/swimlane only.
+     * Do NOT use for task assign authorize — use Assignment Engine + Project Role.
+     */
     ledTeamIds: leaderOfTeamIds,
+    ledTeamIdsDeprecatedForAssign: true,
+    organizationRoles,
     divisionIds: scopedDivisionIds,
     divisionId: scopedDivisionIds[0] || null,
     departmentId: departmentIds[0] || null,

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import adminUserAPI from '../../services/api/adminUserAPI';
+import { organizationAPI } from '../../services/api/organizationAPI';
 import { getInitials } from '../../utils/helpers';
 import {
   memberDepartmentId,
@@ -16,9 +17,17 @@ import {
   formatRbacRoleLabels,
 } from '../../utils/adminUserUtils';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
+import { flattenOrgStructure } from '../../utils/adminOrgStructureUtils';
+import { ORGANIZATION_ROLE_LABELS } from '../../utils/roleTaxonomy';
+import {
+  memberJobTitle,
+  resolveOrgRolesForUser,
+  unwrapOrgList,
+} from '../../utils/userTaxonomyUtils';
 
 const TABS = [
   { id: 'info', labelKey: 'adminUsers.tabInfo' },
+  { id: 'taxonomy', labelKey: 'adminUsers.tabTaxonomy' },
   { id: 'access', labelKey: 'adminUsers.tabAccess' },
   { id: 'activity', labelKey: 'adminUsers.tabActivity' },
   { id: 'history', labelKey: 'adminUsers.tabHistory' },
@@ -62,20 +71,69 @@ export default function AdminUserDetailDrawer({
   departmentName,
   teamName,
   rbacRoles = [],
+  structureRaw = null,
+  responsibilityKeys = [],
   formatWhen,
 }) {
   const { t } = useAppStrings();
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [loadedResponsibilityKeys, setLoadedResponsibilityKeys] = useState([]);
+  const [taxonomyLoading, setTaxonomyLoading] = useState(false);
 
   const userId = member ? memberUserId(member) : '';
   const name = member ? memberDisplayName(member) : '';
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : '';
 
+  const userRoleLabels = formatRbacRoleLabels(rbacRoles, (row) =>
+    normalizeRoleDisplayName(row?.name || row?.role?.name)
+  );
+
+  const flatStructure = useMemo(
+    () => (structureRaw ? flattenOrgStructure(structureRaw) : { departments: [], teams: [] }),
+    [structureRaw]
+  );
+
+  const orgRolesResolved = useMemo(
+    () => resolveOrgRolesForUser(userId, flatStructure.departments, flatStructure.teams),
+    [userId, flatStructure.departments, flatStructure.teams]
+  );
+
+  const positionTitle = member ? memberJobTitle(member) : '';
+
+  const respKeysDisplay =
+    tab === 'taxonomy' && loadedResponsibilityKeys.length
+      ? loadedResponsibilityKeys
+      : responsibilityKeys;
+
   useEffect(() => {
     if (!open) setTab('info');
   }, [open, userId]);
+
+  useEffect(() => {
+    if (!open || tab !== 'taxonomy' || !orgId || !userId) return undefined;
+    if (responsibilityKeys.length) {
+      setLoadedResponsibilityKeys(responsibilityKeys);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      setTaxonomyLoading(true);
+      try {
+        const res = await organizationAPI.getUserResponsibilities(orgId, userId);
+        const keys = unwrapOrgList(res).map((r) => r.responsibilityKey || r.key).filter(Boolean);
+        if (!cancelled) setLoadedResponsibilityKeys(keys);
+      } catch {
+        if (!cancelled) setLoadedResponsibilityKeys([]);
+      } finally {
+        if (!cancelled) setTaxonomyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab, orgId, userId, responsibilityKeys]);
 
   useEffect(() => {
     if (!open || !orgId || !userId || tab !== 'history') return undefined;
@@ -99,10 +157,6 @@ export default function AdminUserDetailDrawer({
   }, [open, orgId, userId, tab]);
 
   if (!open || !member) return null;
-
-  const userRoleLabels = formatRbacRoleLabels(rbacRoles, (row) =>
-    normalizeRoleDisplayName(row?.name || row?.role?.name)
-  );
 
   return (
     <div className="fixed inset-0 z-[10030] flex justify-end">
@@ -175,12 +229,12 @@ export default function AdminUserDetailDrawer({
                 <dd className="mt-1">
                   {userRoleLabels.length ? (
                     <div className="flex flex-wrap gap-1">
-                      {userRoleLabels.map((name) => (
+                      {userRoleLabels.map((label) => (
                         <span
-                          key={name}
+                          key={label}
                           className="inline-flex rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300"
                         >
-                          {name}
+                          {label}
                         </span>
                       ))}
                     </div>
@@ -188,6 +242,10 @@ export default function AdminUserDetailDrawer({
                     <span className="text-muted-foreground">{t('adminUsers.userRoleNone')}</span>
                   )}
                 </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t('adminUsers.jobTitle')}</dt>
+                <dd>{positionTitle || t('adminUsers.taxonomyNone')}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.colDepartment')}</dt>
@@ -207,13 +265,107 @@ export default function AdminUserDetailDrawer({
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.colLastLogin')}</dt>
                 <dd>{formatWhen?.(member.lastLoginAt) || '—'}</dd>
               </div>
-              {member.jobTitle ? (
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t('adminUsers.jobTitle')}</dt>
-                  <dd>{member.jobTitle}</dd>
-                </div>
-              ) : null}
             </dl>
+          ) : null}
+
+          {tab === 'taxonomy' ? (
+            <div className="space-y-4 text-sm">
+              <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomyHint')}</p>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+                <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomyPosition')}</p>
+                <p className="mt-1 font-medium">{positionTitle || t('adminUsers.taxonomyNone')}</p>
+                <Link
+                  to={`/app/admin/rbac/positions/assign${q}`}
+                  className="mt-2 inline-block text-xs font-medium text-red-500 hover:underline"
+                >
+                  {t('adminUsers.taxonomyLinkPosition')}
+                </Link>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+                <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomyOrgRole')}</p>
+                {orgRolesResolved.length ? (
+                  <ul className="mt-2 space-y-2">
+                    {orgRolesResolved.map((row) => (
+                      <li key={row.id} className="text-xs">
+                        <span className="font-medium">
+                          {ORGANIZATION_ROLE_LABELS[row.roleKey] || row.roleKey}
+                        </span>
+                        <span className="text-muted-foreground"> · {row.scopeName}</span>
+                        <Link to={row.editPath} className="ml-2 text-red-500 hover:underline">
+                          {t('adminRbac.orgRoleOpenScope')}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">{t('adminUsers.taxonomyNone')}</p>
+                )}
+                <Link
+                  to={`/app/admin/rbac/organization-roles/lookup${q}`}
+                  className="mt-2 inline-block text-xs font-medium text-red-500 hover:underline"
+                >
+                  {t('adminUsers.taxonomyLinkOrgLookup')}
+                </Link>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+                <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomyResponsibility')}</p>
+                {taxonomyLoading ? (
+                  <p className="mt-1 text-muted-foreground">{t('common.loading')}</p>
+                ) : respKeysDisplay.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {respKeysDisplay.map((key) => (
+                      <span
+                        key={key}
+                        className="inline-flex rounded-full bg-teal-500/10 px-2 py-0.5 text-xs text-teal-800 dark:text-teal-200"
+                      >
+                        {key}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">{t('adminUsers.responsibilityNone')}</p>
+                )}
+                <Link
+                  to={`/app/admin/rbac/responsibilities/assign${q}`}
+                  className="mt-2 inline-block text-xs font-medium text-red-500 hover:underline"
+                >
+                  {t('adminUsers.taxonomyLinkResponsibility')}
+                </Link>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+                <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomySystemRole')}</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {userRoleLabels.length ? (
+                    userRoleLabels.map((label) => (
+                      <span
+                        key={label}
+                        className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-700 dark:text-red-300"
+                      >
+                        {label}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">{t('adminUsers.userRoleNone')}</span>
+                  )}
+                </div>
+                <Link
+                  to={`/app/admin/rbac/assign${q}`}
+                  className="mt-2 inline-block text-xs font-medium text-red-500 hover:underline"
+                >
+                  {t('adminUsers.taxonomyLinkSystemRole')}
+                </Link>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+                <p className="text-xs text-muted-foreground">{t('adminUsers.taxonomyProjectRole')}</p>
+                <p className="mt-1 text-muted-foreground">{t('adminUsers.taxonomyProjectRoleBoard')}</p>
+                <Link
+                  to="/app/admin/rbac/project-roles/board"
+                  className="mt-2 inline-block text-xs font-medium text-red-500 hover:underline"
+                >
+                  {t('adminUsers.taxonomyLinkProjectBoard')}
+                </Link>
+              </div>
+            </div>
           ) : null}
 
           {tab === 'access' ? (
@@ -229,12 +381,12 @@ export default function AdminUserDetailDrawer({
                 <div className="mt-1">
                   {userRoleLabels.length ? (
                     <div className="flex flex-wrap gap-1">
-                      {userRoleLabels.map((name) => (
+                      {userRoleLabels.map((label) => (
                         <span
-                          key={name}
+                          key={label}
                           className="inline-flex rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300"
                         >
-                          {name}
+                          {label}
                         </span>
                       ))}
                     </div>
@@ -267,6 +419,24 @@ export default function AdminUserDetailDrawer({
                   className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
                 >
                   {t('adminDomains.users.assignOrg')}
+                </Link>
+                <Link
+                  to={`/app/admin/rbac/positions/assign${q}`}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
+                >
+                  {t('adminUsers.taxonomyLinkPosition')}
+                </Link>
+                <Link
+                  to={`/app/admin/rbac/responsibilities/assign${q}`}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
+                >
+                  {t('adminUsers.taxonomyLinkResponsibility')}
+                </Link>
+                <Link
+                  to={`/app/admin/rbac/organization-roles/lookup${q}`}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
+                >
+                  {t('adminUsers.taxonomyLinkOrgLookup')}
                 </Link>
               </div>
             </div>
@@ -321,7 +491,7 @@ export default function AdminUserDetailDrawer({
                 </ul>
               )}
               <Link
-                to={`/app/admin/users/login-history${q}`}
+                to={`/app/admin/accounts/login-history${q}`}
                 className="mt-3 inline-block text-xs font-medium text-red-500 hover:underline"
               >
                 {t('adminUsers.openFullHistory')}
@@ -338,10 +508,10 @@ export default function AdminUserDetailDrawer({
             {t('adminUsers.editInfo')}
           </Link>
           <Link
-            to={`/app/admin/users/lock${q}`}
+            to={`/app/admin/accounts/detail${q}`}
             className="rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted/40"
           >
-            {t('adminDomains.users.lock')}
+            {t('adminDomains.accounts.detail')}
           </Link>
         </div>
       </aside>

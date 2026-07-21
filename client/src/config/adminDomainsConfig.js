@@ -34,13 +34,31 @@ export const ADMIN_DOMAINS = [
           { id: 'list', path: '/app/admin/users', labelKey: 'adminDomains.users.list', end: true, implementation: 'people' },
           { id: 'create', path: '/app/admin/users/create', labelKey: 'adminDomains.users.create', implementation: 'users-create' },
           { id: 'edit', path: '/app/admin/users/edit', labelKey: 'adminDomains.users.edit', implementation: 'users-edit' },
-          { id: 'lock', path: '/app/admin/users/lock', labelKey: 'adminDomains.users.lock', implementation: 'users-lock' },
           { id: 'delete', path: '/app/admin/users/delete', labelKey: 'adminDomains.users.delete', implementation: 'users-delete' },
-          { id: 'reset-password', path: '/app/admin/users/reset-password', labelKey: 'adminDomains.users.resetPassword', implementation: 'users-reset-password' },
-          { id: 'force-password', path: '/app/admin/users/force-password', labelKey: 'adminDomains.users.forcePassword', implementation: 'users-force-password' },
           { id: 'import', path: '/app/admin/users/import', labelKey: 'adminDomains.users.import', implementation: 'users-import' },
           { id: 'assign-org', path: '/app/admin/users/assign-org', labelKey: 'adminDomains.users.assignOrg', implementation: 'users-assign-org' },
-          { id: 'login-history', path: '/app/admin/users/login-history', labelKey: 'adminDomains.users.loginHistory', implementation: 'users-login-history' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'accounts',
+    path: '/app/admin/accounts',
+    labelKey: 'adminDomains.accounts.title',
+    icon: 'KeyRound',
+    sections: [
+      {
+        id: 'main',
+        items: [
+          { id: 'list', path: '/app/admin/accounts', labelKey: 'adminDomains.accounts.list', end: true, implementation: 'accounts-list' },
+          { id: 'detail', path: '/app/admin/accounts/detail', labelKey: 'adminDomains.accounts.detail', implementation: 'accounts-detail' },
+          { id: 'lock', path: '/app/admin/accounts/lock', labelKey: 'adminDomains.accounts.lock', implementation: 'accounts-lock' },
+          { id: 'reset-password', path: '/app/admin/accounts/reset-password', labelKey: 'adminDomains.accounts.resetPassword', implementation: 'accounts-reset-password' },
+          { id: 'force-password', path: '/app/admin/accounts/force-password', labelKey: 'adminDomains.accounts.forcePassword', implementation: 'accounts-force-password' },
+          { id: 'set-password', path: '/app/admin/accounts/set-password', labelKey: 'adminDomains.accounts.setPassword', implementation: 'accounts-set-password' },
+          { id: 'revoke-sessions', path: '/app/admin/accounts/revoke-sessions', labelKey: 'adminDomains.accounts.revokeSessions', implementation: 'accounts-revoke-sessions' },
+          { id: 'resend-verification', path: '/app/admin/accounts/resend-verification', labelKey: 'adminDomains.accounts.resendVerification', implementation: 'accounts-resend-verification' },
+          { id: 'login-history', path: '/app/admin/accounts/login-history', labelKey: 'adminDomains.accounts.loginHistory', implementation: 'accounts-login-history' },
         ],
       },
     ],
@@ -88,17 +106,6 @@ export const ADMIN_DOMAINS = [
         ],
       },
       {
-        id: 'positions',
-        labelKey: 'adminDomains.orgStructure.sectionPositions',
-        items: [
-          { id: 'pos-list', path: '/app/admin/org-structure/positions', labelKey: 'adminDomains.orgStructure.posList', end: true, implementation: 'org-pos-list' },
-          { id: 'pos-create', path: '/app/admin/org-structure/positions/create', labelKey: 'adminDomains.orgStructure.posCreate', implementation: 'org-pos-create' },
-          { id: 'pos-edit', path: '/app/admin/org-structure/positions/edit', labelKey: 'adminDomains.orgStructure.posEdit', implementation: 'org-pos-edit' },
-          { id: 'pos-disable', path: '/app/admin/org-structure/positions/disable', labelKey: 'adminDomains.orgStructure.posDisable', implementation: 'org-pos-disable' },
-          { id: 'pos-assign', path: '/app/admin/org-structure/positions/assign', labelKey: 'adminDomains.orgStructure.posAssign', implementation: 'org-pos-assign' },
-        ],
-      },
-      {
         id: 'divisions',
         labelKey: 'adminDomains.orgStructure.sectionDivisions',
         items: [
@@ -128,11 +135,149 @@ export const ADMIN_DOMAINS = [
     labelKey: 'adminDomains.rbac.title',
     icon: 'Shield',
     adminOnly: true,
+    navAccordion: true,
     sections: [
       {
-        id: 'main',
+        id: 'overview',
+        labelKey: 'adminDomains.rbac.sectionOverview',
         items: [
-          { id: 'roles', path: '/app/admin/rbac/roles', labelKey: 'adminDomains.rbac.roles', end: true, implementation: 'rbac-list' },
+          {
+            id: 'taxonomy',
+            path: '/app/admin/rbac',
+            labelKey: 'adminDomains.rbac.taxonomy',
+            end: true,
+            implementation: 'rbac-taxonomy',
+          },
+        ],
+      },
+      {
+        id: 'positions',
+        labelKey: 'adminDomains.rbac.sectionPositions',
+        items: [
+          {
+            id: 'pos-list',
+            path: '/app/admin/rbac/positions',
+            labelKey: 'adminDomains.rbac.posList',
+            end: true,
+            implementation: 'rbac-pos-list',
+          },
+          {
+            id: 'pos-create',
+            path: '/app/admin/rbac/positions/create',
+            labelKey: 'adminDomains.rbac.posCreate',
+            implementation: 'rbac-pos-create',
+          },
+          {
+            id: 'pos-edit',
+            path: '/app/admin/rbac/positions/edit',
+            labelKey: 'adminDomains.rbac.posEdit',
+            implementation: 'rbac-pos-edit',
+          },
+          {
+            id: 'pos-disable',
+            path: '/app/admin/rbac/positions/disable',
+            labelKey: 'adminDomains.rbac.posDisable',
+            implementation: 'rbac-pos-disable',
+          },
+          {
+            id: 'pos-assign',
+            path: '/app/admin/rbac/positions/assign',
+            labelKey: 'adminDomains.rbac.posAssign',
+            implementation: 'rbac-pos-assign',
+          },
+        ],
+      },
+      {
+        id: 'orgRoles',
+        labelKey: 'adminDomains.rbac.sectionOrgRoles',
+        items: [
+          {
+            id: 'org-role-list',
+            path: '/app/admin/rbac/org-roles',
+            labelKey: 'adminDomains.rbac.orgRoleCatalog',
+            end: true,
+            implementation: 'rbac-org-role-list',
+          },
+          {
+            id: 'org-role-directory',
+            path: '/app/admin/rbac/org-roles/directory',
+            labelKey: 'adminDomains.rbac.orgRoleDirectory',
+            implementation: 'rbac-org-role-directory',
+          },
+          {
+            id: 'org-role-lookup',
+            path: '/app/admin/rbac/org-roles/lookup',
+            labelKey: 'adminDomains.rbac.orgRoleLookup',
+            implementation: 'rbac-org-role-lookup',
+          },
+          {
+            id: 'org-role-create',
+            path: '/app/admin/rbac/org-roles/create',
+            labelKey: 'adminDomains.rbac.orgRoleCreate',
+            implementation: 'rbac-org-role-create',
+          },
+          {
+            id: 'org-role-edit',
+            path: '/app/admin/rbac/org-roles/edit',
+            labelKey: 'adminDomains.rbac.orgRoleEdit',
+            implementation: 'rbac-org-role-edit',
+          },
+          {
+            id: 'org-role-delete',
+            path: '/app/admin/rbac/org-roles/delete',
+            labelKey: 'adminDomains.rbac.orgRoleDelete',
+            implementation: 'rbac-org-role-delete',
+          },
+          {
+            id: 'org-role-assign',
+            path: '/app/admin/rbac/org-roles/assign',
+            labelKey: 'adminDomains.rbac.orgRoleAssign',
+            implementation: 'rbac-org-role-assign',
+          },
+        ],
+      },
+      {
+        id: 'projectRoles',
+        labelKey: 'adminDomains.rbac.sectionProjectRoles',
+        items: [
+          {
+            id: 'project-role-list',
+            path: '/app/admin/rbac/project-roles',
+            labelKey: 'adminDomains.rbac.projectRoleCatalog',
+            implementation: 'rbac-project-role-list',
+            end: true,
+          },
+          {
+            id: 'project-role-board',
+            path: '/app/admin/rbac/project-roles/board',
+            labelKey: 'adminDomains.rbac.projectRoleBoard',
+            implementation: 'rbac-project-role-board',
+          },
+          {
+            id: 'project-role-create',
+            path: '/app/admin/rbac/project-roles/create',
+            labelKey: 'adminDomains.rbac.projectRoleCreate',
+            implementation: 'rbac-project-role-create',
+          },
+          {
+            id: 'project-role-edit',
+            path: '/app/admin/rbac/project-roles/edit',
+            labelKey: 'adminDomains.rbac.projectRoleEdit',
+            implementation: 'rbac-project-role-edit',
+          },
+          {
+            id: 'project-role-delete',
+            path: '/app/admin/rbac/project-roles/delete',
+            labelKey: 'adminDomains.rbac.projectRoleDelete',
+            implementation: 'rbac-project-role-delete',
+          },
+        ],
+      },
+      {
+        id: 'systemRoles',
+        labelKey: 'adminDomains.rbac.sectionSystemRoles',
+        items: [
+          { id: 'roles', path: '/app/admin/rbac/roles', labelKey: 'adminDomains.rbac.roles', implementation: 'rbac-list' },
           { id: 'hierarchy', path: '/app/admin/rbac/hierarchy', labelKey: 'adminDomains.rbac.hierarchy', implementation: 'rbac-hierarchy' },
           { id: 'create', path: '/app/admin/rbac/create', labelKey: 'adminDomains.rbac.create', implementation: 'rbac-create' },
           { id: 'edit', path: '/app/admin/rbac/edit', labelKey: 'adminDomains.rbac.edit', implementation: 'rbac-edit' },
@@ -141,6 +286,24 @@ export const ADMIN_DOMAINS = [
           { id: 'assign', path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign', implementation: 'rbac-assign' },
           { id: 'revoke', path: '/app/admin/rbac/revoke', labelKey: 'adminDomains.rbac.revoke', implementation: 'rbac-revoke' },
           { id: 'matrix', path: '/app/admin/rbac/matrix', labelKey: 'adminDomains.rbac.matrix', implementation: 'rbac-matrix' },
+        ],
+      },
+      {
+        id: 'responsibility',
+        labelKey: 'adminDomains.rbac.sectionResponsibility',
+        items: [
+          {
+            id: 'responsibilities',
+            path: '/app/admin/rbac/responsibilities',
+            labelKey: 'adminDomains.rbac.responsibilities',
+            implementation: 'rbac-responsibility-list',
+          },
+          {
+            id: 'responsibility-assign',
+            path: '/app/admin/rbac/responsibilities/assign',
+            labelKey: 'adminDomains.rbac.responsibilityAssign',
+            implementation: 'rbac-responsibility-assign',
+          },
         ],
       },
     ],
@@ -213,20 +376,109 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/tasks',
     labelKey: 'adminDomains.tasks.title',
     icon: 'Kanban',
+    navAccordion: true,
     sections: [
       {
-        id: 'main',
+        id: 'delivery',
+        labelKey: 'adminDomains.tasks.sectionDelivery',
         items: [
-          { id: 'projects', path: '/app/admin/tasks', labelKey: 'adminDomains.tasks.projects', end: true },
-          { id: 'boards', path: '/app/admin/tasks/boards', labelKey: 'adminDomains.tasks.boards' },
-          { id: 'sprints', path: '/app/admin/tasks/sprints', labelKey: 'adminDomains.tasks.sprints' },
-          { id: 'workflow', path: '/app/admin/tasks/workflow', labelKey: 'adminDomains.tasks.workflow' },
-          { id: 'status', path: '/app/admin/tasks/status', labelKey: 'adminDomains.tasks.status' },
-          { id: 'priority', path: '/app/admin/tasks/priority', labelKey: 'adminDomains.tasks.priority' },
-          { id: 'labels', path: '/app/admin/tasks/labels', labelKey: 'adminDomains.tasks.labels' },
-          { id: 'manage-tasks', path: '/app/admin/tasks/manage', labelKey: 'adminDomains.tasks.manageTasks' },
-          { id: 'transfer', path: '/app/admin/tasks/transfer', labelKey: 'adminDomains.tasks.transfer' },
-          { id: 'export', path: '/app/admin/tasks/export', labelKey: 'adminDomains.tasks.export' },
+          {
+            id: 'projects',
+            path: '/app/admin/tasks',
+            labelKey: 'adminDomains.tasks.projects',
+            end: true,
+            implementation: 'tasks-boards',
+          },
+          {
+            id: 'boards',
+            path: '/app/admin/tasks/boards',
+            labelKey: 'adminDomains.tasks.boards',
+            implementation: 'tasks-boards',
+          },
+          {
+            id: 'project-team',
+            path: '/app/admin/tasks/project-team',
+            labelKey: 'adminDomains.tasks.projectTeam',
+            implementation: 'tasks-project-team',
+          },
+          {
+            id: 'delegation',
+            path: '/app/admin/tasks/delegation',
+            labelKey: 'adminDomains.tasks.delegation',
+            implementation: 'tasks-delegation',
+          },
+        ],
+      },
+      {
+        id: 'ops',
+        labelKey: 'adminDomains.tasks.sectionOps',
+        items: [
+          {
+            id: 'briefs',
+            path: '/app/admin/tasks/briefs',
+            labelKey: 'adminDomains.tasks.briefs',
+            implementation: 'tasks-briefs',
+          },
+          {
+            id: 'manage-tasks',
+            path: '/app/admin/tasks/manage',
+            labelKey: 'adminDomains.tasks.manageTasks',
+            implementation: 'tasks-manage',
+          },
+          {
+            id: 'export',
+            path: '/app/admin/tasks/export',
+            labelKey: 'adminDomains.tasks.export',
+            implementation: 'tasks-export',
+          },
+        ],
+      },
+      {
+        id: 'ref',
+        labelKey: 'adminDomains.tasks.sectionRef',
+        items: [
+          {
+            id: 'status',
+            path: '/app/admin/tasks/status',
+            labelKey: 'adminDomains.tasks.status',
+            implementation: 'tasks-status-priority',
+          },
+          {
+            id: 'priority',
+            path: '/app/admin/tasks/priority',
+            labelKey: 'adminDomains.tasks.priority',
+            implementation: 'tasks-status-priority',
+          },
+          {
+            id: 'labels',
+            path: '/app/admin/tasks/labels',
+            labelKey: 'adminDomains.tasks.labels',
+            implementation: 'tasks-manage',
+          },
+        ],
+      },
+      {
+        id: 'later',
+        labelKey: 'adminDomains.tasks.sectionDeliveryOps',
+        items: [
+          {
+            id: 'sprints',
+            path: '/app/admin/tasks/sprints',
+            labelKey: 'adminDomains.tasks.sprints',
+            implementation: 'tasks-sprints',
+          },
+          {
+            id: 'workflow',
+            path: '/app/admin/tasks/workflow',
+            labelKey: 'adminDomains.tasks.workflow',
+            implementation: 'tasks-workflow',
+          },
+          {
+            id: 'transfer',
+            path: '/app/admin/tasks/transfer',
+            labelKey: 'adminDomains.tasks.transfer',
+            implementation: 'tasks-transfer',
+          },
         ],
       },
     ],
@@ -433,6 +685,20 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/roles': '/app/admin/rbac/roles',
   '/app/admin/policy': '/app/admin/system-config/policy',
   '/app/admin/security': '/app/admin/security',
+  '/app/admin/org-structure/positions': '/app/admin/rbac/positions',
+  '/app/admin/org-structure/positions/create': '/app/admin/rbac/positions/create',
+  '/app/admin/org-structure/positions/edit': '/app/admin/rbac/positions/edit',
+  '/app/admin/org-structure/positions/disable': '/app/admin/rbac/positions/disable',
+  '/app/admin/org-structure/positions/assign': '/app/admin/rbac/positions/assign',
+
+  '/app/admin/rbac/organization-roles': '/app/admin/rbac/org-roles',
+  '/app/admin/rbac/organization-roles/directory': '/app/admin/rbac/org-roles/directory',
+  '/app/admin/rbac/organization-roles/lookup': '/app/admin/rbac/org-roles/lookup',
+
+  '/app/admin/users/lock': '/app/admin/accounts/lock',
+  '/app/admin/users/reset-password': '/app/admin/accounts/reset-password',
+  '/app/admin/users/force-password': '/app/admin/accounts/force-password',
+  '/app/admin/users/login-history': '/app/admin/accounts/login-history',
 };
 
 export function normalizeAdminPath(pathname) {
@@ -491,25 +757,25 @@ export const ORG_LEVEL_KEY_TO_SECTION = {
 };
 
 /** Sections luôn hiện (không gắn level hierarchy). */
-export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['dynamic', 'positions']);
+export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['dynamic']);
 
 /**
  * Lọc sections Cơ cấu tổ chức theo trạng thái setup + levels đã lưu.
- * - Chưa setup (`setupCompleted !== true`): chỉ Positions (tránh menu hierarchy “ảo”).
+ * - Chưa setup (`setupCompleted !== true`): ẩn hierarchy (modal setup tự mở).
  * - Đã setup: section theo level; ẩn `dynamic` (Levels) — setup một lần qua modal.
  */
 export function filterOrgStructureSections(sections, levels, { setupCompleted } = {}) {
   const list = Array.isArray(sections) ? sections : [];
 
   if (setupCompleted !== true) {
-    return list.filter((section) => section.id === 'positions');
+    return [];
   }
 
   const enabledKeys = (Array.isArray(levels) ? levels : [])
     .filter((l) => l && l.enabled !== false && l.key)
     .map((l) => String(l.key).toLowerCase().trim());
 
-  const allowed = new Set(['positions']);
+  const allowed = new Set();
   for (const key of enabledKeys) {
     const sectionId = ORG_LEVEL_KEY_TO_SECTION[key];
     if (sectionId) allowed.add(sectionId);

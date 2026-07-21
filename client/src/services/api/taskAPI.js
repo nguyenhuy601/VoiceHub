@@ -214,11 +214,17 @@ export const taskAPI = {
 
   getBoardAssignableMembers: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
+    const params = {};
+    if (opts.responsibilityKey) params.responsibilityKey = opts.responsibilityKey;
+    if (opts.evaluateCanAssign) params.evaluateCanAssign = '1';
     return requestWithWorkspaceFallback({
       ctx,
       workspaceRequest: () =>
-        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/assignable-members`),
-      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}/assignable-members`),
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/assignable-members`, {
+          params,
+        }),
+      legacyRequest: () =>
+        apiClient.get(`${legacyBoardBase()}/${boardId}/assignable-members`, { params }),
     });
   },
 
@@ -413,6 +419,122 @@ export const taskAPI = {
 
   cancelProjectBrief: (briefId) =>
     apiClient.post(`/tasks/project-briefs/${encodeURIComponent(briefId)}/cancel`, {}),
+
+  listBoardSprints: (boardId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints`),
+      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}/sprints`),
+    });
+  },
+
+  createBoardSprint: (boardId, payload = {}, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints`, body),
+      legacyRequest: () => apiClient.post(`${legacyBoardBase()}/${boardId}/sprints`, body),
+    });
+  },
+
+  updateBoardSprint: (boardId, sprintId, payload = {}, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.patch(
+          `${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints/${sprintId}`,
+          body
+        ),
+      legacyRequest: () =>
+        apiClient.patch(`${legacyBoardBase()}/${boardId}/sprints/${sprintId}`, body),
+    });
+  },
+
+  deleteBoardSprint: (boardId, sprintId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.delete(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints/${sprintId}`),
+      legacyRequest: () => apiClient.delete(`${legacyBoardBase()}/${boardId}/sprints/${sprintId}`),
+    });
+  },
+
+  assignCardsToSprint: (boardId, sprintId, cardIds = [], opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(
+          `${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints/${sprintId}/cards`,
+          { cardIds }
+        ),
+      legacyRequest: () =>
+        apiClient.post(`${legacyBoardBase()}/${boardId}/sprints/${sprintId}/cards`, { cardIds }),
+    });
+  },
+
+  removeCardFromSprint: (boardId, sprintId, cardId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.delete(
+          `${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/sprints/${sprintId}/cards/${cardId}`
+        ),
+      legacyRequest: () =>
+        apiClient.delete(`${legacyBoardBase()}/${boardId}/sprints/${sprintId}/cards/${cardId}`),
+    });
+  },
+
+  getBoardWorkflow: (boardId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/workflow`),
+      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}/workflow`),
+    });
+  },
+
+  putBoardWorkflow: (boardId, payload = {}, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.put(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/workflow`, body),
+      legacyRequest: () => apiClient.put(`${legacyBoardBase()}/${boardId}/workflow`, body),
+    });
+  },
+
+  seedBoardWorkflow: (boardId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/workflow/seed-default`),
+      legacyRequest: () =>
+        apiClient.post(`${legacyBoardBase()}/${boardId}/workflow/seed-default`),
+    });
+  },
+
+  transferBoard: (boardId, payload = {}, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/transfer`, body),
+      legacyRequest: () => apiClient.post(`${legacyBoardBase()}/${boardId}/transfer`, body),
+    });
+  },
 };
 
 /** @deprecated dùng getTaskApiMode — export để test */

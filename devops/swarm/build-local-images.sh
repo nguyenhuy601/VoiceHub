@@ -3,6 +3,10 @@
 # Usage: bash devops/swarm/build-local-images.sh [service-name ...]
 #   bash devops/swarm/build-local-images.sh              # all app images
 #   bash devops/swarm/build-local-images.sh auth-service # one service
+#
+# Sau build: mặc định xóa dangling images (bản cũ mất tag :latest) để tránh phình disk.
+#   SKIP_POST_BUILD_PRUNE=1     — bỏ bước prune
+#   POST_BUILD_BUILDER_PRUNE=1  — thêm docker builder prune (cache >24h)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -56,6 +60,20 @@ build_one() {
   fi
 }
 
+post_build_prune() {
+  if [[ "${SKIP_POST_BUILD_PRUNE:-0}" == "1" ]]; then
+    echo "==> Skip post-build prune (SKIP_POST_BUILD_PRUNE=1)"
+    return 0
+  fi
+  echo ""
+  echo "==> Prune dangling images (retag cũ sau build)"
+  docker image prune -f
+  if [[ "${POST_BUILD_BUILDER_PRUNE:-0}" == "1" ]]; then
+    echo "==> Prune build cache (>24h)"
+    docker builder prune -f --filter until=24h 2>/dev/null || docker builder prune -f
+  fi
+}
+
 if [[ $# -gt 0 ]]; then
   for want in "$@"; do
     found=0
@@ -79,8 +97,11 @@ else
   done
 fi
 
+post_build_prune
+
 echo ""
 echo "[OK] Local images ready (voicehub-*:${TAG})"
 echo "Deploy: SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/deploy-stack.sh"
 echo "Tip: ghcr.io/* trùng Image ID là do tag kép — xóa tag registry (giữ voicehub-*):"
 echo "  docker rmi ghcr.io/${OWNER:-OWNER}/voicehub/<service>:${TAG}"
+echo "Tip: container Swarm Exited vẫn cần GC định kỳ: bash devops/swarm/swarm-exited-task-gc.sh"

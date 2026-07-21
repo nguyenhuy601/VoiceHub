@@ -1,8 +1,6 @@
 import axios from 'axios';
 import {
   applyAuthHeader,
-  getRefreshToken,
-  setRefreshToken,
   setToken,
 } from './tokenStorage';
 import { resolveApiBaseUrl } from './browserOrigin';
@@ -21,17 +19,17 @@ export function isAuthRefreshDisabled() {
 }
 
 async function callRefreshEndpoint() {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    throw new Error('NO_REFRESH_TOKEN');
-  }
-
   const API_URL = resolveApiBaseUrl();
   const res = await axios.post(
     `${API_URL}/auth/refresh-token`,
-    { refreshToken },
+    {},
     {
-      headers: { 'Content-Type': 'application/json' },
+      withCredentials: true,
+      headers: {
+        'Content-Type': 'application/json',
+        // Header required by CSRF guard in refresh/logout flows.
+        'X-VoiceHub-Client': '1',
+      },
       timeout: 30000,
     }
   );
@@ -44,9 +42,6 @@ async function callRefreshEndpoint() {
   }
 
   setToken(accessToken);
-  if (body.refreshToken) {
-    setRefreshToken(body.refreshToken);
-  }
   return accessToken;
 }
 

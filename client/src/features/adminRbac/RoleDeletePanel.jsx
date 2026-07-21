@@ -7,6 +7,7 @@ import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { clearAdminRoleSelection } from '../../utils/adminSelectionParams';
 import {
   isProtectedDefaultRole,
   normalizeRoleDisplayName,
@@ -14,9 +15,9 @@ import {
 
 export default function RoleDeletePanel({ orgId }) {
   const { t } = useAppStrings();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const roleId = String(searchParams.get('roleId') || '').trim();
-  const { rolesById, loadRoles } = useAdminRoles(orgId);
+  const { rolesById, loadRoles, removeRoleLocally } = useAdminRoles(orgId);
   const role = rolesById.get(roleId);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,11 +27,14 @@ export default function RoleDeletePanel({ orgId }) {
     setBusy(true);
     try {
       await roleAPI.deleteRole(roleId, orgId);
+      removeRoleLocally(roleId);
+      clearAdminRoleSelection(searchParams, setSearchParams);
       toast.success(t('adminRbac.deleted'));
       setOpen(false);
       await loadRoles();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.deleteFail') }));
+      await loadRoles();
     } finally {
       setBusy(false);
     }

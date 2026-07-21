@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -14,6 +15,7 @@ import {
 
 export default function UserCreatePanel({ orgId }) {
   const { t } = useAppStrings();
+  const { refreshStats } = useCompanyAdminContext();
   const { loadMembers } = useAdminMembers(orgId);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -42,6 +44,7 @@ export default function UserCreatePanel({ orgId }) {
       toast.success(t('companyAdmin.inviteEmailSentTo', { email }));
       setForm({ email: '', firstName: '', lastName: '', role: 'member' });
       await loadMembers();
+      refreshStats?.();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.inviteFail') }));
     } finally {

@@ -48,6 +48,27 @@ export const adminUserAPI = {
 
   getLoginEvents: (organizationId, userId, params = {}) =>
     apiClient.get(`/auth/admin/users/${userId}/login-events`, withOrg(organizationId, { params })),
+
+  revokeSessions: (organizationId, userId) =>
+    apiClient.post(
+      `/auth/admin/users/${userId}/revoke-sessions`,
+      { organizationId },
+      withOrg(organizationId)
+    ),
+
+  setPassword: (organizationId, userId, { password, mustChangePassword }) =>
+    apiClient.post(
+      `/auth/admin/users/${userId}/set-password`,
+      { organizationId, password, mustChangePassword },
+      withOrg(organizationId)
+    ),
+
+  resendVerification: (organizationId, userId, frontendUrl) =>
+    apiClient.post(
+      `/auth/admin/users/${userId}/resend-verification`,
+      { organizationId, frontendUrl: frontendUrl || window.location.origin },
+      withOrg(organizationId)
+    ),
 };
 
 export default adminUserAPI;

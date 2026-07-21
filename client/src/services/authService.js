@@ -16,7 +16,7 @@
 // Import api instance từ ./api.js
 // api đã có sẵn: base URL, interceptors, auth headers
 import api from './api';
-import { getRefreshToken, setRefreshToken, setToken } from '../utils/tokenStorage';
+import { setToken } from '../utils/tokenStorage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 
 const GATEWAY_TRUST_TIMEOUT_MS = 8000;
@@ -192,12 +192,8 @@ const authService = {
     });
     const payload = response?.data || response;
     const accessToken = payload?.accessToken;
-    const refreshToken = payload?.refreshToken;
     if (accessToken) {
       setToken(accessToken);
-    }
-    if (refreshToken) {
-      setRefreshToken(refreshToken);
     }
     return payload;
   },
@@ -264,22 +260,18 @@ const authService = {
      POST /auth/refresh-token body: { refreshToken }
      Auto retry: api.js interceptor (single-flight). */
   refreshToken: async () => {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) {
-      throw new Error('No refresh token');
-    }
     const response = await api.post(
       '/auth/refresh-token',
-      { refreshToken },
-      { skipAuthRefresh: true }
+      {},
+      {
+        skipAuthRefresh: true,
+        withCredentials: true,
+        headers: { 'X-VoiceHub-Client': '1' },
+      }
     );
     const accessToken = response?.accessToken || response?.token || response?.data?.accessToken;
     if (accessToken) {
       setToken(accessToken);
-    }
-    const nextRefresh = response?.refreshToken || response?.data?.refreshToken;
-    if (nextRefresh) {
-      setRefreshToken(nextRefresh);
     }
     return response;
   },

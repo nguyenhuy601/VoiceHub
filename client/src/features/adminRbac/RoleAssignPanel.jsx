@@ -8,6 +8,7 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { clearAdminUserSelection } from '../../utils/adminSelectionParams';
 import {
   memberDisplayName,
   memberEmail,
@@ -117,12 +118,6 @@ export default function RoleAssignPanel({ orgId }) {
     [systemRoles, assignedIds]
   );
 
-  const clearSelectedUser = () => {
-    const next = new URLSearchParams(searchParams);
-    next.delete('userId');
-    setSearchParams(next, { replace: true });
-  };
-
   const assign = async () => {
     if (!orgId || !userId || !selectedRoleId || busy) return;
     if (!selectedIsRoleless) {
@@ -135,7 +130,7 @@ export default function RoleAssignPanel({ orgId }) {
       toast.success(t('adminRbac.assigned'));
       setSelectedRoleId('');
       await reloadAssignments();
-      clearSelectedUser();
+      clearAdminUserSelection(searchParams, setSearchParams);
       setAssignedIds(new Set());
       setEffectivePerms([]);
     } catch (error) {

@@ -1,10 +1,12 @@
 /**
- * Lưu JWT: mặc định sessionStorage; đặt VITE_TOKEN_STORAGE=localStorage để persist qua đóng tab.
- * getToken() đọc cả hai storage (tránh lệch env / login cũ).
+ * Access token: in-memory only (không lưu vào localStorage/sessionStorage).
+ * Refresh token: không lưu phía client; server lưu trong HttpOnly cookie.
  */
-const KEY = 'token';
-const REFRESH_KEY = 'refreshToken';
+const KEY = 'token'; // legacy cleanup
+const REFRESH_KEY = 'refreshToken'; // legacy cleanup
 const TOKEN_CHANGE_EVENT = 'vh-token-changed';
+
+let accessTokenMemory = null;
 
 function notifyTokenChange() {
   if (typeof window !== 'undefined') {
@@ -18,22 +20,10 @@ export function onTokenChange(listener) {
   return () => window.removeEventListener(TOKEN_CHANGE_EVENT, listener);
 }
 
-export function getTokenStorage() {
-  if (typeof window === 'undefined') return null;
-  return import.meta.env.VITE_TOKEN_STORAGE === 'localStorage' ? localStorage : sessionStorage;
-}
-
-/** Đọc JWT — ưu tiên storage cấu hình, fallback storage còn lại. */
+/** Đọc access JWT từ memory. */
 export function getToken() {
   if (typeof window === 'undefined') return null;
-  try {
-    const primary = getTokenStorage();
-    const fromPrimary = primary?.getItem(KEY);
-    if (fromPrimary) return fromPrimary;
-    return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || null;
-  } catch {
-    return null;
-  }
+  return accessTokenMemory;
 }
 
 /** Chuẩn hóa JWT để gắn header Authorization (bỏ prefix Bearer / quote thừa). */
@@ -105,43 +95,24 @@ export function applyAuthHeader(config) {
 export function setToken(token) {
   const value = token != null ? String(token).trim() : '';
   if (!value) return;
-  try {
-    const primary = getTokenStorage();
-    if (primary) {
-      primary.setItem(KEY, value);
-    }
-  } catch {
-    /* ignore */
-  }
+  accessTokenMemory = value;
   notifyTokenChange();
 }
 
 export function getRefreshToken() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const primary = getTokenStorage();
-    const fromPrimary = primary?.getItem(REFRESH_KEY);
-    if (fromPrimary) return fromPrimary;
-    return localStorage.getItem(REFRESH_KEY) || sessionStorage.getItem(REFRESH_KEY) || null;
-  } catch {
-    return null;
-  }
+  // Refresh token is HttpOnly cookie, so JS cannot read it.
+  return null;
 }
 
 export function setRefreshToken(token) {
-  const value = token != null ? String(token).trim() : '';
-  if (!value) return;
-  try {
-    const primary = getTokenStorage();
-    if (primary) {
-      primary.setItem(REFRESH_KEY, value);
-    }
-  } catch {
-    /* ignore */
-  }
+  // No-op: refresh token is stored server-side in HttpOnly cookie.
+  void token;
 }
 
 export function removeToken() {
+  accessTokenMemory = null;
+
+  // Cleanup legacy keys (if the app was logged in before switching to HttpOnly refresh cookies).
   try {
     localStorage.removeItem(KEY);
     sessionStorage.removeItem(KEY);
@@ -149,15 +120,6 @@ export function removeToken() {
     sessionStorage.removeItem(REFRESH_KEY);
   } catch {
     /* ignore */
-  }
-  const s = getTokenStorage();
-  if (s) {
-    try {
-      s.removeItem(KEY);
-      s.removeItem(REFRESH_KEY);
-    } catch {
-      /* ignore */
-    }
   }
   notifyTokenChange();
 }

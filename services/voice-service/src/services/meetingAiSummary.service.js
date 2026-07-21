@@ -98,11 +98,20 @@ async function appendTranscriptChunk(meetingId, chunk) {
 }
 
 async function triggerPostMeetingSummary(meetingId) {
+  const drainMs = Math.min(
+    Math.max(parseInt(process.env.VOICE_SUMMARY_DRAIN_MS || '2500', 10) || 2500, 0),
+    10000
+  );
+  if (drainMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, drainMs));
+  }
+
   const meeting = await Meeting.findById(meetingId).lean();
   if (!meeting) return null;
 
   const transcript = String(meeting.transcript || '').trim();
   if (!transcript) {
+    logger.info(`Summary skipped meeting=${meetingId} reason=empty_transcript drainMs=${drainMs}`);
     await Meeting.findByIdAndUpdate(meetingId, { $set: { summaryStatus: 'none' } });
     return null;
   }

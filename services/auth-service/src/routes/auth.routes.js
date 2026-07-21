@@ -1,12 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const cookieParser = require('cookie-parser');
 const authController = require('../controllers/auth.controller');
 const { verifyAccessToken } = require('../config/jwt');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const { sendServiceError } = require('../middleware/sendServiceError');
 const { adminUserController, internalAuthSummaryBatch } = require('../controllers/adminUser.controller');
 const { companyAdminAuth } = require('../middleware/companyAdminAuth');
+const requireClientHeader = require('../middleware/requireClientHeader');
 const UserAuth = require('../models/UserAuth');
+
+router.use(cookieParser());
 
 // Middleware xác thực — verify JWT + tokenVersion (tv) khớp MongoDB
 const authenticate = async (req, res, next) => {
@@ -92,7 +96,7 @@ router.post('/internal/users-auth-summary', internalGatewayAuth, internalAuthSum
 // Public routes
 router.post('/register', authController.register.bind(authController));
 router.post('/login', authController.login.bind(authController));
-router.post('/refresh-token', authController.refreshToken.bind(authController));
+router.post('/refresh-token', requireClientHeader(), authController.refreshToken.bind(authController));
 router.post('/forgot-password', authController.forgotPassword.bind(authController));
 router.post('/resend-verification', authController.resendVerification.bind(authController));
 router.post('/reset-password', authController.resetPassword.bind(authController));
@@ -136,6 +140,24 @@ router.get(
   authenticate,
   companyAdminAuth({ requireFullAccess: false }),
   adminUserController.listLoginEvents.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/revoke-sessions',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.revokeSessions.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/set-password',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.setPassword.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/resend-verification',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.resendVerification.bind(adminUserController)
 );
 
 module.exports = router;

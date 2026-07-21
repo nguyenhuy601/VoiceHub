@@ -45,9 +45,18 @@ function opusBitrateKbps() {
   );
 }
 
-/** Tạm thời 0 để test upload segment nhỏ; khôi phục prod: VOICE_RECORDING_MIN_BYTES=1024 */
+/** Mặc định 2048 để discard webm chỉ header (~550B). Override bằng VOICE_RECORDING_MIN_BYTES. */
 function minRecordingBytes() {
-  return Math.max(0, parseInt(process.env.VOICE_RECORDING_MIN_BYTES ?? '0', 10) || 0);
+  const raw = process.env.VOICE_RECORDING_MIN_BYTES;
+  if (raw === undefined || raw === '') return 2048;
+  return Math.max(0, parseInt(raw, 10) || 0);
+}
+
+/** File 0 byte luôn discard (kể cả khi MIN_BYTES=0). */
+function segmentHasUsableBytes(size) {
+  const n = Number(size) || 0;
+  if (n <= 0) return false;
+  return n >= minRecordingBytes();
 }
 
 function allocPortPair() {
@@ -85,6 +94,33 @@ function isRecordingActive(roomId) {
   const state = roomStates.get(String(roomId));
   if (!state) return isLegacyAutoRecord();
   return Boolean(state.userRecordingSession) || isLegacyAutoRecord();
+}
+
+async function readSegmentRtpStats(segment) {
+  const out = { consumerPackets: null, consumerBytes: null, transportBytesSent: null };
+  if (!segment) return out;
+  try {
+    const stats = await segment.consumer?.getStats?.();
+    const list = Array.isArray(stats) ? stats : stats ? [stats] : [];
+    const outbound = list.find((s) => s?.type === 'outbound-rtp') || list[0];
+    if (outbound) {
+      out.consumerPackets = outbound.packetCount ?? outbound.packetsSent ?? null;
+      out.consumerBytes = outbound.byteCount ?? outbound.bytesSent ?? null;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const tStats = await segment.plainTransport?.getStats?.();
+    const list = Array.isArray(tStats) ? tStats : tStats ? [tStats] : [];
+    const transport = list.find((s) => s?.type === 'plain-rtp-transport' || s?.type === 'transport') || list[0];
+    if (transport) {
+      out.transportBytesSent = transport.bytesSent ?? transport.byteCount ?? null;
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
 }
 
 async function stopSegment(segment) {
@@ -204,6 +240,9 @@ async function detachProducer(roomId, producerId) {
   const segment = state.activeSegments.get(producerId);
   if (!segment) return;
   state.activeSegments.delete(producerId);
+
+  // Stats trước close — sau close consumerPackets luôn null.
+  const rtpStats = await readSegmentRtpStats(segment);
   await stopSegment(segment);
 
   let size = 0;
@@ -212,26 +251,19 @@ async function detachProducer(roomId, producerId) {
   } catch {
     size = 0;
   }
-  if (size >= minRecordingBytes()) {
+  if (segmentHasUsableBytes(size)) {
     state.sessionSegments.push({
       outPath: segment.outPath,
       userId: segment.userId,
       displayName: segment.displayName,
       startedAt: segment.startedAt,
       endedAt: Date.now(),
+      bytes: size,
     });
   } else {
     try {
-      let consumerPackets = null;
-      try {
-        const stats = await segment.consumer?.getStats?.();
-        const first = Array.isArray(stats) ? stats[0] : stats;
-        consumerPackets = first?.packetCount ?? first?.packetsReceived ?? null;
-      } catch {
-        consumerPackets = null;
-      }
       logger.warn(
-        `[room-rec] zero-byte segment room=${roomId} producer=${producerId} producerPausedAtAttach=${Boolean(segment.producerPausedAtAttach)} consumerPackets=${consumerPackets} ffmpegErr=${(segment.getFfmpegStderr?.() || '').slice(0, 300)}`
+        `[room-rec] zero-byte segment room=${roomId} producer=${producerId} producerPausedAtAttach=${Boolean(segment.producerPausedAtAttach)} consumerPackets=${rtpStats.consumerPackets} consumerBytes=${rtpStats.consumerBytes} transportBytesSent=${rtpStats.transportBytesSent} ffmpegErr=${(segment.getFfmpegStderr?.() || '').slice(0, 300)}`
       );
       if (fs.existsSync(segment.outPath)) fs.unlinkSync(segment.outPath);
     } catch {
@@ -239,6 +271,37 @@ async function detachProducer(roomId, producerId) {
     }
   }
   logger.info(`[room-rec] segment stopped room=${roomId} producer=${producerId} bytes=${size}`);
+}
+
+/**
+ * Sau unmute: gắn FFmpeg nếu chưa có; restart segment nếu attach lúc mic đang pause
+ * (tránh file 0 byte rồi vẫn “queued” khi MIN_BYTES=0).
+ */
+async function ensureProducerRecordingAfterResume({
+  roomId,
+  producerId,
+  userId,
+  displayName,
+  meetingId,
+}) {
+  if (!isServerRecordingEnabled() || !objectStorage.isEnabled()) return;
+  if (!isRecordingActive(roomId)) return;
+
+  const state = roomStates.get(String(roomId));
+  if (!state?.userRecordingSession) return;
+
+  const existing = state.activeSegments.get(producerId);
+  if (existing?.producerPausedAtAttach) {
+    logger.info(
+      `[room-rec] restart segment after unmute room=${roomId} producer=${producerId}`
+    );
+    await detachProducer(roomId, producerId);
+    await attachProducer({ roomId, producerId, userId, displayName, meetingId });
+    return;
+  }
+  if (!existing) {
+    await attachProducer({ roomId, producerId, userId, displayName, meetingId });
+  }
 }
 
 async function attachAllRoomProducers(roomId, meetingId) {
@@ -333,7 +396,7 @@ async function finalizeSessionSegments(state, { startedBy, startedAt, meetingId,
       } catch {
         size = 0;
       }
-      if (size < minRecordingBytes()) {
+      if (!segmentHasUsableBytes(size)) {
         cleanupPaths();
         return null;
       }
@@ -424,7 +487,14 @@ async function stopUserSegment({
 }) {
   const state = roomStates.get(String(roomId));
   if (!state?.userRecordingSession) {
-    return { segment: null, stopped: true, alreadyStopped: true };
+    return {
+      segment: null,
+      stopped: true,
+      alreadyStopped: true,
+      processing: false,
+      savedSegmentCount: 0,
+      totalBytes: 0,
+    };
   }
 
   for (const producerId of [...state.activeSegments.keys()]) {
@@ -434,7 +504,17 @@ async function stopUserSegment({
   const session = state.userRecordingSession;
   state.userRecordingSession = null;
 
-  const segmentPaths = state.sessionSegments.map((s) => s.outPath).filter((p) => fs.existsSync(p));
+  const kept = state.sessionSegments.filter((s) => s?.outPath && fs.existsSync(s.outPath));
+  const segmentPaths = kept.map((s) => s.outPath);
+  const totalBytes = kept.reduce((sum, s) => {
+    if (Number(s.bytes) > 0) return sum + Number(s.bytes);
+    try {
+      return sum + fs.statSync(s.outPath).size;
+    } catch {
+      return sum;
+    }
+  }, 0);
+  const savedSegmentCount = segmentPaths.length;
   state.sessionSegments = [];
 
   const finalizeCtx = {
@@ -448,8 +528,14 @@ async function stopUserSegment({
   };
 
   if (!segmentPaths.length) {
-    logger.info(`[room-rec] user segment stopped room=${roomId} queued=0`);
-    return { segment: null, stopped: true, processing: false };
+    logger.info(`[room-rec] user segment stopped room=${roomId} queued=0 totalBytes=0`);
+    return {
+      segment: null,
+      stopped: true,
+      processing: false,
+      savedSegmentCount: 0,
+      totalBytes: 0,
+    };
   }
 
   if (deferFinalize) {
@@ -460,16 +546,30 @@ async function stopUserSegment({
         }
       });
     });
-    logger.info(`[room-rec] user segment stopped room=${roomId} queued=${segmentPaths.length}`);
-    return { segment: null, stopped: true, processing: true };
+    logger.info(
+      `[room-rec] user segment stopped room=${roomId} queued=${savedSegmentCount} totalBytes=${totalBytes}`
+    );
+    return {
+      segment: null,
+      stopped: true,
+      processing: true,
+      savedSegmentCount,
+      totalBytes,
+    };
   }
 
   const segment = await finalizeSessionSegments(state, finalizeCtx);
   if (segment) {
     logger.info(`[room-rec] user segment finalized room=${roomId} segment=${segment.id}`);
   }
-  logger.info(`[room-rec] user segment stopped room=${roomId} queued=0`);
-  return { segment, stopped: true, processing: false };
+  logger.info(`[room-rec] user segment stopped room=${roomId} queued=0 totalBytes=${totalBytes}`);
+  return {
+    segment,
+    stopped: true,
+    processing: false,
+    savedSegmentCount,
+    totalBytes,
+  };
 }
 
 async function finalizeRoom(roomId, meetingId, durationSec = 0, { skipTranscript = false } = {}) {
@@ -597,9 +697,12 @@ module.exports = {
   attachProducer,
   detachProducer,
   attachAllRoomProducers,
+  ensureProducerRecordingAfterResume,
   startUserSegment,
   stopUserSegment,
   finalizeRoom,
   discardRoom,
   hasActiveUserRecording,
+  segmentHasUsableBytes,
+  minRecordingBytes,
 };

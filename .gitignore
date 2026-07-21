@@ -90,6 +90,13 @@ coverage/
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+# Windows reserved device names (cannot be indexed by Git)
+/nul
+/NUL
+/con
+/CON
+/prn
+/PRN
 
 # ========================
 # Python Cache
@@ -106,6 +113,13 @@ __pycache__/
 *.backup
 .cache
 .temp/
+# Client local build/debug dumps (redirected npm/vite/lint output)
+/client/build-error.txt
+/client/build-npm-*.txt
+/client/lint-error.txt
+/client/npm-build-verbose*.txt
+/client/vite-debug.txt
+/client/vite.log
 
 # ========================
 # MongoDB

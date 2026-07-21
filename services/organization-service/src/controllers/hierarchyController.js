@@ -6,6 +6,7 @@ const Channel = require('../models/Channel');
 const {
   orgFail,
   orgValidation,
+  orgConflict,
 } = require('../utils/orgApiError');
 const {
   ensureDivisionRole,
@@ -20,6 +21,10 @@ const {
   dualWriteSyncOuActive,
   dualWriteSyncOuLeadership,
 } = require('../services/orgOuDualWrite.service');
+const {
+  findActiveDepartmentNameConflict,
+  findActiveTeamNameConflict,
+} = require('../utils/orgUnitNameConflict');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -192,11 +197,20 @@ exports.createDepartmentByDivision = async (req, res, next) => {
     if (!division) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
+    const name = unwrapName(req.body?.name, 'Phòng ban mới');
+    const conflict = await findActiveDepartmentNameConflict({
+      organizationId: req.params.orgId,
+      divisionId: division._id,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Phòng ban cùng tên đã tồn tại trong khối này', 'ORG_DEPARTMENT_NAME_EXISTS');
+    }
     const doc = await Department.create({
       organization: req.params.orgId,
       branch: division.branch || null,
       division: division._id,
-      name: unwrapName(req.body?.name, 'Phòng ban mới'),
+      name,
       description: String(req.body?.description || '').trim(),
       head: req.body?.head || null,
     });
@@ -224,11 +238,20 @@ exports.createDepartmentByDivision = async (req, res, next) => {
 /** Huy: Tạo phòng ban gốc (template không có division). */
 exports.createDepartmentRoot = async (req, res, next) => {
   try {
+    const name = unwrapName(req.body?.name, 'Phòng ban mới');
+    const conflict = await findActiveDepartmentNameConflict({
+      organizationId: req.params.orgId,
+      divisionId: null,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Phòng ban cùng tên đã tồn tại', 'ORG_DEPARTMENT_NAME_EXISTS');
+    }
     const doc = await Department.create({
       organization: req.params.orgId,
       branch: null,
       division: null,
-      name: unwrapName(req.body?.name, 'Phòng ban mới'),
+      name,
       description: String(req.body?.description || '').trim(),
       head: req.body?.head || null,
     });
@@ -275,12 +298,21 @@ exports.createTeamByDepartment = async (req, res, next) => {
     if (!department) {
       return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
     }
+    const name = unwrapName(req.body?.name, 'Team mới');
+    const conflict = await findActiveTeamNameConflict({
+      organizationId: req.params.orgId,
+      departmentId: department._id,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Team cùng tên đã tồn tại trong phòng ban này', 'ORG_TEAM_NAME_EXISTS');
+    }
     const doc = await Team.create({
       organization: req.params.orgId,
       branch: department.branch || null,
       division: department.division || null,
       department: department._id,
-      name: unwrapName(req.body?.name, 'Team mới'),
+      name,
       description: String(req.body?.description || '').trim(),
       leader: req.body?.leader || null,
       isActive: true,
@@ -310,12 +342,21 @@ exports.createTeamByDivision = async (req, res, next) => {
     if (!division) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
+    const name = unwrapName(req.body?.name, 'Team mới');
+    const conflict = await findActiveTeamNameConflict({
+      organizationId: req.params.orgId,
+      divisionId: division._id,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Team cùng tên đã tồn tại trong khối này', 'ORG_TEAM_NAME_EXISTS');
+    }
     const doc = await Team.create({
       organization: req.params.orgId,
       branch: division.branch || null,
       division: division._id,
       department: null,
-      name: unwrapName(req.body?.name, 'Team mới'),
+      name,
       description: String(req.body?.description || '').trim(),
       leader: req.body?.leader || null,
       isActive: true,
@@ -337,12 +378,20 @@ exports.createTeamByDivision = async (req, res, next) => {
 /** Huy: Tạo team gốc (template startup — chỉ team). */
 exports.createTeamRoot = async (req, res, next) => {
   try {
+    const name = unwrapName(req.body?.name, 'Team mới');
+    const conflict = await findActiveTeamNameConflict({
+      organizationId: req.params.orgId,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Team cùng tên đã tồn tại', 'ORG_TEAM_NAME_EXISTS');
+    }
     const doc = await Team.create({
       organization: req.params.orgId,
       branch: null,
       division: null,
       department: null,
-      name: unwrapName(req.body?.name, 'Team mới'),
+      name,
       description: String(req.body?.description || '').trim(),
       leader: req.body?.leader || null,
       isActive: true,

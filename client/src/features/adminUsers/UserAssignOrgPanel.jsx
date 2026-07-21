@@ -15,6 +15,7 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { clearAdminUserSelection } from '../../utils/adminSelectionParams';
 import {
   memberDisplayName,
   memberEmail,
@@ -25,7 +26,7 @@ import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
 export default function UserAssignOrgPanel({ orgId }) {
   const { t } = useAppStrings();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { departments, teams, loadStructure } = useAdminOrgStructure(orgId);
   const { loadMembers, membersById } = useAdminMembers(orgId);
@@ -86,6 +87,7 @@ export default function UserAssignOrgPanel({ orgId }) {
       toast.success(t('adminUsers.assignOrgSaved'));
       setDepartmentId('');
       setTeamId('');
+      clearAdminUserSelection(searchParams, setSearchParams);
       await Promise.all([loadStructure(), loadMembers()]);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.assignOrgFail') }));

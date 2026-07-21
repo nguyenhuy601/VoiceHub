@@ -1,4 +1,4 @@
-/** Huy: Domain Cơ cấu tổ chức — admin org-structure */
+/** Position (HR) — admin RBAC */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -63,7 +63,7 @@ export default function PosDisablePanel({ orgId }) {
 
   return (
     <AdminUserPanelShell
-      title={t('adminDomains.orgStructure.posDisable')}
+      title={t('adminDomains.rbac.posDisable')}
       hint={t('adminOrg.posDisableHint')}
     >
       <AdminUserFormCard danger>
@@ -101,7 +101,7 @@ export default function PosDisablePanel({ orgId }) {
         isOpen={open}
         onClose={() => !busy && setOpen(false)}
         onConfirm={confirm}
-        title={t('adminDomains.orgStructure.posDisable')}
+        title={t('adminDomains.rbac.posDisable')}
         message={t('adminOrg.posClearConfirm', { name: title })}
         confirmText={t('adminOrg.posDisableAction')}
         cancelText={t('common.cancel')}

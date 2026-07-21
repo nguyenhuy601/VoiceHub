@@ -404,6 +404,48 @@ export const organizationAPI = {
     const response = await apiClient.get(`/organizations/${orgId}/statistics`);
     return response;
   },
+
+  listResponsibilities: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/responsibilities`);
+    return response;
+  },
+
+  createResponsibility: async (orgId, data) => {
+    const response = await apiClient.post(`/organizations/${orgId}/responsibilities`, data);
+    return response;
+  },
+
+  seedResponsibilities: async (orgId) => {
+    const response = await apiClient.post(`/organizations/${orgId}/responsibilities/seed-default`);
+    return response;
+  },
+
+  patchResponsibility: async (orgId, key, data) => {
+    const response = await apiClient.patch(`/organizations/${orgId}/responsibilities/${encodeURIComponent(key)}`, data);
+    return response;
+  },
+
+  getUserResponsibilities: async (orgId, userId) => {
+    const response = await apiClient.get(
+      `/organizations/${orgId}/responsibilities/users/${encodeURIComponent(userId)}`
+    );
+    return response;
+  },
+
+  setUserResponsibilities: async (orgId, userId, keys) => {
+    const response = await apiClient.put(
+      `/organizations/${orgId}/responsibilities/users/${encodeURIComponent(userId)}`,
+      { keys }
+    );
+    return response;
+  },
+
+  listResponsibilityUsersByKey: async (orgId, key) => {
+    const response = await apiClient.get(
+      `/organizations/${orgId}/responsibilities/users-by-key/${encodeURIComponent(key)}`
+    );
+    return response;
+  },
 };
 
 // Backward-compatible aliases while migrating callers.

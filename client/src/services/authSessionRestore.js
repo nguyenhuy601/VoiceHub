@@ -3,8 +3,27 @@ import { getJwtEmail, getJwtSystemRole, getToken } from '../utils/tokenStorage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 import { loadBootstrapShell } from './bootstrapService';
 import { readStoredSuite } from '../utils/suitePathUtils';
+import { isAuthRefreshDisabled, refreshAccessTokenSingleFlight } from '../utils/authRefresh';
 
 let inflightRestore = null;
+
+const SESSION_MARKER_COOKIE = 'vh_has_session';
+
+/** True when non-HttpOnly marker cookie is present (set alongside refresh HttpOnly cookie). */
+function hasSessionMarkerCookie() {
+  if (typeof document === 'undefined') return false;
+  try {
+    const raw = String(document.cookie || '');
+    return raw.split(';').some((part) => {
+      const [name, ...rest] = part.trim().split('=');
+      if (String(name || '').trim() !== SESSION_MARKER_COOKIE) return false;
+      const value = decodeURIComponent(rest.join('=').trim());
+      return value === '1' || value === 'true';
+    });
+  } catch {
+    return false;
+  }
+}
 
 function sessionBaseFromJwt(extra = {}) {
   const systemRole = getJwtSystemRole();
@@ -20,9 +39,18 @@ function sessionBaseFromJwt(extra = {}) {
  * Ưu tiên GET /api/bootstrap (đã gồm user + orgs + badges); fallback getCurrentUser.
  */
 export async function restoreAuthSession() {
-  const token = getToken();
+  let token = getToken();
   if (!token) {
-    return { user: null, fromBootstrap: false };
+    // Avoid guest spam POST /auth/refresh-token when no session marker (HttpOnly refresh alone is invisible to JS).
+    if (!isAuthRefreshDisabled() && hasSessionMarkerCookie()) {
+      try {
+        await refreshAccessTokenSingleFlight();
+      } catch {
+        // Silent restore: fail is OK; we'll return guest session.
+      }
+    }
+    token = getToken();
+    if (!token) return { user: null, fromBootstrap: false };
   }
 
   if (inflightRestore) {

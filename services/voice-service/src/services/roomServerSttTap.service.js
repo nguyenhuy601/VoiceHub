@@ -190,6 +190,7 @@ async function attachProducerTap({ roomId, producerId, userId, displayName, meet
       plainTransport: tapSession.plainTransport,
       consumer: tapSession.consumer,
       ffmpeg: tapSession.ffmpeg,
+      producerPausedAtAttach: Boolean(tapSession.producerPaused),
       rotateTimer: null,
     };
 
@@ -262,6 +263,32 @@ async function attachAllRoomProducers(roomId, meetingId) {
   }
 }
 
+/**
+ * Sau unmute: gắn STT tap nếu AI summary đang bật; restart nếu attach lúc mic pause.
+ */
+async function ensureProducerSttAfterResume({
+  roomId,
+  producerId,
+  userId,
+  displayName,
+  meetingId,
+}) {
+  if (!isSttEnabled()) return;
+  if (!meetingAiSummary.isSummaryActive(roomId)) return;
+
+  const state = roomStates.get(String(roomId));
+  const existing = state?.taps?.get(producerId);
+  if (existing?.producerPausedAtAttach) {
+    logger.info(`[stt-tap] restart tap after unmute room=${roomId} producer=${producerId}`);
+    await detachProducerTap(roomId, producerId);
+    await attachProducerTap({ roomId, producerId, userId, displayName, meetingId });
+    return;
+  }
+  if (!existing) {
+    await attachProducerTap({ roomId, producerId, userId, displayName, meetingId });
+  }
+}
+
 async function startRoomSttTap({ roomId, meetingId }) {
   ensureRoomState(roomId, meetingId);
   await attachAllRoomProducers(roomId, meetingId);
@@ -303,6 +330,8 @@ module.exports = {
   bindMeeting,
   attachProducerTap,
   detachProducerTap,
+  attachAllRoomProducers,
+  ensureProducerSttAfterResume,
   startRoomSttTap,
   stopRoomSttTap,
 };

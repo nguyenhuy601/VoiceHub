@@ -22,6 +22,14 @@ import {
   memberTeamId,
   memberUserId,
 } from '../../utils/adminUserUtils';
+import {
+  buildOrgRoleBadgeByUserId,
+  buildResponsibilityByUserIdFromKeyLists,
+  formatResponsibilityBadges,
+  memberJobTitle,
+  orgRoleBadgeLabel,
+  unwrapOrgList,
+} from '../../utils/userTaxonomyUtils';
 
 function StatusBadge({ member, t }) {
   const key = memberStatusKey(member);
@@ -73,6 +81,42 @@ function UserRoleCell({ labels, emptyLabel }) {
   );
 }
 
+function OrgRoleBadgeCell({ badges, t }) {
+  if (!badges?.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {badges.map((key) => (
+        <span
+          key={key}
+          className="inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-500/15 dark:text-indigo-300"
+        >
+          {orgRoleBadgeLabel(key, t)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ResponsibilityCell({ keys, emptyLabel }) {
+  const { visible, overflow } = formatResponsibilityBadges(keys);
+  if (!visible.length) return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
+  return (
+    <div className="flex max-w-[160px] flex-wrap gap-1">
+      {visible.map((key) => (
+        <span
+          key={key}
+          className="inline-flex rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] font-medium text-teal-800 ring-1 ring-teal-500/15 dark:text-teal-200"
+        >
+          {key}
+        </span>
+      ))}
+      {overflow > 0 ? (
+        <span className="text-[10px] text-muted-foreground">+{overflow}</span>
+      ) : null}
+    </div>
+  );
+}
+
 function collectDeptTeamMaps(structure) {
   const departments = new Map();
   const teams = new Map();
@@ -110,6 +154,9 @@ export default function UsersListPanel({ orgId }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
+  const [structureRaw, setStructureRaw] = useState(null);
+  const [orgRoleByUser, setOrgRoleByUser] = useState({});
+  const [responsibilityByUser, setResponsibilityByUser] = useState({});
   const [rbacByUser, setRbacByUser] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
@@ -121,9 +168,51 @@ export default function UsersListPanel({ orgId }) {
       try {
         const res = await organizationAPI.getStructure(orgId);
         const body = res?.data?.data ?? res?.data ?? res;
-        if (!cancelled) setStructureMaps(collectDeptTeamMaps(body));
+        if (!cancelled) {
+          setStructureRaw(body);
+          setStructureMaps(collectDeptTeamMaps(body));
+          const badgeMap = buildOrgRoleBadgeByUserId(body);
+          setOrgRoleByUser(Object.fromEntries(badgeMap));
+        }
       } catch {
         if (!cancelled) setStructureMaps({ departments: new Map(), teams: new Map() });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const catalogRes = await organizationAPI.listResponsibilities(orgId);
+        const catalog = unwrapOrgList(catalogRes);
+        const keys = catalog.map((r) => r.key).filter(Boolean);
+        const entries = await Promise.all(
+          keys.map(async (key) => {
+            try {
+              const res = await organizationAPI.listResponsibilityUsersByKey(orgId, key);
+              const body = res?.data?.data ?? res?.data ?? res;
+              const userIds = Array.isArray(body?.userIds)
+                ? body.userIds
+                : Array.isArray(body)
+                  ? body.map((row) => String(row?.userId || row || '').trim()).filter(Boolean)
+                  : [];
+              return { key, userIds };
+            } catch {
+              return { key, userIds: [] };
+            }
+          })
+        );
+        if (!cancelled) {
+          const map = buildResponsibilityByUserIdFromKeyLists(entries);
+          setResponsibilityByUser(Object.fromEntries(map));
+        }
+      } catch {
+        if (!cancelled) setResponsibilityByUser({});
       }
     })();
     return () => {
@@ -200,17 +289,21 @@ export default function UsersListPanel({ orgId }) {
       const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
         normalizeRoleDisplayName(row?.name || row?.role?.name)
       );
+      const jobTitle = memberJobTitle(m).toLowerCase();
+      const respKeys = (responsibilityByUser[id] || []).join(' ').toLowerCase();
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
+        jobTitle.includes(q) ||
+        respKeys.includes(q) ||
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
         team.toLowerCase().includes(q) ||
         id.toLowerCase().includes(q)
       );
     });
-  }, [members, query, roleFilter, statusFilter, scopeFilter, structureMaps, rbacByUser]);
+  }, [members, query, roleFilter, statusFilter, scopeFilter, structureMaps, rbacByUser, responsibilityByUser]);
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -311,7 +404,11 @@ export default function UsersListPanel({ orgId }) {
                   <th className="px-4 py-3">{t('adminUsers.colUser')}</th>
                   <th className="px-4 py-3">{t('companyAdmin.colEmail')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colUserRole')}</th>
+                  <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
+                    {t('adminUsers.colUserRole')}
+                  </th>
+                  <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
+                  <th className="px-4 py-3">{t('adminUsers.colResponsibility')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
@@ -360,6 +457,16 @@ export default function UsersListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
+                        <OrgRoleBadgeCell badges={orgRoleByUser[id]} t={t} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <ResponsibilityCell
+                          keys={responsibilityByUser[id]}
+                          emptyLabel={t('adminUsers.responsibilityNone')}
+                        />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="max-w-[160px] truncate">
@@ -413,6 +520,10 @@ export default function UsersListPanel({ orgId }) {
           detailMember ? rbacByUser[memberUserId(detailMember)] || [] : []
         }
         formatWhen={formatWhen}
+        structureRaw={structureRaw}
+        responsibilityKeys={
+          detailMember ? responsibilityByUser[memberUserId(detailMember)] || [] : []
+        }
       />
 
       <ConfirmDialog

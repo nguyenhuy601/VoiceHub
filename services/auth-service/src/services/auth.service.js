@@ -7,7 +7,7 @@ const {
   validatePasswordStrength,
   generateTemporaryPassword,
 } = require('../utils/password');
-const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
+const { generateAccessToken, generateOpaqueRefreshToken } = require('../config/jwt');
 const { bumpTokenVersion, accessTokenPayload } = require('../utils/tokenVersion');
 const { cacheTokenVersion } = require('@enterprise/shared/utils/tokenVersionAuth');
 const { hashRefreshToken, refreshTokenMatches } = require('../utils/refreshTokenHash');
@@ -76,7 +76,7 @@ class AuthService {
     await cacheTokenVersion(userAuth.userId, payload.tv);
 
     const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
+    const refreshToken = generateOpaqueRefreshToken();
 
     userAuth.refreshToken = hashRefreshToken(refreshToken);
     userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
@@ -109,7 +109,7 @@ class AuthService {
     await cacheTokenVersion(userAuth.userId, payload.tv);
 
     const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
+    const refreshToken = generateOpaqueRefreshToken();
 
     userAuth.refreshToken = hashRefreshToken(refreshToken);
     userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
@@ -349,15 +349,23 @@ class AuthService {
   // Refresh access token (+ rotate refresh token)
   async refreshToken(refreshTokenRaw) {
     try {
-      const decoded = verifyRefreshToken(refreshTokenRaw);
+      const raw = String(refreshTokenRaw || '').trim();
+      if (!raw) {
+        throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
+      }
 
-      const userAuth = await UserAuth.findOne({ userId: decoded.id });
+      const hashed = hashRefreshToken(raw);
+      // Ưu tiên lookup theo hash đã lưu, fallback legacy plaintext nếu có dữ liệu cũ.
+      let userAuth = await UserAuth.findOne({ refreshToken: hashed }).maxTimeMS(5000);
+      if (!userAuth) {
+        userAuth = await UserAuth.findOne({ refreshToken: raw }).maxTimeMS(5000);
+      }
 
       if (!userAuth || userAuth.refreshTokenExpiresAt < new Date()) {
         throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
       }
 
-      if (!refreshTokenMatches(userAuth, refreshTokenRaw)) {
+      if (!refreshTokenMatches(userAuth, raw)) {
         throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
       }
 

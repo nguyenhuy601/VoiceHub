@@ -80,6 +80,9 @@ const api = axios.create({
   // Nếu request mất quá 60s → có thể backend đang gặp vấn đề
   // Tránh request treo vô hạn như trước (timeout: 0)
   timeout: 60000,
+
+  // HttpOnly refresh cookie (login/refresh/logout) — cùng origin /api qua Nginx.
+  withCredentials: true,
   
   // Default headers cho mọi request
   headers: {

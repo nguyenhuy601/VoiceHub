@@ -1,56 +1,72 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
-import roleAPI from '../services/api/roleAPI';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useAppStrings } from '../locales/appStrings';
-import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import {
   isSystemCatalogRole,
   normalizeRoleId,
-  unwrapList,
 } from '../utils/adminRbacUtils';
+import {
+  fetchAdminRoles,
+  getAdminRolesSnapshot,
+  removeAdminRole,
+  subscribeAdminRoles,
+} from '../stores/adminRolesStore';
 
 export function useAdminRoles(orgId) {
   const { t } = useAppStrings();
-  const [roles, setRoles] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const loadRoles = useCallback(async () => {
-    if (!orgId) return;
-    setLoading(true);
-    try {
-      const res = await roleAPI.getRolesByOrganization(orgId);
-      const list = unwrapList(res);
-      setRoles(Array.isArray(list) ? list : []);
-    } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.loadFail') }));
-      setRoles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId, t]);
+  const getSnapshot = useCallback(() => getAdminRolesSnapshot(orgId), [orgId]);
+
+  const snapshot = useSyncExternalStore(
+    (cb) => subscribeAdminRoles(orgId, cb),
+    getSnapshot,
+    getSnapshot
+  );
+
+  const loadRoles = useCallback(
+    () => fetchAdminRoles(orgId, { t: tRef.current }),
+    [orgId]
+  );
 
   useEffect(() => {
-    loadRoles();
-  }, [loadRoles]);
+    if (!orgId) return undefined;
+    fetchAdminRoles(orgId, { t: tRef.current });
+    return undefined;
+  }, [orgId]);
 
   const systemRoles = useMemo(
     () =>
-      roles
+      snapshot.roles
         .filter(isSystemCatalogRole)
         .sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0)),
-    [roles]
+    [snapshot.roles]
   );
 
   const rolesById = useMemo(() => {
     const map = new Map();
-    for (const role of roles) {
+    for (const role of snapshot.roles) {
       const id = normalizeRoleId(role);
       if (id) map.set(id, role);
     }
     return map;
-  }, [roles]);
+  }, [snapshot.roles]);
 
-  return { roles, systemRoles, loading, loadRoles, rolesById };
+  const removeRoleLocally = useCallback(
+    (roleId) => {
+      removeAdminRole(orgId, roleId);
+    },
+    [orgId]
+  );
+
+  return {
+    roles: snapshot.roles,
+    systemRoles,
+    loading: snapshot.loading,
+    loadRoles,
+    removeRoleLocally,
+    rolesById,
+  };
 }
 
 export default useAdminRoles;

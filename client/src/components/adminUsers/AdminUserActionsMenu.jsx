@@ -200,12 +200,13 @@ export default function AdminUserActionsMenu({ member, onViewDetail, onRequestDe
                 <ItemLink to={`/app/admin/users/edit${q}`}>{t('adminUsers.editInfo')}</ItemLink>
               </Group>
               <Group label={t('adminUsers.menuGroupAccount')}>
-                <ItemLink to={`/app/admin/users/lock${q}`}>{t('adminDomains.users.lock')}</ItemLink>
-                <ItemLink to={`/app/admin/users/reset-password${q}`}>
-                  {t('adminDomains.users.resetPassword')}
+                <ItemLink to={`/app/admin/accounts/detail${q}`}>{t('adminDomains.accounts.detail')}</ItemLink>
+                <ItemLink to={`/app/admin/accounts/lock${q}`}>{t('adminDomains.accounts.lock')}</ItemLink>
+                <ItemLink to={`/app/admin/accounts/reset-password${q}`}>
+                  {t('adminDomains.accounts.resetPassword')}
                 </ItemLink>
-                <ItemLink to={`/app/admin/users/force-password${q}`}>
-                  {t('adminDomains.users.forcePassword')}
+                <ItemLink to={`/app/admin/accounts/force-password${q}`}>
+                  {t('adminDomains.accounts.forcePassword')}
                 </ItemLink>
               </Group>
               <Group label={t('adminUsers.menuGroupAccess')}>
@@ -215,8 +216,8 @@ export default function AdminUserActionsMenu({ member, onViewDetail, onRequestDe
                 </ItemLink>
               </Group>
               <Group label={t('adminUsers.menuGroupSecurity')}>
-                <ItemLink to={`/app/admin/users/login-history${q}`}>
-                  {t('adminDomains.users.loginHistory')}
+                <ItemLink to={`/app/admin/accounts/login-history${q}`}>
+                  {t('adminDomains.accounts.loginHistory')}
                 </ItemLink>
               </Group>
               <Group label={t('adminUsers.menuGroupDanger')}>

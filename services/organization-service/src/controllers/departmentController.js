@@ -3,6 +3,8 @@ const Branch = require('../models/Branch');
 const Division = require('../models/Division');
 const { ensureDepartmentRole } = require('../services/hierarchyRoleSync');
 const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
+const { findActiveDepartmentNameConflict } = require('../utils/orgUnitNameConflict');
+const { orgConflict } = require('../utils/orgApiError');
 
 exports.getDepartments = async (req, res, next) => {
   try {
@@ -38,6 +40,15 @@ exports.createDepartment = async (req, res, next) => {
           .lean();
         if (defaultDivision) divisionId = defaultDivision._id;
       }
+    }
+
+    const conflict = await findActiveDepartmentNameConflict({
+      organizationId: req.params.orgId,
+      divisionId: divisionId || null,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Phòng ban cùng tên đã tồn tại trong khối này', 'ORG_DEPARTMENT_NAME_EXISTS');
     }
 
     const department = await Department.create({

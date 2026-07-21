@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Hash,
   Kanban,
+  KeyRound,
   LayoutGrid,
   Lock,
   MessageSquare,
@@ -53,6 +54,7 @@ const ADMIN_COLOR = ADMIN_SUITE_COLOR;
 
 const DOMAIN_ICONS = {
   Users,
+  KeyRound,
   Building2,
   Shield,
   Hash,
