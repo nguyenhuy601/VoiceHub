@@ -79,6 +79,12 @@ router.get(
   messageController.exportOrgThreadInternal.bind(messageController)
 );
 
+router.post(
+  '/internal/system-channel-message',
+  internalServiceOnly,
+  messageController.createSystemChannelMessageInternal.bind(messageController)
+);
+
 // Tất cả routes đều cần authentication
 router.use(authenticate);
 

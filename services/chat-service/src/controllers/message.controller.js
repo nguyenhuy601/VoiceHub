@@ -23,6 +23,7 @@ const {
 const {
   fetchAccessibleChannelPermissionMatrix,
   assertCanWriteInOrgChannel,
+  assertCanReadInOrgChannel,
 } = require('../utils/orgChannelPermissions');
 const { resolveOrgChannelAccess } = require('../services/orgAccessReadModel');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
@@ -442,16 +443,23 @@ class MessageController {
       }
 
       if (roomId) {
+        // D6: roomId luôn kèm organizationId + membership write
+        if (!organizationId) {
+          return res.status(400).json({
+            success: false,
+            message: 'organizationId is required when roomId is provided',
+            code: 'ORG_ID_REQUIRED_FOR_ROOM',
+          });
+        }
         messageData.roomId = roomId;
-        if (organizationId) {
-          try {
-            await assertCanWriteInOrgChannel(organizationId, roomId, req);
-          } catch (permErr) {
-            return res.status(permErr.statusCode || 403).json({
-              success: false,
-              message: permErr.message || 'Bạn không có quyền chat trong kênh này',
-            });
-          }
+        try {
+          await assertCanWriteInOrgChannel(organizationId, roomId, req);
+        } catch (permErr) {
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền chat trong kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
         }
       }
 
@@ -957,12 +965,22 @@ class MessageController {
           ];
         }
       } else if (roomId) {
-        if (organizationId) {
-          const { matrix } = await fetchAccessibleChannelPermissionMatrix(organizationId, req);
-          const perms = matrix[String(roomId)] || {};
-          if (!Boolean(perms.canRead)) {
-            return chatForbidden(res, 'Bạn không có quyền đọc kênh này');
-          }
+        // D6: không cho list theo roomId trần (IDOR)
+        if (!organizationId) {
+          return res.status(400).json({
+            success: false,
+            message: 'organizationId is required when roomId is provided',
+            code: 'ORG_ID_REQUIRED_FOR_ROOM',
+          });
+        }
+        try {
+          await assertCanReadInOrgChannel(organizationId, roomId, req);
+        } catch (permErr) {
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền đọc kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
         }
         filter.roomId = roomId;
       } else {
@@ -1303,6 +1321,58 @@ class MessageController {
       const oid = new mongoose.Types.ObjectId(String(organizationId));
       const result = await Message.deleteMany({ organizationId: oid });
       return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
+    }
+  }
+
+  /**
+   * Nội bộ: System Bot đăng tin chào lên Department Channel (org-service gọi sau provision).
+   * Body: { organizationId, roomId, content?, departmentName? }
+   */
+  async createSystemChannelMessageInternal(req, res) {
+    try {
+      const { organizationId, roomId, content, departmentName } = req.body || {};
+      const orgId = String(organizationId || '').trim();
+      const channelId = String(roomId || '').trim();
+      if (!orgId || !mongoose.Types.ObjectId.isValid(orgId)) {
+        return res.status(400).json({ success: false, message: 'organizationId is required and must be valid' });
+      }
+      if (!channelId || !mongoose.Types.ObjectId.isValid(channelId)) {
+        return res.status(400).json({ success: false, message: 'roomId is required and must be valid' });
+      }
+
+      const botId = String(process.env.SYSTEM_BOT_USER_ID || '6a0000000000000000000001').trim();
+      if (!mongoose.Types.ObjectId.isValid(botId)) {
+        return res.status(503).json({
+          success: false,
+          message: 'SYSTEM_BOT_USER_ID is not a valid ObjectId',
+        });
+      }
+
+      const deptLabel = String(departmentName || '').trim();
+      const body =
+        String(content || '').trim() ||
+        (deptLabel
+          ? `Chào mừng đến kênh phòng ban «${deptLabel}». Đây là không gian thông báo và phối hợp nội bộ — giao việc chính thức trên kênh dự án + bảng công việc.`
+          : 'Chào mừng đến kênh phòng ban. Đây là không gian thông báo và phối hợp nội bộ — giao việc chính thức trên kênh dự án + bảng công việc.');
+
+      const message = await messageService.createMessage({
+        senderId: botId,
+        roomId: channelId,
+        organizationId: orgId,
+        content: body,
+        messageType: 'system',
+      });
+      const payloadMessage = (await attachSignedReadUrlToMessage(message)) || message;
+
+      await emitRealtimeEvent({
+        event: 'room:new_message',
+        roomId: channelId,
+        payload: payloadMessage,
+      });
+
+      return res.status(201).json({ success: true, data: payloadMessage });
     } catch (error) {
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
