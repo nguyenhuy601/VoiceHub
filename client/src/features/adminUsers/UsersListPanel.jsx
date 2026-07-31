@@ -7,6 +7,7 @@ import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDr
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import roleAPI from '../../services/api/roleAPI';
+import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -21,16 +22,41 @@ import {
   memberStatusLabel,
   memberTeamId,
   memberUserId,
+  unwrapApi,
 } from '../../utils/adminUserUtils';
-import {
-  buildOrgRoleRowsByUserId,
-  buildResponsibilityByUserIdFromKeyLists,
-  formatResponsibilityBadges,
-  memberJobTitle,
-  unwrapOrgList,
-} from '../../utils/userTaxonomyUtils';
-import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
+const CAP_BADGE = {
+  pending_hr: 'bg-amber-500/12 text-amber-800 ring-1 ring-amber-500/25 dark:text-amber-200',
+  verified: 'bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300',
+  rejected: 'bg-red-500/12 text-red-700 ring-1 ring-red-500/20 dark:text-red-300',
+  draft: 'bg-slate-500/10 text-slate-600 ring-1 ring-slate-500/15 dark:text-slate-300',
+};
+
+function CapabilityStatusBadge({ status, t }) {
+  const key = ['pending_hr', 'verified', 'rejected'].includes(status) ? status : 'draft';
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${CAP_BADGE[key]}`}
+    >
+      {t(`settingsCapability.status.${key}`)}
+    </span>
+  );
+}
+
+async function mapPool(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx;
+      idx += 1;
+      results[i] = await mapper(items[i], i);
+    }
+  }
+  const n = Math.min(concurrency, Math.max(1, items.length));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
 function StatusBadge({ member, t }) {
   const key = memberStatusKey(member);
   const styles = {
@@ -158,12 +184,14 @@ export default function UsersListPanel({ orgId }) {
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [capabilityFilter, setCapabilityFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
   const [responsibilityByUser, setResponsibilityByUser] = useState({});
   const [rbacByUser, setRbacByUser] = useState({});
+  const [capabilityByUser, setCapabilityByUser] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
 
@@ -264,6 +292,34 @@ export default function UsersListPanel({ orgId }) {
     };
   }, [orgId, members]);
 
+  useEffect(() => {
+    if (!orgId || !members.length) {
+      setCapabilityByUser({});
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const rows = await mapPool(members, 5, async (m) => {
+        const uid = memberUserId(m);
+        if (!uid) return ['', 'draft'];
+        try {
+          const res = await adminUserAPI.getProfile(orgId, uid);
+          const data = unwrapApi(res)?.data ?? unwrapApi(res);
+          const status = String(data?.capability?.verificationStatus || 'draft').trim() || 'draft';
+          return [uid, status];
+        } catch {
+          return [uid, 'draft'];
+        }
+      });
+      if (!cancelled) {
+        setCapabilityByUser(Object.fromEntries(rows.filter(([uid]) => uid)));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, members]);
+
   const formatWhen = (value) => {
     if (!value) return '—';
     const d = new Date(value);
@@ -293,6 +349,15 @@ export default function UsersListPanel({ orgId }) {
     return members.filter((m) => {
       if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
       if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
+      if (capabilityFilter) {
+        const id = memberUserId(m);
+        const cap = capabilityByUser[id] || 'draft';
+        if (capabilityFilter === 'draft') {
+          if (cap !== 'draft' && cap !== '') return false;
+        } else if (cap !== capabilityFilter) {
+          return false;
+        }
+      }
       if (scopeFilter) {
         const [kind, id] = scopeFilter.split(':');
         if (kind === 'dep' && memberDepartmentId(m) !== id) return false;
@@ -319,7 +384,17 @@ export default function UsersListPanel({ orgId }) {
         id.toLowerCase().includes(q)
       );
     });
-  }, [members, query, roleFilter, statusFilter, scopeFilter, structureMaps, rbacByUser, responsibilityByUser]);
+  }, [
+    members,
+    query,
+    roleFilter,
+    statusFilter,
+    capabilityFilter,
+    scopeFilter,
+    structureMaps,
+    rbacByUser,
+    capabilityByUser,
+  ]);
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -394,6 +469,18 @@ export default function UsersListPanel({ orgId }) {
               <option value="mustChangePassword">{t('adminUsers.statusMustChangePassword')}</option>
             </select>
             <select
+              value={capabilityFilter}
+              onChange={(e) => setCapabilityFilter(e.target.value)}
+              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+              aria-label={t('adminUsers.filterCapability')}
+            >
+              <option value="">{t('adminUsers.filterAllCapability')}</option>
+              <option value="pending_hr">{t('adminUsers.filterCapPending')}</option>
+              <option value="verified">{t('adminUsers.filterCapVerified')}</option>
+              <option value="rejected">{t('adminUsers.filterCapRejected')}</option>
+              <option value="draft">{t('adminUsers.filterCapDraft')}</option>
+            </select>
+            <select
               value={scopeFilter}
               onChange={(e) => setScopeFilter(e.target.value)}
               className="min-w-[160px] rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
@@ -430,6 +517,7 @@ export default function UsersListPanel({ orgId }) {
                   <th className="px-4 py-3">{t('adminUsers.colResponsibility')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
+                  <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
                   <th className="w-12 px-2 py-3 text-center">
                     <span className="sr-only">{t('adminUsers.colActions')}</span>
@@ -503,6 +591,9 @@ export default function UsersListPanel({ orgId }) {
                       <td className="px-4 py-3">
                         <StatusBadge member={m} t={t} />
                       </td>
+                      <td className="px-4 py-3">
+                        <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {formatWhen(m.lastLoginAt)}
                       </td>
@@ -544,10 +635,9 @@ export default function UsersListPanel({ orgId }) {
           detailMember ? rbacByUser[memberUserId(detailMember)] || [] : []
         }
         formatWhen={formatWhen}
-        structureRaw={structureRaw}
-        responsibilityKeys={
-          detailMember ? responsibilityByUser[memberUserId(detailMember)] || [] : []
-        }
+        onCapabilityStatusChange={(userId, status) => {
+          setCapabilityByUser((prev) => ({ ...prev, [userId]: status }));
+        }}
       />
 
       <ConfirmDialog

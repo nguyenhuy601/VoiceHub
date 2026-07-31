@@ -98,6 +98,7 @@ export const ROLE_META = {
 
 export const SETTINGS_TABS_BY_ROLE = [
   { id: 'profile', label: 'Hồ sơ', minRole: 'guest' },
+  { id: 'capability', label: 'Năng lực', minRole: 'guest' },
   { id: 'appearance', label: 'Giao diện', minRole: 'guest' },
   { id: 'notifications', label: 'Thông báo', minRole: 'guest' },
   { id: 'security', label: 'Bảo mật', minRole: 'personal' },

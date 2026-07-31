@@ -22,6 +22,22 @@ export const adminUserAPI = {
   patchProfile: (organizationId, userId, body) =>
     apiClient.patch(`/users/admin/${userId}`, { ...body, organizationId }, withOrg(organizationId)),
 
+  /** C1 — HR verify hồ sơ năng lực */
+  verifyCapability: (organizationId, userId) =>
+    apiClient.patch(
+      `/users/admin/${userId}`,
+      { organizationId, capabilityAction: 'verify' },
+      withOrg(organizationId)
+    ),
+
+  /** C1 — HR reject hồ sơ năng lực */
+  rejectCapability: (organizationId, userId, rejectReason) =>
+    apiClient.patch(
+      `/users/admin/${userId}`,
+      { organizationId, capabilityAction: 'reject', rejectReason },
+      withOrg(organizationId)
+    ),
+
   getAuthSummary: (organizationId, userId) =>
     apiClient.get(`/auth/admin/users/${userId}/summary`, withOrg(organizationId)),
 

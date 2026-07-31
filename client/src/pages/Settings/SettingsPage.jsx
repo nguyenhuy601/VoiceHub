@@ -19,6 +19,7 @@ import { settingsTabsForRole } from '../../config/roleMeta';
 import SettingsRbacMatrix from '../../components/Settings/SettingsRbacMatrix';
 import SettingsActiveSessions from '../../components/Settings/SettingsActiveSessions';
 import SettingsApiKeysPanel from '../../components/Settings/SettingsApiKeysPanel';
+import CapabilityProfilePanel from '../../components/Settings/CapabilityProfilePanel';
 import { FIGMA_SETTINGS_CARD, FIGMA_SETTINGS_INPUT } from '../../components/Settings/figmaSettingsClasses';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 
@@ -684,6 +685,8 @@ function SettingsPage() {
           </div>
         </div>
       )}
+
+      {figmaTab === 'capability' && <CapabilityProfilePanel />}
 
       {figmaTab === 'security' && (
         <div className="max-w-xl space-y-5">

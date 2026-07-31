@@ -22,6 +22,20 @@ const userService = {
     return await api.patch('/users/me', data);
   },
 
+  /** C1 — lưu nháp / nộp hồ sơ năng lực */
+  saveCapability: async (capabilityAction, capability) => {
+    return await api.patch('/users/me', { capabilityAction, capability });
+  },
+
+  /** C2 — Upload PDF CV (multipart field name: file) */
+  uploadCapabilityCv: async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return await api.post('/users/me/capability/cv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
   // Upload avatar - POST /users/avatar
   // file: File object từ input[type="file"]
   // Dùng FormData vì upload file (multipart/form-data)
