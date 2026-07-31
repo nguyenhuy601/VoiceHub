@@ -125,11 +125,57 @@ const userProfileSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
+    /**
+     * Hồ sơ năng lực phục vụ AI gợi ý team (C1).
+     * SoT = form; verificationStatus gate: draft → pending_hr → verified|rejected.
+     * Không tự cấp Project Role / Permission.
+     */
+    capability: {
+      positionCode: { type: String, trim: true, default: '' },
+      primaryDomain: { type: String, trim: true, default: '' },
+      yearsExperience: { type: Number, default: null },
+      skills: [
+        {
+          name: { type: String, trim: true },
+          level: { type: Number, min: 1, max: 5, default: 3 },
+        },
+      ],
+      languages: [{ type: String, trim: true }],
+      tools: [{ type: String, trim: true }],
+      availability: {
+        type: String,
+        enum: ['available', 'busy', 'partial'],
+        default: 'available',
+      },
+      summary: { type: String, maxlength: 1000, default: '' },
+      verificationStatus: {
+        type: String,
+        enum: ['draft', 'pending_hr', 'verified', 'rejected'],
+        default: 'draft',
+      },
+      source: {
+        type: String,
+        enum: ['manual', 'cv_parse'],
+        default: 'manual',
+      },
+      rejectReason: { type: String, maxlength: 500, default: '' },
+      submittedAt: { type: Date, default: null },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      rejectedAt: { type: Date, default: null },
+      updatedAt: { type: Date, default: null },
+      /** C2 — file CV PDF đã upload (relative /uploads/cv/...) */
+      cvFilePath: { type: String, trim: true, default: '' },
+      cvFileName: { type: String, trim: true, default: '' },
+      cvUploadedAt: { type: Date, default: null },
+    },
   },
   {
     timestamps: true,
   }
 );
+
+userProfileSchema.index({ 'capability.verificationStatus': 1 });
 
 // Virtual để lấy thông tin cơ bản
 userProfileSchema.index({ email: 1 });

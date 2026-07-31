@@ -9,12 +9,22 @@ const {
   maybeMigrateProfilePii,
   readPiiFromProfile,
 } = require('../utils/profilePii');
+const { applyCapabilityAction, resolveCapabilityIntent } = require('./capabilityProfile.service');
+const { parseCvFileToFields } = require('./cvParse.service');
+const path = require('path');
+const fs = require('fs');
 
 function serviceError(message, statusCode = 400, errorCode = 'USER_VALIDATION') {
   const err = new Error(message);
   err.statusCode = statusCode;
   err.errorCode = errorCode;
   return err;
+}
+
+/** Position SoT — Admin Position / first-login ghi preferences.jobTitle (alias top-level jobTitle). */
+function resolveJobTitle(profile) {
+  if (!profile || typeof profile !== 'object') return '';
+  return String(profile.preferences?.jobTitle || profile.jobTitle || '').trim();
 }
 
 class UserService {
@@ -239,36 +249,49 @@ class UserService {
   }
 
   // Cập nhật user profile
-  async updateUserProfile(userId, updateData) {
+  // options.capabilityMode: 'self' (PATCH /me) | 'admin' (PATCH /admin/:id)
+  async updateUserProfile(userId, updateData, options = {}) {
     try {
-      const allowedFields = ['displayName', 'avatar', 'preferences', 'isInvisible', 'status', 'jobTitle'];
+      const allowedFields = ['displayName', 'avatar', 'isInvisible', 'status'];
+      const capabilityMode = options.capabilityMode === 'admin' ? 'admin' : 'self';
+      const actorUserId = options.actorUserId != null ? String(options.actorUserId) : null;
 
       const existingProfile = await UserProfile.findOne({ userId }).lean();
 
       const updateFields = {};
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
-          if (field === 'preferences' && updateData.preferences && typeof updateData.preferences === 'object') {
-            const prev =
-              existingProfile?.preferences && typeof existingProfile.preferences === 'object'
-                ? existingProfile.preferences
-                : {};
-            updateFields.preferences = { ...prev, ...updateData.preferences };
-          } else {
-            updateFields[field] = updateData[field];
-          }
+          updateFields[field] = updateData[field];
         }
       }
 
-      const prefJob = updateFields.preferences?.jobTitle;
-      if (prefJob !== undefined && String(prefJob).trim()) {
-        updateFields.jobTitle = String(prefJob).trim();
-      }
-      if (updateData.jobTitle !== undefined && String(updateData.jobTitle).trim()) {
-        updateFields.jobTitle = String(updateData.jobTitle).trim();
-        if (updateFields.preferences) {
-          updateFields.preferences.jobTitle = updateFields.jobTitle;
+      // Merge preferences — không ghi đè mất theme/language khi chỉ PATCH jobTitle.
+      // Alias: body.jobTitle (Admin Position) → preferences.jobTitle (SoT Position).
+      const hasPrefsPatch =
+        (updateData.preferences !== undefined && updateData.preferences !== null) ||
+        updateData.jobTitle !== undefined;
+      if (hasPrefsPatch) {
+        const prev =
+          existingProfile?.preferences && typeof existingProfile.preferences === 'object'
+            ? existingProfile.preferences
+            : {};
+        const patch =
+          typeof updateData.preferences === 'object' &&
+          updateData.preferences !== null &&
+          !Array.isArray(updateData.preferences)
+            ? updateData.preferences
+            : {};
+        const next = { ...prev, ...patch };
+        if (updateData.jobTitle !== undefined) {
+          next.jobTitle = String(updateData.jobTitle || '').trim().slice(0, 120);
         }
+        if (next.jobTitle !== undefined) {
+          next.jobTitle = String(next.jobTitle || '').trim().slice(0, 120);
+        }
+        if (next.profileCompletedAt !== undefined) {
+          next.profileCompletedAt = String(next.profileCompletedAt || '').trim();
+        }
+        updateFields.preferences = next;
       }
 
       if (updateData.orgNicknames !== undefined && updateData.orgNicknames !== null) {
@@ -280,17 +303,43 @@ class UserService {
           typeof updateData.orgNicknames === 'object' ? updateData.orgNicknames : {};
         updateFields.orgNicknames = { ...prev, ...patch };
       }
-      const { patch: piiPatch, unset: piiUnset } = writePiiPatch({
-        bio: updateData.bio,
-        phone: updateData.phone,
-        location: updateData.location,
-        dateOfBirth: updateData.dateOfBirth,
-      });
-      Object.assign(updateFields, piiPatch);
+      Object.assign(
+        updateFields,
+        writePiiPatch({
+          bio: updateData.bio,
+          phone: updateData.phone,
+          location: updateData.location,
+          dateOfBirth: updateData.dateOfBirth,
+        })
+      );
 
-      const updateOp = { $set: updateFields };
-      if (piiUnset.length > 0) {
-        updateOp.$unset = Object.fromEntries(piiUnset.map((field) => [field, '']));
+      const capabilityIntent = resolveCapabilityIntent(updateData, capabilityMode);
+      if (capabilityIntent) {
+        const applied = applyCapabilityAction(existingProfile?.capability || null, capabilityIntent.action, {
+          fields: capabilityIntent.fields,
+          actorUserId,
+          rejectReason: capabilityIntent.rejectReason,
+          jobTitle: resolveJobTitle({
+            ...existingProfile,
+            preferences: updateFields.preferences || existingProfile?.preferences,
+          }),
+        });
+        if (!applied.ok) {
+          const status =
+            applied.errorCode === 'CAPABILITY_VERIFY_NOT_PENDING' ||
+            applied.errorCode === 'CAPABILITY_REJECT_NOT_PENDING'
+              ? 409
+              : 400;
+          throw serviceError(applied.message, status, applied.errorCode);
+        }
+        updateFields.capability = applied.capability;
+      }
+
+      if (Object.keys(updateFields).length === 0) {
+        if (!existingProfile) {
+          throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+        }
+        return existingProfile;
       }
 
       const userProfile = await UserProfile.findOneAndUpdate(
@@ -464,6 +513,70 @@ class UserService {
       logger.error('Error deleting user profile:', error);
       throw error;
     }
+  }
+
+  /**
+   * C2 — Upload PDF CV → parse → save_draft (source=cv_parse). Không tự verified.
+   * @param {string} userId
+   * @param {{ path: string, originalname?: string, filename?: string }} file
+   */
+  async uploadCapabilityCv(userId, file) {
+    if (!file?.path) {
+      throw serviceError('Missing CV file', 400, 'CV_FILE_REQUIRED');
+    }
+    const existingProfile = await UserProfile.findOne({ userId }).lean();
+    if (!existingProfile) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+    }
+
+    const parsed = await parseCvFileToFields(file.path);
+    if (!parsed.ok) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw serviceError(parsed.message, 400, parsed.errorCode);
+    }
+
+    const relPath = `/uploads/cv/${path.basename(file.path)}`;
+    const applied = applyCapabilityAction(existingProfile.capability || null, 'save_draft', {
+      fields: parsed.fields,
+      source: 'cv_parse',
+      cvMeta: {
+        cvFilePath: relPath,
+        cvFileName: String(file.originalname || file.filename || 'cv.pdf'),
+        cvUploadedAt: new Date(),
+      },
+    });
+    if (!applied.ok) {
+      throw serviceError(applied.message, 400, applied.errorCode);
+    }
+
+    const userProfile = await UserProfile.findOneAndUpdate(
+      { userId },
+      { $set: { capability: applied.capability } },
+      { new: true, runValidators: true }
+    );
+    if (!userProfile) {
+      throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+    }
+
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.del(`user:${userId}`);
+    }
+
+    return {
+      profile: userProfile,
+      parseNote: parsed.parseNote || 'ok',
+      skillsFound: Array.isArray(parsed.fields?.skills) ? parsed.fields.skills.length : 0,
+    };
   }
 }
 

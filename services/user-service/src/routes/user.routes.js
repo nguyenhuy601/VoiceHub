@@ -6,6 +6,7 @@ const internalServiceAuth = require('../middlewares/internalServiceAuth');
 const { protect } = require('../middleware/auth');
 const { companyAdminAuth } = require('../middlewares/companyAdminAuth');
 const upload = require('../middleware/upload');
+const { cvUpload } = require('../middleware/cvUpload');
 
 // Presence từ socket-service (trước userContext — không cần x-user-id)
 router.patch(
@@ -85,6 +86,23 @@ router.post(
   '/avatar',
   upload.single('avatar'),
   userController.uploadAvatar.bind(userController)
+);
+
+router.post(
+  '/me/capability/cv',
+  (req, res, next) => {
+    cvUpload.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'CV upload failed',
+          errorCode: 'CV_UPLOAD_INVALID',
+        });
+      }
+      return next();
+    });
+  },
+  userController.uploadCapabilityCv.bind(userController)
 );
 
 // Tìm kiếm users

@@ -5,7 +5,16 @@ const { logger, getRedisClient } = require('@enterprise/shared');
 const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
 const { uploadsDir } = require('../config/uploadsPath');
-const { fetchAuthSummaryByUserId, fetchAuthSummaryByUserIds } = require('../clients/authSummary.client');
+const {
+  fetchAuthSummaryByUserId,
+  fetchAuthSummaryByUserIds,
+} = require('../clients/authSummary.client');
+
+const {
+  toPublicVerifiedCapability,
+  emptyCapability,
+  assertHrOnlyCapabilityReview,
+} = require('../services/capabilityProfile.service');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -20,6 +29,23 @@ function safeProfilePayload(profile) {
     ...plain,
     ...pii,
   };
+}
+
+/**
+ * Self / company-admin: full capability.
+ * Other members: chỉ bản verified công khai (hoặc null).
+ */
+function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false } = {}) {
+  const payload = safeProfilePayload(profile);
+  if (!payload || typeof payload !== 'object') return payload;
+  if (isSelf || isCompanyAdmin) {
+    if (!payload.capability) {
+      payload.capability = emptyCapability();
+    }
+    return payload;
+  }
+  payload.capability = toPublicVerifiedCapability(payload.capability);
+  return payload;
 }
 
 function authEmailFromReq(req) {
@@ -180,9 +206,13 @@ class UserController {
 
       res.json({
         success: true,
-        data: await enrichPayloadEmailFromAuth(
-          userId,
-          withAuthEmailFallback(req, safeProfilePayload(userProfile))
+        data: withAuthEmailFallback(
+          req,
+          shapeProfilePayload(userProfile, {
+            isSelf: isSelfProfileRequest(req, userId),
+            isCompanyAdmin: false,
+          }),
+          userId
         ),
       });
     } catch (error) {
@@ -303,7 +333,11 @@ class UserController {
 
       res.json({
         success: true,
-        data: withAuthEmailFallback(req, safeProfilePayload(userProfile), userId),
+        data: withAuthEmailFallback(
+          req,
+          shapeProfilePayload(userProfile, { isSelf: true }),
+          userId
+        ),
       });
     } catch (error) {
       logger.error('Get current user error:', error);
@@ -330,19 +364,14 @@ class UserController {
       const userId = actorId;
 
       const body = req.body && typeof req.body === 'object' ? req.body : {};
-      try {
-        await userService.ensureUserProfile(userId, {
-          email: authEmailFromReq(req),
-          displayName: body.displayName,
-        });
-      } catch (ensureErr) {
-        logger.warn(`ensureUserProfile before update failed for ${userId}:`, ensureErr.message);
-      }
-      const userProfile = await userService.updateUserProfile(userId, body);
+      const userProfile = await userService.updateUserProfile(userId, body, {
+        capabilityMode: 'self',
+        actorUserId: actorId,
+      });
 
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: shapeProfilePayload(userProfile, { isSelf: true }),
       });
     } catch (error) {
       logger.error('Update user profile error:', error);
@@ -578,6 +607,35 @@ class UserController {
     }
   }
 
+  /** C2 — Upload PDF CV → prefill capability (save_draft, source=cv_parse) */
+  async uploadCapabilityCv(req, res) {
+    try {
+      const userId = actorUserId(req);
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No PDF uploaded',
+          errorCode: 'CV_FILE_REQUIRED',
+        });
+      }
+      const result = await userService.uploadCapabilityCv(userId, req.file);
+      return res.json({
+        success: true,
+        data: shapeProfilePayload(result.profile, { isSelf: true }),
+        meta: {
+          parseNote: result.parseNote,
+          skillsFound: result.skillsFound,
+        },
+      });
+    } catch (error) {
+      logger.error('Upload capability CV error:', error);
+      return sendError(res, error, 400, 'Không thể đọc CV PDF', 'CV_UPLOAD_FAILED');
+    }
+  }
+
   // Batch profiles — S2S enrich (organization-service admin list)
   async internalProfilesBatch(req, res) {
     try {
@@ -615,7 +673,8 @@ class UserController {
       const authSummary = await fetchAuthSummaryByUserId(userId);
       const payload = await enrichPayloadEmailFromAuth(
         userId,
-        withAuthEmailFallback(req, safeProfilePayload(profile), authSummary)
+        shapeProfilePayload(profile, { isCompanyAdmin: true }),
+        authSummary
       );
       return res.json({ success: true, data: payload });
     } catch (error) {
@@ -628,8 +687,26 @@ class UserController {
     try {
       const userId = String(req.params.userId || '').trim();
       const body = req.body && typeof req.body === 'object' ? req.body : {};
-      const userProfile = await userService.updateUserProfile(userId, body);
-      return res.json({ success: true, data: safeProfilePayload(userProfile) });
+      const actorId = actorUserId(req);
+      // Chuẩn vàng (1)+(a): chỉ orgRole HR được verify/reject năng lực — Owner/Admin không.
+      const capabilityAction = String(body.capabilityAction || '').trim();
+      const hrGate = assertHrOnlyCapabilityReview(req.companyAdmin?.level, capabilityAction);
+      if (!hrGate.ok) {
+        return res.status(hrGate.statusCode).json({
+          success: false,
+          message: hrGate.message,
+          errorCode: hrGate.errorCode,
+          messageUser: hrGate.messageUser,
+        });
+      }
+      const userProfile = await userService.updateUserProfile(userId, body, {
+        capabilityMode: 'admin',
+        actorUserId: actorId,
+      });
+      return res.json({
+        success: true,
+        data: shapeProfilePayload(userProfile, { isCompanyAdmin: true }),
+      });
     } catch (error) {
       logger.error('adminPatchProfile error:', error);
       return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');

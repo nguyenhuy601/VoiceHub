@@ -174,7 +174,7 @@ const noPermissionRoutes = [
   // User profile & avatar không phụ thuộc server/organization
   '/api/users/me',
   '/api/users/avatar',
-  ...ADMIN_SERVICE_AUTH_PREFIXES,
+  '/api/users/me/capability/cv',
   '/api/bootstrap',
   '/api/dashboard/summary',
   // Friend routes không cần server context
