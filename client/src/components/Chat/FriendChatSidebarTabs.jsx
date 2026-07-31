@@ -1,4 +1,4 @@
-import { UserPlus } from 'lucide-react';
+import { MessageSquarePlus } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import {
   FIGMA_CHAT_ADD_FRIEND_BTN,
@@ -9,26 +9,36 @@ import {
   figmaChatSidebarTab,
 } from './figmaChatClasses';
 
+/**
+ * Tabs Hội thoại doanh nghiệp:
+ * - Tin nhắn (gần đây)
+ * - Đồng nghiệp (danh bạ P1) — khi showColleagues
+ * - Lời mời — chỉ khi showInvites (không single-company)
+ */
 export default function FriendChatSidebarTabs({
   activeTab = 'messages',
   onTabChange,
   messagesBadge = 0,
   invitesBadge = 0,
-  onAddFriend,
-  addFriendTitle,
+  onNewMessage,
+  newMessageTitle,
+  showColleagues = false,
+  showInvites = true,
 }) {
   const { t } = useAppStrings();
   const tabs = [
     { id: 'messages', label: t('friendChat.tabMessages') },
-    { id: 'invites', label: t('friendChat.tabInvites') },
+    ...(showColleagues ? [{ id: 'colleagues', label: t('friendChat.tabColleagues') }] : []),
+    ...(showInvites ? [{ id: 'invites', label: t('friendChat.tabInvites') }] : []),
   ];
-  const addFriendTitleText = addFriendTitle || t('friendChat.addFriendTitle');
+  const titleText = newMessageTitle || t('friendChat.newDmTitle');
+
   return (
     <div className="flex items-center justify-between gap-2">
       <div className={FIGMA_CHAT_SIDEBAR_TABS_WRAP}>
         {tabs.map((tab) => {
           const active = activeTab === tab.id;
-          const badge = tab.id === 'messages' ? messagesBadge : invitesBadge;
+          const badge = tab.id === 'messages' ? messagesBadge : tab.id === 'invites' ? invitesBadge : 0;
           return (
             <button
               key={tab.id}
@@ -52,12 +62,12 @@ export default function FriendChatSidebarTabs({
       </div>
       <button
         type="button"
-        onClick={onAddFriend}
+        onClick={onNewMessage}
         className={FIGMA_CHAT_ADD_FRIEND_BTN}
-        title={addFriendTitleText}
-        aria-label={addFriendTitleText}
+        title={titleText}
+        aria-label={titleText}
       >
-        <UserPlus className="h-3.5 w-3.5" aria-hidden />
+        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden />
       </button>
     </div>
   );

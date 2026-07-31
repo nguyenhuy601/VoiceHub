@@ -49,15 +49,19 @@ import { copyImageToClipboard } from '../../utils/copyMediaToClipboard';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFriendPending, useFriendsList, useOrganizationsMy } from '../../hooks/queries';
-import AddFriendModal from '../../components/Friends/AddFriendModal';
+import { fetchFriendsList } from '../../hooks/queries/fetchers';
 import FriendChatSidebarTabs from '../../components/Chat/FriendChatSidebarTabs';
+import NewColleagueDmModal from '../../components/Chat/NewColleagueDmModal';
+import ColleagueDirectoryRail from '../../components/Chat/ColleagueDirectoryRail';
+import AddFriendModal from '../../components/Friends/AddFriendModal';
 import FriendChatFilterChips, { RAIL_FILTER } from '../../components/Chat/FriendChatFilterChips';
 import FriendChatInvitesPanel from '../../components/Chat/FriendChatInvitesPanel';
 import { queryKeys } from '../../lib/queryKeys';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { STALE_TIME_FRIENDS_MS } from '../../lib/queryClient';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
+import { getAiTaskEligibility } from '../../utils/aiTaskEligibility';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import Modal from '../../components/Shared/Modal';
 import Toast from '../../components/Shared/Toast';
@@ -207,7 +211,14 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const { locale } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
-  const { setActiveWorkspace } = useWorkspace();
+  const { setActiveWorkspace, lastOrganizationId, company, activeWorkspace, singleOrgMode } =
+    useWorkspace();
+  const isSingleCompany = Boolean(singleOrgMode || readSingleOrgModeFlag());
+  const directoryOrgId = String(
+    company?.id || company?._id || activeWorkspace?._id || activeWorkspace?.id || lastOrganizationId || ''
+  ).trim();
+  const showColleagueDirectory = Boolean(suiteLayout && directoryOrgId);
+  const showFriendInvites = Boolean(suiteLayout && !isSingleCompany);
   const [searchParams] = useSearchParams();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
@@ -291,15 +302,17 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     location.state?.composeText || searchParams.get('composeText') || ''
   );
   const showPendingRequestsRail = String(searchParams.get('tab') || '').toLowerCase() === 'requests';
-  const [sidebarMainTab, setSidebarMainTab] = useState(() =>
-    showPendingRequestsRail ? 'invites' : 'messages'
-  );
+  const [sidebarMainTab, setSidebarMainTab] = useState(() => {
+    if (showPendingRequestsRail && !isSingleCompany) return 'invites';
+    return 'messages';
+  });
   const [railFilterTab, setRailFilterTab] = useState(RAIL_FILTER.ALL);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [showNewDmModal, setShowNewDmModal] = useState(false);
   const [inviteActingKey, setInviteActingKey] = useState('');
   const queryClient = useQueryClient();
   const { pendingList, pendingCount, refetch: refetchPending } = useFriendPending({
-    enabled: !landingDemo && suiteLayout,
+    enabled: !landingDemo && suiteLayout && showFriendInvites,
   });
   const sentInvitesQuery = useQuery({
     queryKey: [...queryKeys.friends.pending(), 'sent'],
@@ -311,9 +324,28 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
       const raw = resp?.data ?? resp;
       return Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
     },
-    enabled: !landingDemo && suiteLayout && sidebarMainTab === 'invites',
+    enabled: !landingDemo && suiteLayout && showFriendInvites && sidebarMainTab === 'invites',
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (!showFriendInvites && sidebarMainTab === 'invites') {
+      setSidebarMainTab('messages');
+    }
+  }, [showFriendInvites, sidebarMainTab]);
+
+  const openColleagueDm = useCallback((colleague) => {
+    const id = String(colleague?.userId || '').trim();
+    if (!id) return;
+    setDirectoryOpenPeer({
+      id,
+      name: colleague.displayName || t('friendChat.friendDefault'),
+      avatar: colleague.avatar || null,
+    });
+    setSelectedFriendId(id);
+    setSidebarMainTab('messages');
+    setShowNewDmModal(false);
+  }, [t]);
 
   const formatDateDividerLabel = useCallback(
     (iso) => {
@@ -1862,9 +1894,18 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                   activeTab={sidebarMainTab}
                   onTabChange={setSidebarMainTab}
                   messagesBadge={totalDmUnread}
-                  invitesBadge={pendingCount}
-                  onAddFriend={() => setShowAddFriendModal(true)}
-                  addFriendTitle={t('organizations.memberMenuAddFriend')}
+                  invitesBadge={showFriendInvites ? pendingCount : 0}
+                  showColleagues={showColleagueDirectory}
+                  showInvites={showFriendInvites}
+                  onNewMessage={() => {
+                    if (showColleagueDirectory) setShowNewDmModal(true);
+                    else setShowAddFriendModal(true);
+                  }}
+                  newMessageTitle={
+                    showColleagueDirectory
+                      ? t('friendChat.newDmTitle')
+                      : t('friendChat.addFriendTitle')
+                  }
                 />
                 {sidebarMainTab === 'messages' ? (
                   <div className={FIGMA_CHAT_SIDEBAR_SEARCH_WRAP}>
@@ -1914,7 +1955,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           {suiteLayout && sidebarMainTab === 'messages' ? (
             <FriendChatFilterChips value={railFilterTab} onChange={setRailFilterTab} />
           ) : null}
-          {suiteLayout && sidebarMainTab === 'invites' ? (
+          {suiteLayout && showFriendInvites && sidebarMainTab === 'invites' ? (
             <FriendChatInvitesPanel
               received={receivedInviteRows}
               sent={sentInviteRows}
@@ -1928,6 +1969,14 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
               onWithdraw={handleWithdrawInvite}
               emptyReceivedTitle={t('friendChat.pendingRequestsTitle')}
               emptyReceivedHint={t('friendChat.pendingWantsFriend')}
+            />
+          ) : suiteLayout && showColleagueDirectory && sidebarMainTab === 'colleagues' ? (
+            <ColleagueDirectoryRail
+              orgId={directoryOrgId}
+              currentUserId={currentUserId}
+              selectedUserId={selectedFriendId}
+              onlineUsers={onlineUsers}
+              onSelectColleague={openColleagueDm}
             />
           ) : (
           <div className={FIGMA_CHAT_SIDEBAR_LIST}>
@@ -2042,7 +2091,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     <>
           <div className={`${FIGMA_CHAT_MAIN_PANEL} min-h-0`}>
           <div className={FIGMA_CHAT_MAIN_INNER}>
-          {suiteLayout && sidebarMainTab === 'invites' ? (
+          {suiteLayout && showFriendInvites && sidebarMainTab === 'invites' ? (
             <div className={FIGMA_CHAT_INVITES_PLACEHOLDER}>
               <div className="text-4xl" aria-hidden>
                 👥
@@ -2058,9 +2107,18 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
             <div className={FIGMA_CHAT_EMPTY}>
               {t('friendChat.loadingFriends')}
             </div>
-          ) : viewFriends.length === 0 ? (
-            <div className={`${FIGMA_CHAT_EMPTY} px-4 text-center`}>
-              {t('friendChat.emptyMain')}
+          ) : viewFriends.length === 0 && !selectedFriendId ? (
+            <div className={`${FIGMA_CHAT_EMPTY} flex flex-col items-center gap-3 px-4 text-center`}>
+              <p>{t('friendChat.emptyMain')}</p>
+              {showColleagueDirectory ? (
+                <button
+                  type="button"
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-95"
+                  onClick={() => setShowNewDmModal(true)}
+                >
+                  {t('friendChat.newDmCta')}
+                </button>
+              ) : null}
             </div>
           ) : resolvingDefaultChat ? (
             <div className={FIGMA_CHAT_EMPTY}>{t('friendChat.openingChat')}</div>
@@ -3098,12 +3156,19 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         />
       )}
       <AddFriendModal
-        isOpen={showAddFriendModal}
+        isOpen={showAddFriendModal && !showColleagueDirectory}
         onClose={() => setShowAddFriendModal(false)}
         onFriendlistChanged={() => {
           refreshFriendsCache();
           invalidateInviteQueries();
         }}
+      />
+      <NewColleagueDmModal
+        isOpen={showNewDmModal && showColleagueDirectory}
+        onClose={() => setShowNewDmModal(false)}
+        orgId={directoryOrgId}
+        currentUserId={currentUserId}
+        onSelectColleague={openColleagueDm}
       />
     </>
   );
