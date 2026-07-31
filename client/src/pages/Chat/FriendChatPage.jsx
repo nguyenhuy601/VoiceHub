@@ -50,6 +50,7 @@ import { formatMessagePreview } from '../../features/search/formatMessagePreview
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFriendPending, useFriendsList, useOrganizationsMy } from '../../hooks/queries';
 import { fetchFriendsList } from '../../hooks/queries/fetchers';
+import AddFriendModal from '../../components/Friends/AddFriendModal';
 import FriendChatSidebarTabs from '../../components/Chat/FriendChatSidebarTabs';
 import NewColleagueDmModal from '../../components/Chat/NewColleagueDmModal';
 import ColleagueDirectoryRail from '../../components/Chat/ColleagueDirectoryRail';
@@ -60,7 +61,6 @@ import { queryKeys } from '../../lib/queryKeys';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { STALE_TIME_FRIENDS_MS } from '../../lib/queryClient';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { getAiTaskEligibility } from '../../utils/aiTaskEligibility';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import Modal from '../../components/Shared/Modal';
@@ -291,9 +291,18 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const { outboundRinging, startOutboundRinging, clearOutboundRinging } = useFriendCallSession();
   const { emit, on, off, onlineUsers, connected: socketConnected } = useSocket();
   useFriendChatPageFocus({ enabled: !landingDemo });
+  /** Peer mở từ Directory org — hiện rail tạm nếu chưa có trong GET /friends (auto-friend trễ). */
+  const [directoryOpenPeer, setDirectoryOpenPeer] = useState(null);
   useEffect(() => {
     setRightPanelDrawerOpen(false);
-  }, [selectedFriendId]);
+    if (
+      directoryOpenPeer?.id &&
+      selectedFriendId &&
+      String(selectedFriendId) !== String(directoryOpenPeer.id)
+    ) {
+      setDirectoryOpenPeer(null);
+    }
+  }, [selectedFriendId, directoryOpenPeer]);
   const unfriendInFlightRef = useRef(false);
   const routedDmUserId = String(
     location.state?.openDmUserId || searchParams.get('openDmUserId') || ''
@@ -301,6 +310,12 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const routedComposeText = String(
     location.state?.composeText || searchParams.get('composeText') || ''
   );
+  const routedDmDisplayName = String(
+    location.state?.openDmDisplayName || searchParams.get('openDmDisplayName') || ''
+  ).trim();
+  const routedDmAvatar = String(
+    location.state?.openDmAvatar || searchParams.get('openDmAvatar') || ''
+  ).trim();
   const showPendingRequestsRail = String(searchParams.get('tab') || '').toLowerCase() === 'requests';
   const [sidebarMainTab, setSidebarMainTab] = useState(() => {
     if (showPendingRequestsRail && !isSingleCompany) return 'invites';
@@ -599,6 +614,19 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         _presenceKeys: uniqueKeys,
       };
     });
+    const dirId = directoryOpenPeer?.id ? String(directoryOpenPeer.id) : '';
+    if (dirId && !rows.some((r) => String(r.id) === dirId)) {
+      rows.unshift({
+        id: dirId,
+        listKey: `directory-${dirId}`,
+        name: directoryOpenPeer.name || t('common.user'),
+        avatar: directoryOpenPeer.avatar || null,
+        status: 'offline',
+        subtitle: t('friendChat.directoryPeerSubtitle'),
+        isBlockedByMe: false,
+        _presenceKeys: [dirId],
+      });
+    }
     const sorted = sortFriendsForDmRail(rows, lastDmByFriendId, pinnedFriendIds);
     const onlineSet = new Set((onlineUsers || []).map(String));
     return sorted.map((row) => {
@@ -623,7 +651,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         status: inLiveList ? 'online' : rest.status,
       };
     });
-  }, [friends, lastDmByFriendId, pinnedFriendIds, onlineUsers, socketConnected, t]);
+  }, [friends, directoryOpenPeer, lastDmByFriendId, pinnedFriendIds, onlineUsers, socketConnected, t]);
 
   const viewFriendsEnriched = useMemo(() => {
     return viewFriends.map((f) => {
@@ -1011,8 +1039,9 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   useEffect(() => {
     if (!routedDmUserId) return;
-    const pickFriendId = () => {
-      for (const f of friends) {
+
+    const pickFriendIdFromRows = (rows) => {
+      for (const f of rows || []) {
         const u = f.friendId || f;
         const candidates = [u?._id, u?.userId, u?.id, f?.userId, f?.id].filter(Boolean).map(String);
         if (candidates.includes(routedDmUserId)) {
@@ -1022,18 +1051,63 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
       return null;
     };
 
-    const matched = pickFriendId();
-    if (matched) {
-      setSelectedFriendId(matched);
+    const matchedLocal = pickFriendIdFromRows(friends);
+    if (matchedLocal) {
+      setDirectoryOpenPeer(null);
+      setSelectedFriendId(matchedLocal);
       if (routedComposeText) setMessage(routedComposeText);
       navigate(location.pathname, { replace: true, state: null });
       return;
     }
-    if (!friendsLoading) {
-      toast.error(t('friendChat.friendNotInList'));
+    if (friendsLoading) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+        const accepted = await queryClient.fetchQuery({
+          queryKey: queryKeys.friends.list('accepted'),
+          queryFn: () => fetchFriendsList('accepted'),
+        });
+        if (cancelled) return;
+        const matched = pickFriendIdFromRows(accepted);
+        if (matched) {
+          setDirectoryOpenPeer(null);
+          setSelectedFriendId(matched);
+          if (routedComposeText) setMessage(routedComposeText);
+          navigate(location.pathname, { replace: true, state: null });
+          return;
+        }
+      } catch {
+        /* soft-open bên dưới */
+      }
+      if (cancelled) return;
+      // Directory DN: vẫn mở hội thoại theo userId; gửi tin vẫn qua assertDmCanSend (auto-friend / block).
+      setDirectoryOpenPeer({
+        id: routedDmUserId,
+        name: routedDmDisplayName || t('common.user'),
+        avatar: routedDmAvatar || null,
+      });
+      setSelectedFriendId(routedDmUserId);
+      if (routedComposeText) setMessage(routedComposeText);
       navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [friends, friendsLoading, location.pathname, navigate, routedComposeText, routedDmUserId]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    friends,
+    friendsLoading,
+    location.pathname,
+    navigate,
+    queryClient,
+    routedComposeText,
+    routedDmAvatar,
+    routedDmDisplayName,
+    routedDmUserId,
+    t,
+  ]);
 
   useEffect(() => {
     if (landingDemo) return;
@@ -1603,11 +1677,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     const s = typeof raw === 'string' ? raw : String(raw);
     return s.trim().length > 0;
   };
-
-  const menuCreateTaskCheck = useMemo(
-    () => getAiTaskEligibility(moreMenu.message, { organizationId: defaultOrgIdForTask }, t),
-    [moreMenu.message, defaultOrgIdForTask]
-  );
 
   const handleMessageRowMouseEnter = (messageId, event) => {
     const el = event?.currentTarget;
@@ -2858,20 +2927,12 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
               const msg = moreMenu.message;
               if (msg) confirmRecallMessage(msg._id || msg.id);
             }}
-            onCreateTask={() => {
-              const msg = moreMenu.message;
-              if (!msg) return;
-              setCreateTaskSourceMessage(msg);
-              setCreateTaskModalOpen(true);
-            }}
-            createTaskDisabled={!menuCreateTaskCheck.ok}
-            createTaskHoverTitle={
-              menuCreateTaskCheck.ok ? getAiTaskTooltipShort(t) : menuCreateTaskCheck.reason
-            }
+            /* D5: không truyền onCreateTask — ẩn AI extract task trên DM */
           />
 
+          {/* Modal giữ mount an toàn nhưng không mở từ menu DM (D5). */}
           <CreateTaskFromAiModal
-            isOpen={createTaskModalOpen}
+            isOpen={false}
             onClose={() => {
               setCreateTaskModalOpen(false);
               setCreateTaskSourceMessage(null);

@@ -221,6 +221,7 @@ export default function CreateTaskFromAiModal({
       if (resolvedAssigneeId) body.assigneeId = resolvedAssigneeId;
       body.boardId = selectedBoardId || undefined;
       body.listId = selectedListId || undefined;
+      if (teamId) body.ownerTeamId = String(teamId);
       if (!body.boardId || !body.listId) {
         throw new Error(t('taskBoard.aiBoardListRequired'));
       }

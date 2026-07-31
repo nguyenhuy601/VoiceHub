@@ -15,13 +15,19 @@ function hasExplicitDateTime(text) {
 
 /**
  * @param {object|null} message
- * @param {{ organizationId?: string|null }} ctx
+ * @param {{ organizationId?: string|null, channelKind?: string|null }} ctx
  * @param {(path: string) => string} t — translator từ useAppStrings
  * @returns {{ ok: boolean, reason: string, code: string }}
  */
 export function getAiTaskEligibility(message, ctx = {}, t) {
   const tr = typeof t === 'function' ? t : (k) => k;
-  const { organizationId } = ctx;
+  const { organizationId, channelKind } = ctx;
+
+  // Chuẩn Vàng team1 D5: DM 1-1 không bật AI extract task mặc định.
+  const kind = String(channelKind || '').toLowerCase();
+  if (kind === 'dm' || kind === 'friend' || kind === 'direct') {
+    return { ok: false, reason: tr('aiTask.dmDisabled'), code: 'dmDisabled' };
+  }
 
   if (!message) {
     return { ok: false, reason: tr('aiTask.noMessage'), code: 'noMessage' };

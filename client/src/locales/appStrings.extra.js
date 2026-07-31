@@ -110,6 +110,8 @@ export const extraStrings = {
       invalidMessage: 'Tin nhắn không hợp lệ.',
       deletedOrRecalled: 'Không tạo task từ tin đã xóa hoặc đã thu hồi.',
       systemMessage: 'Không tạo task từ tin hệ thống.',
+      dmDisabled:
+        'Chat 1-1 (DM) không dùng AI tạo task — chuyển sang kênh dự án để giao việc chính thức.',
       needOrg: 'Cần tổ chức để gán task. Tham gia tổ chức hoặc mở chat kênh tổ chức.',
       emptyText: 'Tin văn bản trống — không có nội dung để phân tích.',
       needDateTime: 'Cần nêu rõ ngày và giờ (ví dụ: 30/05 lúc 15:30) thì mới tạo task tự động.',
@@ -517,6 +519,8 @@ export const extraStrings = {
       invalidMessage: 'Invalid message.',
       deletedOrRecalled: 'Cannot create a task from a deleted or recalled message.',
       systemMessage: 'Cannot create a task from a system message.',
+      dmDisabled:
+        'Direct messages do not use AI task extraction — move to a project channel for formal work.',
       needOrg: 'An organization is required. Join one or open an org channel chat.',
       emptyText: 'Empty text message — nothing to analyze.',
       needDateTime: 'Include date and time (e.g. 05/30 at 3:30 PM) to auto-create a task.',
