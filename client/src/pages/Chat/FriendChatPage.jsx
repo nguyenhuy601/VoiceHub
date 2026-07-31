@@ -50,7 +50,6 @@ import { formatMessagePreview } from '../../features/search/formatMessagePreview
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFriendPending, useFriendsList, useOrganizationsMy } from '../../hooks/queries';
 import { fetchFriendsList } from '../../hooks/queries/fetchers';
-import AddFriendModal from '../../components/Friends/AddFriendModal';
 import FriendChatSidebarTabs from '../../components/Chat/FriendChatSidebarTabs';
 import NewColleagueDmModal from '../../components/Chat/NewColleagueDmModal';
 import ColleagueDirectoryRail from '../../components/Chat/ColleagueDirectoryRail';
@@ -61,6 +60,7 @@ import { queryKeys } from '../../lib/queryKeys';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { STALE_TIME_FRIENDS_MS } from '../../lib/queryClient';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { getAiTaskEligibility } from '../../utils/aiTaskEligibility';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import Modal from '../../components/Shared/Modal';
