@@ -1,22 +1,34 @@
 const mongoose = require('../db');
 
+/**
+ * Board (Kanban) — child of Project. Identity/settings live on Project.
+ * projectId !== board._id (greenfield).
+ */
 const taskBoardSchema = new mongoose.Schema(
   {
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      index: true,
+      ref: 'Project',
+    },
     organizationId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       index: true,
     },
+    /** Denorm from Project for board ACL / list filters */
     teamId: {
       type: mongoose.Schema.Types.ObjectId,
       required: false,
       default: null,
       index: true,
     },
+    /** Denorm from Project — org-level default; legacy team|department|division until migrate. */
     scopeType: {
       type: String,
-      enum: ['team', 'department', 'division'],
-      default: 'team',
+      enum: ['organization', 'team', 'department', 'division'],
+      default: 'organization',
       index: true,
     },
     scopeId: {
@@ -30,34 +42,13 @@ const taskBoardSchema = new mongoose.Schema(
       required: true,
       trim: true,
       maxlength: 180,
-    },
-    projectCode: {
-      type: String,
-      trim: true,
-      default: '',
-      maxlength: 64,
-    },
-    description: {
-      type: String,
-      trim: true,
-      default: '',
-      maxlength: 2000,
-    },
-    /** Hạn dự án (tuỳ chọn) — chuẩn vàng “hạn nếu có” */
-    dueDate: {
-      type: Date,
-      default: null,
+      default: 'Main',
     },
     background: {
       type: String,
       trim: true,
       default: '',
       maxlength: 2000,
-    },
-    visibility: {
-      type: String,
-      enum: ['private', 'workspace'],
-      default: 'private',
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -80,6 +71,7 @@ const taskBoardSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+taskBoardSchema.index({ organizationId: 1, projectId: 1, isActive: 1 });
 taskBoardSchema.index({ organizationId: 1, teamId: 1, isActive: 1, createdAt: -1 });
 taskBoardSchema.index({ organizationId: 1, scopeType: 1, scopeId: 1, isActive: 1, createdAt: -1 });
 

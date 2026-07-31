@@ -1,8 +1,8 @@
 const mongoose = require('../db');
 
 /**
- * User ↔ Project Role trong một board/project. Cùng user có thể khác role giữa các project.
- * boardId = projectId (TaskBoard là Project container).
+ * User ↔ Project Role trên Project (SSOT).
+ * boardId optional (denorm / legacy dual-write ACL).
  */
 const projectMembershipSchema = new mongoose.Schema(
   {
@@ -11,9 +11,16 @@ const projectMembershipSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    boardId: {
+    projectId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
+      index: true,
+      ref: 'Project',
+    },
+    boardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+      default: null,
       index: true,
       ref: 'TaskBoard',
     },
@@ -42,8 +49,8 @@ const projectMembershipSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-projectMembershipSchema.index({ boardId: 1, userId: 1, projectRoleId: 1 }, { unique: true });
-projectMembershipSchema.index({ boardId: 1, userId: 1 });
+projectMembershipSchema.index({ projectId: 1, userId: 1, projectRoleId: 1 }, { unique: true });
+projectMembershipSchema.index({ projectId: 1, userId: 1 });
 projectMembershipSchema.index({ userId: 1, organizationId: 1 });
 
 module.exports = mongoose.model('ProjectMembership', projectMembershipSchema);

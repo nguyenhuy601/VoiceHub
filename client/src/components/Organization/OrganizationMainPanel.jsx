@@ -10,6 +10,8 @@ import { shellNavRailBackdrop } from '../../theme/shellTheme';
 import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
 import OrganizationDocumentsWorkspacePanel from '../../features/orgDocuments/OrganizationDocumentsWorkspacePanel';
 import OrganizationNotificationsWorkspacePanel from '../../features/orgNotifications/OrganizationNotificationsWorkspacePanel';
+import DepartmentMembersPanel from './DepartmentMembersPanel';
+import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
 
 import {
@@ -35,6 +37,8 @@ import {
   Smile,
   Sparkles,
   Users,
+  Video,
+  Calendar,
   X,
   Zap,
 } from 'lucide-react';
@@ -74,14 +78,14 @@ import {
   unwrapTaskBoardDetailPayload,
   unwrapTaskBoardListPayload,
 } from '../../services/api/taskAPI';
+import { projectAPI, mapProjectsToBoardPickerRows } from '../../services/api/projectAPI';
 import aiTaskService from '../../services/aiTaskService';
 import CreateTaskBoardModal from './CreateTaskBoardModal';
 import CreateProjectBriefModal from './CreateProjectBriefModal';
 import TaskBoardWorkspacePanel from './TaskBoardWorkspacePanel';
+import ProjectHubShell from './ProjectHub/ProjectHubShell';
 import WorkspaceOrgChatFigmaView from '../Workspace/WorkspaceOrgChatFigmaView';
-import WorkspaceKanbanFigmaView, {
-  kanbanCardSyncedExtra,
-} from '../Workspace/WorkspaceKanbanFigmaView';
+import { kanbanCardSyncedExtra } from '../Workspace/WorkspaceKanbanFigmaView';
 import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
 import { channelUnreadCount } from './organizationStructureTheme';
 
@@ -475,6 +479,8 @@ const OrganizationMainPanel = ({
   workspaceDocumentsError = '',
   onWorkspaceDocumentsReload,
   notificationsFetchEnabled = false,
+  orgMembers = [],
+  onAnnounceMeetingJoin,
   selectedOrganization,
   departments = [],
   selectedDepartment,
@@ -559,6 +565,15 @@ const OrganizationMainPanel = ({
   suiteLayout = false,
   suiteMode = null,
   departmentWorkspaceActive = false,
+  /** Deep-link / sau tạo project: ưu tiên chọn board này khi list load. */
+  preferredTaskBoardId = '',
+  /** Deep-link project-first: resolve board thuộc project khi thiếu boardId. */
+  preferredProjectId = '',
+  /** Suite tasks: quay về hub khi đã ẩn chrome shell. */
+  onBackFromTasks = null,
+  /** Docs: phòng + kênh user thuộc (lọc chat phòng ban + project files). */
+  memberDepartmentIds = null,
+  memberDepartmentChannelIds = null,
 }) => {
   const { locale } = useLocale();
   const { t } = useAppStrings();
@@ -706,21 +721,34 @@ const OrganizationMainPanel = ({
     };
   }, []);
 
-  const openWorkspaceChat = () => {
-    setWorkspaceTab('chat');
-    onWorkspaceTabChange?.('chat');
-  };
-
-  useEffect(() => {
-    const nextTab = normalizeWorkspaceTab(workspaceTabView);
-    setWorkspaceTab((prev) => (prev === nextTab ? prev : nextTab));
-  }, [workspaceTabView]);
-
-  const auxWorkspaceTab = isWorkspaceAuxTab(workspaceTab);
-
   const resolvedDepartmentId = String(
     selectedDepartment?._id || selectedDepartment?.id || selectedDepartmentId || ''
   );
+  const deptWorkspaceContext = Boolean(
+    departmentWorkspaceActive && resolvedDepartmentId && !selectedTeamId
+  );
+
+  const openWorkspaceChat = () => {
+    const next = deptWorkspaceContext ? 'announcement' : 'chat';
+    setWorkspaceTab(next);
+    onWorkspaceTabChange?.(next);
+  };
+
+  useEffect(() => {
+    const deptMode = Boolean(departmentWorkspaceActive && !selectedTeamId);
+    const nextTab = normalizeWorkspaceTab(workspaceTabView, { departmentMode: deptMode });
+    setWorkspaceTab((prev) => (prev === nextTab ? prev : nextTab));
+  }, [workspaceTabView, departmentWorkspaceActive, selectedTeamId]);
+
+  const auxWorkspaceTab = isWorkspaceAuxTab(workspaceTab);
+  const isChatLikeTab = workspaceTab === 'chat' || workspaceTab === 'announcement';
+  const currentUserIdStr = String(currentUserId || currentUser?.id || currentUser?._id || '').trim();
+  const isDepartmentHead = Boolean(
+    resolvedDepartmentId &&
+      currentUserIdStr &&
+      String(selectedDepartment?.head?._id || selectedDepartment?.head || '') === currentUserIdStr
+  );
+  const canManageDeptMeetings = Boolean(canManageWorkspaceStructure || isDepartmentHead);
 
   const scopedChannels = useMemo(
     () =>
@@ -754,7 +782,8 @@ const OrganizationMainPanel = ({
     Boolean(selectedChannelPerm.canSee || selectedChannelPerm.canRead) &&
     !canWriteInChannel;
   const isVoiceChannel = selectedChannel?.type === 'voice';
-  const isVoiceWorkspace = workspaceTab === 'voice' || isVoiceChannel;
+  const isVoiceWorkspace =
+    !deptWorkspaceContext && (workspaceTab === 'voice' || isVoiceChannel);
   const canUseVoiceChannel = (channel) => {
     if (!channel?._id) return false;
     if (!channelMatrixReady) return true;
@@ -961,16 +990,26 @@ const OrganizationMainPanel = ({
     setLoadingTaskBoards(true);
     try {
       const filters = { ...taskBoardApiCtx };
+      // Org-level projects: list theo organizationId (không filter department ownership).
       if (selectedTeamId) {
         filters.teamId = String(selectedTeamId);
-      } else if (departmentWorkspaceActive && resolvedDepartmentId) {
-        filters.scopeType = 'department';
-        filters.scopeId = String(resolvedDepartmentId);
       }
-      const res = await taskAPI.getBoards(filters);
-      const list = unwrapTaskBoardListPayload(res);
+      const res = await projectAPI.list(filters);
+      const payload = unwrapTaskApiPayload(res);
+      const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+      const list = mapProjectsToBoardPickerRows(raw);
       setTaskBoards(list);
-      if (!list.some((b) => String(b._id) === String(selectedTaskBoardId))) {
+      const preferred = String(preferredTaskBoardId || '').trim();
+      const preferredProject = String(preferredProjectId || '').trim();
+      if (preferred && list.some((b) => String(b._id) === preferred)) {
+        setSelectedTaskBoardId(preferred);
+      } else if (
+        preferredProject &&
+        list.some((b) => String(b.projectId || '') === preferredProject)
+      ) {
+        const hit = list.find((b) => String(b.projectId || '') === preferredProject);
+        setSelectedTaskBoardId(hit?._id ? String(hit._id) : '');
+      } else if (!list.some((b) => String(b._id) === String(selectedTaskBoardId))) {
         setSelectedTaskBoardId(list[0]?._id ? String(list[0]._id) : '');
       }
     } catch (err) {
@@ -982,10 +1021,10 @@ const OrganizationMainPanel = ({
   }, [
     taskBoardApiCtx,
     selectedTeamId,
-    departmentWorkspaceActive,
-    resolvedDepartmentId,
     organizationId,
     selectedTaskBoardId,
+    preferredTaskBoardId,
+    preferredProjectId,
     t,
   ]);
 
@@ -1011,12 +1050,7 @@ const OrganizationMainPanel = ({
   }, [orgIdForTask]);
 
   const teamsInScope = useMemo(() => {
-    const boardScope = taskBoardDetail?.board;
-    if (boardScope?.scopeType === 'department' && boardScope?.scopeId) {
-      return teams.filter(
-        (team) => String(team.department || team.departmentId || '') === String(boardScope.scopeId)
-      );
-    }
+    // Project board = org-level — không filter team theo board.scopeType department (legacy).
     if (selectedTeamId) {
       const team = teams.find((row) => String(row._id) === String(selectedTeamId));
       return team ? [team] : [];
@@ -1027,7 +1061,7 @@ const OrganizationMainPanel = ({
       );
     }
     return [];
-  }, [teams, selectedTeamId, resolvedDepartmentId, taskBoardDetail?.board]);
+  }, [teams, selectedTeamId, resolvedDepartmentId]);
 
   const loadTaskBoardDetail = useCallback(async (boardId, options = {}) => {
     const silent = Boolean(options?.silent);
@@ -1053,8 +1087,10 @@ const OrganizationMainPanel = ({
       return;
     }
     try {
-      const res = await taskAPI.getBoards({ ...taskBoardApiCtx });
-      setAccessibleTaskBoards(unwrapTaskBoardListPayload(res));
+      const res = await projectAPI.list({ ...taskBoardApiCtx });
+      const payload = unwrapTaskApiPayload(res);
+      const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+      setAccessibleTaskBoards(mapProjectsToBoardPickerRows(raw));
     } catch {
       setAccessibleTaskBoards([]);
     }
@@ -1120,12 +1156,12 @@ const OrganizationMainPanel = ({
   );
 
   const handleCreateTaskBoard = async (payload) => {
-    if (!orgIdForTask || !taskBoardTeam?._id) return;
+    if (!orgIdForTask) return;
     setCreatingTaskBoard(true);
     try {
       let board = null;
+      const orgId = String(orgIdForTask);
       if (payload?.aiDraftId) {
-        const scopeType = String(taskBoardTeam.scopeType || 'team').toLowerCase();
         const confirmRes = await aiTaskService.confirmProjectDraft(payload.aiDraftId, {
           payload: {
             title: payload.title,
@@ -1134,29 +1170,40 @@ const OrganizationMainPanel = ({
             dueDate: payload.dueDate,
             visibility: payload.visibility,
             background: payload.background,
-            scopeType,
-            scopeId: String(taskBoardTeam._id),
+            scopeType: 'organization',
+            scopeId: orgId,
             lists: Array.isArray(payload.suggestedLists) ? payload.suggestedLists : [],
-            organizationId: String(orgIdForTask),
+            organizationId: orgId,
           },
         });
         const result = confirmRes?.data?.data || confirmRes?.data || {};
         board = result.board || { _id: result.boardId };
       } else {
-        const scopeType = String(taskBoardTeam.scopeType || 'team').toLowerCase();
-        const res = await taskAPI.createBoard({
+        const res = await projectAPI.create({
           ...taskBoardApiCtx,
-          ...(scopeType === 'team'
-            ? { teamId: String(taskBoardTeam._id) }
-            : { scopeType, scopeId: String(taskBoardTeam._id) }),
+          organizationId: orgId,
+          scopeType: 'organization',
+          scopeId: orgId,
           title: payload.title,
           description: payload.description,
           projectCode: payload.projectCode,
+          scopeLabel: payload.scopeLabel || 'ORG',
           dueDate: payload.dueDate,
           background: payload.background,
           visibility: payload.visibility,
+          delegationTemplateId: payload.delegationTemplateId,
+          members: payload.members,
         });
-        board = unwrapTaskApiPayload(res);
+        const created = unwrapTaskApiPayload(res);
+        const boardId = String(created?.defaultBoardId || created?.board?._id || '').trim();
+        board = boardId
+          ? {
+              _id: boardId,
+              projectId: String(created?._id || created?.projectId || ''),
+              title: created?.title,
+              ...((created?.board && typeof created.board === 'object') ? created.board : {}),
+            }
+          : null;
       }
       const briefId = payload?.fromBriefId || activeBriefForBoard?._id;
       if (briefId && board?._id) {
@@ -1260,7 +1307,26 @@ const OrganizationMainPanel = ({
       if (ownerTeamId !== undefined) {
         payload.ownerTeamId = ownerTeamId;
       }
-      await taskAPI.moveBoardCard(String(cardId), payload, taskBoardApiCtx);
+      const res = await taskAPI.moveBoardCard(String(cardId), payload, taskBoardApiCtx);
+      const moved = unwrapTaskApiPayload(res);
+      if (moved?.approvalPending) {
+        toast(t('taskBoard.approvalPendingToast'), { icon: '⏳' });
+        setTaskBoardDetail((prev) => {
+          if (!prev?.cards) return prev;
+          const cards = prev.cards.map((c) => {
+            if (String(c._id) !== String(cardId)) return c;
+            return {
+              ...c,
+              ...(moved && typeof moved === 'object' ? moved : {}),
+              status: 'awaiting_approval',
+              // giữ list cũ — transition chưa apply
+              listId: c.listId,
+            };
+          });
+          return { ...prev, cards };
+        });
+        return;
+      }
       setTaskBoardDetail((prev) => {
         if (!prev?.cards) return prev;
         const cards = prev.cards.map((c) => {
@@ -1269,6 +1335,7 @@ const OrganizationMainPanel = ({
             ...c,
             listId: toListId,
             ...(ownerTeamId !== undefined ? { ownerTeamId } : {}),
+            ...(moved && typeof moved === 'object' ? moved : {}),
           };
         });
         return { ...prev, cards };
@@ -1284,6 +1351,9 @@ const OrganizationMainPanel = ({
     try {
       const res = await taskAPI.updateBoardCard(String(cardId), updates || {}, taskBoardApiCtx);
       const updated = unwrapTaskApiPayload(res);
+      if (updated?.approvalPending) {
+        toast(t('taskBoard.approvalPendingToast'), { icon: '⏳' });
+      }
       setTaskBoardDetail((prev) => {
         if (!prev?.cards) return prev;
         const cards = prev.cards.map((c) =>
@@ -1292,6 +1362,9 @@ const OrganizationMainPanel = ({
                 ...c,
                 ...(updates || {}),
                 ...(updated && typeof updated === 'object' ? updated : {}),
+                ...(updated?.approvalPending
+                  ? { status: 'awaiting_approval', listId: c.listId }
+                  : {}),
               }
             : c
         );
@@ -1372,6 +1445,12 @@ const OrganizationMainPanel = ({
   );
   const canCreateCardsUi = Boolean(
     boardCapabilities?.canCreateCards ?? canCreateWorkspaceTask
+  );
+  const canManageMembersUi = Boolean(
+    boardCapabilities?.canManageMembers ?? boardCapabilities?.canManageBoard ?? canManageBoardUi
+  );
+  const canUpdateSettingsUi = Boolean(
+    boardCapabilities?.canUpdateSettings ?? boardCapabilities?.canManageBoard ?? canManageBoardUi
   );
 
   const taskAssigneeLabel = (task) =>
@@ -1709,8 +1788,8 @@ const OrganizationMainPanel = ({
     ? displayDepartmentName(selectedDepartment.name, locale)
     : '—';
   const useFigmaChannelHeader =
-    suiteLayout && workspaceTab === 'chat' && !isVoiceChannel;
-  const useFigmaOrgChatChrome = suiteLayout && workspaceTab === 'chat' && !isVoiceChannel;
+    suiteLayout && isChatLikeTab && !isVoiceChannel;
+  const useFigmaOrgChatChrome = suiteLayout && isChatLikeTab && !isVoiceChannel;
   const channelUnreadForCatchUp = channelUnreadCount(selectedChannel);
   const channelCatchUpName = selectedChannel?.name
     ? `#${channelNameToDisplaySlug(selectedChannel.name, locale)}`
@@ -1725,52 +1804,13 @@ const OrganizationMainPanel = ({
       toast.error(t('taskBoard.createBoardDenied'));
       return;
     }
-    // Chuẩn vàng: ưu tiên board cấp phòng; đang trong team thì scope team.
-    if (resolvedDepartmentId && (!selectedTeamId || departmentWorkspaceActive)) {
-      setTaskBoardTeam({
-        _id: String(resolvedDepartmentId),
-        name: selectedDepartment?.name || deptName || '',
-        scopeType: 'department',
-      });
-      setTaskBoardCreateOpen(true);
-      return;
-    }
-    if (selectedTeamId) {
-      const team =
-        teams.find((row) => String(row._id) === String(selectedTeamId)) || {
-          _id: selectedTeamId,
-          name: teamName,
-        };
-      setTaskBoardTeam({
-        ...team,
-        _id: String(team._id || selectedTeamId),
-        name: team.name || (teamName !== '—' ? teamName : '') || '',
-        scopeType: 'team',
-      });
-      setTaskBoardCreateOpen(true);
-      return;
-    }
-    if (resolvedDepartmentId) {
-      setTaskBoardTeam({
-        _id: String(resolvedDepartmentId),
-        name: selectedDepartment?.name || deptName || '',
-        scopeType: 'department',
-      });
-      setTaskBoardCreateOpen(true);
-      return;
-    }
-    toast.error(t('taskBoard.createBoardNeedScope'));
-  }, [
-    canCreateWorkspaceTask,
-    resolvedDepartmentId,
-    selectedTeamId,
-    departmentWorkspaceActive,
-    selectedDepartment?.name,
-    deptName,
-    teams,
-    teamName,
-    t,
-  ]);
+    setTaskBoardTeam({
+      _id: String(orgIdForTask || organizationId || ''),
+      name: '',
+      scopeType: 'organization',
+    });
+    setTaskBoardCreateOpen(true);
+  }, [canCreateWorkspaceTask, orgIdForTask, organizationId, t]);
 
   const openCreateBoardFromBrief = useCallback(
     (brief) => {
@@ -1780,47 +1820,14 @@ const OrganizationMainPanel = ({
         return;
       }
       setActiveBriefForBoard(brief);
-      const deptId = brief.departmentId
-        ? String(brief.departmentId)
-        : resolvedDepartmentId
-          ? String(resolvedDepartmentId)
-          : '';
-      if (deptId) {
-        setTaskBoardTeam({
-          _id: deptId,
-          name: selectedDepartment?.name || deptName || '',
-          scopeType: 'department',
-        });
-        setTaskBoardCreateOpen(true);
-        return;
-      }
-      if (selectedTeamId) {
-        const team =
-          teams.find((row) => String(row._id) === String(selectedTeamId)) || {
-            _id: selectedTeamId,
-            name: teamName,
-          };
-        setTaskBoardTeam({
-          ...team,
-          _id: String(team._id || selectedTeamId),
-          name: team.name || (teamName !== '—' ? teamName : '') || '',
-          scopeType: 'team',
-        });
-        setTaskBoardCreateOpen(true);
-        return;
-      }
-      toast.error(t('taskBoard.createBoardNeedScope'));
+      setTaskBoardTeam({
+        _id: String(orgIdForTask || organizationId || ''),
+        name: '',
+        scopeType: 'organization',
+      });
+      setTaskBoardCreateOpen(true);
     },
-    [
-      canCreateWorkspaceTask,
-      resolvedDepartmentId,
-      selectedDepartment?.name,
-      deptName,
-      selectedTeamId,
-      teams,
-      teamName,
-      t,
-    ]
+    [canCreateWorkspaceTask, orgIdForTask, organizationId, t]
   );
 
   const chSlug = selectedChannel
@@ -1837,9 +1844,6 @@ const OrganizationMainPanel = ({
   };
   const railChatChannels = chatChannels.filter(canReadRailChannel);
   const railVoiceChannels = voiceChannels.filter(canReadRailChannel);
-  const deptWorkspaceContext = Boolean(
-    departmentWorkspaceActive && resolvedDepartmentId && !selectedTeamId
-  );
   const canManageScopedChannels = Boolean(
     canManageWorkspaceStructure && (selectedTeamId || deptWorkspaceContext)
   );
@@ -1850,10 +1854,14 @@ const OrganizationMainPanel = ({
       .toUpperCase() || 'VH';
   const moduleIconMap = {
     chat: Hash,
+    announcement: MessageSquare,
     voice: Mic,
     tasks: ClipboardList,
     documents: FileText,
     notifications: Bell,
+    members: Users,
+    calendar: Calendar,
+    meetings: Video,
   };
   const moduleKind = isVoiceWorkspace
     ? 'voice'
@@ -1863,20 +1871,34 @@ const OrganizationMainPanel = ({
         ? 'documents'
         : workspaceTab === 'notifications'
           ? 'notifications'
-          : 'chat';
+          : workspaceTab === 'members'
+            ? 'members'
+            : workspaceTab === 'calendar'
+              ? 'calendar'
+              : workspaceTab === 'meetings'
+                ? 'meetings'
+                : workspaceTab === 'announcement'
+                  ? 'announcement'
+                  : 'chat';
   const ModuleHeaderIcon = moduleIconMap[moduleKind] || Hash;
   const moduleTitle =
-    moduleKind === 'chat'
-      ? `#${chSlug || t('organizations.channelNameFallback')}`
+    moduleKind === 'chat' || moduleKind === 'announcement'
+      ? `#${chSlug || (moduleKind === 'announcement' ? t('workspace.moduleAnnouncement') : t('organizations.channelNameFallback'))}`
       : moduleKind === 'voice'
         ? activeVoiceSlug || 'Voice'
         : moduleKind === 'tasks'
           ? t('nav.tasks.label')
           : moduleKind === 'documents'
             ? t('documents.orgTitle')
-            : t('notifications.titleOrganization');
+            : moduleKind === 'members'
+              ? t('workspace.moduleMembers')
+              : moduleKind === 'calendar'
+                ? t('workspace.moduleCalendar')
+                : moduleKind === 'meetings'
+                  ? t('workspace.moduleMeetings')
+                  : t('notifications.titleOrganization');
   const moduleDescription =
-    moduleKind === 'chat'
+    moduleKind === 'chat' || moduleKind === 'announcement'
       ? selectedChannel?.description ||
         selectedChannel?.topic ||
         (departmentWorkspaceActive && !selectedTeamId
@@ -2013,7 +2035,9 @@ const OrganizationMainPanel = ({
 
         <div className="mt-4">
           <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
-            {t('taskBoard.chatChannels')}
+            {deptWorkspaceContext
+              ? t('workspace.moduleAnnouncement')
+              : t('taskBoard.chatChannels')}
           </div>
           <div className="space-y-1.5">
             {railChatChannels.length ? (
@@ -2023,19 +2047,22 @@ const OrganizationMainPanel = ({
                 {t('taskBoard.noChatChannels')}
               </p>
             )}
-            {canManageScopedChannels ? (
+            {canManageScopedChannels && typeof onCreateChannel === 'function' ? (
               <button
                 type="button"
-                onClick={() => onCreateChannel?.('chat')}
+                onClick={() => onCreateChannel(deptWorkspaceContext ? 'announcement' : 'chat')}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary"
               >
                 <Plus size={15} />
-                {t('taskBoard.createChatChannel')}
+                {deptWorkspaceContext
+                  ? t('workspace.moduleAnnouncement')
+                  : t('taskBoard.createChatChannel')}
               </button>
             ) : null}
           </div>
         </div>
 
+        {!deptWorkspaceContext ? (
         <div className="mt-5">
           <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
             Voice
@@ -2048,10 +2075,10 @@ const OrganizationMainPanel = ({
                 {t('taskBoard.noVoiceChannels')}
               </p>
             )}
-            {canManageScopedChannels ? (
+            {canManageScopedChannels && typeof onCreateChannel === 'function' ? (
               <button
                 type="button"
-                onClick={() => onCreateChannel?.('voice')}
+                onClick={() => onCreateChannel('voice')}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary"
               >
                 <Plus size={15} />
@@ -2060,6 +2087,7 @@ const OrganizationMainPanel = ({
             ) : null}
           </div>
         </div>
+        ) : null}
       </div>
 
       {voiceConnVisible && voiceConnectionState !== 'idle' ? (
@@ -2099,6 +2127,68 @@ const OrganizationMainPanel = ({
     return 'todo';
   };
 
+  const renderTaskBoardPanel = (hideIdentityHeader = false) => (
+    <TaskBoardWorkspacePanel
+      isDarkMode={isDarkMode}
+      workspaceSlug={workspaceSlugForTask}
+      boards={taskBoards}
+      accessibleBoards={accessibleTaskBoards}
+      selectedBoardId={selectedTaskBoardId}
+      boardDetail={taskBoardDetail}
+      boardBackground={
+        taskBoardDetail?.board?.background ||
+        taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.background ||
+        ''
+      }
+      loadingBoards={loadingTaskBoards}
+      loadingBoardDetail={loadingTaskBoardDetail}
+      currentUserId={currentUserId}
+      teamsInScope={teamsInScope}
+      onAddList={handleAddBoardList}
+      onAddCard={handleAddBoardCard}
+      onMoveCard={handleMoveBoardCard}
+      onUpdateCard={handleUpdateBoardCard}
+      onReorderList={handleReorderBoardList}
+      onRefresh={refreshTaskBoardView}
+      onCreateBoard={canCreateWorkspaceTask ? openCreateTaskBoardModal : undefined}
+      canCreateBoard={canCreateWorkspaceTask}
+      boardCapabilities={boardCapabilities}
+      canManageLists={canManageListsUi}
+      canCreateCards={canCreateCardsUi}
+      organizationId={orgIdForTask || organizationId || ''}
+      canUseAiAssign={canUseAiWorkspaceTask && canCreateCardsUi}
+      onAiAssignComplete={refreshTaskBoardView}
+      renderCardExtra={(card) => kanbanCardSyncedExtra(card, channels)}
+      boardSearchFocusToken={taskBoardSearchFocusToken}
+      taskWorkspaceScope={taskWorkspaceScope}
+      hideIdentityHeader={hideIdentityHeader}
+    />
+  );
+
+  const renderProjectHub = () => (
+    <ProjectHubShell
+      boardId={selectedTaskBoardId}
+      projectId={
+        String(preferredProjectId || '').trim() ||
+        String(
+          taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.projectId || ''
+        ).trim()
+      }
+      boardDetail={taskBoardDetail}
+      boards={taskBoards}
+      isDarkMode={isDarkMode}
+      locale={locale}
+      canManage={canManageMembersUi || canUpdateSettingsUi}
+      organizationId={orgIdForTask || organizationId || ''}
+      apiCtx={taskBoardApiCtx}
+      onRefresh={refreshTaskBoardView}
+      boardSlot={renderTaskBoardPanel(true)}
+      emptySlot={renderTaskBoardPanel(false)}
+      onBack={onBackFromTasks}
+      onBoardChange={setSelectedTaskBoardId}
+    />
+  );
+
   return (
     <>
     <div className={`${workspace.shell} h-full min-h-0 w-full max-w-full`}>
@@ -2109,7 +2199,9 @@ const OrganizationMainPanel = ({
             : workspace.shellInner || 'flex h-full min-h-0 flex-1 gap-2 overflow-hidden'
         }
       >
-        {suiteLayout ? suiteOrgModuleRail : (
+        {suiteLayout ? (
+          workspaceTab === 'tasks' ? null : suiteOrgModuleRail
+        ) : workspaceTab === 'tasks' ? null : (
         <aside
           className={`${workspace.aside} relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden`}
           style={{ width: leftAsideW, minWidth: LEFT_ASIDE_MIN_W, maxWidth: LEFT_ASIDE_MAX_W }}
@@ -2197,10 +2289,14 @@ const OrganizationMainPanel = ({
               canSeeAllStructure={canSeeAllStructure}
               departmentWorkspaceActive={departmentWorkspaceActive}
               canCreateTaskBoard={canCreateWorkspaceTask}
-              onCreateTaskBoard={(team) => {
-                setTaskBoardTeam(team ? { ...team, scopeType: team.scopeType || 'team' } : null);
-                setTaskBoardCreateOpen(true);
-              }}
+              onCreateTaskBoard={
+                canCreateWorkspaceTask
+                  ? (team) => {
+                      setTaskBoardTeam(team ? { ...team, scopeType: team.scopeType || 'team' } : null);
+                      setTaskBoardCreateOpen(true);
+                    }
+                  : undefined
+              }
             />
           </div>
 
@@ -2244,6 +2340,7 @@ const OrganizationMainPanel = ({
             suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background' : workspace.main
           } h-full min-h-0 overflow-hidden ${isDarkMode && !suiteLayout && !useFigmaChannelHeader ? '!bg-transparent' : ''}`}
         >
+          {suiteLayout && workspaceTab === 'tasks' ? null : (
           <header
             className={
               suiteLayout
@@ -2262,88 +2359,13 @@ const OrganizationMainPanel = ({
                   {moduleDescription}
                 </span>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
-                  {workspaceTab === 'tasks' ? (
-                    <>
-                      <select
-                        value={selectedTaskBoardId}
-                        onChange={(e) => setSelectedTaskBoardId(e.target.value)}
-                        className="mr-1 hidden max-w-[220px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground outline-none transition focus:border-primary sm:block"
-                        aria-label={t('taskBoard.selectBoardAria')}
-                      >
-                        <option value="">{t('taskBoard.selectBoard')}</option>
-                        {taskBoards.map((b) => (
-                          <option key={b._id} value={String(b._id)}>
-                            {b.title}
-                          </option>
-                        ))}
-                      </select>
-                      {canCreateProjectBrief ? (
-                        <button
-                          type="button"
-                          onClick={() => setProjectBriefCreateOpen(true)}
-                          title={t('taskBoard.briefCreateTitle')}
-                          className="mr-1 inline-flex items-center gap-1 rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/20"
-                        >
-                          <ClipboardList size={14} className="shrink-0" />
-                          <span className="inline">{t('taskBoard.briefCreateBtn')}</span>
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={openCreateTaskBoardModal}
-                        disabled={!canCreateWorkspaceTask || creatingTaskBoard}
-                        title={
-                          canCreateWorkspaceTask
-                            ? t('organization.createTaskBoardTitle')
-                            : t('taskBoard.createBoardDenied')
-                        }
-                        className="mr-1 inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/15 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Plus size={14} className="shrink-0" />
-                        <span className="hidden sm:inline">{t('taskBoard.createBoardBtn')}</span>
-                      </button>
-                      {selectedTaskBoardId && canManageBoardUi ? (
-                        <button
-                          type="button"
-                          onClick={handleArchiveTaskBoard}
-                          disabled={archivingTaskBoard}
-                          title={t('taskBoard.closeProject')}
-                          className="mr-1 inline-flex items-center gap-1 rounded-lg border border-rose-400/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <span className="hidden sm:inline">
-                            {archivingTaskBoard
-                              ? t('taskBoard.closingProject')
-                              : t('taskBoard.closeProject')}
-                          </span>
-                          <span className="sm:hidden">
-                            {archivingTaskBoard ? '…' : t('taskBoard.closeProjectShort')}
-                          </span>
-                        </button>
-                      ) : null}
-                    </>
-                  ) : null}
                   <button
                     type="button"
-                    title={
-                      workspaceTab === 'tasks'
-                        ? t('taskBoard.searchCardsAria')
-                        : t('orgPanel.workspaceSearchAria')
-                    }
-                    aria-label={
-                      workspaceTab === 'tasks'
-                        ? t('taskBoard.searchCardsAria')
-                        : t('orgPanel.workspaceSearchAria')
-                    }
-                    onClick={() => {
-                      if (workspaceTab === 'tasks') {
-                        onWorkspaceSearchOpenChange?.(false);
-                        setTaskBoardSearchFocusToken((n) => n + 1);
-                        return;
-                      }
-                      onWorkspaceSearchOpenChange?.(true);
-                    }}
+                    title={t('orgPanel.workspaceSearchAria')}
+                    aria-label={t('orgPanel.workspaceSearchAria')}
+                    onClick={() => onWorkspaceSearchOpenChange?.(true)}
                     className={`${FIGMA_ORG_CHANNEL_ICON_BTN} ${
-                      workspaceSearchOpen && workspaceTab !== 'tasks' ? 'bg-muted text-primary' : ''
+                      workspaceSearchOpen ? 'bg-muted text-primary' : ''
                     }`}
                   >
                     <Search size={14} />
@@ -2406,7 +2428,7 @@ const OrganizationMainPanel = ({
                           ? `#${chSlug || t('organizations.channelNameFallback')}`
                           : deptName}
                 </h2>
-                {workspaceTab === 'chat' && !isVoiceChannel && sortedWorkspaceMessages.length > 0 ? (
+                {isChatLikeTab && !isVoiceChannel && sortedWorkspaceMessages.length > 0 ? (
                   <p className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}>
                     {t('orgPanel.msgCountLine', { n: sortedWorkspaceMessages.length })}
                   </p>
@@ -2447,15 +2469,12 @@ const OrganizationMainPanel = ({
                         <span className="inline">{t('taskBoard.briefCreateBtn')}</span>
                       </button>
                     ) : null}
+                    {canCreateWorkspaceTask ? (
                     <button
                       type="button"
                       onClick={openCreateTaskBoardModal}
-                      disabled={!canCreateWorkspaceTask || creatingTaskBoard}
-                      title={
-                        canCreateWorkspaceTask
-                          ? t('organization.createTaskBoardTitle')
-                          : t('taskBoard.createBoardDenied')
-                      }
+                      disabled={creatingTaskBoard}
+                      title={t('organization.createTaskBoardTitle')}
                       className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                         isDarkMode
                           ? 'border-indigo-400/50 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'
@@ -2465,6 +2484,7 @@ const OrganizationMainPanel = ({
                       <Plus size={14} className="shrink-0" />
                       <span className="hidden sm:inline">{t('taskBoard.createBoardBtn')}</span>
                     </button>
+                    ) : null}
                     {selectedTaskBoardId && canManageBoardUi ? (
                       <button
                         type="button"
@@ -2545,19 +2565,20 @@ const OrganizationMainPanel = ({
             </div>
             )}
           </header>
+          )}
 
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
-            ref={workspaceTab === 'chat' && !isVoiceChannel ? undefined : isVoiceChannel ? undefined : chatScrollRef}
+            ref={isChatLikeTab && !isVoiceChannel ? undefined : isVoiceChannel ? undefined : chatScrollRef}
             className={
-              (workspaceTab === 'chat' && !isVoiceChannel) ||
+              (isChatLikeTab && !isVoiceChannel) ||
               isVoiceChannel ||
               workspaceTab === 'tasks'
                 ? 'min-h-0 flex-1 overflow-hidden'
                 : 'scrollbar-chat min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain'
             }
             onScroll={
-              (workspaceTab === 'chat' && !isVoiceChannel) ||
+              (isChatLikeTab && !isVoiceChannel) ||
               isVoiceChannel ||
               workspaceTab === 'tasks'
                 ? undefined
@@ -2572,6 +2593,32 @@ const OrganizationMainPanel = ({
                 onReload={onWorkspaceDocumentsReload}
                 isDarkMode={isDarkMode}
                 onOpenInWorkspace={onOpenDocumentInWorkspace}
+                scopeHint={t('workspace.deptDocsScopeHint')}
+                departmentId={deptWorkspaceContext ? resolvedDepartmentId : ''}
+                departmentChannelIds={
+                  deptWorkspaceContext
+                    ? scopedChannels.map((ch) => String(ch._id || ch.id || '')).filter(Boolean)
+                    : null
+                }
+                memberDepartmentIds={memberDepartmentIds}
+                memberChannelIds={memberDepartmentChannelIds}
+                initialCategory="all"
+              />
+            ) : workspaceTab === 'members' ? (
+              <DepartmentMembersPanel
+                department={selectedDepartment}
+                orgMembers={orgMembers}
+                isDarkMode={isDarkMode}
+              />
+            ) : workspaceTab === 'calendar' || workspaceTab === 'meetings' ? (
+              <DepartmentMeetingsPanel
+                organizationId={organizationId ? String(organizationId) : ''}
+                departmentId={resolvedDepartmentId}
+                departmentName={deptName !== '—' ? deptName : ''}
+                mode={workspaceTab === 'calendar' ? 'calendar' : 'meetings'}
+                canManage={canManageDeptMeetings}
+                isDarkMode={isDarkMode}
+                onAnnounceMeetingJoin={onAnnounceMeetingJoin}
               />
             ) : workspaceTab === 'notifications' ? (
               <OrganizationNotificationsWorkspacePanel
@@ -2582,7 +2629,7 @@ const OrganizationMainPanel = ({
               />
             ) : workspaceTab === 'tasks' ? (
               suiteLayout ? (
-                <WorkspaceKanbanFigmaView locale={locale}>
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
                   {myAssignedProjectBriefs.length > 0 ? (
                     <div className="mb-3 shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2">
                       <div className="mb-1 text-xs font-semibold text-amber-100">
@@ -2629,41 +2676,8 @@ const OrganizationMainPanel = ({
                       </ul>
                     </div>
                   ) : null}
-                  <TaskBoardWorkspacePanel
-                    isDarkMode={isDarkMode}
-                    workspaceSlug={workspaceSlugForTask}
-                    boards={taskBoards}
-                    accessibleBoards={accessibleTaskBoards}
-                    selectedBoardId={selectedTaskBoardId}
-                    boardDetail={taskBoardDetail}
-                    boardBackground={
-                      taskBoardDetail?.board?.background ||
-                      taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.background ||
-                      ''
-                    }
-                    loadingBoards={loadingTaskBoards}
-                    loadingBoardDetail={loadingTaskBoardDetail}
-                    currentUserId={currentUserId}
-                    teamsInScope={teamsInScope}
-                    onAddList={handleAddBoardList}
-                    onAddCard={handleAddBoardCard}
-                    onMoveCard={handleMoveBoardCard}
-                    onUpdateCard={handleUpdateBoardCard}
-                    onReorderList={handleReorderBoardList}
-                    onRefresh={refreshTaskBoardView}
-                    onCreateBoard={openCreateTaskBoardModal}
-                    canCreateBoard={canCreateWorkspaceTask}
-                    boardCapabilities={boardCapabilities}
-                    canManageLists={canManageListsUi}
-                    canCreateCards={canCreateCardsUi}
-                    organizationId={orgIdForTask || organizationId || ''}
-                    canUseAiAssign={canUseAiWorkspaceTask && canCreateCardsUi}
-                    onAiAssignComplete={refreshTaskBoardView}
-                    renderCardExtra={(card) => kanbanCardSyncedExtra(card, channels)}
-                    boardSearchFocusToken={taskBoardSearchFocusToken}
-                    taskWorkspaceScope={taskWorkspaceScope}
-                  />
-                </WorkspaceKanbanFigmaView>
+                  {renderProjectHub()}
+                </div>
               ) : (
               <>
               {myAssignedProjectBriefs.length > 0 ? (
@@ -2738,39 +2752,7 @@ const OrganizationMainPanel = ({
                   </ul>
                 </div>
               ) : null}
-              <TaskBoardWorkspacePanel
-                isDarkMode={isDarkMode}
-                workspaceSlug={workspaceSlugForTask}
-                boards={taskBoards}
-                accessibleBoards={accessibleTaskBoards}
-                selectedBoardId={selectedTaskBoardId}
-                boardDetail={taskBoardDetail}
-                boardBackground={
-                  taskBoardDetail?.board?.background ||
-                  taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.background ||
-                  ''
-                }
-                loadingBoards={loadingTaskBoards}
-                loadingBoardDetail={loadingTaskBoardDetail}
-                currentUserId={currentUserId}
-                teamsInScope={teamsInScope}
-                onAddList={handleAddBoardList}
-                onAddCard={handleAddBoardCard}
-                onMoveCard={handleMoveBoardCard}
-                onUpdateCard={handleUpdateBoardCard}
-                onReorderList={handleReorderBoardList}
-                onRefresh={refreshTaskBoardView}
-                onCreateBoard={openCreateTaskBoardModal}
-                canCreateBoard={canCreateWorkspaceTask}
-                boardCapabilities={boardCapabilities}
-                canManageLists={canManageListsUi}
-                canCreateCards={canCreateCardsUi}
-                organizationId={orgIdForTask || organizationId || ''}
-                canUseAiAssign={canUseAiWorkspaceTask && canCreateCardsUi}
-                onAiAssignComplete={refreshTaskBoardView}
-                boardSearchFocusToken={taskBoardSearchFocusToken}
-                taskWorkspaceScope={taskWorkspaceScope}
-              />
+              {renderProjectHub()}
               </>
               )
             ) : isVoiceChannel ? (
@@ -2946,32 +2928,34 @@ const OrganizationMainPanel = ({
                                 visible
                                 onEmojiPick={(emoji) => onQuickReactMessage?.(message, emoji)}
                                 onReply={() => onReplyToMessage?.(message)}
-                                onAiExtract={() => {
-                                  if (!canUseAiWorkspaceTask) {
-                                    toast.error(t('taskBoard.aiTaskDenied'));
-                                    return;
-                                  }
-                                  const base = getAiTaskEligibility(
-                                    message,
-                                    {
-                                      organizationId: orgIdForTask ? String(orgIdForTask) : null,
-                                    },
-                                    t
-                                  );
-                                  if (!base.ok && !AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
-                                    toast.error(base.reason || t('taskBoard.aiTaskDenied'));
-                                    return;
-                                  }
-                                  if (!base.ok && base.reason) {
-                                    toast(base.reason, { icon: 'ℹ️' });
-                                  }
-                                  const content = plainTextForMessage(message);
-                                  setCreateTaskMentions(
-                                    parseMessageMentions(content, normalizedContacts)
-                                  );
-                                  setCreateTaskSourceMessage(message);
-                                  setCreateTaskModalOpen(true);
-                                }}
+                                onAiExtract={
+                                  canUseAiWorkspaceTask && canCreateCardsUi
+                                    ? () => {
+                                        const base = getAiTaskEligibility(
+                                          message,
+                                          {
+                                            organizationId: orgIdForTask
+                                              ? String(orgIdForTask)
+                                              : null,
+                                          },
+                                          t
+                                        );
+                                        if (!base.ok && !AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
+                                          toast.error(base.reason || t('taskBoard.aiTaskDenied'));
+                                          return;
+                                        }
+                                        if (!base.ok && base.reason) {
+                                          toast(base.reason, { icon: 'ℹ️' });
+                                        }
+                                        const content = plainTextForMessage(message);
+                                        setCreateTaskMentions(
+                                          parseMessageMentions(content, normalizedContacts)
+                                        );
+                                        setCreateTaskSourceMessage(message);
+                                        setCreateTaskModalOpen(true);
+                                      }
+                                    : undefined
+                                }
                                 onMenu={(e) => {
                                   const r = e?.currentTarget?.getBoundingClientRect?.();
                                   if (r) {
@@ -3113,7 +3097,7 @@ const OrganizationMainPanel = ({
 
           {showJumpToLatest &&
             sortedWorkspaceMessages.length > 0 &&
-            workspaceTab === 'chat' &&
+            isChatLikeTab &&
             !isVoiceChannel &&
             !loadingMessages && (
             <button
@@ -3154,7 +3138,7 @@ const OrganizationMainPanel = ({
 
           </div>
 
-          {workspaceTab === 'chat' && !isVoiceChannel && (
+          {isChatLikeTab && !isVoiceChannel && (
             <div className={workspace.composerBar}>
               {channelReadOnly ? (
                 <p
@@ -3330,7 +3314,7 @@ const OrganizationMainPanel = ({
         </div>
       </div>
 
-      {workspaceTab === 'chat' && showEmojiPicker && (
+      {isChatLikeTab && showEmojiPicker && (
         <>
           <button
             type="button"
@@ -3431,14 +3415,18 @@ const OrganizationMainPanel = ({
           const m = moreMenu.message;
           if (m) onDeleteMessage?.(m._id || m.id);
         }}
-        onCreateTask={() => {
-          const m = moreMenu.message;
-          if (!m) return;
-          const content = plainTextForMessage(m);
-          setCreateTaskMentions(parseMessageMentions(content, normalizedContacts));
-          setCreateTaskSourceMessage(m);
-          setCreateTaskModalOpen(true);
-        }}
+        onCreateTask={
+          canCreateWorkspaceTask && canUseAiWorkspaceTask
+            ? () => {
+                const m = moreMenu.message;
+                if (!m) return;
+                const content = plainTextForMessage(m);
+                setCreateTaskMentions(parseMessageMentions(content, normalizedContacts));
+                setCreateTaskSourceMessage(m);
+                setCreateTaskModalOpen(true);
+              }
+            : undefined
+        }
         createTaskDisabled={!menuCreateTaskCheck.ok}
         createTaskHoverTitle={
           menuCreateTaskCheck.ok ? getAiTaskTooltipShort(t) : menuCreateTaskCheck.reason
@@ -3479,14 +3467,10 @@ const OrganizationMainPanel = ({
           onCreateTaskBoardFromTeamMenu?.(null);
         }}
         defaultTeamName={taskBoardTeam?.name || ''}
-        defaultScopeLabel={
-          taskBoardTeam?.scopeType && taskBoardTeam?.name
-            ? `${taskBoardTeam.scopeType}: ${taskBoardTeam.name}`
-            : taskBoardTeam?.name || ''
-        }
-        defaultScopeType={taskBoardTeam?.scopeType || 'team'}
+        defaultScopeLabel="ORG"
+        defaultScopeType="organization"
         organizationId={orgIdForTask || organizationId || ''}
-        scopeId={taskBoardTeam?._id ? String(taskBoardTeam._id) : ''}
+        scopeId={String(orgIdForTask || organizationId || '')}
         teamsInScope={teamsInScope}
         canUseAi={canUseAiWorkspaceTask}
         creating={creatingTaskBoard}

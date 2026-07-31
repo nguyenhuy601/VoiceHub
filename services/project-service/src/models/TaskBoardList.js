@@ -13,6 +13,14 @@ const taskBoardListSchema = new mongoose.Schema(
       trim: true,
       maxlength: 120,
     },
+    /** Phase 4 — map cột ↔ WorkflowStatus.key (dual-read với title). */
+    statusKey: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 64,
+      index: true,
+    },
     order: {
       type: Number,
       required: true,

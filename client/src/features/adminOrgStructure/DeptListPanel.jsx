@@ -15,8 +15,10 @@ import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructur
 import { memberLabelById } from '../../utils/adminUserUtils';
 
 const ACTION_LINKS = [
+  { path: '/app/admin/org-structure/departments/members', labelKey: 'adminDomains.orgStructure.deptMembers' },
   { path: '/app/admin/org-structure/departments/edit', labelKey: 'adminDomains.orgStructure.deptEdit' },
   { path: '/app/admin/org-structure/departments/head', labelKey: 'adminDomains.orgStructure.deptHead' },
+  { path: '/app/admin/org-structure/departments/org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles' },
   { path: '/app/admin/org-structure/departments/disable', labelKey: 'adminDomains.orgStructure.deptDisable' },
 ];
 
@@ -67,6 +69,9 @@ export default function DeptListPanel({ orgId }) {
             <Plus className="h-4 w-4" />
             {t('adminDomains.orgStructure.deptCreate')}
           </Link>
+          <Link to="/app/admin/org-structure/departments/members" className={adminSecondaryBtnClass()}>
+            {t('adminDomains.orgStructure.deptMembers')}
+          </Link>
           <Link to="/app/admin/org-structure/departments/transfer" className={adminSecondaryBtnClass()}>
             {t('adminDomains.orgStructure.deptTransfer')}
           </Link>
@@ -99,6 +104,7 @@ export default function DeptListPanel({ orgId }) {
                   <th className="px-4 py-3">{t('adminOrg.colBranch')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colTeams')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colHead')}</th>
+                  <th className="px-4 py-3">{t('adminOrg.colMembers')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colActions')}</th>
                 </tr>
               </thead>
@@ -114,6 +120,7 @@ export default function DeptListPanel({ orgId }) {
                       <td className="px-4 py-3 text-muted-foreground">{row.branchName || '—'}</td>
                       <td className="px-4 py-3 text-muted-foreground">{row.teamCount ?? 0}</td>
                       <td className="px-4 py-3 text-muted-foreground">{headLabel}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{(row.memberIds || []).length}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
                           {ACTION_LINKS.map((link) => (

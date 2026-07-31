@@ -1,5 +1,6 @@
 /**
- * Client API — Project Team / Delegation Graph / Assign evaluate (task-service boards).
+ * Client API — Project Team / Delegation Graph / Assign evaluate.
+ * Members: ưu tiên /projects/:projectId; board path vẫn dùng cho delegation/ACL.
  */
 import apiClient from './apiClient';
 
@@ -7,11 +8,23 @@ function boardBase(boardId) {
   return `/tasks/boards/${boardId}`;
 }
 
+function projectBase(projectId) {
+  return `/projects/${projectId}`;
+}
+
 export const projectDeliveryAPI = {
   listProjectRoles: (boardId) => apiClient.get(`${boardBase(boardId)}/project-roles`),
-  listProjectMembers: (boardId) => apiClient.get(`${boardBase(boardId)}/project-members`),
+  /** @param {string} id boardId hoặc projectId — BE resolve cả hai qua listProjectMemberships */
+  listProjectMembers: (id, { asProject = false } = {}) =>
+    asProject
+      ? apiClient.get(`${projectBase(id)}/members`)
+      : apiClient.get(`${boardBase(id)}/project-members`),
   setMemberRoles: (boardId, memberUserId, projectRoleKeys) =>
     apiClient.put(`${boardBase(boardId)}/project-members/${memberUserId}/roles`, {
+      projectRoleKeys,
+    }),
+  setProjectMemberRoles: (projectId, memberUserId, projectRoleKeys) =>
+    apiClient.put(`${projectBase(projectId)}/members/${memberUserId}/roles`, {
       projectRoleKeys,
     }),
   listDelegation: (boardId) => apiClient.get(`${boardBase(boardId)}/delegation`),

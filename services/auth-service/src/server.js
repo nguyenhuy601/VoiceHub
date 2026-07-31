@@ -24,6 +24,16 @@ connectDB()
     app.listen(PORT, () => {
       console.log(`Auth Service đang chạy trên cổng ${PORT}`);
       console.log('[AuthService] ✅ Server ready to accept requests');
+      try {
+        const { getSecurityFeatureFlags } = require('./config/securityFeatureFlags');
+        const flags = getSecurityFeatureFlags();
+        console.log(
+          '[AuthService] Wave C security flags (stubs, no auth flow change):',
+          JSON.stringify(flags)
+        );
+      } catch (err) {
+        console.warn('[AuthService] securityFeatureFlags load skipped:', err.message);
+      }
     });
   })
   .catch((error) => {

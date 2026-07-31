@@ -9,6 +9,7 @@ export function useOrgDocumentCategoryMeta(files) {
   const categoryMeta = useMemo(() => {
     const labelKey = {
       all: 'documents.orgCategoryAll',
+      shared: 'documents.orgCategoryShared',
       channel_chat: 'documents.orgCategoryChannelChat',
       channel_voice: 'documents.orgCategoryChannelVoice',
       voice_meeting: 'documents.orgCategoryVoiceMeeting',
@@ -17,6 +18,7 @@ export function useOrgDocumentCategoryMeta(files) {
       image: 'documents.orgCategoryImages',
     };
     const hintKey = {
+      shared: 'documents.orgCategorySharedHint',
       channel_chat: 'documents.orgCategoryChannelChatHint',
       channel_voice: 'documents.orgCategoryChannelVoiceHint',
       voice_meeting: 'documents.orgCategoryVoiceMeetingHint',
@@ -32,9 +34,12 @@ export function useOrgDocumentCategoryMeta(files) {
   }, [t]);
 
   const countsByCategory = useMemo(() => {
-    const counts = { all: files.length };
+    const counts = { all: files.length, shared: 0 };
     for (const f of files) {
       counts[f.category] = (counts[f.category] || 0) + 1;
+      if (f.category === 'library' || f.category === 'announcement') {
+        counts.shared += 1;
+      }
     }
     return counts;
   }, [files]);

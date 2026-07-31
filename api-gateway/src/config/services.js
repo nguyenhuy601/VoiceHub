@@ -12,12 +12,16 @@ const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().repla
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
 const VOICE_SERVICE_URL = String(process.env.VOICE_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!VOICE_SERVICE_URL) throw new Error('Thiếu biến môi trường: VOICE_SERVICE_URL');
+const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const PROJECT_OR_TASK_SERVICE_URL = PROJECT_SERVICE_URL || TASK_SERVICE_URL;
+if (!PROJECT_OR_TASK_SERVICE_URL) {
+  throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
+}
 const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
+/** Optional — thiếu URL thì không mount route /api/ai/summaries (gateway vẫn boot). */
 const SUMMARY_SERVICE_URL = String(process.env.SUMMARY_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!SUMMARY_SERVICE_URL) throw new Error('Thiếu biến môi trường: SUMMARY_SERVICE_URL');
 const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -54,18 +58,26 @@ const services = {
     url: VOICE_SERVICE_URL,
     routes: ['/api/voice', '/api/meetings'],
   },
+  project: {
+    url: PROJECT_OR_TASK_SERVICE_URL,
+    routes: ['/api/projects'],
+  },
   task: {
-    url: TASK_SERVICE_URL,
-    routes: ['/api/tasks', '/api/work'],
+    url: PROJECT_OR_TASK_SERVICE_URL,
+    routes: ['/api/tasks', '/api/work', '/api/projects'],
   },
   aiTask: {
     url: AI_TASK_SERVICE_URL,
     routes: ['/api/ai/tasks'],
   },
-  summary: {
-    url: SUMMARY_SERVICE_URL,
-    routes: ['/api/ai/summaries'],
-  },
+  ...(SUMMARY_SERVICE_URL
+    ? {
+        summary: {
+          url: SUMMARY_SERVICE_URL,
+          routes: ['/api/ai/summaries'],
+        },
+      }
+    : {}),
   document: {
     url: DOCUMENT_SERVICE_URL,
     routes: ['/api/documents'],

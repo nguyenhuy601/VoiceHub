@@ -2,12 +2,32 @@ const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
 const TaskBoard = require('../models/TaskBoard');
 
-async function requireBoardAdmin(boardId, userId) {
+async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create' } = {}) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || board.isActive === false) {
     const err = new Error('Board không tồn tại');
     err.statusCode = 404;
     throw err;
+  }
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled() && board.projectId) {
+    const { resolveUserProjectPermissions } = require('./projectAccess.service');
+    const resolved = await resolveUserProjectPermissions({
+      userId,
+      projectId: board.projectId,
+      boardId,
+    });
+    if (
+      !hasPermission(resolved.permissions, permission) &&
+      !hasPermission(resolved.permissions, 'project:edit') &&
+      !resolved.isOrgAdmin &&
+      !resolved.isCreator
+    ) {
+      const err = new Error(`Không có quyền ${permission} trên project này`);
+      err.statusCode = 403;
+      throw err;
+    }
+    return board;
   }
   const boardService = require('./taskBoard.service');
   const ok = await boardService.userCanAdminBoard(userId, board);
@@ -20,7 +40,7 @@ async function requireBoardAdmin(boardId, userId) {
 }
 
 async function listSprints(boardId, userId) {
-  await requireBoardAdmin(boardId, userId);
+  await requireBoardAdmin(boardId, userId, { permission: 'sprint:view' });
   return Sprint.find({ boardId }).sort({ createdAt: -1 }).lean();
 }
 
@@ -33,7 +53,12 @@ async function createSprint({
   endDate,
   status,
 }) {
-  const board = await requireBoardAdmin(boardId, userId);
+  const board = await requireBoardAdmin(boardId, userId, { permission: 'sprint:create' });
+  if (!board.projectId) {
+    const err = new Error('Board thiếu projectId — tạo lại dự án qua POST /api/projects');
+    err.statusCode = 400;
+    throw err;
+  }
   const title = String(name || '').trim();
   if (!title) throw new Error('name là bắt buộc');
   const st = ['planned', 'active', 'closed'].includes(String(status || ''))
@@ -41,6 +66,7 @@ async function createSprint({
     : 'planned';
   const row = await Sprint.create({
     organizationId: board.organizationId,
+    projectId: board.projectId,
     boardId,
     name: title,
     goal: String(goal || '').trim(),
@@ -52,8 +78,18 @@ async function createSprint({
   return row.toObject();
 }
 
-async function updateSprint({ userId, boardId, sprintId, name, goal, startDate, endDate, status }) {
-  await requireBoardAdmin(boardId, userId);
+async function updateSprint({
+  userId,
+  boardId,
+  sprintId,
+  name,
+  goal,
+  startDate,
+  endDate,
+  status,
+  reviewNotes,
+}) {
+  await requireBoardAdmin(boardId, userId, { permission: 'sprint:create' });
   const sprint = await Sprint.findOne({ _id: sprintId, boardId });
   if (!sprint) throw new Error('Sprint không tồn tại');
   if (name !== undefined) {
@@ -67,7 +103,13 @@ async function updateSprint({ userId, boardId, sprintId, name, goal, startDate, 
   if (status !== undefined) {
     const st = String(status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
+    if (st === 'closed') {
+      await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
+    }
     sprint.status = st;
+  }
+  if (reviewNotes !== undefined) {
+    sprint.reviewNotes = String(reviewNotes || '').trim().slice(0, 4000);
   }
   await sprint.save();
   return sprint.toObject();
@@ -75,7 +117,7 @@ async function updateSprint({ userId, boardId, sprintId, name, goal, startDate, 
 
 /** Soft-close nếu không phải planned; planned có thể xóa hẳn. */
 async function deleteSprint({ userId, boardId, sprintId }) {
-  await requireBoardAdmin(boardId, userId);
+  await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
   const sprint = await Sprint.findOne({ _id: sprintId, boardId });
   if (!sprint) throw new Error('Sprint không tồn tại');
   if (sprint.status === 'planned') {

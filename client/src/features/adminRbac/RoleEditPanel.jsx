@@ -15,6 +15,12 @@ import {
   permissionDraftForEditor,
   permissionEntriesForPersist,
 } from '../../utils/adminRbacUtils';
+import {
+  SYSTEM_ROLE_NAME_PREFIX,
+  isTitleLikeSystemRoleName,
+  normalizeLayerLabel,
+  splitLayerLabel,
+} from '../../utils/roleLayerNaming';
 
 export default function RoleEditPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -23,7 +29,7 @@ export default function RoleEditPanel({ orgId }) {
   const { rolesById, loadRoles } = useAdminRoles(orgId);
   const role = rolesById.get(roleId);
   const protectedRole = role ? isProtectedDefaultRole(role) : false;
-  const [name, setName] = useState('');
+  const [suffix, setSuffix] = useState('');
   const [description, setDescription] = useState('');
   const [scope, setScope] = useState(DEFAULT_ROLE_SCOPE);
   const [color, setColor] = useState('#6366f1');
@@ -36,7 +42,8 @@ export default function RoleEditPanel({ orgId }) {
       setPermDraft({});
       return;
     }
-    setName(normalizeRoleDisplayName(role.name));
+    const display = normalizeRoleDisplayName(role.name);
+    setSuffix(splitLayerLabel(display, 'system').suffix || display);
     setDescription(role.description || '');
     setScope(String(role.scope || DEFAULT_ROLE_SCOPE).toUpperCase());
     setColor(role.color || '#6366f1');
@@ -57,11 +64,17 @@ export default function RoleEditPanel({ orgId }) {
 
   const save = async () => {
     if (!orgId || !roleId || !role || busy) return;
+    if (!protectedRole) {
+      if (!suffix.trim()) return;
+      if (isTitleLikeSystemRoleName(suffix)) {
+        toast.error(t('adminRbac.roleNameTitleLikeError'));
+        return;
+      }
+    }
     setBusy(true);
     try {
       await roleAPI.updateRole(roleId, {
-        // Vai trò hệ thống giữ nguyên tên; vẫn cho sửa quyền / mô tả / scope / priority.
-        name: protectedRole ? role.name : name.trim(),
+        name: protectedRole ? role.name : normalizeLayerLabel(suffix, 'system'),
         description: description.trim(),
         scope,
         color,
@@ -109,13 +122,28 @@ export default function RoleEditPanel({ orgId }) {
             <div className="grid gap-3 rounded-xl border border-border bg-card/40 p-4 md:grid-cols-2">
               <label className="block text-sm md:col-span-2">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleName')}</span>
-                <input
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  value={name}
-                  disabled={protectedRole}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={t('adminRbac.roleNamePlaceholder')}
-                />
+                {protectedRole ? (
+                  <input
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    value={normalizeRoleDisplayName(role.name)}
+                    disabled
+                  />
+                ) : (
+                  <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+                    <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                      {SYSTEM_ROLE_NAME_PREFIX.trimEnd()}
+                    </span>
+                    <input
+                      className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                      value={suffix}
+                      onChange={(e) => setSuffix(e.target.value)}
+                      placeholder={t('adminRbac.roleNamePlaceholder')}
+                    />
+                  </div>
+                )}
+                {!protectedRole && suffix.trim() && isTitleLikeSystemRoleName(suffix) ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.roleNameTitleLikeError')}</p>
+                ) : null}
               </label>
               <label className="block text-sm md:col-span-2">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleDescription')}</span>
@@ -152,36 +180,31 @@ export default function RoleEditPanel({ orgId }) {
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mb-1 block text-muted-foreground">{t('adminRbac.priority')}</span>
+                  <span className="mb-1 block text-muted-foreground">{t('adminRbac.colPriority')}</span>
                   <input
                     type="number"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                    placeholder={t('adminRbac.priority')}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
                   />
                 </label>
               </div>
             </div>
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-foreground">{t('adminRbac.assignPermissions')}</p>
-              <PermissionEditorGrid
-                permDraft={permDraft}
-                editable
-                roleName={normalizeRoleDisplayName(role.name)}
-                roleScope={scope}
-                onToggle={(key) =>
-                  setPermDraft((prev) => {
-                    const next = { ...prev };
-                    if (next[key]) delete next[key];
-                    else next[key] = true;
-                    return next;
-                  })
-                }
-                onSetMany={setMany}
-              />
-            </div>
+            <PermissionEditorGrid
+              permDraft={permDraft}
+              editable
+              roleName={protectedRole ? normalizeRoleDisplayName(role.name) : normalizeLayerLabel(suffix, 'system') || suffix}
+              roleScope={scope}
+              onToggle={(key) =>
+                setPermDraft((prev) => {
+                  const next = { ...prev };
+                  if (next[key]) delete next[key];
+                  else next[key] = true;
+                  return next;
+                })
+              }
+              onSetMany={setMany}
+            />
           </>
         )}
       </div>

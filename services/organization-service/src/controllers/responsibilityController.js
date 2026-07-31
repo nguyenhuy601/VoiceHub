@@ -1,6 +1,6 @@
 const {
   listResponsibilities,
-  upsertResponsibility,
+  createResponsibility,
   patchResponsibility,
   seedDefaultResponsibilities,
   setUserResponsibilities,
@@ -51,7 +51,10 @@ async function create(req, res) {
     const ctx = await requireOrgAdmin(req, res);
     if (!ctx) return;
     const { key, label, description } = req.body || {};
-    const data = await upsertResponsibility({
+    if (!String(label || '').trim()) {
+      return orgValidation(res, 'label là bắt buộc');
+    }
+    const data = await createResponsibility({
       organizationId: ctx.orgId,
       key,
       label,

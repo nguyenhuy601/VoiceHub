@@ -1,11 +1,14 @@
 import {
   Building2,
+  Calendar,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   FileText,
   MessageCircle,
   Mic,
+  Users,
+  Video,
 } from 'lucide-react';
 import {
   FIGMA_WS_SHELL_CONTENT,
@@ -18,11 +21,20 @@ import {
 } from './figmaWorkspaceClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
-const TAB_IDS = [
+const TEAM_TAB_IDS = [
   { id: 'chat', icon: MessageCircle, labelKey: 'workspace.moduleChat' },
   { id: 'voice', icon: Mic, labelKey: 'workspace.moduleVoice' },
   { id: 'tasks', icon: ClipboardList, labelKey: 'workspace.moduleTask' },
   { id: 'documents', icon: FileText, labelKey: 'workspace.moduleDocs' },
+];
+
+const DEPT_TAB_IDS = [
+  { id: 'announcement', icon: MessageCircle, labelKey: 'workspace.moduleAnnouncement' },
+  { id: 'tasks', icon: ClipboardList, labelKey: 'workspace.moduleTask' },
+  { id: 'members', icon: Users, labelKey: 'workspace.moduleMembers' },
+  { id: 'documents', icon: FileText, labelKey: 'workspace.moduleDocs' },
+  { id: 'calendar', icon: Calendar, labelKey: 'workspace.moduleCalendar' },
+  { id: 'meetings', icon: Video, labelKey: 'workspace.moduleMeetings' },
 ];
 
 function orgInitial(name) {
@@ -39,7 +51,8 @@ function scopeAccent(scope) {
 }
 
 /**
- * Org hub shell — tab bar chat|voice|tasks|documents + team/department grid landing (Figma WorkspaceSlugPage).
+ * Org hub shell — team: chat|voice|tasks|documents;
+ * dept: announcement|tasks|members|docs|calendar|meetings.
  */
 export default function WorkspaceSlugFigmaShell({
   organizationName = '',
@@ -47,6 +60,10 @@ export default function WorkspaceSlugFigmaShell({
   showLanding = false,
   selectedTeam = null,
   selectedDepartment = null,
+  /** Khi true (dept workspace, không team): dùng DEPT_TAB_IDS */
+  departmentMode = false,
+  /** Ẩn tab bar + breadcrumb (vd. tasks — ProjectHub tự có chrome) */
+  hideChrome = false,
   locale = 'vi',
   onTabChange,
   onBackFromSubView,
@@ -58,6 +75,7 @@ export default function WorkspaceSlugFigmaShell({
   const { t } = useAppStrings();
   const teamAccentInfo = scopeAccent(selectedTeam);
   const deptAccentInfo = scopeAccent(selectedDepartment);
+  const TAB_IDS = departmentMode ? DEPT_TAB_IDS : TEAM_TAB_IDS;
 
   if (showLanding) {
     return (
@@ -72,6 +90,25 @@ export default function WorkspaceSlugFigmaShell({
   const inSubContext = inTeamContext || inDepartmentContext;
   const subScope = inTeamContext ? selectedTeam : selectedDepartment;
   const subAccent = inTeamContext ? teamAccentInfo : deptAccentInfo;
+
+  const deptContextLabelKey = (() => {
+    if (activeTab === 'tasks') return 'workspace.moduleTask';
+    if (activeTab === 'members') return 'workspace.moduleMembers';
+    if (activeTab === 'documents') return 'workspace.moduleDocs';
+    if (activeTab === 'calendar') return 'workspace.moduleCalendar';
+    if (activeTab === 'meetings') return 'workspace.moduleMeetings';
+    return 'workspace.moduleAnnouncement';
+  })();
+
+  if (hideChrome) {
+    return (
+      <div className={`${FIGMA_WS_SHELL_ROOT} ${className}`}>
+        <div className={FIGMA_WS_SHELL_CONTENT}>
+          <div className="flex min-h-0 w-full flex-1 overflow-hidden">{children}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`${FIGMA_WS_SHELL_ROOT} ${className}`}>
@@ -117,16 +154,8 @@ export default function WorkspaceSlugFigmaShell({
           <span className="truncate text-sm font-bold text-foreground">{subScope.name}</span>
           <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium text-muted-foreground">
-            {inDepartmentContext
-              ? t(
-                  activeTab === 'voice'
-                    ? 'workspace.deptVoiceContext'
-                    : activeTab === 'tasks'
-                      ? 'workspace.moduleTask'
-                      : activeTab === 'documents'
-                        ? 'workspace.moduleDocs'
-                        : 'workspace.deptChatContext'
-                )
+            {departmentMode || (inDepartmentContext && !inTeamContext)
+              ? t(deptContextLabelKey)
               : t(TAB_IDS.find((tab) => tab.id === activeTab)?.labelKey || 'workspace.moduleChat')}
           </span>
         </div>
@@ -152,4 +181,4 @@ export default function WorkspaceSlugFigmaShell({
 }
 
 /** Re-export tab ids for OrganizationTeamGrid module buttons */
-export { TAB_IDS as WORKSPACE_SHELL_TABS };
+export { TEAM_TAB_IDS as WORKSPACE_SHELL_TABS, DEPT_TAB_IDS as DEPT_WORKSPACE_SHELL_TABS };

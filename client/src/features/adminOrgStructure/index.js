@@ -8,6 +8,8 @@ export { default as DeptEditPanel } from './DeptEditPanel';
 export { default as DeptDisablePanel } from './DeptDisablePanel';
 export { default as DeptParentPanel } from './DeptParentPanel';
 export { default as DeptHeadPanel } from './DeptHeadPanel';
+export { default as DeptMembersPanel } from './DeptMembersPanel';
+export { default as DeptOrgRolesPanel } from './DeptOrgRolesPanel';
 export { default as DeptTransferPanel } from './DeptTransferPanel';
 
 export { default as TeamListPanel } from './TeamListPanel';

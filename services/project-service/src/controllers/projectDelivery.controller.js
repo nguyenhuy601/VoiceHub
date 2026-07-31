@@ -87,15 +87,22 @@ async function putMemberRoles(req, res) {
   try {
     const userId = asUserId(req);
     const { boardId, memberUserId } = req.params;
-    const { projectRoleKeys } = req.body || {};
+    const body = req.body || {};
+    const { projectRoleKeys, boardRole, allocations, joinDate, leaveDate, billable, status } = body;
     await requireBoardAdmin(boardId, userId);
-    const roles = await setUserProjectRoles({
+    const data = await setUserProjectRoles({
       boardId,
       userId: memberUserId,
       projectRoleKeys,
       addedBy: userId,
+      boardRole,
+      allocations,
+      joinDate,
+      leaveDate,
+      billable,
+      status,
     });
-    return res.json({ success: true, data: roles });
+    return res.json({ success: true, data });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_MEMBER_UPDATE_FAILED');
   }

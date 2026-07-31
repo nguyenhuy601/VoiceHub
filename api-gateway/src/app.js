@@ -36,7 +36,10 @@ app.get('/metrics', (req, res) => {
   });
 });
 
-const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000);
+/** Timeout proxy REST API (không áp dụng Socket.IO long-polling). */
+const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000);
+/** Long-polling giữ request mở lâu — 0 = không cắt sớm (tránh reconnect loop). */
+const SOCKET_PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_SOCKET_PROXY_TIMEOUT_MS || 0);
 
 // cross-origin: cần avatar/media; frameguard: chống clickjacking
 app.use(
@@ -92,8 +95,8 @@ app.use(
      * nhưng socket-service cần path `/socket.io`.
      */
     pathRewrite: (path) => `/socket.io${path}`,
-    timeout: PROXY_HTTP_TIMEOUT_MS,
-    proxyTimeout: PROXY_HTTP_TIMEOUT_MS,
+    timeout: SOCKET_PROXY_TIMEOUT_MS,
+    proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
     onError: (err, req, res) => {
       console.warn('[API-Gateway] Socket HTTP proxy error:', err?.message || err);
       if (res && !res.headersSent) {
@@ -119,8 +122,8 @@ app.use(
      * Tương tự `/socket.io`: khi mount theo `VOICE_SIGNAL_PATH`, req.url bị strip prefix.
      */
     pathRewrite: (path) => `${VOICE_SIGNAL_PATH}${path}`,
-    timeout: PROXY_HTTP_TIMEOUT_MS,
-    proxyTimeout: PROXY_HTTP_TIMEOUT_MS,
+    timeout: SOCKET_PROXY_TIMEOUT_MS,
+    proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
     onError: (err, req, res) => {
       console.warn('[API-Gateway] Voice signal HTTP proxy error:', err?.message || err);
       if (res && !res.headersSent) {

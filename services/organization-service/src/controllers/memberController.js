@@ -15,8 +15,6 @@ const {
 const Organization = require('../models/Organization');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
-const Team = require('../models/Team');
-const Department = require('../models/Department');
 const { resolveEffectiveScopesFromAssignments } = require('../services/memberScopePolicy.service');
 const { resolveOrgAccess, toObjectId } = require('../utils/orgAccess');
 const jwt = require('jsonwebtoken');
@@ -33,6 +31,7 @@ const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client'
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
 const CompanyInvite = require('../models/CompanyInvite');
 const crypto = require('crypto');
+const { attachPlacementFromStructure } = require('../services/structurePlacement.service');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'hr', 'member'];
 const INVITE_LINK_SECRET = String(process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || '').trim();
@@ -249,67 +248,6 @@ async function enrichMembersForAdminList(members) {
       lastLoginAt: auth.lastLoginAt || null,
       // Huy: gắn systemRole để FE/BE lọc tài khoản admin hệ thống khỏi danh sách user
       systemRole: String(auth.systemRole || 'employee').toLowerCase() === 'admin' ? 'admin' : 'employee',
-    };
-  });
-}
-
-/**
- * Huy: Gắn department/team từ members[] legacy — owner/admin listMembersForOrg không trả placement.
- */
-async function attachPlacementFromStructure(orgId, members) {
-  const list = Array.isArray(members) ? members : [];
-  if (!orgId || !list.length) return list;
-
-  const [departments, teams] = await Promise.all([
-    Department.find({ organization: orgId }).select('_id name members').lean(),
-    Team.find({ organization: orgId, isActive: { $ne: false } })
-      .select('_id name department members')
-      .lean(),
-  ]);
-
-  const deptByUser = new Map();
-  const deptNameByUser = new Map();
-  for (const dep of departments) {
-    const depId = String(dep._id);
-    const depName = String(dep.name || '').trim();
-    for (const mid of dep.members || []) {
-      const uid = String(mid?._id || mid || '').trim();
-      if (!uid || deptByUser.has(uid)) continue;
-      deptByUser.set(uid, depId);
-      deptNameByUser.set(uid, depName);
-    }
-  }
-
-  const teamByUser = new Map();
-  for (const team of teams) {
-    const teamId = String(team._id);
-    const deptId = team.department ? String(team.department) : '';
-    for (const mid of team.members || []) {
-      const uid = String(mid?._id || mid || '').trim();
-      if (!uid) continue;
-      if (!teamByUser.has(uid)) teamByUser.set(uid, teamId);
-      if (deptId && !deptByUser.has(uid)) {
-        deptByUser.set(uid, deptId);
-        const dep = departments.find((d) => String(d._id) === deptId);
-        if (dep) deptNameByUser.set(uid, String(dep.name || '').trim());
-      }
-    }
-  }
-
-  return list.map((member) => {
-    const userId = String(member.userId || member.user?._id || member.user || '').trim();
-    const department =
-      String(member.department || member.departmentId || '').trim() || deptByUser.get(userId) || null;
-    const team = String(member.team || member.teamId || '').trim() || teamByUser.get(userId) || null;
-    return {
-      ...member,
-      department: department || null,
-      departmentId: department || null,
-      departmentName: department
-        ? deptNameByUser.get(userId) || member.departmentName || null
-        : null,
-      team: team || null,
-      teamId: team || null,
     };
   });
 }

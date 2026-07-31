@@ -26,6 +26,7 @@ import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
 } from './figmaOrganizationClasses';
+import EntityApprovalTimeline from '../../features/approvals/EntityApprovalTimeline';
 
 function toDatetimeLocalValue(iso) {
   if (!iso) return '';
@@ -69,6 +70,10 @@ export default function TaskBoardCardDetailModal({
   const [assigneeId, setAssigneeId] = useState('');
   const [responsibilityKey, setResponsibilityKey] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [checklists, setChecklists] = useState([]);
+  const [checklistDraft, setChecklistDraft] = useState('');
+  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [creatingSubtask, setCreatingSubtask] = useState(false);
   const [panel, setPanel] = useState('detail');
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -97,6 +102,9 @@ export default function TaskBoardCardDetailModal({
     setAssigneeId(card.assigneeId ? String(card.assigneeId) : '');
     setResponsibilityKey(card.responsibilityKey ? String(card.responsibilityKey) : '');
     setAttachments(Array.isArray(card.attachments) ? [...card.attachments] : []);
+    setChecklists(Array.isArray(card.checklists) ? JSON.parse(JSON.stringify(card.checklists)) : []);
+    setChecklistDraft('');
+    setSubtaskDraft('');
     setEditingDescription(false);
     setPanel(initialPanel || 'detail');
     setAttachUrl('');
@@ -700,6 +708,129 @@ export default function TaskBoardCardDetailModal({
                 Thêm mô tả chi tiết hơn...
               </button>
             )}
+
+            <div className="mb-4 mt-4">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+                <CheckCircle2 className="h-4 w-4 opacity-70" />
+                Checklist
+              </h4>
+              {(checklists[0]?.items || []).map((item, idx) => (
+                <label
+                  key={`cl-${idx}`}
+                  className={`mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                    isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(item.done)}
+                    disabled={saving}
+                    onChange={async () => {
+                      const next = checklists.length
+                        ? JSON.parse(JSON.stringify(checklists))
+                        : [{ title: 'Checklist', items: [] }];
+                      if (!next[0].items) next[0].items = [];
+                      next[0].items[idx] = { ...next[0].items[idx], done: !item.done };
+                      setChecklists(next);
+                      await save({ checklists: next });
+                    }}
+                  />
+                  <span className={item.done ? 'line-through opacity-60' : ''}>{item.text}</span>
+                </label>
+              ))}
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={checklistDraft}
+                  onChange={(e) => setChecklistDraft(e.target.value)}
+                  placeholder="Thêm mục checklist…"
+                  className={`min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                  onKeyDown={async (e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    const text = checklistDraft.trim();
+                    if (!text) return;
+                    const next = checklists.length
+                      ? JSON.parse(JSON.stringify(checklists))
+                      : [{ title: 'Checklist', items: [] }];
+                    if (!next[0].items) next[0].items = [];
+                    next[0].items.push({ text, done: false });
+                    setChecklistDraft('');
+                    setChecklists(next);
+                    await save({ checklists: next });
+                  }}
+                />
+                <button
+                  type="button"
+                  className={toolbarBtn}
+                  disabled={saving || !checklistDraft.trim()}
+                  onClick={async () => {
+                    const text = checklistDraft.trim();
+                    if (!text) return;
+                    const next = checklists.length
+                      ? JSON.parse(JSON.stringify(checklists))
+                      : [{ title: 'Checklist', items: [] }];
+                    if (!next[0].items) next[0].items = [];
+                    next[0].items.push({ text, done: false });
+                    setChecklistDraft('');
+                    setChecklists(next);
+                    await save({ checklists: next });
+                  }}
+                >
+                  Thêm
+                </button>
+              </div>
+            </div>
+
+            {!card?.parentTaskId && boardId && card?.listId ? (
+              <div className="mb-4">
+                <h4 className="mb-2 text-sm font-semibold">Sub-tasks</h4>
+                <div className="flex gap-2">
+                  <input
+                    value={subtaskDraft}
+                    onChange={(e) => setSubtaskDraft(e.target.value)}
+                    placeholder="Tên sub-task…"
+                    className={`min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                  />
+                  <button
+                    type="button"
+                    className={toolbarBtn}
+                    disabled={creatingSubtask || !subtaskDraft.trim()}
+                    onClick={async () => {
+                      const titleText = subtaskDraft.trim();
+                      if (!titleText || !boardId) return;
+                      setCreatingSubtask(true);
+                      try {
+                        await taskAPI.createBoardCard(
+                          boardId,
+                          {
+                            listId: card.listId,
+                            title: titleText,
+                            parentTaskId: cardId,
+                          },
+                          boardApiOpts
+                        );
+                        setSubtaskDraft('');
+                        toast.success(t('taskBoard.saved'));
+                        await onRefresh?.();
+                      } catch (err) {
+                        toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.saveFail') }));
+                      } finally {
+                        setCreatingSubtask(false);
+                      }
+                    }}
+                  >
+                    Tạo
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {cardId ? (
+              <EntityApprovalTimeline
+                entityType="task"
+                entityId={cardId}
+                isDarkMode={isDarkMode}
+              />
+            ) : null}
           </div>
 
           <aside

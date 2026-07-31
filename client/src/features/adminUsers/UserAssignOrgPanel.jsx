@@ -72,7 +72,7 @@ export default function UserAssignOrgPanel({ orgId }) {
       const depMembers = (dep?.memberIds || []).map(String);
       if (!depMembers.includes(userId)) {
         await organizationAPI.updateDepartment(orgId, departmentId, {
-          members: Array.from(new Set([...depMembers, userId])),
+          membersAdd: [userId],
         });
       }
       if (teamId) {

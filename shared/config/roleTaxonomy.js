@@ -56,6 +56,8 @@ const DEFAULT_HR_ROLE_KEYS = Object.freeze([
 
 const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
   PROJECT_MANAGER: 'project_manager',
+  PRODUCT_OWNER: 'product_owner',
+  SCRUM_MASTER: 'scrum_master',
   TECH_LEAD: 'tech_lead',
   ARCHITECT: 'architect',
   SENIOR_DEVELOPER: 'senior_developer',

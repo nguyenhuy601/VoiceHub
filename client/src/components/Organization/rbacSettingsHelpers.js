@@ -28,7 +28,20 @@ function stripDiacritics(s) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-export const ORG_DEFAULT_ROLE_NAMES = new Set(['quan tri vien', 'nhan su', 'thanh vien', 'admin', 'hr', 'member']);
+export const ORG_DEFAULT_ROLE_NAMES = new Set([
+  'quan tri vien',
+  'nhan su',
+  'thanh vien',
+  'goi quyen — quan tri',
+  'goi quyen — van hanh hr',
+  'goi quyen — thanh vien',
+  'goi quyen - quan tri',
+  'goi quyen - van hanh hr',
+  'goi quyen - thanh vien',
+  'admin',
+  'hr',
+  'member',
+]);
 
 export function membershipRoleLabel(t) {
   return {
@@ -73,8 +86,17 @@ export function isSystemCatalogRole(role) {
 
 export function isProtectedDefaultRole(role) {
   const name = String(role?.name || '').trim();
-  const norm = stripDiacritics(name).toLowerCase();
-  return Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(norm);
+  const norm = stripDiacritics(name)
+    .toLowerCase()
+    .replace(/\u2014/g, '-') // em dash
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(norm)) return true;
+  // Canonical «Gói quyền — …» defaults after rename-on-sync
+  if (norm.startsWith('goi quyen') && (norm.includes('quan tri') || norm.includes('van hanh hr') || norm.endsWith('thanh vien'))) {
+    return true;
+  }
+  return false;
 }
 
 export function normalizeRoleId(role) {

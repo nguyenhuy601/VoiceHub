@@ -58,16 +58,20 @@ async function handleDocumentsOverview(req, res) {
   } catch (error) {
     const status = error.statusCode || 500;
     console.error('[bff:documents-overview] error:', error.message);
+    const errorCode = error.code || error.errorCode || 'GATEWAY_INTERNAL_ERROR';
     if (status >= 500) {
       return sendApiError(res, status, {
-        errorCode: 'GATEWAY_INTERNAL_ERROR',
-        message: 'Documents overview failed',
-        messageUser: GENERIC_5XX_MESSAGE,
+        errorCode,
+        message: error.message || 'Documents overview failed',
+        messageUser:
+          errorCode === 'BFF_DOCUMENTS_TIMEOUT'
+            ? error.message || 'Documents overview timed out — thử tải lại sau vài giây'
+            : GENERIC_5XX_MESSAGE,
         extra: { status: 'fail' },
       });
     }
     return sendApiError(res, status, {
-      errorCode: error.errorCode || 'GATEWAY_INTERNAL_ERROR',
+      errorCode,
       message: error.message || 'Documents overview failed',
       messageUser: error.messageUser || error.message || 'Documents overview failed',
       extra: { status: 'fail' },

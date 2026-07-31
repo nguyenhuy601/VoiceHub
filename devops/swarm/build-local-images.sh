@@ -29,7 +29,7 @@ declare -a ALL_IMAGES=(
   "friend-service:services/friend-service/Dockerfile"
   "role-permission-service:services/role-permission-service/Dockerfile"
   "chat-service:services/chat-service/Dockerfile"
-  "task-service:services/task-service/Dockerfile"
+  "project-service:services/project-service/Dockerfile"
   "ai-task-service:services/ai-task-service/Dockerfile"
   "ai-task-worker:services/ai-task-worker/Dockerfile"
   "summary-service:services/summary-service/Dockerfile"

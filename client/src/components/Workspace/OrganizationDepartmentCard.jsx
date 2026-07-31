@@ -1,15 +1,16 @@
 import {
   Activity,
+  Calendar,
   ChevronRight,
   ClipboardList,
   FileText,
   Hash,
   MessageCircle,
-  Mic,
   Pin,
   Settings,
   Star,
   Users,
+  Video,
 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { formatDeptRelativeTime } from '../../utils/buildDepartmentHubCard';
@@ -230,28 +231,21 @@ export default function OrganizationDepartmentCard({
       )}
 
       {onModuleClick ? (
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
           {[
             {
-              module: 'chat',
+              module: 'announcement',
               icon: MessageCircle,
-              label: t('workspace.moduleChat'),
+              label: t('workspace.moduleAnnouncement'),
               badge: card.deptUnread || 0,
               color: 'text-primary',
             },
             {
-              module: 'voice',
-              icon: Mic,
-              label: t('workspace.moduleVoice'),
+              module: 'members',
+              icon: Users,
+              label: t('workspace.moduleMembers'),
               badge: 0,
-              color: 'text-success',
-            },
-            {
-              module: 'tasks',
-              icon: ClipboardList,
-              label: t('workspace.moduleTask'),
-              badge: card.activeTasks || 0,
-              color: 'text-warning',
+              color: 'text-sky-600 dark:text-sky-400',
             },
             {
               module: 'documents',
@@ -259,6 +253,20 @@ export default function OrganizationDepartmentCard({
               label: t('workspace.moduleDocs'),
               badge: 0,
               color: 'text-violet-500 dark:text-violet-400',
+            },
+            {
+              module: 'calendar',
+              icon: Calendar,
+              label: t('workspace.moduleCalendar'),
+              badge: 0,
+              color: 'text-amber-600 dark:text-amber-400',
+            },
+            {
+              module: 'meetings',
+              icon: Video,
+              label: t('workspace.moduleMeetings'),
+              badge: 0,
+              color: 'text-success',
             },
           ].map((btn) => (
             <button

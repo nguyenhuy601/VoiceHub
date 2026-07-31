@@ -30,49 +30,11 @@ function boardValidation(res, message, errorCode = 'VALIDATION_INVALID_ID') {
 
 class TaskBoardController {
   async createBoard(req, res) {
-    try {
-      const userId = asUserId(req);
-      const {
-        organizationId,
-        teamId,
-        scopeType,
-        scopeId,
-        title,
-        description,
-        projectCode,
-        dueDate,
-        background,
-        visibility,
-      } = req.body || {};
-      if (!userId) return boardUnauthorized(res);
-      const nextScopeType = String(scopeType || (teamId ? 'team' : '')).toLowerCase();
-      const requiresScope = ['team', 'department', 'division'].includes(nextScopeType);
-      const finalScopeId = scopeId || teamId || null;
-      if (!validOid(organizationId) || (requiresScope && !validOid(finalScopeId))) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'organizationId/scopeId (hoặc teamId) không hợp lệ' });
-      }
-      if (!String(title || '').trim()) {
-        return boardValidation(res, 'title là bắt buộc', 'VALIDATION_REQUIRED');
-      }
-      const board = await boardService.createBoard({
-        userId,
-        organizationId,
-        teamId,
-        scopeType: requiresScope ? nextScopeType : null,
-        scopeId: finalScopeId,
-        title,
-        description,
-        projectCode,
-        dueDate,
-        background,
-        visibility,
-      });
-      return res.status(201).json({ success: true, data: board });
-    } catch (err) {
-      return sendError(res, err, 400, 'Không thể tạo board', 'TASK_BOARD_CREATE_FAILED');
-    }
+    return sendServiceError(res, 410, {
+      errorCode: 'PROJECT_CREATE_VIA_BOARD_GONE',
+      messageUser: 'Tạo dự án qua POST /api/projects. Endpoint createBoard-as-project đã ngừng.',
+      message: 'Gone — use POST /api/projects',
+    });
   }
 
   async listBoards(req, res) {
@@ -345,6 +307,26 @@ class TaskBoardController {
     }
   }
 
+  async patchBoard(req, res) {
+    try {
+      const userId = asUserId(req);
+      const { boardId } = req.params;
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(boardId)) {
+        return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+      }
+      const data = await boardService.patchBoard({
+        userId,
+        boardId,
+        patch: req.body || {},
+      });
+      return res.json({ success: true, data });
+    } catch (err) {
+      const status = err.statusCode === 400 ? 400 : 403;
+      return sendError(res, err, status, 'Không thể cập nhật dự án', 'TASK_BOARD_PATCH_FAILED');
+    }
+  }
+
   async updateCard(req, res) {
     try {
       const userId = asUserId(req);
@@ -378,6 +360,8 @@ class TaskBoardController {
         status,
         taskType: req.body?.taskType,
         assignments: req.body?.assignments,
+        checklists: req.body?.checklists,
+        parentTaskId: req.body?.parentTaskId,
       });
       return res.json({ success: true, data });
     } catch (err) {

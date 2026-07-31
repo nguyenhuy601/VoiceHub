@@ -43,7 +43,7 @@ docker stack services voicehub-rabbit
 1. Deploy app stack (`docker-stack.yml` — không single-node stateful).
 2. Deploy `voicehub-redis` + `voicehub-rabbit` HA stacks (shared overlay `voicehub_enterprise-network`).
 3. Deploy API services (included in stack).
-4. Deploy workers (`task-worker`, `ai-task-*`, `notification-dispatch-worker`, `webhook-delivery-worker`).
+4. Deploy workers (`project-worker`, `ai-task-*`, `notification-dispatch-worker`, `webhook-delivery-worker`).
 5. Deploy realtime/voice.
 6. `rolling-update-phase1-env.sh` nếu đổi `.env` sau deploy.
 

@@ -20,6 +20,9 @@ export const orgRoleCatalogAPI = {
 
   createCatalog: (orgId, body) => apiClient.post(`/organizations/${orgId}/org-roles`, body, withOrg(orgId)),
 
+  reorderCatalog: (orgId, orderedIds) =>
+    apiClient.put(`/organizations/${orgId}/org-roles/reorder`, { orderedIds }, withOrg(orgId)),
+
   updateCatalog: (orgId, roleId, body) =>
     apiClient.patch(`/organizations/${orgId}/org-roles/${roleId}`, body, withOrg(orgId)),
 

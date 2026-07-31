@@ -8,6 +8,8 @@
     "./config/mongo": "./config/mongo.js",
     "./config/singleCompany": "./config/singleCompany.js",
     "./config/roleTaxonomy": "./config/roleTaxonomy.js",
+    "./config/projectRoleResponsibilityMap": "./config/projectRoleResponsibilityMap.js",
+    "./config/projectVisibilityPolicy": "./config/projectVisibilityPolicy.js",
     "./config/assignmentEngine": "./config/assignmentEngine.js",
     "./config/redis": "./config/redis.js",
     "./config/redisConnection": "./config/redisConnection.js",

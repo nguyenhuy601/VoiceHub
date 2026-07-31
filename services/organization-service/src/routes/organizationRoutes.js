@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const organizationController = require('../controllers/organizationController');
 const memberController = require('../controllers/memberController');
+const hrPositionController = require('../controllers/hrPositionController');
 const { protect, authorize } = require('../middleware/auth');
 
 router.use(protect); // All routes require authentication
@@ -52,6 +53,11 @@ router.post(
   authorize(['owner', 'admin']),
   orgRoleAdminController.createCatalog
 );
+router.put(
+  '/:orgId/org-roles/reorder',
+  authorize(['owner', 'admin']),
+  orgRoleAdminController.reorderCatalog
+);
 router.patch(
   '/:orgId/org-roles/:roleId',
   authorize(['owner', 'admin']),
@@ -72,6 +78,18 @@ router.put(
   '/:orgId/org-role-assignments',
   authorize(['owner', 'admin']),
   orgRoleAdminController.setAssignments
+);
+
+// HR Positions (job titles) — cho phép tạo catalog mà không cần gán cho nhân viên
+router.get(
+  '/:orgId/hr-positions',
+  authorize(['owner', 'admin']),
+  hrPositionController.listCatalog
+);
+router.post(
+  '/:orgId/hr-positions',
+  authorize(['owner', 'admin']),
+  hrPositionController.createCatalog
 );
 
 const responsibilityController = require('../controllers/responsibilityController');
@@ -165,6 +183,18 @@ router.put(
   '/:orgId/teams/:teamId/role-access',
   authorize(['owner', 'admin']),
   organizationController.saveTeamRoleAccess
+);
+
+const projectVisibilityPolicyController = require('../controllers/projectVisibilityPolicy.controller');
+router.get(
+  '/:orgId/project-visibility-policy',
+  authorize(['owner', 'admin', 'hr', 'member']),
+  projectVisibilityPolicyController.getProjectVisibilityPolicy
+);
+router.put(
+  '/:orgId/project-visibility-policy',
+  authorize(['owner', 'admin']),
+  projectVisibilityPolicyController.putProjectVisibilityPolicy
 );
 
 router.get('/:id', organizationController.getOrganization);

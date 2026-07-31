@@ -111,7 +111,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.rbac.orgRoleAssign')}
-      hint={t('adminRbac.orgRoleAssignHint') || t('adminRbac.orgRoleCatalogHint')}
+      hint={t('adminRbac.orgRoleAssignHint')}
       wide
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
@@ -121,17 +121,17 @@ export default function OrgRoleAssignPanel({ orgId }) {
           {loading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : !nonSystemRoles.length ? (
-            <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty') || 'No roles'}</p>
+            <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty')}</p>
           ) : (
             <>
               <label className="mb-3 block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Role</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{t('adminRbac.roleLabelField')}</span>
                 <select
                   className={adminInputClass()}
                   value={selectedRoleKey}
                   onChange={(e) => setSelectedRoleKey(e.target.value)}
                 >
-                  <option value="">-- {t('common.select') || 'Select'} --</option>
+                  <option value="">-- {t('adminRbac.selectRole')} --</option>
                   {nonSystemRoles.map((r) => (
                     <option key={r._id || r.id} value={r.key}>
                       {r.label || r.key}
@@ -141,9 +141,13 @@ export default function OrgRoleAssignPanel({ orgId }) {
               </label>
 
               <div className="mb-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles') || 'Current roles'}</div>
+                <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
                 <div className="mt-1 text-muted-foreground">
-                  {userIdParam ? (assignedRoleKeys.length ? assignedRoleKeys.join(', ') : t('common.none') || 'None') : t('adminUsers.selectUserFirst')}
+                  {userIdParam
+                    ? assignedRoleKeys.length
+                      ? assignedRoleKeys.join(', ')
+                      : t('adminUsers.taxonomyNone')
+                    : t('adminUsers.selectUserFirst')}
                 </div>
               </div>
 

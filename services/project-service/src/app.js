@@ -16,7 +16,7 @@ app.get('/health', (req, res) => {
   const mongoOk = mongoose.connection.readyState === 1;
   res.status(mongoOk ? 200 : 503).json({
     status: mongoOk ? 'ok' : 'degraded',
-    service: 'task-service',
+    service: 'project-service',
     mongo: {
       readyState: mongoose.connection.readyState,
       ok: mongoOk,
@@ -24,7 +24,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Task board routes (mount trước /tasks để tránh xung đột /:taskId)
+// Project API (canonical) — Project ⊃ Board; projectId ≠ boardId
+const projectRoutes = require('./routes/project.routes');
+app.use('/api/projects', projectRoutes);
+
+// Task board routes (Kanban + legacy list) — không dùng POST / để tạo project
 const taskBoardRoutes = require('./routes/taskBoard.routes');
 const workspaceTaskBoardRoutes = require('./routes/workspaceTaskBoard.routes');
 app.use('/api/tasks/boards', taskBoardRoutes);

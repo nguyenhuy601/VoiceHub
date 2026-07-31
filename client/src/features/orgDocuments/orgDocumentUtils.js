@@ -2,6 +2,7 @@
 
 export const ORG_FILE_CATEGORIES = [
   { id: 'all', icon: '📂' },
+  { id: 'shared', icon: '📎' },
   { id: 'channel_chat', icon: '💬' },
   { id: 'channel_voice', icon: '🎙️' },
   { id: 'voice_meeting', icon: '📞' },
@@ -9,6 +10,12 @@ export const ORG_FILE_CATEGORIES = [
   { id: 'library', icon: '📚' },
   { id: 'image', icon: '🖼️' },
 ];
+
+/** Shared Files facet = library + announcement. */
+export function isSharedFilesCategory(category) {
+  const c = String(category || '').toLowerCase();
+  return c === 'library' || c === 'announcement';
+}
 
 export function unwrapApiPayload(payload) {
   return payload?.data !== undefined ? payload.data : payload;
@@ -152,6 +159,7 @@ export function mapMessageToOrgFile(message, channelByRoomId, t, locale) {
     category,
     categoryLabel: '',
     channelName: ch?.name || t('documents.orgUnknownChannel'),
+    departmentId: String(ch?.department || ch?.departmentId || message?.departmentId || '').trim(),
     roomId,
     url,
     messageType: String(message?.messageType || 'file'),
@@ -181,6 +189,7 @@ export function mapLibraryDocumentToOrgFile(doc, t, locale) {
     category: 'library',
     categoryLabel: '',
     channelName: t('documents.orgCategoryLibrary'),
+    departmentId: String(doc.departmentId || doc.department || '').trim(),
     roomId: '',
     url: String(doc.fileUrl || doc.url || '').trim(),
     messageType: 'file',

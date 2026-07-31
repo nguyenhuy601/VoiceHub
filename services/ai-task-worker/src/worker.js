@@ -4,8 +4,10 @@ const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || '').trim().replace
 if (!OLLAMA_BASE_URL) throw new Error('Thiếu biến môi trường: OLLAMA_BASE_URL');
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
-const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const TASK_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -327,8 +329,7 @@ async function createSyncSuggestion({ extraction, messageId, changeType, propose
 }
 
 async function fetchTask(taskId, userId) {
-  const taskUrl = process.env.TASK_SERVICE_URL;
-  const res = await axios.get(`${taskUrl}/api/tasks/${taskId}`, {
+  const res = await axios.get(`${TASK_SERVICE_URL}/api/tasks/${taskId}`, {
     headers: userId ? { 'x-user-id': String(userId) } : undefined,
     timeout: 15000,
     validateStatus: () => true,

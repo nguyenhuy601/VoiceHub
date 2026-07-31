@@ -5,7 +5,7 @@
 | Biến | Header | Service nhận / gửi |
 |------|--------|-------------------|
 | `REALTIME_INTERNAL_TOKEN` | `x-realtime-token` | **socket-service** nhận `POST /internal/realtime/publish`; gửi từ chat, notification, task, org, voice, friend (`*/clients/realtime.client.js`) |
-| `CHAT_INTERNAL_TOKEN` | `x-internal-token` | **chat-service** routes `/internal/*`; gửi từ task-worker, ai-task, voice call log, task-service |
+| `CHAT_INTERNAL_TOKEN` | `x-internal-token` | **chat-service** routes `/internal/*`; gửi từ project-worker, ai-task, voice call log, project-service |
 
 ## Quy tắc
 

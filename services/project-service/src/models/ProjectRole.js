@@ -27,6 +27,11 @@ const projectRoleSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    /** Phase 2 — permission keys resource:action */
+    permissions: {
+      type: [{ type: String, trim: true, maxlength: 64 }],
+      default: [],
+    },
     isSystem: {
       type: Boolean,
       default: false,

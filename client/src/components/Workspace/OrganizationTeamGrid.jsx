@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Activity,
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -111,6 +112,48 @@ function dedupeChannelTags(textChannels) {
   return tags;
 }
 
+function buildProjectCards(projects = [], locale = 'vi') {
+  return (Array.isArray(projects) ? projects : []).map((p, idx) => {
+    const id = String(p?.projectId || p?._id || `project-${idx}`);
+    const rawName = p?.title || p?.name || 'Project';
+    const name = displayDepartmentName(rawName, locale);
+    const initial = String(name).trim().charAt(0).toUpperCase() || 'P';
+    const [gradStart, gradEnd] = pickGrad(id);
+    const memberCount = Number(
+      p?.memberCount ?? p?.membersCount ?? p?.totalMembers ?? 0
+    );
+    const relatedDeptCount = Array.isArray(p?.relatedDepartmentIds)
+      ? p.relatedDepartmentIds.length
+      : 0;
+    return {
+      id,
+      name,
+      description: p?.description || '',
+      initial,
+      gradStart,
+      gradEnd,
+      role: '',
+      type: p?.visibility || 'private',
+      members: Number.isFinite(memberCount) ? memberCount : 0,
+      relatedDeptCount,
+      informationLevel: p?.access?.informationLevel || '',
+      isSummaryOnly: p?.access?.informationLevel === 'summary',
+      avatars: [],
+      online: 0,
+      channels: [],
+      unreadChat: 0,
+      unreadTask: 0,
+      activeTasks: 0,
+      recentActivity: '',
+      activityTime: '',
+      raw: p,
+      isProject: true,
+      defaultBoardId: String(p?.defaultBoardId || p?.boards?.[0]?._id || ''),
+      projectCode: p?.projectCode || '',
+    };
+  });
+}
+
 function buildTeamCards({
   branches = [],
   departments = [],
@@ -200,25 +243,34 @@ export default function OrganizationTeamGrid({
   departments = [],
   teams = [],
   channels = [],
+  /** Khi `projects` là mảng: hiện project cards (org-level). `null` = hiện team cards. */
+  projects = null,
+  /** Số task được phân cho user hiện tại (hub metrics). */
+  assignedTasksCount = null,
+  /** Số dự án đang hoạt động user tham gia (hub metrics). */
+  activeProjectsCount = null,
   onBack,
   onCreateTeam,
   onSelectTeam,
+  onSelectProject,
   onModuleClick,
 }) {
   const { t, locale } = useAppStrings();
   const [search, setSearch] = useState('');
-  const cards = useMemo(
-    () =>
-      buildTeamCards({
-        branches,
-        departments,
-        teams,
-        channels,
-        locale,
-        filterDepartmentId,
-      }),
-    [branches, departments, teams, channels, locale, filterDepartmentId]
-  );
+
+  const useProjects = Array.isArray(projects);
+
+  const cards = useMemo(() => {
+    if (useProjects) return buildProjectCards(projects, locale);
+    return buildTeamCards({
+      branches,
+      departments,
+      teams,
+      channels,
+      locale,
+      filterDepartmentId,
+    });
+  }, [useProjects, projects, branches, departments, teams, channels, locale, filterDepartmentId]);
   const filteredCards = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return cards;
@@ -231,14 +283,46 @@ export default function OrganizationTeamGrid({
     });
   }, [cards, search]);
   const totalOnline = cards.reduce((sum, card) => sum + Number(card.online || 0), 0);
-  const totalTasks = cards.reduce((sum, card) => sum + Number(card.activeTasks || 0), 0);
+  const teamMetricCount = useMemo(() => {
+    if (!useProjects) return cards.length;
+    return buildTeamCards({
+      branches,
+      departments,
+      teams,
+      channels,
+      locale,
+      filterDepartmentId,
+    }).length;
+  }, [
+    useProjects,
+    cards.length,
+    branches,
+    departments,
+    teams,
+    channels,
+    locale,
+    filterDepartmentId,
+  ]);
+  const resolvedAssignedTasks =
+    assignedTasksCount != null
+      ? Number(assignedTasksCount) || 0
+      : cards.reduce((sum, card) => sum + Number(card.activeTasks || 0), 0);
+  const resolvedActiveProjects =
+    activeProjectsCount != null
+      ? Number(activeProjectsCount) || 0
+      : useProjects
+        ? cards.filter((card) => {
+            const st = String(card.raw?.status || '').toLowerCase();
+            return card.raw?.isActive !== false && st !== 'closed' && st !== 'archived';
+          }).length
+        : 0;
   const primaryRole = cards.find((card) => card.role)?.role || t('workspace.memberRole');
   const orgInitial = String(organizationName || 'VoiceHub').trim().charAt(0).toUpperCase() || 'V';
   const metrics = [
     {
       key: 'teams',
       icon: Users,
-      value: cards.length,
+      value: teamMetricCount,
       label: t('workspace.yourTeams'),
       tone: 'text-primary bg-primary/10',
     },
@@ -252,10 +336,21 @@ export default function OrganizationTeamGrid({
     {
       key: 'tasks',
       icon: ClipboardList,
-      value: totalTasks,
+      value: resolvedAssignedTasks,
       label: t('workspace.activeTasks'),
       tone: 'text-warning bg-warning/10',
     },
+    ...(useProjects
+      ? [
+          {
+            key: 'projects',
+            icon: Briefcase,
+            value: resolvedActiveProjects,
+            label: t('workspace.activeProjects'),
+            tone: 'text-violet-600 bg-violet-500/10 dark:text-violet-400',
+          },
+        ]
+      : []),
     {
       key: 'role',
       icon: Shield,
@@ -264,6 +359,19 @@ export default function OrganizationTeamGrid({
       tone: 'text-destructive bg-destructive/10',
     },
   ];
+
+  const searchPlaceholder = useProjects
+    ? t('workspace.searchProjects')
+    : t('workspace.searchTeams');
+  const emptyLabel = search
+    ? t('workspace.noMatchingTeams')
+    : useProjects
+      ? t('workspace.noProjectsYet')
+      : t('workspace.noTeamsInDepartment');
+  const createLabel = useProjects ? t('workspace.createProject') : t('workspace.createTeam');
+  const createFirstLabel = useProjects
+    ? t('workspace.createFirstProject')
+    : t('workspace.createFirstTeam');
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
@@ -292,11 +400,18 @@ export default function OrganizationTeamGrid({
                 {departmentName
                   ? t('workspace.teamHubSubtitle', {
                       org: organizationName || t('workspace.organization'),
-                      teams: cards.length,
+                      teams: teamMetricCount,
                       online: totalOnline,
                     })
-                  : t('workspace.orgSubtitle', { teams: cards.length, online: totalOnline })}
-                {totalTasks > 0 ? t('workspace.orgSubtitleTasks', { tasks: totalTasks }) : ''}
+                  : useProjects
+                    ? t('workspace.orgSubtitle', {
+                        teams: resolvedActiveProjects,
+                        online: totalOnline,
+                      })
+                    : t('workspace.orgSubtitle', { teams: teamMetricCount, online: totalOnline })}
+                {resolvedAssignedTasks > 0
+                  ? t('workspace.orgSubtitleTasks', { tasks: resolvedAssignedTasks })
+                  : ''}
               </p>
             </div>
           </div>
@@ -309,7 +424,7 @@ export default function OrganizationTeamGrid({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('workspace.searchTeams')}
+              placeholder={searchPlaceholder}
               className="h-10 w-full rounded-lg border border-border bg-muted pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:shadow-[0_0_0_3px_rgba(37,99,235,0.12)]"
             />
           </div>
@@ -320,13 +435,17 @@ export default function OrganizationTeamGrid({
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md transition hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-lg"
             >
               <Plus size={16} />
-              {t('workspace.createTeam')}
+              {createLabel}
             </button>
           ) : null}
         </div>
       </div>
       <div className="px-6 py-6">
-        <div className="mb-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <div
+          className={`mb-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${
+            useProjects ? 'xl:grid-cols-5' : 'xl:grid-cols-4'
+          }`}
+        >
           {metrics.map((item) => {
             const Icon = item.icon;
             return (
@@ -349,9 +468,7 @@ export default function OrganizationTeamGrid({
         {filteredCards.length === 0 ? (
           <div className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center">
             <Users size={40} className="mb-4 text-muted-foreground/50" />
-            <p className="text-sm font-semibold text-foreground">
-              {search ? t('workspace.noMatchingTeams') : t('workspace.noTeamsYet')}
-            </p>
+            <p className="text-sm font-semibold text-foreground">{emptyLabel}</p>
             {onCreateTeam && !search ? (
               <button
                 type="button"
@@ -359,7 +476,7 @@ export default function OrganizationTeamGrid({
                 className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover"
               >
                 <Plus size={16} />
-                {t('workspace.createFirstTeam')}
+                {createFirstLabel}
               </button>
             ) : null}
           </div>
@@ -370,8 +487,17 @@ export default function OrganizationTeamGrid({
               key={card.id}
               role="button"
               tabIndex={0}
-              onClick={() => onSelectTeam?.(card.raw, card.id)}
-              onKeyDown={(e) => e.key === 'Enter' && onSelectTeam?.(card.raw, card.id)}
+              onClick={() =>
+                card.isProject
+                  ? onSelectProject?.(card.raw, card.id)
+                  : onSelectTeam?.(card.raw, card.id)
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter')
+                  card.isProject
+                    ? onSelectProject?.(card.raw, card.id)
+                    : onSelectTeam?.(card.raw, card.id);
+              }}
               className={`${FIGMA_WS_TEAM_CARD} group`}
             >
               <div className="flex items-start gap-3">
@@ -426,6 +552,19 @@ export default function OrganizationTeamGrid({
                   <Users size={11} />
                   {card.members} {t('workspace.members')}
                 </span>
+                {card.relatedDeptCount > 0 ? (
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                    {t('workspace.projectHubRelatedDeptsCount').replace(
+                      '{n}',
+                      String(card.relatedDeptCount)
+                    )}
+                  </span>
+                ) : null}
+                {card.isSummaryOnly ? (
+                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
+                    Summary
+                  </span>
+                ) : null}
                 {card.online > 0 ? (
                   <span className="flex items-center gap-1 font-medium text-success">
                     <span className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -474,7 +613,9 @@ export default function OrganizationTeamGrid({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onModuleClick(card.id, btn.module, card.raw);
+                        onModuleClick(card.id, btn.module, card.raw, {
+                          isProject: Boolean(card.isProject),
+                        });
                       }}
                       className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
                     >

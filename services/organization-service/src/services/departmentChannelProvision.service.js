@@ -5,14 +5,9 @@ const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 
 const DEFAULT_DEPT_CHANNEL_DEFS = [
   {
-    name: 'general',
-    description: 'Department text chat',
-    type: 'chat',
-  },
-  {
-    name: 'voice',
-    description: 'Department voice channel',
-    type: 'voice',
+    name: 'announcements',
+    description: 'Department official announcements',
+    type: 'announcement',
   },
 ];
 
@@ -38,7 +33,8 @@ async function bumpOrgReadCache(orgId) {
 }
 
 /**
- * Idempotent: ensure department-scoped general (chat) + voice channels exist.
+ * Idempotent: ensure department-scoped announcement channel exists.
+ * (Voice cố định không còn provision mặc định — Meetings theo sự kiện.)
  * @returns {Promise<{ created: object[], existing: object[] }>}
  */
 async function ensureDepartmentDefaultChannels({ orgId, departmentId, department: departmentDoc, actorId }) {
@@ -82,6 +78,24 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
     if (found) {
       existing.push(found);
       continue;
+    }
+
+    // Legacy: general chat vẫn dùng được như announcement fallback — không tạo trùng nếu đã có general
+    if (def.type === 'announcement') {
+      const legacyGeneral = await Channel.findOne({
+        organization: organizationId,
+        department: deptId,
+        team: null,
+        type: 'chat',
+        name: { $regex: /^general$/i },
+        isActive: true,
+      })
+        .sort({ createdAt: 1 })
+        .lean();
+      if (legacyGeneral) {
+        existing.push(legacyGeneral);
+        continue;
+      }
     }
 
     const doc = await Channel.create(buildDeptChannelSeed(base, def));

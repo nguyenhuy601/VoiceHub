@@ -261,6 +261,18 @@ export const organizationAPI = {
     return response;
   },
 
+  getProjectVisibilityPolicy: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/project-visibility-policy`);
+    return response;
+  },
+
+  putProjectVisibilityPolicy: async (orgId, policy) => {
+    const response = await apiClient.put(`/organizations/${orgId}/project-visibility-policy`, {
+      policy,
+    });
+    return response;
+  },
+
   // Delete organization
   deleteOrganization: async (orgId) => {
     const response = await apiClient.delete(`/organizations/${orgId}`);
@@ -444,6 +456,17 @@ export const organizationAPI = {
     const response = await apiClient.get(
       `/organizations/${orgId}/responsibilities/users-by-key/${encodeURIComponent(key)}`
     );
+    return response;
+  },
+
+  // HR Positions (job titles) catalog — dùng để tạo mà không cần gán cho nhân viên ngay
+  listHrPositions: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/hr-positions`);
+    return response;
+  },
+
+  createHrPosition: async (orgId, { title } = {}) => {
+    const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, { title });
     return response;
   },
 };

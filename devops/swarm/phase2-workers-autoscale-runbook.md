@@ -12,13 +12,13 @@ Scale queue workers **thủ công** trên Docker Swarm (không HPA/autoscaler pl
 
 | Worker | Min | Staging max | Placement |
 |--------|-----|-------------|-----------|
-| task-worker | 1 | 2–3 | any |
+| project-worker | 1 | 2–3 | any |
 | notification-dispatch-worker | 1 | 2–3 | IO-bound |
 | webhook-delivery-worker | 1 | 2–3 | IO-bound |
 | ai-task-extract-worker | 1 | 2 | `node.labels.ai == true` |
 | ai-task-sync-worker | 1 | 2 | `node.labels.ai == true` |
 
-**DB-bound (`task-worker`):** tăng tối đa **+1 replica / 10 phút**; theo dõi Mongo connection trước khi scale tiếp.
+**DB-bound (`project-worker`):** tăng tối đa **+1 replica / 10 phút**; theo dõi Mongo connection trước khi scale tiếp.
 
 **AI workers:** không vượt `P2_WORKER_MAX_REPLICAS` nếu Docker Desktop thiếu RAM.
 
@@ -88,7 +88,7 @@ Khi scale in về 1 replica: không xóa queue; chỉ giảm consumer count.
 
 ```bash
 docker service scale \
-  voicehub_task-worker=1 \
+  voicehub_project-worker=1 \
   voicehub_notification-dispatch-worker=1 \
   voicehub_webhook-delivery-worker=1 \
   voicehub_ai-task-extract-worker=1 \

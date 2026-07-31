@@ -31,8 +31,8 @@ APP_SERVICES=(
   friend-service
   role-permission-service
   chat-service
-  task-service
-  task-worker
+  project-service
+  project-worker
   ai-task-service
   ai-task-worker
   ai-task-extract-worker

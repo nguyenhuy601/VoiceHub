@@ -5,12 +5,11 @@ const {
   DEFAULT_RESPONSIBILITY_KEYS,
   DEFAULT_RESPONSIBILITY_LABELS,
 } = require('@enterprise/shared/config/roleTaxonomy');
+const { slugifyRoleKey, allocateUniqueRoleKey } = require('@enterprise/shared/utils/roleKeySlug');
 
+/** Normalize / slug business key (đồng bộ Org/Project roles). */
 function normalizeKey(raw) {
-  return String(raw || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_');
+  return slugifyRoleKey(raw);
 }
 
 async function listResponsibilities(organizationId) {
@@ -24,6 +23,43 @@ async function listResponsibilities(organizationId) {
   }));
 }
 
+async function listExistingKeys(organizationId) {
+  const rows = await Responsibility.find({ organizationId }).select('key').lean();
+  return rows.map((r) => String(r.key || '').trim()).filter(Boolean);
+}
+
+/**
+ * Tạo Responsibility mới — key optional, tự sinh từ label (+ collision _2, _3…).
+ */
+async function createResponsibility({ organizationId, key, label, description }) {
+  const title = String(label || '').trim();
+  if (!title) {
+    const err = new Error('label là bắt buộc');
+    err.statusCode = 400;
+    throw err;
+  }
+  const existingKeys = await listExistingKeys(organizationId);
+  const rawKey = String(key || '').trim();
+  const base = rawKey ? slugifyRoleKey(rawKey) : slugifyRoleKey(title);
+  const k = allocateUniqueRoleKey(base, existingKeys);
+
+  const doc = await Responsibility.findOneAndUpdate(
+    { organizationId, key: k },
+    {
+      $set: {
+        organizationId,
+        key: k,
+        label: title,
+        description: String(description || '').trim(),
+        isActive: true,
+      },
+    },
+    { upsert: true, new: true }
+  ).lean();
+  return doc;
+}
+
+/** Upsert theo key cố định (seed mặc định). */
 async function upsertResponsibility({ organizationId, key, label, description }) {
   const k = normalizeKey(key);
   if (!k) {
@@ -113,6 +149,7 @@ async function listUserIdsByResponsibilityKey(organizationId, key) {
 module.exports = {
   normalizeKey,
   listResponsibilities,
+  createResponsibility,
   upsertResponsibility,
   patchResponsibility,
   seedDefaultResponsibilities,

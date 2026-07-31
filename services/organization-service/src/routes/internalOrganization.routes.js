@@ -434,4 +434,34 @@ router.get('/organizations/:orgId/responsibilities/users', async (req, res) => {
   }
 });
 
+/** project-service: actor placement + org visibility policy */
+router.get(
+  '/organizations/:organizationId/users/:userId/project-visibility-context',
+  async (req, res) => {
+    const {
+      getInternalProjectVisibilityContext,
+    } = require('../controllers/projectVisibilityPolicy.controller');
+    return getInternalProjectVisibilityContext(req, res);
+  }
+);
+
+/** project-service: department roster (headcount) cho Resource Capacity / Planner */
+router.get('/organizations/:orgId/departments/roster', async (req, res) => {
+  try {
+    const organizationId = String(req.params.orgId || '').trim();
+    if (!organizationId) {
+      return orgValidation(res, 'organizationId is required');
+    }
+    const rawIds = String(req.query.departmentIds || '').trim();
+    const departmentIds = rawIds
+      ? rawIds.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    const { buildDepartmentRoster } = require('../services/structurePlacement.service');
+    const departments = await buildDepartmentRoster(organizationId, { departmentIds });
+    return res.json({ success: true, data: { departments } });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 module.exports = router;

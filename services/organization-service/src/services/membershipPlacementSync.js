@@ -76,6 +76,17 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
   // Đồng bộ member list theo scope role hiện tại:
   // - role còn scope: giữ user trong cấp tương ứng
   // - role bị gỡ: tự động pull user ra khỏi cấp không còn thuộc scope
+  // Department: enforce 1 user ↔ 1 phòng (primary = first scope id)
+  const primaryDepartmentId = targetDepartmentIds[0] || null;
+  if (targetDepartmentIds.length > 1) {
+    logger.info('[membershipPlacementSync] multi dept scopes collapsed to primary', {
+      userId: uid,
+      organizationId: oid,
+      primaryDepartmentId,
+      skipped: targetDepartmentIds.slice(1),
+    });
+  }
+
   await Promise.all([
     Division.updateMany(
       {
@@ -83,14 +94,6 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
         isActive: true,
         members: uid,
         ...(targetDivisionIds.length ? { _id: { $nin: targetDivisionIds } } : {}),
-      },
-      { $pull: { members: uid } }
-    ),
-    Department.updateMany(
-      {
-        organization: oid,
-        members: uid,
-        ...(targetDepartmentIds.length ? { _id: { $nin: targetDepartmentIds } } : {}),
       },
       { $pull: { members: uid } }
     ),
@@ -105,16 +108,36 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
     ),
   ]);
 
+  // Department members — chỉ qua departmentMembership.service (1 user ↔ 1 phòng).
+  const deptMembership = require('./departmentMembership.service');
+  try {
+    if (primaryDepartmentId) {
+      await deptMembership.addMembers(oid, primaryDepartmentId, [uid], { actorUserId: uid });
+    } else {
+      const holding = await Department.find({ organization: oid, members: uid }).select('_id').lean();
+      for (const d of holding) {
+        try {
+          await deptMembership.removeMember(oid, d._id, uid);
+        } catch (err) {
+          if (err.statusCode === 409) {
+            await Department.updateOne({ _id: d._id, head: uid }, { $set: { head: null } });
+            await deptMembership.removeMember(oid, d._id, uid).catch((e2) => {
+              logger.warn('[membershipPlacementSync] dept remove after clear head:', e2.message);
+            });
+          } else {
+            logger.warn('[membershipPlacementSync] dept remove:', err.message);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('[membershipPlacementSync] departmentMembership sync failed:', err.message);
+  }
+
   await Promise.all([
     targetDivisionIds.length
       ? Division.updateMany(
           { organization: oid, isActive: true, _id: { $in: targetDivisionIds } },
-          { $addToSet: { members: uid } }
-        )
-      : null,
-    targetDepartmentIds.length
-      ? Department.updateMany(
-          { organization: oid, _id: { $in: targetDepartmentIds } },
           { $addToSet: { members: uid } }
         )
       : null,
@@ -177,9 +200,9 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
   const placement = pickPrimaryScope({ ...scopes, ouIds: new Set(ouIds) });
 
   let departmentAutoFriend = null;
-  if (targetDepartmentIds.length) {
+  if (primaryDepartmentId) {
     try {
-      departmentAutoFriend = await autoFriendDepartmentPeers(uid, oid, targetDepartmentIds);
+      departmentAutoFriend = await autoFriendDepartmentPeers(uid, oid, [primaryDepartmentId]);
     } catch (error) {
       logger.warn('[membershipPlacementSync] department auto-friend failed:', error.message);
       departmentAutoFriend = { ok: false, reason: error.message };

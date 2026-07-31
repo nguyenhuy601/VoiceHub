@@ -202,6 +202,17 @@ export const taskAPI = {
     });
   },
 
+  patchBoard: (boardId, payload = {}, opts = {}) => {
+    const ctx = boardOptsFromArgs(payload, opts) || extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.patch(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}`, body),
+      legacyRequest: () => apiClient.patch(`${legacyBoardBase()}/${boardId}`, body),
+    });
+  },
+
   archiveBoard: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
     return requestWithWorkspaceFallback({
@@ -524,6 +535,44 @@ export const taskAPI = {
         apiClient.post(`${legacyBoardBase()}/${boardId}/workflow/seed-default`),
     });
   },
+
+  applyBoardWorkflowTemplate: (boardId, payload = {}, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    const body = stripWorkspaceKeys(payload);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(
+          `${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/workflow/apply-template`,
+          body
+        ),
+      legacyRequest: () =>
+        apiClient.post(`${legacyBoardBase()}/${boardId}/workflow/apply-template`, body),
+    });
+  },
+
+  listWorkflowTemplates: (organizationId, opts = {}) =>
+    apiClient.get('/projects/workflow-templates', {
+      params: {
+        organizationId,
+        ...(opts.projectId ? { projectId: opts.projectId } : {}),
+      },
+    }),
+
+  upsertWorkflowTemplate: (organizationId, payload = {}) =>
+    apiClient.post('/projects/workflow-templates', {
+      ...payload,
+      organizationId,
+    }),
+
+  updateWorkflowTemplate: (organizationId, templateId, payload = {}) =>
+    apiClient.put(`/projects/workflow-templates/${encodeURIComponent(templateId)}`, {
+      ...payload,
+      organizationId,
+    }),
+
+  applyProjectWorkflow: (projectId, payload = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/workflow/apply`, payload),
 
   transferBoard: (boardId, payload = {}, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);

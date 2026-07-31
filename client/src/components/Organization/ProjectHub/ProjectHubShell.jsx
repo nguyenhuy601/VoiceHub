@@ -1,0 +1,586 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
+import { useAppStrings } from '../../../locales/appStrings';
+import { projectAPI } from '../../../services/api/projectAPI';
+import ProjectHubMembersPanel from './ProjectHubMembersPanel';
+import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
+import ProjectHubTechnicalSetupPanel from './ProjectHubTechnicalSetupPanel';
+import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
+import {
+  PROJECT_HUB_TABS,
+  collectCardActivity,
+  collectCardAttachments,
+  computeHubBoardSummary,
+  formatHubDate,
+  projectInitials,
+} from './projectHubUtils';
+
+function OverviewPanel({
+  board,
+  summary,
+  activity,
+  locale,
+  isDarkMode,
+  onOpenBoard,
+  onOpenSetup,
+  t,
+}) {
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const cardCls = 'rounded-xl border border-border bg-surface p-4';
+  const needsSetup = String(board?.status || '') === 'planning';
+
+  const nextActions = useMemo(() => {
+    return (activity || [])
+      .filter((a) => {
+        const s = String(a.status || '').toLowerCase();
+        return !s.includes('done') && !s.includes('complete');
+      })
+      .slice(0, 5);
+  }, [activity]);
+
+  return (
+    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabOverview')}</h3>
+          <p className={`text-xs ${muted}`}>{t('workspace.projectHubOverviewHint')}</p>
+          {board?.status ? (
+            <p className={`mt-1 text-[11px] font-semibold uppercase tracking-wide ${muted}`}>
+              {board.status}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {needsSetup && onOpenSetup ? (
+            <button
+              type="button"
+              onClick={onOpenSetup}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold"
+            >
+              {t('workspace.projectHubContinueSetup')}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onOpenBoard}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+          >
+            <LayoutGrid size={14} />
+            {t('workspace.projectHubOpenBoard')}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className={cardCls}>
+          <p className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}>
+            {t('workspace.projectHubDeliveryPulse')}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              [String(summary.total), t('workspace.projectHubStatCards')],
+              [`${summary.donePercent}%`, t('workspace.projectHubStatDone')],
+              [String(summary.overdue), t('workspace.projectHubStatOverdue')],
+            ].map(([v, l]) => (
+              <div
+                key={l}
+                className="rounded-lg border border-border bg-background px-2 py-3 text-center"
+              >
+                <div className={`text-lg font-bold ${titleCls}`}>{v}</div>
+                <div className={`text-[10px] ${muted}`}>{l}</div>
+              </div>
+            ))}
+          </div>
+          {board?.description ? (
+            <p className={`mt-3 line-clamp-4 text-sm ${muted}`}>{board.description}</p>
+          ) : (
+            <p className={`mt-3 text-sm ${muted}`}>{t('workspace.projectHubNoDescription')}</p>
+          )}
+          <div className={`mt-3 flex flex-wrap gap-2 text-xs ${muted}`}>
+            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1">
+              <Calendar size={12} />
+              {t('workspace.projectHubFieldDue')}: {formatHubDate(board?.dueDate, locale)}
+            </span>
+            <span className="rounded-md border border-border px-2 py-1">
+              {board?.visibility === 'workspace'
+                ? t('workspace.projectHubVisibilityWorkspace')
+                : t('workspace.projectHubVisibilityPrivate')}
+            </span>
+          </div>
+        </div>
+
+        <div className={cardCls}>
+          <p className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}>
+            {t('workspace.projectHubNextActions')}
+          </p>
+          {nextActions.length === 0 ? (
+            <p className={`text-sm ${muted}`}>{t('workspace.projectHubNextActionsEmpty')}</p>
+          ) : (
+            <ul className="space-y-2">
+              {nextActions.map((a) => (
+                <li
+                  key={a.id}
+                  className="border-b border-border pb-2 text-sm last:border-0 last:pb-0"
+                >
+                  <span className={`font-medium ${titleCls}`}>{a.title}</span>
+                  {a.assigneeName ? (
+                    <span className={`mt-0.5 block text-[11px] ${muted}`}>{a.assigneeName}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className={`${cardCls} mt-3`}>
+        <p className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}>
+          {t('workspace.projectHubRecentActivity')}
+        </p>
+        {activity.length === 0 ? (
+          <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityEmpty')}</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {activity.slice(0, 6).map((a) => (
+              <li key={a.id} className={`text-xs ${muted}`}>
+                <span className={titleCls}>{a.title}</span>
+                {' · '}
+                {formatHubDate(a.at, locale)}
+                {a.status ? ` · ${a.status}` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilesPanel({ files, isDarkMode, t }) {
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  return (
+    <div className="flex h-full min-h-0 flex-col px-4 py-4">
+      <h3 className={`mb-1 text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabFiles')}</h3>
+      <p className={`mb-3 text-xs ${muted}`}>{t('workspace.projectHubFilesHint')}</p>
+      {files.length === 0 ? (
+        <p className={`rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm ${muted}`}>
+          {t('workspace.projectHubFilesEmpty')}
+        </p>
+      ) : (
+        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+          {files.map((f) => (
+            <li
+              key={f.id}
+              className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5"
+            >
+              <FileText size={16} className="shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className={`truncate text-sm font-semibold ${titleCls}`}>{f.name}</div>
+                <div className={`truncate text-[11px] ${muted}`}>
+                  {f.cardTitle || '—'}
+                </div>
+              </div>
+              {f.url ? (
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground hover:text-primary"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ActivityPanel({ activity, locale, isDarkMode, t }) {
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  return (
+    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <h3 className={`mb-1 text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabActivity')}</h3>
+      <p className={`mb-3 text-xs ${muted}`}>{t('workspace.projectHubActivityHint')}</p>
+      {activity.length === 0 ? (
+        <p className={`rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm ${muted}`}>
+          {t('workspace.projectHubActivityEmpty')}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {activity.map((a) => (
+            <li key={a.id} className="rounded-xl border border-border bg-surface px-3 py-2.5">
+              <div className={`text-sm font-semibold ${titleCls}`}>{a.title}</div>
+              <div className={`mt-0.5 text-xs ${muted}`}>
+                {formatHubDate(a.at, locale)}
+                {a.assigneeName ? ` · ${a.assigneeName}` : ''}
+                {a.status ? ` · ${a.status}` : ''}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Project Hub — header identity + tabs (Figma IA).
+ * `boardSlot` = Kanban (TaskBoardWorkspacePanel) khi tab board.
+ */
+export default function ProjectHubShell({
+  board = null,
+  boardId = '',
+  projectId: projectIdProp = '',
+  boardDetail = null,
+  boards = [],
+  isDarkMode = false,
+  locale = 'vi',
+  canManage = false,
+  organizationId = '',
+  apiCtx = null,
+  onRefresh,
+  boardSlot = null,
+  emptySlot = null,
+  onBack = null,
+  onBoardChange = null,
+}) {
+  const { t } = useAppStrings();
+  const [tab, setTab] = useState('overview');
+  const [apiActivity, setApiActivity] = useState(null);
+  const [apiFiles, setApiFiles] = useState(null);
+  const [projectAccess, setProjectAccess] = useState(null);
+
+  const resolvedBoard = useMemo(() => {
+    if (boardDetail?.board) return boardDetail.board;
+    if (board) return board;
+    return boards.find((b) => String(b._id) === String(boardId)) || null;
+  }, [board, boardDetail?.board, boards, boardId]);
+
+  const projectId = String(
+    projectIdProp ||
+      resolvedBoard?.projectId ||
+      boards.find((b) => String(b._id) === String(boardId))?.projectId ||
+      ''
+  ).trim();
+
+  useEffect(() => {
+    if (!projectId) {
+      setProjectAccess(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await projectAPI.get(projectId);
+        const data = res?.data?.data ?? res?.data ?? res;
+        if (!cancelled) setProjectAccess(data?.access || null);
+      } catch {
+        if (!cancelled) setProjectAccess(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const informationLevel = String(
+    projectAccess?.informationLevel ||
+      resolvedBoard?.access?.informationLevel ||
+      boardDetail?.access?.informationLevel ||
+      ''
+  ).toLowerCase();
+  const isSummaryOnly = informationLevel === 'summary';
+
+  useEffect(() => {
+    if (isSummaryOnly && tab !== 'overview') setTab('overview');
+  }, [isSummaryOnly, tab]);
+
+  const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
+  const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
+
+  const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
+  const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
+  const derivedActivity = useMemo(() => collectCardActivity(cards), [cards]);
+  const files = Array.isArray(apiFiles) ? apiFiles : derivedFiles;
+  const activity = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
+
+  useEffect(() => {
+    setTab('board');
+  }, [boardId, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!projectId) {
+        setApiActivity(null);
+        setApiFiles(null);
+        return;
+      }
+      try {
+        const [actRes, filesRes] = await Promise.all([
+          projectAPI.getActivity(projectId, { limit: 40 }),
+          projectAPI.getFiles(projectId),
+        ]);
+        if (cancelled) return;
+        const act = actRes?.data?.data ?? actRes?.data ?? [];
+        const fl = filesRes?.data?.data ?? filesRes?.data ?? [];
+        setApiActivity(
+          (Array.isArray(act) ? act : []).map((a) => ({
+            id: a._id,
+            title: a.title || a.type,
+            status: a.type,
+            createdAt: a.createdAt,
+            assigneeName: '',
+          }))
+        );
+        setApiFiles(
+          (Array.isArray(fl) ? fl : []).map((f) => ({
+            name: f.name,
+            url: f.url,
+            cardTitle: f.taskTitle,
+          }))
+        );
+      } catch {
+        if (!cancelled) {
+          setApiActivity(null);
+          setApiFiles(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const hasBoard = Boolean(boardId && resolvedBoard);
+  const initials = projectInitials(resolvedBoard?.title);
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+
+  const toolbar = (
+    <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+      {boards.length > 0 && onBoardChange ? (
+        <select
+          value={boardId || ''}
+          onChange={(e) => onBoardChange(e.target.value)}
+          className={`max-w-[200px] rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none focus:border-primary ${
+            isDarkMode
+              ? 'border-white/15 bg-[#1a1d26] text-white'
+              : 'border-border bg-surface text-foreground'
+          }`}
+          aria-label={t('taskBoard.selectBoardAria')}
+        >
+          <option value="">{t('taskBoard.selectBoard')}</option>
+          {boards.map((b) => (
+            <option key={b._id} value={String(b._id)}>
+              {b.title}
+            </option>
+          ))}
+        </select>
+      ) : null}
+    </div>
+  );
+
+  if (!hasBoard) {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div
+          className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 ${
+            isDarkMode ? 'border-white/10' : 'border-border'
+          }`}
+        >
+          {onBack ? (
+            <button
+              type="button"
+              onClick={() => onBack()}
+              className={`rounded-md p-1.5 transition ${
+                isDarkMode
+                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              aria-label={t('taskBoard.backAria')}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          ) : null}
+          {toolbar}
+        </div>
+        {emptySlot}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Compact enterprise header — identity + tabs in one contained area */}
+      <header
+        className={`shrink-0 border-b ${
+          isDarkMode ? 'border-white/10 bg-[#0b1120]/90' : 'border-border bg-surface'
+        }`}
+      >
+        {/* Identity row */}
+        <div className="flex min-w-0 items-center gap-2.5 px-4 pt-2.5 pb-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={() => onBack()}
+              className={`-ml-1 shrink-0 rounded-md p-1 transition ${
+                isDarkMode
+                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              aria-label={t('taskBoard.backAria')}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          ) : null}
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-[10px] font-black text-primary-foreground">
+            {initials}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+            <h2 className={`truncate text-sm font-bold leading-tight ${titleCls}`}>
+              {resolvedBoard?.title || t('workspace.projectHubUntitled')}
+            </h2>
+            {resolvedBoard?.projectCode ? (
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
+                  isDarkMode ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+                }`}
+              >
+                {resolvedBoard.projectCode}
+              </span>
+            ) : null}
+            {resolvedBoard?.methodology ? (
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {resolvedBoard.methodology}
+              </span>
+            ) : null}
+            <span className={`truncate text-[11px] leading-tight ${muted}`}>
+              {[
+                formatHubDate(resolvedBoard?.dueDate, locale) !== '—'
+                  ? formatHubDate(resolvedBoard?.dueDate, locale)
+                  : null,
+                resolvedBoard?.visibility === 'workspace'
+                  ? t('workspace.projectHubVisibilityWorkspace')
+                  : null,
+                `${summary.donePercent}% done`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </div>
+          {toolbar}
+        </div>
+
+        {/* Tab bar — underline style */}
+        <nav
+          className="flex gap-0 overflow-x-auto px-4"
+          aria-label={t('workspace.projectHubNavAria')}
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {PROJECT_HUB_TABS.map((item) => {
+            const active = tab === item.id;
+            const disabled = isSummaryOnly && item.id !== 'overview';
+            return (
+              <button
+                key={item.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => !disabled && setTab(item.id)}
+                className={`whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-semibold transition-colors ${
+                  disabled
+                    ? 'cursor-not-allowed border-transparent text-muted-foreground/40'
+                    : active
+                    ? isDarkMode
+                      ? 'border-primary text-white'
+                      : 'border-primary text-primary'
+                    : isDarkMode
+                      ? 'border-transparent text-slate-400 hover:text-slate-200'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t(item.labelKey)}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
+
+      {isSummaryOnly ? (
+        <div className="border-b border-border bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-100">
+          {t('workspace.projectHubSummaryOnlyBanner')}
+        </div>
+      ) : null}
+
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        {tab === 'overview' ? (
+          <OverviewPanel
+            board={resolvedBoard}
+            summary={summary}
+            activity={activity}
+            locale={locale}
+            isDarkMode={isDarkMode}
+            onOpenBoard={() => setTab('board')}
+            onOpenSetup={() => setTab('setup')}
+            t={t}
+          />
+        ) : null}
+        {tab === 'setup' ? (
+          <ProjectHubTechnicalSetupPanel
+            projectId={projectId}
+            canManage={canManage}
+            isDarkMode={isDarkMode}
+            projectStatus={resolvedBoard?.status}
+            onCompleted={() => onRefresh?.()}
+          />
+        ) : null}
+        {tab === 'planning' ? (
+          <ProjectHubPlanningPanel
+            projectId={projectId}
+            canManage={canManage}
+            isDarkMode={isDarkMode}
+            locale={locale}
+          />
+        ) : null}
+        {tab === 'board' ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardSlot}</div>
+        ) : null}
+        {tab === 'members' ? (
+          <ProjectHubMembersPanel
+            projectId={projectId}
+            boardId={boardId}
+            organizationId={organizationId}
+            canManage={canManage}
+            isDarkMode={isDarkMode}
+          />
+        ) : null}
+        {tab === 'files' ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}
+        {tab === 'activity' ? (
+          <ActivityPanel activity={activity} locale={locale} isDarkMode={isDarkMode} t={t} />
+        ) : null}
+        {tab === 'settings' ? (
+          <ProjectHubSettingsPanel
+            projectId={projectId}
+            boardId={boardId}
+            board={resolvedBoard}
+            organizationId={organizationId}
+            apiCtx={apiCtx}
+            canManage={canManage}
+            isDarkMode={isDarkMode}
+            onSaved={onRefresh}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}

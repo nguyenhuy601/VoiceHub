@@ -65,14 +65,16 @@ export default function OrgMessageHoverActions({
         <Reply size={13} />
       </button>
 
-      <button
-        type="button"
-        title={t('chat.aiExtractTask')}
-        onClick={() => onAiExtract?.()}
-        className="flex h-7 w-7 items-center justify-center rounded-md bg-ai-subtle text-ai transition hover:bg-ai-muted"
-      >
-        <Sparkles size={13} />
-      </button>
+      {typeof onAiExtract === 'function' ? (
+        <button
+          type="button"
+          title={t('chat.aiExtractTask')}
+          onClick={() => onAiExtract()}
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-ai-subtle text-ai transition hover:bg-ai-muted"
+        >
+          <Sparkles size={13} />
+        </button>
+      ) : null}
 
       <button
         type="button"

@@ -104,7 +104,6 @@ const ORG_NAV_DEF = [
 const COMMUNICATE_NAV_DEF = [
   { key: 'friends', Icon: MessageSquare, path: '/app/communicate/chat/friends' },
   { key: 'voice', Icon: Mic, path: '/app/communicate/voice' },
-  { key: 'channels', Icon: Building2, path: '/app/communicate/channels', isWorkspaceEntry: true },
   { key: 'notifications', path: '/app/communicate/notifications', bellBadge: true },
 ];
 

@@ -18,8 +18,12 @@ const RoleScopeAssignment = require('../models/RoleScopeAssignment');
 const GATEWAY_INTERNAL_TOKEN = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
 const CHAT_INTERNAL_TOKEN = String(process.env.CHAT_INTERNAL_TOKEN || '').trim();
 
+const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const PROJECT_OR_TASK_SERVICE_URL = PROJECT_SERVICE_URL || TASK_SERVICE_URL;
+if (!PROJECT_OR_TASK_SERVICE_URL) {
+  throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
+}
 const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 const VOICE_SERVICE_URL = String(process.env.VOICE_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -83,7 +87,7 @@ async function requestWithRetry(requestFn, errorPrefix, { maxRetries = PURGE_MAX
 }
 
 async function purgeRemoteTasks(organizationId) {
-  const url = `${TASK_SERVICE_URL}/api/tasks/internal/purge-organization/${encodeURIComponent(organizationId)}`;
+  const url = `${PROJECT_OR_TASK_SERVICE_URL}/api/tasks/internal/purge-organization/${encodeURIComponent(organizationId)}`;
   await requestWithRetry(
     () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
     'task-service purge'

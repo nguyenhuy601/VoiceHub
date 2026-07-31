@@ -144,6 +144,28 @@ async function seedWorkflow(req, res) {
   }
 }
 
+async function applyWorkflowTemplate(req, res) {
+  try {
+    const userId = asUserId(req);
+    if (!userId) return unauthorized(res);
+    const data = await workflowService.applyTemplateToBoard({
+      userId,
+      boardId: req.params.boardId,
+      templateId: req.body?.templateId,
+      templateKey: req.body?.templateKey,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      err.message,
+      'WORKFLOW_APPLY_TEMPLATE_FAILED'
+    );
+  }
+}
+
 async function transferBoard(req, res) {
   try {
     const userId = asUserId(req);
@@ -170,5 +192,6 @@ module.exports = {
   getWorkflow,
   putWorkflow,
   seedWorkflow,
+  applyWorkflowTemplate,
   transferBoard,
 };

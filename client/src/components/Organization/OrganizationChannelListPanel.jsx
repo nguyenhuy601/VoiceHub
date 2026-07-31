@@ -166,7 +166,7 @@ export default function OrganizationChannelListPanel({
   const hasScope =
     selectedTeamId || selectedDepartmentId || selectedDivisionId;
   const canShowCreateChannel =
-    canManageChannelRoleAccess &&
+    typeof onCreateChannel === 'function' &&
     (selectedTeamId ||
       (departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId));
 

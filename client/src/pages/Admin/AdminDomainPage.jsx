@@ -61,6 +61,7 @@ import {
 } from '../../features/adminVoice/MeetingArtifactPanels';
 import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
 import TasksProjectsBoardsPanel from '../../features/adminTasks/TasksProjectsBoardsPanel';
+import TasksProjectSettingsPanel from '../../features/adminTasks/TasksProjectSettingsPanel';
 import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPanel';
 import TasksDelegationPanel from '../../features/adminTasks/TasksDelegationPanel';
 import TasksBriefsPanel from '../../features/adminTasks/TasksBriefsPanel';
@@ -68,6 +69,14 @@ import TasksManagePanel from '../../features/adminTasks/TasksManagePanel';
 import TasksStatusPriorityPanel from '../../features/adminTasks/TasksStatusPriorityPanel';
 import TasksExportPanel from '../../features/adminTasks/TasksExportPanel';
 import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel';
+import TasksProjectVisibilityPolicyPanel from '../../features/adminTasks/TasksProjectVisibilityPolicyPanel';
+import DepartmentCapacityPanel from '../../features/adminTasks/DepartmentCapacityPanel';
+import ResourcePlannerPanel from '../../features/adminTasks/ResourcePlannerPanel';
+import ApprovalPoliciesPanel from '../../features/adminTasks/ApprovalPoliciesPanel';
+import DirectorProjectHealthPanel from '../../features/adminTasks/DirectorProjectHealthPanel';
+import RetentionPolicyPanel from '../../features/adminTasks/RetentionPolicyPanel';
+import BackupOpsPanel, { SecurityWaveCStubPanel } from '../../features/adminTasks/BackupOpsPanel';
+import AuditLogListPanel from '../../features/adminAudit/AuditLogListPanel';
 import TasksTransferInfoPanel from '../../features/adminTasks/TasksTransferInfoPanel';
 import TasksSprintsPanel from '../../features/adminTasks/TasksSprintsPanel';
 import TasksWorkflowPanel from '../../features/adminTasks/TasksWorkflowPanel';
@@ -79,6 +88,8 @@ import {
   DeptDisablePanel,
   DeptParentPanel,
   DeptHeadPanel,
+  DeptMembersPanel,
+  DeptOrgRolesPanel,
   DeptTransferPanel,
   TeamListPanel,
   TeamCreatePanel,
@@ -183,6 +194,8 @@ const ORG_PANELS = {
   'org-dept-disable': DeptDisablePanel,
   'org-dept-parent': DeptParentPanel,
   'org-dept-head': DeptHeadPanel,
+  'org-dept-members': DeptMembersPanel,
+  'org-dept-org-roles': DeptOrgRolesPanel,
   'org-dept-transfer': DeptTransferPanel,
   'org-team-list': TeamListPanel,
   'org-team-create': TeamCreatePanel,
@@ -205,6 +218,7 @@ const ORG_PANELS = {
 
 const TASK_PANELS = {
   'tasks-boards': TasksProjectsBoardsPanel,
+  'tasks-project-settings': TasksProjectSettingsPanel,
   'tasks-project-team': TasksProjectTeamPanel,
   'tasks-delegation': TasksDelegationPanel,
   'tasks-briefs': TasksBriefsPanel,
@@ -212,10 +226,19 @@ const TASK_PANELS = {
   'tasks-status-priority': TasksStatusPriorityPanel,
   'tasks-export': TasksExportPanel,
   'tasks-coming-soon': TasksComingSoonPanel,
+  'tasks-project-visibility-policy': TasksProjectVisibilityPolicyPanel,
+  'tasks-department-capacity': DepartmentCapacityPanel,
+  'tasks-resource-planner': ResourcePlannerPanel,
+  'tasks-approval-policies': ApprovalPoliciesPanel,
   'tasks-transfer-info': TasksTransferInfoPanel,
   'tasks-sprints': TasksSprintsPanel,
   'tasks-workflow': TasksWorkflowPanel,
   'tasks-transfer': TasksTransferPanel,
+  'director-project-health': DirectorProjectHealthPanel,
+  'governance-retention': RetentionPolicyPanel,
+  'backup-ops': BackupOpsPanel,
+  'security-wave-c': SecurityWaveCStubPanel,
+  'audit-log': AuditLogListPanel,
 };
 
 export default function AdminDomainPage() {

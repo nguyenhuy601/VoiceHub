@@ -1,5 +1,7 @@
-const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const TASK_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
 const express = require('express');
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
@@ -169,7 +171,7 @@ router.post('/confirm', async (req, res) => {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng hoặc đang được xác nhận', 'AI_EXTRACTION_NOT_READY');
   }
 
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
   const draft = locked.draft || {};
   if (!draft.dueDate) {
     await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
@@ -280,7 +282,7 @@ router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
     return res.status(409).json({ success: false, message: `Suggestion already ${suggestion.status}` });
   }
 
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
   const taskRes = await axios.get(`${taskServiceUrl}/api/tasks/${suggestion.taskId}`, {
     headers: buildTrustedGatewayHeaders(userId),
     timeout: 15000,
@@ -431,7 +433,7 @@ router.post('/project-drafts/:id/confirm', async (req, res) => {
   }
 
   const edited = req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : draftDoc.payload;
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
   draftDoc.status = 'confirming';
   await draftDoc.save();
 
@@ -515,7 +517,7 @@ router.post('/boards/:boardId/lists/:listId/suggest-cards', async (req, res) => 
   let memberRows = Array.isArray(members) ? members : [];
   if (!memberRows.length) {
     try {
-      const taskServiceUrl = process.env.TASK_SERVICE_URL;
+      const taskServiceUrl = TASK_SERVICE_URL;
       const memRes = await axios.get(
         `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/assignable-members`,
         {
@@ -589,7 +591,7 @@ router.post('/team-assign-drafts/:id/confirm', async (req, res) => {
       : draftDoc.payload?.suggestions || [];
   const boardId = String(draftDoc.boardId);
   const listId = String(draftDoc.listId);
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
 
   draftDoc.status = 'confirming';
   await draftDoc.save();

@@ -16,17 +16,24 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 
 function unwrap(res) {
-  return unwrapTaskApiPayload(res) ?? res?.data ?? res;
+  return unwrapTaskApiPayload(res) ?? res?.data?.data ?? res?.data ?? res;
 }
 
+/**
+ * Phase 4 — Workflow catalog (Startup/Enterprise) + board bind / transitions.
+ */
 export default function TasksWorkflowPanel({ orgId }) {
   const { t } = useAppStrings();
   const [params, setParams] = useSearchParams();
   const boardId = String(params.get('boardId') || '').trim();
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [workflow, setWorkflow] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fromKey, setFromKey] = useState('todo');
   const [toKey, setToKey] = useState('in_progress');
+  const [newStateKey, setNewStateKey] = useState('');
+  const [newStateLabel, setNewStateLabel] = useState('');
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -34,6 +41,24 @@ export default function TasksWorkflowPanel({ orgId }) {
     else next.delete('boardId');
     setParams(next, { replace: true });
   };
+
+  const loadTemplates = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const res = await taskAPI.listWorkflowTemplates(orgId);
+      const list = unwrap(res);
+      const rows = Array.isArray(list) ? list : [];
+      setTemplates(rows);
+      if (!selectedTemplateId && rows[0]?._id) {
+        setSelectedTemplateId(String(rows[0]._id));
+      }
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowTemplateLoadFail') })
+      );
+      setTemplates([]);
+    }
+  }, [orgId, selectedTemplateId, t]);
 
   const load = useCallback(async () => {
     if (!boardId) {
@@ -53,6 +78,10 @@ export default function TasksWorkflowPanel({ orgId }) {
   }, [boardId, orgId, t]);
 
   useEffect(() => {
+    loadTemplates();
+  }, [loadTemplates]);
+
+  useEffect(() => {
     load();
   }, [load]);
 
@@ -66,20 +95,45 @@ export default function TasksWorkflowPanel({ orgId }) {
     }
   };
 
-  const addTransition = async () => {
-    if (!workflow) return;
-    const transitions = [...(workflow.transitions || []), { fromKey, toKey }];
+  const applyTemplate = async () => {
+    if (!boardId || !selectedTemplateId) return;
     try {
-      const res = await taskAPI.putBoardWorkflow(
+      const res = await taskAPI.applyBoardWorkflowTemplate(
         boardId,
-        {
-          name: workflow.name || 'Default',
-          states: workflow.states,
-          transitions,
-        },
+        { templateId: selectedTemplateId },
         { organizationId: orgId }
       );
-      setWorkflow(unwrap(res));
+      const data = unwrap(res);
+      setWorkflow(data?.workflow || data);
+      toast.success(t('adminTasks.workflowTemplateApplied'));
+      await load();
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowTemplateApplyFail') })
+      );
+    }
+  };
+
+  const persistWorkflow = async (next) => {
+    const res = await taskAPI.putBoardWorkflow(
+      boardId,
+      {
+        name: next.name || 'Default',
+        states: next.states,
+        transitions: next.transitions,
+        templateKey: next.templateKey,
+        templateId: next.templateId,
+      },
+      { organizationId: orgId }
+    );
+    setWorkflow(unwrap(res));
+  };
+
+  const addTransition = async () => {
+    if (!workflow) return;
+    const transitions = [...(workflow.transitions || []), { fromKey, toKey, name: `${fromKey}→${toKey}` }];
+    try {
+      await persistWorkflow({ ...workflow, transitions });
       toast.success(t('adminTasks.workflowSaved'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
@@ -90,16 +144,34 @@ export default function TasksWorkflowPanel({ orgId }) {
     if (!workflow) return;
     const transitions = (workflow.transitions || []).filter((_, i) => i !== idx);
     try {
-      const res = await taskAPI.putBoardWorkflow(
-        boardId,
-        {
-          name: workflow.name || 'Default',
-          states: workflow.states,
-          transitions,
-        },
-        { organizationId: orgId }
-      );
-      setWorkflow(unwrap(res));
+      await persistWorkflow({ ...workflow, transitions });
+      toast.success(t('adminTasks.workflowSaved'));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
+    }
+  };
+
+  const addState = async () => {
+    if (!workflow || !newStateKey.trim()) return;
+    const key = newStateKey.trim().toLowerCase().replace(/\s+/g, '_');
+    if ((workflow.states || []).some((s) => s.key === key)) {
+      toast.error(t('adminTasks.workflowStateExists'));
+      return;
+    }
+    const states = [
+      ...(workflow.states || []),
+      {
+        key,
+        label: newStateLabel.trim() || key,
+        order: (workflow.states?.length || 0) + 1,
+        isInitial: false,
+        isFinal: false,
+      },
+    ];
+    try {
+      await persistWorkflow({ ...workflow, states });
+      setNewStateKey('');
+      setNewStateLabel('');
       toast.success(t('adminTasks.workflowSaved'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
@@ -109,7 +181,42 @@ export default function TasksWorkflowPanel({ orgId }) {
   const states = workflow?.states || [];
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.tasks.workflow')} hint={t('adminTasks.workflowHint')} wide>
+    <AdminUserPanelShell
+      title={t('adminDomains.projects.workflow')}
+      hint={t('adminTasks.workflowHintV2')}
+      wide
+    >
+      <AdminUserFormCard title={t('adminTasks.workflowCatalog')}>
+        <p className="mb-3 text-xs text-muted-foreground">{t('adminTasks.workflowCatalogHint')}</p>
+        <ul className="mb-3 space-y-2">
+          {templates.map((tpl) => (
+            <li key={String(tpl._id)}>
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted/40">
+                <input
+                  type="radio"
+                  name="wf-template"
+                  className="mt-1"
+                  checked={selectedTemplateId === String(tpl._id)}
+                  onChange={() => setSelectedTemplateId(String(tpl._id))}
+                />
+                <span>
+                  <span className="font-semibold">{tpl.name}</span>
+                  {tpl.isBuiltin ? (
+                    <span className="ml-2 text-[10px] uppercase text-muted-foreground">builtin</span>
+                  ) : null}
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {tpl.description || tpl.key} · {(tpl.statuses || []).length} statuses
+                  </span>
+                </span>
+              </label>
+            </li>
+          ))}
+          {!templates.length ? (
+            <li className="text-xs text-muted-foreground">{t('adminTasks.workflowTemplateEmpty')}</li>
+          ) : null}
+        </ul>
+      </AdminUserFormCard>
+
       <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />
 
       {!boardId ? (
@@ -119,7 +226,10 @@ export default function TasksWorkflowPanel({ orgId }) {
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={adminPrimaryBtnClass()} onClick={seed}>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={applyTemplate}>
+              {t('adminTasks.workflowApplyTemplate')}
+            </button>
+            <button type="button" className={adminSecondaryBtnClass()} onClick={seed}>
               {t('adminTasks.workflowSeed')}
             </button>
           </div>
@@ -129,7 +239,7 @@ export default function TasksWorkflowPanel({ orgId }) {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               <AdminUserFormCard title={t('adminTasks.workflowStates')}>
-                <ul className="space-y-2 text-sm">
+                <ul className="mb-3 space-y-2 text-sm">
                   {states.map((s) => (
                     <li key={s.key} className="rounded-lg border border-border px-3 py-2">
                       <span className="font-mono font-medium">{s.key}</span>
@@ -137,10 +247,35 @@ export default function TasksWorkflowPanel({ orgId }) {
                       {s.isInitial ? (
                         <span className="ml-2 text-xs text-emerald-600">initial</span>
                       ) : null}
-                      {s.isFinal ? <span className="ml-2 text-xs text-muted-foreground">final</span> : null}
+                      {s.isFinal ? (
+                        <span className="ml-2 text-xs text-muted-foreground">final</span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className={adminLabelClass()}>
+                    Key
+                    <input
+                      className={adminInputClass()}
+                      value={newStateKey}
+                      onChange={(e) => setNewStateKey(e.target.value)}
+                      placeholder="blocked"
+                    />
+                  </label>
+                  <label className={adminLabelClass()}>
+                    Label
+                    <input
+                      className={adminInputClass()}
+                      value={newStateLabel}
+                      onChange={(e) => setNewStateLabel(e.target.value)}
+                      placeholder="Blocked"
+                    />
+                  </label>
+                  <button type="button" className={adminSecondaryBtnClass()} onClick={addState}>
+                    {t('adminTasks.workflowAddState')}
+                  </button>
+                </div>
               </AdminUserFormCard>
 
               <AdminUserFormCard title={t('adminTasks.workflowTransitions')}>
@@ -173,25 +308,35 @@ export default function TasksWorkflowPanel({ orgId }) {
                       ))}
                     </select>
                   </label>
-                  <button type="button" className={adminSecondaryBtnClass()} onClick={addTransition}>
-                    {t('adminTasks.workflowAddEdge')}
+                  <button type="button" className={adminPrimaryBtnClass()} onClick={addTransition}>
+                    {t('adminTasks.workflowAddTransition')}
                   </button>
                 </div>
-                <ul className="max-h-64 space-y-2 overflow-auto text-sm">
+                <ul className="space-y-2 text-sm">
                   {(workflow.transitions || []).map((tr, idx) => (
                     <li
                       key={`${tr.fromKey}-${tr.toKey}-${idx}`}
                       className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
                     >
                       <span>
-                        {tr.fromKey} → {tr.toKey}
+                        <span className="font-mono">{tr.fromKey}</span>
+                        <span className="text-muted-foreground"> → </span>
+                        <span className="font-mono">{tr.toKey}</span>
+                        {tr.name ? (
+                          <span className="ml-2 text-xs text-muted-foreground">{tr.name}</span>
+                        ) : null}
+                        {tr.validators?.length ? (
+                          <span className="ml-2 text-[10px] text-amber-700">
+                            [{tr.validators.join(',')}]
+                          </span>
+                        ) : null}
                       </span>
                       <button
                         type="button"
-                        className={adminDangerBtnClass('!py-1.5 text-xs')}
+                        className={adminDangerBtnClass()}
                         onClick={() => removeTransition(idx)}
                       >
-                        {t('adminTasks.delete')}
+                        ×
                       </button>
                     </li>
                   ))}

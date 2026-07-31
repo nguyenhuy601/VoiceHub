@@ -19,6 +19,8 @@ export const ORGANIZATION_ROLE_KEYS = Object.freeze({
 
 export const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
   PROJECT_MANAGER: 'project_manager',
+  PRODUCT_OWNER: 'product_owner',
+  SCRUM_MASTER: 'scrum_master',
   TECH_LEAD: 'tech_lead',
   ARCHITECT: 'architect',
   SENIOR_DEVELOPER: 'senior_developer',
@@ -60,6 +62,8 @@ export const ORGANIZATION_ROLE_LABELS = Object.freeze({
 
 export const PROJECT_ROLE_LABELS = Object.freeze({
   project_manager: 'Project Manager',
+  product_owner: 'Product Owner',
+  scrum_master: 'Scrum Master',
   tech_lead: 'Tech Lead',
   architect: 'Architect',
   senior_developer: 'Senior Developer',
@@ -76,6 +80,8 @@ export const PROJECT_ROLE_LABELS = Object.freeze({
 /** Mirror task-service projectRoleDefaults — catalog canAssign (không thay Delegation Graph). */
 export const DEFAULT_PROJECT_ROLE_CAN_ASSIGN = Object.freeze({
   project_manager: true,
+  product_owner: true,
+  scrum_master: true,
   tech_lead: true,
   architect: true,
   senior_developer: true,

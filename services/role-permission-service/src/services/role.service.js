@@ -4,6 +4,7 @@ const UserRole = require('../models/UserRole');
 const { roleWebhook } = require('../clients/webhook.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
+const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -172,6 +173,46 @@ class RoleService {
         isActive: true,
         $or: [{ serverId }, { organizationId: serverId }],
       }).sort({ priority: -1, createdAt: 1 });
+
+      let renamed = 0;
+      for (const role of roles) {
+        const current = String(role.name || '').trim();
+        if (!current || isHierarchyRoleName(current)) continue;
+        const next = canonicalizeSystemRoleName(current);
+        if (!next || next === current) continue;
+
+        const clash = await Role.findOne({
+          _id: { $ne: role._id },
+          name: next,
+          isActive: true,
+          $or: [{ serverId: role.serverId }, { organizationId: role.organizationId || role.serverId }],
+        })
+          .select('_id')
+          .lean();
+        if (clash) {
+          logger.warn('[role.service] skip system role rename — name exists', {
+            from: current,
+            to: next,
+            roleId: String(role._id),
+          });
+          continue;
+        }
+
+        role.name = next;
+        await role.save();
+        renamed += 1;
+      }
+
+      if (renamed > 0) {
+        logger.info('[role.service] canonicalized system role names', {
+          serverId: String(serverId),
+          renamed,
+        });
+        return Role.find({
+          isActive: true,
+          $or: [{ serverId }, { organizationId: serverId }],
+        }).sort({ priority: -1, createdAt: 1 });
+      }
 
       return roles;
     } catch (error) {

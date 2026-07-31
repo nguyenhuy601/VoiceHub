@@ -8,20 +8,37 @@ function withOrg(organizationId, config = {}) {
       ...(config.headers || {}),
       ...(orgId ? { 'x-organization-id': orgId } : {}),
     },
+    // Gateway strip x-organization-id từ client — truyền query/body để service đọc được.
+    params: {
+      ...(config.params || {}),
+      ...(orgId ? { organizationId: orgId } : {}),
+    },
   };
 }
 
+/** Admin CRUD Project Roles — canonical `/projects/admin/roles` (legacy `/tasks/admin/project-roles`). */
+const ADMIN_ROLES_BASE = '/projects/admin/roles';
+
 export const projectRoleAdminAPI = {
-  listRoles: (organizationId) =>
-    apiClient.get('/tasks/admin/project-roles', withOrg(organizationId)),
+  listRoles: (organizationId) => apiClient.get(ADMIN_ROLES_BASE, withOrg(organizationId)),
 
   createRole: (organizationId, body) =>
-    apiClient.post('/tasks/admin/project-roles', body, withOrg(organizationId)),
+    apiClient.post(ADMIN_ROLES_BASE, { ...body, organizationId }, withOrg(organizationId)),
+
+  reorderRoles: (organizationId, orderedIds) =>
+    apiClient.put(
+      `${ADMIN_ROLES_BASE}/reorder`,
+      { orderedIds, organizationId },
+      withOrg(organizationId)
+    ),
 
   updateRole: (organizationId, roleId, body) =>
-    apiClient.patch(`/tasks/admin/project-roles/${roleId}`, body, withOrg(organizationId)),
+    apiClient.patch(
+      `${ADMIN_ROLES_BASE}/${roleId}`,
+      { ...body, organizationId },
+      withOrg(organizationId)
+    ),
 
   deleteRole: (organizationId, roleId) =>
-    apiClient.delete(`/tasks/admin/project-roles/${roleId}`, withOrg(organizationId)),
+    apiClient.delete(`${ADMIN_ROLES_BASE}/${roleId}`, withOrg(organizationId)),
 };
-

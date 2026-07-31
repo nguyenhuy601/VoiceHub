@@ -1,6 +1,6 @@
 /** Position (HR) — admin RBAC */
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
   AdminUserFormCard,
@@ -12,6 +12,7 @@ import {
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../utils/roleTaxonomy';
+import { organizationAPI } from '../../services/api/organizationAPI';
 
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
@@ -29,6 +30,29 @@ export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { members, loading } = useAdminMembers(orgId);
   const [query, setQuery] = useState('');
+  const [hrPositions, setHrPositions] = useState([]);
+  const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    (async () => {
+      setHrPositionsLoading(true);
+      try {
+        const res = await organizationAPI.listHrPositions(orgId);
+        const data = res?.data?.data ?? res?.data ?? res;
+        if (cancelled) return;
+        setHrPositions(Array.isArray(data?.positions) ? data.positions : []);
+      } catch {
+        if (!cancelled) setHrPositions([]);
+      } finally {
+        if (!cancelled) setHrPositionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   const titles = useMemo(() => {
     const map = new Map();
@@ -37,10 +61,15 @@ export default function PosListPanel({ orgId }) {
       if (!title) continue;
       map.set(title, (map.get(title) || 0) + 1);
     }
+    for (const row of hrPositions || []) {
+      const title = String(row?.title || '').trim();
+      if (!title) continue;
+      if (!map.has(title)) map.set(title, 0);
+    }
     return Array.from(map.entries())
       .map(([title, count]) => ({ title, count }))
       .sort((a, b) => a.title.localeCompare(b.title));
-  }, [members]);
+  }, [members, hrPositions]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,7 +126,7 @@ export default function PosListPanel({ orgId }) {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        {loading ? (
+        {loading || hrPositionsLoading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
           <div className="overflow-x-auto">

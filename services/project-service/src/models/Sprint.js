@@ -7,9 +7,17 @@ const sprintSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    boardId: {
+    projectId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
+      index: true,
+      ref: 'Project',
+    },
+    /** Optional filter — sprint có thể gắn một board trong project */
+    boardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+      default: null,
       index: true,
       ref: 'TaskBoard',
     },
@@ -39,6 +47,12 @@ const sprintSchema = new mongoose.Schema(
       default: 'planned',
       index: true,
     },
+    reviewNotes: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 4000,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
@@ -47,6 +61,7 @@ const sprintSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+sprintSchema.index({ projectId: 1, status: 1, createdAt: -1 });
 sprintSchema.index({ boardId: 1, status: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Sprint', sprintSchema);

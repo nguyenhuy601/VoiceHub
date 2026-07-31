@@ -14,7 +14,7 @@ TARGET="${2:-2}"
 STACK="${SWARM_STACK_NAME:-voicehub}"
 
 declare -a WORKER_SERVICES=(
-  voicehub_task-worker
+  voicehub_project-worker
   voicehub_notification-dispatch-worker
   voicehub_webhook-delivery-worker
   voicehub_ai-task-extract-worker
@@ -22,7 +22,7 @@ declare -a WORKER_SERVICES=(
 )
 
 declare -A ENV_KEYS=(
-  [voicehub_task-worker]=TASK_WORKER_REPLICAS
+  [voicehub_project-worker]=TASK_WORKER_REPLICAS
   [voicehub_notification-dispatch-worker]=NOTIFICATION_DISPATCH_WORKER_REPLICAS
   [voicehub_webhook-delivery-worker]=WEBHOOK_DELIVERY_WORKER_REPLICAS
   [voicehub_ai-task-extract-worker]=AI_TASK_EXTRACT_WORKER_REPLICAS

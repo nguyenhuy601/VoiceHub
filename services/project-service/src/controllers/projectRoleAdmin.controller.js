@@ -3,14 +3,30 @@ const ProjectMembership = require('../models/ProjectMembership');
 const { fetchTaskWorkspaceScope } = require('../services/taskWorkspaceScope');
 const { ensureOrgProjectRoles } = require('../services/projectTeam.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { allocateUniqueRoleKey, ensureRoleKeyNamespace } = require('@enterprise/shared/utils/roleKeySlug');
+const {
+  normalizeLayerLabel,
+  splitLayerLabel,
+} = require('@enterprise/shared/utils/roleLayerNaming');
+const {
+  sortOrderFromIndex,
+  nextAppendSortOrder,
+  validateOrderedIdsPermutation,
+  insertIdAtPlace,
+} = require('@enterprise/shared/utils/catalogSortOrder');
 
 function asUserId(req) {
   return req.user?.id || req.userContext?.userId || '';
 }
 
 function asOrgId(req) {
-  return String(req.headers['x-organization-id'] || req.headers['x-organizationid'] || req.body?.organizationId || '')
-    .trim();
+  return String(
+    req.headers['x-organization-id'] ||
+      req.headers['x-organizationid'] ||
+      req.query?.organizationId ||
+      req.body?.organizationId ||
+      ''
+  ).trim();
 }
 
 function isOrgOwnerAdmin(membershipRole) {
@@ -40,7 +56,8 @@ async function listProjectRoles(req, res) {
   try {
     const { orgId } = await requireOrgAdmin(req);
     const roles = await ensureOrgProjectRoles(orgId);
-    return res.json({ success: true, data: roles });
+    const sorted = [...roles].sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+    return res.json({ success: true, data: sorted });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_LIST_FAILED');
   }
@@ -49,37 +66,63 @@ async function listProjectRoles(req, res) {
 async function createProjectRole(req, res) {
   try {
     const { orgId } = await requireOrgAdmin(req);
-    const { key, label, canAssign = false, sortOrder } = req.body || {};
+    const { key, label, canAssign = false, place, afterRoleId, permissions } = req.body || {};
 
-    const k = String(key || '').trim();
     const l = String(label || '').trim();
-    if (!k || !l) {
+    if (!l) {
       return sendServiceError(res, 400, {
         errorCode: 'VALIDATION_REQUIRED',
-        messageUser: 'Key và label là bắt buộc.',
-        message: 'key and label required',
+        messageUser: 'Label là bắt buộc.',
+        message: 'label required',
       });
     }
 
-    const existing = await ProjectRole.findOne({ organizationId: orgId, key: k }).lean();
-    if (existing) {
-      return sendServiceError(res, 409, {
-        errorCode: 'PROJECT_ROLE_KEY_EXISTS',
-        messageUser: 'Project role key đã tồn tại.',
-        message: 'key exists',
-      });
-    }
+    await ensureOrgProjectRoles(orgId);
+    const existingRows = await ProjectRole.find({ organizationId: orgId })
+      .select('_id key sortOrder')
+      .sort({ sortOrder: 1 })
+      .lean();
+    const existingKeys = existingRows.map((r) => r.key);
+    const normalizedLabel = normalizeLayerLabel(l, 'project');
+    const { suffix } = splitLayerLabel(normalizedLabel, 'project');
+    const rawKey = String(key || '').trim();
+    const base = ensureRoleKeyNamespace(rawKey || suffix || normalizedLabel, 'prj');
+    const k = allocateUniqueRoleKey(base, existingKeys);
+
+    const {
+      normalizePermissionList,
+      defaultPermissionsForRoleKey,
+    } = require('../utils/projectPermissionMatrix');
+    const permList =
+      permissions !== undefined
+        ? normalizePermissionList(permissions)
+        : defaultPermissionsForRoleKey('watcher');
 
     const role = await ProjectRole.create({
       organizationId: orgId,
       key: k,
-      label: l,
+      label: normalizedLabel,
       canAssign: Boolean(canAssign),
+      permissions: permList,
       isSystem: false,
-      sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 100,
+      sortOrder: nextAppendSortOrder(existingRows),
     });
 
-    return res.status(201).json({ success: true, data: role.toObject() });
+    const orderedIds = insertIdAtPlace(
+      existingRows.map((r) => String(r._id)),
+      String(role._id),
+      { place: place || 'end', afterRoleId }
+    );
+    const ops = orderedIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id, organizationId: orgId },
+        update: { $set: { sortOrder: sortOrderFromIndex(index) } },
+      },
+    }));
+    if (ops.length) await ProjectRole.bulkWrite(ops);
+
+    const refreshed = await ProjectRole.findById(role._id).lean();
+    return res.status(201).json({ success: true, data: refreshed });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_CREATE_FAILED');
   }
@@ -89,7 +132,7 @@ async function updateProjectRole(req, res) {
   try {
     const { orgId } = await requireOrgAdmin(req);
     const roleId = String(req.params.roleId || '').trim();
-    const { label, canAssign, sortOrder } = req.body || {};
+    const { label, canAssign, permissions } = req.body || {};
 
     if (!roleId) {
       return sendServiceError(res, 400, {
@@ -107,27 +150,79 @@ async function updateProjectRole(req, res) {
         message: 'not found',
       });
     }
-    if (role.isSystem) {
-      return sendServiceError(res, 409, {
-        errorCode: 'PROJECT_ROLE_SYSTEM',
-        messageUser: 'Không thể sửa project role mặc định.',
-        message: 'system role',
-      });
-    }
 
     const patch = {};
-    if (label !== undefined) {
-      const l = String(label || '').trim();
-      if (!l) throw Object.assign(new Error('label không hợp lệ'), { statusCode: 400, errorCode: 'VALIDATION_REQUIRED' });
-      patch.label = l;
+    if (label !== undefined || canAssign !== undefined) {
+      if (role.isSystem) {
+        return sendServiceError(res, 409, {
+          errorCode: 'PROJECT_ROLE_SYSTEM',
+          messageUser: 'Không thể sửa label/canAssign của project role mặc định. Có thể sửa permissions.',
+          message: 'system role',
+        });
+      }
+      if (label !== undefined) {
+        const l = String(label || '').trim();
+        if (!l) throw Object.assign(new Error('label không hợp lệ'), { statusCode: 400, errorCode: 'VALIDATION_REQUIRED' });
+        patch.label = normalizeLayerLabel(l, 'project');
+      }
+      if (canAssign !== undefined) patch.canAssign = Boolean(canAssign);
     }
-    if (canAssign !== undefined) patch.canAssign = Boolean(canAssign);
-    if (sortOrder !== undefined) patch.sortOrder = Number(sortOrder);
+    if (permissions !== undefined) {
+      const { normalizePermissionList } = require('../utils/projectPermissionMatrix');
+      patch.permissions = normalizePermissionList(permissions);
+    }
+
+    if (!Object.keys(patch).length) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'Không có field hợp lệ để cập nhật.',
+        message: 'empty patch',
+      });
+    }
 
     const updated = await ProjectRole.findOneAndUpdate({ _id: role._id }, { $set: patch }, { new: true }).lean();
     return res.json({ success: true, data: updated });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_UPDATE_FAILED');
+  }
+}
+
+async function reorderProjectRoles(req, res) {
+  try {
+    const { orgId } = await requireOrgAdmin(req);
+    const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : null;
+    if (!orderedIds) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'orderedIds bắt buộc.',
+        message: 'orderedIds required',
+      });
+    }
+
+    await ensureOrgProjectRoles(orgId);
+    const roles = await ProjectRole.find({ organizationId: orgId }).select('_id').lean();
+    const existingIds = roles.map((r) => String(r._id));
+    const check = validateOrderedIdsPermutation(existingIds, orderedIds);
+    if (!check.ok) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: check.reason || 'orderedIds không hợp lệ.',
+        message: check.reason || 'invalid orderedIds',
+      });
+    }
+
+    const ops = orderedIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id, organizationId: orgId },
+        update: { $set: { sortOrder: sortOrderFromIndex(index) } },
+      },
+    }));
+    if (ops.length) await ProjectRole.bulkWrite(ops);
+
+    const next = await ProjectRole.find({ organizationId: orgId }).sort({ sortOrder: 1 }).lean();
+    return res.json({ success: true, data: next });
+  } catch (err) {
+    return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_REORDER_FAILED');
   }
 }
 
@@ -179,6 +274,7 @@ module.exports = {
   listProjectRoles,
   createProjectRole,
   updateProjectRole,
+  reorderProjectRoles,
   deleteProjectRole,
 };
 

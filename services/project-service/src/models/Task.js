@@ -96,12 +96,56 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Denorm từ board.projectId */
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Project',
+      default: null,
+      index: true,
+    },
+    /** Sub-task: parent card trên cùng board */
+    parentTaskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Task',
+      default: null,
+      index: true,
+    },
     /** Sprint gắn thẻ (nullable). */
     sprintId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Sprint',
       default: null,
       index: true,
+    },
+    /** Epic (PlanningItem type=epic). */
+    epicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlanningItem',
+      default: null,
+      index: true,
+    },
+    issueType: {
+      type: String,
+      enum: ['task', 'bug', 'story'],
+      default: 'task',
+      index: true,
+    },
+    checklists: {
+      type: [
+        {
+          title: { type: String, trim: true, default: 'Checklist', maxlength: 180 },
+          items: {
+            type: [
+              {
+                text: { type: String, trim: true, maxlength: 500 },
+                done: { type: Boolean, default: false },
+              },
+            ],
+            default: [],
+          },
+        },
+      ],
+      default: [],
     },
     /** Responsibility key (org catalog) — gợi ý assignee. */
     responsibilityKey: {
@@ -206,6 +250,10 @@ taskSchema.index({ organizationId: 1, teamId: 1, status: 1 });
 taskSchema.index({ boardId: 1, listId: 1, position: 1, isActive: 1 });
 taskSchema.index({ boardId: 1, ownerTeamId: 1, listId: 1, isActive: 1 });
 taskSchema.index({ boardId: 1, status: 1, createdAt: -1 });
+taskSchema.index({ projectId: 1, isActive: 1, createdAt: -1 });
+taskSchema.index({ projectId: 1, sprintId: 1, isActive: 1 });
+taskSchema.index({ projectId: 1, epicId: 1, isActive: 1 });
+taskSchema.index({ parentTaskId: 1, isActive: 1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });
 taskSchema.index({ dueDate: 1 });

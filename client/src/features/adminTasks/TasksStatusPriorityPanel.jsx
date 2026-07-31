@@ -27,7 +27,7 @@ export default function TasksStatusPriorityPanel() {
             ))}
           </ul>
           <Link
-            to="/app/admin/tasks/manage?status=todo"
+            to="/app/admin/projects/manage?status=todo"
             className={`${adminPrimaryBtnClass()} mt-4 inline-flex`}
           >
             {t('adminTasks.openManage')}
@@ -42,7 +42,7 @@ export default function TasksStatusPriorityPanel() {
             ))}
           </ul>
           <Link
-            to="/app/admin/tasks/manage?priority=high"
+            to="/app/admin/projects/manage?priority=high"
             className={`${adminPrimaryBtnClass()} mt-4 inline-flex`}
           >
             {t('adminTasks.openManage')}

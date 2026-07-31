@@ -9,6 +9,7 @@ import {
   normalizeRoleId,
   totalPermissionSlotCount,
 } from '../../utils/adminRbacUtils';
+import { hasLayerPrefix, isTitleLikeSystemRoleName } from '../../utils/roleLayerNaming';
 
 const ACTION_LINKS = [
   { path: '/app/admin/rbac/edit', labelKey: 'adminDomains.rbac.edit' },
@@ -16,11 +17,6 @@ const ACTION_LINKS = [
   { path: '/app/admin/rbac/delete', labelKey: 'adminDomains.rbac.delete' },
   { path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign' },
 ];
-
-function looksLikeHrSystemRole(role) {
-  const name = normalizeRoleDisplayName(role?.name).toLowerCase();
-  return name.includes('nhân sự') || name === 'hr' || name.includes('human resource');
-}
 
 export default function RolesListPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -114,11 +110,14 @@ export default function RolesListPanel({ orgId }) {
             {filtered.map((role) => {
               const id = normalizeRoleId(role);
               const granted = grantedPermissionCount(role.permissions);
+              const displayName = normalizeRoleDisplayName(role.name);
+              const showLegacyHint =
+                !hasLayerPrefix(displayName, 'system') || isTitleLikeSystemRoleName(displayName);
               return (
                 <tr key={id} className="border-t border-border/60">
                   <td className="px-3 py-2 font-medium">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span>{normalizeRoleDisplayName(role.name)}</span>
+                      <span>{displayName}</span>
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
                         {t('adminRbac.listKindBadge')}
                       </span>
@@ -131,9 +130,9 @@ export default function RolesListPanel({ orgId }) {
                     {isProtectedDefaultRole(role) ? (
                       <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
                     ) : null}
-                    {looksLikeHrSystemRole(role) ? (
+                    {showLegacyHint ? (
                       <div className="mt-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
-                        {t('adminRbac.listConfusingHrHint')}
+                        {t('adminRbac.listLegacyNameHint')}
                       </div>
                     ) : null}
                   </td>

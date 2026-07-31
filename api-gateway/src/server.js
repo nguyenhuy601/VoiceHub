@@ -32,8 +32,12 @@ const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
 const server = http.createServer(app);
 server.headersTimeout = Number(process.env.GATEWAY_HEADERS_TIMEOUT_MS || 15000);
-server.requestTimeout = Number(process.env.GATEWAY_REQUEST_TIMEOUT_MS || 30000);
+// >= BFF documents-overview (45s) + buffer; tránh đóng client trước khi aggregate xong.
+server.requestTimeout = Number(process.env.GATEWAY_REQUEST_TIMEOUT_MS || 60000);
 server.keepAliveTimeout = Number(process.env.GATEWAY_KEEPALIVE_TIMEOUT_MS || 5000);
+
+/** WS upgrade — không dùng timeout HTTP ngắn của API proxy. 0 = không cắt sớm. */
+const SOCKET_PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_SOCKET_PROXY_TIMEOUT_MS || 0);
 
 const socketProxy = createProxyMiddleware({
   target: services.socket.url,
@@ -41,8 +45,8 @@ const socketProxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: 'warn',
-  timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
-  proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
+  timeout: SOCKET_PROXY_TIMEOUT_MS,
+  proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
   onError: (err, req, res) => {
     console.error('[API-Gateway] Socket proxy error:', err);
     if (res && !res.headersSent) {
@@ -63,8 +67,8 @@ const voiceSignalProxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: 'warn',
-  timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
-  proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
+  timeout: SOCKET_PROXY_TIMEOUT_MS,
+  proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
   onError: (err, req, res) => {
     console.error('[API-Gateway] Voice signal proxy error:', err);
     if (res && !res.headersSent) {

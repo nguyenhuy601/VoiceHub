@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   AdminUserFormCard,
@@ -11,6 +11,7 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { slugifyRoleKey } from '../../utils/roleKeySlug';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -20,9 +21,11 @@ export default function ResponsibilityListPanel({ orgId }) {
   const { t } = useAppStrings();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [key, setKey] = useState('');
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const keyPreview = useMemo(() => slugifyRoleKey(label), [label]);
 
   const load = useCallback(async () => {
     if (!orgId) {
@@ -58,20 +61,22 @@ export default function ResponsibilityListPanel({ orgId }) {
 
   const create = async (e) => {
     e.preventDefault();
-    if (!key.trim()) return;
+    if (!orgId || busy || !label.trim()) return;
+    setBusy(true);
     try {
       await organizationAPI.createResponsibility(orgId, {
-        key: key.trim(),
-        label: label.trim() || key.trim(),
+        label: label.trim(),
         description,
+        key: keyPreview,
       });
       toast.success(t('adminRbac.responsibilityCreated'));
-      setKey('');
       setLabel('');
       setDescription('');
       await load();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.responsibilityCreateFail') }));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -88,12 +93,26 @@ export default function ResponsibilityListPanel({ orgId }) {
       <AdminUserFormCard title={t('adminRbac.responsibilityCreate')}>
         <form className="grid gap-3 sm:grid-cols-2" onSubmit={create}>
           <label className={adminLabelClass()}>
-            {t('adminRbac.responsibilityKey')}
-            <input className={adminInputClass()} value={key} onChange={(e) => setKey(e.target.value)} />
+            {t('adminRbac.responsibilityLabel')}
+            <input
+              className={adminInputClass()}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Backend"
+              required
+            />
           </label>
           <label className={adminLabelClass()}>
-            {t('adminRbac.responsibilityLabel')}
-            <input className={adminInputClass()} value={label} onChange={(e) => setLabel(e.target.value)} />
+            {t('adminRbac.responsibilityKey')}
+            <input
+              className={adminInputClass()}
+              value={label.trim() ? keyPreview : ''}
+              readOnly
+              placeholder={t('adminRbac.roleKeyAutoPlaceholder')}
+            />
+            <span className="mt-1 block text-xs font-normal text-muted-foreground">
+              {t('adminRbac.roleKeyAutoHint')}
+            </span>
           </label>
           <label className={`${adminLabelClass()} sm:col-span-2`}>
             {t('adminRbac.responsibilityDescription')}
@@ -103,8 +122,8 @@ export default function ResponsibilityListPanel({ orgId }) {
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
-          <button type="submit" className={adminPrimaryBtnClass()}>
-            {t('adminRbac.responsibilityCreate')}
+          <button type="submit" className={adminPrimaryBtnClass()} disabled={!label.trim() || busy}>
+            {busy ? t('common.saving') : t('adminRbac.responsibilityCreate')}
           </button>
         </form>
       </AdminUserFormCard>

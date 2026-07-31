@@ -13,6 +13,12 @@ import {
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import {
+  ORG_ROLE_LABEL_PREFIX,
+  looksLikeHrPositionForOrgRole,
+  normalizeLayerLabel,
+  splitLayerLabel,
+} from '../../utils/roleLayerNaming';
 
 export default function OrgRoleEditPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -23,9 +29,8 @@ export default function OrgRoleEditPanel({ orgId }) {
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState(null);
 
-  const [label, setLabel] = useState('');
+  const [suffix, setSuffix] = useState('');
   const [description, setDescription] = useState('');
-  const [sortOrder, setSortOrder] = useState(100);
   const [busy, setBusy] = useState(false);
 
   const loadRole = async () => {
@@ -36,9 +41,8 @@ export default function OrgRoleEditPanel({ orgId }) {
       const roles = res?.data?.roles || [];
       const found = roles.find((r) => String(r._id || r.id) === roleId);
       setRole(found || null);
-      setLabel(found?.label || '');
+      setSuffix(splitLayerLabel(found?.label || '', 'org').suffix || found?.label || '');
       setDescription(found?.description || '');
-      setSortOrder(Number(found?.sortOrder || 100));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
     } finally {
@@ -53,9 +57,13 @@ export default function OrgRoleEditPanel({ orgId }) {
 
   const submit = async () => {
     if (!orgId || !roleId || busy) return;
+    if (!suffix.trim()) return;
     setBusy(true);
     try {
-      await orgRoleCatalogAPI.updateCatalog(orgId, roleId, { label, description, sortOrder });
+      await orgRoleCatalogAPI.updateCatalog(orgId, roleId, {
+        label: normalizeLayerLabel(suffix, 'org'),
+        description,
+      });
       toast.success(t('common.saveSuccess'));
       navigate('/app/admin/rbac/org-roles');
     } catch (error) {
@@ -82,21 +90,34 @@ export default function OrgRoleEditPanel({ orgId }) {
           ) : (
             <>
               <div className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                <span className="text-muted-foreground">Key:</span> <span className="font-medium">{role.key}</span>
+                <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey') || 'Key'}:</span>{' '}
+                <span className="font-medium">{role.key}</span>
                 {role.isSystem ? <span className="ml-2 text-xs text-emerald-700">System</span> : null}
+                <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyImmutableHint')}</p>
               </div>
               <label className="mb-4 block">
                 <span className={adminLabelClass()}>{t('adminDomains.rbac.orgRoleLabel') || 'Label'}</span>
-                <input className={adminInputClass()} value={label} onChange={(e) => setLabel(e.target.value)} />
+                <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+                  <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                    {ORG_ROLE_LABEL_PREFIX.trimEnd()}
+                  </span>
+                  <input
+                    className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                    value={suffix}
+                    onChange={(e) => setSuffix(e.target.value)}
+                    disabled={role.isSystem}
+                    placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
+                  />
+                </div>
+                {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
+                ) : null}
               </label>
               <label className="mb-4 block">
-                <span className={adminLabelClass()}>{t('adminOrg.colDescription') || 'Description'}</span>
+                <span className={adminLabelClass()}>{t('adminRbac.roleDescriptionField')}</span>
                 <textarea className={adminInputClass()} rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
               </label>
-              <label className="mb-2 block">
-                <span className={adminLabelClass()}>{t('adminRbac.sortOrder') || 'Sort order'}</span>
-                <input className={adminInputClass()} type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} />
-              </label>
+              <p className="mb-2 text-xs text-muted-foreground">{t('adminRbac.roleOrderViaListHint')}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"

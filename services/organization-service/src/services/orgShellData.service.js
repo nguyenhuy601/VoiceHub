@@ -26,6 +26,11 @@ const {
   pickPrimaryScope,
 } = require('./memberScopePolicy.service');
 const {
+  findPlacementByStructureMembers,
+  isStructureMembersInShellScopeEnabled,
+  mergeStructureMembersIntoVisibility,
+} = require('./structurePlacement.service');
+const {
   buildChannelRoleAclMap,
   buildScopeRoleAclMap,
   resolveEffectiveRolePerm,
@@ -71,16 +76,32 @@ function dedupeDepartmentsInBranchTree(branches = []) {
 }
 
 /** Gắn head/leader từ collection legacy lên cây OU đã project — nguồn tin cậy khi OU attributes lệch. */
+/**
+ * OU projection không có members[] — gắn lại head/leader/members từ legacy
+ * để admin Transfer/Members không gửi list rỗng (gỡ nhầm trưởng phòng → 409).
+ */
 function overlayLegacyLeadershipOnBranches(branches, { departments = [], teams = [] } = {}) {
   const headByDept = new Map();
+  const membersByDept = new Map();
   for (const dep of departments) {
     const id = String(dep?._id || '').trim();
-    if (id) headByDept.set(id, dep.head ? String(dep.head) : null);
+    if (!id) continue;
+    headByDept.set(id, dep.head ? String(dep.head) : null);
+    membersByDept.set(
+      id,
+      (dep.members || []).map((m) => String(m?._id || m || '').trim()).filter(Boolean)
+    );
   }
   const leaderByTeam = new Map();
+  const membersByTeam = new Map();
   for (const team of teams) {
     const id = String(team?._id || '').trim();
-    if (id) leaderByTeam.set(id, team.leader ? String(team.leader) : null);
+    if (!id) continue;
+    leaderByTeam.set(id, team.leader ? String(team.leader) : null);
+    membersByTeam.set(
+      id,
+      (team.members || []).map((m) => String(m?._id || m || '').trim()).filter(Boolean)
+    );
   }
   for (const branch of branches || []) {
     for (const division of branch.divisions || []) {
@@ -89,10 +110,16 @@ function overlayLegacyLeadershipOnBranches(branches, { departments = [], teams =
         if (depId && headByDept.has(depId)) {
           department.head = headByDept.get(depId);
         }
+        if (depId && membersByDept.has(depId)) {
+          department.members = membersByDept.get(depId);
+        }
         for (const team of department.teams || []) {
           const teamId = String(team._id || team.id || '').trim();
           if (teamId && leaderByTeam.has(teamId)) {
             team.leader = leaderByTeam.get(teamId);
+          }
+          if (teamId && membersByTeam.has(teamId)) {
+            team.members = membersByTeam.get(teamId);
           }
         }
       }
@@ -270,10 +297,10 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     });
   const [channels, divisions, departments, teams] = await Promise.all([
     Channel.find({ organization: orgId, isActive: true })
-      .select('_id members team division department')
+      .select('_id members team division department type')
       .lean(),
     Division.find({ organization: orgId, isActive: true }).select('_id name branch').lean(),
-    Department.find({ organization: orgId }).select('_id name branch division').lean(),
+    Department.find({ organization: orgId }).select('_id name branch division head').lean(),
     Team.find({ organization: orgId, isActive: true })
       .select('_id name branch division department')
       .lean(),
@@ -346,10 +373,26 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       : resolveStructureVisibilityFromRoles(roleNames, { divisions, departments, teams })
     : { mode: 'all', divisionIds: new Set(), departmentIds: new Set(), teamIds: new Set() };
 
+  // People Graph SSOT: members[] mở structureVisibility + memberReady (không cần role dep_).
+  let membersPlacement = null;
+  if (!isStructureAdmin && isStructureMembersInShellScopeEnabled()) {
+    membersPlacement = await findPlacementByStructureMembers(orgId, userId);
+    mergeStructureMembersIntoVisibility(structureVisibility, membersPlacement);
+  }
+
   const teamDepartmentByTeamId = buildTeamDepartmentMap(teams);
+  const departmentHeadById = new Map(
+    (departments || []).map((d) => [String(d._id), String(d.head?._id || d.head || '').trim()])
+  );
 
   for (const ch of channels) {
     const channelId = String(ch._id);
+    const channelType = String(ch.type || 'chat').toLowerCase();
+    const isDeptGeneralChat =
+      isDeptOnlyChannel(ch) &&
+      channelType === 'chat' &&
+      /^general$/i.test(String(ch.name || ''));
+    const isAnnouncementChannel = channelType === 'announcement' || isDeptGeneralChat;
     const acl = aclByChannelId.get(channelId) || null;
     let roleAcl = null;
     for (const role of userRoles) {
@@ -402,9 +445,10 @@ async function buildAccessibleChannelData(userId, orgId, access) {
         if (!roleAcl) {
           canSee = true;
           canRead = true;
-          canWrite = true;
-          canDelete = true;
-          canVoice = true;
+          // Announcement Only: member list legacy không được auto-write
+          canWrite = isAnnouncementChannel ? false : true;
+          canDelete = !isAnnouncementChannel;
+          canVoice = !isAnnouncementChannel;
         } else {
           canSee = canSee || true;
           canRead = canRead || true;
@@ -436,8 +480,22 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       ) {
         canSee = true;
         canRead = true;
+        // Announcement Only: member thường chỉ đọc
+        canWrite = isAnnouncementChannel ? false : true;
+        canVoice = isAnnouncementChannel ? false : true;
+      }
+    }
+
+    // Trưởng phòng được đăng announcement phòng mình
+    if (isAnnouncementChannel && !isStructureAdmin) {
+      const depId = String(ch.department || '');
+      const headId = departmentHeadById.get(depId) || '';
+      if (headId && headId === uid) {
+        canSee = true;
+        canRead = true;
         canWrite = true;
-        canVoice = true;
+      } else if (!roleAcl?.canWrite) {
+        canWrite = false;
       }
     }
 
@@ -503,6 +561,26 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     }
 
     rolePlacement = pickPrimaryScope(structureVisibility);
+    if (membersPlacement) {
+      if (!rolePlacement.departmentId && membersPlacement.primaryDepartmentId) {
+        rolePlacement.departmentId = membersPlacement.primaryDepartmentId;
+      }
+      if (!rolePlacement.teamId && membersPlacement.primaryTeamId) {
+        rolePlacement.teamId = membersPlacement.primaryTeamId;
+      }
+      if (!rolePlacement.divisionId && membersPlacement.divisionIds?.[0]) {
+        rolePlacement.divisionId = membersPlacement.divisionIds[0];
+      }
+      for (const id of membersPlacement.departmentIds || []) {
+        scopedFromVisibleChannels.departmentIds.add(String(id));
+      }
+      for (const id of membersPlacement.teamIds || []) {
+        scopedFromVisibleChannels.teamIds.add(String(id));
+      }
+      for (const id of membersPlacement.divisionIds || []) {
+        scopedFromVisibleChannels.divisionIds.add(String(id));
+      }
+    }
   } else {
     structureMode = 'all';
   }

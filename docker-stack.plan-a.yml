@@ -13,6 +13,9 @@ services:
     env_file:
       - .env
       - ./api-gateway/.env
+    environment:
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -79,6 +82,8 @@ services:
       - ./services/organization-service/.env
     environment:
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -162,11 +167,11 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/task-service:${TAG}
+  project-service:
+    image: ${REGISTRY}/${OWNER}/voicehub/project-service:${TAG}
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -186,12 +191,12 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-worker:
-    image: ${TASK_SERVICE_IMAGE:-voicehub/task-service:latest}
-    command: ["node", "src/workers/taskFromFileWorker.js"]
+  project-worker:
+    image: ${REGISTRY}/${OWNER}/voicehub/project-service:${TAG}
+    command: ["node", "src/worker.js"]
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -224,6 +229,8 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -249,7 +256,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=both
@@ -278,7 +286,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=extract
@@ -314,7 +323,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=sync

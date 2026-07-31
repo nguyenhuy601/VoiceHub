@@ -69,6 +69,10 @@ function buildBoardCapabilities({
     canMoveCards,
     canMoveToDone,
     canUseAiConfirm,
+    canManageMembers: canManageBoard,
+    canUpdateSettings: canManageBoard,
+    canViewFiles: canView,
+    canViewRepository: canManageBoard,
   };
 }
 

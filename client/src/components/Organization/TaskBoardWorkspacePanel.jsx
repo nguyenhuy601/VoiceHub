@@ -406,6 +406,8 @@ export default function TaskBoardWorkspacePanel({
   /** Tăng số này từ parent (nút Search header) để focus ô tìm thẻ trên board. */
   boardSearchFocusToken = 0,
   taskWorkspaceScope = null,
+  /** Ẩn title/code/summary — Project Hub đã có identity header. */
+  hideIdentityHeader = false,
 }) {
   const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
@@ -499,6 +501,30 @@ export default function TaskBoardWorkspacePanel({
   const listMap = useMemo(
     () => buildListMap(boardDetail, optimisticLists),
     [boardDetail, optimisticLists]
+  );
+
+  const workflowTransitionsByFrom = boardDetail?.workflow?.transitionsByFrom || null;
+  const listStatusKeyById = useMemo(() => {
+    const map = new Map();
+    for (const l of listMap || []) {
+      const key = String(l.statusKey || '').trim();
+      if (key) map.set(String(l._id), key);
+    }
+    return map;
+  }, [listMap]);
+
+  const canTransitionLists = useCallback(
+    (fromListId, toListId) => {
+      if (!workflowTransitionsByFrom) return true;
+      if (String(fromListId) === String(toListId)) return true;
+      const fromKey = listStatusKeyById.get(String(fromListId));
+      const toKey = listStatusKeyById.get(String(toListId));
+      if (!fromKey || !toKey) return true;
+      if (fromKey === toKey) return true;
+      const edges = workflowTransitionsByFrom[fromKey] || [];
+      return edges.some((e) => String(e.toKey) === toKey);
+    },
+    [workflowTransitionsByFrom, listStatusKeyById]
   );
 
   const boardSummary = useMemo(
@@ -647,6 +673,7 @@ export default function TaskBoardWorkspacePanel({
     index: -1,
     ownerTeamId: undefined,
     originLaneKey: '',
+    originListId: '',
   });
 
   useEffect(() => {
@@ -741,6 +768,7 @@ export default function TaskBoardWorkspacePanel({
       index: idx,
       ownerTeamId: ownerTeamIdFromLaneKey(laneKey),
       originLaneKey: laneKey,
+      originListId: listId || '',
     };
   }, [cardItemsByList]);
 
@@ -859,6 +887,23 @@ export default function TaskBoardWorkspacePanel({
           ? snap.ownerTeamId
           : undefined;
 
+      const originListId =
+        snap.cardId === activeCardId && snap.originListId
+          ? snap.originListId
+          : (() => {
+              const card = (listMap || [])
+                .flatMap((l) => (l.cards || []).map((c) => ({ listId: l._id, card: c })))
+                .find((row) => String(row.card._id) === activeCardId);
+              return card ? String(card.listId) : '';
+            })();
+
+      if (originListId && listId && !canTransitionLists(originListId, listId)) {
+        toast.error(t('workspace.workflowTransitionDenied'));
+        setCardItemsByList(buildCardItemsByList(listMap));
+        releaseCardLayoutLock();
+        return;
+      }
+
       try {
         await onMoveCard?.(activeCardId, listId, index, ownerTeamId);
         setDetailCard((prev) =>
@@ -876,7 +921,7 @@ export default function TaskBoardWorkspacePanel({
         releaseCardLayoutLock();
       }
     },
-    [cardItemsByList, listMap, onMoveCard]
+    [cardItemsByList, listMap, onMoveCard, canTransitionLists, t]
   );
 
   const resolveSwimOverTarget = useCallback(
@@ -1067,6 +1112,7 @@ export default function TaskBoardWorkspacePanel({
   const renderCardBody = (card, { onOpenMenu, onToggleComplete }) => {
     const labelIds = parseCardLabelIds(card.tags);
     const isDone = String(card?.status || '') === 'done';
+    const awaitingApproval = String(card?.status || '') === 'awaiting_approval';
     const listTitle = listTitleForCard(card);
     const overdue = isCardOverdue(card, listTitle);
     const assignees = cardAssignees(card);
@@ -1105,6 +1151,15 @@ export default function TaskBoardWorkspacePanel({
               </div>
             ) : null}
             <div className={`font-semibold ${isDone ? 'text-slate-400 line-through' : ''}`}>{card.title}</div>
+            {awaitingApproval ? (
+              <span
+                className={`mt-1 inline-block rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${
+                  isDarkMode ? 'bg-amber-500/25 text-amber-200' : 'bg-amber-100 text-amber-900'
+                }`}
+              >
+                {t('approvals.pendingBadge')}
+              </span>
+            ) : null}
           </div>
         </div>
         {card.dueDate ? (
@@ -1214,6 +1269,7 @@ export default function TaskBoardWorkspacePanel({
               }`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
+                {!hideIdentityHeader ? (
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2
@@ -1288,7 +1344,10 @@ export default function TaskBoardWorkspacePanel({
                     </span>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                ) : (
+                  <div className="min-w-0 flex-1" />
+                )}
+                <div className={`flex flex-wrap items-center gap-2 ${hideIdentityHeader ? 'w-full justify-end' : ''}`}>
                   {boardSearchOpen ? (
                     <div
                       className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${

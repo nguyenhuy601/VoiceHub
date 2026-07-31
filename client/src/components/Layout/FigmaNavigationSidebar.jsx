@@ -27,7 +27,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { useFriendPending, useNotificationBadge } from '../../hooks/queries';
 import {
   buildCollaborateDocumentsPath,
-  buildCommunicateChannelsPath,
+  buildCollaborateTasksPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
@@ -302,13 +302,6 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           badge: landingDemo ? 0 : pendingCount,
         },
         {
-          key: 'channels',
-          icon: Building2,
-          label: t('nav.workspaces'),
-          path: buildCommunicateChannelsPath(),
-          badge: 0,
-        },
-        {
           key: 'voice',
           icon: Mic,
           label: t('nav.voiceMeet'),
@@ -349,7 +342,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           key: 'tasks',
           icon: ClipboardList,
           label: isSingleCompany ? t('nav.projects') : t('nav.kanbanTasks'),
-          path: '/app/collaborate/tasks',
+          path: buildCollaborateTasksPath(activeOrgId),
           tag: t('common.newBadge'),
           badge: 0,
         },
@@ -446,7 +439,11 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           path.startsWith('/app/collaborate/join')
         );
       }
-      if (item.key === 'tasks') return path === '/app/collaborate/tasks';
+      if (item.key === 'tasks') {
+        return (
+          path === '/app/collaborate/tasks' || path.startsWith('/app/collaborate/tasks')
+        );
+      }
       if (item.key === 'documents') return path === '/app/collaborate/documents';
       return isActivePath(item.path);
     }

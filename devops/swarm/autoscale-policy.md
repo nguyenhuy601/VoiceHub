@@ -24,7 +24,7 @@ Scale in when:
 
 ## DB-bound worker/API mix
 Applies to:
-- `task-worker`
+- `project-worker`
 - `chat-service` (if background jobs added)
 
 Scale cautiously:
@@ -33,7 +33,7 @@ Scale cautiously:
 
 ## Guardrails
 - Keep min replicas:
-  - task-worker: 1
+  - project-worker: 1
   - ai extract/sync: 1 each
   - notification/webhook worker: 1
 - Define hard max per node capacity.

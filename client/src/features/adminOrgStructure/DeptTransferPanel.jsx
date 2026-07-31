@@ -81,37 +81,8 @@ export default function DeptTransferPanel({ orgId }) {
     }
     setSaving(true);
     try {
-      // Huy: gỡ khỏi mọi phòng ban khác, rồi gắn phòng đích (tránh multi-assign lệch)
-      const updates = [];
-      for (const dep of departments) {
-        const id = unitId(dep);
-        const membersIds = (dep.memberIds || []).map(String);
-        const hasUser = membersIds.includes(userId);
-        if (id === toDept) {
-          if (!hasUser) {
-            updates.push(
-              organizationAPI.updateDepartment(orgId, id, {
-                members: Array.from(new Set([...membersIds, userId])),
-              })
-            );
-          }
-          continue;
-        }
-        if (hasUser) {
-          updates.push(
-            organizationAPI.updateDepartment(orgId, id, {
-              members: membersIds.filter((mid) => mid !== userId),
-            })
-          );
-        }
-      }
-      if (!updates.length && toRow && !(toRow.memberIds || []).includes(userId)) {
-        await organizationAPI.updateDepartment(orgId, toDept, {
-          members: Array.from(new Set([...(toRow.memberIds || []), userId])),
-        });
-      } else {
-        await Promise.all(updates);
-      }
+      // membersAdd: merge trên BE (tránh OU structure thiếu members[] → ghi đè mất head)
+      await organizationAPI.updateDepartment(orgId, toDept, { membersAdd: [userId] });
       toast.success(t('adminOrg.transferred'));
       setToDept('');
       await Promise.all([loadStructure(), loadMembers()]);

@@ -15,7 +15,7 @@ export default function RbacProjectRoleBoardPanel({ orgId }) {
       />
       <p className="text-sm text-muted-foreground">
         {t('adminRbac.projectRoleBoardDelegationHint')}{' '}
-        <Link to="/app/admin/tasks/delegation" className={adminSecondaryBtnClass('inline-flex !px-2 !py-1 text-xs')}>
+        <Link to="/app/admin/projects/delegation" className={adminSecondaryBtnClass('inline-flex !px-2 !py-1 text-xs')}>
           {t('adminRbac.projectRoleBoardDelegationLink')}
         </Link>
       </p>

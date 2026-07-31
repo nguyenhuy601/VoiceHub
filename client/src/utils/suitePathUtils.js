@@ -108,9 +108,11 @@ export function buildCollaborateTasksPath(orgId = '', query = {}) {
   const deptId = String(query?.departmentId || '').trim();
   const teamId = String(query?.teamId || '').trim();
   const boardId = String(query?.boardId || '').trim();
+  const projectId = String(query?.projectId || '').trim();
   if (deptId) params.set('departmentId', deptId);
   if (teamId) params.set('teamId', teamId);
   if (boardId) params.set('boardId', boardId);
+  if (projectId) params.set('projectId', projectId);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -145,6 +147,16 @@ export function departmentQueryFromSearch(search) {
 export function teamQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('teamId') || '').trim();
+}
+
+export function boardQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('boardId') || '').trim();
+}
+
+export function projectQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('projectId') || '').trim();
 }
 
 export function channelQueryFromSearch(search) {

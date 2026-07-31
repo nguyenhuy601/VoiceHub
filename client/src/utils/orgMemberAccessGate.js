@@ -1,4 +1,8 @@
-/** Huy: Gate vào workspace — member chưa xếp phòng ban/nhóm thì chưa đủ điều kiện. */
+/**
+ * Gate vào workspace — member chưa xếp phòng/nhóm thì chưa đủ điều kiện.
+ * BE org shell điền scope từ People Graph (Department.members / Team.members) + RBAC;
+ * FE chỉ đọc scope đã merge — không tự query members[].
+ */
 
 const ELEVATED_ORG_ROLES = new Set(['owner', 'admin', 'hr']);
 
@@ -10,7 +14,7 @@ const ELEVATED_ORG_ROLES = new Set(['owner', 'admin', 'hr']);
  *   teamId?: string|null,
  *   scopedDepartmentIds?: string[],
  *   scopedTeamIds?: string[],
- * }|null|undefined} scope — shell access.scope
+ * }|null|undefined} scope — shell access.scope (đã gồm members[] khi STRUCTURE_MEMBERS_IN_SHELL_SCOPE≠0)
  */
 export function isOrgMemberAccessIncomplete(myRole, scope = {}) {
   const role = String(myRole || 'member').trim().toLowerCase();

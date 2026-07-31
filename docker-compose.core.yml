@@ -72,7 +72,7 @@ services:
 
       - voice-service
 
-      - task-service
+      - project-service
 
       - ai-task-service
 
@@ -372,19 +372,19 @@ services:
 
 
 
-  task-service:
+  project-service:
 
     build:
       context: .
-      dockerfile: services/task-service/Dockerfile
+      dockerfile: services/project-service/Dockerfile
 
-    container_name: enterprise-task-service
+    container_name: enterprise-project-service
 
     env_file:
 
       - .env
 
-      - ./services/task-service/.env
+      - ./services/project-service/.env
 
     environment:
 
@@ -420,7 +420,7 @@ services:
 
     volumes:
 
-      - ./services/task-service:/app
+      - ./services/project-service:/app
 
       - ./shared:/shared
 

@@ -89,6 +89,11 @@ const organizationSchema = new mongoose.Schema(
         type: joinApplicationFormSettingsSchema,
         default: () => ({}),
       },
+      /** Phase 1 — org default who can discover projects + information levels */
+      projectVisibilityPolicy: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
+      },
     },
     provisioning: {
       structure: {

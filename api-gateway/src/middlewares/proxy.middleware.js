@@ -110,8 +110,8 @@ const proxyMiddleware = (req, res, next) => {
         port: proxyPort,
       },
       changeOrigin: true,
-      timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
-      proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 20000),
+      timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
+      proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
       ws: false, // Không cần WebSocket
       xfwd: true, // Forward X-Forwarded-* headers
       secure: false, // Tắt SSL verification cho localhost

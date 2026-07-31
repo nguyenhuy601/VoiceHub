@@ -1,7 +1,7 @@
 {
-  "name": "task-service",
+  "name": "project-service",
   "version": "1.0.0",
-  "description": "Task Service - Quản lý nhiệm vụ và đầu việc (MongoDB)",
+  "description": "Project Service - Quản lý dự án và Kanban (MongoDB)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -25,7 +25,8 @@
   },
   "keywords": [
     "microservice",
-    "task",
+    "project",
+    "kanban",
     "mongodb",
     "enterprise"
   ],

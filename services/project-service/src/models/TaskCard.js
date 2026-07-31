@@ -1,3 +1,7 @@
+/**
+ * @deprecated Dead model — Task cards live on `Task` (Kanban). Do not use.
+ * Collection `taskcards` is wiped by clear-task-service-data.js.
+ */
 const mongoose = require('../db');
 
 const taskCardSchema = new mongoose.Schema(

@@ -40,9 +40,9 @@ groups:
         for: 10m
         labels:
           severity: warning
-          worker: task-worker
+          worker: project-worker
         annotations:
-          summary: "task.from_file queue elevated — scale task-worker cautiously (+1/10m)"
+          summary: "task.from_file queue elevated — scale project-worker cautiously (+1/10m)"
 
       - alert: VoiceHubFriendDmQueueBacklog
         expr: voicehub_rabbit_queue_messages{queue="voicehub.friend.dm"} > 20

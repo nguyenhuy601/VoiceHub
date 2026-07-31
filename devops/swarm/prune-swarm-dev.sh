@@ -15,7 +15,7 @@ docker service scale \
   voicehub_ollama=0 \
   voicehub_paddleocr-service=0 \
   voicehub_notification-dispatch-worker=0 \
-  voicehub_task-worker=0 \
+  voicehub_project-worker=0 \
   voicehub_ai-task-extract-worker=0 \
   voicehub_ai-task-sync-worker=0 \
   2>/dev/null || true
@@ -27,7 +27,7 @@ docker container prune -f
 
 echo ""
 echo "=== Hủy update Swarm đang kẹt (chỉ service đang updating) ==="
-for svc in api-gateway auth-service chat-service socket-service task-worker notification-dispatch-worker; do
+for svc in api-gateway auth-service chat-service socket-service project-worker notification-dispatch-worker; do
   state="$(docker service inspect "voicehub_${svc}" --format '{{.UpdateStatus.State}}' 2>/dev/null || true)"
   if [[ "$state" == "updating" ]]; then
     echo "  rollback voicehub_${svc}"

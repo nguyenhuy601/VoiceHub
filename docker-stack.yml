@@ -21,6 +21,7 @@ services:
       - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
+      - PROJECT_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -89,6 +90,7 @@ services:
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
       - FRIEND_SERVICE_URL=${FRIEND_SERVICE_URL}
       - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -172,11 +174,11 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-service:
-    image: ${TASK_SERVICE_IMAGE}
+  project-service:
+    image: ${PROJECT_SERVICE_IMAGE}
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -196,12 +198,12 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-worker:
-    image: ${TASK_SERVICE_IMAGE}
+  project-worker:
+    image: ${PROJECT_SERVICE_IMAGE}
     command: ["node", "src/worker.js"]
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -234,6 +236,8 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -259,7 +263,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=both
@@ -338,7 +343,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=extract
@@ -374,7 +380,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=sync

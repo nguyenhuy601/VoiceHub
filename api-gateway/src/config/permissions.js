@@ -133,6 +133,7 @@ const DOWNSTREAM_AUTH_PREFIXES = [
   '/api/channels',
   '/api/tasks',
   '/api/work',
+  '/api/projects',
   '/api/ai/tasks',
   '/api/workspaces',
 ];
@@ -140,6 +141,7 @@ const DOWNSTREAM_AUTH_PREFIXES = [
 const TASK_AUTH_BYPASS_PREFIXES = [
   '/api/tasks',
   '/api/work',
+  '/api/projects',
   '/api/ai/tasks',
 ];
 
@@ -152,6 +154,7 @@ const ADMIN_SERVICE_AUTH_PREFIXES = [
   '/api/auth/admin',
   '/api/users/admin',
   '/api/tasks/admin',
+  '/api/projects/admin',
 ];
 
 /**

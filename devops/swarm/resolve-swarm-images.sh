@@ -24,7 +24,9 @@ resolve_swarm_images() {
   export FRIEND_SERVICE_IMAGE="$(_swarm_image friend-service)"
   export ROLE_PERMISSION_SERVICE_IMAGE="$(_swarm_image role-permission-service)"
   export CHAT_SERVICE_IMAGE="$(_swarm_image chat-service)"
-  export TASK_SERVICE_IMAGE="$(_swarm_image task-service)"
+  export PROJECT_SERVICE_IMAGE="$(_swarm_image project-service)"
+  # Backward-compat alias while migrating stack files:
+  export TASK_SERVICE_IMAGE="$(_swarm_image project-service)"
   export AI_TASK_SERVICE_IMAGE="$(_swarm_image ai-task-service)"
   export AI_TASK_WORKER_IMAGE="$(_swarm_image ai-task-worker)"
   export SUMMARY_SERVICE_IMAGE="$(_swarm_image summary-service)"

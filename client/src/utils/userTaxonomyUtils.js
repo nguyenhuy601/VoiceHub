@@ -62,6 +62,63 @@ export function buildOrgRoleBadgeByUserId(structure) {
   return map;
 }
 
+/**
+ * Org Role rows per user: People Graph (head/leader) + catalog assignments.
+ * @returns {Map<string, Array<{ id: string, label: string, scopeName?: string }>>}
+ */
+export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
+  const flat = flattenOrgStructure(structure);
+  const map = new Map();
+
+  const push = (uid, row) => {
+    const id = String(uid || '').trim();
+    if (!id || !row?.id) return;
+    const prev = map.get(id) || [];
+    if (prev.some((r) => r.id === row.id)) return;
+    prev.push(row);
+    map.set(id, prev);
+  };
+
+  for (const dept of flat.departments) {
+    const uid = departmentHeadId(dept);
+    if (!uid) continue;
+    push(uid, {
+      id: `dept-${unitId(dept)}`,
+      label: typeof t === 'function' ? t('adminUsers.orgRoleBadgeDeptHead') : 'Trưởng phòng',
+      scopeName: unitName(dept),
+    });
+  }
+  for (const team of flat.teams) {
+    const uid = teamLeaderId(team);
+    if (!uid) continue;
+    push(uid, {
+      id: `team-${unitId(team)}`,
+      label: typeof t === 'function' ? t('adminUsers.orgRoleBadgeTeamLead') : 'Trưởng nhóm',
+      scopeName: unitName(team),
+    });
+  }
+
+  for (const a of assignments || []) {
+    const uid = String(a.userId || '').trim();
+    const roleKey = String(a.roleKey || '').trim();
+    if (!uid || !roleKey) continue;
+    // Skip duplicates of system structural keys already from People Graph
+    if (
+      roleKey === ORGANIZATION_ROLE_KEYS.DEPARTMENT_MANAGER ||
+      roleKey === ORGANIZATION_ROLE_KEYS.TEAM_MANAGER
+    ) {
+      continue;
+    }
+    push(uid, {
+      id: `assign-${roleKey}-${uid}`,
+      label: String(a.roleLabel || ORGANIZATION_ROLE_LABELS[roleKey] || roleKey).trim(),
+      scopeName: a.scopeName || '',
+    });
+  }
+
+  return map;
+}
+
 export function buildResponsibilityByUserIdFromKeyLists(entries) {
   const map = new Map();
   for (const { key, userIds } of entries || []) {

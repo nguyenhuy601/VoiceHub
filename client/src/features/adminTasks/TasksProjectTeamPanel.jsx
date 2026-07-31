@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
-  adminInputClass,
-  adminLabelClass,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
@@ -18,20 +17,28 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+function shortRoleLabel(label, key) {
+  const raw = String(label || key || '').trim();
+  return raw.replace(/^(Dự án —|Project —)\s*/i, '').trim() || key || '';
+}
+
 export default function TasksProjectTeamPanel({
   orgId,
-  panelTitleKey = 'adminDomains.tasks.projectTeam',
+  panelTitleKey = 'adminDomains.projects.members',
   panelHintKey = 'adminTasks.teamHint',
 }) {
   const { t } = useAppStrings();
   const [params, setParams] = useSearchParams();
   const boardId = String(params.get('boardId') || '').trim();
+  const userId = useMemo(() => String(params.get('userId') || '').trim(), [params]);
+
   const [roles, setRoles] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [userId, setUserId] = useState('');
-  const [roleKeys, setRoleKeys] = useState('developer');
+  const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
   const [saving, setSaving] = useState(false);
+  // track userId mà selectedRoleKeys đã được sync từ DB để tránh override khi reload members sau save
+  const syncedUserIdRef = useRef(null);
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -67,16 +74,33 @@ export default function TasksProjectTeamPanel({
     load();
   }, [load]);
 
+  // Sync selectedRoleKeys từ DB chỉ khi userId thay đổi (không sync sau mỗi lần reload members)
+  useEffect(() => {
+    if (syncedUserIdRef.current === userId) return;
+    syncedUserIdRef.current = userId;
+    if (!userId) {
+      setSelectedRoleKeys([]);
+      return;
+    }
+    const mine = members.filter((m) => String(m.userId) === userId);
+    setSelectedRoleKeys(mine.map((m) => m.projectRole?.key).filter(Boolean));
+  }, [userId, members]);
+
+  const toggleRoleKey = (key) => {
+    setSelectedRoleKeys((prev) => {
+      const s = new Set(prev);
+      if (s.has(key)) s.delete(key);
+      else s.add(key);
+      return [...s];
+    });
+  };
+
   const saveRoles = async (e) => {
     e.preventDefault();
-    if (!boardId || !userId.trim() || saving) return;
-    const keys = roleKeys
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    if (!boardId || !userId || saving) return;
     setSaving(true);
     try {
-      await projectDeliveryAPI.setMemberRoles(boardId, userId.trim(), keys);
+      await projectDeliveryAPI.setMemberRoles(boardId, userId, [...selectedRoleKeys]);
       toast.success(t('adminTasks.teamRolesSaved'));
       await load();
     } catch (error) {
@@ -85,6 +109,8 @@ export default function TasksProjectTeamPanel({
       setSaving(false);
     }
   };
+
+  const assignableRoles = useMemo(() => (Array.isArray(roles) ? roles : []).filter((r) => r.canAssign), [roles]);
 
   return (
     <AdminUserPanelShell title={t(panelTitleKey)} hint={t(panelHintKey)} wide>
@@ -95,73 +121,90 @@ export default function TasksProjectTeamPanel({
       ) : loading ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <AdminUserFormCard title={t('adminTasks.teamRolesTitle')}>
-            <ul className="max-h-64 space-y-1 overflow-auto text-sm">
-              {(Array.isArray(roles) ? roles : []).map((r) => (
-                <li key={String(r._id || r.key)} className="rounded-lg border border-border px-3 py-2">
-                  <span className="font-medium">{r.label || r.key}</span>
-                  <span className="text-muted-foreground"> ({r.key})</span>
-                  {r.canAssign ? (
-                    <span className="ml-2 text-xs text-emerald-600">{t('adminTasks.canAssign')}</span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </AdminUserFormCard>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
+          <AdminUserPicker
+            orgId={orgId}
+            selectedUserId={userId}
+            hint={t('adminTasks.teamPickerHint')}
+          />
 
-          <AdminUserFormCard title={t('adminTasks.teamMembersTitle')}>
-            <form className="mb-4 space-y-3" onSubmit={saveRoles}>
-              <label className={adminLabelClass()}>
-                {t('adminTasks.teamUserId')}
-                <input
-                  className={adminInputClass()}
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
-                  placeholder="user ObjectId"
-                />
-              </label>
-              <label className={adminLabelClass()}>
-                {t('adminTasks.colRole')}
-                <input
-                  className={adminInputClass()}
-                  value={roleKeys}
-                  onChange={(e) => setRoleKeys(e.target.value)}
-                  placeholder={t('adminTasks.teamRoleKeysPh')}
-                />
-              </label>
-              <button type="submit" className={adminPrimaryBtnClass()} disabled={saving}>
-                {t('adminTasks.teamSetRoles')}
-              </button>
-            </form>
-            <ul className="max-h-56 space-y-1 overflow-auto text-sm">
-              {(Array.isArray(members) ? members : []).map((m) => (
-                <li
-                  key={`${m.userId}-${m.projectRoleId}`}
-                  className="rounded-lg border border-border px-3 py-2"
-                >
-                  <span className="font-mono text-xs">{String(m.userId)}</span>
-                  <span className="text-muted-foreground">
-                    {' '}
-                    → {m.projectRole?.label || m.projectRole?.key || m.projectRoleId}
-                  </span>
+          <div className="space-y-4">
+            <AdminUserFormCard title={t('adminTasks.teamMembersTitle')}>
+              {!userId ? (
+                <p className="mb-3 text-sm text-muted-foreground">{t('adminTasks.teamSelectUserFirst')}</p>
+              ) : (
+                <form className="mb-4 space-y-3" onSubmit={saveRoles}>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('adminTasks.teamRolesTitle')}
+                  </p>
+                  {assignableRoles.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t('adminTasks.teamNoRoles')}</p>
+                  ) : (
+                    <ul className="max-h-52 space-y-1 overflow-auto">
+                      {assignableRoles.map((r) => {
+                        const rk = String(r.key || '').trim();
+                        const label = shortRoleLabel(r.label, rk);
+                        const checked = selectedRoleKeys.includes(rk);
+                        return (
+                          <li key={rk}>
+                            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 hover:bg-muted/40">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleRoleKey(rk)}
+                                className="h-4 w-4 rounded border-border accent-primary"
+                              />
+                              <span className="text-sm font-medium">{label}</span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                   <button
-                    type="button"
-                    className={`${adminSecondaryBtnClass('!px-2 !py-1 ml-2 text-xs')}`}
-                    onClick={() => {
-                      setUserId(String(m.userId));
-                      setRoleKeys(m.projectRole?.key || '');
-                    }}
+                    type="submit"
+                    className={adminPrimaryBtnClass()}
+                    disabled={saving || selectedRoleKeys.length === 0}
                   >
-                    {t('adminTasks.teamSetRoles')}
+                    {saving ? '…' : t('adminTasks.teamSetRoles')}
                   </button>
-                </li>
-              ))}
-              {!members?.length ? (
-                <li className="text-muted-foreground">{t('adminTasks.teamEmpty')}</li>
-              ) : null}
-            </ul>
-          </AdminUserFormCard>
+                </form>
+              )}
+
+              <ul className="max-h-56 space-y-1 overflow-auto text-sm">
+                {(Array.isArray(members) ? members : []).map((m) => {
+                  const roleLabel = shortRoleLabel(m.projectRole?.label, m.projectRole?.key);
+                  return (
+                    <li
+                      key={`${m.userId}-${m.projectRoleId}`}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <span className="truncate text-xs text-muted-foreground">{String(m.userId)}</span>
+                        <span className="ml-2 font-medium">→ {roleLabel}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={adminSecondaryBtnClass('!px-2 !py-1 text-xs shrink-0')}
+                        onClick={() => {
+                          const next = new URLSearchParams(params);
+                          next.set('userId', String(m.userId));
+                          setParams(next, { replace: true });
+                          syncedUserIdRef.current = String(m.userId);
+                          setSelectedRoleKeys([m.projectRole?.key].filter(Boolean));
+                        }}
+                      >
+                        {t('adminTasks.teamSetRoles')}
+                      </button>
+                    </li>
+                  );
+                })}
+                {!members?.length ? (
+                  <li className="text-muted-foreground">{t('adminTasks.teamEmpty')}</li>
+                ) : null}
+              </ul>
+            </AdminUserFormCard>
+          </div>
         </div>
       )}
     </AdminUserPanelShell>

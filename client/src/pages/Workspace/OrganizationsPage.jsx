@@ -28,8 +28,10 @@ import api from '../../services/api';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
 import friendService from '../../services/friendService';
 import userService from '../../services/userService';
+import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
+import { projectAPI } from '../../services/api/projectAPI';
+import CreateTaskBoardModal from '../../components/Organization/CreateTaskBoardModal';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import { taskAPI } from '../../services/api/taskAPI';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useOrgShell } from '../../hooks/queries/useOrgShell';
 import { isOrgMemberAccessIncomplete } from '../../utils/orgMemberAccessGate';
@@ -50,6 +52,7 @@ import {
   mergeChannelsById,
   filterWorkspaceStructureByScope,
   isProtectedDefaultChannel,
+  channelsForDepartment,
 } from '../../utils/orgChannelScope';
 import { isOrgMembershipStructureAdmin } from '../../components/Organization/roleRbacUtils';
 import {
@@ -72,12 +75,15 @@ import {
   orgQueryFromSearch,
   departmentQueryFromSearch,
   teamQueryFromSearch,
+  boardQueryFromSearch,
+  projectQueryFromSearch,
   channelQueryFromSearch,
 } from '../../utils/suitePathUtils';
 import {
   preferDefaultTextChannelId as preferDeptTextChannelId,
   resolveDeptChatChannelId,
   resolveDeptVoiceChannelId,
+  resolveDeptAnnouncementChannelId,
   findDeptChannelByType,
 } from '../../utils/departmentChannelUtils';
 import WorkspacesOrgPickerView from '../../components/Workspace/WorkspacesOrgPickerView';
@@ -247,6 +253,7 @@ function OrganizationsPage({
   const [taskWorkspaceScope, setTaskWorkspaceScope] = useState(null);
   const [selectedBranchId, setSelectedBranchId] = useState('');
   const [selectedDivisionId, setSelectedDivisionId] = useState('');
+  const [orgProjects, setOrgProjects] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
   const [voiceRoomMessages, setVoiceRoomMessages] = useState([]);
@@ -362,8 +369,7 @@ function OrganizationsPage({
   const [createDivisionName, setCreateDivisionName] = useState('');
   const [createDivisionBranchId, setCreateDivisionBranchId] = useState('');
   const [createTeamModalOpen, setCreateTeamModalOpen] = useState(false);
-  const [createTeamName, setCreateTeamName] = useState('');
-  const [createTeamDepartmentId, setCreateTeamDepartmentId] = useState('');
+  const [creatingProjectBoard, setCreatingProjectBoard] = useState(false);
   const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
   const [createChannelType, setCreateChannelType] = useState('chat');
   const [createChannelName, setCreateChannelName] = useState('');
@@ -392,6 +398,7 @@ function OrganizationsPage({
   const [workspaceDocFiles, setWorkspaceDocFiles] = useState([]);
   const [loadingWorkspaceDocuments, setLoadingWorkspaceDocuments] = useState(false);
   const [workspaceDocumentsError, setWorkspaceDocumentsError] = useState('');
+  const [orgMembers, setOrgMembers] = useState([]);
   const initialTab = useMemo(() => {
     if (suiteMode === 'communicate') return 'chat';
     if (workspaceTabProp) return workspaceTabProp;
@@ -431,6 +438,14 @@ function OrganizationsPage({
     () => teamQueryFromSearch(location.search),
     [location.search]
   );
+  const boardIdFromQuery = useMemo(
+    () => boardQueryFromSearch(location.search),
+    [location.search]
+  );
+  const projectIdFromQuery = useMemo(
+    () => projectQueryFromSearch(location.search),
+    [location.search]
+  );
   const channelIdFromQuery = useMemo(
     () => channelQueryFromSearch(location.search),
     [location.search]
@@ -465,6 +480,23 @@ function OrganizationsPage({
       departmentWorkspaceActive,
       landingDemo,
     ]
+  );
+
+  /** Route «Dự án» — landing project org-level, không dept/team hub. */
+  const isProjectsRoute = useMemo(
+    () =>
+      workspaceTabProp === 'tasks' ||
+      (suiteMode === 'collaborate' &&
+        String(location.pathname || '').startsWith('/app/collaborate/tasks')),
+    [workspaceTabProp, suiteMode, location.pathname]
+  );
+
+  const hasOpenProjectBoard = Boolean(
+    String(boardIdFromQuery || '').trim() || String(projectIdFromQuery || '').trim()
+  );
+
+  const showProjectsLanding = Boolean(
+    showTeamHub && isProjectsRoute && !hasOpenProjectBoard
   );
 
   useEffect(() => {
@@ -626,13 +658,29 @@ function OrganizationsPage({
   const selectedChannelType = String(selectedChannel?.type || '').toLowerCase();
 
   const shellActiveTab = useMemo(() => {
+    const deptMode = Boolean(departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId);
+    if (deptMode) {
+      const tab = String(workspaceTabView || 'announcement').toLowerCase();
+      if (['announcement', 'tasks', 'members', 'documents', 'calendar', 'meetings'].includes(tab)) {
+        return tab;
+      }
+      if (tab === 'chat' || tab === 'voice') return 'announcement';
+      return 'announcement';
+    }
     if (suiteMode === 'communicate') {
       return selectedChannelType === 'voice' ? 'voice' : 'chat';
     }
     if (workspaceTabView === 'documents') return 'documents';
     if (workspaceTabView === 'tasks') return 'tasks';
     return 'chat';
-  }, [suiteMode, selectedChannelType, workspaceTabView]);
+  }, [
+    suiteMode,
+    selectedChannelType,
+    workspaceTabView,
+    departmentWorkspaceActive,
+    selectedDepartmentId,
+    selectedTeamId,
+  ]);
 
   const shellSelectedTeam = useMemo(() => {
     if (!selectedTeam) return null;
@@ -831,6 +879,7 @@ function OrganizationsPage({
         : Array.isArray(memberData)
           ? memberData
           : [];
+      setOrgMembers(rawMemberList);
       const memberContacts = rawMemberList
         .map((item) => item?.user || item)
         .filter(Boolean)
@@ -1218,6 +1267,29 @@ function OrganizationsPage({
     showTeamHub,
   ]);
 
+  useEffect(() => {
+    if (!showTeamHub || !selectedOrganizationId) {
+      setOrgProjects(null);
+      return;
+    }
+    let cancelled = false;
+    projectAPI
+      .list({
+        organizationId: selectedOrganizationId,
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const raw = res?.data?.projects ?? res?.projects ?? res?.data ?? res ?? [];
+        setOrgProjects(Array.isArray(raw) ? raw : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showTeamHub, selectedOrganizationId]);
+
   const handleSelectBranch = (branchId) => {
     setSelectedBranchId(branchId);
     const branch = workspaceStructure.find((b) => String(b._id) === String(branchId));
@@ -1283,6 +1355,9 @@ function OrganizationsPage({
   const canManageWorkspaceStructure =
     isOrgMembershipStructureAdmin(selectedOrganization?.myRole) ||
     Boolean(membershipScope?.canSeeAllStructure);
+
+  /** Tạo dự án / task board — khớp BE createBoard (taskWorkspaceScope.canCreateTask). */
+  const canCreateProject = Boolean(taskWorkspaceScope?.canCreateTask);
 
   const canSelectTeam = useCallback(
     (teamId) => {
@@ -1378,9 +1453,44 @@ function OrganizationsPage({
     [departments, canSelectDepartment]
   );
 
+  const memberDepartmentIds = useMemo(() => {
+    const fromScope = Array.isArray(membershipScope?.scopedDepartmentIds)
+      ? membershipScope.scopedDepartmentIds.map(String).filter(Boolean)
+      : [];
+    if (fromScope.length) return fromScope;
+    return hubDepartments.map((d) => String(d._id || d.id || '')).filter(Boolean);
+  }, [membershipScope?.scopedDepartmentIds, hubDepartments]);
+
+  const memberDepartmentChannelIds = useMemo(() => {
+    const ids = new Set();
+    for (const deptId of memberDepartmentIds) {
+      for (const ch of channelsForDepartment(channels, deptId)) {
+        const id = String(ch._id || ch.id || '').trim();
+        if (id) ids.add(id);
+      }
+      // Kênh announcement/chat trong phòng (kể cả khi type khác) — theo department field
+      for (const ch of channels || []) {
+        if (String(ch.department || '') !== String(deptId)) continue;
+        if (String(ch.team || '')) continue;
+        const id = String(ch._id || ch.id || '').trim();
+        if (id) ids.add(id);
+      }
+    }
+    return Array.from(ids);
+  }, [memberDepartmentIds, channels]);
+
+  const activeProjectsCount = useMemo(() => {
+    const list = Array.isArray(orgProjects) ? orgProjects : [];
+    return list.filter((p) => {
+      const st = String(p?.status || '').toLowerCase();
+      return p?.isActive !== false && st !== 'closed' && st !== 'archived';
+    }).length;
+  }, [orgProjects]);
+
   const orgHubNeedsDepartmentStep = hubDepartments.length > 0;
+  /** Chỉ «Không gian công ty» — phòng ban; không gộp dự án. */
   const showDepartmentHub = Boolean(
-    showTeamHub && !selectedDepartmentId && orgHubNeedsDepartmentStep
+    showTeamHub && !isProjectsRoute && !selectedDepartmentId && orgHubNeedsDepartmentStep
   );
 
   const handleSelectTeam = (teamId) => {
@@ -1392,11 +1502,125 @@ function OrganizationsPage({
     setSelectedTeamId(String(teamId));
   };
 
+  const handleSelectOrgProject = (project) => {
+    const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
+    const projectId = String(project?._id || project?.projectId || '').trim();
+    setSelectedTeamId('');
+    setDepartmentWorkspaceActive(false);
+    setSelectedDepartmentId('');
+    setWorkspaceTabView('tasks');
+    setSelectedChannelId('');
+    navigate(
+      buildCollaborateTasksPath(selectedOrganizationId, {
+        projectId,
+        ...(boardId ? { boardId } : {}),
+      })
+    );
+  };
+
+  // Deep-link projectId không có boardId → resolve default board (project-first URL).
+  useEffect(() => {
+    const pid = String(projectIdFromQuery || '').trim();
+    const bid = String(boardIdFromQuery || '').trim();
+    const orgId = String(selectedOrganizationId || '').trim();
+    if (!pid || bid || !orgId || !isProjectsRoute) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await projectAPI.listBoards(pid, orgId);
+        const data = res?.data?.data ?? res?.data ?? res;
+        const boards = Array.isArray(data) ? data : data?.items || [];
+        const main = boards.find((b) => b && b.isActive !== false) || boards[0];
+        const nextBoardId = String(main?._id || '').trim();
+        if (!cancelled && nextBoardId) {
+          navigate(
+            buildCollaborateTasksPath(orgId, { projectId: pid, boardId: nextBoardId }),
+            { replace: true }
+          );
+        }
+      } catch {
+        /* ignore — hub empty until user picks */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    projectIdFromQuery,
+    boardIdFromQuery,
+    selectedOrganizationId,
+    isProjectsRoute,
+    navigate,
+  ]);
+
+  // Vào route Dự án: bỏ context phòng/team — project là org-level.
+  useEffect(() => {
+    if (!isProjectsRoute) return;
+    setSelectedTeamId('');
+    setDepartmentWorkspaceActive(false);
+    setSelectedDepartmentId('');
+    setSelectedChannelId('');
+    setWorkspaceTabView('tasks');
+  }, [isProjectsRoute]);
+
   const handleShellTabChange = useCallback(
     (tab) => {
       const next = String(tab || 'chat').trim().toLowerCase();
       if (!selectedOrganizationId || landingDemo) return;
       const orgId = String(selectedOrganizationId);
+      const deptMode = Boolean(departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId);
+
+      if (deptMode) {
+        if (next === 'voice') {
+          setWorkspaceTabView('chat');
+          const chId = resolveDeptVoiceChannelId(
+            channels,
+            selectedDepartmentId,
+            channelPermissionMatrix
+          );
+          if (chId) setSelectedChannelId(chId);
+          navigate(
+            buildCommunicateChannelsPath(orgId, {
+              departmentId: selectedDepartmentId,
+              channelId: chId || '',
+            })
+          );
+          return;
+        }
+        if (next === 'tasks') {
+          setWorkspaceTabView('tasks');
+          setSelectedChannelId('');
+          navigate(
+            buildCollaborateTasksPath(orgId, {
+              departmentId: selectedDepartmentId,
+              boardId: boardIdFromQuery || '',
+            })
+          );
+          return;
+        }
+        if (next === 'members' || next === 'calendar' || next === 'meetings' || next === 'documents') {
+          setWorkspaceTabView(next);
+          setSelectedChannelId('');
+          if (next === 'documents') navigate(buildCollaborateDocumentsPath(orgId));
+          return;
+        }
+        // announcement / chat
+        setWorkspaceTabView('announcement');
+        const chId = resolveDeptAnnouncementChannelId(
+          channels,
+          selectedDepartmentId,
+          channelPermissionMatrix
+        );
+        if (chId) setSelectedChannelId(chId);
+        navigate(
+          buildCommunicateChannelsPath(orgId, {
+            departmentId: selectedDepartmentId,
+            channelId: chId || '',
+          })
+        );
+        return;
+      }
+
       if (next === 'voice') {
         let voiceChId = '';
         if (selectedTeamId) {
@@ -1442,13 +1666,12 @@ function OrganizationsPage({
         navigate(buildCollaborateDocumentsPath(orgId));
         return;
       }
-      const textCh = preferDefaultTextChannelId(
-        channels,
-        selectedTeamId,
-        channelPermissionMatrix,
-        selectedDepartmentId,
-        Boolean(selectedDepartmentId && !selectedTeamId)
-      );
+      const textCh = preferDefaultTextChannelId(channels, {
+        preferredTeamId: selectedTeamId,
+        preferredDepartmentId: selectedDepartmentId,
+        permissionMatrix: channelPermissionMatrix,
+        deptOnly: Boolean(selectedDepartmentId && !selectedTeamId),
+      });
       if (textCh) setSelectedChannelId(String(textCh));
       setWorkspaceTabView('chat');
       navigate(
@@ -1466,6 +1689,8 @@ function OrganizationsPage({
       selectedDepartmentId,
       channelPermissionMatrix,
       navigate,
+      departmentWorkspaceActive,
+      boardIdFromQuery,
     ]
   );
 
@@ -1549,7 +1774,7 @@ function OrganizationsPage({
     setDepartmentWorkspaceActive(false);
     setSelectedChannelId('');
     setSelectedDepartmentId('');
-    setWorkspaceTabView('chat');
+    setWorkspaceTabView('announcement');
   }, []);
 
   const handleDepartmentModuleClick = useCallback(
@@ -1559,15 +1784,25 @@ function OrganizationsPage({
       setSelectedTeamId('');
       handleSelectDepartment(deptId, { workspace: true });
 
-      const mod = String(module || 'chat').toLowerCase();
+      const mod = String(module || 'announcement').toLowerCase();
       const orgId = selectedOrganizationId ? String(selectedOrganizationId) : '';
 
       if (mod === 'tasks') {
         setWorkspaceTabView('tasks');
         setSelectedChannelId('');
         if (orgId) {
-          navigate(buildCollaborateTasksPath(orgId, { departmentId: deptId }));
+          navigate(
+            buildCollaborateTasksPath(orgId, {
+              departmentId: deptId,
+            })
+          );
         }
+        return;
+      }
+
+      if (mod === 'members' || mod === 'calendar' || mod === 'meetings') {
+        setWorkspaceTabView(mod);
+        setSelectedChannelId('');
         return;
       }
       if (mod === 'documents') {
@@ -1577,23 +1812,41 @@ function OrganizationsPage({
         return;
       }
 
+      if (mod === 'voice') {
+        setWorkspaceTabView('chat');
+        let voiceId = resolveDeptVoiceChannelId(channels, deptId, channelPermissionMatrix);
+        if (!voiceId) {
+          const existing = findDeptChannelByType(channels, deptId, 'voice');
+          voiceId = existing?._id ? String(existing._id) : '';
+        }
+        if (voiceId) setSelectedChannelId(voiceId);
+        if (orgId) {
+          navigate(
+            buildCommunicateChannelsPath(orgId, {
+              departmentId: deptId,
+              channelId: voiceId || '',
+            })
+          );
+        }
+        return;
+      }
+
+      // announcement / chat (default) — kênh text phòng ban
+      setWorkspaceTabView('announcement');
       let channelId = '';
 
-      const ensureDeptChannel = async (type) => {
+      const ensureDeptAnnouncement = async () => {
         if (!orgId) return '';
-        const existing = findDeptChannelByType(channels, deptId, type);
+        const existing = findDeptChannelByType(channels, deptId, 'announcement');
         if (existing?._id) return String(existing._id);
-
-        const resolver =
-          type === 'voice' ? resolveDeptVoiceChannelId : resolveDeptChatChannelId;
-        let id = resolver(channels, deptId, channelPermissionMatrix);
+        let id = resolveDeptAnnouncementChannelId(channels, deptId, channelPermissionMatrix);
         if (id) return id;
         try {
           await organizationAPI.createChannelByScope(orgId, {
             level: 'department',
             departmentId: deptId,
-            type,
-            name: type === 'voice' ? 'voice' : 'general',
+            type: 'announcement',
+            name: 'announcements',
           });
           await reloadOrgShell(orgId);
           const payload = await organizationAPI.getChannels(orgId, deptId);
@@ -1603,9 +1856,9 @@ function OrganizationsPage({
             channels
           );
           setChannels(merged);
-          const after = findDeptChannelByType(merged, deptId, type);
+          const after = findDeptChannelByType(merged, deptId, 'announcement');
           if (after?._id) return String(after._id);
-          id = resolver(merged, deptId, channelPermissionMatrix);
+          id = resolveDeptAnnouncementChannelId(merged, deptId, channelPermissionMatrix);
         } catch (error) {
           notifyError(
             resolveApiErrorMessage(error, {
@@ -1617,33 +1870,49 @@ function OrganizationsPage({
         return id;
       };
 
-      if (mod === 'voice') {
-        channelId = await ensureDeptChannel('voice');
-      } else {
-        channelId = await ensureDeptChannel('chat');
-      }
-
+      channelId = await ensureDeptAnnouncement();
       if (channelId) setSelectedChannelId(channelId);
-      setWorkspaceTabView('chat');
       if (orgId) {
         navigate(
           buildCommunicateChannelsPath(orgId, {
             departmentId: deptId,
-            channelId,
+            channelId: channelId || '',
           })
         );
       }
     },
     [
       canSelectDepartment,
+      handleSelectDepartment,
+      selectedOrganizationId,
       channels,
       channelPermissionMatrix,
       navigate,
-      notifyError,
-      queryClient,
-      selectedOrganizationId,
+      reloadOrgShell,
       t,
     ]
+  );
+
+  /** Task trên project card → mở Project Hub; module khác bỏ qua (project không thuộc phòng). */
+  const handleProjectModuleClick = useCallback(
+    async (project, module) => {
+      const mod = String(module || 'chat').toLowerCase();
+      if (mod === 'tasks' || mod === 'project') {
+        handleSelectOrgProject(project);
+      }
+    },
+    [handleSelectOrgProject]
+  );
+
+  const handleHubCardModuleClick = useCallback(
+    (id, module, raw = {}, meta = {}) => {
+      if (meta?.isProject || raw?.defaultBoardId || raw?.projectId) {
+        handleProjectModuleClick(raw, module);
+        return;
+      }
+      handleTeamModuleClick(id, module, raw);
+    },
+    [handleProjectModuleClick, handleTeamModuleClick]
   );
 
   const handleSelectChannel = (channelId) => {
@@ -1835,6 +2104,20 @@ function OrganizationsPage({
 
   const currentUserId = user?.userId || user?._id || user?.id;
 
+  const assignedTasksCount = useMemo(() => {
+    const uid = String(currentUserId || '').trim();
+    if (!uid) return 0;
+    const done = new Set(['done', 'completed', 'cancelled', 'canceled', 'closed']);
+    return (workspaceTasks || []).filter((task) => {
+      const assignee = String(
+        task?.assigneeId || task?.assignee?._id || task?.assignee || ''
+      ).trim();
+      if (assignee !== uid) return false;
+      const st = String(task?.status || '').toLowerCase();
+      return !done.has(st);
+    }).length;
+  }, [workspaceTasks, currentUserId]);
+
   const fetchSenderProfile = useCallback(async (uid) => {
     const res = await userService.getProfile(uid);
     const body = unwrapData(res);
@@ -1930,7 +2213,60 @@ function OrganizationsPage({
       setWorkspaceDocumentsError('');
       try {
         const overview = await fetchOrganizationDocumentsOverview(orgId);
-        setWorkspaceDocFiles(buildOrgFilesFromOverview(overview, t, locale));
+        const channelFiles = buildOrgFilesFromOverview(overview, t, locale);
+
+        // File đính kèm trên dự án user tham gia (song song, tối đa vài dự án gần nhất)
+        let projectFiles = [];
+        try {
+          const listRes = await projectAPI.list({ organizationId: orgId });
+          const projects = listRes?.data?.projects ?? listRes?.projects ?? listRes?.data ?? listRes ?? [];
+          const active = (Array.isArray(projects) ? projects : [])
+            .filter((p) => {
+              const st = String(p?.status || '').toLowerCase();
+              return p?.isActive !== false && st !== 'closed' && st !== 'archived';
+            })
+            .slice(0, 12);
+          const fileBatches = await Promise.all(
+            active.map(async (p) => {
+              const projectId = String(p?.projectId || p?._id || '').trim();
+              if (!projectId) return [];
+              try {
+                const res = await projectAPI.getFiles(projectId);
+                const rows = res?.data?.data ?? res?.data ?? res ?? [];
+                return (Array.isArray(rows) ? rows : []).map((f, idx) => ({
+                  id: `proj-${projectId}-${f.documentId || f.url || idx}`,
+                  source: 'project',
+                  name: String(f.name || t('documents.orgUntitledFile')),
+                  size: '-',
+                  sizeBytes: 0,
+                  typeLabel: '📄',
+                  category: 'library',
+                  categoryLabel: '',
+                  channelName: String(p.title || p.name || t('workspace.activeProjects')),
+                  departmentId: '',
+                  projectId,
+                  roomId: '',
+                  url: String(f.url || '').trim(),
+                  messageType: 'file',
+                  modified: '',
+                  owner: t('documents.orgMemberFallback'),
+                  raw: f,
+                }));
+              } catch {
+                return [];
+              }
+            })
+          );
+          projectFiles = fileBatches.flat();
+        } catch {
+          projectFiles = [];
+        }
+
+        const byId = new Map();
+        for (const f of [...channelFiles, ...projectFiles]) {
+          if (f?.id && !byId.has(f.id)) byId.set(f.id, f);
+        }
+        setWorkspaceDocFiles(Array.from(byId.values()));
       } catch (err) {
         setWorkspaceDocFiles([]);
         setWorkspaceDocumentsError(resolveApiErrorMessage(err, t('documents.orgLoadError')));
@@ -2141,6 +2477,10 @@ function OrganizationsPage({
   };
 
   const handleCreateDepartment = async () => {
+    if (!canManageWorkspaceStructure) {
+      notifyError(t('taskBoard.createBoardDenied'));
+      return;
+    }
     if (!selectedOrganizationId) {
       notifyError(t('organizations.selectOrgFirst'));
       return;
@@ -2155,6 +2495,10 @@ function OrganizationsPage({
   };
 
   const handleCreateDivision = async () => {
+    if (!canManageWorkspaceStructure) {
+      notifyError(t('taskBoard.createBoardDenied'));
+      return;
+    }
     if (!selectedOrganizationId) {
       notifyError(t('organizations.selectOrgFirst'));
       return;
@@ -2211,40 +2555,74 @@ function OrganizationsPage({
     }
   };
 
+  /** Hub «Tạo dự án» — prop tên onCreateTeam (legacy); quyền = canCreateProject. */
   const handleCreateTeam = async () => {
+    if (!canCreateProject) {
+      notifyError(t('taskBoard.createBoardDenied'));
+      return;
+    }
     if (!selectedOrganizationId) {
       notifyError(t('organizations.selectOrgFirst'));
       return;
     }
-    if (!selectedDepartmentId) {
-      notifyError(t('organizations.selectDeptBeforeTeam'));
-      return;
-    }
-    setCreateTeamName('');
-    setCreateTeamDepartmentId(String(selectedDepartmentId));
     setCreateTeamModalOpen(true);
   };
 
-  const handleSubmitCreateTeam = async () => {
-    if (!createTeamName?.trim()) {
-      notifyError(t('organizations.teamNameRequired'));
+  const handleSubmitCreateProject = async (payload) => {
+    if (!canCreateProject) {
+      notifyError(t('taskBoard.createBoardDenied'));
       return;
     }
-    if (!createTeamDepartmentId) {
-      notifyError(t('organizations.selectDepartmentRequired'));
+    if (!selectedOrganizationId) {
+      notifyError(t('organizations.selectOrgFirst'));
       return;
     }
+    if (!String(payload?.title || '').trim()) {
+      notifyError(t('adminTasks.createNeedTitle'));
+      return;
+    }
+    setCreatingProjectBoard(true);
     try {
-      await organizationAPI.createTeamByDepartment(selectedOrganizationId, createTeamDepartmentId, {
-        name: createTeamName.trim(),
+      const res = await projectAPI.create({
+        organizationId: String(selectedOrganizationId),
+        scopeType: 'organization',
+        scopeId: String(selectedOrganizationId),
+        title: payload.title,
+        description: payload.description,
+        projectCode: payload.projectCode,
+        scopeLabel: payload.scopeLabel || 'ORG',
+        dueDate: payload.dueDate,
+        background: payload.background,
+        visibility: payload.visibility,
+        delegationTemplateId: payload.delegationTemplateId,
+        members: payload.members,
       });
-      notifySuccess(t('organizationSettings.teamCreated'));
+      const created = unwrapTaskApiPayload(res);
+      const boardId = String(created?.defaultBoardId || created?.board?._id || '').trim();
+      const projectId = String(created?._id || created?.projectId || '').trim();
+      notifySuccess(t('adminTasks.createSuccess'));
       setCreateTeamModalOpen(false);
+      setSelectedTeamId('');
+      setWorkspaceTabView('tasks');
+      setSelectedChannelId('');
+      navigate(
+        buildCollaborateTasksPath(selectedOrganizationId, {
+          boardId,
+          projectId,
+        })
+      );
+      projectAPI
+        .list({ organizationId: selectedOrganizationId })
+        .then((listRes) => {
+          const raw = listRes?.data?.projects ?? listRes?.projects ?? listRes?.data ?? listRes ?? [];
+          setOrgProjects(Array.isArray(raw) ? raw : []);
+        })
+        .catch(() => {});
       await reloadOrgShell(selectedOrganizationId);
-      setSelectedDepartmentId(createTeamDepartmentId);
-      await loadTeams(selectedOrganizationId, createTeamDepartmentId);
-    } catch {
-      notifyError(t('organizationSettings.teamCreateFail'));
+    } catch (error) {
+      notifyError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.createFail') }));
+    } finally {
+      setCreatingProjectBoard(false);
     }
   };
 
@@ -2506,6 +2884,10 @@ function OrganizationsPage({
   };
 
   const handleCreateChannel = async (channelType = 'chat') => {
+    if (!canManageWorkspaceStructure) {
+      notifyError(t('taskBoard.createBoardDenied'));
+      return;
+    }
     const deptWorkspace =
       departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId;
     if (!selectedOrganizationId || !selectedDepartmentId) {
@@ -2803,6 +3185,49 @@ function OrganizationsPage({
       });
     },
     [selectedChannelType, enrichChannelMessages]
+  );
+
+  const handleAnnounceMeetingJoin = useCallback(
+    async ({ title: meetingTitle, joinPath, startAt } = {}) => {
+      const deptId = String(selectedDepartmentId || '').trim();
+      const orgId = String(selectedOrganizationId || '').trim();
+      if (!deptId || !orgId || !joinPath) return;
+      let roomId = resolveDeptAnnouncementChannelId(channels, deptId, channelPermissionMatrix);
+      if (!roomId) {
+        const existing = findDeptChannelByType(channels, deptId, 'announcement');
+        roomId = existing?._id ? String(existing._id) : '';
+      }
+      if (!roomId) return;
+      const perm = channelPermissionMatrix?.[String(roomId)] || {};
+      if (perm.canWrite === false) return;
+      const when = startAt ? new Date(startAt).toLocaleString() : '';
+      const content = [
+        `📅 ${meetingTitle || t('workspace.moduleMeetings')}`,
+        when ? when : null,
+        `${t('workspace.deptMeetingJoin')}: ${joinPath}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const payload = await api.post('/messages', {
+        roomId,
+        content,
+        messageType: 'text',
+        organizationId: orgId,
+      });
+      const created = unwrapData(payload);
+      if (String(selectedChannelId) === String(roomId)) {
+        await appendChannelMessage(created);
+      }
+    },
+    [
+      selectedDepartmentId,
+      selectedOrganizationId,
+      channels,
+      channelPermissionMatrix,
+      selectedChannelId,
+      appendChannelMessage,
+      t,
+    ]
   );
 
   const handleSendChatOption = async ({ kind, file, payload }) => {
@@ -3190,6 +3615,11 @@ function OrganizationsPage({
 
   useEffect(() => {
     if (landingDemo || !orgIdFromQuery || !organizationsLoaded) return;
+    // Route Dự án: chỉ giữ boardId/projectId — không restore dept/team workspace.
+    if (isProjectsRoute) {
+      if (workspaceTabProp === 'tasks') setWorkspaceTabView('tasks');
+      return;
+    }
     if (!departmentIdFromQuery && !teamIdFromQuery && !channelIdFromQuery) return;
     const key = `${orgIdFromQuery}|${departmentIdFromQuery}|${teamIdFromQuery}|${channelIdFromQuery}|${workspaceTabProp || ''}`;
     if (workspaceDeepLinkRef.current === key) return;
@@ -3236,6 +3666,7 @@ function OrganizationsPage({
     teamIdFromQuery,
     channelIdFromQuery,
     workspaceTabProp,
+    isProjectsRoute,
     channels,
     canSelectDepartment,
     canSelectTeam,
@@ -3243,20 +3674,38 @@ function OrganizationsPage({
     findBranchAndDivisionForDepartment,
   ]);
 
-  // Giữ departmentId/teamId trên URL tab Task để F5 quay lại đúng chỗ.
+  // Giữ departmentId/teamId/boardId trên URL tab Task để F5 quay lại đúng chỗ.
   useEffect(() => {
     if (landingDemo || !suiteLayout || !selectedOrganizationId) return;
     if (workspaceTabView !== 'tasks') return;
     const orgId = String(selectedOrganizationId);
 
-    // Workspace phòng: chỉ departmentId — không ghi teamId lên URL (tránh F5 bị “dính” Team QA).
+    // Org-level projects: chỉ sync boardId/projectId — không gắn department/team.
+    if (isProjectsRoute) {
+      const projectId = String(
+        new URLSearchParams(location.search).get('projectId') || ''
+      ).trim();
+      const next = buildCollaborateTasksPath(orgId, {
+        boardId: boardIdFromQuery || '',
+        projectId,
+      });
+      const current = `${location.pathname}${location.search}`;
+      if (current !== next) navigate(next, { replace: true });
+      return;
+    }
+
+    // Workspace phòng: departmentId (+ boardId) — không ghi teamId lên URL.
     if (departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId) {
-      if (String(departmentIdFromQuery || '') === String(selectedDepartmentId) && !teamIdFromQuery) {
+      if (
+        String(departmentIdFromQuery || '') === String(selectedDepartmentId) &&
+        !teamIdFromQuery
+      ) {
         return;
       }
       navigate(
         buildCollaborateTasksPath(orgId, {
           departmentId: selectedDepartmentId,
+          boardId: boardIdFromQuery || '',
         }),
         { replace: true }
       );
@@ -3275,6 +3724,7 @@ function OrganizationsPage({
         buildCollaborateTasksPath(orgId, {
           departmentId: deptId,
           teamId: selectedTeamId,
+          boardId: boardIdFromQuery || '',
         }),
         { replace: true }
       );
@@ -3284,11 +3734,15 @@ function OrganizationsPage({
     suiteLayout,
     selectedOrganizationId,
     workspaceTabView,
+    isProjectsRoute,
     departmentWorkspaceActive,
     selectedDepartmentId,
     selectedTeamId,
     departmentIdFromQuery,
     teamIdFromQuery,
+    boardIdFromQuery,
+    location.pathname,
+    location.search,
     navigate,
   ]);
 
@@ -3926,12 +4380,25 @@ function OrganizationsPage({
       suiteLayout={suiteLayout}
       suiteMode={suiteMode}
       departmentWorkspaceActive={departmentWorkspaceActive}
+      preferredTaskBoardId={boardIdFromQuery}
+      preferredProjectId={projectIdFromQuery}
+      onBackFromTasks={() => {
+        if (departmentWorkspaceActive) {
+          handleBackFromDepartmentWorkspace();
+        } else {
+          setSelectedTeamId('');
+        }
+      }}
+      memberDepartmentIds={memberDepartmentIds}
+      memberDepartmentChannelIds={memberDepartmentChannelIds}
       workspaceTabView={workspaceTabView}
       workspaceDocFiles={workspaceDocFiles}
       loadingWorkspaceDocuments={loadingWorkspaceDocuments}
       workspaceDocumentsError={workspaceDocumentsError}
       onWorkspaceDocumentsReload={() => loadWorkspaceDocuments(selectedOrganizationId)}
       notificationsFetchEnabled={notificationsFetchEnabled}
+      orgMembers={orgMembers}
+      onAnnounceMeetingJoin={handleAnnounceMeetingJoin}
       selectedOrganization={selectedOrganization}
       departments={sidebarDepartments}
       selectedDepartment={selectedDepartment}
@@ -3962,10 +4429,10 @@ function OrganizationsPage({
       onSelectDepartment={handleSelectDepartment}
       onSelectTeam={handleSelectTeam}
       onOpenNotificationsPage={openWorkspaceNotifications}
-      onCreateDivision={handleCreateDivision}
-      onCreateDepartment={handleCreateDepartment}
-      onCreateTeam={handleCreateTeam}
-      onCreateChannel={handleCreateChannel}
+      onCreateDivision={canManageWorkspaceStructure ? handleCreateDivision : undefined}
+      onCreateDepartment={canManageWorkspaceStructure ? handleCreateDepartment : undefined}
+      onCreateTeam={canCreateProject ? handleCreateTeam : undefined}
+      onCreateChannel={canManageWorkspaceStructure ? handleCreateChannel : undefined}
       onOpenChannelSettings={handleOpenChannelSettings}
       onOpenDivisionSettings={handleOpenDivisionSettings}
       onOpenDepartmentSettings={handleOpenDepartmentSettings}
@@ -4054,12 +4521,23 @@ function OrganizationsPage({
       <WorkspaceSlugFigmaShell
         organizationName={selectedOrganization?.name}
         activeTab={shellActiveTab}
-        showLanding={showTeamHub}
+        showLanding={isProjectsRoute ? showProjectsLanding : showTeamHub}
         selectedTeam={shellSelectedTeam}
         selectedDepartment={shellSelectedDepartment}
+        departmentMode={Boolean(
+          !isProjectsRoute &&
+            departmentWorkspaceActive &&
+            selectedDepartmentId &&
+            !selectedTeamId
+        )}
+        hideChrome={shellActiveTab === 'tasks' || isProjectsRoute}
         locale={locale}
         onTabChange={handleShellTabChange}
         onBackFromSubView={() => {
+          if (isProjectsRoute && hasOpenProjectBoard) {
+            navigate(buildCollaborateTasksPath(selectedOrganizationId), { replace: true });
+            return;
+          }
           if (departmentWorkspaceActive) {
             handleBackFromDepartmentWorkspace();
           } else {
@@ -4067,7 +4545,16 @@ function OrganizationsPage({
           }
         }}
         teamGrid={
-          showDepartmentHub ? (
+          showProjectsLanding ? (
+            <OrganizationTeamGrid
+              organizationName={selectedOrganization?.name}
+              projects={Array.isArray(orgProjects) ? orgProjects : []}
+              assignedTasksCount={assignedTasksCount}
+              activeProjectsCount={activeProjectsCount}
+              onCreateTeam={canCreateProject ? handleCreateTeam : undefined}
+              onSelectProject={(project) => handleSelectOrgProject(project)}
+            />
+          ) : showDepartmentHub ? (
             <OrganizationDepartmentGrid
               organizationId={selectedOrganizationId}
               organizationName={selectedOrganization?.name}
@@ -4080,6 +4567,9 @@ function OrganizationsPage({
               orgMyRole={selectedOrganization?.myRole}
               onSelectDepartment={(deptId) => handleSelectDepartment(deptId)}
               onDepartmentModuleClick={handleDepartmentModuleClick}
+              onCreateDepartment={
+                canManageWorkspaceStructure ? handleCreateDepartment : undefined
+              }
               onDepartmentSettings={
                 isOrgStructureAdmin ? handleOpenDepartmentSettings : undefined
               }
@@ -4097,14 +4587,15 @@ function OrganizationsPage({
               departments={sidebarDepartments}
               teams={teams}
               channels={channels}
+              projects={null}
+              assignedTasksCount={assignedTasksCount}
               onBack={
                 orgHubNeedsDepartmentStep && selectedDepartmentId
                   ? handleBackFromDepartmentHub
                   : undefined
               }
-              onCreateTeam={handleCreateTeam}
               onSelectTeam={(_team, teamId) => handleSelectTeam(teamId)}
-              onModuleClick={handleTeamModuleClick}
+              onModuleClick={handleHubCardModuleClick}
             />
           )
         }
@@ -4136,7 +4627,7 @@ function OrganizationsPage({
         centerScrollable={!isLgViewport}
         center={orgCenterContent}
         right={
-          memberAccessIncomplete || showTeamHub
+          memberAccessIncomplete || showTeamHub || workspaceTabView === 'tasks'
             ? null
             : selectedOrganizationId ? (
             selectedChannelType === 'voice' && !workspaceSearchOpen && !voiceChatDismissed ? (
@@ -5019,51 +5510,20 @@ function OrganizationsPage({
         </div>
       </Modal>
 
-      <Modal
+      <CreateTaskBoardModal
         isOpen={createTeamModalOpen}
-        onClose={() => setCreateTeamModalOpen(false)}
-        title={t('organizationSettings.createTeamTitle')}
-        size="sm"
-      >
-        <div className="space-y-3">
-          <label className="text-xs text-gray-300">
-            Phòng ban
-            <select
-              value={createTeamDepartmentId}
-              onChange={(event) => setCreateTeamDepartmentId(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {sidebarDepartments.map((department) => (
-                <option key={department._id} value={department._id}>
-                  {department.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            value={createTeamName}
-            onChange={(event) => setCreateTeamName(event.target.value)}
-            placeholder={t('organizationSettings.teamNamePh')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreateTeamModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitCreateTeam}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              Tạo team
-            </button>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => {
+          if (creatingProjectBoard) return;
+          setCreateTeamModalOpen(false);
+        }}
+        modalTitle={t('adminTasks.createOpen')}
+        defaultScopeType="organization"
+        organizationId={String(selectedOrganizationId || '')}
+        scopeId={String(selectedOrganizationId || '')}
+        defaultScopeLabel="ORG"
+        creating={creatingProjectBoard}
+        onSubmit={handleSubmitCreateProject}
+      />
 
       <Modal
         isOpen={createChannelModalOpen}

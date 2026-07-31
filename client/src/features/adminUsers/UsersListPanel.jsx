@@ -23,13 +23,13 @@ import {
   memberUserId,
 } from '../../utils/adminUserUtils';
 import {
-  buildOrgRoleBadgeByUserId,
+  buildOrgRoleRowsByUserId,
   buildResponsibilityByUserIdFromKeyLists,
   formatResponsibilityBadges,
   memberJobTitle,
-  orgRoleBadgeLabel,
   unwrapOrgList,
 } from '../../utils/userTaxonomyUtils';
+import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 function StatusBadge({ member, t }) {
   const key = memberStatusKey(member);
@@ -81,17 +81,23 @@ function UserRoleCell({ labels, emptyLabel }) {
   );
 }
 
-function OrgRoleBadgeCell({ badges, t }) {
-  if (!badges?.length) return null;
+function OrgRoleCell({ rows, emptyLabel }) {
+  if (!rows?.length) {
+    return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
+  }
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
-      {badges.map((key) => (
-        <span
-          key={key}
-          className="inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-500/15 dark:text-indigo-300"
-        >
-          {orgRoleBadgeLabel(key, t)}
-        </span>
+    <div className="flex max-w-[180px] flex-col gap-1">
+      {rows.map((row) => (
+        <div key={row.id} className="min-w-0">
+          <span className="inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-500/15 dark:text-indigo-300">
+            {row.label}
+          </span>
+          {row.scopeName ? (
+            <div className="mt-0.5 truncate text-[10px] text-muted-foreground" title={row.scopeName}>
+              {row.scopeName}
+            </div>
+          ) : null}
+        </div>
       ))}
     </div>
   );
@@ -166,22 +172,32 @@ export default function UsersListPanel({ orgId }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await organizationAPI.getStructure(orgId);
-        const body = res?.data?.data ?? res?.data ?? res;
+        const [structureRes, assignRes] = await Promise.all([
+          organizationAPI.getStructure(orgId),
+          orgRoleCatalogAPI.listAssignments(orgId).catch(() => null),
+        ]);
+        const body = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
+        const assignments =
+          assignRes?.data?.assignments ||
+          assignRes?.data?.data?.assignments ||
+          [];
         if (!cancelled) {
           setStructureRaw(body);
           setStructureMaps(collectDeptTeamMaps(body));
-          const badgeMap = buildOrgRoleBadgeByUserId(body);
-          setOrgRoleByUser(Object.fromEntries(badgeMap));
+          const rowMap = buildOrgRoleRowsByUserId(body, assignments, t);
+          setOrgRoleByUser(Object.fromEntries(rowMap));
         }
       } catch {
-        if (!cancelled) setStructureMaps({ departments: new Map(), teams: new Map() });
+        if (!cancelled) {
+          setStructureMaps({ departments: new Map(), teams: new Map() });
+          setOrgRoleByUser({});
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, t]);
 
   useEffect(() => {
     if (!orgId) return undefined;
@@ -408,6 +424,9 @@ export default function UsersListPanel({ orgId }) {
                     {t('adminUsers.colUserRole')}
                   </th>
                   <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
+                  <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
+                    {t('adminUsers.colOrgRole')}
+                  </th>
                   <th className="px-4 py-3">{t('adminUsers.colResponsibility')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
@@ -460,7 +479,12 @@ export default function UsersListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
-                        <OrgRoleBadgeCell badges={orgRoleByUser[id]} t={t} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <OrgRoleCell
+                          rows={orgRoleByUser[id]}
+                          emptyLabel={t('adminUsers.orgRoleNone')}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <ResponsibilityCell

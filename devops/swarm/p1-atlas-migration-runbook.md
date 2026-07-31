@@ -53,7 +53,7 @@ Biến bắt buộc:
 | chat-service | `CHAT_MONGODB_URI` (+ `MONGODB_URI` fallback) |
 | ai-task-service, ai-task-worker | `AI_TASK_MONGODB_URI` (+ `MONGODB_URI`) |
 
-**Thứ tự deploy rolling (downtime ngắn):** auth → user → role-permission → org → friend → notification → document → voice → task → chat → ai-task-service → ai-task-worker
+**Thứ tự deploy rolling (downtime ngắn):** auth → user → role-permission → org → friend → notification → document → voice → project → chat → ai-task-service → ai-task-worker
 
 Ghi downtime thực tế vào runbook khi chạy staging.
 

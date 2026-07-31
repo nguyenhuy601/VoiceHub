@@ -435,6 +435,16 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
       patch.division = department.division || null;
     }
 
+    const previousTeam =
+      patch.members !== undefined
+        ? await Team.findOne({
+            _id: req.params.teamId,
+            organization: req.params.orgId,
+          })
+            .select('members')
+            .lean()
+        : null;
+
     const doc = await Team.findOneAndUpdate(
       {
         _id: req.params.teamId,
@@ -448,6 +458,18 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
     }
     if (doc.isActive !== false) {
       await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+    }
+    if (patch.members !== undefined) {
+      const {
+        syncTeamHierarchyRolesFromMemberChange,
+      } = require('../clients/hierarchyRoleAssign.client');
+      await syncTeamHierarchyRolesFromMemberChange(
+        req.params.orgId,
+        doc._id,
+        doc.name,
+        previousTeam?.members || [],
+        doc.members || []
+      ).catch(() => null);
     }
     if (patch.isActive !== undefined) {
       await dualWriteSyncOuActive(req.params.orgId, 'Team', doc._id, doc.isActive !== false);

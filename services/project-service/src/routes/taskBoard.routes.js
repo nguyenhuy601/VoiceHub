@@ -36,6 +36,7 @@ router.delete('/lists/:listId/watch', controller.unwatchList.bind(controller));
 
 router.get('/:boardId/assignable-members', controller.listAssignableMembers.bind(controller));
 router.get('/:boardId', controller.getBoardDetail.bind(controller));
+router.patch('/:boardId', controller.patchBoard.bind(controller));
 router.post('/:boardId/archive', controller.archiveBoard.bind(controller));
 router.post('/:boardId/lists', controller.createList.bind(controller));
 router.post('/:boardId/cards', controller.createCard.bind(controller));
@@ -62,6 +63,7 @@ router.delete('/:boardId/sprints/:sprintId/cards/:cardId', boardOps.removeSprint
 router.get('/:boardId/workflow', boardOps.getWorkflow);
 router.put('/:boardId/workflow', boardOps.putWorkflow);
 router.post('/:boardId/workflow/seed-default', boardOps.seedWorkflow);
+router.post('/:boardId/workflow/apply-template', boardOps.applyWorkflowTemplate);
 router.post('/:boardId/transfer', boardOps.transferBoard);
 
 module.exports = router;

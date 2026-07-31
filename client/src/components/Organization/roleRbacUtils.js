@@ -183,10 +183,20 @@ function executiveTierFromRoleName(name) {
   const n = String(name || '').trim().toLowerCase();
   const norm = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (!n) return null;
-  if (norm.includes('quan tri') || norm.includes('administrator') || norm === 'admin' || norm.includes('owner')) {
+  if (
+    norm.includes('quan tri') ||
+    norm.includes('administrator') ||
+    norm === 'admin' ||
+    norm.includes('owner')
+  ) {
     return TIER_EXEC;
   }
-  if (norm.includes('nhan su') || norm === 'hr' || norm.includes('human resource')) {
+  if (
+    norm.includes('nhan su') ||
+    norm.includes('van hanh hr') ||
+    norm === 'hr' ||
+    norm.includes('human resource')
+  ) {
     return TIER_EXEC;
   }
   if (

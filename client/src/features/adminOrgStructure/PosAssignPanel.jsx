@@ -11,6 +11,7 @@ import {
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
+import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -28,6 +29,7 @@ export default function PosAssignPanel({ orgId }) {
   const [mode, setMode] = useState(titleParam ? 'existing' : 'existing');
   const [selectedTitle, setSelectedTitle] = useState(titleParam);
   const [customTitle, setCustomTitle] = useState('');
+  const [hrPositions, setHrPositions] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -37,14 +39,37 @@ export default function PosAssignPanel({ orgId }) {
     }
   }, [titleParam]);
 
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await organizationAPI.listHrPositions(orgId);
+        const data = res?.data?.data ?? res?.data ?? res;
+        if (cancelled) return;
+        setHrPositions(Array.isArray(data?.positions) ? data.positions : []);
+      } catch {
+        if (!cancelled) setHrPositions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
   const titles = useMemo(() => {
     const set = new Set();
     for (const m of members) {
       const title = memberJobTitle(m);
       if (title) set.add(title);
     }
+    for (const row of hrPositions || []) {
+      const title = String(row?.title || '').trim();
+      if (title) set.add(title);
+    }
+    if (String(selectedTitle || '').trim()) set.add(String(selectedTitle).trim());
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [members]);
+  }, [members, hrPositions, selectedTitle]);
 
   const jobTitle =
     mode === 'custom' ? String(customTitle || '').trim() : String(selectedTitle || '').trim();

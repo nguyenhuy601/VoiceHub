@@ -25,7 +25,7 @@ bash devops/scripts/rabbit-queue-depth.sh
 bash devops/swarm/observability/export-swarm-metrics.sh
 docker service logs -f voicehub_socket-service
 docker service logs -f voicehub_ai-task-extract-worker
-docker service logs -f voicehub_task-worker
+docker service logs -f voicehub_project-worker
 ```
 
 Deploy stack observability (khi cần):

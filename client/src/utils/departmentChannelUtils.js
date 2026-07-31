@@ -31,14 +31,31 @@ export function splitDeptVsTeamChannels(channels, departmentId, teams = []) {
 
 export function findDeptChannelByType(channels, departmentId, type = 'chat') {
   const deptId = String(departmentId || '');
-  const isVoice = String(type || 'chat').toLowerCase() === 'voice';
+  const want = String(type || 'chat').toLowerCase();
+  const isVoice = want === 'voice';
+  const isAnnouncement = want === 'announcement';
   const pool = channelsForDepartment(channels, deptId).filter((ch) => {
     const chType = String(ch.type || 'chat').toLowerCase();
-    return isVoice ? chType === 'voice' : chType !== 'voice';
+    if (isVoice) return chType === 'voice';
+    if (isAnnouncement) return chType === 'announcement' || chType === 'chat';
+    return chType !== 'voice';
   });
-  const preferredName = isVoice ? 'voice' : 'general';
-  const named = pool.find((ch) => String(ch.name || '').toLowerCase() === preferredName);
-  if (named?._id) return named;
+  const preferredNames = isVoice
+    ? ['voice']
+    : isAnnouncement
+      ? ['announcements', 'announcement', 'general']
+      : ['general'];
+  for (const preferredName of preferredNames) {
+    const named = pool.find((ch) => String(ch.name || '').toLowerCase() === preferredName);
+    if (named?._id) {
+      if (isAnnouncement && String(named.type || '').toLowerCase() === 'announcement') return named;
+      if (!isAnnouncement) return named;
+    }
+  }
+  if (isAnnouncement) {
+    const ann = pool.find((ch) => String(ch.type || '').toLowerCase() === 'announcement');
+    if (ann?._id) return ann;
+  }
   return pool[0] || null;
 }
 
@@ -47,12 +64,37 @@ export function resolveDeptChatChannelId(
   departmentId,
   permissionMatrix = null
 ) {
+  const annId = resolveDeptAnnouncementChannelId(channels, departmentId, permissionMatrix);
+  if (annId) return annId;
   const { chat } = splitChatVoiceChannels(channelsForDepartment(channels, departmentId));
   const readable = chat.filter((ch) => isReadableChannel(ch, permissionMatrix));
   const general = readable.find((ch) => String(ch.name || '').toLowerCase() === 'general');
   if (general?._id) return String(general._id);
   const first = readable[0];
   return first?._id ? String(first._id) : '';
+}
+
+/** Ưu tiên kênh type=announcement (Announcement Only). */
+export function resolveDeptAnnouncementChannelId(
+  channels,
+  departmentId,
+  permissionMatrix = null
+) {
+  const deptId = String(departmentId || '');
+  const pool = channelsForDepartment(channels, deptId).filter((ch) => {
+    const chType = String(ch.type || 'chat').toLowerCase();
+    return chType === 'announcement' || chType === 'chat';
+  });
+  const readable = pool.filter((ch) => isReadableChannel(ch, permissionMatrix));
+  const byName = (name) =>
+    readable.find((ch) => String(ch.name || '').toLowerCase() === name);
+  const preferred =
+    readable.find((ch) => String(ch.type || '').toLowerCase() === 'announcement') ||
+    byName('announcements') ||
+    byName('announcement') ||
+    byName('general') ||
+    readable[0];
+  return preferred?._id ? String(preferred._id) : '';
 }
 
 export function resolveDeptVoiceChannelId(

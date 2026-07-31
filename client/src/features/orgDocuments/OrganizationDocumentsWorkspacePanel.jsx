@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ExternalLink, FileText, Loader2, MessageSquare, Mic } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchToolbar, SearchFilterChips } from '../search';
-import { formatFileSize } from './orgDocumentUtils';
+import { formatFileSize, isSharedFilesCategory } from './orgDocumentUtils';
 import { useOrgDocumentCategoryMeta } from './useOrgDocumentCategoryMeta';
 
 function FileRowIcon({ file, isDark }) {
@@ -30,11 +30,65 @@ export default function OrganizationDocumentsWorkspacePanel({
   onReload,
   isDarkMode,
   onOpenInWorkspace,
+  /** Gợi ý phạm vi phòng (dept workspace). */
+  scopeHint = '',
+  /** Filter theo phòng — giữ Shared Files (library/announcement) + file thuộc dept. */
+  departmentId = '',
+  /** roomId thuộc kênh phòng (dept-only channels). */
+  departmentChannelIds = null,
+  /**
+   * Phạm vi membership: chỉ doc chat các phòng user thuộc + file dự án (source=project).
+   * Khi có, ưu tiên hơn departmentId đơn.
+   */
+  memberDepartmentIds = null,
+  memberChannelIds = null,
+  initialCategory = 'all',
 }) {
   const { t } = useAppStrings();
-  const { categoryMeta, countsByCategory, totalBytes } = useOrgDocumentCategoryMeta(files);
+  const scopedFiles = useMemo(() => {
+    const memberDepts = Array.isArray(memberDepartmentIds)
+      ? memberDepartmentIds.map(String).filter(Boolean)
+      : [];
+    const memberChannels =
+      memberChannelIds instanceof Set
+        ? memberChannelIds
+        : new Set((memberChannelIds || []).map(String).filter(Boolean));
 
-  const [activeCategory, setActiveCategory] = useState('all');
+    if (memberDepts.length || memberChannels.size) {
+      const deptSet = new Set(memberDepts);
+      return (files || []).filter((f) => {
+        if (String(f?.source || '') === 'project') return true;
+        const roomId = String(f?.roomId || '').trim();
+        if (roomId && memberChannels.has(roomId)) return true;
+        const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
+        if (fileDept && deptSet.has(fileDept)) return true;
+        return false;
+      });
+    }
+
+    const deptId = String(departmentId || '').trim();
+    if (!deptId) return files;
+    const channelSet =
+      departmentChannelIds instanceof Set
+        ? departmentChannelIds
+        : new Set((departmentChannelIds || []).map(String).filter(Boolean));
+    return (files || []).filter((f) => {
+      if (String(f?.source || '') === 'project') {
+        const projDept = String(f?.departmentId || '').trim();
+        return !projDept || projDept === deptId;
+      }
+      if (isSharedFilesCategory(f?.category)) return true;
+      const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
+      if (fileDept && fileDept === deptId) return true;
+      const roomId = String(f?.roomId || '').trim();
+      if (roomId && channelSet.has(roomId)) return true;
+      return false;
+    });
+  }, [files, departmentId, departmentChannelIds, memberDepartmentIds, memberChannelIds]);
+
+  const { categoryMeta, countsByCategory, totalBytes } = useOrgDocumentCategoryMeta(scopedFiles);
+
+  const [activeCategory, setActiveCategory] = useState(initialCategory || 'all');
   const [docQuery, setDocQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
 
@@ -62,14 +116,16 @@ export default function OrganizationDocumentsWorkspacePanel({
   );
 
   const filteredFiles = useMemo(() => {
-    let list = files;
-    if (activeCategory !== 'all') {
+    let list = scopedFiles;
+    if (activeCategory === 'shared') {
+      list = list.filter((f) => isSharedFilesCategory(f.category));
+    } else if (activeCategory !== 'all') {
       list = list.filter((f) => f.category === activeCategory);
     }
     const q = docQuery.trim().toLowerCase();
     if (!q) return list;
     return list.filter((f) => `${f.name} ${f.channelName} ${f.category}`.toLowerCase().includes(q));
-  }, [files, activeCategory, docQuery]);
+  }, [scopedFiles, activeCategory, docQuery]);
 
   const selectedFile = useMemo(
     () => filteredFiles.find((f) => f.id === selectedId) || null,
@@ -87,8 +143,9 @@ export default function OrganizationDocumentsWorkspacePanel({
         <div>
           <h3 className={`text-sm font-semibold ${title}`}>{t('documents.orgTitle')}</h3>
           <p className={`text-[11px] ${muted}`}>
-            {files.length} {t('documents.orgStatTotal').toLowerCase()} · {formatFileSize(totalBytes)}
+            {scopedFiles.length} {t('documents.orgStatTotal').toLowerCase()} · {formatFileSize(totalBytes)}
           </p>
+          {scopeHint ? <p className={`mt-1 text-[11px] ${muted}`}>{scopeHint}</p> : null}
         </div>
       </div>
 
