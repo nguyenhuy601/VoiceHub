@@ -117,7 +117,14 @@ function resolveTrustedAssigneeId(extraction, bodyAssigneeId) {
 }
 
 router.post('/confirm', async (req, res) => {
-  const { extractionId, assigneeId: bodyAssigneeId, boardId, listId } = req.body || {};
+  const {
+    extractionId,
+    assigneeId: bodyAssigneeId,
+    boardId,
+    listId,
+    ownerTeamId: bodyOwnerTeamId,
+    isProjectMilestone: bodyIsProjectMilestone,
+  } = req.body || {};
   const userId = req.user?.id || req.headers['x-user-id'];
   const idemKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 
@@ -133,8 +140,9 @@ router.post('/confirm', async (req, res) => {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng để xác nhận', 'AI_EXTRACTION_NOT_READY');
   }
 
+  let scope;
   try {
-    await assertCanUseAiTask(userId, extraction.organizationId);
+    scope = await assertCanUseAiTask(userId, extraction.organizationId);
   } catch (roleErr) {
     return fail(
       res,
@@ -177,7 +185,20 @@ router.post('/confirm', async (req, res) => {
     await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
     return fail(res, 422, 'Tin nhắn chưa có deadline rõ ngày/giờ nên chưa thể tạo task tự động', 'AI_DUE_DATE_REQUIRED');
   }
-  const assigneeId = resolveTrustedAssigneeId(locked, bodyAssigneeId);
+
+  // Chuẩn vàng: TL (ledTeamIds) mới gán NV; PM chỉ epic + ownerTeamId.
+  const led = new Set((scope?.ledTeamIds || []).map(String).filter(Boolean));
+  const role = String(scope?.membershipRole || '').toLowerCase();
+  const isOrgAdmin = role === 'owner' || role === 'admin';
+  const canAssignNv = isOrgAdmin || led.size > 0;
+  let assigneeId = canAssignNv ? resolveTrustedAssigneeId(locked, bodyAssigneeId) : undefined;
+  const ownerTeamId =
+    (bodyOwnerTeamId && String(bodyOwnerTeamId).trim()) ||
+    (draft.ownerTeamId && String(draft.ownerTeamId).trim()) ||
+    (draft.teamId && String(draft.teamId).trim()) ||
+    undefined;
+  const isProjectMilestone = Boolean(bodyIsProjectMilestone || draft.isProjectMilestone);
+
   const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
 
   let createRes;
@@ -194,6 +215,8 @@ router.post('/confirm', async (req, res) => {
         tags: Array.isArray(draft.tags) ? draft.tags : [],
         attachments,
         assigneeId: assigneeId || undefined,
+        ownerTeamId: ownerTeamId || undefined,
+        isProjectMilestone: isProjectMilestone || undefined,
         aiGenerated: true,
         sourceMessageId: locked.sourceRef?.messageId || undefined,
       },
