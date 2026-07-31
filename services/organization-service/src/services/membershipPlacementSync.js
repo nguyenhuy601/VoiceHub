@@ -10,6 +10,65 @@ const { upsertAssignmentsFromScopes, pickPrimaryScope } = require('./memberScope
 const { ensureAcceptedWithPeers } = require('../clients/departmentAutoFriend.client');
 const { logger } = require('@enterprise/shared');
 
+function toIdStrings(ids = []) {
+  return [
+    ...new Set(
+      (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+/**
+ * Sau khi user vào department/team qua role sync: auto-friend với peers cùng đơn vị.
+ * Fail-soft, chạy nền — không fail sync.
+ */
+function scheduleAutoFriendAfterRoleSync(userId, { departmentIds = [], teamIds = [] }) {
+  const uid = String(userId || '').trim();
+  if (!uid) return;
+
+  const deptIds = toIdStrings(departmentIds);
+  const tIds = toIdStrings(teamIds);
+  if (!deptIds.length && !tIds.length) return;
+
+  const peerCap = Math.max(2, Number(process.env.DEPARTMENT_AUTO_FRIEND_MAX_PEERS || 80) || 80);
+
+  setImmediate(() => {
+    (async () => {
+      const peers = new Set();
+
+      if (deptIds.length) {
+        const depts = await Department.find({ _id: { $in: deptIds } })
+          .select('members')
+          .lean();
+        for (const d of depts) {
+          for (const m of toIdStrings(d.members)) {
+            if (m !== uid) peers.add(m);
+          }
+        }
+      }
+
+      if (tIds.length) {
+        const teams = await Team.find({ _id: { $in: tIds }, isActive: true })
+          .select('members')
+          .lean();
+        for (const t of teams) {
+          for (const m of toIdStrings(t.members)) {
+            if (m !== uid) peers.add(m);
+          }
+        }
+      }
+
+      const peerList = [...peers].slice(0, peerCap);
+      if (!peerList.length) return;
+      await ensureAcceptedWithPeers(uid, peerList, { source: 'role_sync' });
+    })().catch((err) => {
+      logger.warn('[membershipPlacementSync] auto-friend failed:', err?.message || err);
+    });
+  });
+}
+
 /**
  * Khi user thuộc phòng ban: tự kết bạn (accepted) với mọi member khác trong các phòng đó.
  */
@@ -207,6 +266,13 @@ async function syncMembershipPlacementFromRoles(userId, organizationId) {
       logger.warn('[membershipPlacementSync] department auto-friend failed:', error.message);
       departmentAutoFriend = { ok: false, reason: error.message };
     }
+  }
+
+  if (targetDepartmentIds.length || targetTeamIds.length) {
+    scheduleAutoFriendAfterRoleSync(uid, {
+      departmentIds: targetDepartmentIds,
+      teamIds: targetTeamIds,
+    });
   }
 
   logger.info('[membershipPlacementSync] synced', {

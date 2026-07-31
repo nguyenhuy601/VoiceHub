@@ -1,7 +1,9 @@
 const Channel = require('../models/Channel');
 const Department = require('../models/Department');
+const { logger } = require('@enterprise/shared');
 const { invalidateOrgReadCache } = require('./orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+const { postDepartmentWelcomeMessage } = require('../clients/chatDepartmentWelcome.client');
 
 const DEFAULT_DEPT_CHANNEL_DEFS = [
   {
@@ -32,9 +34,22 @@ async function bumpOrgReadCache(orgId) {
   );
 }
 
+function scheduleDepartmentWelcome(organizationId, chatChannel, departmentName) {
+  if (!chatChannel?._id) return;
+  setImmediate(() => {
+    postDepartmentWelcomeMessage({
+      organizationId,
+      roomId: String(chatChannel._id),
+      departmentName,
+    }).catch((err) => {
+      logger.warn('[departmentChannelProvision] welcome failed:', err?.message || err);
+    });
+  });
+}
+
 /**
- * Idempotent: ensure department-scoped announcement channel exists.
- * (Voice cố định không còn provision mặc định — Meetings theo sự kiện.)
+ * Idempotent: ensure department-scoped general (chat) + voice channels exist.
+ * Khi tạo mới kênh chat → System Bot chào (D4), fail-soft.
  * @returns {Promise<{ created: object[], existing: object[] }>}
  */
 async function ensureDepartmentDefaultChannels({ orgId, departmentId, department: departmentDoc, actorId }) {
@@ -104,6 +119,10 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
 
   if (created.length) {
     await bumpOrgReadCache(organizationId);
+    const newChat = created.find((c) => String(c.type) === 'chat');
+    if (newChat) {
+      scheduleDepartmentWelcome(organizationId, newChat, department.name || '');
+    }
   }
 
   return { created, existing };
