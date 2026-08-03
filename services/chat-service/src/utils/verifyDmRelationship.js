@@ -13,6 +13,10 @@ function relationshipCacheKey(senderId, peerId) {
   return `dm:rel:v1:${a}:${b}`;
 }
 
+function isLazyEnsureEnabled() {
+  return String(process.env.DM_LAZY_ENSURE_FRIENDSHIP || 'true').toLowerCase() !== 'false';
+}
+
 async function readRelationshipCache(senderId, peerId) {
   const redis = getRedisClient();
   if (!redis) return null;
@@ -25,9 +29,10 @@ async function readRelationshipCache(senderId, peerId) {
   }
 }
 
+/** Chỉ cache blocked — không cache `none` (chặn lazy heal / auto-friend trễ). */
 async function writeRelationshipCache(senderId, peerId, rel) {
   const redis = getRedisClient();
-  if (!redis || !rel || rel.status === 'accepted') return;
+  if (!redis || !rel || rel.status !== 'blocked') return;
   try {
     await redis.setex(
       relationshipCacheKey(senderId, peerId),
@@ -36,6 +41,19 @@ async function writeRelationshipCache(senderId, peerId, rel) {
     );
   } catch {
     /* ignore cache errors */
+  }
+}
+
+async function clearRelationshipCache(senderId, peerId) {
+  const redis = getRedisClient();
+  if (!redis) return;
+  const a = String(senderId || '').trim();
+  const b = String(peerId || '').trim();
+  if (!a || !b) return;
+  try {
+    await redis.del(relationshipCacheKey(a, b), relationshipCacheKey(b, a));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -62,32 +80,38 @@ function throwFromRelationshipStatus(rel, peerId) {
 }
 
 /**
- * Chỉ cho phép gửi DM khi quan hệ accepted (friend-service).
- * @param {{ peerId: string, authorizationHeader?: string, senderId?: string }} opts
- * @throws {{ statusCode, code, message, blockerId? }}
+ * Heal Friendship khi auto-friend lúc xếp phòng bị miss (Directory DM).
+ * Không ghi đè blocked (friend-service ensureAccepted).
  */
-async function assertDmCanSend({ peerId, authorizationHeader, senderId }) {
-  if (String(process.env.DM_REQUIRE_FRIENDSHIP || 'true').toLowerCase() === 'false') {
-    return { status: 'accepted', skipped: true };
-  }
+async function tryLazyEnsureFriendship(senderId, peerId) {
+  if (!isLazyEnsureEnabled()) return false;
+  const sid = String(senderId || '').trim();
+  const fid = String(peerId || '').trim();
+  const token = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (!sid || !fid || !token) return false;
 
+  try {
+    const resp = await axios.post(
+      `${FRIEND_SERVICE_URL}/api/friends/internal/ensure-accepted`,
+      { userId: sid, peerUserIds: [fid], source: 'dm_lazy_heal' },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-gateway-internal-token': token,
+        },
+        timeout: Number(process.env.DM_LAZY_ENSURE_TIMEOUT_MS || 8000),
+        validateStatus: () => true,
+      }
+    );
+    return resp.status >= 200 && resp.status < 300;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRelationship({ peerId, authorizationHeader, senderId }) {
   const fid = String(peerId || '').trim();
   const sid = String(senderId || '').trim();
-  if (!fid) {
-    const err = new Error('receiverId is required');
-    err.statusCode = 400;
-    err.code = 'dm_invalid_peer';
-    throw err;
-  }
-
-  if (sid) {
-    const cached = await readRelationshipCache(sid, fid);
-    // Chỉ tin cache cho từ chối (blocked/none). Không cache-hit "accepted" — tránh gửi DM sau unfriend/block trong TTL.
-    if (cached && cached.status !== 'accepted') {
-      return throwFromRelationshipStatus(cached, fid);
-    }
-  }
-
   const auth = authorizationHeader && String(authorizationHeader).trim();
   const headers = {};
   if (auth && auth.toLowerCase().startsWith('bearer ')) {
@@ -122,7 +146,47 @@ async function assertDmCanSend({ peerId, authorizationHeader, senderId }) {
     throw err;
   }
 
-  const rel = resp.data?.data || { status: 'none' };
+  return resp.data?.data || { status: 'none' };
+}
+
+/**
+ * Chỉ cho phép gửi DM khi quan hệ accepted (friend-service).
+ * Lazy ensure khi chưa accepted (trừ blocked) — bù auto-friend miss.
+ * @param {{ peerId: string, authorizationHeader?: string, senderId?: string }} opts
+ * @throws {{ statusCode, code, message, blockerId? }}
+ */
+async function assertDmCanSend({ peerId, authorizationHeader, senderId }) {
+  if (String(process.env.DM_REQUIRE_FRIENDSHIP || 'true').toLowerCase() === 'false') {
+    return { status: 'accepted', skipped: true };
+  }
+
+  const fid = String(peerId || '').trim();
+  const sid = String(senderId || '').trim();
+  if (!fid) {
+    const err = new Error('receiverId is required');
+    err.statusCode = 400;
+    err.code = 'dm_invalid_peer';
+    throw err;
+  }
+
+  if (sid) {
+    const cached = await readRelationshipCache(sid, fid);
+    // Chỉ tin cache blocked. Không tin cache none — để lazy heal chạy được.
+    if (cached && cached.status === 'blocked') {
+      return throwFromRelationshipStatus(cached, fid);
+    }
+  }
+
+  let rel = await fetchRelationship({ peerId: fid, authorizationHeader, senderId: sid });
+
+  if (sid && rel.status !== 'accepted' && rel.status !== 'blocked') {
+    const healed = await tryLazyEnsureFriendship(sid, fid);
+    if (healed) {
+      await clearRelationshipCache(sid, fid);
+      rel = await fetchRelationship({ peerId: fid, authorizationHeader, senderId: sid });
+    }
+  }
+
   if (sid) {
     await writeRelationshipCache(sid, fid, rel);
   }
@@ -138,4 +202,9 @@ function dmErrorToJson(err) {
   };
 }
 
-module.exports = { assertDmCanSend, dmErrorToJson };
+module.exports = {
+  assertDmCanSend,
+  dmErrorToJson,
+  isLazyEnsureEnabled,
+  clearRelationshipCache,
+};
