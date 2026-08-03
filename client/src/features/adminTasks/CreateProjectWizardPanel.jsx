@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
@@ -15,7 +15,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { projectAPI, DEFAULT_PROJECT_ROLES } from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberDisplayName, memberUserId } from '../../utils/adminUserUtils';
+import { memberDisplayName } from '../../utils/adminUserUtils';
 import {
   DELEGATION_TEMPLATE_IDS,
   PROJECT_TYPES,
@@ -57,9 +57,6 @@ export default function CreateProjectWizardPanel({ orgId, onCreated, onCancel })
   const [customerName, setCustomerName] = useState('');
   const [customerCompany, setCustomerCompany] = useState('');
   const [catalogRoles, setCatalogRoles] = useState([]);
-  const [responsibilities, setResponsibilities] = useState([]);
-  const [respFilter, setRespFilter] = useState('');
-  const [suggestedUserIds, setSuggestedUserIds] = useState(() => new Set());
   const [pickUserId, setPickUserId] = useState('');
   const [pickRoleKeys, setPickRoleKeys] = useState(() => new Set(['developer']));
   const [seedMembers, setSeedMembers] = useState([]);
@@ -71,16 +68,13 @@ export default function CreateProjectWizardPanel({ orgId, onCreated, onCancel })
     let cancelled = false;
     (async () => {
       try {
-        const [rolesRes, respRes, structureRes] = await Promise.all([
+        const [rolesRes, structureRes] = await Promise.all([
           projectAPI.listRoleCatalog(orgId),
-          organizationAPI.listResponsibilities(orgId).catch(() => null),
           organizationAPI.getStructure(orgId).catch(() => null),
         ]);
         if (cancelled) return;
         const roles = unwrap(rolesRes);
         setCatalogRoles(Array.isArray(roles) && roles.length ? roles : DEFAULT_PROJECT_ROLES);
-        const respList = unwrap(respRes);
-        setResponsibilities(Array.isArray(respList) ? respList : respList?.items || []);
         const structure = unwrap(structureRes);
         const deps = Array.isArray(structure?.departments) ? structure.departments : [];
         setDepartments(deps);
@@ -92,35 +86,6 @@ export default function CreateProjectWizardPanel({ orgId, onCreated, onCancel })
       cancelled = true;
     };
   }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId || !respFilter) {
-      setSuggestedUserIds(new Set());
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await organizationAPI.listResponsibilityUsersByKey(orgId, respFilter);
-        const data = unwrap(res);
-        const ids = Array.isArray(data?.userIds) ? data.userIds : Array.isArray(data) ? data : [];
-        if (!cancelled) setSuggestedUserIds(new Set(ids.map(String)));
-      } catch {
-        if (!cancelled) setSuggestedUserIds(new Set());
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, respFilter]);
-
-  const suggestedFilter = useCallback(
-    (m) => {
-      if (!respFilter || !suggestedUserIds.size) return true;
-      return suggestedUserIds.has(memberUserId(m));
-    },
-    [respFilter, suggestedUserIds]
-  );
 
   const togglePickRole = (key) => {
     setPickRoleKeys((prev) => {
@@ -423,32 +388,11 @@ export default function CreateProjectWizardPanel({ orgId, onCreated, onCancel })
       {step === 1 ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           <div className="space-y-3">
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminTasks.createRespFilter')}</span>
-              <select
-                className={adminInputClass()}
-                value={respFilter}
-                onChange={(e) => setRespFilter(e.target.value)}
-              >
-                <option value="">{t('adminTasks.createRespAll')}</option>
-                {responsibilities.map((r) => (
-                  <option key={String(r.key || r._id)} value={String(r.key || '')}>
-                    {r.label || r.key}
-                  </option>
-                ))}
-              </select>
-            </label>
             <AdminUserPicker
               orgId={orgId}
               selectedUserId={pickUserId}
               onSelect={setPickUserId}
-              filterFn={respFilter ? suggestedFilter : undefined}
               hint={t('adminTasks.createPickerHint')}
-              subtitleFn={(m) =>
-                suggestedUserIds.has(memberUserId(m))
-                  ? t('adminTasks.createSuggested')
-                  : undefined
-              }
             />
           </div>
           <div className="space-y-3">

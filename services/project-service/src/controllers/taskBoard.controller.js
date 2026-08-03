@@ -85,7 +85,6 @@ class TaskBoardController {
       const data = await boardService.listBoardAssignableMembers({
         userId,
         boardId,
-        responsibilityKey: req.query?.responsibilityKey,
         evaluateCanAssign:
           req.query?.evaluateCanAssign === '1' ||
           req.query?.evaluateCanAssign === 'true',

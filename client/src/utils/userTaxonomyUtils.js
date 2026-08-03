@@ -119,29 +119,6 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
   return map;
 }
 
-export function buildResponsibilityByUserIdFromKeyLists(entries) {
-  const map = new Map();
-  for (const { key, userIds } of entries || []) {
-    const k = String(key || '').trim();
-    if (!k) continue;
-    for (const rawId of userIds || []) {
-      const uid = String(rawId || '').trim();
-      if (!uid) continue;
-      const prev = map.get(uid) || [];
-      if (!prev.includes(k)) prev.push(k);
-      map.set(uid, prev);
-    }
-  }
-  return map;
-}
-
-export function formatResponsibilityBadges(keys, { maxVisible = 2 } = {}) {
-  const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
-  if (!list.length) return { visible: [], overflow: 0 };
-  const visible = list.slice(0, maxVisible);
-  return { visible, overflow: Math.max(0, list.length - maxVisible) };
-}
-
 export function orgRoleBadgeLabel(key, t) {
   if (key === 'dept_head') return t('adminUsers.orgRoleBadgeDeptHead');
   if (key === 'team_lead') return t('adminUsers.orgRoleBadgeTeamLead');
@@ -153,22 +130,6 @@ export function inferJobTitleForBackfill(membershipRole) {
   if (role === 'owner' || role === 'admin') return 'Director';
   if (role === 'hr') return 'QA';
   return 'Junior';
-}
-
-export function inferResponsibilityKeysForBackfill({ jobTitle, membershipRole }) {
-  const title = String(jobTitle || '').toLowerCase();
-  const role = String(membershipRole || 'member').toLowerCase();
-  const keys = [];
-
-  if (title.includes('backend')) keys.push('backend');
-  if (title.includes('frontend')) keys.push('frontend');
-  if (title.includes('qa') || title.includes('quality')) keys.push('qa');
-  if (title.includes('devops')) keys.push('devops');
-  if (title.includes('architect')) keys.push('architecture');
-
-  if (keys.length) return [...new Set(keys)];
-  if (role === 'owner' || role === 'admin') return ['product'];
-  return [];
 }
 
 export function unwrapOrgList(res) {

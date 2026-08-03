@@ -225,17 +225,12 @@ export const taskAPI = {
 
   getBoardAssignableMembers: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
-    const params = {};
-    if (opts.responsibilityKey) params.responsibilityKey = opts.responsibilityKey;
-    if (opts.evaluateCanAssign) params.evaluateCanAssign = '1';
     return requestWithWorkspaceFallback({
       ctx,
       workspaceRequest: () =>
-        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/assignable-members`, {
-          params,
-        }),
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/assignable-members`),
       legacyRequest: () =>
-        apiClient.get(`${legacyBoardBase()}/${boardId}/assignable-members`, { params }),
+        apiClient.get(`${legacyBoardBase()}/${boardId}/assignable-members`),
     });
   },
 

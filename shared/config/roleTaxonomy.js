@@ -1,11 +1,10 @@
 /**
- * Bốn lớp + Responsibility (People vs Delivery vs Ops).
+ * Bốn lớp vai trò (People vs Delivery vs Ops).
  *
  * - Position / HR Role: Senior Backend, QA… — hồ sơ nhân sự; CẤM dùng phân quyền / assign.
  * - Organization Role: Department Manager, Team Manager, Director — People Graph.
  * - Project Role: Tech Lead, Developer… — trong Project; Delegation Graph / CanAssign.
  * - Permission: quyền thao tác cụ thể — gắn qua System Role (= nhóm Permission).
- * - Responsibility: phạm vi chuyên môn/module — gợi ý assignee; không grant permission.
  *
  * System/Tenant membership (owner|admin|hr|member) vận hành tenant, không phải Organization Role phòng ban.
  */
@@ -15,7 +14,6 @@ const ROLE_KIND = Object.freeze({
   ORGANIZATION: 'organization_role',
   PROJECT: 'project_role',
   SYSTEM: 'system_membership',
-  RESPONSIBILITY: 'responsibility',
 });
 
 /** Organization Role keys (People Graph). */
@@ -71,39 +69,10 @@ const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
   WATCHER: 'watcher',
 });
 
-/** Specialty / module keys — gợi ý assignee, không phải Role. */
-const DEFAULT_RESPONSIBILITY_KEYS = Object.freeze([
-  'backend',
-  'frontend',
-  'qa',
-  'devops',
-  'architecture',
-  'product',
-  'design',
-]);
-
-const DEFAULT_RESPONSIBILITY_LABELS = Object.freeze({
-  backend: 'Backend',
-  frontend: 'Frontend',
-  qa: 'QA',
-  devops: 'DevOps',
-  architecture: 'Architecture',
-  product: 'Product',
-  design: 'Design',
-});
-
 function assertNotHrRoleForPermission(kind) {
   if (kind === ROLE_KIND.HR) {
     const err = new Error('HR Role must not be used for permission or task assignment');
     err.errorCode = 'HR_ROLE_NOT_FOR_PERMISSION';
-    throw err;
-  }
-}
-
-function assertNotResponsibilityForPermission(kind) {
-  if (kind === ROLE_KIND.RESPONSIBILITY) {
-    const err = new Error('Responsibility must not be used as a permission grant');
-    err.errorCode = 'RESPONSIBILITY_NOT_FOR_PERMISSION';
     throw err;
   }
 }
@@ -114,8 +83,5 @@ module.exports = {
   LEGACY_MEMBERSHIP_ALIAS_DEBT,
   DEFAULT_HR_ROLE_KEYS,
   DEFAULT_PROJECT_ROLE_KEYS,
-  DEFAULT_RESPONSIBILITY_KEYS,
-  DEFAULT_RESPONSIBILITY_LABELS,
   assertNotHrRoleForPermission,
-  assertNotResponsibilityForPermission,
 };

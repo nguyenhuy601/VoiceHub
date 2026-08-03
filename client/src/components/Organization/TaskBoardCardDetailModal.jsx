@@ -68,7 +68,6 @@ export default function TaskBoardCardDetailModal({
   const [labelIds, setLabelIds] = useState([]);
   const [dueDateLocal, setDueDateLocal] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
-  const [responsibilityKey, setResponsibilityKey] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [checklists, setChecklists] = useState([]);
   const [checklistDraft, setChecklistDraft] = useState('');
@@ -100,7 +99,6 @@ export default function TaskBoardCardDetailModal({
     setLabelIds(parseCardLabelIds(card.tags));
     setDueDateLocal(toDatetimeLocalValue(card.dueDate));
     setAssigneeId(card.assigneeId ? String(card.assigneeId) : '');
-    setResponsibilityKey(card.responsibilityKey ? String(card.responsibilityKey) : '');
     setAttachments(Array.isArray(card.attachments) ? [...card.attachments] : []);
     setChecklists(Array.isArray(card.checklists) ? JSON.parse(JSON.stringify(card.checklists)) : []);
     setChecklistDraft('');
@@ -148,11 +146,7 @@ export default function TaskBoardCardDetailModal({
     (async () => {
       setLoadingMembers(true);
       try {
-        const res = await taskAPI.getBoardAssignableMembers(String(boardId), {
-          ...boardApiOpts,
-          responsibilityKey: responsibilityKey || undefined,
-          evaluateCanAssign: Boolean(responsibilityKey),
-        });
+        const res = await taskAPI.getBoardAssignableMembers(String(boardId), boardApiOpts);
         const payload = unwrapTaskApiPayload(res);
         const rows = Array.isArray(payload?.members) ? payload.members : [];
         if (!cancelled) setMembers(rows);
@@ -165,7 +159,7 @@ export default function TaskBoardCardDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, boardId, workspaceSlug, responsibilityKey]);
+  }, [isOpen, boardId, workspaceSlug]);
 
   const boardMembers = useMemo(() => {
     return members
@@ -175,8 +169,6 @@ export default function TaskBoardCardDetailModal({
         avatar: String(m.displayName || m.username || '??')
           .slice(0, 2)
           .toUpperCase(),
-        suggested: Boolean(m.suggested),
-        canAssign: m.canAssign,
       }))
       .filter((m) => m.id);
   }, [members, t]);
@@ -415,26 +407,6 @@ export default function TaskBoardCardDetailModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <label className={`mb-2 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Responsibility
-          <select
-            className={`mt-1 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
-            value={responsibilityKey}
-            disabled={saving}
-            onChange={async (e) => {
-              const next = e.target.value;
-              setResponsibilityKey(next);
-              await save({ responsibilityKey: next || '' });
-            }}
-          >
-            <option value="">—</option>
-            {['backend', 'frontend', 'qa', 'devops', 'architecture', 'product', 'design'].map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
         {loadingMembers ? (
           <p className="text-xs opacity-70">{t('taskBoard.loadingBoardMembers')}</p>
         ) : boardMembers.length === 0 ? (
@@ -459,10 +431,10 @@ export default function TaskBoardCardDetailModal({
               <button
                 key={m.id}
                 type="button"
-                disabled={saving || (m.suggested && m.canAssign === false)}
+                disabled={saving}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ${
                   assigneeId === m.id ? 'bg-white/10' : 'hover:bg-white/5'
-                } ${m.suggested && m.canAssign === false ? 'opacity-40' : ''}`}
+                }`}
                 onClick={async () => {
                   const check = canSetCardAssignee(taskWorkspaceScope, card?.ownerTeamId);
                   if (!check.ok) {
@@ -481,10 +453,7 @@ export default function TaskBoardCardDetailModal({
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white">
                   {m.avatar}
                 </span>
-                <span className="truncate">
-                  {m.name}
-                  {m.suggested ? ' ★' : ''}
-                </span>
+                <span className="truncate">{m.name}</span>
               </button>
             ))}
           </div>

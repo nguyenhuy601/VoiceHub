@@ -38,6 +38,36 @@ const AUDIENCE_LABEL = {
   all_employees: 'All Employees',
 };
 
+/** Preset nền board (gradient + solid) — cùng hướng CreateTaskBoardModal. */
+const BOARD_BACKGROUND_PRESETS = [
+  'linear-gradient(135deg,#1f2937,#111827)',
+  'linear-gradient(135deg,#7c2d12,#1f2937)',
+  'linear-gradient(135deg,#0f766e,#1e293b)',
+  'linear-gradient(135deg,#312e81,#1e1b4b)',
+  'linear-gradient(135deg,#7e22ce,#1f2937)',
+  '#0f172a',
+  '#1e3a5f',
+  '#14532d',
+  '#7c2d12',
+  '#4c1d95',
+];
+
+function isHexColor(value) {
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(value || '').trim());
+}
+
+function normalizeHexForPicker(value) {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw;
+  if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+    const r = raw[1];
+    const g = raw[2];
+    const b = raw[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return '#0f172a';
+}
+
 function defaultVisibilityPolicy() {
   return {
     discoverAudiences: {
@@ -285,6 +315,11 @@ export default function ProjectHubSettingsPanel({
       }
       if (resolvedProjectId) {
         await projectAPI.patch(resolvedProjectId, body);
+        // Approval bind cùng Save chính — tránh chọn policy rồi chỉ bấm Lưu form.
+        await projectAPI.bindProjectApprovalPolicy(
+          resolvedProjectId,
+          taskDonePolicyId || null
+        );
       } else {
         const opts = apiCtx || { organizationId };
         await taskAPI.patchBoard(boardId, body, opts);
@@ -382,15 +417,46 @@ export default function ProjectHubSettingsPanel({
                     onChange={(e) => setDescription(e.target.value)}
                   />
                 </label>
-                <label className={`${fieldLabelCls} sm:col-span-2`}>
-                  {t('workspace.projectHubFieldBackground')}
-                  <input
-                    className={inputCls}
-                    value={background}
-                    onChange={(e) => setBackground(e.target.value)}
-                    placeholder="#0f172a hoặc URL"
-                  />
-                </label>
+                <div className={`${fieldLabelCls} sm:col-span-2`}>
+                  <span>{t('workspace.projectHubFieldBackground')}</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {BOARD_BACKGROUND_PRESETS.map((preset) => {
+                      const selected = background === preset;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          title={preset}
+                          aria-label={preset}
+                          aria-pressed={selected}
+                          onClick={() => setBackground(preset)}
+                          className={`h-9 w-9 shrink-0 rounded-lg border-2 shadow-inner transition ${
+                            selected
+                              ? 'border-primary ring-2 ring-primary/30'
+                              : 'border-border hover:border-primary/50'
+                          }`}
+                          style={{ background: preset }}
+                        />
+                      );
+                    })}
+                    <label
+                      className="flex h-9 items-center gap-2 rounded-lg border border-border px-2 text-xs font-medium text-foreground"
+                      title={t('workspace.projectHubBackgroundPickColor')}
+                    >
+                      <input
+                        type="color"
+                        className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
+                        value={normalizeHexForPicker(background)}
+                        onChange={(e) => setBackground(e.target.value)}
+                        aria-label={t('workspace.projectHubBackgroundPickColor')}
+                      />
+                      <span className={muted}>{t('workspace.projectHubBackgroundPickColor')}</span>
+                    </label>
+                  </div>
+                  {background && !BOARD_BACKGROUND_PRESETS.includes(background) && !isHexColor(background) ? (
+                    <p className={`mt-1.5 truncate text-[11px] font-normal ${muted}`}>{background}</p>
+                  ) : null}
+                </div>
               </div>
             </section>
 

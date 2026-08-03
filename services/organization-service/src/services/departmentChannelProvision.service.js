@@ -119,9 +119,13 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
 
   if (created.length) {
     await bumpOrgReadCache(organizationId);
-    const newChat = created.find((c) => String(c.type) === 'chat');
-    if (newChat) {
-      scheduleDepartmentWelcome(organizationId, newChat, department.name || '');
+    // Branch hiện tại seed announcement-only; fallback chat / first created.
+    const welcomeChannel =
+      created.find((c) => String(c.type) === 'announcement') ||
+      created.find((c) => String(c.type) === 'chat') ||
+      created[0];
+    if (welcomeChannel) {
+      scheduleDepartmentWelcome(organizationId, welcomeChannel, department.name || '');
     }
   }
 

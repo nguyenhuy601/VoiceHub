@@ -1,6 +1,6 @@
 /**
- * Mirror BE shared/config/roleTaxonomy — 4 lớp + Responsibility.
- * HR Role / Responsibility không dùng phân quyền.
+ * Mirror BE shared/config/roleTaxonomy — 4 lớp vai trò.
+ * HR Role không dùng phân quyền.
  */
 
 export const ROLE_KIND = Object.freeze({
@@ -8,7 +8,6 @@ export const ROLE_KIND = Object.freeze({
   ORGANIZATION: 'organization_role',
   PROJECT: 'project_role',
   SYSTEM: 'system_membership',
-  RESPONSIBILITY: 'responsibility',
 });
 
 export const ORGANIZATION_ROLE_KEYS = Object.freeze({
@@ -93,24 +92,4 @@ export const DEFAULT_PROJECT_ROLE_CAN_ASSIGN = Object.freeze({
   reviewer: false,
   release_manager: true,
   watcher: false,
-});
-
-export const DEFAULT_RESPONSIBILITY_KEYS = Object.freeze([
-  'backend',
-  'frontend',
-  'qa',
-  'devops',
-  'architecture',
-  'product',
-  'design',
-]);
-
-export const DEFAULT_RESPONSIBILITY_LABELS = Object.freeze({
-  backend: 'Backend',
-  frontend: 'Frontend',
-  qa: 'QA',
-  devops: 'DevOps',
-  architecture: 'Architecture',
-  product: 'Product',
-  design: 'Design',
 });

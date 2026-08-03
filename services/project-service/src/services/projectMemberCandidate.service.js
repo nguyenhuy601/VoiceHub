@@ -2,10 +2,8 @@ const ProjectMembership = require('../models/ProjectMembership');
 const ProjectMember = require('../models/ProjectMember');
 const ProjectRole = require('../models/ProjectRole');
 const Project = require('../models/Project');
-const { fetchUserIdsByResponsibilityKey } = require('../clients/organizationResponsibility.client');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
-const { mapProjectRoleToResponsibilities } = require('@enterprise/shared/config/projectRoleResponsibilityMap');
 const { summarizeProjectRoleStaffing } = require('../utils/projectStaffingSummary');
 const {
   flattenSegments,
@@ -69,21 +67,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     targetRoleKey
   );
 
-  const mappedResponsibilities = mapProjectRoleToResponsibilities(targetRoleKey);
-  const responsibilityEntries = await Promise.all(
-    mappedResponsibilities.map(async (key) => [key, await fetchUserIdsByResponsibilityKey(organizationId, key, actorUserId)])
-  );
-  const responsibilityByUserId = new Map();
-  for (const [key, userIds] of responsibilityEntries) {
-    for (const userId of userIds || []) {
-      const uid = String(userId || '').trim();
-      if (!uid) continue;
-      const list = responsibilityByUserId.get(uid) || [];
-      if (!list.includes(key)) list.push(key);
-      responsibilityByUserId.set(uid, list);
-    }
-  }
-
   const roleRow = await ProjectRole.findOne({
     organizationId,
     key: targetRoleKey,
@@ -103,9 +86,7 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     priorRoleUserIds = [...new Set(priorRows.map((row) => String(row.userId || '')).filter(Boolean))];
   }
 
-  let unionUserIds = [
-    ...new Set([...responsibilityByUserId.keys(), ...priorRoleUserIds].filter((id) => !existingUserIds.has(id))),
-  ];
+  let unionUserIds = [...new Set(priorRoleUserIds.filter((id) => !existingUserIds.has(id)))];
 
   const relatedDeptIds = (Array.isArray(project.relatedDepartmentIds)
     ? project.relatedDepartmentIds
@@ -119,7 +100,7 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     String(scope?.membershipRole || '').toLowerCase() === 'owner' ||
     String(scope?.membershipRole || '').toLowerCase() === 'admin';
 
-  /** Phase 3: scope gợi ý theo related departments (trừ org admin). */
+  /** Scope gợi ý theo related departments (trừ org admin). */
   let relatedUserIds = null;
   if (relatedDeptIds.length) {
     const roster = await fetchDepartmentRoster(organizationId, {
@@ -167,7 +148,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
   const profileByUserId = await enrichProfiles(unionUserIds);
 
   const items = unionUserIds.map((userId) => {
-    const responsibilityKeys = responsibilityByUserId.get(userId) || [];
     const hasPriorRole = priorRoleUserIds.includes(userId);
     const rows = rowsByUser.get(userId) || [];
     const flat = flattenSegments(rows);
@@ -179,7 +159,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
       : classifyAvailability(allocatedPct);
 
     const suggestReasons = [];
-    if (responsibilityKeys.length) suggestReasons.push('responsibility');
     if (hasPriorRole) suggestReasons.push('prior_role');
     if (relatedUserIds?.has(userId)) suggestReasons.push('related_department');
     if (availability === 'available') suggestReasons.push('capacity_available');
@@ -187,14 +166,12 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     const capacityScore = Math.round(
       availablePct +
         (availability === 'available' ? 25 : availability === 'partial' ? 5 : -50) +
-        responsibilityKeys.length * 10 +
         (hasPriorRole ? 5 : 0)
     );
 
     return {
       userId,
       displayName: profileByUserId.get(userId)?.displayName || userId.slice(-6),
-      responsibilityKeys,
       priorRoleKeys: hasPriorRole ? [targetRoleKey] : [],
       allocationStatus,
       allocatedPct,
@@ -206,7 +183,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     };
   });
 
-  // Rank Available → Partial → Overallocated, rồi score
   const rank = { available: 0, partial: 1, overallocated: 2 };
   items.sort((a, b) => {
     const ra = rank[a.availability] ?? 9;
@@ -229,4 +205,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
   };
 }
 
-module.exports = { listMemberCandidates };
+module.exports = {
+  listMemberCandidates,
+};

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import adminUserAPI from '../../services/api/adminUserAPI';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import { getInitials } from '../../utils/helpers';
 import {
   memberDepartmentId,
@@ -17,6 +16,12 @@ import {
   formatRbacRoleLabels,
 } from '../../utils/adminUserUtils';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
+import { flattenOrgStructure } from '../../utils/adminOrgStructureUtils';
+import {
+  resolveOrgRolesForUser,
+  memberJobTitle,
+} from '../../utils/userTaxonomyUtils';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import CapabilityReviewPanel from './CapabilityReviewPanel';
 
 const TABS = [
@@ -66,7 +71,6 @@ export default function AdminUserDetailDrawer({
   teamName,
   rbacRoles = [],
   structureRaw = null,
-  responsibilityKeys = [],
   formatWhen,
   onCapabilityStatusChange,
 }) {
@@ -76,8 +80,6 @@ export default function AdminUserDetailDrawer({
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [loadedResponsibilityKeys, setLoadedResponsibilityKeys] = useState([]);
-  const [taxonomyLoading, setTaxonomyLoading] = useState(false);
 
   const userId = member ? memberUserId(member) : '';
   const name = member ? memberDisplayName(member) : '';
@@ -99,38 +101,9 @@ export default function AdminUserDetailDrawer({
 
   const positionTitle = member ? memberJobTitle(member) : '';
 
-  const respKeysDisplay =
-    tab === 'taxonomy' && loadedResponsibilityKeys.length
-      ? loadedResponsibilityKeys
-      : responsibilityKeys;
-
   useEffect(() => {
     if (!open) setTab('info');
   }, [open, userId]);
-
-  useEffect(() => {
-    if (!open || tab !== 'taxonomy' || !orgId || !userId) return undefined;
-    if (responsibilityKeys.length) {
-      setLoadedResponsibilityKeys(responsibilityKeys);
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      setTaxonomyLoading(true);
-      try {
-        const res = await organizationAPI.getUserResponsibilities(orgId, userId);
-        const keys = unwrapOrgList(res).map((r) => r.responsibilityKey || r.key).filter(Boolean);
-        if (!cancelled) setLoadedResponsibilityKeys(keys);
-      } catch {
-        if (!cancelled) setLoadedResponsibilityKeys([]);
-      } finally {
-        if (!cancelled) setTaxonomyLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, tab, orgId, userId, responsibilityKeys]);
 
   useEffect(() => {
     if (!open || !orgId || !userId || tab !== 'history') return undefined;
@@ -333,12 +306,6 @@ export default function AdminUserDetailDrawer({
                   className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
                 >
                   {t('adminUsers.taxonomyLinkPosition')}
-                </Link>
-                <Link
-                  to={`/app/admin/rbac/responsibilities/assign${q}`}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
-                >
-                  {t('adminUsers.taxonomyLinkResponsibility')}
                 </Link>
                 <Link
                   to={`/app/admin/rbac/organization-roles/lookup${q}`}

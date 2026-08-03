@@ -147,7 +147,7 @@ const taskSchema = new mongoose.Schema(
       ],
       default: [],
     },
-    /** Responsibility key (org catalog) — gợi ý assignee. */
+    /** Legacy field — app no longer reads/writes; kept for Mongo compatibility. */
     responsibilityKey: {
       type: String,
       trim: true,

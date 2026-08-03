@@ -157,6 +157,39 @@ async function ensureProjectMembership({
   return row;
 }
 
+/**
+ * Hydrate displayName/avatar cho roster — tránh FE hiện 6 ký tự ObjectId.
+ */
+async function enrichMembershipUserLabels(userIds = []) {
+  const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+  const unique = [...new Set((userIds || []).map(String).filter(Boolean))];
+  const entries = await Promise.all(
+    unique.map(async (uid) => {
+      let displayName = uid.slice(-6);
+      let avatar = null;
+      let email = '';
+      let username = null;
+      try {
+        const res = await fetchUserProfileByIdInternal(uid);
+        const profile = res?.data?.data ?? res?.data ?? null;
+        displayName =
+          profile?.displayName ||
+          profile?.fullName ||
+          profile?.username ||
+          (profile?.email ? String(profile.email).split('@')[0] : '') ||
+          displayName;
+        avatar = profile?.avatar || null;
+        email = String(profile?.email || '').trim();
+        username = profile?.username || null;
+      } catch {
+        /* optional — giữ fallback mã ngắn */
+      }
+      return [uid, { displayName, avatar, email, username }];
+    })
+  );
+  return new Map(entries);
+}
+
 async function listProjectMemberships(projectOrBoardId) {
   let projectId = String(projectOrBoardId || '').trim();
   const asProject = await Project.findById(projectId).select('_id').lean();
@@ -170,10 +203,26 @@ async function listProjectMemberships(projectOrBoardId) {
   const roleMap = new Map(roles.map((r) => [String(r._id), r]));
   const { mapProjectMembersByUser } = require('./projectMember.service');
   const resourceByUser = await mapProjectMembersByUser(projectId);
+  const profileByUser = await enrichMembershipUserLabels(rows.map((r) => r.userId));
   return rows.map((r) => {
     const resource = resourceByUser.get(String(r.userId)) || null;
+    const profile = profileByUser.get(String(r.userId)) || null;
     return {
       ...r,
+      displayName: profile?.displayName || undefined,
+      avatar: profile?.avatar || undefined,
+      email: profile?.email || undefined,
+      username: profile?.username || undefined,
+      user: profile
+        ? {
+            _id: String(r.userId),
+            id: String(r.userId),
+            displayName: profile.displayName,
+            avatar: profile.avatar,
+            email: profile.email,
+            username: profile.username,
+          }
+        : undefined,
       projectRole: roleMap.get(String(r.projectRoleId)) || null,
       resource: resource
         ? {

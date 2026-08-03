@@ -11,11 +11,9 @@ import {
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
-import { DEFAULT_RESPONSIBILITY_KEYS } from '../../utils/roleTaxonomy';
 
 const STATUSES = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -36,10 +34,8 @@ export default function TasksManagePanel({ orgId }) {
   const [editPriority, setEditPriority] = useState('medium');
   const [saving, setSaving] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
-  const [createResp, setCreateResp] = useState('');
   const [createAssignee, setCreateAssignee] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [respCatalog, setRespCatalog] = useState([]);
+  const [boardMembers, setBoardMembers] = useState([]);
   const [creating, setCreating] = useState(false);
 
   const setBoardId = (id) => {
@@ -76,42 +72,25 @@ export default function TasksManagePanel({ orgId }) {
   }, [load]);
 
   useEffect(() => {
-    if (!orgId) return;
-    (async () => {
-      try {
-        const res = await organizationAPI.listResponsibilities(orgId);
-        const data = res?.data?.data ?? res?.data ?? res;
-        setRespCatalog(Array.isArray(data) && data.length ? data : DEFAULT_RESPONSIBILITY_KEYS.map((k) => ({ key: k, label: k })));
-      } catch {
-        setRespCatalog(DEFAULT_RESPONSIBILITY_KEYS.map((k) => ({ key: k, label: k })));
-      }
-    })();
-  }, [orgId]);
-
-  useEffect(() => {
-    if (!boardId || !createResp) {
-      setSuggestions([]);
+    if (!boardId) {
+      setBoardMembers([]);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const res = await taskAPI.getBoardAssignableMembers(boardId, {
-          organizationId: orgId,
-          responsibilityKey: createResp,
-          evaluateCanAssign: true,
-        });
+        const res = await taskAPI.getBoardAssignableMembers(boardId, { organizationId: orgId });
         const payload = unwrapTaskApiPayload(res);
         const rows = Array.isArray(payload?.members) ? payload.members : [];
-        if (!cancelled) setSuggestions(rows);
+        if (!cancelled) setBoardMembers(rows);
       } catch {
-        if (!cancelled) setSuggestions([]);
+        if (!cancelled) setBoardMembers([]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [boardId, createResp, orgId]);
+  }, [boardId, orgId]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -180,7 +159,6 @@ export default function TasksManagePanel({ orgId }) {
         {
           listId,
           title: createTitle.trim(),
-          responsibilityKey: createResp || undefined,
           assigneeId: createAssignee || undefined,
         },
         { organizationId: orgId }
@@ -212,24 +190,6 @@ export default function TasksManagePanel({ orgId }) {
               />
             </label>
             <label className={adminLabelClass()}>
-              {t('adminTasks.manageResponsibility')}
-              <select
-                className={adminInputClass()}
-                value={createResp}
-                onChange={(e) => {
-                  setCreateResp(e.target.value);
-                  setCreateAssignee('');
-                }}
-              >
-                <option value="">—</option>
-                {respCatalog.map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {r.label || r.key}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={adminLabelClass()}>
               {t('adminTasks.manageAssignee')}
               <select
                 className={adminInputClass()}
@@ -237,16 +197,12 @@ export default function TasksManagePanel({ orgId }) {
                 onChange={(e) => setCreateAssignee(e.target.value)}
               >
                 <option value="">—</option>
-                {suggestions.map((m) => {
+                {boardMembers.map((m) => {
                   const id = String(m.userId || '');
                   const label = m.displayName || m.username || id;
-                  const badge = m.suggested
-                    ? ` ★ ${t('adminTasks.manageSuggested')}${m.canAssign === false ? ' (deny)' : ''}`
-                    : '';
                   return (
-                    <option key={id} value={id} disabled={m.canAssign === false && m.suggested}>
+                    <option key={id} value={id}>
                       {label}
-                      {badge}
                     </option>
                   );
                 })}
@@ -310,7 +266,6 @@ export default function TasksManagePanel({ orgId }) {
                 <p className="text-xs text-muted-foreground">
                   {card.status || '—'} · {card.priority || '—'}
                   {card.assigneeId ? ` · assignee ${card.assigneeId}` : ''}
-                  {card.responsibilityKey ? ` · resp ${card.responsibilityKey}` : ''}
                 </p>
                 {(card.tags || []).length ? (
                   <p className="mt-1 text-xs text-muted-foreground">tags: {(card.tags || []).join(', ')}</p>

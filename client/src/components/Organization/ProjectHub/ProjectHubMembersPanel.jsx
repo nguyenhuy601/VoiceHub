@@ -10,6 +10,7 @@ import {
   memberDepartmentId,
   memberUserId,
 } from '../../../utils/adminUserUtils';
+import { enrichMembershipsWithProfiles } from '../../../features/search/enrichOrgMembers';
 import UserAvatar from '../../Shared/UserAvatar';
 import AllocationSegmentsEditor, {
   segmentsFromApi,
@@ -102,10 +103,10 @@ export default function ProjectHubMembersPanel({
   const [rolesLoading, setRolesLoading] = useState(false);
   const [projectSummary, setProjectSummary] = useState(null);
 
-  const [candidateRoleKey, setCandidateRoleKey] = useState('');
-  const [candidateUsers, setCandidateUsers] = useState([]);
-  const [candidateStaffingSummary, setCandidateStaffingSummary] = useState(null);
-  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  /** Roster Related Departments (capacity/planner). */
+  const [deptRosterItems, setDeptRosterItems] = useState([]);
+  const [deptRosterHint, setDeptRosterHint] = useState(null);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [formMode, setFormMode] = useState('add');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
@@ -176,6 +177,14 @@ export default function ProjectHubMembersPanel({
         });
       } else {
         if (roleKey && !prev.roles.includes(roleKey)) prev.roles.push(roleKey);
+        // Prefer real display name over ObjectId-tail fallback once enrich arrives.
+        const nextName = resolveDisplayName(m, orgById);
+        if (nextName && nextName !== prev.name && nextName !== uid.slice(-6)) {
+          prev.name = nextName;
+        }
+        if (!prev.avatar) {
+          prev.avatar = m?.user?.avatar || m?.avatar || orgById.get(uid)?.avatar || '';
+        }
         if (!prev.allocations?.length && (m.allocations?.length || m?.resource?.allocations?.length)) {
           prev.allocations = m.allocations || m.resource.allocations;
           prev.allocationStatus = m.allocationStatus || m.resource?.allocationStatus || prev.allocationStatus;
@@ -216,8 +225,6 @@ export default function ProjectHubMembersPanel({
     setSelectedRoleKeys([]);
     setAllocSegments(defaultAllocSegments());
     setBillable(false);
-    setCandidateUsers([]);
-    setCandidateStaffingSummary(null);
     setPeerProjects([]);
   };
 
@@ -270,9 +277,8 @@ export default function ProjectHubMembersPanel({
       setDeptNameById(new Map());
       setBulkDeptId('');
       setStructureDepts([]);
-      setCandidateRoleKey('');
-      setCandidateUsers([]);
-      setCandidateStaffingSummary(null);
+      setDeptRosterItems([]);
+      setDeptRosterHint(null);
       setFormMode('add');
       setSelectedUserId('');
       setSelectedRoleKeys([]);
@@ -293,6 +299,9 @@ export default function ProjectHubMembersPanel({
           title: String(data?.title || '').trim(),
           projectCode: String(data?.projectCode || '').trim(),
           requiredProjectRoles: Array.isArray(data?.requiredProjectRoles) ? data.requiredProjectRoles : [],
+          relatedDepartmentIds: Array.isArray(data?.relatedDepartmentIds)
+            ? data.relatedDepartmentIds.map(String)
+            : [],
         });
 
         const [membersRes, rolesRes, structureRes] = await Promise.all([
@@ -301,11 +310,14 @@ export default function ProjectHubMembersPanel({
           organizationAPI.getStructure(nextOrgId).catch(() => null),
         ]);
         const wrapped = unwrap(membersRes);
-        const orgRows = Array.isArray(wrapped?.members)
+        const orgRowsRaw = Array.isArray(wrapped?.members)
           ? wrapped.members
           : Array.isArray(wrapped)
             ? wrapped
             : [];
+        const orgRows = await enrichMembershipsWithProfiles(orgRowsRaw, {
+          fallback: '—',
+        });
         const roles = unwrap(rolesRes);
         if (cancelled) return;
         setOrgMembers(orgRows);
@@ -351,27 +363,29 @@ export default function ProjectHubMembersPanel({
 
   useEffect(() => {
     if (!canManage || formMode !== 'add' || !projectIdStr) return;
-    const roleKey = String(candidateRoleKey || '').trim();
-    if (!roleKey) {
-      setCandidateUsers([]);
-      setCandidateStaffingSummary(null);
-      setCandidatesLoading(false);
-      return;
-    }
     let cancelled = false;
     (async () => {
-      setCandidatesLoading(true);
+      setRosterLoading(true);
       try {
-        const res = await projectAPI.listMemberCandidates(projectIdStr, roleKey);
+        const res = await projectAPI.getProjectPlanner(projectIdStr, {
+          includeOverallocated: '1',
+        });
         const data = unwrap(res);
         if (cancelled) return;
-        setCandidateUsers(Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []);
-        setCandidateStaffingSummary(data?.staffingSummary || null);
-        if (data?.project) setProjectSummary(data.project);
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setDeptRosterItems(items);
+        setDeptRosterHint(data?.hint || null);
+        if (data?.relatedDepartmentIds && Array.isArray(data.relatedDepartmentIds)) {
+          setProjectSummary((prev) =>
+            prev
+              ? { ...prev, relatedDepartmentIds: data.relatedDepartmentIds.map(String) }
+              : prev
+          );
+        }
       } catch (err) {
         if (!cancelled) {
-          setCandidateUsers([]);
-          setCandidateStaffingSummary(null);
+          setDeptRosterItems([]);
+          setDeptRosterHint(null);
           toast.error(
             resolveApiErrorMessage(err, {
               t,
@@ -380,13 +394,37 @@ export default function ProjectHubMembersPanel({
           );
         }
       } finally {
-        if (!cancelled) setCandidatesLoading(false);
+        if (!cancelled) setRosterLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [canManage, formMode, projectIdStr, candidateRoleKey, t]);
+  }, [canManage, formMode, projectIdStr, t]);
+
+  const rosterByDepartment = useMemo(() => {
+    const groups = new Map();
+    for (const row of deptRosterItems || []) {
+      if (row?.alreadyMember) continue;
+      const uid = String(row?.userId || '').trim();
+      if (!uid || existingUserIds.has(uid)) continue;
+      const deptId = String(row?.departmentId || 'unknown');
+      const deptName = String(row?.departmentName || '').trim() || deptId;
+      if (!groups.has(deptId)) {
+        groups.set(deptId, { departmentId: deptId, departmentName: deptName, members: [] });
+      }
+      groups.get(deptId).members.push(row);
+    }
+    return [...groups.values()].sort((a, b) =>
+      String(a.departmentName).localeCompare(String(b.departmentName), 'vi')
+    );
+  }, [deptRosterItems, existingUserIds]);
+
+  const relatedDeptsEmpty =
+    deptRosterHint === 'related_departments_empty' ||
+    (!rosterLoading &&
+      !deptRosterItems.length &&
+      !(projectSummary?.relatedDepartmentIds || []).length);
 
   useEffect(() => {
     const deptId = String(bulkDeptId || '').trim();
@@ -426,34 +464,6 @@ export default function ProjectHubMembersPanel({
     return true;
   }, [canManage, projectIdStr, selectedUserId, selectedRoleKeys, rolesLoading, orgLoading]);
 
-  const projectRequiredRoles = useMemo(
-    () => (Array.isArray(projectSummary?.requiredProjectRoles) ? projectSummary.requiredProjectRoles : []),
-    [projectSummary]
-  );
-
-  const fallbackStaffingSummary = useMemo(() => {
-    const roleKey = String(candidateRoleKey || '').trim().toLowerCase();
-    if (!roleKey) return null;
-    const requiredRow = projectRequiredRoles.find(
-      (row) => String(row?.roleKey || '').trim().toLowerCase() === roleKey
-    );
-    const currentCount = rows.filter((row) =>
-      (Array.isArray(row.roles) ? row.roles : []).some(
-        (item) => String(item || '').trim().toLowerCase() === roleKey
-      )
-    ).length;
-    const requiredCount = Number(requiredRow?.requiredCount) || 0;
-    return {
-      roleKey,
-      requiredCount,
-      currentCount,
-      remainingCount: Math.max(requiredCount - currentCount, 0),
-      isFilled: requiredCount > 0 && currentCount >= requiredCount,
-    };
-  }, [candidateRoleKey, projectRequiredRoles, rows]);
-
-  const effectiveStaffingSummary = candidateStaffingSummary || fallbackStaffingSummary;
-
   const toggleRoleKey = (key, canAssign = true) => {
     if (!canAssign) return;
     const rk = String(key || '').trim();
@@ -470,13 +480,6 @@ export default function ProjectHubMembersPanel({
     const userId = String(candidate?.userId || candidate?.id || '').trim();
     if (!userId) return;
     setSelectedUserId(userId);
-    if (candidateRoleKey) {
-      setSelectedRoleKeys((prev) => {
-        const next = new Set(prev || []);
-        next.add(String(candidateRoleKey));
-        return [...next];
-      });
-    }
   };
 
   const toggleBulkRole = (key, canAssign = true) => {
@@ -588,60 +591,6 @@ export default function ProjectHubMembersPanel({
   const formatRoleKeys = (keys = []) =>
     keys.map((k) => roleLabelByKey.get(k) || shortRoleLabel('', k)).filter(Boolean).join(' · ') ||
     '—';
-
-  const formatCandidateReasons = (candidate) => {
-    const reasons = [];
-    if (candidate?.responsibilityKeys?.length) {
-      reasons.push(
-        t('workspace.projectHubMembersCandidateReasonResp', {
-          keys: candidate.responsibilityKeys.join(', '),
-        })
-      );
-    }
-    if (candidate?.priorRoleKeys?.length) {
-      reasons.push(
-        t('workspace.projectHubMembersCandidateReasonPrior', {
-          key:
-            roleLabelByKey.get(candidate.priorRoleKeys[0]) ||
-            shortRoleLabel('', candidate.priorRoleKeys[0]),
-        })
-      );
-    }
-    return reasons.join(' · ');
-  };
-
-  const renderStaffingSummary = () => {
-    if (!candidateRoleKey || !effectiveStaffingSummary) return null;
-    if (effectiveStaffingSummary.requiredCount <= 0) {
-      return (
-        <p className={`rounded-lg border border-dashed border-border px-3 py-2 text-xs ${muted}`}>
-          {t('workspace.projectHubMembersStaffingUnset')}
-        </p>
-      );
-    }
-    return (
-      <div
-        className={`rounded-lg border px-3 py-2 text-xs ${
-          effectiveStaffingSummary.isFilled
-            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700'
-            : 'border-amber-500/30 bg-amber-500/5 text-amber-700'
-        }`}
-      >
-        <div className="font-semibold">
-          {effectiveStaffingSummary.isFilled
-            ? t('workspace.projectHubMembersStaffingFilled')
-            : t('workspace.projectHubMembersStaffingNeeds')}
-        </div>
-        <div className="mt-1">
-          {t('workspace.projectHubMembersStaffingSummary', {
-            required: effectiveStaffingSummary.requiredCount,
-            current: effectiveStaffingSummary.currentCount,
-            remaining: effectiveStaffingSummary.remainingCount,
-          })}
-        </div>
-      </div>
-    );
-  };
 
   const formatAllocSummary = (allocations = []) => {
     if (!allocations?.length) return '—';
@@ -841,91 +790,104 @@ export default function ProjectHubMembersPanel({
                 <div className="space-y-4">
                   {formMode === 'add' ? (
                     <div className="space-y-2">
-                      <label className={`block text-[11px] font-medium ${muted}`}>
-                        {t('workspace.projectHubMembersFilterRole')}
-                        <select
-                          value={candidateRoleKey}
-                          onChange={(e) => setCandidateRoleKey(e.target.value)}
-                          disabled={rolesLoading || submitting}
-                          className={`${fieldCls} mt-1`}
-                        >
-                          <option value="">{t('workspace.projectHubMembersFilterRolePh')}</option>
-                          {assignableRoles.map((role) => (
-                            <option key={role._id || role.key} value={role.key}>
-                              {shortRoleLabel(role.label, role.key)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="max-h-36 overflow-y-auto rounded-lg border border-border bg-background">
-                        {renderStaffingSummary() ? (
-                          <div className="border-b border-border p-2">{renderStaffingSummary()}</div>
-                        ) : null}
-                        {!candidateRoleKey ? (
-                          <p className={`px-3 py-4 text-center text-xs ${muted}`}>
-                            {t('workspace.projectHubMembersPickRoleFirst')}
-                          </p>
-                        ) : candidatesLoading ? (
+                      <p className={`text-[11px] font-semibold uppercase tracking-wide ${muted}`}>
+                        {t('workspace.projectHubMembersPickFromDepts')}
+                      </p>
+                      <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background">
+                        {rosterLoading ? (
                           <p className={`px-3 py-4 text-center text-xs ${muted}`}>…</p>
-                        ) : !candidateUsers.length ? (
+                        ) : relatedDeptsEmpty ? (
+                          <p className={`px-3 py-4 text-center text-xs ${muted}`}>
+                            {t('workspace.projectHubMembersNeedRelatedDepts')}
+                          </p>
+                        ) : !rosterByDepartment.length ? (
                           <p className={`px-3 py-4 text-center text-xs ${muted}`}>
                             {t('workspace.projectHubMembersNoCandidates')}
                           </p>
                         ) : (
-                          <ul className="divide-y divide-border">
-                            {candidateUsers.slice(0, 40).map((u) => {
-                              const userId = String(u.userId || u.id || '').trim();
-                              const selected = String(selectedUserId) === userId;
-                              const reasonText = formatCandidateReasons(u);
-                              return (
-                                <li key={userId}>
-                                  <button
-                                    type="button"
-                                    onClick={() => chooseCandidate(u)}
-                                    disabled={submitting}
-                                    className={[
-                                      'flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
-                                      selected ? 'bg-primary/10' : 'hover:bg-muted/40',
-                                    ].join(' ')}
-                                  >
-                                    <span className="min-w-0 flex-1">
-                                      <span
-                                        className={`block truncate text-sm ${
-                                          selected ? 'font-semibold text-foreground' : titleCls
-                                        }`}
-                                      >
-                                        {u.displayName || userId}
-                                      </span>
-                                      <span className={`mt-0.5 block text-[10px] ${muted}`}>
-                                        {reasonText || t('workspace.projectHubMembersCandidateReasonGeneric')}
-                                      </span>
-                                    </span>
-                                    {u.availability === 'available' ||
-                                    (u.allocationStatus === 'ok' && (u.availablePct ?? 100) >= 100) ? (
-                                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                        {t('workspace.projectHubMembersCandidateAvailable')}
-                                        {typeof u.availablePct === 'number'
-                                          ? ` ${Math.round(u.availablePct)}%`
-                                          : ''}
-                                      </span>
-                                    ) : u.availability === 'partial' ? (
-                                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                                        {t('workspace.projectHubMembersCandidatePartial')}
-                                        {typeof u.availablePct === 'number'
-                                          ? ` ${Math.round(u.availablePct)}%`
-                                          : ''}
-                                      </span>
-                                    ) : u.availability === 'overallocated' ||
-                                      u.allocationStatus === 'overallocated' ? (
-                                      <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
-                                        {t('workspace.projectHubAllocOverBadge')}
-                                      </span>
-                                    ) : null}
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
+                          <div className="divide-y divide-border">
+                            {rosterByDepartment.map((group) => (
+                              <div key={group.departmentId}>
+                                <div
+                                  className={`sticky top-0 z-[1] border-b border-border/60 bg-muted/50 px-3 py-1.5 text-[11px] font-semibold ${titleCls}`}
+                                >
+                                  {group.departmentName}
+                                  <span className={`ml-1.5 font-normal tabular-nums ${muted}`}>
+                                    ({group.members.length})
+                                  </span>
+                                </div>
+                                <ul className="divide-y divide-border/50">
+                                  {group.members.map((u) => {
+                                    const userId = String(u.userId || '').trim();
+                                    const selected = String(selectedUserId) === userId;
+                                    const jobTitle = String(u.jobTitle || '').trim() || '—';
+                                    const allocPct =
+                                      typeof u.allocatedPct === 'number'
+                                        ? Math.round(u.allocatedPct)
+                                        : null;
+                                    return (
+                                      <li key={userId}>
+                                        <button
+                                          type="button"
+                                          onClick={() => chooseCandidate(u)}
+                                          disabled={submitting}
+                                          className={[
+                                            'flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
+                                            selected ? 'bg-primary/10' : 'hover:bg-muted/40',
+                                          ].join(' ')}
+                                        >
+                                          <span className="min-w-0 flex-1">
+                                            <span
+                                              className={`block truncate text-sm ${
+                                                selected ? 'font-semibold text-foreground' : titleCls
+                                              }`}
+                                            >
+                                              {u.displayName || userId}
+                                            </span>
+                                            <span className={`mt-0.5 block truncate text-[10px] ${muted}`}>
+                                              {t('workspace.projectHubMembersCompanyPosition')}:{' '}
+                                              {jobTitle}
+                                            </span>
+                                          </span>
+                                          <span className="flex shrink-0 flex-col items-end gap-0.5">
+                                            <span
+                                              className={`tabular-nums text-[11px] font-semibold ${
+                                                allocPct != null && allocPct > 100
+                                                  ? 'text-red-700'
+                                                  : allocPct != null && allocPct > 0
+                                                    ? 'text-amber-800'
+                                                    : 'text-emerald-700'
+                                              }`}
+                                            >
+                                              {allocPct != null
+                                                ? t('workspace.projectHubMembersAllocatedPct', {
+                                                    pct: allocPct,
+                                                  })
+                                                : '—'}
+                                            </span>
+                                            {u.availability === 'overallocated' ||
+                                            u.allocationStatus === 'overallocated' ? (
+                                              <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                                                {t('workspace.projectHubAllocOverBadge')}
+                                              </span>
+                                            ) : u.availability === 'partial' ? (
+                                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                                                {t('workspace.projectHubMembersCandidatePartial')}
+                                              </span>
+                                            ) : (
+                                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                                {t('workspace.projectHubMembersCandidateAvailable')}
+                                              </span>
+                                            )}
+                                          </span>
+                                        </button>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>

@@ -33,8 +33,6 @@ import RoleAssignPanel from '../../features/adminRbac/RoleAssignPanel';
 import RoleRevokePanel from '../../features/adminRbac/RoleRevokePanel';
 import RolesMatrixPanel from '../../features/adminRbac/RolesMatrixPanel';
 import RbacTaxonomyHubPanel from '../../features/adminRbac/RbacTaxonomyHubPanel';
-import ResponsibilityListPanel from '../../features/adminRbac/ResponsibilityListPanel';
-import ResponsibilityAssignPanel from '../../features/adminRbac/ResponsibilityAssignPanel';
 import RbacOrgRoleCatalogPanel from '../../features/adminRbac/RbacOrgRoleCatalogPanel';
 import RbacOrgRoleDirectoryPanel from '../../features/adminRbac/RbacOrgRoleDirectoryPanel';
 import RbacOrgRoleLookupPanel from '../../features/adminRbac/RbacOrgRoleLookupPanel';
@@ -168,8 +166,6 @@ const RBAC_PANELS = {
   'rbac-assign': RoleAssignPanel,
   'rbac-revoke': RoleRevokePanel,
   'rbac-matrix': RolesMatrixPanel,
-  'rbac-responsibility-list': ResponsibilityListPanel,
-  'rbac-responsibility-assign': ResponsibilityAssignPanel,
 };
 
 const VOICE_PANELS = {

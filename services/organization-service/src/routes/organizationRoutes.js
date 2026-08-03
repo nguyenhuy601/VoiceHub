@@ -92,43 +92,6 @@ router.post(
   hrPositionController.createCatalog
 );
 
-const responsibilityController = require('../controllers/responsibilityController');
-router.get(
-  '/:orgId/responsibilities',
-  authorize(['owner', 'admin']),
-  responsibilityController.list
-);
-router.post(
-  '/:orgId/responsibilities',
-  authorize(['owner', 'admin']),
-  responsibilityController.create
-);
-router.post(
-  '/:orgId/responsibilities/seed-default',
-  authorize(['owner', 'admin']),
-  responsibilityController.seed
-);
-router.patch(
-  '/:orgId/responsibilities/:key',
-  authorize(['owner', 'admin']),
-  responsibilityController.patch
-);
-router.get(
-  '/:orgId/responsibilities/users-by-key/:key',
-  authorize(['owner', 'admin']),
-  responsibilityController.usersByKey
-);
-router.get(
-  '/:orgId/responsibilities/users/:userId',
-  authorize(['owner', 'admin']),
-  responsibilityController.getUser
-);
-router.put(
-  '/:orgId/responsibilities/users/:userId',
-  authorize(['owner', 'admin']),
-  responsibilityController.putUser
-);
-
 router.get(
   '/:orgId/channels/:channelId/access',
   authorize(['owner', 'admin']),

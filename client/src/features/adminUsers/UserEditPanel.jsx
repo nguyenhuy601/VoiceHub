@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
@@ -31,30 +31,12 @@ export default function UserEditPanel({ orgId }) {
   const userId = String(searchParams.get('userId') || '').trim();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [catalog, setCatalog] = useState([]);
   const [initialRole, setInitialRole] = useState('member');
   const [form, setForm] = useState({
     displayName: '',
     jobTitle: '',
-    responsibilityKeys: [],
     role: 'member',
   });
-
-  useEffect(() => {
-    if (!orgId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await organizationAPI.listResponsibilities(orgId);
-        if (!cancelled) setCatalog(unwrapOrgList(res));
-      } catch {
-        if (!cancelled) setCatalog([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId]);
 
   useEffect(() => {
     if (!orgId || !userId) return;
@@ -62,14 +44,11 @@ export default function UserEditPanel({ orgId }) {
     (async () => {
       setLoading(true);
       try {
-        const [profileRes, respRes, membersRes] = await Promise.all([
+        const [profileRes, membersRes] = await Promise.all([
           adminUserAPI.getProfile(orgId, userId),
-          organizationAPI.getUserResponsibilities(orgId, userId),
           organizationAPI.getMembers(orgId),
         ]);
         const data = unwrapApi(profileRes)?.data ?? unwrapApi(profileRes);
-        const respRows = unwrapOrgList(respRes);
-        const keys = respRows.map((r) => r.responsibilityKey || r.key).filter(Boolean);
         const members = unwrapOrgList(membersRes);
         const membership = members.find((m) => memberUserId(m) === userId);
         const role = normalizeMembershipRole(memberOrgRole(membership));
@@ -78,7 +57,6 @@ export default function UserEditPanel({ orgId }) {
         setForm({
           displayName: data?.displayName || '',
           jobTitle: data?.jobTitle || data?.preferences?.jobTitle || '',
-          responsibilityKeys: keys,
           role,
         });
       } catch (error) {
@@ -94,15 +72,6 @@ export default function UserEditPanel({ orgId }) {
     };
   }, [orgId, userId, t]);
 
-  const toggleResponsibility = (key) => {
-    setForm((prev) => {
-      const set = new Set(prev.responsibilityKeys);
-      if (set.has(key)) set.delete(key);
-      else set.add(key);
-      return { ...prev, responsibilityKeys: [...set] };
-    });
-  };
-
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !userId || saving) return;
@@ -112,9 +81,6 @@ export default function UserEditPanel({ orgId }) {
       await adminUserAPI.patchProfile(orgId, userId, {
         displayName: String(form.displayName || '').trim(),
         jobTitle: String(form.jobTitle || '').trim(),
-      });
-      await organizationAPI.setUserResponsibilities(orgId, userId, {
-        keys: form.responsibilityKeys,
       });
       if (nextRole !== initialRole) {
         await organizationAPI.updateMemberRole(orgId, userId, nextRole);
@@ -127,8 +93,6 @@ export default function UserEditPanel({ orgId }) {
       setSaving(false);
     }
   };
-
-  const catalogKeys = catalog.length ? catalog.map((r) => r.key).filter(Boolean) : [];
 
   return (
     <AdminUserPanelShell title={t('adminDomains.users.edit')} hint={t('adminUsers.editPickerHint')} wide>
@@ -191,38 +155,6 @@ export default function UserEditPanel({ orgId }) {
                   })}
                 </div>
               </div>
-              <fieldset>
-                <legend className={adminLabelClass()}>{t('adminUsers.responsibilityKeys')}</legend>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {catalogKeys.length ? (
-                    catalogKeys.map((key) => {
-                      const active = form.responsibilityKeys.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          className={`rounded-full border px-2.5 py-1 text-xs ${
-                            active
-                              ? 'border-teal-600 bg-teal-500/15 text-teal-900 dark:text-teal-100'
-                              : 'border-border text-muted-foreground hover:bg-muted/40'
-                          }`}
-                          onClick={() => toggleResponsibility(key)}
-                        >
-                          {key}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <p className="text-xs text-muted-foreground">{t('adminUsers.responsibilityNone')}</p>
-                  )}
-                </div>
-                <Link
-                  to="/app/admin/rbac/responsibilities"
-                  className="mt-2 inline-block text-xs text-red-500 hover:underline"
-                >
-                  {t('adminUsers.taxonomyLinkResponsibility')}
-                </Link>
-              </fieldset>
               <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
                 {saving ? t('common.saving') : t('common.save')}
               </button>

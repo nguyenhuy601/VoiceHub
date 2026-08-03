@@ -838,7 +838,6 @@ async function createCard({
   aiGenerated,
   taskType,
   assignments,
-  responsibilityKey,
   parentTaskId,
   checklists,
   epicId,
@@ -937,7 +936,6 @@ async function createCard({
       : [],
     sourceMessageId: sourceMessageId || null,
     aiGenerated: Boolean(aiGenerated),
-    responsibilityKey: String(responsibilityKey || '').trim().toLowerCase(),
   });
 
   await ensureAssigneeBoardAccess({
@@ -1217,7 +1215,6 @@ async function updateCard({
   status,
   taskType,
   assignments,
-  responsibilityKey,
   checklists,
   parentTaskId,
   epicId,
@@ -1318,9 +1315,6 @@ async function updateCard({
     }
   }
   if (tags !== undefined) next.tags = Array.isArray(tags) ? tags : [];
-  if (responsibilityKey !== undefined) {
-    next.responsibilityKey = String(responsibilityKey || '').trim().toLowerCase();
-  }
   if (attachments !== undefined) {
     next.attachments = Array.isArray(attachments)
       ? attachments
@@ -1776,7 +1770,7 @@ async function setListWatch({ userId, listId, watching }) {
   return { watching: false, watcherCount: await TaskBoardListWatcher.countDocuments({ listId: listOid }) };
 }
 
-async function listBoardAssignableMembers({ userId, boardId, responsibilityKey, evaluateCanAssign }) {
+async function listBoardAssignableMembers({ userId, boardId, evaluateCanAssign }) {
   const board = await ensureBoardViewAccess(boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
 
@@ -1811,25 +1805,12 @@ async function listBoardAssignableMembers({ userId, boardId, responsibilityKey, 
   const allowedRoleIds = [];
 
   let members = await enrichAssignableProfiles([...candidateIds], userId);
-
-  const respKey = String(responsibilityKey || '').trim().toLowerCase();
-  if (respKey) {
-    const { fetchUserIdsByResponsibilityKey } = require('../clients/organizationResponsibility.client');
-    const { rankMembersByResponsibility } = require('../utils/responsibilitySuggest');
-    const matchingIds = await fetchUserIdsByResponsibilityKey(orgId, respKey, userId);
-    members = rankMembersByResponsibility(members, matchingIds);
-  } else {
-    members = members.map((m) => ({ ...m, suggested: false }));
-  }
+  members = members.map((m) => ({ ...m, suggested: false }));
 
   if (evaluateCanAssign) {
     const { assertCanAssign } = require('./assignmentEngine.service');
     const withFlags = [];
     for (const m of members) {
-      if (respKey && !m.suggested) {
-        withFlags.push(m);
-        continue;
-      }
       const check = await assertCanAssign({
         actorUserId: userId,
         targetUserId: m.userId,

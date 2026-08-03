@@ -24,6 +24,8 @@ import {
   memberUserId,
   unwrapApi,
 } from '../../utils/adminUserUtils';
+import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
+import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 const CAP_BADGE = {
   pending_hr: 'bg-amber-500/12 text-amber-800 ring-1 ring-amber-500/25 dark:text-amber-200',
@@ -129,26 +131,6 @@ function OrgRoleCell({ rows, emptyLabel }) {
   );
 }
 
-function ResponsibilityCell({ keys, emptyLabel }) {
-  const { visible, overflow } = formatResponsibilityBadges(keys);
-  if (!visible.length) return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
-  return (
-    <div className="flex max-w-[160px] flex-wrap gap-1">
-      {visible.map((key) => (
-        <span
-          key={key}
-          className="inline-flex rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] font-medium text-teal-800 ring-1 ring-teal-500/15 dark:text-teal-200"
-        >
-          {key}
-        </span>
-      ))}
-      {overflow > 0 ? (
-        <span className="text-[10px] text-muted-foreground">+{overflow}</span>
-      ) : null}
-    </div>
-  );
-}
-
 function collectDeptTeamMaps(structure) {
   const departments = new Map();
   const teams = new Map();
@@ -189,7 +171,6 @@ export default function UsersListPanel({ orgId }) {
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
-  const [responsibilityByUser, setResponsibilityByUser] = useState({});
   const [rbacByUser, setRbacByUser] = useState({});
   const [capabilityByUser, setCapabilityByUser] = useState({});
   const [detailMember, setDetailMember] = useState(null);
@@ -226,43 +207,6 @@ export default function UsersListPanel({ orgId }) {
       cancelled = true;
     };
   }, [orgId, t]);
-
-  useEffect(() => {
-    if (!orgId) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const catalogRes = await organizationAPI.listResponsibilities(orgId);
-        const catalog = unwrapOrgList(catalogRes);
-        const keys = catalog.map((r) => r.key).filter(Boolean);
-        const entries = await Promise.all(
-          keys.map(async (key) => {
-            try {
-              const res = await organizationAPI.listResponsibilityUsersByKey(orgId, key);
-              const body = res?.data?.data ?? res?.data ?? res;
-              const userIds = Array.isArray(body?.userIds)
-                ? body.userIds
-                : Array.isArray(body)
-                  ? body.map((row) => String(row?.userId || row || '').trim()).filter(Boolean)
-                  : [];
-              return { key, userIds };
-            } catch {
-              return { key, userIds: [] };
-            }
-          })
-        );
-        if (!cancelled) {
-          const map = buildResponsibilityByUserIdFromKeyLists(entries);
-          setResponsibilityByUser(Object.fromEntries(map));
-        }
-      } catch {
-        if (!cancelled) setResponsibilityByUser({});
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId]);
 
   useEffect(() => {
     if (!orgId || !members.length) {
@@ -371,13 +315,11 @@ export default function UsersListPanel({ orgId }) {
         normalizeRoleDisplayName(row?.name || row?.role?.name)
       );
       const jobTitle = memberJobTitle(m).toLowerCase();
-      const respKeys = (responsibilityByUser[id] || []).join(' ').toLowerCase();
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
         jobTitle.includes(q) ||
-        respKeys.includes(q) ||
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
         team.toLowerCase().includes(q) ||
@@ -514,7 +456,6 @@ export default function UsersListPanel({ orgId }) {
                   <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
                     {t('adminUsers.colOrgRole')}
                   </th>
-                  <th className="px-4 py-3">{t('adminUsers.colResponsibility')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
                   <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
@@ -574,12 +515,6 @@ export default function UsersListPanel({ orgId }) {
                           emptyLabel={t('adminUsers.orgRoleNone')}
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <ResponsibilityCell
-                          keys={responsibilityByUser[id]}
-                          emptyLabel={t('adminUsers.responsibilityNone')}
-                        />
-                      </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="max-w-[160px] truncate">
                           {depName || teamName || '—'}
@@ -634,6 +569,7 @@ export default function UsersListPanel({ orgId }) {
         rbacRoles={
           detailMember ? rbacByUser[memberUserId(detailMember)] || [] : []
         }
+        structureRaw={structureRaw}
         formatWhen={formatWhen}
         onCapabilityStatusChange={(userId, status) => {
           setCapabilityByUser((prev) => ({ ...prev, [userId]: status }));

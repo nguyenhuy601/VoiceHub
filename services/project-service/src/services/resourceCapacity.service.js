@@ -39,6 +39,7 @@ async function enrichProfiles(userIds = []) {
   const rows = await Promise.all(
     unique.map(async (uid) => {
       let displayName = uid.slice(-6);
+      let jobTitle = '';
       try {
         const res = await fetchUserProfileByIdInternal(uid);
         const profile = res?.data?.data ?? res?.data ?? null;
@@ -48,10 +49,13 @@ async function enrichProfiles(userIds = []) {
           profile?.username ||
           profile?.email?.split('@')[0] ||
           displayName;
+        jobTitle = String(
+          profile?.jobTitle || profile?.preferences?.jobTitle || ''
+        ).trim();
       } catch {
         /* optional */
       }
-      return { userId: uid, displayName };
+      return { userId: uid, displayName, jobTitle };
     })
   );
   return new Map(rows.map((r) => [r.userId, r]));
@@ -287,6 +291,7 @@ async function getResourcePlanner({
     items.push({
       userId: uid,
       displayName: profileByUserId.get(uid)?.displayName || uid.slice(-6),
+      jobTitle: profileByUserId.get(uid)?.jobTitle || '',
       departmentId: place.departmentId || null,
       departmentName: place.departmentName || null,
       allocatedPct,

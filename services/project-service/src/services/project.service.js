@@ -1269,7 +1269,16 @@ async function attachProjectIdentityToBoard(board) {
     requiredProjectRoles: Array.isArray(project.requiredProjectRoles) ? project.requiredProjectRoles : [],
     dueDate: project.dueDate || project.expectedEndDate,
     visibility: project.visibility,
+    visibilityMode: project.visibilityMode === 'custom' ? 'custom' : 'inherit',
+    visibilityPolicy: project.visibilityPolicy || null,
+    relatedDepartmentIds: Array.isArray(project.relatedDepartmentIds)
+      ? project.relatedDepartmentIds.map((id) => String(id))
+      : [],
     background: project.background || board.background,
+    workflowTemplateId: project.workflowTemplateId ? String(project.workflowTemplateId) : '',
+    defaultTaskDoneApprovalPolicyId: project.defaultTaskDoneApprovalPolicyId
+      ? String(project.defaultTaskDoneApprovalPolicyId)
+      : '',
     scopeType: project.scopeType,
     scopeId: project.scopeId,
     teamId: project.teamId,

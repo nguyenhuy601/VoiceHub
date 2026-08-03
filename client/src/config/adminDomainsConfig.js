@@ -290,24 +290,6 @@ export const ADMIN_DOMAINS = [
           { id: 'matrix', path: '/app/admin/rbac/matrix', labelKey: 'adminDomains.rbac.matrix', implementation: 'rbac-matrix' },
         ],
       },
-      {
-        id: 'responsibility',
-        labelKey: 'adminDomains.rbac.sectionResponsibility',
-        items: [
-          {
-            id: 'responsibilities',
-            path: '/app/admin/rbac/responsibilities',
-            labelKey: 'adminDomains.rbac.responsibilities',
-            implementation: 'rbac-responsibility-list',
-          },
-          {
-            id: 'responsibility-assign',
-            path: '/app/admin/rbac/responsibilities/assign',
-            labelKey: 'adminDomains.rbac.responsibilityAssign',
-            implementation: 'rbac-responsibility-assign',
-          },
-        ],
-      },
     ],
   },
   {
