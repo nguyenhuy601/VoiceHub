@@ -22,6 +22,14 @@ export const projectDeliveryAPI = {
   setMemberRoles: (boardId, memberUserId, projectRoleKeys) =>
     apiClient.put(`${boardBase(boardId)}/project-members/${memberUserId}/roles`, {
       projectRoleKeys,
+      ...(options.otOverride ? { otOverride: true } : {}),
+      ...(options.otRationale != null && String(options.otRationale).trim()
+        ? { otRationale: String(options.otRationale).trim() }
+        : {}),
+    }),
+  setProjectMemberRoles: (projectId, memberUserId, projectRoleKeys) =>
+    apiClient.put(`${projectBase(projectId)}/members/${memberUserId}/roles`, {
+      projectRoleKeys,
     }),
   setProjectMemberRoles: (projectId, memberUserId, projectRoleKeys) =>
     apiClient.put(`${projectBase(projectId)}/members/${memberUserId}/roles`, {
