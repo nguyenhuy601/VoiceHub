@@ -28,6 +28,7 @@ import {
   isVoiceRoomInviteNotification,
   resolveVoiceRoomInvitePath,
 } from '../../utils/notificationNavigation';
+import { isP0Notification } from '../../utils/notificationP0Policy';
 
 function getNotificationTimeGroup(createdAt) {
   if (!createdAt) return 'earlier';
@@ -627,9 +628,11 @@ function NotificationsPage({ orgScope = false } = {}) {
         ? notifications
         : filter === 'unread'
           ? notifications.filter((n) => !n.read)
-          : filter === 'friend'
-            ? notifications.filter((n) => n.type === 'friend')
-            : notifications.filter((n) => n.type === filter);
+          : filter === 'priority'
+            ? notifications.filter((n) => isP0Notification(n))
+            : filter === 'friend'
+              ? notifications.filter((n) => n.type === 'friend')
+              : notifications.filter((n) => n.type === filter);
     if (notificationScope === 'organization' && organizationIdFilter) {
       list = list.filter((n) => String(n.organizationId || '').trim() === organizationIdFilter);
     }
@@ -647,6 +650,7 @@ function NotificationsPage({ orgScope = false } = {}) {
     () => [
       { id: 'all', label: t('notifications.filterAll') },
       { id: 'unread', label: t('notifications.filterUnread') },
+      { id: 'priority', label: t('notifications.filterPriority') },
       { id: 'friend', label: t('notifications.filterFriend') },
       { id: 'mention', label: t('common.mentions') },
       { id: 'meeting', label: t('notifications.filterMeetings') },
