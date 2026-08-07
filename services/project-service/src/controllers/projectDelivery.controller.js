@@ -104,6 +104,17 @@ async function putMemberRoles(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
+    if (err?.errorCode === 'OT_SOFT_WARNING') {
+      return sendServiceError(res, 409, {
+        errorCode: 'OT_SOFT_WARNING',
+        messageUser: err.message || 'OT_SOFT_WARNING',
+        message: err.message || 'OT_SOFT_WARNING',
+        extra: {
+          currentActiveProjects: err.currentActiveProjects ?? null,
+          maxConfigured: err.maxConfigured ?? null,
+        },
+      });
+    }
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_MEMBER_UPDATE_FAILED');
   }
 }

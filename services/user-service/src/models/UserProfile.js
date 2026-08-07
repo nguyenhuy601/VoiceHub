@@ -10,6 +10,18 @@ const userProfileSchema = new mongoose.Schema(
       unique: true,
       ref: 'UserAuth',
     },
+
+    /**
+     * Mã nhân viên (HR master). Excel import bắt buộc; unique sparse cho hồ sơ chưa có mã.
+     * Chuẩn hóa uppercase khi ghi từ Excel.
+     */
+    employeeCode: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+      default: null,
+    },
     username: {
       type: String,
       required: true,
@@ -168,6 +180,32 @@ const userProfileSchema = new mongoose.Schema(
       cvFilePath: { type: String, trim: true, default: '' },
       cvFileName: { type: String, trim: true, default: '' },
       cvUploadedAt: { type: Date, default: null },
+    },
+
+    /**
+     * ResourceConfig (capacity gate) — quản lý số dự án tối đa nhân viên có thể
+     * tham gia đồng thời. Đây là lớp "Capacity" tách khỏi capability kỹ năng
+     * để tránh sửa capacity làm revert trạng thái skill draft.
+     *
+     * Lưu ý: Hiện chỉ là field additive; endpoint cập nhật sẽ được bổ sung ở wave sau.
+     */
+    resourceConfig: {
+      maxConcurrentProjects: {
+        type: Number,
+        default: 2,
+        min: 1,
+        max: 20,
+      },
+      verificationStatus: {
+        type: String,
+        enum: ['draft', 'pending_hr', 'verified', 'rejected'],
+        default: 'verified',
+      },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      rejectedAt: { type: Date, default: null },
+      rejectReason: { type: String, maxlength: 500, default: '' },
+      updatedAt: { type: Date, default: null },
     },
   },
   {

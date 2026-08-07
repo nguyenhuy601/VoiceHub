@@ -390,6 +390,106 @@ function assertHrOnlyCapabilityReview(companyAdminLevel, capabilityAction) {
   };
 }
 
+// ---------------- ResourceConfig (Capacity Gate) helpers ----------------
+const SELF_RESOURCE_CONFIG_ACTIONS = new Set(['save']);
+const ADMIN_RESOURCE_CONFIG_ACTIONS = new Set(['verify', 'reject']);
+
+function sanitizeResourceConfigFields(raw) {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, errorCode: 'RESOURCE_CONFIG_INVALID', message: 'resourceConfig must be an object' };
+  }
+
+  const fields = {};
+  if (raw.maxConcurrentProjects !== undefined) {
+    const max = Number(raw.maxConcurrentProjects);
+    if (!Number.isFinite(max) || max < 1 || max > 20) {
+      return {
+        ok: false,
+        errorCode: 'RESOURCE_CONFIG_MAX_INVALID',
+        message: 'maxConcurrentProjects must be between 1 and 20',
+      };
+    }
+    fields.maxConcurrentProjects = Math.floor(max);
+  }
+
+  if (Object.keys(fields).length === 0) {
+    return { ok: false, errorCode: 'RESOURCE_CONFIG_EMPTY', message: 'No resourceConfig fields provided' };
+  }
+
+  return { ok: true, fields };
+}
+
+function assertHrOnlyResourceConfigReview(companyAdminLevel, resourceConfigAction) {
+  const action = String(resourceConfigAction || '').trim().toLowerCase();
+  if (action !== 'verify' && action !== 'reject') return { ok: true };
+
+  const level = String(companyAdminLevel || '').trim().toLowerCase();
+  if (level === 'hr') return { ok: true };
+
+  return {
+    ok: false,
+    statusCode: 403,
+    errorCode: 'RESOURCE_CONFIG_HR_ONLY',
+    message: 'Only HR can verify or reject resource config',
+    messageUser: 'Chỉ HR được xác minh hoặc từ chối cấu hình công suất.',
+  };
+}
+
+/**
+ * @param {'self'|'admin'} mode
+ * @returns {{action:'save'|'verify'|'reject', fields:{maxConcurrentProjects?:number}, rejectReason?:string}|null}
+ */
+function resolveResourceConfigIntent(updateData, mode) {
+  if (!updateData || typeof updateData !== 'object') return null;
+
+  const hasFields = updateData.resourceConfig !== undefined && updateData.resourceConfig !== null;
+  if (!hasFields) return null;
+
+  const rawAction = String(updateData.resourceConfigAction || '').trim().toLowerCase();
+  const action = !rawAction && mode === 'self' ? 'save' : rawAction;
+  if (!action) {
+    const err = new Error('resourceConfigAction is required');
+    err.statusCode = 400;
+    err.errorCode = 'RESOURCE_CONFIG_ACTION_INVALID';
+    throw err;
+  }
+
+  if (mode === 'self' && !SELF_RESOURCE_CONFIG_ACTIONS.has(action)) {
+    const err = new Error('Members may only save resourceConfig');
+    err.statusCode = 403;
+    err.errorCode = 'RESOURCE_CONFIG_ACTION_FORBIDDEN';
+    throw err;
+  }
+
+  if (mode === 'admin' && !ADMIN_RESOURCE_CONFIG_ACTIONS.has(action)) {
+    const err = new Error('Admins may only verify or reject resourceConfig');
+    err.statusCode = 403;
+    err.errorCode = 'RESOURCE_CONFIG_ACTION_FORBIDDEN';
+    throw err;
+  }
+
+  const sanitized = sanitizeResourceConfigFields(updateData.resourceConfig);
+  if (!sanitized.ok) {
+    const err = new Error(sanitized.message);
+    err.statusCode = 400;
+    err.errorCode = sanitized.errorCode;
+    throw err;
+  }
+
+  const rejectReason = String(
+    updateData.resourceConfig?.rejectReason || updateData.rejectReason || ''
+  ).trim().slice(0, 500);
+
+  if (action === 'reject' && !rejectReason) {
+    const err = new Error('rejectReason is required when rejecting resourceConfig');
+    err.statusCode = 400;
+    err.errorCode = 'RESOURCE_CONFIG_REJECT_REASON';
+    throw err;
+  }
+
+  return { action, fields: sanitized.fields, rejectReason };
+}
+
 module.exports = {
   emptyCapability,
   cloneCapability,
@@ -401,4 +501,7 @@ module.exports = {
   assertHrOnlyCapabilityReview,
   SELF_CAPABILITY_ACTIONS,
   ADMIN_CAPABILITY_ACTIONS,
+  sanitizeResourceConfigFields,
+  resolveResourceConfigIntent,
+  assertHrOnlyResourceConfigReview,
 };
