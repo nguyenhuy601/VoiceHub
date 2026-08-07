@@ -13,7 +13,7 @@ import {
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 
-export default function UserImportPanel({ orgId }) {
+export default function UserImportPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const { loadMembers } = useAdminMembers(orgId);
   const [text, setText] = useState('email,firstName,lastName,role\n');
@@ -48,8 +48,8 @@ export default function UserImportPanel({ orgId }) {
     setBusy(false);
   };
 
-  return (
-    <AdminUserPanelShell title={t('adminDomains.users.import')} hint={t('adminUsers.importHint')}>
+  const body = (
+    <>
       <AdminUserFormCard>
         <textarea
           rows={10}
@@ -90,6 +90,14 @@ export default function UserImportPanel({ orgId }) {
           </table>
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <AdminUserPanelShell title={t('adminDomains.users.importCsvTab')} hint={t('adminUsers.importHint')}>
+      {body}
     </AdminUserPanelShell>
   );
 }

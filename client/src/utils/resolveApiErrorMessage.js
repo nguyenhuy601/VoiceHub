@@ -42,8 +42,13 @@ export function resolveApiErrorMessage(errorLike, optsOrFallback = {}) {
     if (mapped && mapped !== `errors.codes.${code}`) return mapped;
   }
   const messageUser = data?.messageUser || '';
+  const msg = stripTechnicalPrefix(data?.message || errorLike?.message || messageUser || '');
+  // Legacy BE: validatePasswordStrength trả chuỗi Anh thuần (chưa có errorCode).
+  if (/Password must (contain|be at least)/i.test(msg) || /uppercase letter|special character/i.test(msg)) {
+    const weak = t('errors.codes.AUTH_WEAK_PASSWORD');
+    if (weak && weak !== 'errors.codes.AUTH_WEAK_PASSWORD') return weak;
+  }
   if (String(messageUser).trim()) return String(messageUser).trim();
-  const msg = stripTechnicalPrefix(data?.message || errorLike?.message || '');
   return msg || fallback;
 }
 

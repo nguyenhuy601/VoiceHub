@@ -370,17 +370,10 @@ export default function UsersListPanel({ orgId }) {
         <div className="flex flex-wrap gap-2">
           <Link
             to="/app/admin/users/import"
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/40"
-          >
-            <Upload className="h-4 w-4" />
-            {t('adminDomains.users.import')}
-          </Link>
-          <Link
-            to="/app/admin/users/create"
             className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500"
           >
             <UserPlus className="h-4 w-4" />
-            {t('adminDomains.users.create')}
+            {t('adminDomains.users.import')}
           </Link>
         </div>
       </div>

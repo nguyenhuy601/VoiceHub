@@ -4,6 +4,7 @@ import {
   flattenAdminNavItems,
   normalizeAdminPath,
   resolveAdminDomainFromPath,
+  resolveAdminLegacyRedirect,
 } from '../../config/adminDomainsConfig';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
@@ -13,6 +14,8 @@ import UserCreatePanel from '../../features/adminUsers/UserCreatePanel';
 import UserEditPanel from '../../features/adminUsers/UserEditPanel';
 import UserDeletePanel from '../../features/adminUsers/UserDeletePanel';
 import UserImportPanel from '../../features/adminUsers/UserImportPanel';
+import UserExcelImportPanel from '../../features/adminUsers/UserExcelImportPanel';
+import UserImportHubPanel from '../../features/adminUsers/UserImportHubPanel';
 import UserAssignOrgPanel from '../../features/adminUsers/UserAssignOrgPanel';
 import AccountsListPanel from '../../features/adminAccounts/AccountsListPanel';
 import AccountDetailPanel from '../../features/adminAccounts/AccountDetailPanel';
@@ -20,6 +23,7 @@ import AccountLockPanel from '../../features/adminAccounts/AccountLockPanel';
 import AccountResetPasswordPanel from '../../features/adminAccounts/AccountResetPasswordPanel';
 import AccountForcePasswordPanel from '../../features/adminAccounts/AccountForcePasswordPanel';
 import AccountSetPasswordPanel from '../../features/adminAccounts/AccountSetPasswordPanel';
+import AccountActivatePanel from '../../features/adminAccounts/AccountActivatePanel';
 import AccountRevokeSessionsPanel from '../../features/adminAccounts/AccountRevokeSessionsPanel';
 import AccountResendVerificationPanel from '../../features/adminAccounts/AccountResendVerificationPanel';
 import AccountLoginHistoryPanel from '../../features/adminAccounts/AccountLoginHistoryPanel';
@@ -121,6 +125,8 @@ const USER_PANELS = {
   'users-edit': UserEditPanel,
   'users-delete': UserDeletePanel,
   'users-import': UserImportPanel,
+  'users-import-excel': UserExcelImportPanel,
+  'users-import-hub': UserImportHubPanel,
   'users-assign-org': UserAssignOrgPanel,
 };
 
@@ -131,6 +137,7 @@ const ACCOUNT_PANELS = {
   'accounts-reset-password': AccountResetPasswordPanel,
   'accounts-force-password': AccountForcePasswordPanel,
   'accounts-set-password': AccountSetPasswordPanel,
+  'accounts-activate': AccountActivatePanel,
   'accounts-revoke-sessions': AccountRevokeSessionsPanel,
   'accounts-resend-verification': AccountResendVerificationPanel,
   'accounts-login-history': AccountLoginHistoryPanel,
@@ -241,6 +248,13 @@ export default function AdminDomainPage() {
   const location = useLocation();
   const { orgId } = useCompanyAdminContext();
   const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
+
+  const legacy = resolveAdminLegacyRedirect(location.pathname);
+  if (legacy) {
+    const search = legacy.search || location.search || '';
+    return <Navigate to={`${legacy.pathname}${search}${location.hash || ''}`} replace />;
+  }
+
   const normalizedPath = normalizeAdminPath(location.pathname);
   if (normalizedPath !== currentPath) {
     return (

@@ -32,10 +32,9 @@ export const ADMIN_DOMAINS = [
         id: 'main',
         items: [
           { id: 'list', path: '/app/admin/users', labelKey: 'adminDomains.users.list', end: true, implementation: 'people' },
-          { id: 'create', path: '/app/admin/users/create', labelKey: 'adminDomains.users.create', implementation: 'users-create' },
           { id: 'edit', path: '/app/admin/users/edit', labelKey: 'adminDomains.users.edit', implementation: 'users-edit' },
           { id: 'delete', path: '/app/admin/users/delete', labelKey: 'adminDomains.users.delete', implementation: 'users-delete' },
-          { id: 'import', path: '/app/admin/users/import', labelKey: 'adminDomains.users.import', implementation: 'users-import' },
+          { id: 'import', path: '/app/admin/users/import', labelKey: 'adminDomains.users.import', implementation: 'users-import-hub' },
           { id: 'assign-org', path: '/app/admin/users/assign-org', labelKey: 'adminDomains.users.assignOrg', implementation: 'users-assign-org' },
         ],
       },
@@ -56,6 +55,7 @@ export const ADMIN_DOMAINS = [
           { id: 'reset-password', path: '/app/admin/accounts/reset-password', labelKey: 'adminDomains.accounts.resetPassword', implementation: 'accounts-reset-password' },
           { id: 'force-password', path: '/app/admin/accounts/force-password', labelKey: 'adminDomains.accounts.forcePassword', implementation: 'accounts-force-password' },
           { id: 'set-password', path: '/app/admin/accounts/set-password', labelKey: 'adminDomains.accounts.setPassword', implementation: 'accounts-set-password' },
+          { id: 'activate', path: '/app/admin/accounts/activate', labelKey: 'adminDomains.accounts.activate', implementation: 'accounts-activate' },
           { id: 'revoke-sessions', path: '/app/admin/accounts/revoke-sessions', labelKey: 'adminDomains.accounts.revokeSessions', implementation: 'accounts-revoke-sessions' },
           { id: 'resend-verification', path: '/app/admin/accounts/resend-verification', labelKey: 'adminDomains.accounts.resendVerification', implementation: 'accounts-resend-verification' },
           { id: 'login-history', path: '/app/admin/accounts/login-history', labelKey: 'adminDomains.accounts.loginHistory', implementation: 'accounts-login-history' },
@@ -720,6 +720,13 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/users/reset-password': '/app/admin/accounts/reset-password',
   '/app/admin/users/force-password': '/app/admin/accounts/force-password',
   '/app/admin/users/login-history': '/app/admin/accounts/login-history',
+  '/app/admin/users/import-excel': '/app/admin/users/import',
+};
+
+/** Redirect kèm query (ví dụ create → import?mode=invite). */
+const LEGACY_PATH_REDIRECTS_WITH_SEARCH = {
+  '/app/admin/users/create': '/app/admin/users/import?mode=invite',
+  '/app/admin/users/import-excel': '/app/admin/users/import?mode=excel',
 };
 
 export function normalizeAdminPath(pathname) {
@@ -730,6 +737,20 @@ export function normalizeAdminPath(pathname) {
     return base.replace(/^\/app\/admin\/tasks/, '/app/admin/projects');
   }
   return base;
+}
+
+/** @returns {{ pathname: string, search: string } | null} */
+export function resolveAdminLegacyRedirect(pathname) {
+  const base = String(pathname || '').replace(/\/+$/, '') || '/app/admin';
+  const withSearch = LEGACY_PATH_REDIRECTS_WITH_SEARCH[base];
+  if (withSearch) {
+    const q = withSearch.indexOf('?');
+    if (q === -1) return { pathname: withSearch, search: '' };
+    return { pathname: withSearch.slice(0, q), search: withSearch.slice(q) };
+  }
+  const plain = LEGACY_PATH_REDIRECTS[base];
+  if (plain && plain !== base) return { pathname: plain, search: '' };
+  return null;
 }
 
 export function resolveAdminDomainFromPath(pathname) {

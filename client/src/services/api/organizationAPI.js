@@ -333,6 +333,42 @@ export const organizationAPI = {
     return response;
   },
 
+  /** Xem trước mã NV hệ thống sẽ cấp (không trừ counter). */
+  previewNextEmployeeCode: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/next-employee-code`, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** HR import nhân sự qua Excel (.xlsx) — strict rejection + compensate */
+  importMembersExcel: async (orgId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/organizations/${orgId}/members/import`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Lấy trạng thái batch import Excel */
+  getImportBatchStatus: async (orgId, batchId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/import/${batchId}`, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Download template Excel import */
+  downloadImportTemplate: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/import/template`, {
+      responseType: 'blob',
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
   /** Public — nhân viên xác nhận lời mời → tạo tài khoản */
   acceptCompanyInvite: async (token) => {
     const response = await apiClient.post(
