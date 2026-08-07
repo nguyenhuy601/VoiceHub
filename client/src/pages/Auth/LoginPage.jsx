@@ -26,6 +26,8 @@ function LoginPage({ landingDemo = false } = {}) {
   /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   const [gatewayTrust, setGatewayTrust] = useState(null);
   const [oneTimeCreds, setOneTimeCreds] = useState(null);
+  /** Sau invite: không có mk tạm → gợi ý quên mật khẩu */
+  const [inviteForgotHint, setInviteForgotHint] = useState(null);
 
   const inputBase = authInputSurface(isDarkMode);
   const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
@@ -44,6 +46,11 @@ function LoginPage({ landingDemo = false } = {}) {
 
   useEffect(() => {
     const creds = consumeOneTimeLoginCredentials();
+    const fromInvite = Boolean(location.state?.fromCompanyInvite);
+    const prefillEmail = String(location.state?.prefillEmail || '').trim().toLowerCase();
+    const hasTempPassword = Boolean(location.state?.hasTempPassword);
+    const alreadyHadAccount = Boolean(location.state?.alreadyHadAccount);
+
     if (creds) {
       setOneTimeCreds(creds);
       setFormData((prev) => ({
@@ -51,13 +58,19 @@ function LoginPage({ landingDemo = false } = {}) {
         email: creds.email || prev.email,
         password: creds.password || prev.password,
       }));
-    } else if (location.state?.prefillEmail) {
-      setFormData((prev) => ({ ...prev, email: String(location.state.prefillEmail) }));
+      setInviteForgotHint(null);
+    } else if (prefillEmail) {
+      setFormData((prev) => ({ ...prev, email: prefillEmail }));
     }
+
+    if (fromInvite && !creds && (alreadyHadAccount || !hasTempPassword)) {
+      setInviteForgotHint({ email: prefillEmail });
+    }
+
     if (location.state?.message) {
-      toast.success(location.state.message);
+      toast.success(location.state.message, { id: 'company-invite-flash' });
     }
-    if (location.state?.message || location.state?.prefillEmail || location.state?.fromCompanyInvite) {
+    if (location.state?.message || location.state?.prefillEmail || fromInvite) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
@@ -84,10 +97,12 @@ function LoginPage({ landingDemo = false } = {}) {
 
   useEffect(() => {
     if (landingDemo || authLoading) return;
+    // Có mk tạm / vừa từ invite → giữ trang login, không đá về session cũ.
+    if (oneTimeCreds || inviteForgotHint) return;
     if (isAuthenticated) {
       navigate('/app', { replace: true });
     }
-  }, [landingDemo, authLoading, isAuthenticated, navigate]);
+  }, [landingDemo, authLoading, isAuthenticated, navigate, oneTimeCreds, inviteForgotHint]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -114,7 +129,13 @@ function LoginPage({ landingDemo = false } = {}) {
     }
   };
 
-  if (!landingDemo && !authLoading && isAuthenticated) {
+  const forgotHref = inviteForgotHint?.email
+    ? `/forgot-password?email=${encodeURIComponent(inviteForgotHint.email)}`
+    : formData.email
+      ? `/forgot-password?email=${encodeURIComponent(formData.email)}`
+      : '/forgot-password';
+
+  if (!landingDemo && !authLoading && isAuthenticated && !oneTimeCreds && !inviteForgotHint) {
     return <BrandPageLoader />;
   }
 
@@ -137,6 +158,21 @@ function LoginPage({ landingDemo = false } = {}) {
         </div>
       )}
 
+      {inviteForgotHint ? (
+        <div
+          role="status"
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+            isDarkMode ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-950'
+          }`}
+        >
+          <p className="font-semibold">{t('acceptCompanyInvite.loginNoTempTitle')}</p>
+          <p className="mt-1 opacity-95">{t('acceptCompanyInvite.loginNoTempBody')}</p>
+          <Link to={forgotHref} className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
+            {t('acceptCompanyInvite.loginNoTempCta')}
+          </Link>
+        </div>
+      ) : null}
+
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
           <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
@@ -158,7 +194,7 @@ function LoginPage({ landingDemo = false } = {}) {
             <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
               {t('login.password')}
             </label>
-            <Link to="/forgot-password" className={`text-base font-semibold transition ${linkCyan}`}>
+            <Link to={forgotHref} className={`text-base font-semibold transition ${linkCyan}`}>
               {t('login.forgot')}
             </Link>
           </div>

@@ -4,10 +4,17 @@ import { useAuth } from '../../context/AuthContext';
 import { getJwtSystemRole } from '../../utils/tokenStorage';
 import FirstLoginProfileModal from './FirstLoginProfileModal';
 
+function resolveProfileName(user) {
+  if (!user) return '';
+  const fromParts = [user.lastName, user.firstName].filter(Boolean).join(' ').trim();
+  if (fromParts) return fromParts;
+  return String(user.displayName || user.fullName || user.name || '').trim();
+}
+
 function profileIncomplete(user) {
   if (!user) return false;
   if (user?.preferences?.profileCompletedAt) return false;
-  const hasName = Boolean(String(user.displayName || '').trim());
+  const hasName = Boolean(resolveProfileName(user));
   const hasPhone = Boolean(String(user.phone || '').trim());
   const hasJob = Boolean(
     String(user.jobTitle || user?.preferences?.jobTitle || '').trim()

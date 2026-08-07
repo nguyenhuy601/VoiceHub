@@ -7,6 +7,7 @@ import {
   Mail,
   MailCheck,
   History,
+  ShieldCheck,
 } from 'lucide-react';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
@@ -100,7 +101,11 @@ export default function AccountDetailPanel({ orgId }) {
                 <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
                   <p className="text-xs text-muted-foreground">{t('adminUsers.colStatus')}</p>
                   <p className="mt-1 text-sm font-medium">
-                    {summary?.isActive === false ? t('adminUsers.statusInactive') : t('adminUsers.statusActive')}
+                    {summary?.pendingActivation
+                      ? t('adminAccounts.statusPendingActivation')
+                      : summary?.isActive === false
+                        ? t('adminUsers.statusInactive')
+                        : t('adminUsers.statusActive')}
                   </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
@@ -132,6 +137,11 @@ export default function AccountDetailPanel({ orgId }) {
                   <ActionLink to={`/app/admin/accounts/set-password${q}`} icon={KeyRound}>
                     {t('adminDomains.accounts.setPassword')}
                   </ActionLink>
+                  {summary?.pendingActivation ? (
+                    <ActionLink to={`/app/admin/accounts/activate${q}`} icon={ShieldCheck}>
+                      {t('adminDomains.accounts.activate')}
+                    </ActionLink>
+                  ) : null}
                   <ActionLink to={`/app/admin/accounts/revoke-sessions${q}`} icon={LogOut}>
                     {t('adminDomains.accounts.revokeSessions')}
                   </ActionLink>

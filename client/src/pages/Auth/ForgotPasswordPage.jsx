@@ -32,6 +32,7 @@ function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [devResetUrl, setDevResetUrl] = useState('');
+  const [emailScheduled, setEmailScheduled] = useState(false);
 
   useEffect(() => {
     const fromQuery = String(searchParams.get('email') || '').trim();
@@ -42,23 +43,31 @@ function ForgotPasswordPage() {
     event.preventDefault();
     const normalizedEmail = String(email || '').trim();
     if (!normalizedEmail) {
-      toast.error(t('forgotPassword.toastEmailRequired'));
+      toast.error(t('forgotPassword.toastEmailRequired'), { id: 'forgot-password-flash' });
       return;
     }
 
     setLoading(true);
     try {
       const result = await authService.forgotPassword(normalizedEmail);
-      const fallbackUrl = result?.data?.resetUrl || '';
+      const payload = result?.data || result || {};
+      const scheduled = Boolean(payload.emailScheduled);
+      const fallbackUrl = String(payload.resetUrl || '').trim();
+      setEmailScheduled(scheduled);
       setDevResetUrl(fallbackUrl);
       setSubmitted(true);
-      if (result?.data?.emailScheduled) {
-        toast.success(t('forgotPassword.toastSent'));
+
+      if (scheduled) {
+        toast.success(t('forgotPassword.toastSent'), { id: 'forgot-password-flash' });
+      } else if (fallbackUrl) {
+        toast(t('forgotPassword.toastUseDevLink'), { icon: 'ℹ️', id: 'forgot-password-flash' });
       } else {
-        toast(t('forgotPassword.toastNoSmtp'), { icon: 'ℹ️' });
+        toast(t('forgotPassword.toastCheckEmailOrSpam'), { icon: 'ℹ️', id: 'forgot-password-flash' });
       }
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('forgotPassword.toastSendErr') }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('forgotPassword.toastSendErr') }), {
+        id: 'forgot-password-flash',
+      });
     } finally {
       setLoading(false);
     }
@@ -111,7 +120,13 @@ function ForgotPasswordPage() {
               <CheckCircle2 size={32} className="text-success" aria-hidden />
             </div>
             <h2 className="font-display text-foreground mb-3">{t('forgotPassword.title')}</h2>
-            <p className={`${FIGMA_CARD_SUBTITLE} leading-[1.6]`}>{t('forgotPassword.successBody')}</p>
+            <p className={`${FIGMA_CARD_SUBTITLE} leading-[1.6]`}>
+              {emailScheduled
+                ? t('forgotPassword.successBody')
+                : devResetUrl
+                  ? t('forgotPassword.successBodyDevLink')
+                  : t('forgotPassword.successBodyNoMail')}
+            </p>
             {email.trim() && (
               <p className="mt-2 text-[0.9rem] font-semibold text-violet-300">{email.trim()}</p>
             )}

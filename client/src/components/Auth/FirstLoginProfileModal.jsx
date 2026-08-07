@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Modal, GradientButton } from '../Shared';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,20 @@ import authService from '../../services/authService';
 import userService from '../../services/userService';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapApiData } from '../../utils/helpers';
+import { isPasswordPolicyOk } from '../../utils/passwordPolicy';
+
+const inputClass =
+  'mt-1 w-full rounded-lg border border-border bg-[var(--input-background)] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground [-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_var(--input-background)]';
+const inputReadonlyClass =
+  'mt-1 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm font-medium text-foreground break-all';
+
+/** Họ tên từ lời mời / auth (lastName + firstName) hoặc displayName profile. */
+function resolvePrefillDisplayName(user) {
+  if (!user) return '';
+  const fromParts = [user.lastName, user.firstName].filter(Boolean).join(' ').trim();
+  if (fromParts) return fromParts;
+  return String(user.displayName || user.fullName || user.name || '').trim();
+}
 
 /**
  * Bắt buộc sau login: đổi MK nếu mustChangePassword và/hoặc bổ sung hồ sơ.
@@ -16,18 +30,30 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
   const { t } = useAppStrings();
   const { user, updateUser } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(() => ({
-    displayName: String(user?.displayName || '').trim(),
-    email: String(user?.email || '').trim(),
-    phone: String(user?.phone || '').trim(),
-    jobTitle: String(user?.jobTitle || user?.preferences?.jobTitle || '').trim(),
+  const [form, setForm] = useState({
+    displayName: '',
+    email: '',
+    phone: '',
+    jobTitle: '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
-  }));
+  });
 
   const needsPassword = Boolean(mustChangePassword);
   const title = needsPassword ? t('firstLogin.titleFull') : t('firstLogin.titleProfile');
+  const nameLocked = Boolean(resolvePrefillDisplayName(user));
+
+  useEffect(() => {
+    if (!open || !user) return;
+    setForm((prev) => ({
+      ...prev,
+      displayName: resolvePrefillDisplayName(user) || prev.displayName,
+      email: String(user.email || '').trim() || prev.email,
+      phone: String(user.phone || user.phoneNumber || '').trim() || prev.phone,
+      jobTitle: String(user.jobTitle || user?.preferences?.jobTitle || '').trim() || prev.jobTitle,
+    }));
+  }, [open, user]);
 
   const canSubmit = useMemo(() => {
     if (!String(form.displayName || '').trim()) return false;
@@ -37,7 +63,7 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
       if (!form.currentPassword || !form.newPassword || form.newPassword !== form.confirmPassword) {
         return false;
       }
-      if (form.newPassword.length < 8) return false;
+      if (!isPasswordPolicyOk(form.newPassword)) return false;
     }
     return true;
   }, [form, needsPassword]);
@@ -111,26 +137,35 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
         <p className="text-sm text-muted-foreground">{t('firstLogin.hint')}</p>
         <label className="block text-xs font-semibold text-muted-foreground">
           {t('firstLogin.fullName')}
-          <input
-            required
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            value={form.displayName}
-            onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-          />
+          {nameLocked ? (
+            <>
+              <div className={inputReadonlyClass} aria-readonly="true">
+                {form.displayName}
+              </div>
+              <span className="mt-1 block text-[0.7rem] font-normal text-muted-foreground">
+                {t('firstLogin.nameFromInvite')}
+              </span>
+            </>
+          ) : (
+            <input
+              required
+              className={inputClass}
+              value={form.displayName}
+              onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+            />
+          )}
         </label>
         <label className="block text-xs font-semibold text-muted-foreground">
           {t('firstLogin.email')}
-          <input
-            readOnly
-            className="mt-1 w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm opacity-80"
-            value={form.email}
-          />
+          <div className={inputReadonlyClass} aria-readonly="true">
+            {form.email}
+          </div>
         </label>
         <label className="block text-xs font-semibold text-muted-foreground">
           {t('firstLogin.phone')}
           <input
             required
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            className={inputClass}
             value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
           />
@@ -139,7 +174,7 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
           {t('firstLogin.jobTitle')}
           <input
             required
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            className={inputClass}
             value={form.jobTitle}
             onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
             placeholder={t('firstLogin.jobTitlePlaceholder')}
@@ -153,7 +188,7 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
               required
               autoComplete="current-password"
               placeholder={t('firstLogin.tempPassword')}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              className={inputClass}
               value={form.currentPassword}
               onChange={(e) => setForm((f) => ({ ...f, currentPassword: e.target.value }))}
             />
@@ -162,7 +197,7 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
               required
               autoComplete="new-password"
               placeholder={t('firstLogin.newPassword')}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              className={inputClass}
               value={form.newPassword}
               onChange={(e) => setForm((f) => ({ ...f, newPassword: e.target.value }))}
             />
@@ -171,7 +206,7 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
               required
               autoComplete="new-password"
               placeholder={t('firstLogin.confirmPassword')}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              className={inputClass}
               value={form.confirmPassword}
               onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
             />

@@ -22,6 +22,7 @@ export default function OneTimeCredentialsModal({ open, email, password, onClose
   };
 
   const muted = isDarkMode ? 'text-slate-400' : 'text-slate-600';
+  const valueText = isDarkMode ? 'text-white' : 'text-slate-900';
   const box = isDarkMode
     ? 'rounded-lg border border-white/10 bg-black/30 px-3 py-2'
     : 'rounded-lg border border-slate-200 bg-slate-50 px-3 py-2';
@@ -35,7 +36,7 @@ export default function OneTimeCredentialsModal({ open, email, password, onClose
             {t('oneTimeCredentials.account')}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <code className="break-all text-sm font-semibold">{email}</code>
+            <code className={`break-all text-sm font-semibold ${valueText}`}>{email}</code>
             <button
               type="button"
               className="shrink-0 rounded-md p-1.5 text-cyan-500 hover:bg-cyan-500/10"
@@ -51,7 +52,7 @@ export default function OneTimeCredentialsModal({ open, email, password, onClose
             {t('oneTimeCredentials.password')}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <code className="break-all text-sm font-semibold">
+            <code className={`break-all text-sm font-semibold ${valueText}`}>
               {showPassword ? password : '••••••••••••'}
             </code>
             <div className="flex shrink-0 items-center gap-1">

@@ -6,6 +6,7 @@ import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
 import { authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -13,10 +14,14 @@ import { stashOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredential
 
 const unwrap = (payload) => payload?.data ?? payload;
 
+/** Chống StrictMode remount gọi accept 2 lần (ref bị reset khi unmount). */
+const inviteAcceptInFlight = new Set();
+
 export default function AcceptCompanyInvitePage() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
+  const { logout, isAuthenticated, loading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const hasRunRef = useRef(false);
@@ -30,54 +35,68 @@ export default function AcceptCompanyInvitePage() {
 
   useEffect(() => {
     if (!token) {
-      toast.error(t('acceptCompanyInvite.toastNoToken'));
+      toast.error(t('acceptCompanyInvite.toastNoToken'), { id: 'company-invite-flash' });
       navigate('/login', { replace: true, state: { error: t('acceptCompanyInvite.toastNoToken') } });
       return;
     }
-    if (hasRunRef.current) return;
+    // Đợi AuthContext hydrate — tránh accept rồi LoginPage đá về /app với session cũ.
+    if (authLoading) return;
+    if (hasRunRef.current || inviteAcceptInFlight.has(token)) return;
     hasRunRef.current = true;
+    inviteAcceptInFlight.add(token);
 
     (async () => {
       setPhase('creating');
       try {
+        if (isAuthenticated) {
+          await logout({ silent: true });
+        }
+
         const res = await organizationAPI.acceptCompanyInvite(token);
         const payload = unwrap(res);
         const data = payload?.data ?? payload;
         const email = String(data?.email || '').trim().toLowerCase();
         const temporaryPassword = String(data?.temporaryPassword || '');
+        const alreadyHadAccount = Boolean(data?.alreadyHadAccount);
+        const hasTempPassword = Boolean(email && temporaryPassword);
 
-        if (email && temporaryPassword) {
+        if (hasTempPassword) {
           stashOneTimeLoginCredentials({ email, password: temporaryPassword });
         }
 
         setPhase('done');
-        toast.success(data?.alreadyHadAccount
-          ? t('acceptCompanyInvite.toastExisting')
-          : t('acceptCompanyInvite.toastCreated'));
+
+        const message = hasTempPassword
+          ? t('acceptCompanyInvite.loginFlashCredentials')
+          : alreadyHadAccount
+            ? t('acceptCompanyInvite.toastExisting')
+            : t('acceptCompanyInvite.loginFlashReady');
 
         setTimeout(() => {
           navigate('/login', {
             replace: true,
             state: {
               fromCompanyInvite: true,
-              message: temporaryPassword
-                ? t('acceptCompanyInvite.loginFlashCredentials')
-                : t('acceptCompanyInvite.loginFlashReady'),
+              hasTempPassword,
+              alreadyHadAccount,
+              message,
               prefillEmail: email,
             },
           });
         }, 900);
       } catch (error) {
+        inviteAcceptInFlight.delete(token);
+        hasRunRef.current = false;
         const msg = resolveApiErrorMessage(error, {
           t,
           fallback: t('acceptCompanyInvite.createFailed'),
         });
         setErrorMessage(msg);
         setPhase('error');
-        toast.error(msg);
+        toast.error(msg, { id: 'company-invite-flash' });
       }
     })();
-  }, [token, navigate, t]);
+  }, [token, navigate, t, authLoading, isAuthenticated, logout]);
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>

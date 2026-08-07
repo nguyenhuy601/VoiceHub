@@ -38,6 +38,22 @@ export const adminUserAPI = {
       withOrg(organizationId)
     ),
 
+  /** Capacity — HR verify maxConcurrentProjects */
+  verifyResourceConfig: (organizationId, userId) =>
+    apiClient.patch(
+      `/users/admin/${userId}`,
+      { organizationId, resourceConfigAction: 'verify' },
+      withOrg(organizationId)
+    ),
+
+  /** Capacity — HR reject maxConcurrentProjects */
+  rejectResourceConfig: (organizationId, userId, rejectReason) =>
+    apiClient.patch(
+      `/users/admin/${userId}`,
+      { organizationId, resourceConfigAction: 'reject', rejectReason },
+      withOrg(organizationId)
+    ),
+
   getAuthSummary: (organizationId, userId) =>
     apiClient.get(`/auth/admin/users/${userId}/summary`, withOrg(organizationId)),
 
@@ -76,6 +92,13 @@ export const adminUserAPI = {
     apiClient.post(
       `/auth/admin/users/${userId}/set-password`,
       { organizationId, password, mustChangePassword },
+      withOrg(organizationId)
+    ),
+
+  activatePending: (organizationId, userId, { mustChangePassword = true } = {}) =>
+    apiClient.post(
+      `/auth/admin/users/${userId}/activate`,
+      { organizationId, mustChangePassword },
       withOrg(organizationId)
     ),
 

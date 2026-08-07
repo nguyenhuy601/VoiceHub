@@ -22,6 +22,7 @@ import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { readAuthTokenFromUrl } from '../../utils/authUrlToken';
+import { isPasswordPolicyOk } from '../../utils/passwordPolicy';
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ function ResetPasswordPage() {
     return score;
   }, [password]);
 
-  const passwordsMatch = password.length >= 8 && password === confirmPassword;
+  const passwordsMatch = isPasswordPolicyOk(password) && password === confirmPassword;
 
   const getStrengthColor = () => {
     if (passwordStrength === 0) return 'from-slate-400 to-slate-500';
@@ -62,6 +63,10 @@ function ResetPasswordPage() {
     }
     if (password.length < 8) {
       toast.error(t('resetPassword.toastPasswordMin'));
+      return;
+    }
+    if (!isPasswordPolicyOk(password)) {
+      toast.error(t('resetPassword.toastPasswordComplex'));
       return;
     }
     if (password !== confirmPassword) {

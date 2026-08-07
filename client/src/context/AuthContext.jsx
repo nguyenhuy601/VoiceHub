@@ -325,7 +325,8 @@ function AuthProvider({ children }) {
      4. Set user = null
      5. Socket sẽ disconnect (ở SocketContext)
   ======================================== */
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (options = {}) => {
+    const silent = Boolean(options?.silent);
     try {
       // Update status to 'offline' trước khi logout
       try {
@@ -345,7 +346,14 @@ function AuthProvider({ children }) {
       // Set user = null → app sẽ redirect về login
       setUser(null);
       clearStoredUiRole();
-      toast.success(t('authSession.logoutSuccess'));
+      notifyWorkspaceClearedOnLogout();
+      try {
+        const { queryClient } = await import('../lib/queryClient');
+        queryClient.clear();
+      } catch {
+        /* ignore */
+      }
+      if (!silent) toast.success(t('authSession.logoutSuccess'));
     } catch (error) {
       // Nếu API lỗi vẫn logout local
       console.error('Logout error:', error);
@@ -355,7 +363,14 @@ function AuthProvider({ children }) {
       setAccessToken(null);
       setUser(null);
       clearStoredUiRole();
-      toast.success(t('authSession.logoutSuccess'));
+      notifyWorkspaceClearedOnLogout();
+      try {
+        const { queryClient } = await import('../lib/queryClient');
+        queryClient.clear();
+      } catch {
+        /* ignore */
+      }
+      if (!silent) toast.success(t('authSession.logoutSuccess'));
     }
   }, [t]);
 
