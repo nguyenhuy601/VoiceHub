@@ -88,6 +88,22 @@ class AdminUserController {
     }
   }
 
+  async activatePending(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const data = await adminUserService.activatePendingByAdmin(userId, {
+        mustChangePassword: req.body?.mustChangePassword !== false,
+      });
+      return res.json({
+        success: true,
+        data,
+        message: 'Đã kích hoạt tài khoản. Mật khẩu tạm chỉ hiện một lần.',
+      });
+    } catch (error) {
+      return sendErrorFromCatch(res, error);
+    }
+  }
+
   async resendVerification(req, res) {
     try {
       const userId = String(req.params.userId || '').trim();

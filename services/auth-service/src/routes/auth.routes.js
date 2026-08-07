@@ -79,10 +79,23 @@ router.post(
   authController.provisionUserInternal.bind(authController)
 );
 
+// Internal — rollback helper for Excel/seed import
+router.post(
+  '/internal/deprovision',
+  internalGatewayAuth,
+  authController.deprovisionUserInternal.bind(authController)
+);
+
 router.post(
   '/internal/company-invite-email',
   internalGatewayAuth,
   authController.sendCompanyInviteEmail.bind(authController)
+);
+
+router.post(
+  '/internal/provision-set-password-email',
+  internalGatewayAuth,
+  authController.sendProvisionSetPasswordEmail.bind(authController)
 );
 
 router.get(
@@ -153,6 +166,12 @@ router.post(
   authenticate,
   companyAdminAuth({ requireFullAccess: true }),
   adminUserController.setPassword.bind(adminUserController)
+);
+router.post(
+  '/admin/users/:userId/activate',
+  authenticate,
+  companyAdminAuth({ requireFullAccess: true }),
+  adminUserController.activatePending.bind(adminUserController)
 );
 router.post(
   '/admin/users/:userId/resend-verification',

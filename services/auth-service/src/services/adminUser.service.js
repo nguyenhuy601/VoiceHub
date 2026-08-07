@@ -51,14 +51,19 @@ async function recordLoginEvent({ userId, success, ip, userAgent, errorCode }) {
 function buildAuthSummaryPayload(userAuth, email) {
   const lockUntil = userAuth.lockUntil || null;
   const isRateLocked = Boolean(lockUntil && lockUntil > new Date());
+  const isEmailVerified = Boolean(userAuth.isEmailVerified);
+  const isActive = Boolean(userAuth.isActive);
+  /** Excel/HR pending: chưa chứng minh email — khác với bị admin khóa sau khi đã verified. */
+  const pendingActivation = !isActive && !isEmailVerified;
   return {
     userId: normalizeUserId(userAuth.userId),
     email,
-    isActive: Boolean(userAuth.isActive),
+    isActive,
     mustChangePassword: Boolean(userAuth.mustChangePassword),
     lastLoginAt: userAuth.lastLoginAt || null,
-    isLocked: !userAuth.isActive || isRateLocked,
-    isEmailVerified: Boolean(userAuth.isEmailVerified),
+    isLocked: (!pendingActivation && !isActive) || isRateLocked,
+    pendingActivation,
+    isEmailVerified,
     pendingEmail: userAuth.pendingEmail || null,
     loginAttempts: Number(userAuth.loginAttempts || 0),
     lockUntil,
@@ -98,10 +103,19 @@ async function setUserLocked(userId, locked) {
   if (!userAuth) {
     throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
   }
-  userAuth.isActive = !locked;
   if (locked) {
+    userAuth.isActive = false;
     userAuth.lockUntil = null;
     userAuth.loginAttempts = 0;
+  } else {
+    if (!userAuth.isEmailVerified) {
+      throw createServiceError(
+        'Tài khoản đang chờ kích hoạt. Dùng «Kích hoạt tài khoản» hoặc để nhân viên đặt mật khẩu qua email.',
+        400,
+        'AUTH_PENDING_ACTIVATION'
+      );
+    }
+    userAuth.isActive = true;
   }
   await userAuth.save();
   await bumpTokenVersion(userAuth);
@@ -156,6 +170,51 @@ async function triggerPasswordReset(userId, frontendUrl) {
   };
 }
 
+/**
+ * Sau Excel/HR provision: buộc đổi mk + gửi email đặt mật khẩu (không plaintext).
+ */
+async function sendProvisionSetPasswordEmail(
+  userId,
+  { frontendUrl, organizationName = '', firstName = '', lastName = '' } = {}
+) {
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) {
+    throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
+  }
+  const plainEmail = await hydrateAuthEmailDoc(userAuth);
+  if (!plainEmail) {
+    throw createServiceError('Tài khoản không có email.', 400, 'AUTH_EMAIL_MISSING');
+  }
+
+  userAuth.mustChangePassword = true;
+  const passwordResetToken = crypto.randomBytes(32).toString('hex');
+  userAuth.passwordResetToken = passwordResetToken;
+  userAuth.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+  await userAuth.save();
+
+  const baseNormalized = String(
+    (frontendUrl && String(frontendUrl).trim()) || process.env.FRONTEND_URL || 'http://localhost:5173'
+  ).replace(/\/+$/, '');
+  const resetUrl = `${baseNormalized}/reset-password#token=${encodeURIComponent(passwordResetToken)}`;
+
+  let emailScheduled = false;
+  if (emailService.isAvailable()) {
+    const emailResult = await emailService.sendHrProvisionSetPasswordEmail(plainEmail, {
+      resetUrl,
+      organizationName,
+      firstName,
+      lastName,
+    });
+    emailScheduled = Boolean(emailResult);
+  }
+
+  return {
+    emailScheduled,
+    email: plainEmail,
+    resetUrl: !emailScheduled && process.env.NODE_ENV !== 'production' ? resetUrl : null,
+  };
+}
+
 async function revokeUserSessions(userId) {
   const userAuth = await findAuthByUserId(userId);
   if (!userAuth) {
@@ -179,15 +238,71 @@ async function setPasswordByAdmin(userId, { password, mustChangePassword = false
   }
   const validation = validatePasswordStrength(plainPassword);
   if (!validation.isValid) {
-    throw createServiceError(validation.errors[0] || 'Mật khẩu không hợp lệ.', 400, 'AUTH_PASSWORD_WEAK');
+    throw createServiceError(
+      validation.errors.join(', ') || 'Mật khẩu không hợp lệ.',
+      400,
+      'AUTH_WEAK_PASSWORD'
+    );
   }
   userAuth.password = await hashPassword(plainPassword);
   userAuth.mustChangePassword = Boolean(mustChangePassword);
   userAuth.passwordResetToken = null;
   userAuth.passwordResetExpiresAt = null;
+  // Admin đặt mk = override kích hoạt (mail fake / SMTP fail).
+  userAuth.isActive = true;
+  userAuth.isEmailVerified = true;
   await userAuth.save();
   await bumpTokenVersion(userAuth);
   return getAuthSummary(userId);
+}
+
+/**
+ * Admin kích hoạt tài khoản pending (Excel / mail không nhận được).
+ * Trả temporaryPassword đúng một lần — không lưu plaintext.
+ */
+async function activatePendingByAdmin(userId, { mustChangePassword = true } = {}) {
+  const { generateTemporaryPassword } = require('../utils/password');
+  const userAuth = await findAuthByUserId(userId);
+  if (!userAuth) {
+    throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
+  }
+  const pending = !userAuth.isActive && !userAuth.isEmailVerified;
+  if (!pending && userAuth.isActive && userAuth.isEmailVerified) {
+    throw createServiceError(
+      'Tài khoản đã kích hoạt. Dùng đặt mật khẩu hoặc khóa/mở khóa nếu cần.',
+      400,
+      'AUTH_ALREADY_ACTIVE'
+    );
+  }
+
+  const temporaryPassword = generateTemporaryPassword(12);
+  const validation = validatePasswordStrength(temporaryPassword);
+  if (!validation.isValid) {
+    throw createServiceError(
+      validation.errors.join(', ') || 'Mật khẩu tạm không hợp lệ.',
+      500,
+      'AUTH_WEAK_PASSWORD'
+    );
+  }
+
+  userAuth.password = await hashPassword(temporaryPassword);
+  userAuth.isActive = true;
+  userAuth.isEmailVerified = true;
+  userAuth.mustChangePassword = mustChangePassword !== false;
+  userAuth.passwordResetToken = null;
+  userAuth.passwordResetExpiresAt = null;
+  userAuth.refreshToken = null;
+  userAuth.refreshTokenExpiresAt = null;
+  await userAuth.save();
+  await bumpTokenVersion(userAuth);
+
+  const summary = await getAuthSummary(userId);
+  const email = summary?.email || null;
+  return {
+    ...summary,
+    email,
+    temporaryPassword,
+  };
 }
 
 async function resendVerificationByUserId(userId, frontendUrl) {
@@ -275,8 +390,10 @@ module.exports = {
   setUserLocked,
   setMustChangePassword,
   triggerPasswordReset,
+  sendProvisionSetPasswordEmail,
   revokeUserSessions,
   setPasswordByAdmin,
+  activatePendingByAdmin,
   resendVerificationByUserId,
   listLoginEvents,
 };

@@ -380,6 +380,54 @@ class EmailService {
   }
 
   /**
+   * Email onboarding sau Excel/HR provision — link đặt mật khẩu (không gửi plaintext password).
+   */
+  async sendHrProvisionSetPasswordEmail(email, { resetUrl, organizationName, firstName, lastName }) {
+    try {
+      if (!this.isAvailable()) {
+        console.warn('[EmailService] HR set-password email skipped: service not configured');
+        return null;
+      }
+      const url = String(resetUrl || '').trim();
+      if (!url) return null;
+      const orgLabel = String(organizationName || 'công ty').trim();
+      const nameParts = [firstName, lastName].map((s) => String(s || '').trim()).filter(Boolean);
+      const greet = nameParts.length ? nameParts.join(' ') : 'bạn';
+
+      const mailOptions = {
+        from: `"${process.env.EMAIL_FROM_NAME || 'VoiceHub'}" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: `Đặt mật khẩu tài khoản — ${orgLabel}`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"></head>
+          <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+            <div style="max-width:560px;margin:0 auto;padding:24px;">
+              <h2 style="margin:0 0 12px;">Xin chào ${greet},</h2>
+              <p>Tài khoản <strong>VoiceHub</strong> của bạn tại <strong>${orgLabel}</strong> đã được tạo (HR import).</p>
+              <p>Nhấn nút bên dưới để <strong>đặt mật khẩu lần đầu</strong>, rồi đăng nhập. Không gửi mật khẩu tạm trong email này.</p>
+              <p style="margin:28px 0;">
+                <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
+                  Đặt mật khẩu
+                </a>
+              </p>
+              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${url}</p>
+              <p style="font-size:12px;color:#888;">Link hết hạn sau 1 giờ. Nếu bạn không mong đợi email này, hãy bỏ qua.</p>
+            </div>
+          </body>
+          </html>
+        `,
+        text: `Xin chào ${greet}, tài khoản VoiceHub tại ${orgLabel} đã được tạo. Đặt mật khẩu tại: ${url}`,
+      };
+      return await this.transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('Error sending HR set-password email:', error);
+      return null;
+    }
+  }
+
+  /**
    * Gửi email mời vào phòng thoại (public room link).
    */
   async sendVoiceRoomInviteEmail(email, { inviteUrl, roomId, hostName }) {

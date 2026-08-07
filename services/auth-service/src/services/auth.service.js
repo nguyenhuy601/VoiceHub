@@ -192,7 +192,11 @@ class AuthService {
       // Validate password strength
       const passwordValidation = validatePasswordStrength(password);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash password
@@ -308,6 +312,15 @@ class AuthService {
 
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
+      // Excel/HR pending: chưa đặt mk qua mail / chưa admin activate
+      if (!userAuth.isEmailVerified && !userAuth.isActive) {
+        throw createServiceError(
+          'Tài khoản đang chờ kích hoạt. Kiểm tra email đặt mật khẩu hoặc liên hệ admin.',
+          401,
+          'AUTH_PENDING_ACTIVATION'
+        );
+      }
+
       // Kiểm tra email đã được verify chưa
       if (!userAuth.isEmailVerified) {
         throw createServiceError('Vui lòng xác thực email trước khi đăng nhập', 401, 'AUTH_EMAIL_NOT_VERIFIED');
@@ -421,7 +434,11 @@ class AuthService {
       // Validate new password strength
       const passwordValidation = validatePasswordStrength(newPassword);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash new password
@@ -666,18 +683,26 @@ class AuthService {
       // Validate new password strength
       const passwordValidation = validatePasswordStrength(newPassword);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
       // Cập nhật password, xóa reset token và vô hiệu session cũ
+      // HR Excel pending: đặt mk qua mail = chứng minh mailbox → kích hoạt tài khoản (hướng A).
       userAuth.password = hashedPassword;
       userAuth.passwordResetToken = null;
       userAuth.passwordResetExpiresAt = null;
       userAuth.refreshToken = null;
       userAuth.refreshTokenExpiresAt = null;
+      userAuth.mustChangePassword = false;
+      userAuth.isActive = true;
+      userAuth.isEmailVerified = true;
       await bumpTokenVersion(userAuth);
       await userAuth.save();
 
@@ -693,7 +718,9 @@ class AuthService {
   }
 
   /**
-   * IT/HR provision — tạo tài khoản active, verified (single-company).
+   * IT/HR provision.
+   * - readyForLogin=true (seed/invite accept): active + verified ngay.
+   * - readyForLogin=false (Excel HR): pending — chưa login đến khi đặt mk qua mail hoặc admin activate.
    */
   async provisionUserByAdmin({
     email,
@@ -716,6 +743,7 @@ class AuthService {
     await ensureMongoReady('PROVISION');
 
     const providedPassword = String(password || '').trim();
+    const activateNow = Boolean(readyForLogin);
 
     const existingUser = await findUserAuthByEmail(normalizedEmail, {
       maxTimeMS: 15000,
@@ -736,11 +764,11 @@ class AuthService {
         existingUser.mustChangePassword = false;
         touched = true;
       }
-      if (readyForLogin && normalizedSystemRole) {
+      if (activateNow && normalizedSystemRole) {
         existingUser.systemRole = normalizedSystemRole;
         touched = true;
       }
-      if (readyForLogin) {
+      if (activateNow) {
         existingUser.mustChangePassword = false;
         existingUser.isActive = true;
         existingUser.isEmailVerified = true;
@@ -756,6 +784,7 @@ class AuthService {
           syncErr?.message || syncErr
         );
       }
+      const pendingActivation = !existingUser.isActive && !existingUser.isEmailVerified;
       return {
         userId: String(existingUser.userId),
         email: normalizedEmail,
@@ -763,6 +792,9 @@ class AuthService {
         systemRole: this.normalizeSystemRole(existingUser.systemRole),
         mustChangePassword: Boolean(existingUser.mustChangePassword),
         temporaryPassword: resetPassword && providedPassword ? providedPassword : undefined,
+        isActive: Boolean(existingUser.isActive),
+        isEmailVerified: Boolean(existingUser.isEmailVerified),
+        pendingActivation,
       };
     }
     if (existingUser && !existingUser.userId) {
@@ -782,8 +814,8 @@ class AuthService {
 
     const hashedPassword = await hashPassword(tempPassword);
     const userId = new mongoose.Types.ObjectId();
-    /** Seed/UAT: admin đã đặt mật khẩu → không bắt đổi MK lần đầu. */
-    const mustChangePassword = !(providedPassword && readyForLogin);
+    /** Seed/UAT: admin đã đặt mật khẩu + readyForLogin → không bắt đổi MK lần đầu. */
+    const mustChangePassword = !(providedPassword && activateNow);
 
     const userAuth = new UserAuth({
       userId,
@@ -792,9 +824,9 @@ class AuthService {
       firstName: fn,
       lastName: ln,
       systemRole: normalizedSystemRole,
-      isEmailVerified: true,
-      isActive: true,
-      mustChangePassword,
+      isEmailVerified: activateNow,
+      isActive: activateNow,
+      mustChangePassword: activateNow ? mustChangePassword : true,
       emailVerificationToken: null,
       emailVerificationExpiresAt: null,
     });
@@ -815,8 +847,12 @@ class AuthService {
       email: normalizedEmail,
       created: true,
       systemRole: normalizedSystemRole,
-      temporaryPassword: tempPassword,
-      mustChangePassword,
+      // Không trả temp password khi pending Excel — NV đặt mk qua mail / admin activate.
+      temporaryPassword: activateNow ? tempPassword : undefined,
+      mustChangePassword: Boolean(userAuth.mustChangePassword),
+      isActive: Boolean(userAuth.isActive),
+      isEmailVerified: Boolean(userAuth.isEmailVerified),
+      pendingActivation: !activateNow,
     };
   }
 

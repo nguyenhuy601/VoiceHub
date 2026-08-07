@@ -481,6 +481,38 @@ class AuthController {
     }
   }
 
+  /** Internal — soft rollback: deactivate UserAuth created during import */
+  async deprovisionUserInternal(req, res) {
+    try {
+      const userId = String(req.body?.userId || '').trim();
+      if (!userId) {
+        return sendError(res, new Error('userId là bắt buộc'), 400, 'userId bắt buộc', 'AUTH_DEPROVISION_REQUIRED');
+      }
+      const UserAuth = require('../models/UserAuth');
+      const updated = await UserAuth.findOneAndUpdate(
+        { userId },
+        {
+          $set: {
+            isActive: false,
+            isEmailVerified: false,
+          },
+        },
+        { new: true }
+      );
+
+      if (!updated) {
+        return sendError(res, new Error('UserAuth not found'), 404, 'Không tìm thấy UserAuth', 'AUTH_DEPROVISION_NOT_FOUND');
+      }
+
+      return res.json({
+        success: true,
+        data: { userId: String(updated.userId) },
+      });
+    } catch (error) {
+      return sendError(res, error, 400, 'Không thể deprovision user', 'AUTH_DEPROVISION_FAILED');
+    }
+  }
+
   // Lấy thông tin user hiện tại
   async getMe(req, res) {
     try {
@@ -581,12 +613,38 @@ class AuthController {
           success: false,
           message: 'Failed to send invite email',
           errorCode: 'AUTH_INVITE_EMAIL_FAILED',
-          messageUser: 'Không gửi được email mời. Vui lòng thử lại.',
+          messageUser:
+            'Không gửi được email mời. Kiểm tra EMAIL_USER / Gmail App Password (lỗi SMTP 535 BadCredentials).',
         });
       }
       return res.json({ success: true, data: { sent: true } });
     } catch (error) {
       return sendError(res, error, 500, 'Không gửi được email mời', 'AUTH_INVITE_EMAIL_FAILED');
+    }
+  }
+
+  /** S2S — org-service gửi email đặt mật khẩu sau Excel/HR provision */
+  async sendProvisionSetPasswordEmail(req, res) {
+    try {
+      const { userId, frontendUrl, organizationName, firstName, lastName } = req.body || {};
+      const uid = String(userId || '').trim();
+      if (!uid) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId is required',
+          errorCode: 'VALIDATION_REQUIRED',
+        });
+      }
+      const adminUserService = require('../services/adminUser.service');
+      const data = await adminUserService.sendProvisionSetPasswordEmail(uid, {
+        frontendUrl,
+        organizationName,
+        firstName,
+        lastName,
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return sendError(res, error, error.statusCode || 500, 'Không gửi được email đặt mật khẩu', 'AUTH_SET_PASSWORD_EMAIL_FAILED');
     }
   }
 

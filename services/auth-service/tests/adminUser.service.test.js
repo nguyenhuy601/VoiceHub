@@ -85,6 +85,7 @@ describe('adminUser.service', () => {
           isValid: String(pwd || '').length >= 8,
           errors: ['Password too short'],
         }),
+        generateTemporaryPassword: () => 'TempPass1!',
       },
     };
   });
@@ -119,6 +120,7 @@ describe('adminUser.service', () => {
     const doc = {
       userId: 'u-unlock',
       isActive: false,
+      isEmailVerified: true,
       save: async function save() {
         savedDocs = [this];
       },
@@ -131,6 +133,47 @@ describe('adminUser.service', () => {
     assert.equal(doc.isActive, true);
     assert.equal(bumpCalls, 1);
     assert.equal(summary.isActive, true);
+  });
+
+  it('setUserLocked unlock rejects pending (unverified) accounts', async () => {
+    const doc = {
+      userId: 'u-pending-unlock',
+      isActive: false,
+      isEmailVerified: false,
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    await assert.rejects(
+      () => adminUserService.setUserLocked('u-pending-unlock', false),
+      (err) => err?.errorCode === 'AUTH_PENDING_ACTIVATION'
+    );
+  });
+
+  it('activatePendingByAdmin issues temporary password and activates', async () => {
+    const doc = {
+      userId: 'u-activate',
+      email: 'pending@example.com',
+      isActive: false,
+      isEmailVerified: false,
+      mustChangePassword: true,
+      save: async function save() {
+        savedDocs = [this];
+      },
+    };
+    savedDocs = [doc];
+
+    const adminUserService = require(servicePath);
+    const result = await adminUserService.activatePendingByAdmin('u-activate');
+
+    assert.equal(doc.isActive, true);
+    assert.equal(doc.isEmailVerified, true);
+    assert.equal(doc.password, 'hashed:TempPass1!');
+    assert.equal(result.temporaryPassword, 'TempPass1!');
+    assert.equal(result.pendingActivation, false);
   });
 
   it('setMustChangePassword bumps token version when enabling requirement', async () => {
