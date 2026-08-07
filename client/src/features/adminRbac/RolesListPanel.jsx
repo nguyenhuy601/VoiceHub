@@ -9,7 +9,7 @@ import {
   normalizeRoleId,
   totalPermissionSlotCount,
 } from '../../utils/adminRbacUtils';
-import { hasLayerPrefix, isTitleLikeSystemRoleName } from '../../utils/roleLayerNaming';
+import { splitLayerLabel } from '../../utils/roleLayerNaming';
 
 const ACTION_LINKS = [
   { path: '/app/admin/rbac/edit', labelKey: 'adminDomains.rbac.edit' },
@@ -64,7 +64,10 @@ export default function RolesListPanel({ orgId }) {
       </div>
 
       <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
-        <p className="font-medium text-foreground">{t('adminRbac.listBanner')}</p>
+        <p className="font-medium text-foreground">RBAC V2 Direct Replace</p>
+        <p className="text-muted-foreground">
+          Tạo mới chỉ qua clone template (không blank). Sửa quyền tại Permissions theo cây Category → Module → Action.
+        </p>
         <p className="text-muted-foreground">{t('adminRbac.listScopeNote')}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Link
@@ -111,13 +114,12 @@ export default function RolesListPanel({ orgId }) {
               const id = normalizeRoleId(role);
               const granted = grantedPermissionCount(role.permissions);
               const displayName = normalizeRoleDisplayName(role.name);
-              const showLegacyHint =
-                !hasLayerPrefix(displayName, 'system') || isTitleLikeSystemRoleName(displayName);
+              const displaySystemName = splitLayerLabel(displayName, 'system').suffix || displayName;
               return (
                 <tr key={id} className="border-t border-border/60">
                   <td className="px-3 py-2 font-medium">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span>{displayName}</span>
+                      <span>{displaySystemName}</span>
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
                         {t('adminRbac.listKindBadge')}
                       </span>
@@ -129,11 +131,6 @@ export default function RolesListPanel({ orgId }) {
                     ) : null}
                     {isProtectedDefaultRole(role) ? (
                       <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
-                    ) : null}
-                    {showLegacyHint ? (
-                      <div className="mt-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
-                        {t('adminRbac.listLegacyNameHint')}
-                      </div>
                     ) : null}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{role.scope || 'ORGANIZATION'}</td>

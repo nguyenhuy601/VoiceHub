@@ -34,6 +34,10 @@ router.use('/project-briefs', projectBriefRoutes);
 // Admin Project Roles catalog — trước /:taskId
 router.use('/admin/project-roles', projectRoleAdminRoutes);
 
+const worklog = require('../controllers/worklog.controller');
+router.get('/:taskId/worklogs', worklog.listTaskWorklogs);
+router.post('/:taskId/worklogs', worklog.createTaskWorklog);
+
 // Lấy task theo ID
 router.get('/:taskId', taskController.getTaskById.bind(taskController));
 

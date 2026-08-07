@@ -32,8 +32,8 @@ export default function TasksWorkflowPanel({ orgId }) {
   const [loading, setLoading] = useState(false);
   const [fromKey, setFromKey] = useState('todo');
   const [toKey, setToKey] = useState('in_progress');
-  const [newStateKey, setNewStateKey] = useState('');
-  const [newStateLabel, setNewStateLabel] = useState('');
+  const [conditionRoleKey, setConditionRoleKey] = useState('');
+
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -131,9 +131,20 @@ export default function TasksWorkflowPanel({ orgId }) {
 
   const addTransition = async () => {
     if (!workflow) return;
-    const transitions = [...(workflow.transitions || []), { fromKey, toKey, name: `${fromKey}→${toKey}` }];
+    const role = String(conditionRoleKey || '').trim();
+    const conditions = role ? [`role_in_project:${role}`] : [];
+    const transitions = [
+      ...(workflow.transitions || []),
+      {
+        fromKey,
+        toKey,
+        name: `${fromKey}→${toKey}`,
+        ...(conditions.length ? { conditions } : {}),
+      },
+    ];
     try {
       await persistWorkflow({ ...workflow, transitions });
+      setConditionRoleKey('');
       toast.success(t('adminTasks.workflowSaved'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
@@ -205,7 +216,11 @@ export default function TasksWorkflowPanel({ orgId }) {
                     <span className="ml-2 text-[10px] uppercase text-muted-foreground">builtin</span>
                   ) : null}
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {tpl.description || tpl.key} · {(tpl.statuses || []).length} statuses
+                    {tpl.description || tpl.key} · {(tpl.statuses || tpl.states || []).length}{' '}
+                    statuses
+                    {Array.isArray(tpl.companySizes) && tpl.companySizes.length
+                      ? ` · size: ${tpl.companySizes.join(', ')}`
+                      : ''}
                   </span>
                 </span>
               </label>
@@ -307,6 +322,15 @@ export default function TasksWorkflowPanel({ orgId }) {
                         </option>
                       ))}
                     </select>
+                  </label>
+                  <label className={adminLabelClass()}>
+                    Role condition (master key)
+                    <input
+                      className={adminInputClass()}
+                      value={conditionRoleKey}
+                      onChange={(e) => setConditionRoleKey(e.target.value)}
+                      placeholder="project_manager"
+                    />
                   </label>
                   <button type="button" className={adminPrimaryBtnClass()} onClick={addTransition}>
                     {t('adminTasks.workflowAddTransition')}

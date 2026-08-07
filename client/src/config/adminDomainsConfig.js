@@ -150,6 +150,12 @@ export const ADMIN_DOMAINS = [
             end: true,
             implementation: 'rbac-taxonomy',
           },
+          {
+            id: 'master-data',
+            path: '/app/admin/rbac/master-data',
+            labelKey: 'adminDomains.rbac.masterData',
+            implementation: 'rbac-master-data',
+          },
         ],
       },
       {
@@ -164,10 +170,10 @@ export const ADMIN_DOMAINS = [
             implementation: 'rbac-pos-list',
           },
           {
-            id: 'pos-create',
-            path: '/app/admin/rbac/positions/create',
-            labelKey: 'adminDomains.rbac.posCreate',
-            implementation: 'rbac-pos-create',
+            id: 'pos-assign',
+            path: '/app/admin/rbac/positions/assign',
+            labelKey: 'adminDomains.rbac.posAssign',
+            implementation: 'rbac-pos-assign',
           },
           {
             id: 'pos-edit',
@@ -180,12 +186,6 @@ export const ADMIN_DOMAINS = [
             path: '/app/admin/rbac/positions/disable',
             labelKey: 'adminDomains.rbac.posDisable',
             implementation: 'rbac-pos-disable',
-          },
-          {
-            id: 'pos-assign',
-            path: '/app/admin/rbac/positions/assign',
-            labelKey: 'adminDomains.rbac.posAssign',
-            implementation: 'rbac-pos-assign',
           },
         ],
       },
@@ -488,6 +488,12 @@ export const ADMIN_DOMAINS = [
             implementation: 'tasks-resource-planner',
           },
           {
+            id: 'utilization',
+            path: '/app/admin/projects/utilization',
+            labelKey: 'adminDomains.projects.utilization',
+            implementation: 'tasks-utilization',
+          },
+          {
             id: 'approval-policies',
             path: '/app/admin/projects/approval-policies',
             labelKey: 'adminDomains.projects.approvalPolicies',
@@ -700,7 +706,8 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/policy': '/app/admin/system-config/policy',
   '/app/admin/security': '/app/admin/security',
   '/app/admin/org-structure/positions': '/app/admin/rbac/positions',
-  '/app/admin/org-structure/positions/create': '/app/admin/rbac/positions/create',
+  '/app/admin/org-structure/positions/create': '/app/admin/rbac/master-data',
+  '/app/admin/rbac/positions/create': '/app/admin/rbac/master-data',
   '/app/admin/org-structure/positions/edit': '/app/admin/rbac/positions/edit',
   '/app/admin/org-structure/positions/disable': '/app/admin/rbac/positions/disable',
   '/app/admin/org-structure/positions/assign': '/app/admin/rbac/positions/assign',

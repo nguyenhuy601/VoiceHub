@@ -123,23 +123,6 @@ exports.rejectRequest = async (req, res, next) => {
   }
 };
 
-exports.removeFriend = async (req, res, next) => {
-  try {
-    const userId = String(req.user?.id || req.user?._id || '').trim();
-    const friendship = await Friendship.findOneAndDelete({
-      _id: req.params.id,
-      status: 'accepted',
-      $or: [{ requester: userId }, { recipient: userId }],
-    });
-    if (!friendship) {
-      return res.status(404).json({ status: 'fail', message: 'Friendship not found' });
-    }
-    res.json({ status: 'success', message: 'Friend removed' });
-  } catch (error) {
-    next(error);
-  }
-};
-
 exports.blockUser = async (req, res, next) => {
   try {
     const { userId } = req.body;

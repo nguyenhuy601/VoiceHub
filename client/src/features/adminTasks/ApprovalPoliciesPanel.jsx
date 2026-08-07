@@ -101,6 +101,9 @@ export default function ApprovalPoliciesPanel({ orgId }) {
                     <span className="block font-mono text-[10px] text-muted-foreground">
                       {p.key}
                       {p.isBuiltin ? ' · builtin' : ''}
+                      {Array.isArray(p.companySizes) && p.companySizes.length
+                        ? ` · size: ${p.companySizes.join(',')}`
+                        : ''}
                     </span>
                   </button>
                 </li>

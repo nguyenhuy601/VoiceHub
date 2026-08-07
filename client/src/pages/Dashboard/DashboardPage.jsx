@@ -22,6 +22,7 @@ import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
 import { GlassCard, GradientButton, Modal } from '../../components/Shared';
 import DashboardFigmaView from '../../components/Dashboard/DashboardFigmaView';
+import PersonalOverviewView from '../../components/Dashboard/PersonalOverviewView';
 import {
   buildProductivity30D,
   buildProductivityTrends,
@@ -318,15 +319,21 @@ function DashboardPage({
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const currentUserKey = String(user?.userId || user?._id || user?.id || '').trim();
+  const isMeScope = suiteLayout && String(suiteScope || '').toLowerCase() === 'me';
+  const communicateEnabled = !landingDemo && !isMeScope;
   const isSuiteOverview =
-    suiteLayout && ['communicate', 'collaborate', 'me'].includes(String(suiteScope || '').toLowerCase());
+    suiteLayout &&
+    ['communicate', 'collaborate'].includes(String(suiteScope || '').toLowerCase());
   const showEnterpriseSections = isSuiteOverview ? !isGuest && !isPersonal : isManagerOrAbove;
 
-  const orgsQuery = useOrganizationsMy({ enabled: !landingDemo });
-  const summaryQuery = useDashboardSummary({ enabled: !landingDemo });
-  const friendsQuery = useFriendsList({ enabled: !landingDemo });
-  const pendingQuery = useFriendPending({ enabled: !landingDemo });
-  const notificationsQuery = useNotificationsPreview({ limit: 8, enabled: !landingDemo });
+  const orgsQuery = useOrganizationsMy({ enabled: communicateEnabled });
+  const summaryQuery = useDashboardSummary({ enabled: communicateEnabled });
+  const friendsQuery = useFriendsList({ enabled: communicateEnabled });
+  const pendingQuery = useFriendPending({ enabled: communicateEnabled });
+  const notificationsQuery = useNotificationsPreview({
+    limit: 8,
+    enabled: communicateEnabled,
+  });
   const refetchSummary = summaryQuery.refetch;
   const refetchFriends = friendsQuery.refetch;
   const refetchPending = pendingQuery.refetch;
@@ -334,7 +341,7 @@ function DashboardPage({
 
   const dashboardQueryErrorNotifiedRef = useRef(false);
   useEffect(() => {
-    if (landingDemo) return;
+    if (landingDemo || isMeScope) return;
     const failedQuery =
       (summaryQuery.isError && summaryQuery.error) ||
       (orgsQuery.isError && orgsQuery.error) ||
@@ -349,6 +356,7 @@ function DashboardPage({
     toast.error(resolveApiErrorMessage(err, { t, fallback: t('errors.generic') }));
   }, [
     landingDemo,
+    isMeScope,
     summaryQuery.isError,
     summaryQuery.error,
     orgsQuery.isError,
@@ -359,11 +367,10 @@ function DashboardPage({
   ]);
 
   useEffect(() => {
-    if (!suiteLayout || landingDemo) return;
+    if (!suiteLayout || landingDemo || isMeScope) return;
     const overviewPaths = new Set([
       '/app/communicate/overview',
       '/app/collaborate/overview',
-      '/app/me/dashboard',
     ]);
     if (!overviewPaths.has(location.pathname)) return;
     const root = document.querySelector(`[aria-label="${t('dashboard.ariaOverview')}"]`);
@@ -372,10 +379,10 @@ function DashboardPage({
     } else {
       window.scrollTo(0, 0);
     }
-  }, [location.pathname, suiteLayout, landingDemo, t]);
+  }, [location.pathname, suiteLayout, landingDemo, isMeScope, t]);
 
   useEffect(() => {
-    if (landingDemo) return undefined;
+    if (landingDemo || isMeScope) return undefined;
 
     const hardRefreshMetrics = () => {
       refetchSummary?.();
@@ -425,6 +432,7 @@ function DashboardPage({
     };
   }, [
     landingDemo,
+    isMeScope,
     on,
     off,
     refetchSummary,
@@ -493,6 +501,7 @@ function DashboardPage({
       setRecentNotifications([]);
       return;
     }
+    if (isMeScope) return;
     let cancelled = false;
     (async () => {
       try {
@@ -954,6 +963,7 @@ function DashboardPage({
     currentUserKey,
     metricsTick,
     landingDemo,
+    isMeScope,
     demoVariant,
     locale,
     t,
@@ -1371,10 +1381,10 @@ function DashboardPage({
         icon: Timer,
       },
       {
-        label: t('dashboard.perfSprintVelocity'),
+        label: t('dashboard.perfTasksDone'),
         value: metrics.taskDone == null ? 0 : Number(metrics.taskDone) || 0,
         target: Math.max(Number(metrics.taskDone) || 0, 20),
-        unit: ' pts',
+        unit: '',
         color: '#06B6D4',
         icon: TrendingUp,
       },
@@ -1660,7 +1670,9 @@ function DashboardPage({
 
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
 
-  const dashboardBody = (
+  const dashboardBody = isMeScope ? (
+    <PersonalOverviewView onNavigate={navigate} />
+  ) : (
     <DashboardFigmaView
       isGuest={isGuest}
       isPersonal={isPersonal}

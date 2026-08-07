@@ -4,6 +4,8 @@ const {
   classifyAudiences,
   resolveProjectAccess,
   normalizeProjectVisibilityPolicy,
+  canUseCustomProjectVisibility,
+  assertCanUseCustomProjectVisibility,
 } = require('../src/utils/projectVisibility');
 
 describe('projectVisibility resolve', () => {
@@ -151,5 +153,26 @@ describe('projectVisibility resolve', () => {
     });
     assert.equal(access.discover, true);
     assert.equal(access.informationLevel, 'confidential');
+  });
+
+  it('T4: override blocked when allowProjectManagerOverride=false for non-admin', () => {
+    const ctx = {
+      membershipRole: 'member',
+      policy: normalizeProjectVisibilityPolicy({ allowProjectManagerOverride: false }),
+    };
+    assert.equal(canUseCustomProjectVisibility(ctx, 'u1').allowed, false);
+    assert.throws(
+      () => assertCanUseCustomProjectVisibility(ctx, 'u1'),
+      (err) => err.statusCode === 403
+    );
+  });
+
+  it('T4b: org admin may override when allowProjectManagerOverride=false', () => {
+    const ctx = {
+      membershipRole: 'admin',
+      policy: normalizeProjectVisibilityPolicy({ allowProjectManagerOverride: false }),
+    };
+    assert.equal(canUseCustomProjectVisibility(ctx, 'admin1').allowed, true);
+    assert.doesNotThrow(() => assertCanUseCustomProjectVisibility(ctx, 'admin1'));
   });
 });

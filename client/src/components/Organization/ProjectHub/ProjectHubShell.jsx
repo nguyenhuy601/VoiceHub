@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
 import ProjectHubTechnicalSetupPanel from './ProjectHubTechnicalSetupPanel';
@@ -254,7 +255,12 @@ export default function ProjectHubShell({
   const [tab, setTab] = useState('overview');
   const [apiActivity, setApiActivity] = useState(null);
   const [apiFiles, setApiFiles] = useState(null);
-  const [projectAccess, setProjectAccess] = useState(null);
+  const [projectPayload, setProjectPayload] = useState(null);
+
+  const hubCaps = useMemo(
+    () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
+    [projectPayload, canManage]
+  );
 
   const resolvedBoard = useMemo(() => {
     if (boardDetail?.board) return boardDetail.board;
@@ -271,7 +277,7 @@ export default function ProjectHubShell({
 
   useEffect(() => {
     if (!projectId) {
-      setProjectAccess(null);
+      setProjectPayload(null);
       return;
     }
     let cancelled = false;
@@ -279,15 +285,17 @@ export default function ProjectHubShell({
       try {
         const res = await projectAPI.get(projectId);
         const data = res?.data?.data ?? res?.data ?? res;
-        if (!cancelled) setProjectAccess(data?.access || null);
+        if (!cancelled) setProjectPayload(data || null);
       } catch {
-        if (!cancelled) setProjectAccess(null);
+        if (!cancelled) setProjectPayload(null);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [projectId]);
+
+  const projectAccess = projectPayload?.access || null;
 
   const informationLevel = String(
     projectAccess?.informationLevel ||
@@ -296,6 +304,15 @@ export default function ProjectHubShell({
       ''
   ).toLowerCase();
   const isSummaryOnly = informationLevel === 'summary';
+
+  const visibleTabs = useMemo(() => {
+    return PROJECT_HUB_TABS.filter((item) => {
+      if (isSummaryOnly && item.id !== 'overview') return false;
+      if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
+      if (item.id === 'setup' && !hubCaps.canManageSettings) return false;
+      return true;
+    });
+  }, [hubCaps, isSummaryOnly]);
 
   useEffect(() => {
     if (isSummaryOnly && tab !== 'overview') setTab('overview');
@@ -488,7 +505,7 @@ export default function ProjectHubShell({
           aria-label={t('workspace.projectHubNavAria')}
           style={{ scrollbarWidth: 'none' }}
         >
-          {PROJECT_HUB_TABS.map((item) => {
+          {visibleTabs.map((item) => {
             const active = tab === item.id;
             const disabled = isSummaryOnly && item.id !== 'overview';
             return (
@@ -538,7 +555,7 @@ export default function ProjectHubShell({
         {tab === 'setup' ? (
           <ProjectHubTechnicalSetupPanel
             projectId={projectId}
-            canManage={canManage}
+            canManage={hubCaps.canManageSettings || canManage}
             isDarkMode={isDarkMode}
             projectStatus={resolvedBoard?.status}
             onCompleted={() => onRefresh?.()}
@@ -547,7 +564,7 @@ export default function ProjectHubShell({
         {tab === 'planning' ? (
           <ProjectHubPlanningPanel
             projectId={projectId}
-            canManage={canManage}
+            canManage={hubCaps.canManagePlanning || canManage}
             isDarkMode={isDarkMode}
             locale={locale}
           />
@@ -560,7 +577,7 @@ export default function ProjectHubShell({
             projectId={projectId}
             boardId={boardId}
             organizationId={organizationId}
-            canManage={canManage}
+            canManage={hubCaps.canManageMembers || canManage}
             isDarkMode={isDarkMode}
           />
         ) : null}
@@ -575,7 +592,7 @@ export default function ProjectHubShell({
             board={resolvedBoard}
             organizationId={organizationId}
             apiCtx={apiCtx}
-            canManage={canManage}
+            canManage={hubCaps.canManageSettings || canManage}
             isDarkMode={isDarkMode}
             onSaved={onRefresh}
           />

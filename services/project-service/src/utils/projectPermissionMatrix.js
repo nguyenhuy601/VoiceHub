@@ -4,6 +4,7 @@
  */
 
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
+const { resolveCanonicalProjectRoleKey } = require('@enterprise/shared/config/masterData');
 
 const PROJECT_PERMISSION_KEYS = Object.freeze([
   'project:view',
@@ -101,6 +102,8 @@ const RELEASE_PERMS = Object.freeze([
 
 /** Default matrix by role key */
 const DEFAULT_PERMISSIONS_BY_ROLE_KEY = Object.freeze({
+  sponsor: [...VIEW_ONLY],
+  stakeholder: [...VIEW_ONLY],
   [DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER]: [...PM_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER]: [...PM_PERMS].filter(
     (k) => k !== 'project:delete' && k !== 'repository:merge'
@@ -117,6 +120,50 @@ const DEFAULT_PERMISSIONS_BY_ROLE_KEY = Object.freeze({
     'meeting:create',
     'files:upload',
   ],
+  [DEFAULT_PROJECT_ROLE_KEYS.SOLUTION_ARCHITECT]: [
+    ...VIEW_ONLY,
+    'task:update',
+    'task:change_status',
+    'repository:view',
+    'repository:merge',
+    'wiki:edit',
+    'files:upload',
+  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.TECHNICAL_LEAD]: [...LEAD_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST]: [
+    ...VIEW_ONLY,
+    'task:view',
+    'task:update',
+    'task:create',
+    'wiki:view',
+    'wiki:edit',
+    'meeting:view',
+    'meeting:create',
+  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.BACKEND_DEVELOPER]: [...DEV_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.FRONTEND_DEVELOPER]: [...DEV_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.MOBILE_DEVELOPER]: [...DEV_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.FULLSTACK_DEVELOPER]: [...LEAD_PERMS].filter(
+    (k) => k !== 'project:delete' && k !== 'project:archive' && k !== 'settings:update'
+  ),
+  [DEFAULT_PROJECT_ROLE_KEYS.QA_LEAD]: [
+    ...QA_PERMS,
+    'task:delete',
+    'sprint:view',
+    'members:view',
+    'project:edit',
+  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.QA_ENGINEER]: [...QA_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.UI_UX_DESIGNER]: [
+    ...VIEW_ONLY,
+    'task:update',
+    'files:upload',
+    'wiki:view',
+    'wiki:edit',
+  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.DEVOPS_ENGINEER]: [...RELEASE_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.OBSERVER]: [...VIEW_ONLY],
+  /** Legacy keys — same templates via alias resolve in defaultPermissionsForRoleKey */
   [DEFAULT_PROJECT_ROLE_KEYS.TECH_LEAD]: [...LEAD_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.ARCHITECT]: [
     ...VIEW_ONLY,
@@ -173,8 +220,9 @@ function normalizePermissionList(raw = []) {
 }
 
 function defaultPermissionsForRoleKey(roleKey) {
-  const key = String(roleKey || '').trim().toLowerCase();
-  const list = DEFAULT_PERMISSIONS_BY_ROLE_KEY[key];
+  const raw = String(roleKey || '').trim().toLowerCase();
+  const key = resolveCanonicalProjectRoleKey(raw) || raw;
+  const list = DEFAULT_PERMISSIONS_BY_ROLE_KEY[key] || DEFAULT_PERMISSIONS_BY_ROLE_KEY[raw];
   if (list) return normalizePermissionList(list);
   return normalizePermissionList(VIEW_ONLY);
 }
@@ -236,7 +284,10 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
     canCreateCards: hasPermission(set, 'task:create'),
     canEditCards: hasPermission(set, 'task:update'),
     canAssign: hasPermission(set, 'task:assign'),
-    canMoveCards: canView,
+    canMoveCards:
+      hasPermission(set, 'task:change_status') ||
+      hasPermission(set, 'task:update') ||
+      hasPermission(set, 'task:assign'),
     canMoveToDone:
       hasPermission(set, 'task:change_status') ||
       hasPermission(set, 'task:update') ||

@@ -568,16 +568,19 @@ function SettingsPage() {
           toast.error(t('settingsPage.toastRoleNoOrg'));
           return;
         }
-        const response = await roleAPI.createRole({
-          name: roleDraft.name.trim(),
-          permissions: roleDraft.permissions.trim(),
-          serverId: roleContextOrganizationId,
+        const response = await roleAPI.clonePermissionGroup({
           organizationId: roleContextOrganizationId,
+          serverId: roleContextOrganizationId,
+          templateKey: 'viewer',
+          specialization: 'Other',
+          allowOtherName: true,
+          otherName: roleDraft.name.trim(),
+          createRole: true,
           color: roleDraft.color,
-          icon: roleDraft.icon
         });
         const wrapped = response?.data ?? response;
-        const newRole = wrapped?.data ?? wrapped;
+        const payload = wrapped?.data ?? wrapped;
+        const newRole = payload?.role || payload;
         setRoles((prev) => [
           ...prev,
           {

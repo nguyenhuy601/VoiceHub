@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Search, UserPlus, Upload } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ConfirmDialog } from '../../components/Shared';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
 import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDrawer';
@@ -89,6 +90,10 @@ function AccountRoleBadge({ role }) {
       {r}
     </span>
   );
+}
+
+function isSystemAdminMember(member) {
+  return String(member?.systemRole || '').trim().toLowerCase() === 'admin';
 }
 
 function UserRoleCell({ labels, emptyLabel }) {
@@ -341,6 +346,11 @@ export default function UsersListPanel({ orgId }) {
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
     if (!id) return;
+    if (isSystemAdminMember(deleteMember)) {
+      toast.error(t('adminUsers.removeSystemAdminBlocked'));
+      setDeleteMember(null);
+      return;
+    }
     setDeleteMember(null);
     navigate(`/app/admin/users/delete?userId=${encodeURIComponent(id)}`);
   };
@@ -469,6 +479,7 @@ export default function UsersListPanel({ orgId }) {
                 {filtered.map((m) => {
                   const id = memberUserId(m);
                   const name = memberDisplayName(m);
+                  const isSystemAdmin = isSystemAdminMember(m);
                   const depId = memberDepartmentId(m);
                   const teamId = memberTeamId(m);
                   const depName = structureMaps.departments.get(depId);
@@ -494,8 +505,13 @@ export default function UsersListPanel({ orgId }) {
                               {getInitials(name)}
                             </div>
                           )}
-                          <span className="truncate font-medium text-foreground hover:underline">
-                            {name}
+                          <span className="min-w-0">
+                            <span className="truncate font-medium text-foreground hover:underline">{name}</span>
+                            {isSystemAdmin ? (
+                              <span className="mt-0.5 block text-[10px] font-semibold text-violet-600 dark:text-violet-300">
+                                {t('adminNav.systemRoleBadge')}
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                       </td>
@@ -537,6 +553,7 @@ export default function UsersListPanel({ orgId }) {
                           member={m}
                           onViewDetail={setDetailMember}
                           onRequestDelete={setDeleteMember}
+                          disableDelete={isSystemAdmin}
                         />
                       </td>
                     </tr>

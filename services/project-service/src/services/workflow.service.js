@@ -8,6 +8,8 @@ const {
   BUILTIN_TEMPLATES,
   DEFAULT_BOARD_TEMPLATE,
   isWorkflowEngineV2Enabled,
+  suggestedTemplateKeyForCompanySize,
+  getBuiltinTemplateByKey,
 } = require('../utils/workflowTemplates.defaults');
 const {
   LEGACY_STATUSES,
@@ -16,6 +18,7 @@ const {
   inferStatusKeyFromTitle,
   statesToBoardShape,
   transitionsToBoardShape,
+  validateTransitionRoleKeys,
 } = require('../utils/workflowTransition');
 
 const DEFAULT_STATES = Object.freeze(statesToBoardShape(DEFAULT_BOARD_TEMPLATE.statuses));
@@ -57,7 +60,16 @@ function normalizeStates(raw) {
 }
 
 function normalizeTransitions(raw) {
-  return transitionsToBoardShape(Array.isArray(raw) ? raw : []);
+  const next = transitionsToBoardShape(Array.isArray(raw) ? raw : []);
+  const roleCheck = validateTransitionRoleKeys(next);
+  if (!roleCheck.ok) {
+    const err = new Error(roleCheck.message);
+    err.statusCode = 400;
+    err.errorCode = 'WORKFLOW_ROLE_KEYS_INVALID';
+    err.invalidKeys = roleCheck.invalidKeys;
+    throw err;
+  }
+  return next;
 }
 
 async function ensureOrgWorkflowTemplates(organizationId) {
@@ -86,7 +98,15 @@ async function ensureOrgWorkflowTemplates(organizationId) {
 async function listWorkflowTemplates(organizationId, userId, { projectId } = {}) {
   const { assertCanReadOrgCatalog } = require('./orgCatalogAccess.service');
   await assertCanReadOrgCatalog({ organizationId, userId, projectId });
-  return ensureOrgWorkflowTemplates(organizationId);
+  const templates = await ensureOrgWorkflowTemplates(organizationId);
+  // Annotate builtin ↔ company size (FE có thể highlight theo org size)
+  return templates.map((t) => {
+    const builtin = getBuiltinTemplateByKey(t.key);
+    return {
+      ...t,
+      companySizes: builtin?.companySizes ? [...builtin.companySizes] : [],
+    };
+  });
 }
 
 async function getWorkflowTemplate(organizationId, templateId, userId, { projectId } = {}) {
@@ -120,10 +140,18 @@ async function upsertWorkflowTemplate({
   await ensureOrgWorkflowTemplates(organizationId);
 
   const nextStatuses = Array.isArray(statuses) ? statuses : [];
-  const nextTransitions = Array.isArray(transitions) ? transitions : [];
+  const nextTransitions = transitionsToBoardShape(Array.isArray(transitions) ? transitions : []);
   if (!nextStatuses.length) {
     const err = new Error('statuses bắt buộc');
     err.statusCode = 400;
+    throw err;
+  }
+  const roleCheck = validateTransitionRoleKeys(nextTransitions);
+  if (!roleCheck.ok) {
+    const err = new Error(roleCheck.message);
+    err.statusCode = 400;
+    err.errorCode = 'WORKFLOW_ROLE_KEYS_INVALID';
+    err.invalidKeys = roleCheck.invalidKeys;
     throw err;
   }
   const keys = new Set(nextStatuses.map((s) => String(s.key || '').trim()).filter(Boolean));
@@ -475,4 +503,6 @@ module.exports = {
   allowedTransitionsFrom,
   loadBoardWorkflowLean,
   inferStatusKeyFromTitle,
+  suggestedTemplateKeyForCompanySize,
+  getBuiltinTemplateByKey,
 };

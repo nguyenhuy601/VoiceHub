@@ -1,6 +1,16 @@
 const HrPositionCatalog = require('../models/HrPositionCatalog');
-const { orgValidation, orgCatch } = require('../utils/orgApiError');
+const { orgValidation, orgCatch, orgFail } = require('../utils/orgApiError');
 const { toObjectId } = require('../utils/orgAccess');
+const {
+  isMasterDataV1Enabled,
+  MASTER_POSITIONS,
+  resolveCanonicalPositionKey,
+  getPositionByKey,
+} = require('@enterprise/shared/config/masterData');
+const {
+  getEnabledPositionKeys,
+  ensureOrgMasterDataSeed,
+} = require('../services/orgMasterData.service');
 
 function normalizeTitle(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
@@ -11,6 +21,18 @@ async function listCatalog(req, res) {
     const organizationId = String(req.params.orgId || '').trim();
     if (!organizationId) return orgValidation(res, 'organizationId bắt buộc');
     const oid = toObjectId(organizationId);
+
+    if (isMasterDataV1Enabled()) {
+      await ensureOrgMasterDataSeed(organizationId);
+      const enabledKeys = await getEnabledPositionKeys(organizationId);
+      const enabledSet = new Set(enabledKeys);
+      const positions = MASTER_POSITIONS.filter((p) => enabledSet.has(p.key)).map((p) => ({
+        key: p.key,
+        title: p.label,
+        sortOrder: p.sortOrder,
+      }));
+      return res.json({ success: true, data: { positions } });
+    }
 
     const positions = await HrPositionCatalog.find({ organizationId: oid, isActive: true })
       .sort({ sortOrder: 1, createdAt: 1 })
@@ -27,6 +49,29 @@ async function createCatalog(req, res) {
   try {
     const organizationId = String(req.params.orgId || '').trim();
     if (!organizationId) return orgValidation(res, 'organizationId bắt buộc');
+
+    if (isMasterDataV1Enabled()) {
+      const { key, title } = req.body || {};
+      const positionKey = resolveCanonicalPositionKey(key || title);
+      const master = getPositionByKey(positionKey);
+      if (!master) {
+        return orgValidation(res, 'Position key không hợp lệ — chọn từ master catalog.');
+      }
+      const enabledKeys = await getEnabledPositionKeys(organizationId);
+      if (!enabledKeys.includes(master.key)) {
+        return orgFail(
+          res,
+          403,
+          'Position chưa được bật trong Master Data của tổ chức.',
+          'MASTER_DATA_POSITION_DISABLED'
+        );
+      }
+      return res.status(201).json({
+        success: true,
+        data: { position: { key: master.key, title: master.label } },
+      });
+    }
+
     const { title } = req.body || {};
 
     const normalizedTitle = normalizeTitle(title);
@@ -66,7 +111,6 @@ async function createCatalog(req, res) {
 
     return res.status(201).json({ success: true, data: { position: { title: row.title } } });
   } catch (error) {
-    // Nếu index unique làm 2 request race, trả lại như "đã tồn tại" thay vì 500.
     if (String(error?.code || '').includes('E11000')) {
       const oid = toObjectId(organizationId);
       const normalizedKey = normalizeTitle(title).toLowerCase();
@@ -90,4 +134,3 @@ module.exports = {
   listCatalog,
   createCatalog,
 };
-

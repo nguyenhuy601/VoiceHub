@@ -25,10 +25,12 @@ export default function RolesMatrixPanel({ orgId }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">{t('adminDomains.rbac.matrix')}</h2>
-        <p className="text-sm text-muted-foreground">{t('adminRbac.matrixHint')}</p>
-      </div>
+        <div>
+          <h2 className="text-lg font-semibold">{t('adminDomains.rbac.matrix')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('adminRbac.matrixHint')} · RBAC V2 (permissions rematerialized từ Permission Groups)
+          </p>
+        </div>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : !systemRoles.length ? (

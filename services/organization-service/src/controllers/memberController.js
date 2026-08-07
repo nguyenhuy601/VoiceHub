@@ -252,13 +252,6 @@ async function enrichMembersForAdminList(members) {
   });
 }
 
-/** Huy: ẩn tài khoản systemRole=admin khỏi danh sách quản lý user */
-function excludeSystemAdminAccounts(members) {
-  return (Array.isArray(members) ? members : []).filter(
-    (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
-  );
-}
-
 /** Gom members + roles RBAC — một request cho sidebar (wave-2d). */
 exports.getMembersWithRoles = async (req, res, next) => {
   try {
@@ -267,7 +260,7 @@ exports.getMembersWithRoles = async (req, res, next) => {
       listMembersForOrg(req),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
-    const enriched = excludeSystemAdminAccounts(await enrichMembersForAdminList(members));
+    const enriched = await enrichMembersForAdminList(members);
     const withPlacement = await attachPlacementFromStructure(req.params.orgId, enriched);
     return res.json({ status: 'success', data: { members: withPlacement, roles } });
   } catch (error) {

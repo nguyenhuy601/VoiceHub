@@ -73,6 +73,38 @@ router.get('/membership/:organizationId/:userId', async (req, res) => {
   }
 });
 
+/**
+ * GET active memberships — RBAC V2 rebind UserRole sau direct-replace (S2S).
+ * Return: [{ userId, role }]
+ */
+router.get('/memberships/:organizationId', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    if (!organizationId) {
+      return orgValidation(res, 'organizationId is required');
+    }
+    const rows = await Membership.find({
+      organization: organizationId,
+      status: 'active',
+    })
+      .select('user role')
+      .lean();
+    const data = rows
+      .map((row) => {
+        const userId = row?.user ? String(row.user) : '';
+        if (!userId) return null;
+        return {
+          userId,
+          role: Membership.normalizeRole(row.role),
+        };
+      })
+      .filter(Boolean);
+    return res.json({ success: true, data });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 /** Tên tổ chức cho webhook / service nội bộ (serverId RBAC = organizationId). */
 router.get('/org/:organizationId/summary', async (req, res) => {
   try {
@@ -426,6 +458,32 @@ router.get(
     return getInternalProjectVisibilityContext(req, res);
   }
 );
+
+/** project-service: enabled master project role keys for ensureOrgProjectRoles */
+router.get('/organizations/:organizationId/master-data/enabled-project-roles', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    if (!organizationId) return orgValidation(res, 'organizationId is required');
+    const { getEnabledProjectRoleKeys } = require('../services/orgMasterData.service');
+    const keys = await getEnabledProjectRoleKeys(organizationId);
+    return res.json({ success: true, data: { enabledProjectRoleKeys: keys } });
+  } catch (err) {
+    return orgCatch(res, err, err.statusCode || 500);
+  }
+});
+
+/** project-service: enabled master position keys for member-candidates scoring */
+router.get('/organizations/:organizationId/master-data/enabled-positions', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    if (!organizationId) return orgValidation(res, 'organizationId is required');
+    const { getEnabledPositionKeys } = require('../services/orgMasterData.service');
+    const keys = await getEnabledPositionKeys(organizationId);
+    return res.json({ success: true, data: { enabledPositionKeys: keys } });
+  } catch (err) {
+    return orgCatch(res, err, err.statusCode || 500);
+  }
+});
 
 /** project-service: department roster (headcount) cho Resource Capacity / Planner */
 router.get('/organizations/:orgId/departments/roster', async (req, res) => {

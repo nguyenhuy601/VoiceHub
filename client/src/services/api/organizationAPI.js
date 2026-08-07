@@ -273,6 +273,16 @@ export const organizationAPI = {
     return response;
   },
 
+  getMasterData: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/master-data`);
+    return response;
+  },
+
+  patchMasterDataEnabled: async (orgId, masterDataPatch) => {
+    const response = await apiClient.patch(`/organizations/${orgId}/master-data/enabled`, masterDataPatch);
+    return response;
+  },
+
   // Delete organization
   deleteOrganization: async (orgId) => {
     const response = await apiClient.delete(`/organizations/${orgId}`);

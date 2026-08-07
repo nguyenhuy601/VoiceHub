@@ -22,6 +22,24 @@ function SystemBadge({ isSystem }) {
   return <span className="ml-1.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700">System</span>;
 }
 
+function EnabledBadge({ role }) {
+  if (role.legacyOutsideMaster) {
+    return (
+      <span className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+        Legacy
+      </span>
+    );
+  }
+  if (role.enabled === true || role.isSystem) {
+    return (
+      <span className="ml-1.5 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+        Enabled
+      </span>
+    );
+  }
+  return null;
+}
+
 const actionBtn = '!px-2 !py-1 text-xs whitespace-nowrap';
 
 export default function OrgRoleListPanel({ orgId }) {
@@ -78,8 +96,8 @@ export default function OrgRoleListPanel({ orgId }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">{t('adminRbac.roleListDragHint')}</p>
         <div className="flex flex-wrap gap-2">
-          <Link to="/app/admin/rbac/org-roles/create" className={adminSecondaryBtnClass()}>
-            {t('adminDomains.rbac.orgRoleCreate')}
+          <Link to="/app/admin/rbac/master-data" className={adminSecondaryBtnClass()}>
+            {t('adminRbac.masterDataTitle')}
           </Link>
         </div>
       </div>
@@ -108,12 +126,17 @@ export default function OrgRoleListPanel({ orgId }) {
                   <div className="min-w-0 self-center text-sm">
                     <span className="break-all font-medium">{role.key}</span>
                     <SystemBadge isSystem={role.isSystem} />
+                    <EnabledBadge role={role} />
                   </div>
                   <div className="min-w-0 self-center text-sm">
                     <div className="truncate" title={role.label}>
                       {role.label}
                     </div>
-                    {!hasLayerPrefix(role.label, 'org') ? (
+                    {role.legacyOutsideMaster ? (
+                      <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                        {t('adminRbac.legacyOutsideMasterHint')}
+                      </div>
+                    ) : !hasLayerPrefix(role.label, 'org') ? (
                       <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
                         {t('adminRbac.listLegacyNameHint')}
                       </div>

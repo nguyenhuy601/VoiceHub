@@ -100,6 +100,36 @@ export const roleAPI = {
       `/permissions/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`
     );
   },
+
+  /* ----- RBAC V2 ----- */
+  getRbacCatalog: () => apiClient.get('/permissions/catalog'),
+
+  listPermissionGroups: (organizationId) =>
+    apiClient.get('/permissions/groups', {
+      params: { organizationId, serverId: organizationId },
+    }),
+
+  clonePermissionGroup: (payload) => apiClient.post('/permissions/groups/clone', payload),
+
+  renamePermissionGroup: (groupId, payload) =>
+    apiClient.patch(`/permissions/groups/${encodeURIComponent(groupId)}`, payload),
+
+  setPermissionGroupGrants: (groupId, payload) =>
+    apiClient.put(`/permissions/groups/${encodeURIComponent(groupId)}/grants`, payload),
+
+  listRolePermissionGroups: (roleId, organizationId) =>
+    apiClient.get(`/permissions/roles/${encodeURIComponent(roleId)}/groups`, {
+      params: { organizationId, serverId: organizationId },
+    }),
+
+  replaceRolePermissionGroups: (roleId, payload) =>
+    apiClient.put(`/permissions/roles/${encodeURIComponent(roleId)}/groups`, payload),
+
+  directReplaceRbac: (organizationId) =>
+    apiClient.post('/permissions/direct-replace', {
+      organizationId,
+      serverId: organizationId,
+    }),
 };
 
 export default roleAPI;

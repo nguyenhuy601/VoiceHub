@@ -545,6 +545,10 @@ exports.createOrganization = async (req, res, next) => {
     });
 
     await syncUserOrgRole(userId, organization._id, 'owner');
+    const { ensureOrgMasterDataSeed, mapTeamSizeToCompanySize } = require('../services/orgMasterData.service');
+    await ensureOrgMasterDataSeed(organization._id, {
+      companySize: mapTeamSizeToCompanySize(teamSize),
+    }).catch(() => null);
     if (!skipStructureSeed) {
       runStructureSeedInBackground({
         organizationId: organization._id,
@@ -772,6 +776,27 @@ exports.getOrgShell = async (req, res, next) => {
       await syncUserOrgRole(userId, orgId, access.membership.role || 'member');
     }
 
+    const OrgRoleAssignment = require('../models/OrgRoleAssignment');
+    const OrgRoleCatalog = require('../models/OrgRoleCatalog');
+    const orgOid = toObjectId(orgId);
+    const userOid = toObjectId(userId);
+    const [orgRoleAssignments, orgRoleCatalog] = await Promise.all([
+      orgOid && userOid
+        ? OrgRoleAssignment.find({ organizationId: orgOid, userId: userOid }).select('roleKey').lean()
+        : Promise.resolve([]),
+      orgOid
+        ? OrgRoleCatalog.find({ organizationId: orgOid }).select('key label').lean()
+        : Promise.resolve([]),
+    ]);
+    const orgRoleLabelByKey = new Map(
+      (orgRoleCatalog || []).map((r) => [String(r.key || '').trim(), String(r.label || r.key || '').trim()])
+    );
+    const myOrganizationRoles = [...new Set((orgRoleAssignments || []).map((a) => String(a.roleKey || '').trim()).filter(Boolean))]
+      .map((roleKey) => ({
+        roleKey,
+        roleLabel: orgRoleLabelByKey.get(roleKey) || roleKey,
+      }));
+
     const orgDoc = await Organization.findById(orgId).select('name slug logo').lean();
     const [structureSummary, accessData, taskWorkspaceScope, notificationsUnreadOrg, shellVersion] =
       await Promise.all([
@@ -808,6 +833,7 @@ exports.getOrgShell = async (req, res, next) => {
           slug: orgDoc?.slug || '',
           icon: orgDoc?.logo || null,
           myRole: membershipRole,
+          myOrganizationRoles,
         },
         structureSummary,
         access: {

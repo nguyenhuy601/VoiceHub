@@ -63,8 +63,17 @@ async function listProjectRoles(req, res) {
   }
 }
 
+const { isMasterDataV1Enabled } = require('@enterprise/shared/config/masterData');
+
 async function createProjectRole(req, res) {
   try {
+    if (isMasterDataV1Enabled()) {
+      return sendServiceError(res, 403, {
+        errorCode: 'MASTER_DATA_CUSTOM_ROLE_BLOCKED',
+        messageUser: 'Không thể tạo Project Role tùy chỉnh. Chỉ bật/tắt catalog hệ thống.',
+        message: 'custom project role creation blocked',
+      });
+    }
     const { orgId } = await requireOrgAdmin(req);
     const { key, label, canAssign = false, place, afterRoleId, permissions } = req.body || {};
 
@@ -130,7 +139,7 @@ async function createProjectRole(req, res) {
 
 async function updateProjectRole(req, res) {
   try {
-    const { orgId } = await requireOrgAdmin(req);
+    const { orgId, userId } = await requireOrgAdmin(req);
     const roleId = String(req.params.roleId || '').trim();
     const { label, canAssign, permissions } = req.body || {};
 
@@ -181,6 +190,23 @@ async function updateProjectRole(req, res) {
     }
 
     const updated = await ProjectRole.findOneAndUpdate({ _id: role._id }, { $set: patch }, { new: true }).lean();
+    try {
+      const auditService = require('../services/audit.service');
+      await auditService.recordMutationAudit({
+        organizationId: orgId,
+        actorUserId: userId,
+        action: 'project_role.updated',
+        resourceType: 'project_role',
+        resourceId: String(role._id),
+        beforeDoc: role,
+        afterDoc: updated,
+        keys: ['key', 'label', 'canAssign', 'permissions', 'sortOrder'],
+        requestId: req.headers['x-request-id'] || '',
+        meta: { roleKey: role.key },
+      });
+    } catch {
+      /* audit best-effort */
+    }
     return res.json({ success: true, data: updated });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_UPDATE_FAILED');
@@ -264,6 +290,21 @@ async function deleteProjectRole(req, res) {
     }
 
     await ProjectRole.deleteOne({ _id: role._id });
+    try {
+      const auditService = require('../services/audit.service');
+      await auditService.recordAudit({
+        organizationId: orgId,
+        actorUserId: asUserId(req),
+        action: 'project_role.deleted',
+        resourceType: 'project_role',
+        resourceId: String(role._id),
+        before: { key: role.key, label: role.label, permissions: role.permissions },
+        after: null,
+        requestId: req.headers['x-request-id'] || '',
+      });
+    } catch {
+      /* audit best-effort */
+    }
     return res.json({ success: true, data: { deleted: true } });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'PROJECT_ROLE_DELETE_FAILED');

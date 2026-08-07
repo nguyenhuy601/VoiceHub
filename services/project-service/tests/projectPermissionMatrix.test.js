@@ -61,6 +61,15 @@ describe('projectPermissionMatrix', () => {
     assert.ok(caps.permissions.length > 10);
   });
 
+  it('T7: legacy developer/watcher alias to master keys', () => {
+    const dev = defaultPermissionsForRoleKey('developer');
+    const backend = defaultPermissionsForRoleKey('backend_developer');
+    assert.deepEqual(dev, backend);
+    const watcher = defaultPermissionsForRoleKey('watcher');
+    const observer = defaultPermissionsForRoleKey('observer');
+    assert.deepEqual(watcher, observer);
+  });
+
   it('normalize drops unknown keys', () => {
     const n = normalizePermissionList(['task:view', 'hack:root', 'TASK:CREATE']);
     assert.deepEqual(n, ['task:view', 'task:create']);

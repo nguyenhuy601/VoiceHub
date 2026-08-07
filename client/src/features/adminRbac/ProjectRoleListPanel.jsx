@@ -76,8 +76,8 @@ export default function ProjectRoleListPanel({ orgId }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">{t('adminRbac.roleListDragHint')}</p>
         <div className="flex flex-wrap gap-2">
-          <Link to="/app/admin/rbac/project-roles/create" className={adminSecondaryBtnClass()}>
-            {t('adminDomains.rbac.projectRoleCreate')}
+          <Link to="/app/admin/rbac/master-data" className={adminSecondaryBtnClass()}>
+            {t('adminRbac.masterDataTitle')}
           </Link>
         </div>
       </div>
@@ -109,12 +109,25 @@ export default function ProjectRoleListPanel({ orgId }) {
                       System
                     </span>
                   ) : null}
+                  {role.legacyOutsideMaster ? (
+                    <span className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+                      Legacy
+                    </span>
+                  ) : role.enabled === true || role.isSystem ? (
+                    <span className="ml-1.5 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                      Enabled
+                    </span>
+                  ) : null}
                 </div>
                 <div className="min-w-0 self-center text-sm">
                   <div className="truncate" title={role.label}>
                     {role.label}
                   </div>
-                  {!hasLayerPrefix(role.label, 'project') ? (
+                  {role.legacyOutsideMaster ? (
+                    <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                      {t('adminRbac.legacyOutsideMasterHint')}
+                    </div>
+                  ) : !hasLayerPrefix(role.label, 'project') ? (
                     <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
                       {t('adminRbac.listLegacyNameHint')}
                     </div>

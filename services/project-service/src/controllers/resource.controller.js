@@ -4,6 +4,7 @@ const {
   getResourcePlanner,
   getUserAllocationTimeline,
 } = require('../services/resourceCapacity.service');
+const { getUtilizationReport } = require('../services/utilization.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 
 function asUserId(req) {
@@ -126,8 +127,44 @@ async function getUserAllocations(req, res) {
   }
 }
 
+async function getUtilization(req, res) {
+  try {
+    const userId = asUserId(req);
+    if (!userId) return unauthorized(res);
+    const organizationId = String(
+      req.query.organizationId || req.headers['x-organization-id'] || ''
+    ).trim();
+    if (!mongoose.isValidObjectId(organizationId)) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'organizationId là bắt buộc',
+        message: 'organizationId required',
+      });
+    }
+    const data = await getUtilizationReport({
+      organizationId,
+      from: req.query.from,
+      to: req.query.to,
+      userId: req.query.userId,
+      projectId: req.query.projectId,
+      actorUserId: userId,
+      hoursPerDay: req.query.hoursPerDay,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể tải Utilization',
+      'RESOURCE_UTILIZATION_FAILED'
+    );
+  }
+}
+
 module.exports = {
   getCapacity,
   getPlanner,
   getUserAllocations,
+  getUtilization,
 };

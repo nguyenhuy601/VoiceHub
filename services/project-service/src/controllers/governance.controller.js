@@ -59,6 +59,34 @@ async function deleteAuditEvent(req, res) {
   }
 }
 
+/** S2S ingest (org Master Data PATCH, v.v.) — chỉ internalGatewayAuth */
+async function ingestAuditEvent(req, res) {
+  try {
+    const body = req.body || {};
+    const data = await auditService.recordAudit({
+      organizationId: body.organizationId,
+      actorUserId: body.actorUserId,
+      action: body.action,
+      resourceType: body.resourceType,
+      resourceId: body.resourceId,
+      before: body.before ?? null,
+      after: body.after ?? null,
+      requestId: body.requestId || '',
+      meta: body.meta || {},
+    });
+    if (!data) {
+      return sendServiceError(res, 400, {
+        errorCode: 'AUDIT_INGEST_SKIPPED',
+        messageUser: 'Audit không được ghi (flag off hoặc payload thiếu).',
+        message: 'audit skipped',
+      });
+    }
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'AUDIT_INGEST_FAILED');
+  }
+}
+
 async function directorHealth(req, res) {
   try {
     const userId = asUserId(req);
@@ -164,6 +192,7 @@ async function securityFlags(req, res) {
 module.exports = {
   listAuditEvents,
   deleteAuditEvent,
+  ingestAuditEvent,
   directorHealth,
   getRetention,
   putRetention,

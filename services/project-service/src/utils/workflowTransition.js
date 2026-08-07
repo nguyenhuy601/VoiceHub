@@ -2,6 +2,22 @@
  * Pure workflow transition graph + validators / conditions (Phase 4).
  */
 
+const {
+  DEFAULT_CHANGE_STATUS_PERMISSION,
+} = require('./workflowTemplates.defaults');
+
+let MASTER_PROJECT_ROLE_KEYS_CACHE = null;
+function getMasterProjectRoleKeys() {
+  if (!MASTER_PROJECT_ROLE_KEYS_CACHE) {
+    try {
+      ({ MASTER_PROJECT_ROLE_KEYS: MASTER_PROJECT_ROLE_KEYS_CACHE } = require('@enterprise/shared/config/masterData'));
+    } catch {
+      MASTER_PROJECT_ROLE_KEYS_CACHE = [];
+    }
+  }
+  return MASTER_PROJECT_ROLE_KEYS_CACHE;
+}
+
 const LEGACY_STATUSES = Object.freeze([
   'todo',
   'in_progress',
@@ -82,7 +98,71 @@ function runValidators(validators = [], card = {}) {
 }
 
 /**
- * @param {string[]} conditions
+ * Extract project-role keys from a condition entry (string DSL or object).
+ * @returns {string[]}
+ */
+function extractRoleKeysFromCondition(raw) {
+  if (raw == null) return [];
+  if (typeof raw === 'string') {
+    const key = raw.trim();
+    if (key.startsWith('role_in_project:')) {
+      const need = key.slice('role_in_project:'.length).trim();
+      return need
+        ? need
+            .split('|')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+    }
+    return [];
+  }
+  if (typeof raw === 'object') {
+    const type = String(raw.type || raw.key || '').trim();
+    if (type === 'project_role' || type === 'role_in_project') {
+      const keys = Array.isArray(raw.roleKeys)
+        ? raw.roleKeys
+        : raw.roleKey
+          ? [raw.roleKey]
+          : [];
+      return keys.map((k) => String(k || '').trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+/**
+ * Normalize condition for storage — keep string DSL or canonical object.
+ */
+function normalizeCondition(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    return s || null;
+  }
+  if (typeof raw === 'object') {
+    const type = String(raw.type || raw.key || '').trim();
+    if (type === 'project_role' || type === 'role_in_project') {
+      const roleKeys = extractRoleKeysFromCondition(raw);
+      if (!roleKeys.length) return null;
+      // Persist as string DSL for board shape compatibility + one object form accepted at save
+      return { type: 'project_role', roleKeys };
+    }
+    if (type === 'priority_in' || type.startsWith('priority')) {
+      const allowed = Array.isArray(raw.values)
+        ? raw.values
+        : String(raw.value || '')
+            .split('|')
+            .map((s) => s.trim())
+            .filter(Boolean);
+      if (!allowed.length) return null;
+      return `priority_in:${allowed.join('|')}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {Array<string|object>} conditions
  * @param {{ card?: object, actorProjectRoleKeys?: string[] }} ctx
  */
 function runConditions(conditions = [], ctx = {}) {
@@ -91,18 +171,20 @@ function runConditions(conditions = [], ctx = {}) {
   const roleKeys = new Set((ctx.actorProjectRoleKeys || []).map(String));
 
   for (const raw of list) {
-    const key = typeof raw === 'string' ? raw : String(raw?.type || raw?.key || '').trim();
-    if (!key) continue;
-
-    if (key.startsWith('role_in_project:')) {
-      const need = key.slice('role_in_project:'.length).trim();
-      if (need && !roleKeys.has(need)) {
+    const projectRoles = extractRoleKeysFromCondition(raw);
+    if (projectRoles.length) {
+      const hasAny = projectRoles.some((k) => roleKeys.has(k));
+      if (!hasAny) {
         return {
           ok: false,
-          message: `Cần Project Role “${need}” để chuyển status này`,
+          message: `Cần Project Role “${projectRoles.join('|')}” để chuyển status này`,
         };
       }
+      continue;
     }
+
+    const key = typeof raw === 'string' ? raw.trim() : String(raw?.type || raw?.key || '').trim();
+    if (!key) continue;
 
     if (key.startsWith('priority_in:')) {
       const allowed = key
@@ -119,7 +201,7 @@ function runConditions(conditions = [], ctx = {}) {
       }
     }
 
-    // no-op placeholder used in Enterprise seed — always ok
+    // no-op placeholder — always ok
     if (key === 'priority_not_urgent_or_ok') {
       continue;
     }
@@ -128,7 +210,36 @@ function runConditions(conditions = [], ctx = {}) {
 }
 
 /**
- * Full transition check: graph + optional permission + validators + conditions.
+ * Save-time: reject condition roleKeys outside master project role catalog (T3).
+ * @param {Array} transitions
+ * @param {string[]|Set} [allowedKeys] — default MASTER_PROJECT_ROLE_KEYS
+ * @returns {{ ok: boolean, message?: string, invalidKeys?: string[] }}
+ */
+function validateTransitionRoleKeys(transitions = [], allowedKeys = null) {
+  const allowed = new Set(
+    (allowedKeys ? [...allowedKeys] : getMasterProjectRoleKeys()).map(String)
+  );
+  const invalid = new Set();
+  for (const tr of transitions || []) {
+    for (const cond of tr.conditions || []) {
+      for (const rk of extractRoleKeysFromCondition(cond)) {
+        if (!allowed.has(rk)) invalid.add(rk);
+      }
+    }
+  }
+  if (invalid.size) {
+    return {
+      ok: false,
+      message: `Condition roleKeys không thuộc master Project Roles: ${[...invalid].join(', ')}`,
+      invalidKeys: [...invalid],
+      statusCode: 400,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Full transition check: graph + P2.1 permission (default task:change_status) + validators + conditions.
  */
 function evaluateTransition({
   workflow,
@@ -138,6 +249,7 @@ function evaluateTransition({
   actorPermissions = [],
   actorProjectRoleKeys = [],
   isElevated = false,
+  defaultRequiredPermission = DEFAULT_CHANGE_STATUS_PERMISSION,
 } = {}) {
   const graph = assertTransitionAllowed(workflow, fromStatus, toStatus);
   if (!graph.ok) return graph;
@@ -146,7 +258,10 @@ function evaluateTransition({
   const transition = graph.transition;
   if (!transition) return { ok: true };
 
-  const requiredPermission = String(transition.requiredPermission || '').trim();
+  const requiredPermission =
+    String(transition.requiredPermission || '').trim() ||
+    String(defaultRequiredPermission || '').trim();
+
   if (requiredPermission && !isElevated) {
     const perms = new Set((actorPermissions || []).map(String));
     const has =
@@ -203,19 +318,76 @@ function statesToBoardShape(statuses = []) {
   }));
 }
 
-function transitionsToBoardShape(transitions = []) {
-  return (transitions || []).map((t) => ({
-    fromKey: String(t.fromKey || '').trim(),
-    toKey: String(t.toKey || '').trim(),
-    name: String(t.name || '').trim(),
-    requiredPermission: String(t.requiredPermission || '').trim() || undefined,
-    validators: Array.isArray(t.validators) ? t.validators.map(String) : [],
-    conditions: Array.isArray(t.conditions) ? t.conditions.map(String) : [],
-    requiresApprovalPolicyKey: String(t.requiresApprovalPolicyKey || '').trim() || undefined,
-    requiresApprovalPolicyId: t.requiresApprovalPolicyId
-      ? String(t.requiresApprovalPolicyId)
-      : undefined,
-  }));
+function transitionsToBoardShape(transitions = [], { defaultPermission = true } = {}) {
+  return (transitions || []).map((t) => {
+    const conditions = (Array.isArray(t.conditions) ? t.conditions : [])
+      .map(normalizeCondition)
+      .filter(Boolean)
+      .map((c) => {
+        if (typeof c === 'object' && c.type === 'project_role') {
+          return `role_in_project:${(c.roleKeys || []).join('|')}`;
+        }
+        return c;
+      });
+    const required =
+      String(t.requiredPermission || '').trim() ||
+      (defaultPermission ? DEFAULT_CHANGE_STATUS_PERMISSION : undefined);
+    return {
+      fromKey: String(t.fromKey || '').trim(),
+      toKey: String(t.toKey || '').trim(),
+      name: String(t.name || '').trim(),
+      requiredPermission: required || undefined,
+      validators: Array.isArray(t.validators) ? t.validators.map(String) : [],
+      conditions,
+      requiresApprovalPolicyKey: String(t.requiresApprovalPolicyKey || '').trim() || undefined,
+      requiresApprovalPolicyId: t.requiresApprovalPolicyId
+        ? String(t.requiresApprovalPolicyId)
+        : undefined,
+    };
+  });
+}
+
+/**
+ * Pure migrate plan for T5/T6 — map existing lists → workflow states without dropping unmatched.
+ */
+function planListMigration(existingLists = [], states = []) {
+  const sorted = [...(states || [])].sort(
+    (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+  );
+  const byStatusKey = new Map(
+    existingLists.filter((l) => l.statusKey).map((l) => [String(l.statusKey), l])
+  );
+  const unmatched = existingLists.filter((l) => !l.statusKey);
+  const used = new Set();
+  const mapped = [];
+  const createdKeys = [];
+
+  for (const st of sorted) {
+    let list = byStatusKey.get(st.key) || null;
+    if (!list) {
+      const inferred = unmatched.find((l) => {
+        if (used.has(String(l._id || l.id))) return false;
+        const guess = inferStatusKeyFromTitle(l.title);
+        return guess === st.key || String(l.title).toLowerCase() === String(st.label).toLowerCase();
+      });
+      if (inferred) list = inferred;
+    }
+    if (list) {
+      used.add(String(list._id || list.id));
+      mapped.push({ statusKey: st.key, listId: String(list._id || list.id), created: false });
+    } else {
+      createdKeys.push(st.key);
+      mapped.push({ statusKey: st.key, listId: null, created: true });
+    }
+  }
+
+  const preservedUnmatched = existingLists.filter((l) => !used.has(String(l._id || l.id)) && !l.statusKey);
+  return {
+    columns: sorted.map((s) => s.key),
+    mapped,
+    createdKeys,
+    preservedUnmatchedIds: preservedUnmatched.map((l) => String(l._id || l.id)),
+  };
 }
 
 module.exports = {
@@ -227,4 +399,9 @@ module.exports = {
   inferStatusKeyFromTitle,
   statesToBoardShape,
   transitionsToBoardShape,
+  validateTransitionRoleKeys,
+  extractRoleKeysFromCondition,
+  normalizeCondition,
+  planListMigration,
+  DEFAULT_CHANGE_STATUS_PERMISSION,
 };

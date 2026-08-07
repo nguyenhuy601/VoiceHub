@@ -54,8 +54,8 @@ function buildBoardCapabilities({
   const canAssign = elevated;
   /** Sửa nội dung thẻ (title/due/assignee) */
   const canEditCards = elevated || Boolean(memberCanEdit && canCreateTask);
-  /** Kéo thẻ (NV chỉ thẻ mình — enforce ở moveCard) */
-  const canMoveCards = canView;
+  /** Kéo thẻ / đổi cột — cần quyền change_status (P2.1); viewer-only không kéo */
+  const canMoveCards = elevated || Boolean(memberCanEdit);
   const canMoveToDone = elevated;
   const canUseAiConfirm = elevated;
 

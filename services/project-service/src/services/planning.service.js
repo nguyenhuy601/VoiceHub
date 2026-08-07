@@ -3,6 +3,8 @@ const PlanningItem = require('../models/PlanningItem');
 const { PLANNING_ITEM_TYPES, PLANNING_ITEM_STATUSES } = require('../utils/planningItemTypes');
 const Task = require('../models/Task');
 const projectService = require('./project.service');
+const { assertUserProjectPermission } = require('./projectAccess.service');
+const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -12,15 +14,30 @@ async function assertProjectAccess(userId, projectId) {
   return projectService.getProject({ userId, projectId });
 }
 
-async function assertProjectAdmin(userId, projectId) {
-  const project = await assertProjectAccess(userId, projectId);
-  const canAdmin = await projectService.userCanAdminProject(userId, project);
-  if (!canAdmin) {
-    const err = new Error('Không có quyền quản lý planning');
-    err.statusCode = 403;
-    throw err;
+async function assertPlanningManage(userId, projectId) {
+  await assertProjectAccess(userId, projectId);
+  if (!isProjectRbacV2Enabled()) {
+    const project = await projectService.getProject({ userId, projectId });
+    const canAdmin = await projectService.userCanAdminProject(userId, project);
+    if (!canAdmin) {
+      const err = new Error('Không có quyền quản lý planning');
+      err.statusCode = 403;
+      throw err;
+    }
+    return project;
   }
-  return project;
+  await assertUserProjectPermission({
+    userId,
+    projectId,
+    permission: 'project:edit',
+    message: 'Không có quyền quản lý planning',
+  });
+  return projectService.getProject({ userId, projectId });
+}
+
+/** @deprecated use assertPlanningManage */
+async function assertProjectAdmin(userId, projectId) {
+  return assertPlanningManage(userId, projectId);
 }
 
 function normalizeType(raw) {
@@ -57,7 +74,7 @@ async function createPlanningItem({
   status,
   sortOrder,
 }) {
-  const project = await assertProjectAdmin(userId, projectId);
+  const project = await assertPlanningManage(userId, projectId);
   const itemType = normalizeType(type);
   if (!itemType) {
     const err = new Error('type bắt buộc (roadmap|release|milestone|epic|feature)');
@@ -113,7 +130,7 @@ async function createPlanningItem({
 }
 
 async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
-  await assertProjectAdmin(userId, projectId);
+  await assertPlanningManage(userId, projectId);
   const item = await PlanningItem.findOne({ _id: itemId, projectId, isActive: true });
   if (!item) {
     const err = new Error('Planning item không tồn tại');
@@ -164,7 +181,7 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
 }
 
 async function deletePlanningItem({ userId, projectId, itemId }) {
-  await assertProjectAdmin(userId, projectId);
+  await assertPlanningManage(userId, projectId);
   const item = await PlanningItem.findOne({ _id: itemId, projectId, isActive: true });
   if (!item) {
     const err = new Error('Planning item không tồn tại');
@@ -202,7 +219,7 @@ async function listBacklog({ userId, projectId }) {
 }
 
 async function linkTaskToEpic({ userId, projectId, taskId, epicId, issueType }) {
-  await assertProjectAdmin(userId, projectId);
+  await assertPlanningManage(userId, projectId);
   const task = await Task.findOne({ _id: taskId, projectId, isActive: true });
   if (!task) {
     const err = new Error('Task không tồn tại trong project');

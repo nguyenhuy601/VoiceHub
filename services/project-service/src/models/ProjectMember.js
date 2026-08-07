@@ -3,6 +3,9 @@ const mongoose = require('../db');
 /**
  * Resource allocation — 1 row / user / project (SSOT cho join/leave/allocation).
  * ProjectMembership vẫn giữ multi-role; ProjectMember không lặp theo số role.
+ *
+ * `allocations[].allocationPct` = Planned Allocation (kế hoạch PM/RM nhập) —
+ * không derive từ Task/Sprint/Worklog (Actual → Phase 3b).
  */
 const allocationSegmentSchema = new mongoose.Schema(
   {

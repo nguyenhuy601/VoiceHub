@@ -188,6 +188,28 @@ function normalizeRelatedDepartmentIds(raw = []) {
   return ids;
 }
 
+/**
+ * T4: PM/custom visibility only when org allows override (or actor is org admin).
+ * @returns {{ allowed: boolean, isOrgAdmin: boolean }}
+ */
+function canUseCustomProjectVisibility(ctx = {}, userId = '') {
+  const role = String(ctx?.membershipRole || '').toLowerCase();
+  const isOrgAdmin = role === 'owner' || role === 'admin';
+  const allowOverride = ctx?.policy?.allowProjectManagerOverride !== false;
+  return {
+    allowed: allowOverride || isOrgAdmin,
+    isOrgAdmin,
+  };
+}
+
+function assertCanUseCustomProjectVisibility(ctx = {}, userId = '') {
+  const { allowed } = canUseCustomProjectVisibility(ctx, userId);
+  if (allowed) return;
+  const err = new Error('Organization không cho phép override Visibility Policy');
+  err.statusCode = 403;
+  throw err;
+}
+
 function normalizeInformationLevelOverrides(rows = []) {
   const input = Array.isArray(rows) ? rows : [];
   const byAudience = new Map();
@@ -211,4 +233,6 @@ module.exports = {
   normalizeRelatedDepartmentIds,
   normalizeInformationLevelOverrides,
   normalizeProjectVisibilityPolicy,
+  canUseCustomProjectVisibility,
+  assertCanUseCustomProjectVisibility,
 };

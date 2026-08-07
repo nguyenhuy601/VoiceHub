@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Activity,
   Briefcase,
@@ -11,7 +11,6 @@ import {
   MessageCircle,
   Mic,
   Plus,
-  Search,
   Shield,
   Users,
 } from 'lucide-react';
@@ -256,7 +255,6 @@ export default function OrganizationTeamGrid({
   onModuleClick,
 }) {
   const { t, locale } = useAppStrings();
-  const [search, setSearch] = useState('');
 
   const useProjects = Array.isArray(projects);
 
@@ -271,17 +269,6 @@ export default function OrganizationTeamGrid({
       filterDepartmentId,
     });
   }, [useProjects, projects, branches, departments, teams, channels, locale, filterDepartmentId]);
-  const filteredCards = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return cards;
-    return cards.filter((card) => {
-      const haystack = [card.name, card.description, card.channels.join(' '), card.recentActivity]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [cards, search]);
   const totalOnline = cards.reduce((sum, card) => sum + Number(card.online || 0), 0);
   const teamMetricCount = useMemo(() => {
     if (!useProjects) return cards.length;
@@ -360,15 +347,9 @@ export default function OrganizationTeamGrid({
     },
   ];
 
-  const searchPlaceholder = useProjects
-    ? t('workspace.searchProjects')
-    : t('workspace.searchTeams');
-  const emptyLabel = search
-    ? t('workspace.noMatchingTeams')
-    : useProjects
-      ? t('workspace.noProjectsYet')
-      : t('workspace.noTeamsInDepartment');
-  const createLabel = useProjects ? t('workspace.createProject') : t('workspace.createTeam');
+  const emptyLabel = useProjects
+    ? t('workspace.noProjectsYet')
+    : t('workspace.noTeamsInDepartment');
   const createFirstLabel = useProjects
     ? t('workspace.createFirstProject')
     : t('workspace.createFirstTeam');
@@ -415,29 +396,6 @@ export default function OrganizationTeamGrid({
               </p>
             </div>
           </div>
-          <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
-            <Search
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="h-10 w-full rounded-lg border border-border bg-muted pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:shadow-[0_0_0_3px_rgba(37,99,235,0.12)]"
-            />
-          </div>
-          {onCreateTeam ? (
-            <button
-              type="button"
-              onClick={onCreateTeam}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md transition hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-lg"
-            >
-              <Plus size={16} />
-              {createLabel}
-            </button>
-          ) : null}
         </div>
       </div>
       <div className="px-6 py-6">
@@ -465,11 +423,11 @@ export default function OrganizationTeamGrid({
           })}
         </div>
 
-        {filteredCards.length === 0 ? (
+        {cards.length === 0 ? (
           <div className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center">
             <Users size={40} className="mb-4 text-muted-foreground/50" />
             <p className="text-sm font-semibold text-foreground">{emptyLabel}</p>
-            {onCreateTeam && !search ? (
+            {onCreateTeam ? (
               <button
                 type="button"
                 onClick={onCreateTeam}
@@ -482,7 +440,7 @@ export default function OrganizationTeamGrid({
           </div>
         ) : null}
         <div className={FIGMA_WS_TEAM_GRID}>
-          {filteredCards.map((card) => (
+          {cards.map((card) => (
             <div
               key={card.id}
               role="button"
@@ -632,7 +590,7 @@ export default function OrganizationTeamGrid({
               ) : null}
             </div>
           ))}
-          {onCreateTeam && !search ? (
+          {onCreateTeam ? (
             <button
               type="button"
               onClick={onCreateTeam}

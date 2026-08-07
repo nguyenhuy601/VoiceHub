@@ -225,13 +225,15 @@ export default function OrganizationRbacSettings({ orgId }) {
     }
     try {
       setLoading(true);
-      await roleAPI.createRole({
-        name,
-        serverId: orgId,
+      await roleAPI.clonePermissionGroup({
         organizationId: orgId,
-        permissions: permissionEntriesForPersist(permDraft),
+        serverId: orgId,
+        templateKey: 'viewer',
+        specialization: 'Other',
+        allowOtherName: true,
+        otherName: name,
+        createRole: true,
         priority: priorityFromTier(TIER_EXEC),
-        isDefault: false,
       });
       toast.success(t('organizationSettings.rbacRoleCreated'));
       setCreateOpen(false);
@@ -265,14 +267,16 @@ export default function OrganizationRbacSettings({ orgId }) {
     if (!role || !orgId) return;
     try {
       setLoading(true);
-      await roleAPI.createRole({
-        name: `${normalizeRoleDisplayName(role.name)}${t('organizationSettings.rbacRoleCopySuffix')}`,
-        serverId: orgId,
+      await roleAPI.clonePermissionGroup({
         organizationId: orgId,
-        permissions: role.permissions || [],
+        serverId: orgId,
+        templateKey: 'viewer',
+        specialization: 'Other',
+        allowOtherName: true,
+        otherName: `${normalizeRoleDisplayName(role.name)}${t('organizationSettings.rbacRoleCopySuffix')}`,
+        createRole: true,
         priority: role.priority || priorityFromTier(TIER_EXEC),
         color: role.color,
-        isDefault: false,
       });
       toast.success(t('organizationSettings.rbacRoleDuplicated'));
       await loadAll();

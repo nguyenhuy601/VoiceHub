@@ -94,6 +94,16 @@ const organizationSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: null,
       },
+      /** Phase 2.0 — company size + enabled master catalog keys */
+      companySize: {
+        type: String,
+        trim: true,
+        default: 'startup',
+      },
+      masterData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
+      },
     },
     provisioning: {
       structure: {

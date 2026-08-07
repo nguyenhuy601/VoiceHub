@@ -230,8 +230,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [blockingFriend, setBlockingFriend] = useState(false);
   const [unblockConfirmOpen, setUnblockConfirmOpen] = useState(false);
   const [unblockingFriend, setUnblockingFriend] = useState(false);
-  const [unfriendConfirmOpen, setUnfriendConfirmOpen] = useState(false);
-  const [removingFriend, setRemovingFriend] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
@@ -303,7 +301,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
       setDirectoryOpenPeer(null);
     }
   }, [selectedFriendId, directoryOpenPeer]);
-  const unfriendInFlightRef = useRef(false);
   const routedDmUserId = String(
     location.state?.openDmUserId || searchParams.get('openDmUserId') || ''
   );
@@ -1877,42 +1874,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     }
   };
 
-  const unfriendGraceHours = 12;
-
-  const confirmUnfriendCurrentFriend = async () => {
-    if (!selectedFriendId || landingDemo || unfriendInFlightRef.current) return;
-    const removedId = String(selectedFriendId);
-    unfriendInFlightRef.current = true;
-    setRemovingFriend(true);
-    try {
-      const resp = await friendService.removeFriend(removedId);
-      const hours = Number(resp?.data?.graceHours) || unfriendGraceHours;
-      toast.success(t('friendChat.unfriendOk', { hours }));
-      setFriends((prev) =>
-        prev.filter((row) => {
-          const uid = row.friendId?._id || row.friendId?.userId || row.friendId;
-          return String(uid || '') !== removedId;
-        })
-      );
-      setArchivedFriendIds((prev) => {
-        const next = prev.filter((id) => id !== removedId);
-        saveIdList(DM_ARCHIVE_STORAGE_KEY, next);
-        return next;
-      });
-      setSelectedFriendId((prev) => (String(prev || '') === removedId ? null : prev));
-      setMessages([]);
-      clearOutboundRinging?.();
-      refreshFriendsCache();
-      refreshUnread();
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.unfriendFail') }));
-      throw err;
-    } finally {
-      unfriendInFlightRef.current = false;
-      setRemovingFriend(false);
-    }
-  };
-
   const toggleArchiveCurrentFriend = useCallback(() => {
     if (!currentFriendKey) return;
     const next = archivedFriendIds.includes(currentFriendKey)
@@ -2992,9 +2953,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         onAttachmentAction={handleAttachmentAction}
         onOpenCalendarForFriend={openCalendarForFriend}
         onOpenMutualOrganization={openMutualOrganization}
-        onUnfriend={() => setUnfriendConfirmOpen(true)}
-        unfriendDisabled={landingDemo || removingFriend}
-        unfriendLoading={removingFriend}
       />
     ) : null;
 
@@ -3192,21 +3150,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         title={t('friendChat.unblockUser')}
         message={t('friendChat.unblockConfirm', { name: currentFriend?.name || '' })}
         confirmText={t('friendChat.unblockConfirmBtn')}
-        cancelText={t('nav.cancel')}
-      />
-      <ConfirmDialog
-        isOpen={unfriendConfirmOpen}
-        onClose={() => !removingFriend && setUnfriendConfirmOpen(false)}
-        onConfirm={async () => {
-          await confirmUnfriendCurrentFriend();
-          setUnfriendConfirmOpen(false);
-        }}
-        title={t('friendChat.unfriend')}
-        message={t('friendChat.unfriendConfirm', {
-          name: currentFriend?.name || '',
-          hours: unfriendGraceHours,
-        })}
-        confirmText={t('friendChat.unfriendConfirmBtn')}
         cancelText={t('nav.cancel')}
       />
       {inlineToast && (

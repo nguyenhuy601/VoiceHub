@@ -1,26 +1,34 @@
-const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
-const { PROJECT_ROLE_LABEL_PREFIX } = require('@enterprise/shared/utils/roleLayerNaming');
+const { MASTER_PROJECT_ROLES } = require('@enterprise/shared/config/masterData');
 const { defaultPermissionsForRoleKey } = require('../utils/projectPermissionMatrix');
 
-/** Catalog mặc định Project Role + canAssign + permissions matrix. Keys ổn định. */
-const DEFAULT_PROJECT_ROLES = [
-  { key: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER, label: `${PROJECT_ROLE_LABEL_PREFIX}Project Manager`, canAssign: true, sortOrder: 10 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER, label: `${PROJECT_ROLE_LABEL_PREFIX}Product Owner`, canAssign: true, sortOrder: 12 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER, label: `${PROJECT_ROLE_LABEL_PREFIX}Scrum Master`, canAssign: true, sortOrder: 14 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.TECH_LEAD, label: `${PROJECT_ROLE_LABEL_PREFIX}Tech Lead`, canAssign: true, sortOrder: 20 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.ARCHITECT, label: `${PROJECT_ROLE_LABEL_PREFIX}Architect`, canAssign: true, sortOrder: 30 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.SENIOR_DEVELOPER, label: `${PROJECT_ROLE_LABEL_PREFIX}Senior Developer`, canAssign: true, sortOrder: 40 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER, label: `${PROJECT_ROLE_LABEL_PREFIX}Developer`, canAssign: false, sortOrder: 50 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.JUNIOR, label: `${PROJECT_ROLE_LABEL_PREFIX}Junior`, canAssign: false, sortOrder: 55 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.INTERN, label: `${PROJECT_ROLE_LABEL_PREFIX}Intern`, canAssign: false, sortOrder: 60 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.QA, label: `${PROJECT_ROLE_LABEL_PREFIX}QA`, canAssign: true, sortOrder: 70 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.TESTER, label: `${PROJECT_ROLE_LABEL_PREFIX}Tester`, canAssign: true, sortOrder: 75 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.REVIEWER, label: `${PROJECT_ROLE_LABEL_PREFIX}Reviewer`, canAssign: false, sortOrder: 80 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.RELEASE_MANAGER, label: `${PROJECT_ROLE_LABEL_PREFIX}Release Manager`, canAssign: true, sortOrder: 90 },
-  { key: DEFAULT_PROJECT_ROLE_KEYS.WATCHER, label: `${PROJECT_ROLE_LABEL_PREFIX}Watcher`, canAssign: false, sortOrder: 100 },
-].map((row) => ({
-  ...row,
-  permissions: defaultPermissionsForRoleKey(row.key),
+/**
+ * RBAC V2: map Project Role key → Permission Group template (role-permission-service).
+ * Project-service vẫn giữ permissions matrix cục bộ; templateKey dùng để sync/rebind group.
+ */
+const PROJECT_ROLE_RBAC_TEMPLATE = Object.freeze({
+  project_manager: 'project_manager',
+  product_owner: 'product_owner',
+  scrum_master: 'scrum_master',
+  technical_lead: 'developer',
+  solution_architect: 'developer',
+  backend_developer: 'developer',
+  fullstack_developer: 'developer',
+  frontend_developer: 'developer',
+  qa_lead: 'qa',
+  qa_engineer: 'qa',
+  devops_engineer: 'developer',
+  observer: 'viewer',
+  project_admin: 'project_admin',
+});
+
+/** Catalog Project Role từ master SSOT + permissions matrix. */
+const DEFAULT_PROJECT_ROLES = MASTER_PROJECT_ROLES.map((def) => ({
+  key: def.key,
+  label: def.label,
+  canAssign: Boolean(def.canAssign),
+  sortOrder: def.sortOrder,
+  permissions: defaultPermissionsForRoleKey(def.key),
+  rbacTemplateKey: PROJECT_ROLE_RBAC_TEMPLATE[def.key] || 'viewer',
 }));
 
 /** Cạnh mẫu: key→key (áp sau khi có ProjectRole docs). */
@@ -29,50 +37,43 @@ const DELEGATION_TEMPLATES = {
     id: 'product',
     label: 'Product / delivery digraph',
     edges: [
-      ['project_manager', 'tech_lead', ['*']],
-      ['project_manager', 'architect', ['*']],
-      ['project_manager', 'qa', ['*']],
-      ['project_manager', 'developer', ['*']],
-      ['project_manager', 'senior_developer', ['*']],
-      ['project_manager', 'junior', ['*']],
-      ['tech_lead', 'senior_developer', ['*']],
-      ['tech_lead', 'developer', ['*']],
-      ['tech_lead', 'qa', ['*']],
-      ['architect', 'senior_developer', ['tech', '*']],
-      ['senior_developer', 'developer', ['*']],
-      ['senior_developer', 'junior', ['*']],
-      ['senior_developer', 'intern', ['*']],
-      ['developer', 'junior', ['*']],
-      ['developer', 'intern', ['*']],
-      ['qa', 'developer', ['bug']],
-      ['qa', 'senior_developer', ['bug']],
-      ['tester', 'developer', ['bug']],
-      ['release_manager', 'developer', ['deploy', '*']],
+      ['project_manager', 'technical_lead', ['*']],
+      ['project_manager', 'solution_architect', ['*']],
+      ['project_manager', 'qa_lead', ['*']],
+      ['project_manager', 'backend_developer', ['*']],
+      ['project_manager', 'fullstack_developer', ['*']],
+      ['technical_lead', 'fullstack_developer', ['*']],
+      ['technical_lead', 'backend_developer', ['*']],
+      ['technical_lead', 'qa_lead', ['*']],
+      ['solution_architect', 'fullstack_developer', ['tech', '*']],
+      ['fullstack_developer', 'backend_developer', ['*']],
+      ['qa_lead', 'backend_developer', ['bug']],
+      ['qa_lead', 'fullstack_developer', ['bug']],
+      ['qa_engineer', 'backend_developer', ['bug']],
+      ['devops_engineer', 'backend_developer', ['deploy', '*']],
     ],
   },
   outsourcing: {
     id: 'outsourcing',
     label: 'Outsourcing digraph',
     edges: [
-      ['project_manager', 'tech_lead', ['*']],
-      ['project_manager', 'qa', ['*']],
-      ['tech_lead', 'developer', ['*']],
-      ['tech_lead', 'senior_developer', ['*']],
-      ['qa', 'developer', ['bug', '*']],
-      ['tester', 'developer', ['bug']],
-      ['senior_developer', 'intern', ['*']],
+      ['project_manager', 'technical_lead', ['*']],
+      ['project_manager', 'qa_lead', ['*']],
+      ['technical_lead', 'backend_developer', ['*']],
+      ['technical_lead', 'fullstack_developer', ['*']],
+      ['qa_engineer', 'backend_developer', ['bug', '*']],
+      ['fullstack_developer', 'observer', ['*']],
     ],
   },
   startup: {
     id: 'startup',
     label: 'Startup flat digraph',
     edges: [
-      ['project_manager', 'developer', ['*']],
-      ['project_manager', 'qa', ['*']],
-      ['tech_lead', 'developer', ['*']],
-      ['tech_lead', 'intern', ['*']],
-      ['senior_developer', 'intern', ['*']],
-      ['qa', 'developer', ['bug', '*']],
+      ['project_manager', 'backend_developer', ['*']],
+      ['project_manager', 'qa_engineer', ['*']],
+      ['technical_lead', 'backend_developer', ['*']],
+      ['technical_lead', 'observer', ['*']],
+      ['qa_engineer', 'backend_developer', ['bug', '*']],
     ],
   },
 };
@@ -80,4 +81,5 @@ const DELEGATION_TEMPLATES = {
 module.exports = {
   DEFAULT_PROJECT_ROLES,
   DELEGATION_TEMPLATES,
+  PROJECT_ROLE_RBAC_TEMPLATE,
 };

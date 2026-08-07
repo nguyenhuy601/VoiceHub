@@ -4,7 +4,9 @@ const ProjectRole = require('../models/ProjectRole');
 const Project = require('../models/Project');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
+const { fetchEnabledPositionKeys } = require('../clients/orgMasterData.client');
 const { summarizeProjectRoleStaffing } = require('../utils/projectStaffingSummary');
+const { scorePositionMatch } = require('../utils/positionCandidateMatch');
 const {
   flattenSegments,
   allocatedPctOnDay,
@@ -21,6 +23,7 @@ async function enrichProfiles(userIds = []) {
   const rows = await Promise.all(
     unique.map(async (uid) => {
       let displayName = uid.slice(-6);
+      let jobTitle = '';
       try {
         const res = await fetchUserProfileByIdInternal(uid);
         const profile = res?.data?.data ?? res?.data ?? null;
@@ -30,10 +33,13 @@ async function enrichProfiles(userIds = []) {
           profile?.username ||
           profile?.email?.split('@')[0] ||
           displayName;
+        jobTitle = String(
+          profile?.jobTitle || profile?.preferences?.jobTitle || ''
+        ).trim();
       } catch {
         /* optional enrich */
       }
-      return { userId: uid, displayName };
+      return { userId: uid, displayName, jobTitle };
     })
   );
   return new Map(rows.map((row) => [row.userId, row]));
@@ -123,17 +129,22 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
         relatedDepartmentIds: relatedDeptIds,
       },
       staffingSummary,
+      metric: 'planned_allocation',
       items: [],
     };
   }
 
-  const allocationRows = await ProjectMember.find({
-    organizationId,
-    userId: { $in: unionUserIds },
-    status: 'active',
-  })
-    .select('userId allocations allocationStatus')
-    .lean();
+  const [allocationRows, enabledPositionKeys, profileByUserId] = await Promise.all([
+    ProjectMember.find({
+      organizationId,
+      userId: { $in: unionUserIds },
+      status: 'active',
+    })
+      .select('userId allocations allocationStatus')
+      .lean(),
+    fetchEnabledPositionKeys(organizationId).catch(() => null),
+    enrichProfiles(unionUserIds),
+  ]);
 
   const rowsByUser = new Map();
   for (const row of allocationRows) {
@@ -145,7 +156,6 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
   }
 
   const asOfMs = toDayMs(new Date());
-  const profileByUserId = await enrichProfiles(unionUserIds);
 
   const items = unionUserIds.map((userId) => {
     const hasPriorRole = priorRoleUserIds.includes(userId);
@@ -154,24 +164,37 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     const allocatedPct = allocatedPctOnDay(flat, asOfMs);
     const availablePct = availablePctOnDay(flat, asOfMs);
     const allocationStatus = computeAllocationStatus(rows);
-    const availability = allocationStatus === 'overallocated'
-      ? 'overallocated'
-      : classifyAvailability(allocatedPct);
+    const availability =
+      allocationStatus === 'overallocated'
+        ? 'overallocated'
+        : classifyAvailability(allocatedPct);
+
+    const profile = profileByUserId.get(userId);
+    const jobTitle = profile?.jobTitle || '';
+    const positionMatch = scorePositionMatch({
+      jobTitle,
+      projectRoleKey: targetRoleKey,
+      enabledPositionKeys,
+    });
 
     const suggestReasons = [];
     if (hasPriorRole) suggestReasons.push('prior_role');
     if (relatedUserIds?.has(userId)) suggestReasons.push('related_department');
     if (availability === 'available') suggestReasons.push('capacity_available');
+    if (positionMatch.reason) suggestReasons.push(positionMatch.reason);
 
     const capacityScore = Math.round(
       availablePct +
         (availability === 'available' ? 25 : availability === 'partial' ? 5 : -50) +
-        (hasPriorRole ? 5 : 0)
+        (hasPriorRole ? 5 : 0) +
+        positionMatch.boost
     );
 
     return {
       userId,
-      displayName: profileByUserId.get(userId)?.displayName || userId.slice(-6),
+      displayName: profile?.displayName || userId.slice(-6),
+      jobTitle,
+      positionKey: positionMatch.matchKey || null,
       priorRoleKeys: hasPriorRole ? [targetRoleKey] : [],
       allocationStatus,
       allocatedPct,
@@ -201,6 +224,7 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
       relatedDepartmentIds: relatedDeptIds,
     },
     staffingSummary,
+    metric: 'planned_allocation',
     items,
   };
 }

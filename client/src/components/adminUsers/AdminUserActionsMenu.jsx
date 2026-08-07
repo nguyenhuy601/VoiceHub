@@ -57,7 +57,12 @@ function computeMenuPos(btnRect, menuH, menuW = MENU_WIDTH) {
 /**
  * Menu "..." gom thao tác admin theo nhóm.
  */
-export default function AdminUserActionsMenu({ member, onViewDetail, onRequestDelete }) {
+export default function AdminUserActionsMenu({
+  member,
+  onViewDetail,
+  onRequestDelete,
+  disableDelete = false,
+}) {
   const { t } = useAppStrings();
   const userId = memberUserId(member);
   const [open, setOpen] = useState(false);
@@ -140,13 +145,17 @@ export default function AdminUserActionsMenu({ member, onViewDetail, onRequestDe
     </Link>
   );
 
-  const ItemButton = ({ onClick, children, danger }) => (
+  const ItemButton = ({ onClick, children, danger, disabled = false }) => (
     <button
       type="button"
+      disabled={disabled}
       className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-muted/60 ${
         danger ? 'font-medium text-red-600 dark:text-red-400' : 'text-foreground'
+      } ${
+        disabled ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : ''
       }`}
       onClick={() => {
+        if (disabled) return;
         setOpen(false);
         onClick?.();
       }}
@@ -221,7 +230,7 @@ export default function AdminUserActionsMenu({ member, onViewDetail, onRequestDe
                 </ItemLink>
               </Group>
               <Group label={t('adminUsers.menuGroupDanger')}>
-                <ItemButton danger onClick={() => onRequestDelete?.(member)}>
+                <ItemButton danger disabled={disableDelete} onClick={() => onRequestDelete?.(member)}>
                   {t('adminDomains.users.delete')}
                 </ItemButton>
               </Group>

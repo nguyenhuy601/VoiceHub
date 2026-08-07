@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
@@ -8,7 +8,6 @@ import {
   adminInputClass,
   adminLabelClass,
   adminPrimaryBtnClass,
-  adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
@@ -25,6 +24,28 @@ function normalizeMembershipRole(raw) {
   return MEMBERSHIP_ROLE_OPTIONS.includes(role) ? role : 'member';
 }
 
+function unwrapMaster(res) {
+  return res?.data?.data ?? res?.data ?? res;
+}
+
+/** Enabled Position catalog (cùng nguồn PosList / listHrPositions) → { key, label }. */
+function buildPositionOptionsFromHr(positions) {
+  const list = Array.isArray(positions) ? positions : [];
+  if (!list.length) {
+    return DEFAULT_HR_ROLE_KEYS.map((key) => ({
+      key,
+      label: DEFAULT_HR_ROLE_LABELS[key] || key,
+    }));
+  }
+  return list
+    .map((p) => ({
+      key: String(p.key || p.title || '').trim(),
+      label: String(p.title || p.label || p.key || '').trim(),
+    }))
+    .filter((p) => p.key)
+    .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+}
+
 export default function UserEditPanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
@@ -32,11 +53,35 @@ export default function UserEditPanel({ orgId }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialRole, setInitialRole] = useState('member');
+  const [positionOptions, setPositionOptions] = useState(() =>
+    DEFAULT_HR_ROLE_KEYS.map((key) => ({
+      key,
+      label: DEFAULT_HR_ROLE_LABELS[key] || key,
+    }))
+  );
   const [form, setForm] = useState({
     displayName: '',
     jobTitle: '',
     role: 'member',
   });
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await organizationAPI.listHrPositions(orgId);
+        if (cancelled) return;
+        const data = unwrapMaster(res);
+        setPositionOptions(buildPositionOptionsFromHr(data?.positions));
+      } catch {
+        /* fallback DEFAULT_HR already set */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   useEffect(() => {
     if (!orgId || !userId) return;
@@ -71,6 +116,16 @@ export default function UserEditPanel({ orgId }) {
       cancelled = true;
     };
   }, [orgId, userId, t]);
+
+  const selectOptions = useMemo(() => {
+    const current = String(form.jobTitle || '').trim();
+    if (!current) return positionOptions;
+    const hit = positionOptions.some(
+      (p) => p.label === current || p.key === current.toLowerCase().replace(/\s+/g, '_')
+    );
+    if (hit) return positionOptions;
+    return [{ key: '_legacy', label: current }, ...positionOptions];
+  }, [form.jobTitle, positionOptions]);
 
   const save = async (e) => {
     e.preventDefault();
@@ -130,31 +185,20 @@ export default function UserEditPanel({ orgId }) {
               </label>
               <label className="block">
                 <span className={adminLabelClass()}>{t('adminUsers.jobTitle')}</span>
-                <input
+                <select
                   className={adminInputClass()}
-                  placeholder={t('adminUsers.jobTitle')}
                   value={form.jobTitle}
                   onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
-                />
+                >
+                  <option value="">{t('adminUsers.jobTitleSelectPlaceholder')}</option>
+                  {selectOptions.map((opt) => (
+                    <option key={opt.key} value={opt.label}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.jobTitleSelectHint')}</p>
               </label>
-              <div>
-                <p className={adminLabelClass()}>{t('adminUsers.jobTitleSuggestions')}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {DEFAULT_HR_ROLE_KEYS.map((key) => {
-                    const label = DEFAULT_HR_ROLE_LABELS[key] || key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={adminSecondaryBtnClass('!px-2 !py-1 text-xs')}
-                        onClick={() => setForm((f) => ({ ...f, jobTitle: label }))}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
               <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
                 {saving ? t('common.saving') : t('common.save')}
               </button>

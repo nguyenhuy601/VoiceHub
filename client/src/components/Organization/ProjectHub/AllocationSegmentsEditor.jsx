@@ -55,6 +55,11 @@ export default function AllocationSegmentsEditor({
           </button>
         ) : null}
       </div>
+      {!disabled && !(Array.isArray(segments) && segments.length) ? (
+        <p className={`text-[11px] leading-snug ${muted}`}>
+          {t('workspace.projectHubAllocEmptyHint')}
+        </p>
+      ) : null}
       <div className="space-y-2">
         {rows.map((row, index) => (
           <div

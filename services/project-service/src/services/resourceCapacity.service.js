@@ -3,7 +3,9 @@ const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const { resolveCanonicalOrganizationRoleKey } = require('@enterprise/shared/config/masterData');
 const {
   toDayMs,
   flattenSegments,
@@ -32,6 +34,52 @@ async function assertOrgMember(userId, organizationId) {
     throw err;
   }
   return scope;
+}
+
+/**
+ * Org-wide capacity/planner: owner/admin hoặc Org Role master `resource_manager`.
+ */
+async function assertCanViewOrgCapacity(actorUserId, organizationId) {
+  const scope = await assertOrgMember(actorUserId, organizationId);
+  if (isOrgAdminScope(scope)) {
+    return { scope, isOrgAdmin: true, isResourceManager: false };
+  }
+  const vis = await fetchProjectVisibilityContext(organizationId, actorUserId);
+  const keys = (vis.organizationRoleKeys || []).map((k) =>
+    resolveCanonicalOrganizationRoleKey(String(k || '').toLowerCase())
+  );
+  const isResourceManager = keys.includes('resource_manager');
+  if (!isResourceManager) {
+    const err = new Error('Chỉ Org Admin hoặc Resource Manager được xem Capacity / Planner tổ chức');
+    err.statusCode = 403;
+    err.errorCode = 'RESOURCE_CAPACITY_FORBIDDEN';
+    throw err;
+  }
+  return { scope, isOrgAdmin: false, isResourceManager: true };
+}
+
+async function assertCanViewProjectPlanner(actorUserId, project) {
+  const orgId = String(project.organizationId || '');
+  const scope = await assertOrgMember(actorUserId, orgId);
+  if (isOrgAdminScope(scope)) return { elevated: true };
+
+  try {
+    const { assertUserProjectPermission } = require('./projectAccess.service');
+    await assertUserProjectPermission({
+      userId: actorUserId,
+      projectId: project._id,
+      permission: 'members:manage',
+      message: 'Không có quyền xem Resource Planner',
+    });
+    return { elevated: false };
+  } catch (permErr) {
+    const vis = await fetchProjectVisibilityContext(orgId, actorUserId);
+    const keys = (vis.organizationRoleKeys || []).map((k) =>
+      resolveCanonicalOrganizationRoleKey(String(k || '').toLowerCase())
+    );
+    if (keys.includes('resource_manager')) return { elevated: true };
+    throw permErr;
+  }
 }
 
 async function enrichProfiles(userIds = []) {
@@ -110,7 +158,7 @@ async function getDepartmentCapacity({
     err.statusCode = 400;
     throw err;
   }
-  await assertOrgMember(actorUserId, orgId);
+  await assertCanViewOrgCapacity(actorUserId, orgId);
 
   const asOfMs = toDayMs(asOf || new Date()) ?? toDayMs(new Date());
   const filterDeptIds = (Array.isArray(departmentIds) ? departmentIds : [])
@@ -145,6 +193,7 @@ async function getDepartmentCapacity({
   return {
     organizationId: orgId,
     asOf: new Date(asOfMs).toISOString().slice(0, 10),
+    metric: 'planned_allocation',
     approx: true,
     items,
     totals: {
@@ -195,17 +244,13 @@ async function getResourcePlanner({
     throw err;
   }
 
-  const scope = await assertOrgMember(actorUserId, resolvedOrgId);
-  const isAdmin = isOrgAdminScope(scope);
-
+  let elevated = false;
   if (pid) {
-    const { userCanAdminProject } = require('./project.service');
-    const canManage = await userCanAdminProject(actorUserId, project);
-    if (!canManage && !isAdmin) {
-      const err = new Error('Không có quyền xem Resource Planner');
-      err.statusCode = 403;
-      throw err;
-    }
+    const access = await assertCanViewProjectPlanner(actorUserId, project);
+    elevated = Boolean(access.elevated);
+  } else {
+    const access = await assertCanViewOrgCapacity(actorUserId, resolvedOrgId);
+    elevated = access.isOrgAdmin || access.isResourceManager;
   }
 
   const asOfMs = toDayMs(asOf || new Date()) ?? toDayMs(new Date());
@@ -222,13 +267,14 @@ async function getResourcePlanner({
       .filter(Boolean);
   }
 
-  // Không có related depts + không admin → không liệt kê toàn org (tránh lộ PII).
-  if (!relatedDeptIds.length && !isAdmin && !deptId) {
+  // Không có related depts + không elevated → không liệt kê toàn org (tránh lộ PII).
+  if (!relatedDeptIds.length && !elevated && !deptId) {
     return {
       organizationId: resolvedOrgId,
       projectId: pid || null,
       relatedDepartmentIds: [],
       asOf: new Date(asOfMs).toISOString().slice(0, 10),
+      metric: 'planned_allocation',
       items: [],
       hint: 'related_departments_empty',
     };
@@ -239,13 +285,10 @@ async function getResourcePlanner({
     actorUserId,
   });
 
-  // Non-admin + project: chỉ related depts (đã filter ở roster). Admin không filter vẫn thấy hết nếu không truyền related.
-  const scopedDepts =
-    !isAdmin && relatedDeptIds.length
-      ? departments.filter((d) => relatedDeptIds.includes(String(d.departmentId)))
-      : relatedDeptIds.length
-        ? departments.filter((d) => relatedDeptIds.includes(String(d.departmentId)))
-        : departments;
+  // Elevated (admin / resource_manager) có thể thấy toàn org khi không filter related.
+  const scopedDepts = relatedDeptIds.length
+    ? departments.filter((d) => relatedDeptIds.includes(String(d.departmentId)))
+    : departments;
 
   const deptByUser = new Map();
   for (const dep of scopedDepts) {
@@ -317,12 +360,14 @@ async function getResourcePlanner({
     projectId: pid || null,
     relatedDepartmentIds: relatedDeptIds,
     asOf: new Date(asOfMs).toISOString().slice(0, 10),
+    metric: 'planned_allocation',
     items,
   };
 }
 
 /**
- * Multi-project allocation timeline for one user (Members editor / audit).
+ * Multi-project planned-allocation timeline for one user (Members editor / audit).
+ * Self OK; xem người khác cần org capacity elevated (admin / resource_manager).
  */
 async function getUserAllocationTimeline({
   organizationId,
@@ -336,7 +381,12 @@ async function getUserAllocationTimeline({
     err.statusCode = 400;
     throw err;
   }
-  await assertOrgMember(actorUserId, orgId);
+  const actor = String(actorUserId || '');
+  if (actor !== uid) {
+    await assertCanViewOrgCapacity(actor, orgId);
+  } else {
+    await assertOrgMember(actor, orgId);
+  }
 
   const rows = await ProjectMember.find({
     organizationId: orgId,
@@ -362,6 +412,7 @@ async function getUserAllocationTimeline({
     userId: uid,
     organizationId: orgId,
     asOf: new Date(asOfMs).toISOString().slice(0, 10),
+    metric: 'planned_allocation',
     allocatedPct,
     availablePct: Math.max(0, 100 - allocatedPct),
     allocationStatus: computeAllocationStatus(rows),
@@ -385,6 +436,7 @@ module.exports = {
   getDepartmentCapacity,
   getResourcePlanner,
   getUserAllocationTimeline,
+  assertCanViewOrgCapacity,
   computeDepartmentCapacityRow,
   allocatedPctOnDay,
   classifyAvailability,

@@ -34,6 +34,12 @@ function internalOrgHeaders() {
   };
 }
 
+function normalizeSystemRoleNameForPersist(name) {
+  const current = String(name || '').trim();
+  if (!current || isHierarchyRoleName(current)) return current;
+  return canonicalizeSystemRoleName(current) || current;
+}
+
 /** serverId trong RBAC = organizationId (không có /api/servers trên organization-service). */
 async function fetchOrganizationDisplayName(serverId, role) {
   const orgId = String(role?.organizationId || serverId || '').trim();
@@ -99,6 +105,50 @@ async function syncOrgMembershipPlacement(userId, organizationId) {
 }
 
 class RoleService {
+  async mergeDuplicateSystemRole({
+    sourceRole,
+    targetRole,
+  }) {
+    const assignments = await UserRole.find({
+      roleId: sourceRole._id,
+      serverId: sourceRole.serverId,
+      isActive: true,
+    }).lean();
+
+    for (const assignment of assignments) {
+      await UserRole.updateOne(
+        {
+          userId: assignment.userId,
+          serverId: assignment.serverId,
+          roleId: targetRole._id,
+        },
+        {
+          $setOnInsert: {
+            assignedBy: assignment.assignedBy || null,
+            assignedAt: assignment.assignedAt || new Date(),
+            expiresAt: assignment.expiresAt || null,
+          },
+          $set: { isActive: true },
+        },
+        { upsert: true }
+      );
+      await UserRole.updateOne({ _id: assignment._id }, { $set: { isActive: false } });
+    }
+
+    await Role.updateOne(
+      { _id: sourceRole._id },
+      {
+        $set: {
+          isActive: false,
+          description: String(sourceRole.description || '')
+            .concat(sourceRole.description ? ' ' : '')
+            .concat(`[merged->${String(targetRole._id)}]`)
+            .slice(0, 1000),
+        },
+      }
+    );
+  }
+
   // Tạo role mới
   async createRole(roleData) {
     try {
@@ -112,10 +162,28 @@ class RoleService {
         color,
         isDefault,
         priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
       } = roleData;
 
+      // RBAC V2: cấm tạo role/permission blank — chỉ clone template (hoặc internal migration).
+      if (
+        !allowBlankLegacy &&
+        !String(fromTemplateKey || '').trim() &&
+        !String(permissionGroupId || '').trim()
+      ) {
+        throw roleServiceError(
+          'Không được tạo role blank. Hãy clone Permission Group từ template hệ thống.',
+          400,
+          'RBAC_V2_CLONE_REQUIRED'
+        );
+      }
+
+      const normalizedName = normalizeSystemRoleNameForPersist(name);
+
       // Kiểm tra role name đã tồn tại trong server chưa
-      const existingRole = await Role.findOne({ name, serverId });
+      const existingRole = await Role.findOne({ name: normalizedName, serverId });
       if (existingRole) {
         throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 400, 'ROLE_NAME_EXISTS');
       }
@@ -127,7 +195,7 @@ class RoleService {
       }
 
       const role = new Role({
-        name,
+        name: normalizedName,
         description: description != null ? String(description).trim() : '',
         scope: normalizedScope,
         serverId,
@@ -175,10 +243,11 @@ class RoleService {
       }).sort({ priority: -1, createdAt: 1 });
 
       let renamed = 0;
+      let merged = 0;
       for (const role of roles) {
         const current = String(role.name || '').trim();
         if (!current || isHierarchyRoleName(current)) continue;
-        const next = canonicalizeSystemRoleName(current);
+        const next = normalizeSystemRoleNameForPersist(current);
         if (!next || next === current) continue;
 
         const clash = await Role.findOne({
@@ -190,10 +259,13 @@ class RoleService {
           .select('_id')
           .lean();
         if (clash) {
-          logger.warn('[role.service] skip system role rename — name exists', {
+          await this.mergeDuplicateSystemRole({ sourceRole: role, targetRole: clash });
+          merged += 1;
+          logger.warn('[role.service] merged duplicate system role', {
             from: current,
             to: next,
             roleId: String(role._id),
+            targetRoleId: String(clash._id),
           });
           continue;
         }
@@ -203,10 +275,11 @@ class RoleService {
         renamed += 1;
       }
 
-      if (renamed > 0) {
-        logger.info('[role.service] canonicalized system role names', {
+      if (renamed > 0 || merged > 0) {
+        logger.info('[role.service] normalized system role names', {
           serverId: String(serverId),
           renamed,
+          merged,
         });
         return Role.find({
           isActive: true,
@@ -397,6 +470,9 @@ class RoleService {
 
       if (updateFields.description !== undefined) {
         updateFields.description = String(updateFields.description || '').trim();
+      }
+      if (updateFields.name !== undefined) {
+        updateFields.name = normalizeSystemRoleNameForPersist(updateFields.name);
       }
 
       const role = await Role.findByIdAndUpdate(

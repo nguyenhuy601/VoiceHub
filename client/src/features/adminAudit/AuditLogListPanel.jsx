@@ -59,6 +59,8 @@ export default function AuditLogListPanel({ orgId }) {
             <option value="task">task</option>
             <option value="project_member">project_member</option>
             <option value="approval">approval</option>
+            <option value="master_data">master_data</option>
+            <option value="project_role">project_role</option>
             <option value="governance_settings">governance_settings</option>
           </select>
         </label>

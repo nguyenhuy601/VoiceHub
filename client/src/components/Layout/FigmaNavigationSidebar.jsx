@@ -254,10 +254,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const { canAccessHub, isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
   // System admin dùng shell /app/admin riêng; sidebar nhân viên chỉ hiện hub cho owner|admin|hr org.
   const showAdminSuite = canAccessHub && !isSystemAdmin;
-  const showApprovalInbox =
-    suiteProp === 'collaborate' &&
-    (meta.isManagerOrAbove ||
-      ['owner', 'admin', 'manager', 'hr'].includes(String(myOrgRole || role || '').toLowerCase()));
+  // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
+  const showApprovalInbox = suiteProp === 'collaborate';
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();

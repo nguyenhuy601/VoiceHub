@@ -8,11 +8,8 @@ const { getRedisClient,
   logger } = require('@enterprise/shared');
 const axios = require('axios');
 const {
-  scheduleGrace,
   cancelGraceIfActive,
   findActiveGrace,
-  gracePeriodHoursForClient,
-  getGracePeriodMs,
 } = require('./unfriendGrace.service');
 
 function toObjectId(id) {
@@ -23,48 +20,6 @@ function toObjectId(id) {
     return new mongoose.Types.ObjectId(s);
   }
   return s;
-}
-
-/** Tìm hai chiều quan hệ accepted; hỗ trợ friendId là userId hoặc _id bản ghi Friend. */
-async function resolveAcceptedFriendRows(actorUserId, targetId) {
-  const actor = toObjectId(actorUserId);
-  const target = toObjectId(targetId);
-  if (!actor || !target) {
-    return { rows: [], peerUserId: null };
-  }
-
-  const pairQuery = (uidA, uidB) => ({
-    status: 'accepted',
-    $or: [
-      { userId: uidA, friendId: uidB },
-      { userId: uidB, friendId: uidA },
-    ],
-  });
-
-  let rows = await Friend.find(pairQuery(actor, target)).lean();
-  let peerUserId = target;
-
-  if (!rows.length && mongoose.Types.ObjectId.isValid(String(targetId))) {
-    const byDoc = await Friend.findOne({ _id: targetId, status: 'accepted' }).lean();
-    if (byDoc) {
-      const docUser = toObjectId(byDoc.userId);
-      const docFriend = toObjectId(byDoc.friendId);
-      const actorStr = String(actor);
-      if (String(docUser) === actorStr) {
-        peerUserId = docFriend;
-      } else if (String(docFriend) === actorStr) {
-        peerUserId = docUser;
-      }
-      if (peerUserId) {
-        rows = await Friend.find(pairQuery(actor, peerUserId)).lean();
-      }
-    }
-  }
-
-  return {
-    rows,
-    peerUserId: peerUserId ? String(peerUserId) : String(targetId),
-  };
 }
 
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -622,91 +577,6 @@ class FriendService {
       normalizeMongoError(error);
       logger.error('Error getting friend requests:', error);
       throw new Error(`Error getting friend requests: ${error.message}`);
-    }
-  }
-
-  // Hủy kết bạn — xóa quan hệ ngay; DM xóa vĩnh viễn sau grace (mặc định 12h) nếu không kết bạn lại.
-  async removeFriend(userId, friendId) {
-    try {
-      await ensureMongoReady();
-
-      const actorId = String(userId || '').trim();
-      const { rows: acceptedRows, peerUserId } = await resolveAcceptedFriendRows(actorId, friendId);
-      const peerId = peerUserId || String(friendId || '').trim();
-
-      if (!acceptedRows.length) {
-        const grace = await findActiveGrace(actorId, peerId);
-        if (grace) {
-          return {
-            deletedCount: 0,
-            purgeAt: grace.purgeAt,
-            graceHours: gracePeriodHoursForClient(),
-            alreadyRemoved: true,
-          };
-        }
-        throw new Error('Friend relationship not found');
-      }
-
-      const metaRow =
-        acceptedRows.find((r) => String(r.userId) === actorId) || acceptedRows[0];
-
-      const result = await Friend.deleteMany({
-        _id: { $in: acceptedRows.map((r) => r._id) },
-      });
-
-      let graceDoc;
-      try {
-        graceDoc = await scheduleGrace({
-          userId: actorId,
-          friendId: peerId,
-          dissolvedBy: actorId,
-          meta: {
-            requestedBy: metaRow?.requestedBy,
-            acceptedAt: metaRow?.acceptedAt,
-          },
-        });
-      } catch (graceErr) {
-        logger.error(
-          `Friend rows deleted but grace schedule failed (${actorId} <-> ${peerId}):`,
-          graceErr
-        );
-        graceDoc = { purgeAt: new Date(Date.now() + getGracePeriodMs()) };
-      }
-
-      const redis = getRedisClient();
-      if (redis) {
-        await clearFriendsListCache(actorId, peerId);
-      }
-
-      logger.info(
-        `Friend removed (grace until ${graceDoc.purgeAt.toISOString()}): ${actorId} <-> ${peerId}`
-      );
-
-      await emitRealtimeEvent({
-        event: 'friend:removed',
-        userIds: [actorId, peerId],
-        payload: {
-          userId: actorId,
-          friendId: peerId,
-          purgeAt: graceDoc.purgeAt.toISOString(),
-          graceHours: gracePeriodHoursForClient(),
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-      return {
-        deletedCount: result.deletedCount,
-        purgeAt: graceDoc.purgeAt,
-        graceHours: gracePeriodHoursForClient(),
-      };
-    } catch (error) {
-      normalizeMongoError(error);
-      const msg = String(error?.message || '');
-      if (msg === 'Friend relationship not found' || msg.includes('Invalid user pair')) {
-        throw error;
-      }
-      logger.error('Error removing friend:', error);
-      throw new Error(`Error removing friend: ${error.message}`);
     }
   }
 

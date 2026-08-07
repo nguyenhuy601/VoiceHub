@@ -45,12 +45,6 @@ const friendService = {
     return await api.post(`/friends/${friendId}/reject`);
   },
 
-  // Xóa bạn - DELETE /friends/:friendId
-  // friendId: ID của bạn bè muốn xóa
-  removeFriend: async (friendId) => {
-    return await api.delete(`/friends/${friendId}`);
-  },
-
   // Lấy các lời mời chờ duyệt - GET /friends/pending
   // Return: [{ id, from: {...}, createdAt, ... }]
   getPendingRequests: async (config = {}) => {

@@ -223,6 +223,7 @@ class TaskService {
         'dueDate',
         'tags',
         'attachments',
+        'estimateHours',
       ];
       const updateFields = {};
 
@@ -230,6 +231,16 @@ class TaskService {
         if (updateData[field] !== undefined) {
           updateFields[field] = updateData[field];
         }
+      }
+
+      const prevEstimateHours =
+        task.estimateHours === undefined || task.estimateHours === null
+          ? null
+          : Number(task.estimateHours);
+
+      if (updateFields.estimateHours !== undefined) {
+        const { normalizeEstimateHours } = require('../utils/timeTracking');
+        updateFields.estimateHours = normalizeEstimateHours(updateFields.estimateHours);
       }
 
       if (updateFields.attachments !== undefined) {
@@ -254,6 +265,27 @@ class TaskService {
         { $set: encryptedUpdate },
         { new: true, runValidators: true }
       );
+
+      if (
+        updateFields.estimateHours !== undefined &&
+        task.projectId &&
+        updateFields.estimateHours !== prevEstimateHours
+      ) {
+        const { logActivity } = require('./project.service');
+        await logActivity({
+          organizationId: task.organizationId,
+          projectId: task.projectId,
+          boardId: task.boardId || null,
+          taskId,
+          actorId: userId,
+          type: 'estimate_updated',
+          title: `Estimate ${updateFields.estimateHours ?? '—'}h`,
+          payload: {
+            before: prevEstimateHours,
+            after: updateFields.estimateHours,
+          },
+        });
+      }
 
       logger.info(`Task updated: ${taskId}`);
       return await toClientTask(updated);

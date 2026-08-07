@@ -92,6 +92,7 @@ export const adminDomainStrings = {
         sectionSystemRoles: 'System Role & Permission',
         sectionResponsibility: 'Responsibility',
         taxonomy: '4 lớp vai trò',
+        masterData: 'Master Data (bật/tắt catalog)',
         roles: 'System Role (Permission)',
         hierarchy: 'Phân cấp System Role',
         create: 'Tạo System Role',
@@ -197,9 +198,10 @@ export const adminDomainStrings = {
         labels: 'Label / Tags',
         transfer: 'Chuyển quyền Project',
         policies: 'Visibility Policy',
-        capacity: 'Department Capacity',
+        capacity: 'Capacity phòng (Planned)',
         planner: 'Resource Planner',
-        approvalPolicies: 'Approval Policies',
+        utilization: 'Utilization (Actual)',
+        approvalPolicies: 'Chính sách duyệt',
       },
       files: {
         title: 'Quản lý File',
@@ -328,6 +330,8 @@ export const adminDomainStrings = {
       responsibilityKeys: 'Responsibility (keys)',
       responsibilityNone: 'Chưa gán Responsibility',
       jobTitleSuggestions: 'Gợi ý chức danh',
+      jobTitleSelectPlaceholder: 'Chọn chức danh…',
+      jobTitleSelectHint: 'Chọn từ danh sách Position (Master Data) đã bật cho tổ chức.',
       userRoleNone: 'Chưa gán',
       colStatus: 'Trạng thái',
       colActions: 'Thao tác',
@@ -393,6 +397,7 @@ export const adminDomainStrings = {
       deactivateAccount: 'Đồng thời vô hiệu hóa tài khoản hệ thống',
       removeMember: 'Gỡ khỏi công ty',
       removeConfirm: 'Bạn chắc chắn muốn gỡ nhân viên này khỏi công ty?',
+      removeSystemAdminBlocked: 'Không thể gỡ tài khoản quản trị hệ thống khỏi công ty.',
       removedFromOrg: 'Đã gỡ nhân viên khỏi công ty.',
       removeFail: 'Không gỡ được nhân viên.',
       lockHint: 'Khóa tài khoản sẽ chấm dứt phiên đăng nhập hiện tại.',
@@ -493,6 +498,7 @@ export const adminDomainStrings = {
     // Huy: Locale domain Cơ cấu tổ chức (admin panels)
     adminOrg: {
       loadFail: 'Không tải được cơ cấu tổ chức.',
+      selectOrgHint: 'Chọn tổ chức (company context) để quản trị catalog.',
       levelsHint: 'Cấu hình tầng tổ chức (Division/Department/Team/Squad…) theo công ty.',
       levelsTitle: 'Danh sách level',
       levelsLockedHint:
@@ -679,7 +685,7 @@ export const adminDomainStrings = {
       divisionDeptTableTitle: 'Phòng ban trong khối',
       divisionDeptEmpty: 'Khối này chưa có phòng ban.',
       posListHint:
-        'HR Role trên hồ sơ (job title). Không dùng để phân quyền hay giao task — chỉ People/HR.',
+        'Chức danh HR (enabled Master Data). Không dùng để phân quyền hay giao task — chỉ People/HR.',
       posCreateHint:
         'Tạo chức vụ (Position HR) bằng cách nhập job title — có thể gán cho nhân viên nếu chọn, hoặc tạo riêng để dùng sau (không cấp Permission).',
       posCreateUserHint: 'Chọn nhân viên nhận chức vụ mới.',
@@ -865,25 +871,25 @@ export const adminDomainStrings = {
       visibilityPolicySaveFail: 'Không lưu được policy.',
       visibilityPolicyLoadFail: 'Không tải được policy.',
       capacityHint:
-        'Headcount theo People Graph (phòng + team inherit). Allocated = tổng % allocation overlapping ngày chọn (approx FTE).',
+        'Headcount theo People Graph. Allocated = tổng % kế hoạch phân bổ (Planned Allocation) chồng ngày chọn (approx FTE) — không phải Actual hours.',
       capacityLoadFail: 'Không tải được Department Capacity.',
       capacityEmpty: 'Chưa có phòng ban hoặc chưa có member.',
-      capacityByDept: 'Capacity theo phòng',
-      capacityApproxNote: 'Số liệu approx — headcount ≠ payroll FTE.',
+      capacityByDept: 'Capacity theo phòng (Planned)',
+      capacityApproxNote: 'Approx FTE từ kế hoạch — headcount ≠ payroll; Actual/Worklog ở Phase 3b.',
       capacityHeadcount: 'Headcount',
-      capacityAllocated: 'Allocated %',
-      capacityAvailable: 'Available %',
-      capacityOverPeople: 'Overallocated',
+      capacityAllocated: 'Planned %',
+      capacityAvailable: 'Còn lại (planned)',
+      capacityOverPeople: 'Overallocated (planned)',
       capacityPeopleBreakdown: 'Available {available} · Partial {partial} · Over {over}',
       plannerHint:
-        'Gợi ý nhân sự theo Related Departments của project (hoặc toàn org). Rank: Available → Partial → Overallocated.',
+        'Gợi ý nhân sự theo Related Departments + Position master. Rank theo kế hoạch phân bổ: Available → Partial → Overallocated. Org Admin hoặc Resource Manager xem toàn org.',
       plannerLoadFail: 'Không tải được Resource Planner.',
       plannerEmpty: 'Không có ứng viên trong phạm vi phòng liên quan.',
       plannerNoRelatedDepts:
         'Project chưa gắn Related Departments — cấu hình ở Settings để scope planner.',
       plannerRelatedCount: 'Đang lọc {n} Related Department(s).',
       plannerProject: 'Project',
-      plannerAllOrg: 'Toàn tổ chức (admin)',
+      plannerAllOrg: 'Toàn tổ chức (admin / resource manager)',
       plannerAsOf: 'Ngày',
       plannerAddRole: 'Role khi thêm',
       plannerPeople: 'Ứng viên',
@@ -891,6 +897,16 @@ export const adminDomainStrings = {
       plannerAdd: 'Thêm',
       plannerNeedRole: 'Chọn Project Role trước khi thêm.',
       plannerMemberAdded: 'Đã thêm thành viên từ planner.',
+      utilizationHint:
+        'Planned available hours (từ Planned Allocation %) ∩ Actual hours (Worklog). Không tự sửa allocation. Approx hoursPerDay=8.',
+      utilizationLoadFail: 'Không tải được Utilization.',
+      utilizationEmpty: 'Không có dữ liệu trong khoảng ngày.',
+      utilizationDisabled: 'Time Tracking đang tắt (TIME_TRACKING_V1).',
+      utilizationPlanned: 'Planned available',
+      utilizationActual: 'Actual hours',
+      utilizationPeople: 'People',
+      utilizationApproxNote:
+        'Approx — không phải payroll FTE. Planned Allocation vẫn chỉnh tay ở Members.',
       plannerAddFail: 'Không thêm được thành viên.',
       createFieldVisibilityMode: 'Visibility',
       createVisInherit: 'Use Organization Default',
@@ -916,8 +932,9 @@ export const adminDomainStrings = {
       transferHint:
         'Chuyển ownership board. Để đổi PM: mở Members, gán Project Role project_manager.',
       transferCta: 'Mở Members',
-      teamPickerHint: 'Chọn nhân viên cần gán Project Role.',
-      teamSelectUserFirst: 'Chọn một người dùng ở bảng bên trái.',
+      teamPickerHint: 'Chọn thành viên đã có trong dự án (theo Project / Board phía trên) để gán Project Role.',
+      teamPickerEmpty: 'Chưa có thành viên trong dự án này — thêm member ở Project Hub trước.',
+      teamSelectUserFirst: 'Chọn một thành viên dự án ở bảng bên trái.',
       teamNoRoles: 'Chưa có Project Role nào có thể gán trong board này.',
       sprintHint: 'Sprint theo board: tạo, active/close, gắn thẻ (cardIds).',
       sprintLoadFail: 'Không tải được sprint.',
@@ -987,6 +1004,10 @@ export const adminDomainStrings = {
       directorProjects: 'Danh sách dự án',
       directorEmpty: 'Không có dự án.',
       directorBudgetStub: 'Budget ERP out of scope — placeholder only.',
+      directorCapacityHint: 'Capacity (P3)',
+      directorCapacityBody: 'Tái sử dụng aggregate capacity Phase 3 — widget stub.',
+      directorBurndownHint: 'Burndown (P4)',
+      directorBurndownBody: 'Sprint / workflow status — burndown stub (full chart out of scope).',
       retentionHint: 'Chính sách lưu trữ project + job stub (không hard-delete).',
       retentionLoadFail: 'Không tải retention policy.',
       retentionSaveFail: 'Không lưu retention.',
@@ -1050,14 +1071,19 @@ export const adminDomainStrings = {
       taxonomyLinkRoles: 'Quản lý System Role',
       taxonomyLinkResponsibility: 'Quản lý Responsibility',
       taxonomyLinkOrgStructure: 'Mở cơ cấu tổ chức',
-      posListHint: 'Chức danh HR trên hồ sơ nhân viên (jobTitle). Không cấp quyền hệ thống.',
+      posListHint:
+        'Chức danh HR (enabled Master Data qua listHrPositions). Không cấp quyền hệ thống — gán jobTitle trên hồ sơ.',
+      posListMasterHint:
+        'Bật/tắt Position trong Master Data — không tạo chức danh tùy chỉnh. Gán cho nhân viên qua Assign.',
+      posCatalogEmptyEnable:
+        'Chưa có Position nào được bật. Mở Master Data để enable catalog, hoặc gán job title cho nhân viên.',
       posSuggestedTitles: 'Gợi ý chức danh mặc định',
       positionCatalogHint:
         'Catalog Position / HR Role — chỉ chức danh. Không dùng để phân quyền hay giao task. CRUD tại Vai trò & Phân quyền → Position.',
       positionCatalogZeroPerm: 'Zero permission — không grant quyền hệ thống.',
       positionCatalogCta: 'Quản lý Positions',
       orgRoleCatalogHint:
-        'Organization Role trên People Graph (head / leader). Không phải System Role và không gắn Permission bundle ở đây.',
+        'Danh sách Org Role runtime đã sync từ Master Data (bật/tắt ở /rbac/master-data). Không phải System Role; head/leader vẫn resolve từ People Graph.',
       orgRoleCatalogResolve: 'Resolve từ Department.head / Team.leader / OU — không CRUD catalog riêng.',
       orgRoleCatalogCta: 'Mở cơ cấu tổ chức',
       orgRoleCatalogDirectoryCta: 'Xem danh sách người giữ vai',
@@ -1101,9 +1127,24 @@ export const adminDomainStrings = {
       orgRoleEditHint: 'Sửa label/description để hiển thị tốt hơn. Key giữ nguyên.',
       projectRoleCreateHint:
         'Chỉ cần nhập label; key tự sinh (bỏ dấu). Trùng với role mặc định sẽ được gắn _2, _3…',
+      masterDataTitle: 'Master Data — bật/tắt catalog',
+      masterDataHint:
+        'Lớp enable/disable key hệ thống. Danh sách Org/Position/Project Role sync từ đây — không tạo key mới.',
+      masterDataNoCreateHint:
+        'Phase 2.0: catalog cố định trong repo. Org Admin chỉ chọn preset công ty và bật/tắt từng mục.',
+      masterDataDepartments: 'Departments',
+      masterDataPositions: 'Positions (HR)',
+      masterDataOrgRoles: 'Organization Roles',
+      masterDataProjectRoles: 'Project Roles',
+      masterDataSave: 'Lưu Master Data',
+      masterDataSaved: 'Đã lưu Master Data.',
+      masterDataSaveFail: 'Không lưu được Master Data.',
+      masterDataLoadFail: 'Không tải được Master Data.',
+      legacyOutsideMasterHint:
+        'Legacy ngoài Master Data — giữ assignment cũ; không tạo mới. Đổi tay sang key hệ thống khi sẵn sàng.',
       sortOrder: 'Thứ tự sắp xếp',
       projectRoleCatalogHint:
-        'Project Role mặc định theo Delivery Graph. Gán thật trên từng board tại Vai trò & Phân quyền hoặc Tasks.',
+        'Project Role runtime đã sync từ Master Data. Gán trên Members / Planner (project-level).',
       projectRolePermissionsHint:
         'Permission Matrix (resource:action). System role: chỉ sửa permissions. Custom: label + canAssign + permissions.',
       permissionMatrixTitle: 'Permission Matrix',
@@ -1114,7 +1155,7 @@ export const adminDomainStrings = {
       projectRoleCatalogCta: 'Mở Members (Projects)',
       projectRoleCatalogBoardCta: 'Quản lý theo board',
       projectRoleBoardHint:
-        'Project Role gắn theo board — chọn dự án, rồi board, sau đó gán role cho thành viên.',
+        'Chọn Project / Board phía trên — danh sách trái chỉ hiện thành viên đã có trong dự án đó, rồi gán Project Role.',
       projectRoleBoardDelegationHint: 'Delegation Graph cấu hình tại Tasks →',
       projectRoleBoardDelegationLink: 'Delegation',
       listBanner:
@@ -1403,6 +1444,7 @@ export const adminDomainStrings = {
         sectionSystemRoles: 'System Role & Permission',
         sectionResponsibility: 'Responsibility',
         taxonomy: '4 role layers',
+        masterData: 'Master Data (enable catalog)',
         roles: 'System Role (Permission)',
         hierarchy: 'System Role hierarchy',
         create: 'Create System Role',
@@ -1508,8 +1550,9 @@ export const adminDomainStrings = {
         labels: 'Labels / Tags',
         transfer: 'Transfer project',
         policies: 'Visibility Policy',
-        capacity: 'Department Capacity',
+        capacity: 'Department Capacity (Planned)',
         planner: 'Resource Planner',
+        utilization: 'Utilization (Actual)',
         approvalPolicies: 'Approval Policies',
       },
       files: {
@@ -1639,6 +1682,8 @@ export const adminDomainStrings = {
       responsibilityKeys: 'Responsibility (keys)',
       responsibilityNone: 'No Responsibility assigned',
       jobTitleSuggestions: 'Suggested titles',
+      jobTitleSelectPlaceholder: 'Select job title…',
+      jobTitleSelectHint: 'Pick from enabled Position catalog (Master Data) for this organization.',
       userRoleNone: 'Not assigned',
       colStatus: 'Status',
       colActions: 'Actions',
@@ -1704,6 +1749,7 @@ export const adminDomainStrings = {
       deactivateAccount: 'Also deactivate system account',
       removeMember: 'Remove from company',
       removeConfirm: 'Remove this employee from the company?',
+      removeSystemAdminBlocked: 'Cannot remove a system admin account from the company.',
       removedFromOrg: 'Employee removed from company.',
       removeFail: 'Could not remove employee.',
       lockHint: 'Locking ends current login sessions.',
@@ -1804,6 +1850,7 @@ export const adminDomainStrings = {
     // Huy: Locale domain Cơ cấu tổ chức (admin panels)
     adminOrg: {
       loadFail: 'Could not load organization structure.',
+      selectOrgHint: 'Select an organization (company context) to manage the catalog.',
       levelsHint: 'Configure org levels (Division/Department/Team/Squad…) per company.',
       levelsTitle: 'Level list',
       levelsLockedHint:
@@ -2176,25 +2223,25 @@ export const adminDomainStrings = {
       visibilityPolicySaveFail: 'Could not save policy.',
       visibilityPolicyLoadFail: 'Could not load policy.',
       capacityHint:
-        'Headcount from People Graph (dept + team inherit). Allocated = sum of overlapping allocation % on the selected day (approx FTE).',
+        'Headcount from People Graph. Allocated = sum of overlapping planned allocation % on the selected day (approx FTE) — not Actual hours.',
       capacityLoadFail: 'Could not load Department Capacity.',
       capacityEmpty: 'No departments or members yet.',
-      capacityByDept: 'Capacity by department',
-      capacityApproxNote: 'Approximate — headcount ≠ payroll FTE.',
+      capacityByDept: 'Capacity by department (Planned)',
+      capacityApproxNote: 'Approx FTE from plan — headcount ≠ payroll; Actual/Worklog in Phase 3b.',
       capacityHeadcount: 'Headcount',
-      capacityAllocated: 'Allocated %',
-      capacityAvailable: 'Available %',
-      capacityOverPeople: 'Overallocated',
+      capacityAllocated: 'Planned %',
+      capacityAvailable: 'Remaining (planned)',
+      capacityOverPeople: 'Overallocated (planned)',
       capacityPeopleBreakdown: 'Available {available} · Partial {partial} · Over {over}',
       plannerHint:
-        'Suggest people from the project Related Departments (or whole org). Rank: Available → Partial → Overallocated.',
+        'Suggest people from Related Departments + Position master. Rank by planned allocation: Available → Partial → Overallocated. Org Admin or Resource Manager can view whole org.',
       plannerLoadFail: 'Could not load Resource Planner.',
       plannerEmpty: 'No candidates in related department scope.',
       plannerNoRelatedDepts:
         'Project has no Related Departments — set them in Settings to scope the planner.',
       plannerRelatedCount: 'Filtering {n} Related Department(s).',
       plannerProject: 'Project',
-      plannerAllOrg: 'Whole organization (admin)',
+      plannerAllOrg: 'Whole organization (admin / resource manager)',
       plannerAsOf: 'As of',
       plannerAddRole: 'Role when adding',
       plannerPeople: 'Candidates',
@@ -2202,6 +2249,16 @@ export const adminDomainStrings = {
       plannerAdd: 'Add',
       plannerNeedRole: 'Pick a Project Role before adding.',
       plannerMemberAdded: 'Member added from planner.',
+      utilizationHint:
+        'Planned available hours (from Planned Allocation %) ∩ Actual hours (Worklog). Does not auto-edit allocation. Approx hoursPerDay=8.',
+      utilizationLoadFail: 'Could not load Utilization.',
+      utilizationEmpty: 'No data in this date range.',
+      utilizationDisabled: 'Time Tracking is off (TIME_TRACKING_V1).',
+      utilizationPlanned: 'Planned available',
+      utilizationActual: 'Actual hours',
+      utilizationPeople: 'People',
+      utilizationApproxNote:
+        'Approx — not payroll FTE. Planned Allocation is still edited manually on Members.',
       plannerAddFail: 'Could not add member.',
       createFieldVisibilityMode: 'Visibility',
       createVisInherit: 'Use Organization Default',
@@ -2227,8 +2284,10 @@ export const adminDomainStrings = {
       transferHint:
         'Transfer board ownership. To change PM: open Members and assign project_manager.',
       transferCta: 'Open Members',
-      teamPickerHint: 'Select the member to assign Project Roles to.',
-      teamSelectUserFirst: 'Select a user from the list on the left.',
+      teamPickerHint:
+        'Select a member already on this project (from the Project / Board filter above) to assign Project Roles.',
+      teamPickerEmpty: 'No members on this project yet — add members in Project Hub first.',
+      teamSelectUserFirst: 'Select a project member from the list on the left.',
       teamNoRoles: 'No assignable Project Roles found for this board.',
       sprintHint: 'Board sprints: create, activate/close, assign cards by id.',
       sprintLoadFail: 'Could not load sprints.',
@@ -2298,6 +2357,10 @@ export const adminDomainStrings = {
       directorProjects: 'Projects',
       directorEmpty: 'No projects.',
       directorBudgetStub: 'Budget ERP out of scope — placeholder only.',
+      directorCapacityHint: 'Capacity (P3)',
+      directorCapacityBody: 'Reuse Phase 3 capacity aggregates — stub widget.',
+      directorBurndownHint: 'Burndown (P4)',
+      directorBurndownBody: 'Sprint / workflow status — burndown stub (full chart out of scope).',
       retentionHint: 'Project retention policy + job stub (no hard-delete).',
       retentionLoadFail: 'Could not load retention policy.',
       retentionSaveFail: 'Could not save retention.',
@@ -2361,14 +2424,19 @@ export const adminDomainStrings = {
       taxonomyLinkRoles: 'Manage System Roles',
       taxonomyLinkResponsibility: 'Manage Responsibility',
       taxonomyLinkOrgStructure: 'Open org structure',
-      posListHint: 'HR job titles on member profiles (jobTitle). Does not grant system permissions.',
+      posListHint:
+        'HR titles from enabled Master Data (listHrPositions). Does not grant system permissions — assign via jobTitle.',
+      posListMasterHint:
+        'Enable/disable Positions in Master Data — no custom titles. Assign to members via Assign.',
+      posCatalogEmptyEnable:
+        'No Positions enabled yet. Open Master Data to enable the catalog, or assign a job title to members.',
       posSuggestedTitles: 'Suggested default titles',
       positionCatalogHint:
         'Position / HR Role catalog — job titles only. Not for permission or task assign. CRUD under Roles & permissions → Position.',
       positionCatalogZeroPerm: 'Zero permission — does not grant system rights.',
       positionCatalogCta: 'Manage Positions',
       orgRoleCatalogHint:
-        'Organization Roles on the People Graph (head / leader). Not System Roles and not permission bundles here.',
+        'Runtime Org Role list synced from Master Data (toggle at /rbac/master-data). Not System Roles; head/leader still resolve from People Graph.',
       orgRoleCatalogResolve: 'Resolved from Department.head / Team.leader / OU — no separate CRUD catalog.',
       orgRoleCatalogCta: 'Open org structure',
       orgRoleCatalogDirectoryCta: 'View role holders directory',
@@ -2412,9 +2480,24 @@ export const adminDomainStrings = {
       orgRoleEditHint: 'Edit label/description for display. Key stays the same.',
       projectRoleCreateHint:
         'Enter a label only; key is auto-generated. Collisions with default roles get _2, _3…',
+      masterDataTitle: 'Master Data — enable catalog',
+      masterDataHint:
+        'Enable/disable layer. Org/Position/Project Role lists sync from here — no new keys.',
+      masterDataNoCreateHint:
+        'Phase 2.0: fixed catalog in repo. Org Admin picks company preset and toggles entries.',
+      masterDataDepartments: 'Departments',
+      masterDataPositions: 'Positions (HR)',
+      masterDataOrgRoles: 'Organization Roles',
+      masterDataProjectRoles: 'Project Roles',
+      masterDataSave: 'Save Master Data',
+      masterDataSaved: 'Master Data saved.',
+      masterDataSaveFail: 'Could not save Master Data.',
+      masterDataLoadFail: 'Could not load Master Data.',
+      legacyOutsideMasterHint:
+        'Legacy outside Master Data — keep old assignments; no new creates. Migrate to system keys when ready.',
       sortOrder: 'Sort order',
       projectRoleCatalogHint:
-        'Default Project Roles for the Delivery Graph. Assign per board under Roles & permissions or Tasks.',
+        'Runtime Project Roles synced from Master Data. Assign via Members / Planner (project-level).',
       projectRolePermissionsHint:
         'Permission Matrix (resource:action). System roles: edit permissions only. Custom: label + canAssign + permissions.',
       permissionMatrixTitle: 'Permission Matrix',
@@ -2425,7 +2508,7 @@ export const adminDomainStrings = {
       projectRoleCatalogCta: 'Open Members (Projects)',
       projectRoleCatalogBoardCta: 'Manage by board',
       projectRoleBoardHint:
-        'Project Roles are board-scoped — pick a project, then a board, then assign roles to members.',
+        'Pick Project / Board above — the left list only shows members already on that project, then assign Project Roles.',
       projectRoleBoardDelegationHint: 'Configure Delegation Graph under Tasks →',
       projectRoleBoardDelegationLink: 'Delegation',
       listBanner:

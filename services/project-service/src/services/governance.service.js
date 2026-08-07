@@ -2,20 +2,13 @@ const mongoose = require('../db');
 const Project = require('../models/Project');
 const GovernanceSettings = require('../models/GovernanceSettings');
 const { aggregateDirectorHealth } = require('../utils/directorHealth');
-const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const {
+  assertCanViewGovernanceReports,
+  assertOrgAdminOnly,
+  buildActiveProjectsFilter,
+} = require('./governanceAccess.service');
 const auditService = require('./audit.service');
 const { logger } = require('@enterprise/shared');
-
-async function requireOrgAdmin(organizationId, userId) {
-  const scope = await fetchTaskWorkspaceScope(userId, organizationId);
-  const role = String(scope?.membershipRole || '').toLowerCase();
-  if (role !== 'owner' && role !== 'admin') {
-    const err = new Error('Chỉ org admin được xem / sửa governance');
-    err.statusCode = 403;
-    throw err;
-  }
-  return scope;
-}
 
 async function getOrCreateSettings(organizationId) {
   let doc = await GovernanceSettings.findOne({ organizationId });
@@ -26,9 +19,8 @@ async function getOrCreateSettings(organizationId) {
 }
 
 async function getDirectorHealth({ userId, organizationId, includeArchived = false }) {
-  await requireOrgAdmin(organizationId, userId);
-  const q = { organizationId };
-  if (!includeArchived) q.isActive = true;
+  await assertCanViewGovernanceReports(organizationId, userId);
+  const q = buildActiveProjectsFilter(organizationId, { includeArchived });
   const projects = await Project.find(q)
     .select(
       'title status dueDate expectedEndDate isActive budgetStub archivedAt retentionUntil'
@@ -36,18 +28,21 @@ async function getDirectorHealth({ userId, organizationId, includeArchived = fal
     .lean();
   const health = aggregateDirectorHealth(projects);
 
-  // Capacity snapshot tip — FE vẫn gọi P3 riêng; trả hint
   return {
     ...health,
     capacityHint: {
       endpoint: '/api/projects/resources/capacity',
       note: 'Reuse Phase 3 capacity aggregates in UI widgets',
     },
+    burndownHint: {
+      note: 'Phase 4 workflow / sprint status — burndown stub (full chart out of scope)',
+      endpoint: '/api/projects/:projectId/sprints/:sprintId/time-summary',
+    },
   };
 }
 
 async function getRetentionPolicy({ userId, organizationId }) {
-  await requireOrgAdmin(organizationId, userId);
+  await assertOrgAdminOnly(organizationId, userId);
   const settings = await getOrCreateSettings(organizationId);
   const archivedCount = await Project.countDocuments({
     organizationId,
@@ -61,7 +56,7 @@ async function getRetentionPolicy({ userId, organizationId }) {
 }
 
 async function updateRetentionPolicy({ userId, organizationId, patch = {} }) {
-  await requireOrgAdmin(organizationId, userId);
+  await assertOrgAdminOnly(organizationId, userId);
   const settings = await getOrCreateSettings(organizationId);
   const before = settings.toObject();
   if (patch.archiveInactiveAfterDays != null) {
@@ -98,7 +93,7 @@ async function updateRetentionPolicy({ userId, organizationId, patch = {} }) {
  * Retention job stub — không hard-delete; chỉ report candidates / set retentionUntil.
  */
 async function runRetentionStub({ userId, organizationId, dryRun = true }) {
-  await requireOrgAdmin(organizationId, userId);
+  await assertOrgAdminOnly(organizationId, userId);
   const settings = await getOrCreateSettings(organizationId);
   const now = new Date();
   const archived = await Project.find({ organizationId, isActive: false }).lean();
@@ -183,5 +178,6 @@ module.exports = {
   runRetentionStub,
   getOrCreateSettings,
   getSecurityFeatureFlagsStub,
+  buildActiveProjectsFilter,
   isValidOid,
 };

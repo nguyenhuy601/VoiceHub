@@ -3,10 +3,12 @@ const {
   getAction,
   extractServerId,
   isNoPermissionRoute,
+  isAdminServiceAuthRoute,
   isTaskAuthBypassRoute,
   isDownstreamAuthorizedRoute,
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
+  isRbacV2CatalogRead,
   isDelegatedUserRoleRead,
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,
@@ -60,6 +62,11 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
+    // Admin management routes — downstream service tự authorize bằng companyAdminAuth.
+    if (isAdminServiceAuthRoute(apiPath) || isAdminServiceAuthRoute(pathOnly)) {
+      return next();
+    }
+
     // Task / Work / AI-task / workspace boards — task-service tự authorize.
     if (isTaskAuthBypassRoute(apiPath) || isTaskAuthBypassRoute(pathOnly)) {
       return next();
@@ -107,6 +114,7 @@ const permissionMiddleware = async (req, res, next) => {
     if (
       isSelfRoleReadRequest(req, action) ||
       isOrgRoleCatalogRead(req, action) ||
+      isRbacV2CatalogRead(req, action) ||
       isDelegatedUserRoleRead(req, action) ||
       isDelegatedUserPermissionRead(req, action) ||
       isDelegatedRoleManageRoute(req, action)

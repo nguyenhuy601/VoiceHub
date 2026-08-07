@@ -31,6 +31,11 @@ const { applyDelegationTemplate } = require('./delegation.service');
 const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/taskAssignments');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 const {
+  isProjectVisibilityV2Enabled,
+  resolveProjectAccess,
+} = require('../utils/projectVisibility');
+const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
+const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
@@ -415,7 +420,67 @@ async function fetchOrganizationMembers(userId, organizationId) {
     .filter(Boolean);
 }
 
-/** Board thuộc project visibility=workspace: mọi org member (có task-workspace-scope) được xem. */
+/** Project IDs user can discover via org visibility policy (V2). */
+async function discoverableProjectIdsForUser(userId, organizationId) {
+  const orgOid = mongoose.Types.ObjectId.isValid(organizationId)
+    ? new mongoose.Types.ObjectId(String(organizationId))
+    : null;
+  if (!orgOid || !userId) return [];
+
+  const ctx = await fetchProjectVisibilityContext(organizationId, userId);
+  if (!ctx.isOrgMember) return [];
+
+  const Project = require('../models/Project');
+  const projects = await Project.find({ organizationId: orgOid, isActive: true }).lean();
+  if (!projects.length) return [];
+
+  const projectIds = projects.map((p) => p._id);
+  const membershipRows = await ProjectMembership.find({
+    userId,
+    projectId: { $in: projectIds },
+  })
+    .select('projectId projectRoleId')
+    .lean();
+  const roleIds = [...new Set(membershipRows.map((r) => r.projectRoleId).filter(Boolean))];
+  const roleDocs = roleIds.length
+    ? await ProjectRole.find({ _id: { $in: roleIds } }).select('_id key').lean()
+    : [];
+  const roleKeyById = new Map(roleDocs.map((r) => [String(r._id), String(r.key || '').trim()]));
+  const rolesByProject = new Map();
+  for (const row of membershipRows) {
+    const pid = String(row.projectId);
+    if (!rolesByProject.has(pid)) rolesByProject.set(pid, []);
+    const key = roleKeyById.get(String(row.projectRoleId));
+    if (key) rolesByProject.get(pid).push(key);
+  }
+
+  const actor = {
+    userId: String(userId),
+    isOrgMember: ctx.isOrgMember,
+    membershipRole: ctx.membershipRole,
+    organizationRoleKeys: ctx.organizationRoleKeys,
+    headedDepartmentIds: ctx.headedDepartmentIds,
+    memberDepartmentIds: ctx.memberDepartmentIds,
+  };
+
+  const out = [];
+  for (const project of projects) {
+    const pid = String(project._id);
+    const projectRoleKeys = rolesByProject.get(pid) || [];
+    const isMember =
+      projectRoleKeys.length > 0 || String(project.createdBy || '') === String(userId);
+    const access = resolveProjectAccess({
+      actor,
+      project,
+      membership: { isMember, projectRoleKeys },
+      orgPolicy: ctx.policy,
+    });
+    if (access.discover) out.push(project._id);
+  }
+  return out;
+}
+
+/** Board discover: V2 policy or legacy workspace binary. */
 async function userMatchesWorkspaceBoardScope(board, userId) {
   if (!board) return false;
   const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
@@ -423,7 +488,39 @@ async function userMatchesWorkspaceBoardScope(board, userId) {
 
   if (board.projectId) {
     const Project = require('../models/Project');
-    const project = await Project.findById(board.projectId).select('visibility').lean();
+    const project = await Project.findById(board.projectId).lean();
+    if (project && isProjectVisibilityV2Enabled()) {
+      const ctx = await fetchProjectVisibilityContext(board.organizationId, userId);
+      const membershipRows = await ProjectMembership.find({
+        projectId: project._id,
+        userId,
+      })
+        .select('projectRoleId')
+        .lean();
+      const roleIds = membershipRows.map((r) => r.projectRoleId).filter(Boolean);
+      const roleDocs = roleIds.length
+        ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key').lean()
+        : [];
+      const projectRoleKeys = roleDocs.map((r) => String(r.key || '').trim()).filter(Boolean);
+      const isMember =
+        membershipRows.length > 0 ||
+        projectRoleKeys.length > 0 ||
+        String(project.createdBy || '') === String(userId);
+      const access = resolveProjectAccess({
+        actor: {
+          userId: String(userId),
+          isOrgMember: ctx.isOrgMember,
+          membershipRole: ctx.membershipRole,
+          organizationRoleKeys: ctx.organizationRoleKeys,
+          headedDepartmentIds: ctx.headedDepartmentIds,
+          memberDepartmentIds: ctx.memberDepartmentIds,
+        },
+        project,
+        membership: { isMember, projectRoleKeys },
+        orgPolicy: ctx.policy,
+      });
+      return access.discover;
+    }
     if (project && String(project.visibility || '') === 'workspace') return true;
     if (project && String(project.visibility || '') === 'private') return false;
   }
@@ -598,19 +695,26 @@ async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }
     accessOr.push({ projectId: { $in: projectIdsFromPm } });
   }
 
-  // workspace projects → boards visible to mọi org member có task-workspace-scope.
+  // Discover via org policy (V2) or legacy workspace projects.
   const workspaceScope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (workspaceScope) {
     const Project = require('../models/Project');
-    const workspaceProjects = await Project.find({
-      organizationId: orgOid,
-      isActive: true,
-      visibility: 'workspace',
-    })
-      .select('_id')
-      .lean();
-    const wpIds = workspaceProjects.map((p) => p._id).filter(Boolean);
-    if (wpIds.length) accessOr.push({ projectId: { $in: wpIds } });
+    if (isProjectVisibilityV2Enabled()) {
+      const discoverIds = await discoverableProjectIdsForUser(userId, organizationId);
+      if (discoverIds.length) {
+        accessOr.push({ projectId: { $in: discoverIds } });
+      }
+    } else {
+      const workspaceProjects = await Project.find({
+        organizationId: orgOid,
+        isActive: true,
+        visibility: 'workspace',
+      })
+        .select('_id')
+        .lean();
+      const wpIds = workspaceProjects.map((p) => p._id).filter(Boolean);
+      if (wpIds.length) accessOr.push({ projectId: { $in: wpIds } });
+    }
   }
 
   const boards = await TaskBoard.find({
@@ -1219,6 +1323,7 @@ async function updateCard({
   parentTaskId,
   epicId,
   issueType,
+  estimateHours,
 }) {
   const card = await Task.findById(cardId);
   if (!card || !card.boardId) throw new Error('Card không tồn tại');
@@ -1232,6 +1337,10 @@ async function updateCard({
   if (summary !== undefined) next.summary = String(summary).trim();
   if (priority !== undefined) next.priority = priority || 'medium';
   if (dueDate !== undefined) next.dueDate = dueDate ? new Date(dueDate) : null;
+  if (estimateHours !== undefined) {
+    const { normalizeEstimateHours } = require('../utils/timeTracking');
+    next.estimateHours = normalizeEstimateHours(estimateHours);
+  }
   if (checklists !== undefined) next.checklists = Array.isArray(checklists) ? checklists : [];
   if (parentTaskId !== undefined) {
     if (!parentTaskId) {
@@ -1407,6 +1516,24 @@ async function updateCard({
       title: out?.title || card.title,
       payload: { fields: Object.keys(next) },
     });
+    if (Object.prototype.hasOwnProperty.call(next, 'estimateHours')) {
+      const beforeEst =
+        card.estimateHours === undefined || card.estimateHours === null
+          ? null
+          : Number(card.estimateHours);
+      if (beforeEst !== next.estimateHours) {
+        await logActivity({
+          organizationId: board.organizationId,
+          projectId: board.projectId,
+          boardId: board._id,
+          taskId: cardId,
+          actorId: userId,
+          type: 'estimate_updated',
+          title: `Estimate ${next.estimateHours ?? '—'}h`,
+          payload: { before: beforeEst, after: next.estimateHours },
+        });
+      }
+    }
     try {
       const auditService = require('./audit.service');
       const keys = Object.keys(next);

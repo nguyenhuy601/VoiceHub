@@ -27,6 +27,8 @@ import {
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
 } from './figmaOrganizationClasses';
 import EntityApprovalTimeline from '../../features/approvals/EntityApprovalTimeline';
+import TaskWorklogPanel from './TaskWorklogPanel';
+import { isTimeTrackingV1Enabled } from '../../utils/timeTrackingFlag';
 
 function toDatetimeLocalValue(iso) {
   if (!iso) return '';
@@ -67,6 +69,7 @@ export default function TaskBoardCardDetailModal({
   const [editingDescription, setEditingDescription] = useState(false);
   const [labelIds, setLabelIds] = useState([]);
   const [dueDateLocal, setDueDateLocal] = useState('');
+  const [estimateHours, setEstimateHours] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [checklists, setChecklists] = useState([]);
@@ -98,6 +101,11 @@ export default function TaskBoardCardDetailModal({
     setDescription(String(card.description || ''));
     setLabelIds(parseCardLabelIds(card.tags));
     setDueDateLocal(toDatetimeLocalValue(card.dueDate));
+    setEstimateHours(
+      card.estimateHours != null && card.estimateHours !== ''
+        ? String(card.estimateHours)
+        : ''
+    );
     setAssigneeId(card.assigneeId ? String(card.assigneeId) : '');
     setAttachments(Array.isArray(card.attachments) ? [...card.attachments] : []);
     setChecklists(Array.isArray(card.checklists) ? JSON.parse(JSON.stringify(card.checklists)) : []);
@@ -592,6 +600,55 @@ export default function TaskBoardCardDetailModal({
                 <Calendar className="h-4 w-4" />
                 Hạn: {new Date(dueDateLocal).toLocaleString('vi-VN')}
               </div>
+            ) : null}
+
+            {isTimeTrackingV1Enabled() ? (
+              <div className="mb-3">
+                <label
+                  className={`mb-1 block text-xs font-semibold uppercase tracking-wide ${
+                    isDarkMode ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
+                  {t('taskBoard.estimateHours')}
+                </label>
+                <p className={`mb-1 text-[11px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                  {t('taskBoard.estimateHint')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.25}
+                    className={`w-28 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                    value={estimateHours}
+                    disabled={saving}
+                    onChange={(e) => setEstimateHours(e.target.value)}
+                    onBlur={async () => {
+                      const next =
+                        estimateHours === '' || estimateHours == null
+                          ? null
+                          : Number(estimateHours);
+                      const prev =
+                        card.estimateHours == null || card.estimateHours === ''
+                          ? null
+                          : Number(card.estimateHours);
+                      if (next === prev || (Number.isNaN(next) && prev == null)) return;
+                      await save({ estimateHours: next });
+                    }}
+                  />
+                  <Clock className={`h-4 w-4 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
+                </div>
+              </div>
+            ) : null}
+
+            {isTimeTrackingV1Enabled() ? (
+              <TaskWorklogPanel
+                taskId={cardId}
+                organizationId={card?.organizationId || ''}
+                isDarkMode={isDarkMode}
+                t={t}
+                canEdit={!saving}
+              />
             ) : null}
 
             {attachments.length > 0 ? (

@@ -93,10 +93,11 @@ router.get(
 
 router.post('/internal/users-auth-summary', internalGatewayAuth, internalAuthSummaryBatch);
 
-// Public routes
-router.post('/register', authController.register.bind(authController));
+// Public routes — OpenAPI SSOT: api-gateway/src/swagger/paths/*.paths.js (+ scan stubs)
 router.post('/login', authController.login.bind(authController));
+router.post('/register', authController.register.bind(authController));
 router.post('/refresh-token', requireClientHeader(), authController.refreshToken.bind(authController));
+
 router.post('/forgot-password', authController.forgotPassword.bind(authController));
 router.post('/resend-verification', authController.resendVerification.bind(authController));
 router.post('/reset-password', authController.resetPassword.bind(authController));

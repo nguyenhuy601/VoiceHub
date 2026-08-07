@@ -13,19 +13,29 @@ describe('boardCapabilities', () => {
     assert.equal(isDoneListTitle('Chưa làm'), false);
   });
 
-  it('NV in scope: view+move own, no create/done', () => {
+  it('NV in scope viewer-only: view, no move without edit (P2.1)', () => {
     const caps = buildBoardCapabilities({
       inWorkspaceScope: true,
       memberCanView: true,
       canCreateTask: false,
     });
     assert.equal(caps.canView, true);
-    assert.equal(caps.canMoveCards, true);
+    assert.equal(caps.canMoveCards, false);
     assert.equal(caps.canCreateCards, false);
     assert.equal(caps.canManageLists, false);
     assert.equal(caps.canMoveToDone, false);
     assert.equal(caps.canManageBoard, false);
     assert.equal(caps.canUseAiConfirm, false);
+  });
+
+  it('NV with memberCanEdit: can move cards', () => {
+    const caps = buildBoardCapabilities({
+      inWorkspaceScope: true,
+      memberCanView: true,
+      memberCanEdit: true,
+      canCreateTask: false,
+    });
+    assert.equal(caps.canMoveCards, true);
   });
 
   it('PM/TL with canCreateTask: manage lists, cards, done', () => {

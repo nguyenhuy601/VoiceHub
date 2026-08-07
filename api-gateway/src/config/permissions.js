@@ -70,6 +70,14 @@ const routeActionMap = {
   'DELETE /api/roles/:roleId': 'role:write',
   'GET /api/permissions/user/:userId/server/:serverId': 'role:read',
   'GET /api/permissions/user/:userId/server/:serverId/role': 'role:read',
+  'GET /api/permissions/catalog': 'role:read',
+  'GET /api/permissions/groups': 'role:read',
+  'POST /api/permissions/groups/clone': 'role:write',
+  'PATCH /api/permissions/groups/:groupId': 'role:write',
+  'PUT /api/permissions/groups/:groupId/grants': 'role:write',
+  'GET /api/permissions/roles/:roleId/groups': 'role:read',
+  'PUT /api/permissions/roles/:roleId/groups': 'role:write',
+  'POST /api/permissions/direct-replace': 'role:write',
 
   // Organization Service
   'GET /api/organizations': 'organization:read',
@@ -236,9 +244,12 @@ function isDownstreamAuthorizedRoute(path) {
 
 /**
  * Phân loại route cho permission middleware (audit + smoke).
- * @returns {'public_skip'|'task_bypass'|'no_permission'|'action'|'downstream'|'unmapped'}
+ * @returns {'public_skip'|'admin_bypass'|'task_bypass'|'no_permission'|'action'|'downstream'|'unmapped'}
  */
 function classifyPermissionRoute(method, path) {
+  if (isAdminServiceAuthRoute(path)) {
+    return 'admin_bypass';
+  }
   if (isNoPermissionRoute(path)) {
     return 'no_permission';
   }
@@ -378,6 +389,12 @@ function isOrgRoleCatalogRead(req, action) {
   return /^\/api\/roles\/server\/[^/]+\/?$/.test(roleReadPath(req));
 }
 
+/** Catalog RBAC V2 immutable — chỉ cần JWT; service không cần org context. */
+function isRbacV2CatalogRead(req, action) {
+  if (action !== 'role:read' || req.method !== 'GET') return false;
+  return /^\/api\/permissions\/catalog\/?$/.test(roleReadPath(req));
+}
+
 /**
  * Đọc role của user (self hoặc org admin) — kiểm tra tại role-permission-service.
  */
@@ -391,7 +408,12 @@ function isDelegatedUserRoleRead(req, action) {
  */
 function isDelegatedUserPermissionRead(req, action) {
   if (action !== 'role:read' || req.method !== 'GET') return false;
-  return /^\/api\/permissions\/user\/[^/]+\/server\/[^/]+(?:\/role)?\/?$/.test(roleReadPath(req));
+  const path = roleReadPath(req);
+  if (/^\/api\/permissions\/user\/[^/]+\/server\/[^/]+(?:\/role)?\/?$/.test(path)) return true;
+  // RBAC V2 list groups / role bindings — org admin check ở role-service
+  if (/^\/api\/permissions\/groups\/?$/.test(path)) return true;
+  if (/^\/api\/permissions\/roles\/[^/]+\/groups\/?$/.test(path)) return true;
+  return false;
 }
 
 /**
@@ -403,10 +425,18 @@ function isDelegatedRoleManageRoute(req, action) {
   const path = roleReadPath(req);
   const method = req.method;
   if (method === 'POST') {
-    return path === '/api/roles' || path === '/api/roles/assign' || path === '/api/roles/remove';
+    if (path === '/api/roles' || path === '/api/roles/assign' || path === '/api/roles/remove') {
+      return true;
+    }
+    // RBAC V2 clone / direct-replace
+    if (path === '/api/permissions/groups/clone' || path === '/api/permissions/direct-replace') {
+      return true;
+    }
   }
   if (method === 'PATCH' || method === 'PUT' || method === 'DELETE') {
-    return /^\/api\/roles\/[^/]+\/?$/.test(path);
+    if (/^\/api\/roles\/[^/]+\/?$/.test(path)) return true;
+    if (/^\/api\/permissions\/groups\/[^/]+(?:\/grants)?\/?$/.test(path)) return true;
+    if (/^\/api\/permissions\/roles\/[^/]+\/groups\/?$/.test(path)) return true;
   }
   return false;
 }
@@ -459,6 +489,9 @@ const AUDITED_CLIENT_API_PATHS = [
   ['DELETE', '/api/roles/role1'],
   ['GET', '/api/roles/user/user1/server/org1'],
   ['GET', '/api/permissions/user/user1/server/org1'],
+  ['GET', '/api/permissions/catalog'],
+  ['GET', '/api/permissions/groups'],
+  ['POST', '/api/permissions/groups/clone'],
 ];
 
 module.exports = {
@@ -475,6 +508,7 @@ module.exports = {
   AUDITED_CLIENT_API_PATHS,
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
+  isRbacV2CatalogRead,
   isDelegatedUserRoleRead,
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,

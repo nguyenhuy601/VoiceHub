@@ -1,18 +1,19 @@
-/** Position (HR) — admin RBAC */
+/** Position (HR) — admin RBAC — catalog master (enable qua Master Data), không tạo key tùy chỉnh. */
 import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
+import toast from 'react-hot-toast';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminInputClass,
-  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../utils/roleTaxonomy';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
@@ -21,8 +22,8 @@ function memberJobTitle(member) {
 }
 
 const ACTION_LINKS = [
-  { path: `${RBAC_POS_BASE}/edit`, labelKey: 'adminDomains.rbac.posEdit' },
   { path: `${RBAC_POS_BASE}/assign`, labelKey: 'adminDomains.rbac.posAssign' },
+  { path: `${RBAC_POS_BASE}/edit`, labelKey: 'adminDomains.rbac.posEdit' },
   { path: `${RBAC_POS_BASE}/disable`, labelKey: 'adminDomains.rbac.posDisable' },
 ];
 
@@ -32,19 +33,29 @@ export default function PosListPanel({ orgId }) {
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
     (async () => {
       setHrPositionsLoading(true);
+      setLoadError('');
       try {
         const res = await organizationAPI.listHrPositions(orgId);
         const data = res?.data?.data ?? res?.data ?? res;
         if (cancelled) return;
         setHrPositions(Array.isArray(data?.positions) ? data.positions : []);
-      } catch {
-        if (!cancelled) setHrPositions([]);
+      } catch (error) {
+        if (!cancelled) {
+          setHrPositions([]);
+          const msg = resolveApiErrorMessage(error, {
+            t,
+            fallback: t('adminRbac.masterDataLoadFail'),
+          });
+          setLoadError(msg);
+          toast.error(msg);
+        }
       } finally {
         if (!cancelled) setHrPositionsLoading(false);
       }
@@ -52,30 +63,71 @@ export default function PosListPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, t]);
 
-  const titles = useMemo(() => {
+  const memberCountByTitle = useMemo(() => {
     const map = new Map();
     for (const m of members) {
       const title = memberJobTitle(m);
       if (!title) continue;
       map.set(title, (map.get(title) || 0) + 1);
     }
+    return map;
+  }, [members]);
+
+  const titles = useMemo(() => {
+    const map = new Map();
+    // Catalog hệ thống (enabled) — nguồn chính sau Phase 2.0
     for (const row of hrPositions || []) {
       const title = String(row?.title || '').trim();
       if (!title) continue;
-      if (!map.has(title)) map.set(title, 0);
+      map.set(title, {
+        title,
+        key: row?.key || '',
+        count: memberCountByTitle.get(title) || 0,
+        fromCatalog: true,
+      });
     }
-    return Array.from(map.entries())
-      .map(([title, count]) => ({ title, count }))
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }, [members, hrPositions]);
+    // Job title trên hồ sơ chưa nằm trong catalog (legacy)
+    for (const [title, count] of memberCountByTitle.entries()) {
+      if (map.has(title)) {
+        map.get(title).count = count;
+        continue;
+      }
+      map.set(title, { title, key: '', count, fromCatalog: false });
+    }
+    return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title));
+  }, [hrPositions, memberCountByTitle]);
+
+  const suggested = useMemo(() => {
+    if (hrPositions.length) {
+      return hrPositions.map((row) => ({
+        key: row.key || row.title,
+        label: row.title || row.key,
+      }));
+    }
+    return DEFAULT_HR_ROLE_KEYS.map((key) => ({
+      key,
+      label: DEFAULT_HR_ROLE_LABELS[key] || key,
+    }));
+  }, [hrPositions]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return titles;
-    return titles.filter((row) => row.title.toLowerCase().includes(q));
+    return titles.filter(
+      (row) =>
+        row.title.toLowerCase().includes(q) || String(row.key || '').toLowerCase().includes(q)
+    );
   }, [titles, query]);
+
+  if (!orgId) {
+    return (
+      <AdminUserPanelShell title={t('adminDomains.rbac.posList')} hint={t('adminRbac.posListHint')}>
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectOrgHint')}</p>
+      </AdminUserPanelShell>
+    );
+  }
 
   return (
     <AdminUserPanelShell
@@ -83,33 +135,43 @@ export default function PosListPanel({ orgId }) {
       hint={t('adminRbac.posListHint')}
       wide
       actions={
-        <Link to={`${RBAC_POS_BASE}/create`} className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.rbac.posCreate')}
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/app/admin/rbac/master-data" className={adminSecondaryBtnClass()}>
+            {t('adminDomains.rbac.masterData')}
+          </Link>
+          <Link to={`${RBAC_POS_BASE}/assign`} className={adminSecondaryBtnClass()}>
+            {t('adminDomains.rbac.posAssign')}
+          </Link>
+        </div>
       }
     >
       <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-        {t('adminRbac.positionCatalogZeroPerm')}
+        {t('adminRbac.positionCatalogZeroPerm')} {t('adminRbac.posListMasterHint')}
       </p>
+
+      {loadError ? (
+        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+          {loadError}
+        </p>
+      ) : null}
 
       <AdminUserFormCard title={t('adminRbac.posSuggestedTitles')}>
         <ul className="flex flex-wrap gap-2">
-          {DEFAULT_HR_ROLE_KEYS.map((key) => {
-            const label = DEFAULT_HR_ROLE_LABELS[key] || key;
-            return (
-              <li key={key}>
-                <Link
-                  to={`${RBAC_POS_BASE}/assign?title=${encodeURIComponent(label)}`}
-                  className={adminSecondaryBtnClass('!px-2 !py-1 text-xs')}
-                  title={`${key} · ${ROLE_KIND.HR}`}
-                >
-                  {label}
-                </Link>
-              </li>
-            );
-          })}
+          {suggested.map((item) => (
+            <li key={item.key}>
+              <Link
+                to={`${RBAC_POS_BASE}/assign?title=${encodeURIComponent(item.label)}`}
+                className={adminSecondaryBtnClass('!px-2 !py-1 text-xs')}
+                title={`${item.key} · ${ROLE_KIND.HR}`}
+              >
+                {item.label}
+              </Link>
+            </li>
+          ))}
         </ul>
+        {!suggested.length ? (
+          <p className="text-sm text-muted-foreground">{t('adminRbac.posCatalogEmptyEnable')}</p>
+        ) : null}
       </AdminUserFormCard>
 
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -140,8 +202,18 @@ export default function PosListPanel({ orgId }) {
               </thead>
               <tbody>
                 {filtered.map((row) => (
-                  <tr key={row.title} className="border-b border-border/50 transition hover:bg-muted/20">
-                    <td className="px-4 py-3 font-medium text-foreground">{row.title}</td>
+                  <tr key={row.key || row.title} className="border-b border-border/50 transition hover:bg-muted/20">
+                    <td className="px-4 py-3 font-medium text-foreground">
+                      {row.title}
+                      {row.key ? (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">{row.key}</span>
+                      ) : null}
+                      {!row.fromCatalog ? (
+                        <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200">
+                          legacy
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{row.count}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -162,7 +234,7 @@ export default function PosListPanel({ orgId }) {
             </table>
             {!filtered.length ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t('adminOrg.noPositions')}
+                {t('adminRbac.posCatalogEmptyEnable')}
               </p>
             ) : null}
           </div>

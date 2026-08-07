@@ -34,22 +34,30 @@ export const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
 });
 
 export const DEFAULT_HR_ROLE_KEYS = Object.freeze([
-  'senior_backend',
-  'junior',
-  'qa',
-  'architect',
-  'senior_frontend',
-  'devops',
+  'engineering_manager',
+  'product_manager',
+  'team_lead',
+  'business_analyst',
+  'software_developer',
+  'qa_engineer',
+  'ux_designer',
+  'devops_engineer',
+  'scrum_master',
+  'technical_lead',
   'intern',
 ]);
 
 export const DEFAULT_HR_ROLE_LABELS = Object.freeze({
-  senior_backend: 'Senior Backend',
-  junior: 'Junior',
-  qa: 'QA',
-  architect: 'Architect',
-  senior_frontend: 'Senior Frontend',
-  devops: 'DevOps',
+  engineering_manager: 'Engineering Manager',
+  product_manager: 'Product Manager',
+  team_lead: 'Team Lead',
+  business_analyst: 'Business Analyst',
+  software_developer: 'Software Developer',
+  qa_engineer: 'QA Engineer',
+  ux_designer: 'UX Designer',
+  devops_engineer: 'DevOps Engineer',
+  scrum_master: 'Scrum Master',
+  technical_lead: 'Technical Lead',
   intern: 'Intern',
 });
 

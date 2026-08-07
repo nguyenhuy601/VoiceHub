@@ -10,9 +10,14 @@ const {
   classifyProjectHealth,
   aggregateDirectorHealth,
 } = require('../src/utils/directorHealth');
+const {
+  hasDirectorOrAuditorRole,
+  membershipIsOrgAdmin,
+  buildActiveProjectsFilter,
+} = require('../src/utils/governanceAccess');
 
-describe('Phase 6 governance', () => {
-  it('T1 shape: before/after field-level snapshot (PATCH project)', () => {
+describe('Phase 6 governance T1–T6', () => {
+  it('T1: PATCH project audit shape — before/after field-level', () => {
     const before = { title: 'A', status: 'planning', dueDate: null, isActive: true };
     const after = { title: 'B', status: 'in_development', dueDate: '2026-01-01', isActive: true };
     const snap = buildBeforeAfter(before, after, ['title', 'status', 'dueDate']);
@@ -22,13 +27,34 @@ describe('Phase 6 governance', () => {
     assert.deepEqual(pickAuditFields(before, ['title']), { title: 'A' });
   });
 
-  it('T2: user API cannot delete audit (append-only)', () => {
+  it('T2: master_data enabled patch audit shape (old/new flags)', () => {
+    const before = {
+      companySize: 'startup',
+      enabledOrganizationRoleKeys: ['director'],
+      enabledProjectRoleKeys: ['project_manager'],
+    };
+    const after = {
+      companySize: 'startup',
+      enabledOrganizationRoleKeys: ['director', 'auditor'],
+      enabledProjectRoleKeys: ['project_manager'],
+    };
+    const snap = buildBeforeAfter(before, after, [
+      'companySize',
+      'enabledOrganizationRoleKeys',
+      'enabledProjectRoleKeys',
+    ]);
+    assert.deepEqual(snap.before.enabledOrganizationRoleKeys, ['director']);
+    assert.deepEqual(snap.after.enabledOrganizationRoleKeys, ['director', 'auditor']);
+    assert.equal(snap.before.companySize, snap.after.companySize);
+  });
+
+  it('T3: user API cannot delete audit (append-only)', () => {
     const err = createAppendOnlyDeleteError();
     assert.equal(err.statusCode, 403);
     assert.equal(err.errorCode, 'AUDIT_APPEND_ONLY');
   });
 
-  it('T3: dashboard counts khớp fixture', () => {
+  it('T4: dashboard counts khớp fixture', () => {
     const asOf = new Date('2026-07-01T00:00:00Z');
     const projects = [
       { _id: '1', title: 'Late', status: 'in_development', dueDate: '2026-06-01', isActive: true },
@@ -45,14 +71,28 @@ describe('Phase 6 governance', () => {
     assert.equal(agg.counts.onTrack, 1);
     assert.equal(agg.counts.completed, 2);
     assert.equal(agg.counts.total, 4);
+    assert.equal(agg.budget.enabled, false);
   });
 
-  it('T4: archived classification — inactive counts as completed (list hides by default)', () => {
-    const p = { _id: 'x', title: 'Archived', status: 'planning', isActive: false };
-    assert.equal(classifyProjectHealth(p), 'completed');
+  it('T5: auditor/director gate policy; member thường forbidden', () => {
+    assert.equal(membershipIsOrgAdmin('admin'), true);
+    assert.equal(membershipIsOrgAdmin('member'), false);
+    assert.equal(hasDirectorOrAuditorRole(['auditor']), true);
+    assert.equal(hasDirectorOrAuditorRole(['director']), true);
+    assert.equal(hasDirectorOrAuditorRole(['organization_administrator']), true);
+    assert.equal(hasDirectorOrAuditorRole(['collaborator']), false);
+    assert.equal(hasDirectorOrAuditorRole([]), false);
   });
 
-  it('audit flag defaults on', () => {
+  it('T6: archive ẩn default list (isActive filter)', () => {
+    const defaultQ = buildActiveProjectsFilter('org1', { includeArchived: false });
+    assert.equal(defaultQ.isActive, true);
+    const withArch = buildActiveProjectsFilter('org1', { includeArchived: true });
+    assert.equal(withArch.isActive, undefined);
+    assert.equal(classifyProjectHealth({ isActive: false, status: 'planning' }), 'completed');
+  });
+
+  it('audit flag is boolean', () => {
     assert.equal(typeof isProjectAuditV1Enabled(), 'boolean');
   });
 });

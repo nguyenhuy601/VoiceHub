@@ -361,6 +361,9 @@ class TaskBoardController {
         assignments: req.body?.assignments,
         checklists: req.body?.checklists,
         parentTaskId: req.body?.parentTaskId,
+        epicId: req.body?.epicId,
+        issueType: req.body?.issueType,
+        estimateHours: req.body?.estimateHours,
       });
       return res.json({ success: true, data });
     } catch (err) {

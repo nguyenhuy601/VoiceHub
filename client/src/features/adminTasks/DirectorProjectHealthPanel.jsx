@@ -99,6 +99,25 @@ export default function DirectorProjectHealthPanel({ orgId }) {
         )}
       </AdminUserFormCard>
 
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <AdminUserFormCard title={t('adminTasks.directorCapacityHint')}>
+          <p className="text-sm text-muted-foreground">
+            {data?.capacityHint?.note || t('adminTasks.directorCapacityBody')}
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+            {data?.capacityHint?.endpoint || '/api/projects/resources/capacity'}
+          </p>
+        </AdminUserFormCard>
+        <AdminUserFormCard title={t('adminTasks.directorBurndownHint')}>
+          <p className="text-sm text-muted-foreground">
+            {data?.burndownHint?.note || t('adminTasks.directorBurndownBody')}
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+            {data?.burndownHint?.endpoint || '/api/projects/:projectId/sprints/:sprintId/time-summary'}
+          </p>
+        </AdminUserFormCard>
+      </div>
+
       <p className="mt-3 text-xs text-muted-foreground">
         {data?.budget?.note || t('adminTasks.directorBudgetStub')}
       </p>

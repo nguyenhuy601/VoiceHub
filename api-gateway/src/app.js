@@ -5,9 +5,12 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { services } = require('./config/services');
+const { isSwaggerEnabled } = require('./swagger/isSwaggerEnabled');
+const { mountSwagger } = require('./swagger/mountSwagger');
 require('dotenv').config();
 
 const app = express();
+const swaggerOn = isSwaggerEnabled();
 
 /** Liveness — đăng ký trước mọi middleware/proxy để không bị kẹt khi upstream chết. */
 app.get('/api/health/gateway-trust', (req, res) => {
@@ -42,6 +45,30 @@ const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 600
 const SOCKET_PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_SOCKET_PROXY_TIMEOUT_MS || 0);
 
 // cross-origin: cần avatar/media; frameguard: chống clickjacking
+// Swagger UI cần bỏ CSP chỉ trên /api/docs* (không tắt CSP toàn app)
+function isSwaggerDocsPath(reqPath) {
+  const p = String(reqPath || '').split('?')[0];
+  return (
+    p === '/api/docs' ||
+    p === '/api/docs.json' ||
+    p === '/api/docs.yaml' ||
+    p.startsWith('/api/docs/') ||
+    p.startsWith('/api/docs-assets')
+  );
+}
+
+if (swaggerOn) {
+  app.use((req, res, next) => {
+    if (!isSwaggerDocsPath(req.path)) return next();
+    const setHeader = res.setHeader.bind(res);
+    res.setHeader = (name, value) => {
+      if (String(name).toLowerCase() === 'content-security-policy') return res;
+      return setHeader(name, value);
+    };
+    next();
+  });
+}
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -49,13 +76,23 @@ app.use(
   })
 );
 
+// OpenAPI / Swagger UI — gate bởi isSwaggerEnabled; trước auth/proxy
+if (swaggerOn) {
+  mountSwagger(app);
+}
+
 // Rate limit /api/* — không áp dụng /socket.io và voice signaling (WebRTC handshake).
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: Number(process.env.GATEWAY_RATE_LIMIT_MAX || 300),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => !req.path.startsWith('/api'),
+  skip: (req) => {
+    if (!req.path.startsWith('/api')) return true;
+    // Docs không tính vào API rate limit
+    if (req.path.startsWith('/api/docs')) return true;
+    return false;
+  },
 });
 app.use(apiLimiter);
 

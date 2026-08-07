@@ -27,6 +27,9 @@ class RoleController {
         color,
         isDefault,
         priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
       } = req.body;
 
       if (!name || !serverId || !organizationId) {
@@ -46,6 +49,9 @@ class RoleController {
         color,
         isDefault,
         priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
       });
 
       res.status(201).json({

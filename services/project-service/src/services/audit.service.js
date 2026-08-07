@@ -5,19 +5,8 @@ const {
   pickAuditFields,
   createAppendOnlyDeleteError,
 } = require('../utils/auditSnapshot');
-const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const { assertCanViewGovernanceReports } = require('./governanceAccess.service');
 const { logger } = require('@enterprise/shared');
-
-async function requireOrgAdmin(organizationId, userId) {
-  const scope = await fetchTaskWorkspaceScope(userId, organizationId);
-  const role = String(scope?.membershipRole || '').toLowerCase();
-  if (role !== 'owner' && role !== 'admin') {
-    const err = new Error('Chỉ org admin được xem Audit Log');
-    err.statusCode = 403;
-    throw err;
-  }
-  return scope;
-}
 
 /**
  * Append-only writer. No-op khi PROJECT_AUDIT_V1=0.
@@ -91,7 +80,7 @@ async function listAuditEvents({
   limit = 50,
   before,
 }) {
-  await requireOrgAdmin(organizationId, userId);
+  await assertCanViewGovernanceReports(organizationId, userId);
   const q = { organizationId };
   if (resourceType) q.resourceType = String(resourceType).trim();
   if (resourceId) q.resourceId = String(resourceId).trim();
@@ -116,7 +105,6 @@ module.exports = {
   recordMutationAudit,
   listAuditEvents,
   denyDeleteAudit,
-  requireOrgAdmin,
   isProjectAuditV1Enabled,
   pickAuditFields,
   buildBeforeAfter,

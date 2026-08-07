@@ -44,6 +44,7 @@ const {
   normalizeRelatedDepartmentIds,
   normalizeInformationLevelOverrides,
   normalizeProjectVisibilityPolicy,
+  assertCanUseCustomProjectVisibility,
 } = require('../utils/projectVisibility');
 
 const DEFAULT_BOARD_TITLE = 'Main';
@@ -221,14 +222,7 @@ async function createProject({
     String(visibilityMode || 'inherit').toLowerCase() === 'custom' ? 'custom' : 'inherit';
   if (mode === 'custom') {
     const ctx = await fetchProjectVisibilityContext(organizationId, userId);
-    if (!ctx.policy?.allowProjectManagerOverride) {
-      const role = String(ctx.membershipRole || '').toLowerCase();
-      if (role !== 'owner' && role !== 'admin') {
-        const err = new Error('Organization không cho phép Project Manager override Visibility Policy');
-        err.statusCode = 403;
-        throw err;
-      }
-    }
+    assertCanUseCustomProjectVisibility(ctx, userId);
   }
 
   const project = await Project.create({
@@ -609,6 +603,10 @@ async function listProjects({
         memberCount,
         membersCount: memberCount,
         access,
+        myMembership: {
+          isMember: Boolean(isMember),
+          projectRoleKeys: [...new Set((projectRoleKeys || []).map(String).filter(Boolean))],
+        },
       },
       access.informationLevel
     );
@@ -671,7 +669,7 @@ async function getProject({ userId, projectId }) {
         ? []
         : await TaskBoard.find({ projectId, isActive: true }).sort({ createdAt: 1 }).lean();
     const defaultBoard = boards[0] || null;
-    return applyInformationLevelToProject(
+    const basePayload = applyInformationLevelToProject(
       {
         ...project,
         projectId: String(project._id),
@@ -681,6 +679,7 @@ async function getProject({ userId, projectId }) {
       },
       access.informationLevel
     );
+    return attachProjectCapabilities(basePayload, userId, project._id);
   }
 
   const boardService = require('./taskBoard.service');
@@ -698,11 +697,38 @@ async function getProject({ userId, projectId }) {
     err.statusCode = 403;
     throw err;
   }
+  return attachProjectCapabilities(
+    {
+      ...project,
+      projectId: String(project._id),
+      defaultBoardId: defaultBoard ? String(defaultBoard._id) : null,
+      boards,
+    },
+    userId,
+    project._id
+  );
+}
+
+async function attachProjectCapabilities(payload, userId, projectId) {
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  if (!isProjectRbacV2Enabled()) {
+    return payload;
+  }
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  const perms = resolved.permissions || [];
+  const bypass = resolved.isOrgAdmin || resolved.isCreator;
   return {
-    ...project,
-    projectId: String(project._id),
-    defaultBoardId: defaultBoard ? String(defaultBoard._id) : null,
-    boards,
+    ...payload,
+    capabilities: {
+      ...resolved.capabilities,
+      permissions: perms,
+      canManagePlanning: bypass || hasPermission(perms, 'project:edit'),
+      canManageMembers: bypass || hasPermission(perms, 'members:manage'),
+      canManageSettings: bypass || hasPermission(perms, 'settings:update'),
+      canManageSprints:
+        bypass || hasPermission(perms, 'sprint:create') || hasPermission(perms, 'sprint:close'),
+    },
   };
 }
 
@@ -797,13 +823,7 @@ async function patchProject({ userId, projectId, patch }) {
       String(patch.visibilityMode || 'inherit').toLowerCase() === 'custom' ? 'custom' : 'inherit';
     if (mode === 'custom') {
       const ctx = await fetchProjectVisibilityContext(project.organizationId, userId);
-      const role = String(ctx.membershipRole || '').toLowerCase();
-      const isOrgAdmin = role === 'owner' || role === 'admin';
-      if (!ctx.policy?.allowProjectManagerOverride && !isOrgAdmin) {
-        const err = new Error('Organization không cho phép override Visibility Policy');
-        err.statusCode = 403;
-        throw err;
-      }
+      assertCanUseCustomProjectVisibility(ctx, userId);
     }
     $set.visibilityMode = mode;
     if (mode === 'inherit') {
@@ -1001,7 +1021,27 @@ async function getProjectOverview({ userId, projectId }) {
 }
 
 async function getProjectActivity({ userId, projectId, limit = 50 }) {
-  await getProject({ userId, projectId });
+  const project = await getProject({ userId, projectId });
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled()) {
+    const { resolveUserProjectPermissions } = require('./projectAccess.service');
+    const resolved = await resolveUserProjectPermissions({ userId, projectId });
+    const canView =
+      resolved.isOrgAdmin ||
+      resolved.isCreator ||
+      hasPermission(resolved.permissions, 'task:view') ||
+      hasPermission(resolved.permissions, 'project:view');
+    if (!canView) {
+      const err = new Error('Không có quyền xem activity');
+      err.statusCode = 403;
+      throw err;
+    }
+    if (resolved.informationLevel === 'summary') {
+      return [];
+    }
+  } else if (project.access?.informationLevel === 'summary') {
+    return [];
+  }
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
   return TaskActivityLog.find({ projectId })
     .sort({ createdAt: -1 })

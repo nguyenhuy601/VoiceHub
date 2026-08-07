@@ -186,6 +186,15 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Planned work estimate in hours (Phase 3b).
+     * Same unit as Worklog — not story points (P3b.2).
+     */
+    estimateHours: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
     completedAt: {
       type: Date,
       default: null,

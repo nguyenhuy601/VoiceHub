@@ -21,6 +21,7 @@ COPY api-gateway/docker-entrypoint.sh /usr/local/bin/api-gateway-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/api-gateway-entrypoint.sh && \
     chmod +x /usr/local/bin/api-gateway-entrypoint.sh
 
+# OpenAPI: commit sẵn api-gateway/src/swagger/openapi.bundle.json (chạy npm run openapi:build ở monorepo trước build image)
 COPY api-gateway/ .
 RUN node /shared/postinstall-link.cjs
 

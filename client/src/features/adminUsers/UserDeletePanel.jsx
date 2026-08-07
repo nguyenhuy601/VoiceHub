@@ -14,18 +14,25 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { clearAdminUserSelection } from '../../utils/adminSelectionParams';
+import { memberUserId } from '../../utils/adminUserUtils';
 
 export default function UserDeletePanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { refreshStats } = useCompanyAdminContext();
-  const { loadMembers, removeMemberLocally } = useAdminMembers(orgId);
+  const { members, loadMembers, removeMemberLocally } = useAdminMembers(orgId);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const selectedMember = members.find((m) => memberUserId(m) === userId);
+  const isSystemAdmin = String(selectedMember?.systemRole || '').trim().toLowerCase() === 'admin';
 
   const confirm = async () => {
     if (!orgId || !userId || busy) return;
+    if (isSystemAdmin) {
+      toast.error(t('adminUsers.removeSystemAdminBlocked'));
+      return;
+    }
     setBusy(true);
     try {
       await organizationAPI.removeMember(orgId, userId);
@@ -60,12 +67,15 @@ export default function UserDeletePanel({ orgId }) {
           </p>
           <button
             type="button"
-            disabled={!userId}
+            disabled={!userId || isSystemAdmin}
             className={adminDangerBtnClass()}
             onClick={() => setOpen(true)}
           >
             {t('adminUsers.removeMember')}
           </button>
+          {isSystemAdmin ? (
+            <p className="mt-2 text-xs text-muted-foreground">{t('adminUsers.removeSystemAdminBlocked')}</p>
+          ) : null}
         </AdminUserFormCard>
       </div>
       <ConfirmDialog

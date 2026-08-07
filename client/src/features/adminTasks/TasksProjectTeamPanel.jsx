@@ -9,8 +9,10 @@ import {
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import projectDeliveryAPI from '../../services/api/projectDeliveryAPI';
+import projectAPI from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { memberUserId } from '../../utils/adminUserUtils';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 
 function unwrap(res) {
@@ -32,20 +34,25 @@ export default function TasksProjectTeamPanel({
   const boardId = String(params.get('boardId') || '').trim();
   const userId = useMemo(() => String(params.get('userId') || '').trim(), [params]);
 
+  const [projectId, setProjectId] = useState('');
   const [roles, setRoles] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
   const [saving, setSaving] = useState(false);
-  // track userId mà selectedRoleKeys đã được sync từ DB để tránh override khi reload members sau save
   const syncedUserIdRef = useRef(null);
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
     if (id) next.set('boardId', id);
     else next.delete('boardId');
+    next.delete('userId');
     setParams(next, { replace: true });
   };
+
+  const onProjectIdChange = useCallback((id) => {
+    setProjectId(String(id || '').trim());
+  }, []);
 
   const load = useCallback(async () => {
     if (!boardId) {
@@ -74,7 +81,34 @@ export default function TasksProjectTeamPanel({
     load();
   }, [load]);
 
-  // Sync selectedRoleKeys từ DB chỉ khi userId thay đổi (không sync sau mỗi lần reload members)
+  /** Unique userIds đã là thành viên dự án (theo board/project đã chọn). */
+  const projectMemberUserIds = useMemo(() => {
+    const ids = new Set();
+    for (const m of Array.isArray(members) ? members : []) {
+      const id = String(m.userId || '').trim();
+      if (id) ids.add(id);
+    }
+    return ids;
+  }, [members]);
+
+  const filterProjectMembers = useCallback(
+    (member) => projectMemberUserIds.has(memberUserId(member)),
+    [projectMemberUserIds]
+  );
+
+  // Bỏ chọn user nếu không thuộc project members của board hiện tại
+  useEffect(() => {
+    if (!boardId || loading || !userId) return;
+    if (projectMemberUserIds.size === 0) return;
+    if (!projectMemberUserIds.has(userId)) {
+      const next = new URLSearchParams(params);
+      next.delete('userId');
+      setParams(next, { replace: true });
+      syncedUserIdRef.current = null;
+      setSelectedRoleKeys([]);
+    }
+  }, [boardId, loading, userId, projectMemberUserIds, params, setParams]);
+
   useEffect(() => {
     if (syncedUserIdRef.current === userId) return;
     syncedUserIdRef.current = userId;
@@ -98,9 +132,15 @@ export default function TasksProjectTeamPanel({
   const saveRoles = async (e) => {
     e.preventDefault();
     if (!boardId || !userId || saving) return;
+    const pid = String(projectId || '').trim();
+    if (!pid) {
+      toast.error(t('adminTasks.needBoard'));
+      return;
+    }
     setSaving(true);
     try {
-      await projectDeliveryAPI.setMemberRoles(boardId, userId, [...selectedRoleKeys]);
+      // Cùng write path với Resource Planner — project-level setMemberRoles
+      await projectAPI.setMemberRoles(pid, userId, [...selectedRoleKeys]);
       toast.success(t('adminTasks.teamRolesSaved'));
       await load();
     } catch (error) {
@@ -110,11 +150,22 @@ export default function TasksProjectTeamPanel({
     }
   };
 
-  const assignableRoles = useMemo(() => (Array.isArray(roles) ? roles : []).filter((r) => r.canAssign), [roles]);
+  const assignableRoles = useMemo(
+    () =>
+      (Array.isArray(roles) ? roles : []).filter(
+        (r) => r.canAssign && r.legacyOutsideMaster !== true && r.enabled !== false
+      ),
+    [roles]
+  );
 
   return (
     <AdminUserPanelShell title={t(panelTitleKey)} hint={t(panelHintKey)} wide>
-      <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />
+      <AdminTaskBoardPicker
+        orgId={orgId}
+        boardId={boardId}
+        onBoardIdChange={setBoardId}
+        onProjectIdChange={onProjectIdChange}
+      />
 
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
@@ -126,6 +177,8 @@ export default function TasksProjectTeamPanel({
             orgId={orgId}
             selectedUserId={userId}
             hint={t('adminTasks.teamPickerHint')}
+            filterFn={filterProjectMembers}
+            emptyLabel={t('adminTasks.teamPickerEmpty')}
           />
 
           <div className="space-y-4">

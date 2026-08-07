@@ -54,6 +54,7 @@ export default function AdminTaskBoardPicker({
   orgId,
   boardId,
   onBoardIdChange,
+  onProjectIdChange,
   boards: _boardsProp,
   loading: loadingProp,
 }) {
@@ -69,6 +70,12 @@ export default function AdminTaskBoardPicker({
   const [deepLinkResolved, setDeepLinkResolved] = useState(false);
 
   const loading = loadingProp ?? (loadingProjects || loadingBoards);
+
+  useEffect(() => {
+    if (typeof onProjectIdChange === 'function') {
+      onProjectIdChange(String(projectId || '').trim());
+    }
+  }, [projectId, onProjectIdChange]);
 
   // Khi boardId / org đổi — resolve lại project từ deep-link.
   useEffect(() => {

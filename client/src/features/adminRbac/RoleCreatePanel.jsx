@@ -1,72 +1,87 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { GradientButton } from '../../components/Shared';
-import PermissionEditorGrid from '../../components/adminRbac/PermissionEditorGrid';
-import { DEFAULT_ROLE_SCOPE, ROLE_SCOPES } from '../../config/adminRbacCatalog';
 import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import {
-  permissionEntriesForPersist,
-  priorityFromTier,
-  TIER_EXEC,
-} from '../../utils/adminRbacUtils';
-import {
-  SYSTEM_ROLE_NAME_PREFIX,
-  isTitleLikeSystemRoleName,
-  normalizeLayerLabel,
-} from '../../utils/roleLayerNaming';
+import { priorityFromTier, TIER_EXEC } from '../../utils/adminRbacUtils';
+import { unwrapRoleApi } from '../../utils/adminRbacUtils';
 
 export default function RoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { loadRoles } = useAdminRoles(orgId);
   const [saving, setSaving] = useState(false);
-  const [suffix, setSuffix] = useState('');
+  const [catalog, setCatalog] = useState(null);
+  const [templateKey, setTemplateKey] = useState('');
+  const [specialization, setSpecialization] = useState('');
+  const [otherName, setOtherName] = useState('');
   const [description, setDescription] = useState('');
-  const [scope, setScope] = useState(DEFAULT_ROLE_SCOPE);
   const [color, setColor] = useState('#6366f1');
   const [priority, setPriority] = useState(String(priorityFromTier(TIER_EXEC)));
-  const [permDraft, setPermDraft] = useState({});
+  const [loadError, setLoadError] = useState('');
 
-  const setMany = (keys, value) => {
-    setPermDraft((prev) => {
-      const next = { ...prev };
-      for (const key of keys) {
-        if (value) next[key] = true;
-        else delete next[key];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await roleAPI.getRbacCatalog();
+        const data = unwrapRoleApi(res) || res?.data?.data || res?.data;
+        if (cancelled) return;
+        setCatalog(data);
+        const first = data?.templates?.[0]?.key || '';
+        setTemplateKey((prev) => prev || first);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(resolveApiErrorMessage(error, { t, fallback: 'Không tải được catalog RBAC V2' }));
+        }
       }
-      return next;
-    });
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  const templates = catalog?.templates || [];
+  const specializations = catalog?.specializations || [];
+  const selectedTemplate = useMemo(
+    () => templates.find((x) => x.key === templateKey) || null,
+    [templates, templateKey]
+  );
+  const isOther = String(specialization).toLowerCase() === 'other';
+
+  const previewName = useMemo(() => {
+    if (isOther) return otherName.trim() || '…';
+    const label = selectedTemplate?.label || templateKey;
+    if (!specialization) return label;
+    return `${specialization} ${label}`.trim();
+  }, [isOther, otherName, selectedTemplate, specialization, templateKey]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const trimmedSuffix = suffix.trim();
-    if (!orgId || !trimmedSuffix || saving) return;
-    if (isTitleLikeSystemRoleName(trimmedSuffix)) {
-      toast.error(t('adminRbac.roleNameTitleLikeError'));
+    if (!orgId || !templateKey || saving) return;
+    if (isOther && !otherName.trim()) {
+      toast.error('Nhập tên custom khi chọn Other');
       return;
     }
-    const name = normalizeLayerLabel(trimmedSuffix, 'system');
     setSaving(true);
     try {
-      await roleAPI.createRole({
-        name,
-        description: description.trim(),
-        scope,
-        serverId: orgId,
+      await roleAPI.clonePermissionGroup({
         organizationId: orgId,
-        permissions: permissionEntriesForPersist(permDraft),
-        priority: Number(priority) || priorityFromTier(TIER_EXEC),
+        serverId: orgId,
+        templateKey,
+        specialization,
+        allowOtherName: isOther,
+        otherName: isOther ? otherName.trim() : '',
+        createRole: true,
+        description: description.trim(),
         color: color || undefined,
-        isDefault: false,
+        priority: Number(priority) || priorityFromTier(TIER_EXEC),
       });
       toast.success(t('adminRbac.created'));
-      setSuffix('');
+      setSpecialization('');
+      setOtherName('');
       setDescription('');
-      setScope(DEFAULT_ROLE_SCOPE);
-      setPermDraft({});
       await loadRoles();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.createFail') }));
@@ -76,105 +91,115 @@ export default function RoleCreatePanel({ orgId }) {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <div>
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.create')}</h2>
-        <p className="text-sm text-muted-foreground">{t('adminRbac.createHint')}</p>
+        <p className="text-sm text-muted-foreground">
+          RBAC V2: chỉ clone Permission Group từ template hệ thống (không tạo blank).
+        </p>
       </div>
+
       <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
-        <p className="font-medium text-foreground">{t('adminRbac.listBanner')}</p>
-        <p className="text-muted-foreground">{t('adminRbac.createNamingHint')}</p>
+        <p className="font-medium text-foreground">Quy ước tên: &lt;Specialization&gt; + &lt;Template&gt;</p>
+        <p className="text-muted-foreground">
+          Category / Module / Master Permission là catalog cố định — doanh nghiệp không được tạo mới.
+        </p>
       </div>
+
+      {loadError ? (
+        <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {loadError}
+        </p>
+      ) : null}
+
       <form className="space-y-5" onSubmit={handleSubmit}>
         <div className="grid gap-4 rounded-xl border border-border bg-card/40 p-4 md:grid-cols-2">
           <label className="block text-sm md:col-span-2">
-            <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleName')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background">
-              <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-                {SYSTEM_ROLE_NAME_PREFIX.trimEnd()}
-              </span>
+            <span className="mb-1 block font-medium text-foreground">Template</span>
+            <select
+              required
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              value={templateKey}
+              onChange={(e) => setTemplateKey(e.target.value)}
+            >
+              {templates.map((tpl) => (
+                <option key={tpl.key} value={tpl.key}>
+                  {tpl.label || tpl.key}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-foreground">Specialization</span>
+            <select
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              value={specialization}
+              onChange={(e) => setSpecialization(e.target.value)}
+            >
+              {specializations.map((s) => (
+                <option key={s.key || s.label} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {isOther ? (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-foreground">Tên custom (Other)</span>
               <input
                 required
-                className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
-                placeholder={t('adminRbac.roleNamePlaceholder')}
-                value={suffix}
-                onChange={(e) => setSuffix(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                value={otherName}
+                onChange={(e) => setOtherName(e.target.value)}
+                placeholder="VD: Platform Guild Lead"
               />
-            </div>
-            {suffix.trim() && isTitleLikeSystemRoleName(suffix) ? (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.roleNameTitleLikeError')}</p>
-            ) : null}
-          </label>
+            </label>
+          ) : (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-foreground">Tên sẽ tạo</span>
+              <input
+                readOnly
+                className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+                value={previewName}
+              />
+            </label>
+          )}
 
           <label className="block text-sm md:col-span-2">
             <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleDescription')}</span>
             <textarea
               rows={2}
               className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              placeholder={t('adminRbac.roleDescriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleScope')}</span>
-            <select
+            <span className="mb-1 block font-medium text-foreground">Priority</span>
+            <input
+              type="number"
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              value={scope}
-              onChange={(e) => setScope(e.target.value)}
-            >
-              {ROLE_SCOPES.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {t(item.labelKey)}
-                </option>
-              ))}
-            </select>
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            />
           </label>
 
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-sm">
-              <span className="mb-1 block text-muted-foreground">{t('adminRbac.color')}</span>
-              <input
-                type="color"
-                className="h-10 w-full rounded-lg border border-border bg-background"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-muted-foreground">{t('adminRbac.colPriority')}</span>
-              <input
-                type="number"
-                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-              />
-            </label>
-          </div>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-foreground">Color</span>
+            <input
+              type="color"
+              className="h-10 w-full rounded-lg border border-border bg-background px-2"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </label>
         </div>
 
-        <div>
-          <p className="mb-2 text-sm font-medium text-foreground">{t('adminRbac.assignPermissions')}</p>
-          <PermissionEditorGrid
-            permDraft={permDraft}
-            editable
-            roleName={normalizeLayerLabel(suffix, 'system') || suffix}
-            roleScope={scope}
-            onToggle={(key) =>
-              setPermDraft((prev) => {
-                const next = { ...prev };
-                if (next[key]) delete next[key];
-                else next[key] = true;
-                return next;
-              })
-            }
-            onSetMany={setMany}
-          />
-        </div>
-
-        <GradientButton type="submit" disabled={saving || !suffix.trim()}>
-          {saving ? t('common.saving') : t('adminDomains.rbac.create')}
+        <GradientButton type="submit" disabled={saving || !templateKey || !orgId}>
+          {saving ? t('common.saving') : 'Clone template → Permission Group + Role'}
         </GradientButton>
       </form>
     </div>

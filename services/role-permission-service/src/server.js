@@ -8,9 +8,17 @@ const PORT = process.env.PORT || 3015;
 
 // Kết nối MongoDB
 connectDB()
-  .then(() => {
+  .then(async () => {
     // Kết nối Redis
     connectRedis();
+
+    try {
+      const rbacV2Service = require('./services/rbacV2.service');
+      await rbacV2Service.seedSystemTemplates();
+      logger.info('RBAC V2 system templates seeded');
+    } catch (seedErr) {
+      logger.warn('RBAC V2 template seed skipped/failed', seedErr.message);
+    }
 
     // Khởi động server
     app.listen(PORT, () => {

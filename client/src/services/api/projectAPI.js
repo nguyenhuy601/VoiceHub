@@ -207,6 +207,13 @@ export const projectAPI = {
       withOrg(organizationId, { params: { organizationId } })
     ),
 
+  /** Phase 3b — Utilization (planned ∩ actual hours) */
+  getUtilization: (organizationId, params = {}) =>
+    apiClient.get(
+      '/projects/resources/utilization',
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
   /** Phase 5 — Approval */
   listApprovalPolicies: (organizationId, opts = {}) =>
     apiClient.get(

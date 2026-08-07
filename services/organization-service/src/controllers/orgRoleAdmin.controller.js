@@ -5,10 +5,20 @@ const {
   orgConflict,
   orgNotFound,
   orgCatch,
+  orgFail,
 } = require('../utils/orgApiError');
 const { sendServiceError } = require('../middleware/sendServiceError');
 const { toObjectId } = require('../utils/orgAccess');
 const { ORGANIZATION_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
+const {
+  isMasterDataV1Enabled,
+  MASTER_ORGANIZATION_ROLES,
+} = require('@enterprise/shared/config/masterData');
+const {
+  getEnabledOrganizationRoleKeys,
+} = require('../services/orgMasterData.service');
+const { syncOrgRoleCatalogFromMaster } = require('../services/orgRoleCatalogSync.service');
+const { filterCatalogRolesForList } = require('../utils/orgRoleCatalogFilter');
 const {
   allocateUniqueRoleKey,
   ensureRoleKeyNamespace,
@@ -31,21 +41,25 @@ const DEFAULT_ORG_ROLE_LABELS = {
   [ORGANIZATION_ROLE_KEYS.DIRECTOR]: `${ORG_ROLE_LABEL_PREFIX}Director`,
 };
 
-const DEFAULT_ORG_ROLE_ROWS = [
-  { key: ORGANIZATION_ROLE_KEYS.DEPARTMENT_MANAGER, sortOrder: 10 },
-  { key: ORGANIZATION_ROLE_KEYS.TEAM_MANAGER, sortOrder: 20 },
-  { key: ORGANIZATION_ROLE_KEYS.DIRECTOR, sortOrder: 30 },
-];
+const DEFAULT_ORG_ROLE_ROWS = MASTER_ORGANIZATION_ROLES.map((row) => ({
+  key: row.key,
+  label: row.label,
+  sortOrder: row.sortOrder,
+}));
 
 async function ensureDefaultCatalog(organizationId) {
+  if (isMasterDataV1Enabled()) {
+    await syncOrgRoleCatalogFromMaster(organizationId);
+    return;
+  }
+
   const oid = toObjectId(organizationId);
-  // Upsert để đảm bảo luôn có 3 key system role + label theo convention.
   for (const def of DEFAULT_ORG_ROLE_ROWS) {
     await OrgRoleCatalog.findOneAndUpdate(
       { organizationId: oid, key: def.key },
       {
         $set: {
-          label: DEFAULT_ORG_ROLE_LABELS[def.key] || def.key,
+          label: def.label || DEFAULT_ORG_ROLE_LABELS[def.key] || def.key,
           isSystem: true,
         },
         $setOnInsert: {
@@ -90,7 +104,13 @@ async function listCatalog(req, res) {
       .sort({ sortOrder: 1 })
       .lean();
 
-    return res.json({ success: true, data: { roles } });
+    if (!isMasterDataV1Enabled()) {
+      return res.json({ success: true, data: { roles } });
+    }
+
+    const enabledKeys = await getEnabledOrganizationRoleKeys(organizationId);
+    const filtered = filterCatalogRolesForList(roles, enabledKeys);
+    return res.json({ success: true, data: { roles: filtered } });
   } catch (error) {
     return orgCatch(res, error);
   }
@@ -98,6 +118,14 @@ async function listCatalog(req, res) {
 
 async function createCatalog(req, res) {
   try {
+    if (isMasterDataV1Enabled()) {
+      return orgFail(
+        res,
+        403,
+        'Không thể tạo Organization Role tùy chỉnh. Chỉ bật/tắt catalog hệ thống.',
+        'MASTER_DATA_CUSTOM_ROLE_BLOCKED'
+      );
+    }
     const organizationId = String(req.params.orgId || '').trim();
     const { key, label, description = '', place, afterRoleId } = req.body || {};
     if (!organizationId) return orgValidation(res, 'organizationId bắt buộc');
@@ -193,7 +221,11 @@ async function reorderCatalog(req, res) {
     const oid = toObjectId(organizationId);
     await ensureDefaultCatalog(organizationId);
 
-    const roles = await OrgRoleCatalog.find({ organizationId: oid }).select('_id').lean();
+    let roles = await OrgRoleCatalog.find({ organizationId: oid }).sort({ sortOrder: 1 }).lean();
+    if (isMasterDataV1Enabled()) {
+      const enabledKeys = await getEnabledOrganizationRoleKeys(organizationId);
+      roles = filterCatalogRolesForList(roles, enabledKeys);
+    }
     const existingIds = roles.map((r) => String(r._id));
     const check = validateOrderedIdsPermutation(existingIds, orderedIds);
     if (!check.ok) return orgValidation(res, check.reason || 'orderedIds không hợp lệ');
@@ -206,7 +238,11 @@ async function reorderCatalog(req, res) {
     }));
     if (ops.length) await OrgRoleCatalog.bulkWrite(ops);
 
-    const next = await OrgRoleCatalog.find({ organizationId: oid }).sort({ sortOrder: 1 }).lean();
+    let next = await OrgRoleCatalog.find({ organizationId: oid }).sort({ sortOrder: 1 }).lean();
+    if (isMasterDataV1Enabled()) {
+      const enabledKeys = await getEnabledOrganizationRoleKeys(organizationId);
+      next = filterCatalogRolesForList(next, enabledKeys);
+    }
     return res.json({ success: true, data: { roles: next } });
   } catch (error) {
     return orgCatch(res, error);
@@ -246,8 +282,10 @@ async function listAssignments(req, res) {
     const oid = toObjectId(organizationId);
 
     const userId = req.query?.userId ? String(req.query.userId).trim() : '';
+    const roleKey = req.query?.roleKey ? String(req.query.roleKey).trim() : '';
     const filter = { organizationId: oid };
     if (userId) filter.userId = toObjectId(userId);
+    if (roleKey) filter.roleKey = roleKey;
 
     const [assignments, rolesByKey] = await Promise.all([
       OrgRoleAssignment.find(filter).lean(),

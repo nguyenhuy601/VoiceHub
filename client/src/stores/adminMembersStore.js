@@ -31,10 +31,7 @@ function buildMembersByIdAll(all) {
 function applyMembersPayload(store, bundle) {
   const list = bundle?.members || bundle;
   const all = Array.isArray(list) ? list : [];
-  const visible = all.filter(
-    (m) => String(m?.systemRole || '').trim().toLowerCase() !== 'admin'
-  );
-  store.members = visible;
+  store.members = all;
   store.roles = Array.isArray(bundle?.roles) ? bundle.roles : [];
   store.membersByIdAll = buildMembersByIdAll(all);
 }

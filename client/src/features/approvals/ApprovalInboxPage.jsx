@@ -4,7 +4,6 @@ import toast from 'react-hot-toast';
 import { Bot, Check, ClipboardList, X } from 'lucide-react';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
-import useUiRole from '../../hooks/useUiRole';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectAPI } from '../../services/api/projectAPI';
@@ -19,7 +18,6 @@ function unwrap(res) {
  */
 export default function ApprovalInboxPage() {
   const { t } = useAppStrings();
-  const { isManagerOrAbove } = useUiRole();
   const { user } = useAuth();
   const { activeWorkspace, company } = useWorkspace();
   const orgId = String(
@@ -74,7 +72,7 @@ export default function ApprovalInboxPage() {
     }
   };
 
-  if (!isManagerOrAbove) {
+  if (!orgId) {
     return (
       <div
         className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}

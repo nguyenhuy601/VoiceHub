@@ -5,48 +5,89 @@ const TaskBoard = require('../models/TaskBoard');
 const Project = require('../models/Project');
 const { DEFAULT_PROJECT_ROLES } = require('../config/projectRoleDefaults');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
+const {
+  isMasterDataV1Enabled,
+  isMasterDataCatalogSyncEnabled,
+  resolveCanonicalProjectRoleKey,
+} = require('@enterprise/shared/config/masterData');
+const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client');
 const { assertResolvedProjectRoleKeys } = require('../utils/assertResolvedProjectRoleKeys');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
-  editor: DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER,
-  watcher: DEFAULT_PROJECT_ROLE_KEYS.WATCHER,
-  viewer: DEFAULT_PROJECT_ROLE_KEYS.WATCHER,
+  editor: DEFAULT_PROJECT_ROLE_KEYS.BACKEND_DEVELOPER,
+  watcher: DEFAULT_PROJECT_ROLE_KEYS.OBSERVER,
+  viewer: DEFAULT_PROJECT_ROLE_KEYS.OBSERVER,
 });
 
 async function ensureOrgProjectRoles(organizationId) {
   const oid = String(organizationId || '').trim();
   if (!oid) throw new Error('organizationId bắt buộc');
 
-  const byKey = new Map();
-  for (const def of DEFAULT_PROJECT_ROLES) {
-    let row = await ProjectRole.findOneAndUpdate(
-      { organizationId: oid, key: def.key },
-      {
-        $set: {
-          label: def.label,
-          isSystem: true,
-        },
-        $setOnInsert: {
-          organizationId: oid,
-          key: def.key,
-          canAssign: def.canAssign,
-          sortOrder: def.sortOrder,
-          permissions: def.permissions || [],
-        },
-      },
-      { upsert: true, new: true }
-    ).lean();
+  const enabledKeys = isMasterDataV1Enabled()
+    ? await fetchEnabledProjectRoleKeys(oid)
+    : null;
+  const enabledSet = enabledKeys ? new Set(enabledKeys.map(String)) : null;
+  const syncOn = !isMasterDataV1Enabled() || isMasterDataCatalogSyncEnabled();
+  const roleDefs = DEFAULT_PROJECT_ROLES.filter(
+    (def) => !enabledSet || enabledSet.has(def.key)
+  );
 
-    if (!Array.isArray(row?.permissions) || row.permissions.length === 0) {
-      row = await ProjectRole.findOneAndUpdate(
-        { _id: row._id },
-        { $set: { permissions: def.permissions || [] } },
-        { new: true }
+  const byKey = new Map();
+  if (syncOn) {
+    for (const def of roleDefs) {
+      let row = await ProjectRole.findOneAndUpdate(
+        { organizationId: oid, key: def.key },
+        {
+          $set: {
+            label: def.label,
+            isSystem: true,
+          },
+          $setOnInsert: {
+            organizationId: oid,
+            key: def.key,
+            canAssign: def.canAssign,
+            sortOrder: def.sortOrder,
+            permissions: def.permissions || [],
+          },
+        },
+        { upsert: true, new: true }
       ).lean();
+
+      if (!Array.isArray(row?.permissions) || row.permissions.length === 0) {
+        row = await ProjectRole.findOneAndUpdate(
+          { _id: row._id },
+          { $set: { permissions: def.permissions || [] } },
+          { new: true }
+        ).lean();
+      }
+      byKey.set(def.key, row);
     }
-    byKey.set(def.key, row);
+  } else if (enabledSet) {
+    const existing = await ProjectRole.find({
+      organizationId: oid,
+      key: { $in: [...enabledSet] },
+    }).lean();
+    for (const row of existing) byKey.set(row.key, row);
   }
+
+  if (isMasterDataV1Enabled()) {
+    const listed = [...byKey.values()].map((r) => ({
+      ...r,
+      enabled: true,
+      legacyOutsideMaster: false,
+    }));
+    const extras = await ProjectRole.find({
+      organizationId: oid,
+      key: { $nin: [...byKey.keys()] },
+      isSystem: { $ne: true },
+    }).lean();
+    for (const row of extras) {
+      listed.push({ ...row, enabled: false, legacyOutsideMaster: true });
+    }
+    return listed.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+  }
+
   const extras = await ProjectRole.find({
     organizationId: oid,
     key: { $nin: DEFAULT_PROJECT_ROLES.map((d) => d.key) },
@@ -376,6 +417,19 @@ async function setUserProjectRoles({
 
   await ensureOrgProjectRoles(orgId);
   const keys = [...new Set((projectRoleKeys || []).map((k) => String(k).trim()).filter(Boolean))];
+  if (isMasterDataV1Enabled()) {
+    const enabled = await fetchEnabledProjectRoleKeys(orgId);
+    const enabledSet = new Set((enabled || []).map(String));
+    for (const k of keys) {
+      const canonical = resolveCanonicalProjectRoleKey(k);
+      if (!enabledSet.has(k) && !enabledSet.has(canonical)) {
+        const err = new Error(`Project role chưa được bật trong Master Data: ${k}`);
+        err.statusCode = 400;
+        err.errorCode = 'MASTER_DATA_PROJECT_ROLE_DISABLED';
+        throw err;
+      }
+    }
+  }
   const beforeRoles = pid
     ? await listUserProjectRolesOnProject(pid, userId)
     : [];
@@ -385,7 +439,7 @@ async function setUserProjectRoles({
     .sort();
   const roles = await ProjectRole.find({
     organizationId: orgId,
-    key: { $in: keys },
+    key: { $in: keys.map((k) => resolveCanonicalProjectRoleKey(k) || k) },
   }).lean();
   assertResolvedProjectRoleKeys(keys, roles);
   const roleIds = new Set(roles.map((r) => String(r._id)));

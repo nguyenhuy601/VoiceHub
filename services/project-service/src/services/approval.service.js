@@ -10,10 +10,14 @@ const TaskActivityLog = require('../models/TaskActivityLog');
 const {
   BUILTIN_POLICIES,
   normalizePolicySteps,
+  validatePolicySteps,
   applyDecisionToChain,
   isApprovalSystemV2Enabled,
   isApprovalMrReleaseStubEnabled,
+  canonicalizeStepRoleKey,
 } = require('../utils/approvalChain');
+const { resolveCanonicalProjectRoleKey } = require('@enterprise/shared/config/masterData');
+const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { logger } = require('@enterprise/shared');
 
@@ -60,7 +64,14 @@ async function ensureOrgApprovalPolicies(organizationId, actorUserId = null) {
 async function listPolicies(organizationId, userId, { projectId } = {}) {
   const { assertCanReadOrgCatalog } = require('./orgCatalogAccess.service');
   await assertCanReadOrgCatalog({ organizationId, userId, projectId });
-  return ensureOrgApprovalPolicies(organizationId, userId);
+  const policies = await ensureOrgApprovalPolicies(organizationId, userId);
+  return policies.map((p) => {
+    const builtin = BUILTIN_POLICIES.find((b) => b.key === p.key);
+    return {
+      ...p,
+      companySizes: builtin?.companySizes ? [...builtin.companySizes] : [],
+    };
+  });
 }
 
 async function upsertPolicy({
@@ -76,7 +87,15 @@ async function upsertPolicy({
 }) {
   await requireOrgAdmin(organizationId, userId);
   await ensureOrgApprovalPolicies(organizationId, userId);
-  const nextSteps = normalizePolicySteps(steps);
+  const validated = validatePolicySteps(steps);
+  if (!validated.ok) {
+    const err = new Error(validated.message || 'steps không hợp lệ');
+    err.statusCode = validated.statusCode || 400;
+    err.errorCode = 'APPROVAL_ROLE_KEYS_INVALID';
+    err.invalidKeys = validated.invalidKeys;
+    throw err;
+  }
+  const nextSteps = validated.steps;
   if (!nextSteps.length) {
     const err = new Error('steps bắt buộc');
     err.statusCode = 400;
@@ -134,12 +153,24 @@ async function resolveActorContext(userId, projectId, organizationId) {
   const roles = roleIds.length
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key').lean()
     : [];
+  let orgRoleKeys = Array.isArray(scope?.organizationRoleKeys)
+    ? scope.organizationRoleKeys.map((k) => canonicalizeStepRoleKey('org_role', k))
+    : [];
+  if (!orgRoleKeys.length && organizationId && userId) {
+    try {
+      const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
+      const vis = await fetchProjectVisibilityContext(organizationId, userId);
+      orgRoleKeys = (vis.organizationRoleKeys || []).map((k) =>
+        canonicalizeStepRoleKey('org_role', k)
+      );
+    } catch {
+      /* optional */
+    }
+  }
   return {
     userId: String(userId),
-    projectRoleKeys: roles.map((r) => String(r.key)),
-    orgRoleKeys: Array.isArray(scope?.organizationRoleKeys)
-      ? scope.organizationRoleKeys.map(String)
-      : [],
+    projectRoleKeys: roles.map((r) => canonicalizeStepRoleKey('project_role', r.key)),
+    orgRoleKeys,
     isOrgAdmin,
   };
 }
@@ -148,12 +179,14 @@ async function resolveApproverUserIds(projectId, organizationId, step) {
   if (!step) return [];
   if (step.approverType === 'user' && step.userId) return [String(step.userId)];
   if (step.approverType === 'project_role' && step.roleKey) {
-    const roleFilter = {
-      key: String(step.roleKey).toLowerCase(),
-    };
+    const need = resolveCanonicalProjectRoleKey(step.roleKey);
+    if (!need) return [];
+    const roleFilter = {};
     if (organizationId) roleFilter.organizationId = organizationId;
-    const roles = await ProjectRole.find(roleFilter).select('_id').lean();
-    const ids = roles.map((r) => r._id);
+    const roles = await ProjectRole.find(roleFilter).select('_id key').lean();
+    const ids = roles
+      .filter((r) => resolveCanonicalProjectRoleKey(r.key) === need)
+      .map((r) => r._id);
     if (!ids.length) return [];
     const mems = await ProjectMembership.find({
       projectId,
@@ -162,6 +195,44 @@ async function resolveApproverUserIds(projectId, organizationId, step) {
       .select('userId')
       .lean();
     return [...new Set(mems.map((m) => String(m.userId)).filter(Boolean))];
+  }
+  if (step.approverType === 'org_role' && step.roleKey && organizationId) {
+    const need = canonicalizeStepRoleKey('org_role', step.roleKey);
+    if (!need) return [];
+    const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (!ORGANIZATION_SERVICE_URL) return [];
+    try {
+      const axios = require('axios');
+      const res = await axios.get(
+        `${ORGANIZATION_SERVICE_URL}/api/organizations/${encodeURIComponent(
+          String(organizationId)
+        )}/org-role-assignments`,
+        {
+          params: { roleKey: need },
+          headers: buildTrustedGatewayHeaders(),
+          timeout: 10000,
+          validateStatus: () => true,
+        }
+      );
+      if (res.status !== 200) return [];
+      const data = res.data?.data ?? res.data ?? {};
+      const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+      return [
+        ...new Set(
+          assignments
+            .filter(
+              (a) => canonicalizeStepRoleKey('org_role', a.roleKey) === need
+            )
+            .map((a) => String(a.userId))
+            .filter(Boolean)
+        ),
+      ];
+    } catch (err) {
+      logger.warn('[approval] org_role resolve failed: %s', err.message);
+      return [];
+    }
   }
   return [];
 }

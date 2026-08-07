@@ -32,11 +32,10 @@ import RolePermissionsPanel from '../../features/adminRbac/RolePermissionsPanel'
 import RoleAssignPanel from '../../features/adminRbac/RoleAssignPanel';
 import RoleRevokePanel from '../../features/adminRbac/RoleRevokePanel';
 import RolesMatrixPanel from '../../features/adminRbac/RolesMatrixPanel';
+import MasterDataEnablePanel from '../../features/adminRbac/MasterDataEnablePanel';
 import RbacTaxonomyHubPanel from '../../features/adminRbac/RbacTaxonomyHubPanel';
-import RbacOrgRoleCatalogPanel from '../../features/adminRbac/RbacOrgRoleCatalogPanel';
 import RbacOrgRoleDirectoryPanel from '../../features/adminRbac/RbacOrgRoleDirectoryPanel';
 import RbacOrgRoleLookupPanel from '../../features/adminRbac/RbacOrgRoleLookupPanel';
-import RbacProjectRoleCatalogPanel from '../../features/adminRbac/RbacProjectRoleCatalogPanel';
 import RbacProjectRoleBoardPanel from '../../features/adminRbac/RbacProjectRoleBoardPanel';
 import OrgRoleListPanel from '../../features/adminRbac/OrgRoleListPanel';
 import OrgRoleCreatePanel from '../../features/adminRbac/OrgRoleCreatePanel';
@@ -70,6 +69,7 @@ import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel
 import TasksProjectVisibilityPolicyPanel from '../../features/adminTasks/TasksProjectVisibilityPolicyPanel';
 import DepartmentCapacityPanel from '../../features/adminTasks/DepartmentCapacityPanel';
 import ResourcePlannerPanel from '../../features/adminTasks/ResourcePlannerPanel';
+import UtilizationPanel from '../../features/adminTasks/UtilizationPanel';
 import ApprovalPoliciesPanel from '../../features/adminTasks/ApprovalPoliciesPanel';
 import DirectorProjectHealthPanel from '../../features/adminTasks/DirectorProjectHealthPanel';
 import RetentionPolicyPanel from '../../features/adminTasks/RetentionPolicyPanel';
@@ -138,12 +138,12 @@ const ACCOUNT_PANELS = {
 
 const RBAC_PANELS = {
   'rbac-taxonomy': RbacTaxonomyHubPanel,
+  'rbac-master-data': MasterDataEnablePanel,
   'rbac-pos-list': PosListPanel,
   'rbac-pos-create': PosCreatePanel,
   'rbac-pos-edit': PosEditPanel,
   'rbac-pos-disable': PosDisablePanel,
   'rbac-pos-assign': PosAssignPanel,
-  'rbac-org-role-catalog': RbacOrgRoleCatalogPanel,
   'rbac-org-role-list': OrgRoleListPanel,
   'rbac-org-role-create': OrgRoleCreatePanel,
   'rbac-org-role-edit': OrgRoleEditPanel,
@@ -151,7 +151,6 @@ const RBAC_PANELS = {
   'rbac-org-role-assign': OrgRoleAssignPanel,
   'rbac-org-role-directory': RbacOrgRoleDirectoryPanel,
   'rbac-org-role-lookup': RbacOrgRoleLookupPanel,
-  'rbac-project-role-catalog': RbacProjectRoleCatalogPanel,
   'rbac-project-role-list': ProjectRoleListPanel,
   'rbac-project-role-create': ProjectRoleCreatePanel,
   'rbac-project-role-edit': ProjectRoleEditPanel,
@@ -225,6 +224,7 @@ const TASK_PANELS = {
   'tasks-project-visibility-policy': TasksProjectVisibilityPolicyPanel,
   'tasks-department-capacity': DepartmentCapacityPanel,
   'tasks-resource-planner': ResourcePlannerPanel,
+  'tasks-utilization': UtilizationPanel,
   'tasks-approval-policies': ApprovalPoliciesPanel,
   'tasks-transfer-info': TasksTransferInfoPanel,
   'tasks-sprints': TasksSprintsPanel,

@@ -145,6 +145,20 @@ export const taskAPI = {
     return apiClient.put(`/tasks/${id}${orgQuery(opts.organizationId)}`, updates);
   },
 
+  listWorklogs: (taskId, opts = {}) =>
+    apiClient.get(`/tasks/${encodeURIComponent(taskId)}/worklogs${orgQuery(opts.organizationId)}`),
+
+  createWorklog: (taskId, body = {}, opts = {}) =>
+    apiClient.post(
+      `/tasks/${encodeURIComponent(taskId)}/worklogs${orgQuery(opts.organizationId)}`,
+      body
+    ),
+
+  getSprintTimeSummary: (projectId, sprintId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/time-summary`
+    ),
+
   // Delete task
   deleteTask: (id, opts = {}) => {
     return apiClient.delete(`/tasks/${id}${orgQuery(opts.organizationId)}`);
