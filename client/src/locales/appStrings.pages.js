@@ -1818,6 +1818,7 @@ export const pageStrings = {
       sidebarTitle: 'Cài đặt',
       figmaTabProfile: 'Hồ sơ',
       figmaTabCapability: 'Năng lực',
+      figmaTabCapability: 'Năng lực',
       figmaTabSecurity: 'Bảo mật',
       figmaTabNotifications: 'Thông báo',
       figmaTabApi: 'API Keys',

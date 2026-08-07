@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { flattenOrgStructure } from './adminOrgStructureUtils.js';
+import {
+  departmentHeadId,
+  flattenOrgStructure,
+  teamLeaderId,
+} from './adminOrgStructureUtils.js';
+
+test('departmentHeadId / teamLeaderId đọc flatten và raw', () => {
+  assert.equal(departmentHeadId({ headId: 'u1' }), 'u1');
+  assert.equal(departmentHeadId({ head: { _id: 'u2' } }), 'u2');
+  assert.equal(departmentHeadId({ head: 'u3' }), 'u3');
+  assert.equal(teamLeaderId({ leaderId: 't1' }), 't1');
+  assert.equal(teamLeaderId({ leader: { _id: 't2' } }), 't2');
+  assert.equal(teamLeaderId({}), '');
+});
 
 test('flatten includes division from divisionsFlat when branches empty', () => {
   const { divisions } = flattenOrgStructure({

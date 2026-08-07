@@ -14,6 +14,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberUserId } from '../../utils/adminUserUtils';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
+import OtOverrideConfirmModal from './OtOverrideConfirmModal';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -260,6 +261,21 @@ export default function TasksProjectTeamPanel({
           </div>
         </div>
       )}
+
+      <OtOverrideConfirmModal
+        isOpen={Boolean(otModal)}
+        busy={saving}
+        currentActiveProjects={otModal?.currentActiveProjects}
+        maxConfigured={otModal?.maxConfigured}
+        title={t('adminTasks.otOverrideTitle')}
+        confirmText={t('adminTasks.otOverrideConfirm')}
+        cancelText={t('common.cancel')}
+        rationaleLabel={t('adminTasks.otOverrideRationale')}
+        rationalePlaceholder={t('adminTasks.otOverridePlaceholder')}
+        rationaleRequiredText={t('adminTasks.otOverrideNeedReason')}
+        onClose={() => !saving && setOtModal(null)}
+        onConfirm={confirmOtOverride}
+      />
     </AdminUserPanelShell>
   );
 }

@@ -49,6 +49,10 @@ export default function CapabilityProfilePanel() {
   const [jobTitle, setJobTitle] = useState('');
   const [status, setStatus] = useState('draft');
   const [rejectReason, setRejectReason] = useState('');
+  const [resourceStatus, setResourceStatus] = useState('verified');
+  const [resourceRejectReason, setResourceRejectReason] = useState('');
+  const [maxConcurrentProjects, setMaxConcurrentProjects] = useState(2);
+  const [serverMaxConcurrentProjects, setServerMaxConcurrentProjects] = useState(2);
   const [cvFileName, setCvFileName] = useState('');
   const [uploadingCv, setUploadingCv] = useState(false);
   const [skillToAdd, setSkillToAdd] = useState('');
@@ -72,6 +76,16 @@ export default function CapabilityProfilePanel() {
       setStatus(parsed.verificationStatus || 'draft');
       setRejectReason(parsed.rejectReason || '');
       setCvFileName(parsed.cvFileName || '');
+
+      const rc = profile?.resourceConfig || {};
+      const rcStatus = rc.verificationStatus || 'verified';
+      setResourceStatus(rcStatus);
+      setResourceRejectReason(rc.rejectReason || '');
+
+      const max = Number(rc.maxConcurrentProjects);
+      const nextMax = Number.isFinite(max) && max >= 1 ? Math.floor(max) : 2;
+      setMaxConcurrentProjects(nextMax);
+      setServerMaxConcurrentProjects(nextMax);
       if (typeof updateUser === 'function' && profile) {
         updateUser(mergeAuthUserFromProfile(user, profile));
       }
@@ -146,10 +160,17 @@ export default function CapabilityProfilePanel() {
     }
     setSaving(true);
     try {
-      const res = await userService.updateProfile({
+      const payload = {
         capabilityAction,
         capability: toCapabilityPayload(form),
-      });
+      };
+
+      if (maxConcurrentProjects !== serverMaxConcurrentProjects) {
+        payload.resourceConfigAction = 'save';
+        payload.resourceConfig = { maxConcurrentProjects };
+      }
+
+      const res = await userService.updateProfile(payload);
       const profile = unwrapApiData(res) || res;
       applyServerCapability(profile);
       toast.success(
@@ -198,6 +219,8 @@ export default function CapabilityProfilePanel() {
 
   const statusLabel = t(`settingsCapability.status.${status}`) || status;
   const badgeClass = STATUS_BADGE[status] || STATUS_BADGE.draft;
+  const resourceStatusLabel = t(`settingsCapability.status.${resourceStatus}`) || resourceStatus;
+  const resourceBadgeClass = STATUS_BADGE[resourceStatus] || STATUS_BADGE.verified;
   const submitOk = canSubmitCapability(form, { jobTitle });
 
   if (loading) {
@@ -225,11 +248,21 @@ export default function CapabilityProfilePanel() {
           {status === 'pending_hr' ? (
             <span className="text-xs text-muted-foreground">{t('settingsCapability.pendingHint')}</span>
           ) : null}
+
+          <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${resourceBadgeClass}`}>
+            Capacity: {resourceStatusLabel}
+          </span>
         </div>
 
         {status === 'rejected' && rejectReason ? (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             {t('settingsCapability.rejectLabel')}: {rejectReason}
+          </div>
+        ) : null}
+
+        {resourceStatus === 'rejected' && resourceRejectReason ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            Capacity reject: {resourceRejectReason}
           </div>
         ) : null}
 
@@ -368,6 +401,29 @@ export default function CapabilityProfilePanel() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Số dự án tối đa đồng thời
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            className={FIGMA_SETTINGS_INPUT}
+            value={maxConcurrentProjects}
+            disabled={saving}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (!Number.isFinite(v)) return;
+              const next = Math.floor(Math.min(20, Math.max(1, v)));
+              setMaxConcurrentProjects(next);
+            }}
+          />
+          {resourceStatus === 'pending_hr' ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">{t('settingsCapability.pendingHint')}</p>
+          ) : null}
         </div>
 
         <div>

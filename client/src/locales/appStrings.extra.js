@@ -45,7 +45,11 @@ export const extraStrings = {
         USER_VALIDATION: 'Dữ liệu chưa hợp lệ.',
         VALIDATION_INVALID_ID: 'Định danh không hợp lệ.',
         VALIDATION_REQUIRED: 'Thiếu thông tin bắt buộc.',
-        AUTH_WEAK_PASSWORD: 'Mật khẩu tạm chưa đủ mạnh. Vui lòng thử lại.',
+        AUTH_WEAK_PASSWORD:
+          'Mật khẩu chưa đủ mạnh. Cần chữ hoa, chữ thường, số và ký tự đặc biệt (!@#$%^&*…).',
+        AUTH_PENDING_ACTIVATION:
+          'Tài khoản đang chờ kích hoạt. Kiểm tra email đặt mật khẩu hoặc liên hệ admin.',
+        AUTH_ALREADY_ACTIVE: 'Tài khoản đã được kích hoạt.',
         ORG_PROVISION_FAILED: 'Không tạo được tài khoản nhân viên. Vui lòng thử lại.',
         ORG_INVITE_EMAIL_FAILED: 'Không gửi được email lời mời. Kiểm tra cấu hình email.',
         AUTH_EMAIL_UNAVAILABLE: 'Dịch vụ email chưa được cấu hình.',
@@ -197,11 +201,18 @@ export const extraStrings = {
       sending: 'Đang gửi yêu cầu…',
       sendLink: 'Gửi liên kết đặt lại',
       successBody:
-        'Yêu cầu đã được gửi. Vui lòng kiểm tra email và làm theo hướng dẫn để đặt lại mật khẩu.',
-      devSmtpHint: 'Môi trường local chưa cấu hình SMTP. Bạn có thể dùng link test sau:',
+        'Yêu cầu đã được gửi. Vui lòng kiểm tra email (kể cả Thư rác) và làm theo hướng dẫn để đặt lại mật khẩu.',
+      successBodyDevLink:
+        'Chưa gửi được email. Dùng link đặt lại bên dưới (chế độ dev) để tiếp tục.',
+      successBodyNoMail:
+        'Nếu email đã có tài khoản, hãy kiểm tra hộp thư / Thư rác. Không thấy mail thì xác nhận đúng email được mời hoặc nhờ admin reset.',
+      devSmtpHint: 'Link đặt lại mật khẩu (dùng khi email chưa tới):',
       toastEmailRequired: 'Vui lòng nhập email',
       toastSent: 'Đã gửi hướng dẫn đặt lại mật khẩu đến email của bạn',
       toastNoSmtp: 'Email service chưa cấu hình SMTP, đang dùng chế độ local.',
+      toastUseDevLink: 'Chưa gửi được email — dùng link đặt lại trên trang này.',
+      toastCheckEmailOrSpam:
+        'Nếu tài khoản tồn tại, hãy kiểm tra email / Thư rác. Xác nhận đúng email được mời.',
       toastSendErr: 'Không thể gửi email đặt lại mật khẩu',
     },
     resetPassword: {
@@ -215,6 +226,8 @@ export const extraStrings = {
       backToLogin: 'Quay lại đăng nhập',
       toastInvalidToken: 'Liên kết không hợp lệ hoặc đã hết hạn',
       toastPasswordMin: 'Mật khẩu phải có ít nhất 8 ký tự',
+      toastPasswordComplex:
+        'Mật khẩu phải có chữ hoa, chữ thường, số và ký tự đặc biệt (!@#$%^&*...)',
       toastConfirmMismatch: 'Mật khẩu xác nhận không khớp',
       toastSuccess: 'Đặt lại mật khẩu thành công',
       loginFlashMessage: 'Mật khẩu đã được cập nhật. Bạn có thể đăng nhập ngay.',
@@ -247,9 +260,13 @@ export const extraStrings = {
       titleError: 'Không thể tạo tài khoản',
       createFailed: 'Không tạo được tài khoản từ lời mời.',
       toastCreated: 'Đã tạo tài khoản thành công.',
-      toastExisting: 'Tài khoản đã sẵn sàng. Vui lòng đăng nhập.',
-      loginFlashCredentials: 'Tài khoản đã được cấp. Hãy lưu thông tin — chỉ hiện một lần.',
+      toastExisting: 'Tài khoản đã sẵn sàng. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.',
+      loginFlashCredentials: 'Tài khoản đã được cấp. Hãy lưu mật khẩu tạm — chỉ hiện một lần.',
       loginFlashReady: 'Bạn có thể đăng nhập bằng email đã được mời.',
+      loginNoTempTitle: 'Không có mật khẩu tạm lần này',
+      loginNoTempBody:
+        'Tài khoản đã được tạo trước đó nên hệ thống không hiện lại mật khẩu. Dùng Quên mật khẩu với đúng email được mời.',
+      loginNoTempCta: 'Đặt lại mật khẩu ngay',
       ctaLogin: 'Đăng nhập',
     },
     oneTimeCredentials: {
@@ -269,6 +286,7 @@ export const extraStrings = {
       titleProfile: 'Bổ sung thông tin cá nhân',
       hint: 'Vui lòng cập nhật hồ sơ để tiếp tục sử dụng VoiceHub.',
       fullName: 'Họ và tên',
+      nameFromInvite: 'Đã lấy từ lời mời — không cần nhập lại.',
       email: 'Gmail / Email',
       phone: 'Số điện thoại',
       jobTitle: 'Vị trí làm việc',
@@ -455,7 +473,11 @@ export const extraStrings = {
         USER_VALIDATION: 'Invalid data.',
         VALIDATION_INVALID_ID: 'Invalid identifier.',
         VALIDATION_REQUIRED: 'Required information is missing.',
-        AUTH_WEAK_PASSWORD: 'Temporary password is not strong enough. Please try again.',
+        AUTH_WEAK_PASSWORD:
+          'Password is not strong enough. Use uppercase, lowercase, a number, and a special character (!@#$%^&*…).',
+        AUTH_PENDING_ACTIVATION:
+          'Account is pending activation. Check the set-password email or contact an admin.',
+        AUTH_ALREADY_ACTIVE: 'Account is already active.',
         ORG_PROVISION_FAILED: 'Could not provision employee account. Please try again.',
         ORG_INVITE_EMAIL_FAILED: 'Could not send invite email. Check email configuration.',
         AUTH_EMAIL_UNAVAILABLE: 'Email service is not configured.',
@@ -609,11 +631,18 @@ export const extraStrings = {
       placeholderEmail: 'you@company.com',
       sending: 'Sending request…',
       sendLink: 'Send reset link',
-      successBody: 'If that email exists, we sent instructions to reset your password.',
-      devSmtpHint: 'SMTP is not configured locally. You can use this test link:',
+      successBody:
+        'If that email exists, we sent reset instructions. Check inbox and Spam.',
+      successBodyDevLink: 'Email was not sent. Use the reset link below (dev fallback).',
+      successBodyNoMail:
+        'If the account exists, check inbox/Spam. Otherwise confirm the invited email or ask an admin to reset.',
+      devSmtpHint: 'Password reset link (use when email did not arrive):',
       toastEmailRequired: 'Please enter your email',
       toastSent: 'Password reset instructions sent to your email',
       toastNoSmtp: 'Email service has no SMTP; running in local mode.',
+      toastUseDevLink: 'Email was not sent — use the reset link on this page.',
+      toastCheckEmailOrSpam:
+        'If the account exists, check inbox/Spam. Confirm you used the invited email.',
       toastSendErr: 'Could not send reset email',
     },
     resetPassword: {
@@ -627,6 +656,8 @@ export const extraStrings = {
       backToLogin: 'Back to sign in',
       toastInvalidToken: 'This link is invalid or has expired',
       toastPasswordMin: 'Password must be at least 8 characters',
+      toastPasswordComplex:
+        'Password must include uppercase, lowercase, a number, and a special character (!@#$%^&*...)',
       toastConfirmMismatch: 'Passwords do not match',
       toastSuccess: 'Password updated successfully',
       loginFlashMessage: 'Your password was updated. You can sign in now.',
@@ -658,9 +689,13 @@ export const extraStrings = {
       titleError: 'Could not create account',
       createFailed: 'Could not create an account from this invite.',
       toastCreated: 'Account created successfully.',
-      toastExisting: 'Account is ready. Please sign in.',
-      loginFlashCredentials: 'Your credentials were issued. Save them — shown only once.',
+      toastExisting: 'Account is ready. Please sign in or use Forgot password.',
+      loginFlashCredentials: 'Your credentials were issued. Save the temporary password — shown only once.',
       loginFlashReady: 'You can sign in with the invited email.',
+      loginNoTempTitle: 'No temporary password this time',
+      loginNoTempBody:
+        'The account already existed, so the temporary password is not shown again. Use Forgot password with the invited email.',
+      loginNoTempCta: 'Reset password now',
       ctaLogin: 'Sign in',
     },
     oneTimeCredentials: {
@@ -680,6 +715,7 @@ export const extraStrings = {
       titleProfile: 'Complete your profile',
       hint: 'Please update your profile to continue using VoiceHub.',
       fullName: 'Full name',
+      nameFromInvite: 'Taken from your invite — no need to re-enter.',
       email: 'Email',
       phone: 'Phone number',
       jobTitle: 'Job title',
