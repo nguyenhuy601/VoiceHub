@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Archive,
   Ban,
@@ -24,6 +25,11 @@ import ChatAttachmentContextMenu from './ChatAttachmentContextMenu';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
 import { buildMediaAttachmentMenuItems } from '../../utils/buildAttachmentMenuItems';
 import { fileTypeBadge, formatFileSize } from '../../utils/chatFileDisplay';
+import {
+  getFileHotDisplayDays,
+  partitionHotChatFiles,
+} from '../../utils/chatFileHotWindow';
+import { buildCollaborateDocumentsPath } from '../../utils/suitePathUtils';
 import {
   formatDmEventWhen,
   getDmRemindersForFriend,
@@ -67,6 +73,7 @@ export default function FriendChatRightPanel({
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const { isDarkMode } = useTheme();
+  const navigate = useNavigate();
   const [openMedia, setOpenMedia] = useState(true);
   const [openFiles, setOpenFiles] = useState(true);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -83,6 +90,11 @@ export default function FriendChatRightPanel({
 
   const { mediaItems = [], files = [] } = attachments || {};
   const gridMedia = mediaItems.slice(0, GRID_PREVIEW);
+  const hotDisplayDays = getFileHotDisplayDays();
+  const { hot: hotFiles, archivedCount: archivedFilesCount } = useMemo(
+    () => partitionHotChatFiles(files, { hotDays: hotDisplayDays }),
+    [files, hotDisplayDays]
+  );
 
   const messageById = useMemo(() => {
     const map = new Map();
@@ -299,6 +311,11 @@ export default function FriendChatRightPanel({
     return cleanup;
   }, [loadMutualOrgs]);
 
+  const openDocumentsKho = useCallback(() => {
+    const firstOrgId = String(mutualOrgs.organizations?.[0]?._id || '').trim();
+    navigate(buildCollaborateDocumentsPath(firstOrgId));
+  }, [mutualOrgs.organizations, navigate]);
+
   useEffect(() => {
     if (!friendId || !remindersOpen) return undefined;
     let cancelled = false;
@@ -475,8 +492,28 @@ export default function FriendChatRightPanel({
             <div className="pb-3">
               {files.length === 0 ? (
                 <p className={`px-4 py-2 text-xs ${labelMuted}`}>{t('friendChat.filesEmpty')}</p>
+              ) : hotFiles.length === 0 ? (
+                <p className={`px-4 py-2 text-xs ${labelMuted}`}>
+                  {t('friendChat.filesHotEmpty', { days: hotDisplayDays })}
+                </p>
               ) : (
-                files.map((f) => renderFileRow(f))
+                hotFiles.map((f) => renderFileRow(f))
+              )}
+              {(archivedFilesCount > 0 || files.length > 0) && (
+                <button
+                  type="button"
+                  onClick={openDocumentsKho}
+                  className={`mx-3 mt-2 flex w-[calc(100%-1.5rem)] items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition ${
+                    isDarkMode
+                      ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/[0.1]'
+                      : 'bg-slate-100 text-cyan-800 hover:bg-slate-200'
+                  }`}
+                >
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {archivedFilesCount > 0
+                    ? t('friendChat.filesSearchArchive', { count: archivedFilesCount })
+                    : t('friendChat.filesOpenKho')}
+                </button>
               )}
             </div>
           )}

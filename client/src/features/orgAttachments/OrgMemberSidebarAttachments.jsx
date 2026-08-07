@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ExternalLink, FileText, FolderOpen, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
+import {
+  getFileHotDisplayDays,
+  partitionHotChatFiles,
+} from '../../utils/chatFileHotWindow';
+import { buildCollaborateDocumentsPath } from '../../utils/suitePathUtils';
 import {
   fetchOrgMessageSearch,
   formatOrgMessageSearchError,
@@ -67,6 +73,8 @@ export default function OrgMemberSidebarAttachments({
   onJumpToChannel,
 }) {
   const { t, locale } = useAppStrings();
+  const navigate = useNavigate();
+  const hotDisplayDays = getFileHotDisplayDays();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -168,6 +176,10 @@ export default function OrgMemberSidebarAttachments({
   }, [organizationId, narrowRoomId, loadPage]);
 
   const hasMore = page < totalPages;
+  const { hot: hotItems, archivedCount } = useMemo(
+    () => partitionHotChatFiles(items, { hotDays: hotDisplayDays }),
+    [items, hotDisplayDays]
+  );
 
   const muted = isDarkMode ? 'text-[#6d7380]' : 'text-slate-500';
   const row = isDarkMode
@@ -175,6 +187,28 @@ export default function OrgMemberSidebarAttachments({
     : 'flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm transition hover:bg-slate-50';
   const title = isDarkMode ? 'text-white' : 'text-slate-900';
   const sub = isDarkMode ? 'text-[#8b919c]' : 'text-slate-500';
+
+  const openDocumentsKho = () => {
+    navigate(buildCollaborateDocumentsPath(organizationId));
+  };
+
+  const archiveCta =
+    items.length > 0 || archivedCount > 0 ? (
+      <button
+        type="button"
+        onClick={openDocumentsKho}
+        className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold ${
+          isDarkMode
+            ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/10'
+            : 'bg-sky-100 text-cyan-800 hover:bg-sky-200/80'
+        }`}
+      >
+        <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {archivedCount > 0
+          ? t('organizations.memberSidebarFilesSearchArchive', { count: archivedCount })
+          : t('organizations.memberSidebarFilesOpenKho')}
+      </button>
+    ) : null;
 
   if (loading && items.length === 0) {
     return (
@@ -191,17 +225,58 @@ export default function OrgMemberSidebarAttachments({
 
   if (!loading && items.length === 0) {
     return (
-      <p className={`px-1 py-6 text-center text-xs ${muted}`}>
-        {narrowRoomId
-          ? t('organizations.memberSidebarFilesEmptyChannel')
-          : t('organizations.memberSidebarFilesEmpty')}
-      </p>
+      <div className="px-1">
+        <p className={`py-6 text-center text-xs ${muted}`}>
+          {narrowRoomId
+            ? t('organizations.memberSidebarFilesEmptyChannel')
+            : t('organizations.memberSidebarFilesEmpty')}
+        </p>
+        <button
+          type="button"
+          onClick={openDocumentsKho}
+          className={`mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold ${
+            isDarkMode
+              ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/10'
+              : 'bg-sky-100 text-cyan-800 hover:bg-sky-200/80'
+          }`}
+        >
+          <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {t('organizations.memberSidebarFilesOpenKho')}
+        </button>
+      </div>
+    );
+  }
+
+  if (!loading && hotItems.length === 0) {
+    return (
+      <div className="px-1">
+        <p className={`py-4 text-center text-xs ${muted}`}>
+          {t('organizations.memberSidebarFilesHotEmpty', { days: hotDisplayDays })}
+        </p>
+        {archiveCta}
+        {hasMore ? (
+          <button
+            type="button"
+            disabled={loadingMore}
+            onClick={() => loadPage(page + 1, true)}
+            className={`mt-2 w-full rounded-lg py-2 text-xs font-semibold ${
+              isDarkMode
+                ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/10 disabled:opacity-50'
+                : 'bg-sky-100 text-cyan-800 hover:bg-sky-200/80 disabled:opacity-50'
+            }`}
+          >
+            {loadingMore
+              ? t('organizations.memberSidebarFilesLoading')
+              : t('organizations.memberSidebarFilesLoadMore')}
+          </button>
+        ) : null}
+      </div>
     );
   }
 
   return (
     <div className="space-y-1.5">
-      {items.map((item) => {
+      {hotItems.map((item) => {
         const isImage = item.messageType === 'image';
         const Icon = isImage ? ImageIcon : FileText;
         return (
@@ -255,6 +330,7 @@ export default function OrgMemberSidebarAttachments({
           </div>
         );
       })}
+      {archiveCta}
       {hasMore ? (
         <button
           type="button"
