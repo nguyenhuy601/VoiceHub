@@ -19,6 +19,15 @@ const membershipSchema = new mongoose.Schema(
       enum: ['owner', 'admin', 'hr', 'member'],
       default: 'member',
     },
+    /**
+     * Trace nguồn cấp Membership (manual = mời tay, excel_import = import hàng loạt HR).
+     * Thêm additive để không phá contract hiện tại.
+     */
+    source: {
+      type: String,
+      enum: ['manual', 'excel_import'],
+      default: 'manual',
+    },
     joinedAt: {
       type: Date,
       default: Date.now,
