@@ -29,7 +29,17 @@ const { searchUserByEmail } = require('../clients/userLookup.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
+const {
+  assertEmailDomainAllowed,
+  resolveAllowedEmailDomains,
+} = require('../utils/emailDomainPolicy');
 const CompanyInvite = require('../models/CompanyInvite');
+const { bulkUpdateUserProfileFields } = require('../clients/userProfileBulkImport.client');
+const {
+  allocateNextEmployeeCode,
+  peekNextEmployeeCode,
+} = require('../services/employeeCodeAllocate.service');
+const { softAssignResponsibilityFromPrimaryDomain } = require('../services/responsibility.service');
 const crypto = require('crypto');
 const { attachPlacementFromStructure } = require('../services/structurePlacement.service');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
@@ -270,9 +280,20 @@ exports.getMembersWithRoles = async (req, res, next) => {
   }
 };
 
+exports.previewNextEmployeeCode = async (req, res, next) => {
+  try {
+    const orgId = req.params.orgId;
+    if (!orgId) return orgValidation(res, 'orgId is required');
+    const employeeCode = await peekNextEmployeeCode(orgId);
+    return res.json({ status: 'success', data: { employeeCode } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 exports.inviteMember = async (req, res, next) => {
   try {
-    const { email, firstName, lastName, role } = req.body || {};
+    const { email, firstName, lastName, role, departmentId, jobTitle } = req.body || {};
     const inviterId = req.user?.id || req.user?.userId || req.user?._id;
     const orgId = req.params.orgId;
 
@@ -281,9 +302,38 @@ exports.inviteMember = async (req, res, next) => {
       return orgValidation(res, 'email is required');
     }
 
-    const organization = await Organization.findById(orgId).select('name').lean();
+    const jobTitleTrim = String(jobTitle || '').trim();
+    if (!jobTitleTrim) {
+      return orgValidation(res, 'jobTitle (chức danh) bắt buộc khi mời nhân sự.');
+    }
+
+    const deptIdRaw = String(departmentId || '').trim();
+    if (!deptIdRaw) {
+      return orgValidation(res, 'departmentId (phòng ban) bắt buộc khi mời nhân sự.');
+    }
+
+    const department = await Department.findOne({
+      _id: deptIdRaw,
+      organization: orgId,
+      isActive: { $ne: false },
+    })
+      .select('_id name')
+      .lean();
+    if (!department) {
+      return orgValidation(res, 'Phòng ban không tồn tại trong công ty.');
+    }
+
+    const organization = await Organization.findById(orgId).select('name settings.allowedEmailDomains').lean();
     if (!organization) {
       return orgNotFound(res);
+    }
+
+    const domainGate = assertEmailDomainAllowed(
+      normalizedEmail,
+      resolveAllowedEmailDomains(organization)
+    );
+    if (!domainGate.ok) {
+      return orgValidation(res, domainGate.message);
     }
 
     const inviterMembership = await Membership.findOne({
@@ -327,12 +377,28 @@ exports.inviteMember = async (req, res, next) => {
       { $set: { status: 'revoked' } }
     );
 
+    let employeeCode;
+    try {
+      employeeCode = await allocateNextEmployeeCode(orgId);
+    } catch (allocErr) {
+      return orgFail(
+        res,
+        allocErr.statusCode || 500,
+        allocErr.message || 'Không cấp được mã nhân viên',
+        allocErr.errorCode || 'EMPLOYEE_CODE_ALLOCATE_FAILED'
+      );
+    }
+
     const rawToken = generateInviteToken();
     const invite = await CompanyInvite.create({
       organization: orgId,
       email: normalizedEmail,
       firstName: String(firstName || '').trim(),
       lastName: String(lastName || '').trim(),
+      employeeCode,
+      departmentId: department._id,
+      departmentName: String(department.name || '').trim(),
+      jobTitle: jobTitleTrim,
       role: normalizedRole,
       invitedBy: inviterId || null,
       tokenHash: hashInviteToken(rawToken),
@@ -343,6 +409,17 @@ exports.inviteMember = async (req, res, next) => {
     const frontendUrl = resolveFrontendUrl(req).replace(/\/+$/, '');
     const inviteUrl = `${frontendUrl}/accept-company-invite?token=${encodeURIComponent(rawToken)}`;
 
+    const invitePayload = {
+      inviteId: String(invite._id),
+      email: normalizedEmail,
+      role: normalizedRole,
+      employeeCode,
+      departmentId: String(department._id),
+      departmentName: invite.departmentName,
+      jobTitle: jobTitleTrim,
+      expiresAt: invite.expiresAt,
+    };
+
     try {
       await sendCompanyInviteEmail({
         email: normalizedEmail,
@@ -352,27 +429,35 @@ exports.inviteMember = async (req, res, next) => {
         lastName: invite.lastName,
       });
     } catch (emailErr) {
-      await CompanyInvite.findByIdAndUpdate(invite._id, { status: 'revoked' });
-      const status = emailErr.statusCode || 503;
-      return orgFail(
-        res,
-        status,
-        emailErr.message || 'Không gửi được email mời',
-        emailErr.errorCode || 'ORG_INVITE_EMAIL_FAILED'
-      );
+      logger.warn('[inviteMember] invite email failed; returning inviteUrl for manual share', {
+        email: normalizedEmail,
+        message: emailErr?.message || emailErr,
+        errorCode: emailErr?.errorCode,
+      });
+      return res.status(201).json({
+        status: 'success',
+        data: {
+          ...invitePayload,
+          emailSent: false,
+          inviteUrl,
+          emailError:
+            emailErr?.messageUser ||
+            emailErr?.message ||
+            'Không gửi được email (kiểm tra EMAIL_USER / Gmail App Password).',
+        },
+        message:
+          'Lời mời đã tạo nhưng chưa gửi được email. Hãy copy link bên dưới gửi tay cho nhân viên.',
+      });
     }
 
     res.status(201).json({
       status: 'success',
       data: {
-        inviteId: String(invite._id),
-        email: normalizedEmail,
-        role: normalizedRole,
-        expiresAt: invite.expiresAt,
+        ...invitePayload,
         emailSent: true,
+        inviteUrl: process.env.NODE_ENV !== 'production' ? inviteUrl : undefined,
       },
       message: 'Đã gửi email lời mời nhận tài khoản',
-      ...(process.env.NODE_ENV !== 'production' ? { inviteUrl } : {}),
     });
   } catch (error) {
     next(error);
@@ -426,6 +511,8 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         email: invite.email,
         firstName: invite.firstName,
         lastName: invite.lastName,
+        // Click invite = chứng minh mailbox → active ngay + mk tạm một lần trên FE.
+        readyForLogin: true,
       });
     } catch (provisionErr) {
       const status = provisionErr.statusCode || 400;
@@ -456,6 +543,49 @@ exports.acceptCompanyInvite = async (req, res, next) => {
     );
 
     await syncUserOrgRole(resolvedUserId, invite.organization, normalizedRole);
+
+    // Ghi mã NV + chức danh HR; gắn phòng (cấu trúc — không để NV tự chọn).
+    const displayName = [invite.lastName, invite.firstName].filter(Boolean).join(' ').trim();
+    try {
+      const profilePayload = {
+        structureOnly: true,
+        uploadedBy: invite.invitedBy || null,
+        resourceConfig: {
+          maxConcurrentProjects: 2,
+        },
+      };
+      if (invite.employeeCode) profilePayload.employeeCode = invite.employeeCode;
+      if (invite.jobTitle) profilePayload.jobTitle = invite.jobTitle;
+      if (displayName) profilePayload.displayName = displayName;
+      if (invite.employeeCode || invite.jobTitle || displayName) {
+        await bulkUpdateUserProfileFields(resolvedUserId, profilePayload);
+      }
+    } catch (profileErr) {
+      logger.warn('[acceptCompanyInvite] profile bulk fields failed:', profileErr?.message || profileErr);
+    }
+
+    if (invite.departmentId) {
+      try {
+        await Department.updateOne(
+          { _id: invite.departmentId, organization: invite.organization },
+          { $addToSet: { members: resolvedUserId } }
+        );
+      } catch (deptErr) {
+        logger.warn('[acceptCompanyInvite] department placement failed:', deptErr?.message || deptErr);
+      }
+    }
+
+    // A+C soft: đoán Responsibility từ jobTitle lời mời (không đè nếu đã gán)
+    try {
+      await softAssignResponsibilityFromPrimaryDomain({
+        organizationId: invite.organization,
+        userId: resolvedUserId,
+        jobTitle: invite.jobTitle || '',
+      });
+    } catch (respErr) {
+      logger.warn('[acceptCompanyInvite] soft Responsibility assign failed:', respErr?.message || respErr);
+    }
+
     await CompanyInvite.updateOne(
       { _id: invite._id },
       {
@@ -479,6 +609,9 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         organizationId: String(invite.organization),
         membershipId: String(membership._id),
         userId: resolvedUserId,
+        employeeCode: invite.employeeCode || null,
+        jobTitle: invite.jobTitle || null,
+        departmentId: invite.departmentId ? String(invite.departmentId) : null,
       },
       message: created
         ? 'Tài khoản đã được tạo. Vui lòng đăng nhập bằng thông tin được cấp.'

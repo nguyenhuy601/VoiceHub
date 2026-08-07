@@ -18,6 +18,23 @@ const companyInviteSchema = new mongoose.Schema(
     },
     firstName: { type: String, trim: true, default: '' },
     lastName: { type: String, trim: true, default: '' },
+    /** Mã NV hệ thống cấp (VH-001…) — bắt buộc với lời mời mới */
+    employeeCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+      index: true,
+    },
+    /** Phòng HR chọn lúc mời */
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Department',
+      default: null,
+    },
+    departmentName: { type: String, trim: true, default: '' },
+    /** Chức danh HR — Position SoT */
+    jobTitle: { type: String, trim: true, default: '' },
     role: {
       type: String,
       enum: ['owner', 'admin', 'hr', 'member'],
