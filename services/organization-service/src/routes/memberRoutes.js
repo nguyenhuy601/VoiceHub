@@ -23,8 +23,20 @@ router.put('/:userId/role', authorize(['owner', 'admin']), memberController.upda
 router.delete('/:userId', authorize(['owner', 'admin']), memberController.removeMember);
 
 // Excel import (strict rejection, HR internal)
+// template TRƯỚC :batchId — tránh "template" bị nuốt thành batchId → 400
+router.get('/import/template', authorize(['owner', 'admin', 'hr']), memberImportController.downloadTemplate);
+router.post(
+  '/import/preview',
+  authorize(['owner', 'admin', 'hr']),
+  memberImportUpload.single('file'),
+  memberImportController.previewExcel
+);
+router.post(
+  '/import/confirm',
+  authorize(['owner', 'admin', 'hr']),
+  memberImportController.confirmExcel
+);
 router.post('/import', authorize(['owner', 'admin', 'hr']), memberImportUpload.single('file'), memberImportController.importExcel);
 router.get('/import/:batchId', authorize(['owner', 'admin', 'hr']), memberImportController.getBatchStatus);
-router.get('/import/template', authorize(['owner', 'admin', 'hr']), memberImportController.downloadTemplate);
 
 module.exports = router;
