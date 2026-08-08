@@ -469,7 +469,7 @@ export const adminDomainStrings = {
       confirmHrExcel: 'Xác nhận import',
       submitHrExcel: 'Nạp file',
       hrExcelHint:
-        'Upload → Preview (máy quét lỗi) → Xác nhận import. Bắt buộc: fullName, email, departmentCode, jobTitle, primaryDomain, skills, yearsExperience. employeeCode để trống = tự cấp VH-xxx. Confirm ghi theo lô 50 (concurrency có trần).',
+        'Tải mẫu: dòng 1 = key Anh (chuẩn); dòng 2 = chú thích tiếng Việt (không import). Dropdown phòng / chức danh / chuyên môn / vai trò. Sai → sửa file → Preview. Confirm khi 0 lỗi. Không sửa trên web.',
       hrExcelPreviewOk: 'Preview OK — {count} dòng sẵn sàng Confirm.',
       hrExcelPreviewFail: 'Preview thất bại — sửa file rồi Preview lại.',
       hrExcelConfirmNeedPreview: 'Hãy Preview thành công trước khi Confirm.',
@@ -1968,7 +1968,7 @@ export const adminDomainStrings = {
       confirmHrExcel: 'Confirm import',
       submitHrExcel: 'Upload file',
       hrExcelHint:
-        'Upload → Preview (machine validation) → Confirm. Required: fullName, email, departmentCode, jobTitle, primaryDomain, skills, yearsExperience. Blank employeeCode = auto VH-xxx. Confirm writes in chunks of 50 (bounded concurrency).',
+        'Download template: row 1 = English keys; row 2 = Vietnamese hints (not imported). Dept / job title / domain / org-role dropdowns. Errors → fix file → Preview. Confirm when 0 errors. No in-browser cell edits.',
       hrExcelPreviewOk: 'Preview OK — {count} rows ready to Confirm.',
       hrExcelPreviewFail: 'Preview failed — fix the file and Preview again.',
       hrExcelConfirmNeedPreview: 'Run a successful Preview before Confirm.',
