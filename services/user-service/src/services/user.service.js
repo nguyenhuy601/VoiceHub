@@ -157,6 +157,10 @@ class UserService {
         displayName: displayName || finalUsername,
         ...writeDateOfBirthFields(dateOfBirth || null),
       });
+      if (userProfile.employeeCode == null) {
+        userProfile.employeeCode = undefined;
+        userProfile.set('employeeCode', undefined);
+      }
 
       await userProfile.save();
 
@@ -365,6 +369,240 @@ class UserService {
       logger.error('Error updating user profile:', error);
       throw error;
     }
+  }
+
+  /**
+   * Internal — trả danh sách employeeCode đã tồn tại (uppercase) trong các mã gửi lên.
+   * Dùng precheck Excel import (strict trước khi provision).
+   */
+  async findTakenEmployeeCodes(codes) {
+    const normalized = [
+      ...new Set(
+        (Array.isArray(codes) ? codes : [])
+          .map((c) => String(c || '').trim().toUpperCase())
+          .filter(Boolean)
+      ),
+    ];
+    if (!normalized.length) return [];
+
+    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rows = await UserProfile.find({
+      $or: normalized.map((c) => ({
+        employeeCode: new RegExp(`^${escapeRegex(c)}$`, 'i'),
+      })),
+    })
+      .select('employeeCode')
+      .lean();
+
+    return [
+      ...new Set(
+        rows
+          .map((r) => String(r.employeeCode || '').trim().toUpperCase())
+          .filter(Boolean)
+      ),
+    ];
+  }
+
+  /**
+   * Internal — max số thứ tự employeeCode theo prefix (VD VH- → 1 từ VH-001).
+   * Dùng bootstrap counter org-service (invite + Excel cùng sequence).
+   */
+  async findMaxEmployeeCodeSeq(prefix = 'VH-') {
+    const p = String(prefix || 'VH-')
+      .trim()
+      .toUpperCase() || 'VH-';
+    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rows = await UserProfile.find({
+      employeeCode: { $regex: `^${escapeRegex(p)}\\d+$`, $options: 'i' },
+    })
+      .select('employeeCode')
+      .lean();
+
+    let max = 0;
+    for (const r of rows) {
+      const raw = String(r.employeeCode || '')
+        .trim()
+        .toUpperCase();
+      if (!raw.startsWith(p)) continue;
+      const rest = raw.slice(p.length);
+      if (!/^\d+$/.test(rest)) continue;
+      const n = Number(rest);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+
+  /**
+   * Internal — bulk import profile fields from org-service (Excel).
+   * Không chạy FSM verify/capability sanitize FSM vì org-service đã là HR internal.
+   */
+  async internalBulkImportProfileFields(userId, payload) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw serviceError('userId là bắt buộc', 400, 'USER_VALIDATION');
+
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const now = new Date();
+
+    const employeeCodeRaw =
+      body.employeeCode != null ? String(body.employeeCode || '').trim() : '';
+    const employeeCode = employeeCodeRaw ? employeeCodeRaw.toUpperCase() : null;
+
+    if (employeeCode) {
+      const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const clash = await UserProfile.findOne({
+        userId: { $ne: uid },
+        employeeCode: new RegExp(`^${escapeRegex(employeeCode)}$`, 'i'),
+      })
+        .select('userId employeeCode')
+        .lean();
+      if (clash) {
+        throw serviceError(
+          `employeeCode đã tồn tại: ${employeeCode}`,
+          409,
+          'EMPLOYEE_CODE_TAKEN'
+        );
+      }
+    }
+    const jobTitle = body.jobTitle != null ? String(body.jobTitle || '').trim() : '';
+    const displayName =
+      body.displayName != null ? String(body.displayName || '').trim().slice(0, 100) : '';
+    const hasPhoneField = Object.prototype.hasOwnProperty.call(body, 'phone');
+
+    const capRaw = body.capability && typeof body.capability === 'object' ? body.capability : {};
+    const primaryDomain = String(capRaw.primaryDomain || body.primaryDomain || 'other').trim();
+    const availability = String(capRaw.availability || 'available').trim();
+    const yearsExperienceRaw = capRaw.yearsExperience ?? body.yearsExperience;
+    const yearsExperience =
+      yearsExperienceRaw == null || yearsExperienceRaw === '' ? null : Math.round(Number(yearsExperienceRaw));
+
+    const skills = Array.isArray(capRaw.skills) ? capRaw.skills : [];
+    const normalizedSkills = skills
+      .map((s) => {
+        const name = String(s?.name || s).trim();
+        if (!name) return null;
+        let level = Number(s?.level ?? 3);
+        if (!Number.isFinite(level)) level = 3;
+        level = Math.max(1, Math.min(5, Math.round(level)));
+        return { name, level };
+      })
+      .filter(Boolean)
+      .slice(0, 20);
+
+    const summary = String(capRaw.summary || body.summary || '').trim().slice(0, 1000);
+
+    // Schema enums: primaryDomain/availability are validated by UI submit; here we fail-safe.
+    const safeAvailability = ['available', 'busy', 'partial'].includes(availability) ? availability : 'available';
+    const safePrimaryDomain = primaryDomain ? primaryDomain : 'other';
+
+    const capability = {
+      positionCode: capRaw.positionCode || '',
+      primaryDomain: safePrimaryDomain,
+      yearsExperience: yearsExperience == null || !Number.isFinite(yearsExperience) ? null : yearsExperience,
+      skills: normalizedSkills,
+      availability: safeAvailability,
+      summary,
+      verificationStatus: 'verified',
+      source: 'manual',
+      rejectReason: '',
+      submittedAt: null,
+      verifiedAt: now,
+      verifiedBy: body.uploadedBy || null,
+      rejectedAt: null,
+      updatedAt: now,
+      cvFilePath: capRaw.cvFilePath || '',
+      cvFileName: capRaw.cvFileName || '',
+      cvUploadedAt: capRaw.cvUploadedAt || null,
+    };
+
+    const rcRaw = body.resourceConfig && typeof body.resourceConfig === 'object' ? body.resourceConfig : {};
+    const maxConcurrentProjects = Number(
+      rcRaw.maxConcurrentProjects ?? body.maxConcurrentProjects ?? capRaw.maxConcurrentProjects ?? 2
+    );
+    if (!Number.isFinite(maxConcurrentProjects) || maxConcurrentProjects < 1 || maxConcurrentProjects > 20) {
+      throw serviceError('maxConcurrentProjects không hợp lệ', 400, 'RESOURCE_CONFIG_MAX_INVALID');
+    }
+
+    const resourceConfig = {
+      maxConcurrentProjects: Math.floor(maxConcurrentProjects),
+      verificationStatus: 'verified',
+      verifiedAt: now,
+      verifiedBy: body.uploadedBy || null,
+      rejectedAt: null,
+      rejectReason: '',
+      updatedAt: now,
+    };
+
+    // Invite accept: chỉ gắn mã NV / chức danh / capacity mặc định — không xóa capability draft của NV.
+    const structureOnly =
+      body.structureOnly === true || body.skipCapability === true;
+
+    const setFields = {};
+    if (employeeCode) setFields.employeeCode = employeeCode;
+    if (body.jobTitle != null) setFields['preferences.jobTitle'] = jobTitle;
+    if (displayName) setFields.displayName = displayName;
+
+    if (!structureOnly) {
+      setFields.capability = capability;
+      setFields.resourceConfig = resourceConfig;
+    } else if (body.resourceConfig && typeof body.resourceConfig === 'object') {
+      setFields.resourceConfig = resourceConfig;
+    }
+
+    if (!Object.keys(setFields).length && !hasPhoneField) {
+      throw serviceError('Không có field để cập nhật', 400, 'USER_BULK_EMPTY');
+    }
+
+    let unsetFields = null;
+    if (hasPhoneField) {
+      const pii = writePiiPatch({ phone: body.phone });
+      Object.assign(setFields, pii.patch || {});
+      if (Array.isArray(pii.unset) && pii.unset.length) {
+        unsetFields = Object.fromEntries(pii.unset.map((k) => [k, 1]));
+      }
+    }
+
+    const updateOps = { $set: setFields };
+    if (unsetFields) updateOps.$unset = unsetFields;
+
+    let updated = await UserProfile.findOneAndUpdate(
+      { userId: uid },
+      updateOps,
+      { new: true, runValidators: true }
+    );
+
+    // Excel/HR import: auth có thể tồn tại trong khi profile chưa bootstrap (hoặc đã deactivate).
+    // Tự tạo profile tối thiểu rồi apply lại bulk fields — tránh 404 làm fail cả batch.
+    if (!updated) {
+      const emailRaw =
+        body.email != null
+          ? String(body.email || '').trim().toLowerCase()
+          : '';
+      if (!emailRaw || !emailRaw.includes('@')) {
+        throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+      }
+      try {
+        await this.createUserProfile({
+          userId: uid,
+          email: emailRaw,
+          displayName: displayName || emailRaw.split('@')[0],
+          username: emailRaw.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 24),
+        });
+      } catch (createErr) {
+        // Race: profile vừa được bootstrap song song
+        const again = await UserProfile.findOne({ userId: uid }).select('_id').lean();
+        if (!again) throw createErr;
+      }
+      updated = await UserProfile.findOneAndUpdate(
+        { userId: uid },
+        updateOps,
+        { new: true, runValidators: true }
+      );
+    }
+
+    if (!updated) {
+      throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+    }
+    return updated;
   }
 
   // Cập nhật status

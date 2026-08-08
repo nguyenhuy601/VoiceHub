@@ -775,6 +775,8 @@ class AuthService {
         touched = true;
       }
       if (touched) await existingUser.save();
+      // Re-import / compensate: auth còn mà profile mất → bootstrap lại trước khi org ghi fields.
+      await bootstrapUserProfile(existingUser, existingUser.userId);
       // Luôn sync email profile (kể cả không touched) — sửa data bị ghi nhầm email admin.
       try {
         await syncUserProfileEmail(existingUser.userId, normalizedEmail);

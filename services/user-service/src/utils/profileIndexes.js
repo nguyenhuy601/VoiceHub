@@ -40,6 +40,33 @@ async function ensureProfileIndexes() {
     }
   );
   logger.info('[profileIndexes] Ensured partial unique phoneBlindIndex_1');
+
+  const unsetEmp = await coll.updateMany(
+    { $or: [{ employeeCode: null }, { employeeCode: '' }] },
+    { $unset: { employeeCode: '' } }
+  );
+  if (unsetEmp.modifiedCount > 0) {
+    logger.info(`[profileIndexes] Unset empty employeeCode on ${unsetEmp.modifiedCount} profile(s)`);
+  }
+  try {
+    await coll.dropIndex('employeeCode_1');
+    logger.info('[profileIndexes] Dropped legacy employeeCode_1');
+  } catch (error) {
+    const code = Number(error?.code);
+    const msg = String(error?.message || '');
+    if (code !== 27 && !msg.includes('index not found') && !msg.includes('ns not found')) {
+      throw error;
+    }
+  }
+  await coll.createIndex(
+    { employeeCode: 1 },
+    {
+      unique: true,
+      name: 'employeeCode_1',
+      partialFilterExpression: { employeeCode: { $type: 'string' } },
+    }
+  );
+  logger.info('[profileIndexes] Ensured partial unique employeeCode_1');
 }
 
 module.exports = { ensureProfileIndexes };

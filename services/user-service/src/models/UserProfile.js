@@ -20,7 +20,7 @@ const userProfileSchema = new mongoose.Schema(
       trim: true,
       unique: true,
       sparse: true,
-      default: null,
+      // Không default null — unique sparse chỉ đúng khi field vắng (nhiều hồ sơ chưa có mã).
     },
     username: {
       type: String,
