@@ -1,6 +1,6 @@
 const axios = require('axios');
-const XLSX = require('xlsx');
 
+const { parseExcelToRawRows } = require('../utils/excelImportParse');
 const { validateResourceImportRows } = require('../utils/resourceImportValidator');
 const { resolveAllowedEmailDomains } = require('../utils/emailDomainPolicy');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
@@ -52,58 +52,6 @@ function guessPrimaryDomainFromJobTitle(jobTitle) {
   if (jt.includes('ba') || jt.includes('business analyst') || jt.includes('analyst')) return 'ba';
   if (jt.includes('devops') || jt.includes('kubernetes') || jt.includes('docker')) return 'devops';
   return 'other';
-}
-
-function parseExcelToRawRows(fileBuffer) {
-  const wb = XLSX.read(fileBuffer, { type: 'buffer' });
-  const sheetName = wb.SheetNames?.[0];
-  if (!sheetName) throw new Error('Excel file missing sheet');
-
-  const sheet = wb.Sheets[sheetName];
-  const rows2d = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  if (!Array.isArray(rows2d) || rows2d.length < 2) {
-    throw Object.assign(new Error('Excel has no data rows'), {
-      statusCode: 400,
-      errorCode: 'VALIDATION_REQUIRED',
-    });
-  }
-
-  const headerRow = rows2d[0];
-  const headerIndex = {};
-  for (let i = 0; i < headerRow.length; i += 1) {
-    const key = String(headerRow[i] || '')
-      .trim()
-      .toLowerCase();
-    if (!key) continue;
-    headerIndex[key] = i;
-  }
-
-  const getCell = (row, key) => {
-    const idx = headerIndex[String(key).toLowerCase()];
-    if (idx == null) return '';
-    return row[idx];
-  };
-
-  const normalizedRowsRaw = [];
-  for (let i = 1; i < rows2d.length && normalizedRowsRaw.length < DATA_LIMIT; i += 1) {
-    const rowArr = rows2d[i];
-    const rowNumber = i + 1;
-    normalizedRowsRaw.push({
-      rowNumber,
-      employeeCode: getCell(rowArr, 'employeecode'),
-      fullName: getCell(rowArr, 'fullname') || getCell(rowArr, 'displayname') || getCell(rowArr, 'hoten'),
-      email: getCell(rowArr, 'email'),
-      phone: getCell(rowArr, 'phone') || getCell(rowArr, 'sodienthoai') || getCell(rowArr, 'sdt'),
-      departmentCode: getCell(rowArr, 'departmentcode'),
-      jobTitle: getCell(rowArr, 'jobtitle'),
-      primaryDomain: getCell(rowArr, 'primarydomain') || getCell(rowArr, 'domain'),
-      skills: getCell(rowArr, 'skills'),
-      yearsExperience: getCell(rowArr, 'yearsexperience'),
-      maxConcurrentProjects: getCell(rowArr, 'maxconcurrentprojects'),
-      orgRole: getCell(rowArr, 'orgrole'),
-    });
-  }
-  return normalizedRowsRaw;
 }
 
 async function deactivateProvisionedAuthUser(userId) {
