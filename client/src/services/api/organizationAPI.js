@@ -341,7 +341,7 @@ export const organizationAPI = {
     return response;
   },
 
-  /** HR import nhân sự qua Excel (.xlsx) — strict rejection + compensate */
+  /** HR import nhân sự qua Excel (.xlsx) — strict rejection + compensate (legacy one-shot) */
   importMembersExcel: async (orgId, file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -349,6 +349,27 @@ export const organizationAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
       skipGlobalErrorHandling: true,
     });
+    return response;
+  },
+
+  /** Preview Excel — validate only, chưa ghi user */
+  previewMembersExcel: async (orgId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/organizations/${orgId}/members/import/preview`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Confirm batch preview → provision (chunk + concurrency) */
+  confirmMembersExcel: async (orgId, batchId) => {
+    const response = await apiClient.post(
+      `/organizations/${orgId}/members/import/confirm`,
+      { batchId },
+      { skipGlobalErrorHandling: true }
+    );
     return response;
   },
 
