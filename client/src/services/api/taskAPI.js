@@ -175,11 +175,14 @@ export const taskAPI = {
   },
 
   // Get task statistics
-  getStatistics: (organizationId) => {
-    if (organizationId == null || organizationId === '') {
-      return apiClient.get('/tasks/statistics');
+  getStatistics: (organizationId, opts = {}) => {
+    const params = new URLSearchParams();
+    if (organizationId != null && organizationId !== '') {
+      params.set('organizationId', String(organizationId));
     }
-    return apiClient.get(`/tasks/statistics?organizationId=${encodeURIComponent(organizationId)}`);
+    if (opts.view) params.set('view', String(opts.view));
+    const q = params.toString();
+    return apiClient.get(q ? `/tasks/statistics?${q}` : '/tasks/statistics');
   },
 
   createBoard: (payload = {}) => {

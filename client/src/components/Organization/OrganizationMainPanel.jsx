@@ -1211,6 +1211,7 @@ const OrganizationMainPanel = ({
           : prev.lists;
         return { ...prev, cards, lists };
       });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.addCardFail')));
     }
@@ -1259,6 +1260,7 @@ const OrganizationMainPanel = ({
         });
         return { ...prev, cards };
       });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.moveCardFail')));
       throw err;
@@ -1289,6 +1291,7 @@ const OrganizationMainPanel = ({
         );
         return { ...prev, cards };
       });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));
       throw err;

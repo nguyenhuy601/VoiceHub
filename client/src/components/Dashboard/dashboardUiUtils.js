@@ -1,4 +1,15 @@
-import { Bell, Building2, CheckCircle2, MessageCircle, Timer, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bell,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  FolderKanban,
+  ListTodo,
+  MessageCircle,
+  Timer,
+  Users,
+} from 'lucide-react';
 
 export const METRIC_ICON_MAP = {
   org: Building2,
@@ -9,6 +20,10 @@ export const METRIC_ICON_MAP = {
   personnel: Users,
   ontime: CheckCircle2,
   response: Timer,
+  overdue: AlertTriangle,
+  dueWeek: CalendarClock,
+  myOpen: ListTodo,
+  open: FolderKanban,
 };
 
 export const METRIC_COLOR_MAP = {
@@ -20,6 +35,10 @@ export const METRIC_COLOR_MAP = {
   personnel: { color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
   ontime: { color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)' },
   response: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+  overdue: { color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
+  dueWeek: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+  myOpen: { color: '#2563EB', bg: 'rgba(37,99,235,0.08)' },
+  open: { color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)' },
 };
 
 export function hashColorForSeed(seed) {

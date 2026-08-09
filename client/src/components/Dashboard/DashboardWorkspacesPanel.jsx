@@ -15,6 +15,8 @@ import {
 export default function DashboardWorkspacesPanel({
   workspaces,
   addFriendLabel,
+  showCreateWorkspace = true,
+  showAddFriend = true,
   onViewAll,
   onWorkspaceClick,
   onCreateWorkspace,
@@ -82,32 +84,36 @@ export default function DashboardWorkspacesPanel({
           ))
         )}
       </div>
-      <button
-        type="button"
-        onClick={onCreateWorkspace}
-        className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_DASHED}`}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = '#2563EB';
-          e.currentTarget.style.color = '#2563EB';
-          e.currentTarget.style.background = 'rgba(37,99,235,0.04)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = 'var(--border)';
-          e.currentTarget.style.color = 'var(--muted-foreground)';
-          e.currentTarget.style.background = 'transparent';
-        }}
-      >
-        <Plus size={13} />
-        {t('dashboard.createWorkspaceBtn')}
-      </button>
-      <button
-        type="button"
-        onClick={onAddFriend}
-        className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_PRIMARY}`}
-      >
-        <Users size={13} />
-        {addFriendLabel}
-      </button>
+      {showCreateWorkspace ? (
+        <button
+          type="button"
+          onClick={onCreateWorkspace}
+          className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_DASHED}`}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#2563EB';
+            e.currentTarget.style.color = '#2563EB';
+            e.currentTarget.style.background = 'rgba(37,99,235,0.04)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border)';
+            e.currentTarget.style.color = 'var(--muted-foreground)';
+            e.currentTarget.style.background = 'transparent';
+          }}
+        >
+          <Plus size={13} />
+          {t('dashboard.createWorkspaceBtn')}
+        </button>
+      ) : null}
+      {showAddFriend ? (
+        <button
+          type="button"
+          onClick={onAddFriend}
+          className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_PRIMARY}`}
+        >
+          <Users size={13} />
+          {addFriendLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

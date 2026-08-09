@@ -9,6 +9,9 @@ export const STALE_TIME_ORGS_MS = 120_000;
 /** Danh sách bạn — trung bình */
 export const STALE_TIME_FRIENDS_MS = 60_000;
 
+/** Dashboard BFF — khớp TTL cache gateway (~45s) */
+export const STALE_TIME_DASHBOARD_MS = 30_000;
+
 export const GC_TIME_MS = 10 * 60_000;
 
 export const queryClient = new QueryClient({

@@ -5,7 +5,6 @@ import {
   Calendar,
   CheckCircle2,
   FileText,
-  Flame,
   MessageCircle,
   Mic,
   Settings,
@@ -37,8 +36,6 @@ import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { meetingAPI } from '../../services/api/meetingAPI';
-import { organizationAPI } from '../../services/api/organizationAPI';
-import { taskAPI } from '../../services/api/taskAPI';
 import {
   useDashboardSummary,
   useFriendPending,
@@ -63,6 +60,7 @@ import { formatMessagePreview } from '../../features/search/formatMessagePreview
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { dashPersonaShowsOrgHealth, resolveDashPersona } from '../../utils/dashboardPersona';
 
 function truncateText(value, maxLength = 56) {
   const text = String(value || '').trim();
@@ -116,30 +114,7 @@ function dayKeyFromDate(value) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Tổng task done trong org — đã dùng ở thẻ chỉ số (từng org gọi GET /statistics). */
-async function sumTaskDoneAcrossOrgs(orgIds) {
-  if (!Array.isArray(orgIds) || orgIds.length === 0) {
-    return { total: 0, allFailed: false };
-  }
-  let total = 0;
-  let failures = 0;
-  await Promise.all(
-    orgIds.map(async (oid) => {
-      const raw = await taskAPI.getStatistics(oid).catch(() => null);
-      if (!raw) {
-        failures += 1;
-        return;
-      }
-      const stats = raw?.data?.data ?? raw?.data ?? raw;
-      const done = Number(stats?.done);
-      if (!Number.isFinite(done)) failures += 1;
-      else total += done;
-    })
-  );
-  return { total, allFailed: failures === orgIds.length };
-}
-
-async function fetchMessagesForDashboardPaged(api, { maxPages = 3, limit = 50 } = {}) {
+async function fetchMessagesForDashboardPaged(api, { maxPages = 1, limit = 30 } = {}) {
   const rows = [];
   let pageToken;
   for (let i = 0; i < maxPages; i += 1) {
@@ -153,20 +128,6 @@ async function fetchMessagesForDashboardPaged(api, { maxPages = 3, limit = 50 } 
     rows.push(...batch);
     if (!page.hasMore || !page.nextPageToken) break;
     pageToken = page.nextPageToken;
-  }
-  return rows;
-}
-
-async function fetchTasksForDashboardPaged({ maxPages = 3, limit = 50 } = {}) {
-  const rows = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const res = await taskAPI.getTasks({ limit, page }).catch(() => null);
-    if (!res) break;
-    const body = res?.data?.data ?? res?.data ?? res;
-    const batch = Array.isArray(body?.tasks) ? body.tasks : [];
-    if (!batch.length) break;
-    rows.push(...batch);
-    if (batch.length < limit) break;
   }
   return rows;
 }
@@ -295,6 +256,16 @@ function DashboardPage({
     totalMembers: null,
     onTimeRate: null,
     avgResponseMinutes: null,
+    overdue: null,
+    dueThisWeek: null,
+    myOpen: null,
+    myOverdue: null,
+    myDueThisWeek: null,
+    openCount: null,
+    boards: [],
+    membershipRole: null,
+    structureRole: null,
+    overdueItems: [],
   });
   /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
   const [presenceFriends, setPresenceFriends] = useState([]);
@@ -490,6 +461,16 @@ function DashboardPage({
         totalMembers: 0,
         onTimeRate: 0,
         avgResponseMinutes: 0,
+        overdue: 0,
+        dueThisWeek: 0,
+        myOpen: 0,
+        myOverdue: 0,
+        myDueThisWeek: 0,
+        openCount: 0,
+        boards: [],
+        membershipRole: null,
+        structureRole: null,
+        overdueItems: [],
       });
       setPresenceFriends([]);
       setUpcomingMeetings([]);
@@ -507,12 +488,19 @@ function DashboardPage({
       try {
         const orgList = Array.isArray(orgsQuery.data) ? orgsQuery.data : [];
         setWorkspaceEntries(
-          orgList.slice(0, 6).map((org) => ({
-            id: org?._id || org?.id,
-            name: org?.name || t('dashboard.orgFallback'),
-            slug: org?.slug || '',
-            myRole: org?.myRole || org?.role || 'member',
-          }))
+          orgList.slice(0, 6).map((org) => {
+            const memberCount = Number(
+              org?.memberCount ?? org?.membersCount ?? org?.totalMembers ?? org?.stats?.memberCount
+            );
+            return {
+              id: org?._id || org?.id,
+              name: org?.name || t('dashboard.orgFallback'),
+              slug: org?.slug || '',
+              myRole: org?.myRole || org?.role || 'member',
+              myStructureRole: org?.myStructureRole || org?.structureRole || null,
+              memberCount: Number.isFinite(memberCount) ? memberCount : Array.isArray(org?.members) ? org.members.length : null,
+            };
+          })
         );
         const orgSlugById = new Map(
           orgList.map((org) => [String(org?._id || org?.id || ''), String(org?.slug || '')])
@@ -523,13 +511,22 @@ function DashboardPage({
           .map((org) => String(org?._id || org?.id || '').trim())
           .filter(isValidObjectId);
 
-        let taskDone = summary?.taskDone ?? null;
-        if (taskDone == null && orgIds.length === 0) {
-          taskDone = 0;
-        } else if (taskDone == null && orgIds.length > 0) {
-          const taskStats = await sumTaskDoneAcrossOrgs(orgIds);
-          taskDone = taskStats.allFailed ? null : taskStats.total;
-        }
+        const taskDone = summary?.taskDone ?? (orgIds.length === 0 ? 0 : null);
+        const overdue = Number.isFinite(Number(summary?.overdue)) ? Number(summary.overdue) : null;
+        const dueThisWeek = Number.isFinite(Number(summary?.dueThisWeek))
+          ? Number(summary.dueThisWeek)
+          : null;
+        const myOpen = Number.isFinite(Number(summary?.myOpen)) ? Number(summary.myOpen) : null;
+        const myOverdue = Number.isFinite(Number(summary?.myOverdue)) ? Number(summary.myOverdue) : null;
+        const myDueThisWeek = Number.isFinite(Number(summary?.myDueThisWeek))
+          ? Number(summary.myDueThisWeek)
+          : null;
+        const openCount = Number.isFinite(Number(summary?.openCount)) ? Number(summary.openCount) : null;
+        const boards = Array.isArray(summary?.boards) ? summary.boards : [];
+        const overdueItems = Array.isArray(summary?.overdueItems) ? summary.overdueItems : [];
+        const membershipRole = summary?.membershipRole || orgList[0]?.myRole || orgList[0]?.role || null;
+        const structureRole =
+          summary?.structureRole || orgList[0]?.myStructureRole || orgList[0]?.structureRole || null;
 
         const friendsRaw = Array.isArray(friendsQuery.data) ? friendsQuery.data : [];
         const friendsTotal =
@@ -550,7 +547,7 @@ function DashboardPage({
           summary?.totalMembers ??
           summary?.membersTotal ??
           summary?.activeMembersTotal ??
-          (totalMembersFromOrgs > 0 ? totalMembersFromOrgs : friendsTotal);
+          (orgIds.length ? totalMembersFromOrgs : null);
 
         const presence = friendsRaw.slice(0, 12).map((row) => {
           const u = row.friendId && typeof row.friendId === 'object' ? row.friendId : null;
@@ -691,27 +688,9 @@ function DashboardPage({
           t('dashboard.weekDaySat'),
         ];
         const daily = {};
-        const taskRows = await fetchTasksForDashboardPaged({ maxPages: 25, limit: 100 }).catch(() => []);
-        let tasksWithDueAndCompletion = 0;
-        let tasksCompletedOnTime = 0;
-        taskRows.forEach((task) => {
-          const status = String(task.status || task.state || '').toLowerCase();
-          const completedAtRaw = task.completedAt || task.completed_at || task.doneAt || task.updatedAt;
-          const dueAtRaw = task.dueDate || task.dueAt || task.deadline || task.endDate;
-          const isCompleted =
-            Boolean(task.completedAt || task.doneAt) ||
-            ['done', 'completed', 'complete', 'closed'].includes(status);
-          const completedTs = completedAtRaw ? new Date(completedAtRaw).getTime() : NaN;
-          const dueTs = dueAtRaw ? new Date(dueAtRaw).getTime() : NaN;
-          if (isCompleted && Number.isFinite(completedTs) && Number.isFinite(dueTs)) {
-            tasksWithDueAndCompletion += 1;
-            if (completedTs <= dueTs) tasksCompletedOnTime += 1;
-          }
-        });
-        const onTimeRate =
-          tasksWithDueAndCompletion > 0
-            ? Math.round((tasksCompletedOnTime / tasksWithDueAndCompletion) * 100)
-            : null;
+        const onTimeRate = Number.isFinite(Number(summary?.onTimeRate))
+          ? Number(summary.onTimeRate)
+          : null;
         const weeklyDayMap = new Map();
         const weekStart = new Date();
         weekStart.setHours(0, 0, 0, 0);
@@ -753,34 +732,7 @@ function DashboardPage({
             kind,
           });
         };
-        taskRows.forEach((task) => {
-          const taskMatchesUser =
-            !currentUserKey ||
-            [task.createdBy, task.assigneeId, task.completedBy].some((value) => getRowId(value) === currentUserKey);
-          if (!taskMatchesUser) return;
-          const key = dayKey(task.completedAt || task.updatedAt || task.createdAt);
-          if (key) daily[key] = { tasks: (daily[key]?.tasks || 0) + 1, messages: daily[key]?.messages || 0 };
-          const title = truncateText(task.title || task.name || t('dashboard.taskFallback') || 'Task', 40);
-          const status = String(task.status || '').toLowerCase();
-          const note = task.completedAt
-            ? t('dashboard.taskCompletedNote', { title })
-            : status && status !== 'todo'
-              ? t('dashboard.taskUpdatedNote', { title })
-              : t('dashboard.taskCreatedNote', { title });
-          const when = task.completedAt || task.updatedAt || task.createdAt;
-          const taskOrgId = getRowId(task.organizationId);
-          if (when) {
-            registerWeekItem({
-              when,
-              kind: 'task',
-              icon: task.completedAt ? '✅' : '📝',
-              title,
-              detail: note,
-              path: resolveWeeklyPath({ kind: 'task', organizationId: taskOrgId }),
-            });
-          }
-        });
-        const msgRows = await fetchMessagesForDashboardPaged(api, { maxPages: 3, limit: 50 }).catch(() => []);
+        const msgRows = await fetchMessagesForDashboardPaged(api, { maxPages: 1, limit: 30 }).catch(() => []);
         msgRows.forEach((msg) => {
           const senderId = getRowId(msg.senderId);
           if (currentUserKey && senderId !== currentUserKey) return;
@@ -820,41 +772,9 @@ function DashboardPage({
             });
           }
         });
-        const responseDiffs = [];
-        const dmMessagesByPeer = new Map();
-        msgRows.forEach((msg) => {
-          if (msg?.roomId || !currentUserKey) return;
-          const senderId = getRowId(msg?.senderId);
-          const receiverId = getRowId(msg?.receiverId);
-          const ts = msg?.createdAt ? new Date(msg.createdAt).getTime() : NaN;
-          if (!senderId || !receiverId || !Number.isFinite(ts)) return;
-          if (senderId !== currentUserKey && receiverId !== currentUserKey) return;
-          const peerId = senderId === currentUserKey ? receiverId : senderId;
-          if (!peerId) return;
-          const rows = dmMessagesByPeer.get(peerId) || [];
-          rows.push({ senderId, ts });
-          dmMessagesByPeer.set(peerId, rows);
-        });
-        dmMessagesByPeer.forEach((rows) => {
-          const ordered = [...rows].sort((a, b) => a.ts - b.ts);
-          let lastPeerTs = null;
-          ordered.forEach((row) => {
-            if (row.senderId === currentUserKey) {
-              if (lastPeerTs != null && row.ts >= lastPeerTs) {
-                const diffMin = (row.ts - lastPeerTs) / 60000;
-                if (diffMin >= 0 && diffMin <= 7 * 24 * 60) responseDiffs.push(diffMin);
-                lastPeerTs = null;
-              }
-            } else {
-              lastPeerTs = row.ts;
-            }
-          });
-        });
-        const avgResponseMinutes =
-          responseDiffs.length > 0
-            ? Math.round((responseDiffs.reduce((sum, n) => sum + n, 0) / responseDiffs.length) * 10) / 10
-            : null;
-        const communicationCount = msgRows.length + notifRows.length + mergedUpcoming.length;
+        const avgResponseMinutes = null;
+        const communicationCount =
+          (Number(unread) || 0) + mergedUpcoming.length + (Number(pendingCount) || 0);
 
         const friendNameById = new Map();
         friendsRaw.forEach((row) => {
@@ -936,6 +856,16 @@ function DashboardPage({
             totalMembers,
             onTimeRate,
             avgResponseMinutes,
+            overdue,
+            dueThisWeek,
+            myOpen,
+            myOverdue,
+            myDueThisWeek,
+            openCount,
+            boards,
+            membershipRole,
+            structureRole,
+            overdueItems,
           });
           setActivityDailyMap({ ...daily });
           setRecentDmContacts(dashboardRecentDms);
@@ -1091,6 +1021,18 @@ function DashboardPage({
     [locale]
   );
 
+  const dashPersona = useMemo(
+    () =>
+      resolveDashPersona({
+        uiRole: role,
+        membershipRole: metrics.membershipRole || workspaceEntries[0]?.myRole,
+        structureRole: metrics.structureRole || workspaceEntries[0]?.myStructureRole,
+        hasOrg: Number(metrics.orgCount || workspaceEntries.length) > 0,
+      }),
+    [role, metrics.membershipRole, metrics.structureRole, metrics.orgCount, workspaceEntries]
+  );
+  const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
+
   const stats = useMemo(() => {
     const fmt = (n) => {
       if (metrics.loading) return '…';
@@ -1098,177 +1040,109 @@ function DashboardPage({
       return String(n);
     };
     const loadingDetail = t('dashboard.loading');
-    return [
-      ...(isSingleCompany
-        ? []
-        : [
-            {
-              key: 'org',
-              icon: '📊',
-              label: t('dashboard.statOrg'),
-              value: fmt(metrics.orgCount),
-              change: '+1',
-              color: 'from-cyan-600 to-teal-600',
-              iconBg: 'from-[#0891b2] to-[#0d9488]',
-              sparkClass: 'text-emerald-400',
-              trend: 'up',
-              detail: metrics.loading ? loadingDetail : t('dashboard.detailOrg'),
-              drilldown: {
-                nguon: t('dashboard.drilldownSourceOrgApi'),
-                soToChuc: metrics.orgCount ?? '—',
-              },
-            },
-          ]),
-      {
-        key: 'tasks',
-        icon: '✅',
-        label: t('dashboard.statTaskDone'),
-        value: fmt(metrics.taskDone),
-        change: '-4',
-        color: 'from-blue-500 to-cyan-500',
-        iconBg: 'from-[#3B82F6] to-[#06b6d4]',
-        sparkClass: 'text-rose-400',
-        trend: 'down',
-        detail: metrics.loading ? loadingDetail : t('dashboard.detailTask'),
-        drilldown: {
-          nguon: t('dashboard.drilldownSourceTasksApi'),
-          done: metrics.taskDone ?? '—',
-          soToChuc: metrics.orgCount ?? '—',
-        },
+    const card = (partial) => ({
+      change: '',
+      trend: null,
+      ...partial,
+    });
+    const unreadCard = card({
+      key: 'notify',
+      label: t('dashboard.statNotify'),
+      value: fmt(metrics.unread),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailUnread'),
+      drilldown: {
+        nguon: t('dashboard.drilldownSourceNotifyApi'),
+        chuaDoc: metrics.unread,
       },
-      {
-        key: 'friends',
-        icon: '👥',
-        label: t('dashboard.statFriends'),
-        value: fmt(metrics.friendsTotal),
-        change: '+1',
-        color: 'from-emerald-500 to-teal-500',
-        iconBg: 'from-[#10B981] to-[#14b8a6]',
-        sparkClass: 'text-emerald-400',
-        trend: 'up',
-        detail: metrics.loading
-          ? loadingDetail
-          : t('dashboard.detailFriends', { count: metrics.pendingCount }),
-        drilldown: {
-          nguon: t('dashboard.drilldownSourceFriendsApi'),
-          soBan: metrics.friendsTotal ?? '—',
-          loiMoiCho: metrics.pendingCount,
-        },
+    });
+    const friendsCard = card({
+      key: 'friends',
+      label: t('dashboard.statFriends'),
+      value: fmt(metrics.friendsTotal),
+      detail: metrics.loading
+        ? loadingDetail
+        : t('dashboard.detailFriends', { count: metrics.pendingCount }),
+      drilldown: {
+        nguon: t('dashboard.drilldownSourceFriendsApi'),
+        soBan: metrics.friendsTotal ?? '—',
+        loiMoiCho: metrics.pendingCount,
       },
-      {
-        key: 'notify',
-        icon: '🔔',
-        label: t('dashboard.statNotify'),
-        value: fmt(metrics.unread),
-        change: '+2',
-        color: 'from-amber-500 to-orange-600',
-        iconBg: 'from-[#F59E0B] to-[#ea580c]',
-        sparkClass: 'text-emerald-400',
-        trend: 'up',
-        detail: metrics.loading ? loadingDetail : t('dashboard.detailUnread'),
-        drilldown: {
-          nguon: t('dashboard.drilldownSourceNotifyApi'),
-          chuaDoc: metrics.unread,
-        },
+    });
+    const myOpenCard = card({
+      key: 'myOpen',
+      label: t('dashboard.statMyOpen'),
+      value: fmt(metrics.myOpen),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailMyOpen'),
+      drilldown: { nguon: t('dashboard.drilldownSourceTasksApi'), done: metrics.myOpen ?? '—' },
+    });
+    const myOverdueCard = card({
+      key: 'overdue',
+      label: t('dashboard.statMyOverdue'),
+      value: fmt(metrics.myOverdue),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailMyOverdue'),
+      drilldown: { nguon: t('dashboard.drilldownSourceTasksApi'), done: metrics.myOverdue ?? '—' },
+    });
+    const dueWeekCard = card({
+      key: 'dueWeek',
+      label: t('dashboard.statMyDueWeek'),
+      value: fmt(metrics.myDueThisWeek),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailMyDueWeek'),
+      drilldown: { nguon: t('dashboard.drilldownSourceTasksApi'), done: metrics.myDueThisWeek ?? '—' },
+    });
+    const orgOverdueCard = card({
+      key: 'overdue',
+      label: t('dashboard.statOrgOverdue'),
+      value: fmt(metrics.overdue),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailOrgOverdue'),
+      drilldown: { nguon: t('dashboard.drilldownSourceTasksApi'), done: metrics.overdue ?? '—' },
+    });
+    const doneCard = card({
+      key: 'tasks',
+      label: t('dashboard.statTaskDone'),
+      value: fmt(metrics.taskDone),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailTask'),
+      drilldown: {
+        nguon: t('dashboard.drilldownSourceTasksApi'),
+        done: metrics.taskDone ?? '—',
+        soToChuc: metrics.orgCount ?? '—',
       },
-    ];
-  }, [metrics, t, isSingleCompany, meta.canManageMembers]);
+    });
+    const openCard = card({
+      key: 'open',
+      label: t('dashboard.statOpenCount'),
+      value: fmt(metrics.openCount),
+      detail: metrics.loading ? loadingDetail : t('dashboard.detailOpenCount'),
+      drilldown: { nguon: t('dashboard.drilldownSourceTasksApi'), done: metrics.openCount ?? '—' },
+    });
+    const membersCard = card({
+      key: 'personnel',
+      label: t('dashboard.statActivePersonnel'),
+      value: fmt(metrics.totalMembers),
+      detail: metrics.loading
+        ? loadingDetail
+        : t('dashboard.ofTotalPeople', { n: metrics.totalMembers ?? 0 }),
+      drilldown: { nguon: t('dashboard.drilldownSourceOrgApi'), soToChuc: metrics.orgCount ?? '—' },
+    });
 
-  const enterpriseStats = useMemo(() => {
-    const fmtNumber = (n) => {
-      if (metrics.loading) return '…';
-      if (n == null || n === '') return '—';
-      const num = Number(n);
-      if (!Number.isFinite(num)) return String(n);
-      return new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'vi-VN').format(num);
-    };
-    const fmtPercent = (n) => {
-      if (metrics.loading) return '…';
-      if (n == null || n === '') return '—';
-      const num = Number(n);
-      return Number.isFinite(num) ? `${Math.round(num)}%` : '—';
-    };
-    const fmtMinutes = (n) => {
-      if (metrics.loading) return '…';
-      if (n == null || n === '') return '—';
-      const num = Number(n);
-      if (!Number.isFinite(num)) return '—';
-      if (num < 1) return `${Math.max(1, Math.round(num * 60))}s`;
-      return `${num % 1 === 0 ? num.toFixed(0) : num.toFixed(1)}m`;
-    };
-    const lastDaysTotal = (daysBackStart, daysBackEnd) => {
-      let total = 0;
-      for (let i = daysBackStart; i <= daysBackEnd; i += 1) {
-        const d = new Date();
-        d.setHours(12, 0, 0, 0);
-        d.setDate(d.getDate() - i);
-        const key = dayKeyFromDate(d);
-        const bucket = activityDailyMap?.[key] || {};
-        total += Number(bucket.messages || 0) + Number(bucket.meetings || 0);
-      }
-      return total;
-    };
-    const recentComms = lastDaysTotal(0, 6);
-    const previousComms = lastDaysTotal(7, 13);
-    const commTrend =
-      previousComms > 0
-        ? `${Math.round(((recentComms - previousComms) / previousComms) * 100)}%`
-        : recentComms > 0
-          ? '100%'
-          : '';
-    const activeCount = Math.max(Number(onlineFriendCount) || 0, Number(metrics.activeMembers) || 0);
-    const totalMembers = Number(metrics.totalMembers ?? metrics.friendsTotal ?? displayPresenceFriends.length) || 0;
-    const avgResponse = Number(metrics.avgResponseMinutes);
-    const responseDelta =
-      Number.isFinite(avgResponse) ? Math.round((avgResponse - 5) * 10) / 10 : null;
-    return [
-      {
-        key: 'comms',
-        label: t('dashboard.statComms'),
-        value: fmtNumber(metrics.communicationCount),
-        change: commTrend ? `${commTrend}` : '',
-        trend: commTrend ? (String(commTrend).startsWith('-') ? 'down' : 'up') : null,
-        detail: t('dashboard.detailVsPrevWeek'),
-        icon: MessageCircle,
-        color: '#2563EB',
-        bg: 'rgba(37,99,235,0.08)',
-      },
-      {
-        key: 'personnel',
-        label: t('dashboard.statActivePersonnel'),
-        value: fmtNumber(totalMembers || activeCount),
-        change: activeCount > 0 ? `${fmtNumber(activeCount)} ${t('dashboard.onlineSuffix')}` : '',
-        trend: activeCount > 0 ? 'up' : null,
-        detail: totalMembers ? t('dashboard.ofTotalPeople', { n: fmtNumber(totalMembers) }) : '',
-        icon: Users,
-        color: '#10B981',
-        bg: 'rgba(16,185,129,0.08)',
-      },
-      {
-        key: 'ontime',
-        label: t('dashboard.statOnTimeRate'),
-        value: fmtPercent(metrics.onTimeRate),
-        change: '',
-        trend: null,
-        detail:
-          metrics.onTimeRate == null ? t('dashboard.notEnoughDueTasks') : t('dashboard.fromDueDateTasks'),
-        icon: CheckCircle2,
-        color: '#F97316',
-        bg: 'rgba(249,115,22,0.08)',
-      },
-      {
-        key: 'response',
-        label: t('dashboard.statAvgResponse'),
-        value: fmtMinutes(metrics.avgResponseMinutes),
-        change: responseDelta == null ? '' : `${responseDelta > 0 ? '+' : ''}${responseDelta}m`,
-        trend: responseDelta == null ? null : responseDelta <= 0 ? 'up' : 'down',
-        detail: t('dashboard.slaTarget'),
-        icon: Timer,
-        color: '#06B6D4',
-        bg: 'rgba(6,182,212,0.08)',
-      },
-    ];
-  }, [activityDailyMap, displayPresenceFriends.length, locale, metrics, onlineFriendCount, t]);
+    if (dashPersona === 'guest' || dashPersona === 'personal') {
+      return [friendsCard, unreadCard];
+    }
+    if (dashPersona === 'hr') {
+      return [membersCard, orgOverdueCard, unreadCard, friendsCard];
+    }
+    if (dashPersona === 'owner') {
+      return [orgOverdueCard, doneCard, openCard, membersCard];
+    }
+    if (dashPersona === 'admin') {
+      return [orgOverdueCard, membersCard, unreadCard, openCard];
+    }
+    if (dashPersona === 'manager') {
+      return [orgOverdueCard, dueWeekCard, doneCard, unreadCard];
+    }
+    return [myOpenCard, myOverdueCard, dueWeekCard, unreadCard];
+  }, [metrics, t, dashPersona]);
+
+  const enterpriseStats = stats;
 
   const selectedStat = useMemo(() => {
     if (!selectedStatKey) return null;
@@ -1360,25 +1234,23 @@ function DashboardPage({
   );
 
   const performanceStats = useMemo(() => {
-    const weekTasks = weeklyActivityDays.reduce((sum, d) => sum + (d.tasks || 0), 0);
-    const weekTotal = weeklyActivityDays.reduce((sum, d) => sum + (d.total || 0), 0);
-    const onTimePct =
-      weekTotal > 0 ? Math.min(100, Math.round((weekTasks / Math.max(1, weekTotal)) * 100)) : 0;
+    const open = Math.max(Number(metrics.openCount) || 0, Number(metrics.overdue) || 0, 1);
+    const mineOpen = Math.max(Number(metrics.myOpen) || 0, Number(metrics.myOverdue) || 0, 1);
+    const showOrg = dashPersonaShowsOrgHealth(dashPersona);
     return [
       {
-        label: t('dashboard.perfTasksWeek'),
-        value: weekTasks,
-        target: Math.max(weekTasks, 10),
-        color: '#10B981',
-        icon: CheckCircle2,
+        label: showOrg ? t('dashboard.statOrgOverdue') : t('dashboard.statMyOverdue'),
+        value: showOrg ? Number(metrics.overdue) || 0 : Number(metrics.myOverdue) || 0,
+        target: showOrg ? open : mineOpen,
+        color: '#EF4444',
+        icon: Timer,
       },
       {
-        label: t('dashboard.perfOnTimeRate'),
-        value: onTimePct,
-        target: 100,
-        unit: '%',
-        color: '#2563EB',
-        icon: Timer,
+        label: t('dashboard.statMyDueWeek'),
+        value: Number(metrics.myDueThisWeek) || 0,
+        target: Math.max(Number(metrics.myOpen) || 0, Number(metrics.myDueThisWeek) || 0, 1),
+        color: '#F59E0B',
+        icon: CheckCircle2,
       },
       {
         label: t('dashboard.perfTasksDone'),
@@ -1389,7 +1261,7 @@ function DashboardPage({
         icon: TrendingUp,
       },
     ];
-  }, [weeklyActivityDays, metrics.taskDone, t]);
+  }, [metrics, dashPersona, t]);
 
   const twoWaySyncFeed = useMemo(() => {
     const rows = [];
@@ -1446,19 +1318,18 @@ function DashboardPage({
   ]);
 
   const heroStats = useMemo(() => {
-    const weekTotal = weeklyActivityDays.reduce((sum, d) => sum + (d.total || 0), 0);
-    const productivity = Math.min(99, Math.max(12, Math.round((weekTotal / 35) * 100)));
-    const responseRate = Math.min(99, Math.max(20, 100 - Math.min(80, Number(metrics.unread) || 0) * 3));
-    const tasksDonePct =
-      metrics.taskDone == null
-        ? '—'
-        : `${Math.min(99, Math.max(5, Math.round((Number(metrics.taskDone) / Math.max(1, Number(metrics.orgCount) || 1)) * 10)))}%`;
+    const fmt = (n) => (metrics.loading ? '…' : n == null ? '—' : String(n));
     return [
-      { label: t('dashboard.heroProductivity'), value: `${productivity}%`, icon: TrendingUp, color: '#10B981' },
-      { label: t('dashboard.heroResponseRate'), value: `${responseRate}%`, icon: Zap, color: '#2563EB' },
-      { label: t('dashboard.heroTasksDone'), value: tasksDonePct, icon: Flame, color: '#F97316' },
+      { label: t('dashboard.statMyOpen'), value: fmt(metrics.myOpen), icon: CheckCircle2, color: '#10B981' },
+      { label: t('dashboard.statMyOverdue'), value: fmt(metrics.myOverdue), icon: Timer, color: '#EF4444' },
+      {
+        label: t('dashboard.heroMeetingsWeek'),
+        value: fmt(upcomingMeetings.length),
+        icon: Zap,
+        color: '#2563EB',
+      },
     ];
-  }, [weeklyActivityDays, metrics.unread, metrics.taskDone, metrics.orgCount, t]);
+  }, [metrics.loading, metrics.myOpen, metrics.myOverdue, upcomingMeetings.length, t]);
 
   const quickNavItems = useMemo(
     () => [
@@ -1594,7 +1465,7 @@ function DashboardPage({
           id: ws.id,
           name: ws.name,
           slug: ws.slug,
-          members: metrics.friendsTotal ?? 0,
+          members: ws.memberCount ?? metrics.totalMembers ?? 0,
           channels: 0,
           unread: 0,
           color,
@@ -1604,14 +1475,14 @@ function DashboardPage({
           }),
         };
       }),
-    [workspaceEntries, metrics.friendsTotal]
+    [workspaceEntries, metrics.totalMembers]
   );
 
   const metricCardsUi = useMemo(() => {
     const source = suiteLayout ? enterpriseStats : stats;
     return source.map((stat) => {
       const palette = METRIC_COLOR_MAP[stat.key] || METRIC_COLOR_MAP.org;
-      const Icon = stat.icon || METRIC_ICON_MAP[stat.key] || Building2;
+      const Icon = METRIC_ICON_MAP[stat.key] || Building2;
       return {
         ...stat,
         icon: Icon,
@@ -1631,7 +1502,11 @@ function DashboardPage({
       case 'org':
         return { path: '/organizations', cta: t('dashboard.statOpenOrg') };
       case 'tasks':
-        return { path: '/tasks', cta: t('dashboard.statOpenTasks') };
+      case 'myOpen':
+      case 'overdue':
+      case 'dueWeek':
+      case 'open':
+        return { path: '/app/collaborate/tasks', cta: t('dashboard.statOpenTasks') };
       case 'friends':
         return { path: '/app/communicate/chat/friends', cta: t('dashboard.statOpenFriends') };
       case 'notify':
@@ -1655,17 +1530,17 @@ function DashboardPage({
         color: '#2563EB',
       },
       {
-        label: t('dashboard.miniAvgTasksDay'),
-        value: (weeklyActivityDays.reduce((sum, d) => sum + d.tasks, 0) / 7).toFixed(1),
+        label: t('dashboard.statMyOpen'),
+        value: String(metrics.myOpen ?? '—'),
         color: '#10B981',
       },
       {
-        label: t('dashboard.miniPending'),
-        value: String(metrics.pendingCount || 0),
+        label: t('dashboard.statOrgOverdue'),
+        value: String(metrics.overdue ?? '—'),
         color: '#EF4444',
       },
     ],
-    [t, onlineFriendCount, displayPresenceFriends.length, weeklyActivityDays, metrics.pendingCount]
+    [t, onlineFriendCount, displayPresenceFriends.length, metrics.myOpen, metrics.overdue]
   );
 
   const shellH = landingDemo ? 'min-h-[760px] h-[760px]' : 'h-screen';
@@ -1686,6 +1561,27 @@ function DashboardPage({
       pendingApprovals={metrics.pendingApprovals || 0}
       heroStats={heroStats}
       hideRoleBanner={suiteLayout}
+      roleTitle={t(`dashboard.personaTitle.${dashPersona}`)}
+      roleHint={t(`dashboard.personaHint.${dashPersona}`)}
+      showWorkAnalytics={showWorkAnalytics}
+      boardHealth={dashPersonaShowsOrgHealth(dashPersona) ? metrics.boards || [] : []}
+      overdueItems={showWorkAnalytics ? metrics.overdueItems || [] : []}
+      onBoardClick={(board) => {
+        const oid = String(board?.organizationId || dashOrgId || '').trim();
+        navigate(
+          oid
+            ? buildCollaborateTasksPath(oid, { boardId: board?.id })
+            : '/app/collaborate/tasks'
+        );
+      }}
+      onOverdueClick={(item) => {
+        const oid = String(item?.organizationId || dashOrgId || '').trim();
+        navigate(
+          oid
+            ? buildCollaborateTasksPath(oid, { boardId: item?.boardId })
+            : '/app/collaborate/tasks'
+        );
+      }}
       insightPreview={false}
       syncFeedPreview={false}
       metricCards={metricCardsUi}
@@ -1710,6 +1606,7 @@ function DashboardPage({
       meetingsEmptyLabel={t('dashboard.noMeetingsWeek')}
       workspaces={workspacesUi}
       addFriendLabel={t('dashboard.addFriend')}
+      hideWorkspacesPanel={isSingleCompany}
       onCreateRoom={() => {
         toast.success(t('dashboard.toastCreatingRoom'));
         setTimeout(() => navigate('/app/communicate/voice'), 600);
@@ -1871,8 +1768,11 @@ function DashboardPage({
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <GlassCard className={modalGlass}>
-                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedStat.color} flex items-center justify-center text-3xl mb-4 mx-auto`}>
-                  {selectedStat.icon}
+                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedStat.color || 'from-cyan-600 to-teal-600'} flex items-center justify-center text-3xl mb-4 mx-auto`}>
+                  {(() => {
+                    const ModalIcon = METRIC_ICON_MAP[selectedStat.key] || Building2;
+                    return <ModalIcon size={28} className="text-white" />;
+                  })()}
                 </div>
                 <div className={`text-4xl font-black text-center mb-2 ${textHeading}`}>{selectedStat.value}</div>
                 <div className={`${textMuted} text-center`}>{selectedStat.label}</div>

@@ -57,6 +57,7 @@ export default function QueryRealtimeSync() {
     const invalidateFriends = () => {
 
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
 
     };
 
@@ -74,9 +75,10 @@ export default function QueryRealtimeSync() {
 
       if (!Number.isFinite(count)) {
 
-        queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
 
-        return;
+      return;
 
       }
 
@@ -112,6 +114,8 @@ export default function QueryRealtimeSync() {
 
       }
 
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+
     };
 
 
@@ -131,6 +135,7 @@ export default function QueryRealtimeSync() {
     const onLegacyNotification = () => {
 
       queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
 
     };
 

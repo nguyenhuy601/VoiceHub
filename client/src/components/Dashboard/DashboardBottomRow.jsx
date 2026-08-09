@@ -1,4 +1,4 @@
-import { FIGMA_DASH_THREE_COL } from './figmaDashboardClasses';
+import { FIGMA_DASH_THREE_COL, FIGMA_DASH_TWO_COL } from './figmaDashboardClasses';
 import DashboardRecentMessages from './DashboardRecentMessages';
 import DashboardUpcomingMeetings from './DashboardUpcomingMeetings';
 import DashboardWorkspacesPanel from './DashboardWorkspacesPanel';
@@ -9,6 +9,7 @@ export default function DashboardBottomRow({
   meetingsEmptyLabel,
   workspaces,
   addFriendLabel,
+  hideWorkspacesPanel = false,
   onMessagesViewAll,
   onMessageClick,
   onCalendarClick,
@@ -20,7 +21,7 @@ export default function DashboardBottomRow({
   onAddFriend,
 }) {
   return (
-    <div className={FIGMA_DASH_THREE_COL}>
+    <div className={hideWorkspacesPanel ? FIGMA_DASH_TWO_COL : FIGMA_DASH_THREE_COL}>
       <DashboardRecentMessages
         messages={messages}
         onViewAll={onMessagesViewAll}
@@ -33,14 +34,16 @@ export default function DashboardBottomRow({
         onMeetingClick={onMeetingClick}
         onCreateRoom={onCreateRoom}
       />
-      <DashboardWorkspacesPanel
-        workspaces={workspaces}
-        addFriendLabel={addFriendLabel}
-        onViewAll={onWorkspacesViewAll}
-        onWorkspaceClick={onWorkspaceClick}
-        onCreateWorkspace={onCreateWorkspace}
-        onAddFriend={onAddFriend}
-      />
+      {!hideWorkspacesPanel && (
+        <DashboardWorkspacesPanel
+          workspaces={workspaces}
+          addFriendLabel={addFriendLabel}
+          onViewAll={onWorkspacesViewAll}
+          onWorkspaceClick={onWorkspaceClick}
+          onCreateWorkspace={onCreateWorkspace}
+          onAddFriend={onAddFriend}
+        />
+      )}
     </div>
   );
 }

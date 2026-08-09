@@ -75,7 +75,7 @@ function documentsOverviewCacheKey(userId, orgId) {
 }
 
 function dashboardSummaryCacheKey(userId) {
-  return `bff:dashboard-summary:${String(userId || '').trim()}`;
+  return `bff:dashboard-summary:v4:${String(userId || '').trim()}`;
 }
 
 module.exports = {

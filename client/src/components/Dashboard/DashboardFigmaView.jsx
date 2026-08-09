@@ -1,9 +1,10 @@
 import DashboardAIHero from './DashboardAIHero';
 import DashboardAnalyticsRow from './DashboardAnalyticsRow';
+import DashboardBoardHealth from './DashboardBoardHealth';
 import DashboardBottomRow from './DashboardBottomRow';
 import DashboardMetricCards from './DashboardMetricCards';
+import DashboardOverdueList from './DashboardOverdueList';
 import DashboardPendingBanner from './DashboardPendingBanner';
-import DashboardProductivityChart from './DashboardProductivityChart';
 import DashboardQuickNav from './DashboardQuickNav';
 import DashboardRoleBanner from './DashboardRoleBanner';
 import {
@@ -12,6 +13,7 @@ import {
   FIGMA_DASH_LEVEL_2,
   FIGMA_DASH_LEVEL_3,
   FIGMA_DASH_PAGE,
+  FIGMA_DASH_TWO_COL,
 } from './figmaDashboardClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
@@ -24,8 +26,6 @@ import { useAppStrings } from '../../locales/appStrings';
 export default function DashboardFigmaView({
   isGuest,
   isPersonal,
-  isManagerOrAbove,
-  locale = 'vi',
   greetingShort,
   displayName,
   aiInsights,
@@ -35,8 +35,6 @@ export default function DashboardFigmaView({
   heroStats,
   metricCards,
   onMetricCardClick,
-  productivity30d,
-  productivityTrends,
   performanceStats,
   performanceMiniStats,
   syncFeed,
@@ -44,6 +42,13 @@ export default function DashboardFigmaView({
   quickNavItems,
   quickNavCols,
   hideRoleBanner = false,
+  roleTitle = '',
+  roleHint = '',
+  showWorkAnalytics = false,
+  boardHealth = [],
+  overdueItems = [],
+  onBoardClick,
+  onOverdueClick,
   insightPreview = false,
   syncFeedPreview = false,
   onNavigate,
@@ -54,6 +59,7 @@ export default function DashboardFigmaView({
   meetingsEmptyLabel,
   workspaces,
   addFriendLabel,
+  hideWorkspacesPanel = false,
   onCreateRoom,
   onCreateWorkspace,
   onAddFriend,
@@ -65,7 +71,9 @@ export default function DashboardFigmaView({
     <div className={FIGMA_DASH_PAGE}>
       <div className={FIGMA_DASH_INNER}>
         <section className={FIGMA_DASH_LEVEL_1} aria-label={t('dashboard.ariaOverview')}>
-          {!hideRoleBanner && (isGuest || isPersonal) && <DashboardRoleBanner isGuest={isGuest} />}
+          {!hideRoleBanner && (isGuest || isPersonal || roleHint) && (
+            <DashboardRoleBanner isGuest={isGuest} title={roleTitle} hint={roleHint} />
+          )}
           <DashboardAIHero
             greeting={greetingShort}
             userName={displayName}
@@ -83,14 +91,20 @@ export default function DashboardFigmaView({
         </section>
 
         <section className={FIGMA_DASH_LEVEL_3} aria-label={t('dashboard.ariaAnalytics')}>
-          {isManagerOrAbove && (
-            <DashboardProductivityChart
-              productivity30d={productivity30d}
-              productivityTrends={productivityTrends}
-            />
+          {showWorkAnalytics && (overdueItems?.length > 0 || boardHealth?.length > 0) && (
+            <div
+              className={
+                overdueItems?.length > 0 && boardHealth?.length > 0 ? FIGMA_DASH_TWO_COL : undefined
+              }
+            >
+              <DashboardOverdueList items={overdueItems} onItemClick={onOverdueClick} />
+              {boardHealth?.length > 0 ? (
+                <DashboardBoardHealth boards={boardHealth} onBoardClick={onBoardClick} />
+              ) : null}
+            </div>
           )}
 
-          {isManagerOrAbove && (
+          {showWorkAnalytics && (
             <DashboardAnalyticsRow
               performanceStats={performanceStats}
               miniStats={performanceMiniStats}
@@ -110,6 +124,7 @@ export default function DashboardFigmaView({
             meetingsEmptyLabel={meetingsEmptyLabel}
             workspaces={workspaces}
             addFriendLabel={addFriendLabel}
+            hideWorkspacesPanel={hideWorkspacesPanel}
             onMessagesViewAll={() => onNavigate('/app/communicate/chat/friends')}
             onMessageClick={() => onNavigate('/app/communicate/chat/friends')}
             onCalendarClick={() => onNavigate('/app/me/calendar')}

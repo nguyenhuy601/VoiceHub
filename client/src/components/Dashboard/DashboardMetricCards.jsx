@@ -1,4 +1,4 @@
-import { ArrowUpRight, TrendingDown, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, Building2, TrendingDown, TrendingUp } from 'lucide-react';
 import {
   FIGMA_DASH_METRIC_CARD,
   FIGMA_DASH_METRIC_GRID,
@@ -12,7 +12,7 @@ export default function DashboardMetricCards({ cards, onCardClick }) {
   return (
     <div className={`${FIGMA_DASH_METRIC_GRID} ${cards.length === 3 ? 'xl:grid-cols-3' : ''}`}>
       {cards.map((card2) => {
-        const Icon = card2.icon;
+        const Icon = card2.icon && typeof card2.icon !== 'string' ? card2.icon : Building2;
         const Wrapper = onCardClick ? 'button' : 'div';
         const trendText = card2.change ?? card2.trend;
         const detailText = card2.detail ?? card2.sub;
@@ -46,7 +46,9 @@ export default function DashboardMetricCards({ cards, onCardClick }) {
                 className={`${FIGMA_DASH_METRIC_ICON_BOX} transition-transform duration-150 group-hover:scale-[1.03]`}
                 style={{ background: card2.bg, borderColor: `${card2.color}20` }}
               >
-                <Icon size={18} style={{ color: card2.color }} />
+                <span className="inline-flex" style={{ color: card2.color || 'currentColor' }}>
+                  <Icon size={18} strokeWidth={2.2} />
+                </span>
               </div>
               <ArrowUpRight
                 size={14}

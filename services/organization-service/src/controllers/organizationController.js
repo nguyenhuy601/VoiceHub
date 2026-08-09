@@ -12,6 +12,7 @@ const {
 } = require('../utils/orgApiError');
 const { requireObjectId } = require('../utils/validateInput');
 const { toPublicOrganization } = require('../utils/orgDto');
+const { membershipCountMap } = require('../utils/membershipCountMap');
 const Membership = require('../models/Membership');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
@@ -431,6 +432,14 @@ exports.getMyOrganizations = async (req, res, next) => {
       : [];
     const orgMap = Object.fromEntries(orgDocs.map((o) => [String(o._id), o]));
 
+    const countRows = orgIds.length
+      ? await Membership.aggregate([
+          { $match: { organization: { $in: orgIds }, status: 'active' } },
+          { $group: { _id: '$organization', n: { $sum: 1 } } },
+        ])
+      : [];
+    const memberCountByOrg = membershipCountMap(countRows);
+
     /** head / leader theo cấu trúc phòng-team — hiển thị chức vụ (không thay membership.role). */
     const headOrgIds = new Set();
     const leaderOrgIds = new Set();
@@ -462,6 +471,7 @@ exports.getMyOrganizations = async (req, res, next) => {
         return toPublicOrganization(org, {
           myRole: membership.role,
           myStructureRole,
+          memberCount: memberCountByOrg[oid] ?? 0,
         });
       })
       .filter(Boolean);

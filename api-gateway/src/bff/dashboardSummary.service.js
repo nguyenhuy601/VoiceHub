@@ -14,29 +14,47 @@ function unwrapFriendsList(body) {
   return [];
 }
 
-async function sumTaskDoneForOrgs(orgIds, headers) {
-  if (!orgIds.length) return { taskDone: 0, failed: false };
-  let total = 0;
-  let failures = 0;
+async function fetchDashboardTaskStats(orgIds, headers) {
+  if (!orgIds.length) {
+    return mergeOrgDashboardStats([]);
+  }
   const capped = orgIds.slice(0, 8);
+  const perOrg = [];
   await Promise.all(
     capped.map(async (oid) => {
-      const url = `${services.task.url}/api/tasks/statistics?organizationId=${encodeURIComponent(oid)}`;
+      const url = `${services.task.url}/api/tasks/statistics?organizationId=${encodeURIComponent(oid)}&view=dashboard`;
       const res = await fetchJson(url, headers, `tasks/stats/${oid}`, SUMMARY_TIMEOUT_MS);
-      if (!res.ok) {
-        failures += 1;
-        return;
-      }
+      if (!res.ok) return;
       const stats = unwrapPayload(res.data);
-      const done = Number(stats?.done);
-      if (Number.isFinite(done)) total += done;
-      else failures += 1;
+      if (!stats || typeof stats !== 'object') return;
+      perOrg.push({ ...stats, organizationId: oid });
     })
   );
-  return {
-    taskDone: failures === capped.length ? null : total,
-    failed: failures === capped.length,
-  };
+  return mergeOrgDashboardStats(perOrg);
+}
+
+function sumOrgMembers(organizations) {
+  return (Array.isArray(organizations) ? organizations : []).reduce((sum, org) => {
+    const direct =
+      org?.memberCount ?? org?.membersCount ?? org?.totalMembers ?? org?.stats?.memberCount;
+    if (Number.isFinite(Number(direct))) return sum + Number(direct);
+    if (Array.isArray(org?.members)) return sum + org.members.length;
+    return sum;
+  }, 0);
+}
+
+function pickMembershipRole(organizations, statsRole) {
+  if (statsRole) return String(statsRole);
+  const first = Array.isArray(organizations) ? organizations[0] : null;
+  const role = first?.myRole || first?.role || first?.membershipRole;
+  return role ? String(role) : null;
+}
+
+function pickStructureRole(organizations) {
+  const first = Array.isArray(organizations) ? organizations[0] : null;
+  const raw = first?.myStructureRole || first?.structureRole || null;
+  const v = String(raw || '').trim().toLowerCase();
+  return v === 'head' || v === 'leader' ? v : null;
 }
 
 async function buildDashboardSummaryFanout(userId, userEmail) {
@@ -74,7 +92,10 @@ async function buildDashboardSummaryFanout(userId, userEmail) {
     notificationsUnreadPersonal = Number(nd?.unreadCount) || 0;
   }
 
-  const { taskDone } = await sumTaskDoneForOrgs(orgIds, headers);
+  const taskBundle = await fetchDashboardTaskStats(orgIds, headers);
+  const membershipRole = pickMembershipRole(organizations, taskBundle.membershipRole);
+  const structureRole = pickStructureRole(organizations);
+  const totalMembers = sumOrgMembers(organizations);
 
   let upcomingMeetings = [];
   if (meetingsRes.ok) {
@@ -95,7 +116,19 @@ async function buildDashboardSummaryFanout(userId, userEmail) {
     friendsTotal: friendsRaw.length,
     pendingCount: friendsPending.length,
     unread: notificationsUnreadPersonal,
-    taskDone,
+    taskDone: taskBundle.failed ? null : taskBundle.taskDone,
+    openCount: taskBundle.openCount,
+    overdue: taskBundle.overdue,
+    dueThisWeek: taskBundle.dueThisWeek,
+    myOpen: taskBundle.myOpen,
+    myOverdue: taskBundle.myOverdue,
+    myDueThisWeek: taskBundle.myDueThisWeek,
+    boards: taskBundle.boards,
+    overdueItems: Array.isArray(taskBundle.overdueItems) ? taskBundle.overdueItems : [],
+    membershipRole,
+    structureRole,
+    primaryOrgId: orgIds[0] || null,
+    totalMembers: Number.isFinite(totalMembers) ? totalMembers : null,
     upcomingMeetings,
     partial: {
       organizations: !orgRes.ok,
@@ -103,7 +136,7 @@ async function buildDashboardSummaryFanout(userId, userEmail) {
       pending: !pendingRes.ok,
       notifications: !notifRes.ok,
       meetings: !meetingsRes.ok,
-      tasks: taskDone === null,
+      tasks: taskBundle.failed,
     },
   };
 }

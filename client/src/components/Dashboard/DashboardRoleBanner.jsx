@@ -2,8 +2,12 @@ import { Users } from 'lucide-react';
 import { FIGMA_DASH_ROLE_BANNER, FIGMA_DASH_ROLE_ICON } from './figmaDashboardClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
-export default function DashboardRoleBanner({ isGuest }) {
+export default function DashboardRoleBanner({ isGuest, title, hint }) {
   const { t } = useAppStrings();
+  const resolvedTitle =
+    title || (isGuest ? t('uiRole.guestSessionLabel') : t('uiRole.personalAccountLabel'));
+  const resolvedHint =
+    hint || (isGuest ? t('uiRole.guestSessionHint') : t('uiRole.personalDashboardHint'));
   return (
     <div
       className={`${FIGMA_DASH_ROLE_BANNER} ${
@@ -15,13 +19,9 @@ export default function DashboardRoleBanner({ isGuest }) {
       </div>
       <div>
         <div className={`text-[0.8125rem] font-semibold ${isGuest ? 'text-slate-400' : 'text-primary'}`}>
-          {isGuest ? t('uiRole.guestSessionLabel') : t('uiRole.personalAccountLabel')}
+          {resolvedTitle}
         </div>
-        <div className="text-[0.7rem] text-muted-foreground">
-          {isGuest
-            ? t('uiRole.guestSessionHint')
-            : t('uiRole.personalDashboardHint')}
-        </div>
+        <div className="text-[0.7rem] text-muted-foreground">{resolvedHint}</div>
       </div>
     </div>
   );

@@ -120,6 +120,7 @@ export const FIGMA_DASH_QUICK_NAV_ICON =
   'flex h-[38px] w-[38px] items-center justify-center rounded-[10px]';
 
 export const FIGMA_DASH_THREE_COL = 'grid min-w-0 grid-cols-1 gap-3.5 xl:grid-cols-3';
+export const FIGMA_DASH_TWO_COL = 'grid min-w-0 grid-cols-1 gap-3.5 xl:grid-cols-2';
 
 export const FIGMA_DASH_PANEL = 'min-w-0 rounded-xl border border-border bg-surface p-[18px] shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/15 hover:shadow-md';
 
