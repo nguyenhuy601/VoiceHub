@@ -14,6 +14,7 @@ const AiBoardDraft = require('../models/AiBoardDraft');
 const {
   buildProjectDraft,
   buildTeamAssignSuggestions,
+  inferResponsibilityKeyFromText,
 } = require('../services/aiBoardDraft.builder');
 
 const router = express.Router();
@@ -538,12 +539,18 @@ router.post('/boards/:boardId/lists/:listId/suggest-cards', async (req, res) => 
   }
 
   let memberRows = Array.isArray(members) ? members : [];
+  const inferredResponsibilityKey = inferResponsibilityKeyFromText(
+    `${listTitle || ''} ${prompt || ''}`
+  );
   if (!memberRows.length) {
     try {
       const taskServiceUrl = TASK_SERVICE_URL;
       const memRes = await axios.get(
         `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/assignable-members`,
         {
+          params: inferredResponsibilityKey
+            ? { responsibilityKey: inferredResponsibilityKey }
+            : {},
           headers: buildTrustedGatewayHeaders(userId),
           timeout: 15000,
           validateStatus: () => true,

@@ -57,6 +57,25 @@ function buildProjectDraft({
   };
 }
 
+/**
+ * Suy Responsibility key từ tên list / brief — khớp Excel primaryDomain → soft-assign.
+ * Rỗng = không đoán (AI không bịa chuyên môn).
+ */
+function inferResponsibilityKeyFromText(raw) {
+  const t = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!t) return '';
+  if (/\b(backend|back-end|\bbe\b)\b/.test(t)) return 'backend';
+  if (/\b(frontend|front-end|\bfe\b)\b/.test(t)) return 'frontend';
+  if (/\b(devops|sre|kubernetes)\b/.test(t)) return 'devops';
+  if (/\b(qa|tester|kiểm thử)\b/.test(t)) return 'qa';
+  if (/\b(design|ui\/ux|\bux\b|\bui\b)\b/.test(t)) return 'design';
+  if (/\b(architect|architecture)\b/.test(t)) return 'architecture';
+  if (/\b(product|\bba\b|business analyst|scrum|\bpo\b)\b/.test(t)) return 'product';
+  return '';
+}
+
 function buildTeamAssignSuggestions({
   listTitle = '',
   boardTitle = '',
@@ -85,9 +104,11 @@ function buildTeamAssignSuggestions({
 
   const titles = lines.length ? lines : defaults.slice(0, Math.min(maxCards, 4));
   const memberPool = (Array.isArray(members) ? members : []).filter((m) => m?.userId);
+  const preferred = memberPool.filter((m) => m.suggested === true);
+  const pool = preferred.length ? preferred : memberPool;
 
   return titles.map((title, idx) => {
-    const m = memberPool.length ? memberPool[idx % memberPool.length] : null;
+    const m = pool.length ? pool[idx % pool.length] : null;
     const due = new Date();
     due.setDate(due.getDate() + 7 + idx * 2);
     return {
@@ -106,4 +127,5 @@ module.exports = {
   STATUS_LISTS_VI,
   buildProjectDraft,
   buildTeamAssignSuggestions,
+  inferResponsibilityKeyFromText,
 };

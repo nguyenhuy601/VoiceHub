@@ -1960,6 +1960,7 @@ async function archiveBoard({ userId, boardId }) {
   }
   const canAdmin = await userCanAdminBoard(userId, board);
   if (!canAdmin) throw new Error('Chỉ Owner/Admin board hoặc tổ chức mới được đóng dự án');
+  await persistClosedBoardExperiences(board);
   board.isActive = false;
   await board.save();
   return board.toObject();

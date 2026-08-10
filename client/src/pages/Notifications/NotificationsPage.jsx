@@ -599,10 +599,16 @@ function NotificationsPage({ orgScope = false } = {}) {
           toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
         }
         break;
-      case 'system':
-        navigate(targetWorkspacePath || '/app/me/settings');
+      case 'system': {
+        const url = String(notif.actionUrl || notif.data?.actionUrl || '').trim();
+        if (url.startsWith('/app/')) {
+          navigate(url);
+        } else {
+          navigate(targetWorkspacePath || '/app/me/settings');
+        }
         toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
         break;
+      }
       case 'task':
       case 'deadline':
         navigate(
