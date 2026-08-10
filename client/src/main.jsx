@@ -50,6 +50,7 @@ import { FriendCallSessionProvider } from './context/FriendCallSessionContext';
 // File: ./context/ThemeContext.jsx
 // Cung cấp: theme state, toggleTheme(), theme colors
 import { ThemeProvider } from './context/ThemeContext';
+import AppAmbientBackground from './components/Layout/AppAmbientBackground';
 import { LocaleProvider } from './context/LocaleContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 import BootstrapCompanySync from './components/Bootstrap/BootstrapCompanySync';
@@ -103,6 +104,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           - Provide: isDark, colors, toggleTheme()
           - File: ./context/ThemeContext.jsx */}
       <ThemeProvider>
+        <AppAmbientBackground />
+        <div className="relative z-[1] min-h-screen">
         <LocaleProvider>
         {/* AuthProvider: quản lý authentication state
             - Provide: user, token, login(), logout()
@@ -140,6 +143,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           </QueryClientProvider>
         </AuthProvider>
         </LocaleProvider>
+        </div>
       </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>

@@ -134,6 +134,26 @@ export function buildCollaborateSettingsPath(orgId) {
   return id ? `/app/collaborate/organizations/${encodeURIComponent(id)}/settings` : '/app/collaborate/workspaces';
 }
 
+/** Full-screen Project Setup Wizard (no suite sidebar). */
+export function buildCollaborateProjectsNewPath(orgId = '', query = {}) {
+  const base = '/app/collaborate/projects/new';
+  const params = new URLSearchParams();
+  const id = String(orgId || '').trim();
+  if (id) params.set('organizationId', id);
+  const from = String(query?.from || '').trim();
+  if (from) params.set('from', from);
+  const title = String(query?.title || '').trim();
+  const description = String(query?.description || '').trim();
+  const projectCode = String(query?.projectCode || '').trim();
+  const briefId = String(query?.briefId || '').trim();
+  if (title) params.set('title', title);
+  if (description) params.set('description', description);
+  if (projectCode) params.set('projectCode', projectCode);
+  if (briefId) params.set('briefId', briefId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 export function orgQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('organizationId') || params.get('orgId') || '').trim();

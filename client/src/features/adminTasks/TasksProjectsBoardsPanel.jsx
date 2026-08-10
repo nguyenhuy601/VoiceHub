@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Archive, Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -12,12 +12,12 @@ import {
 import { taskAPI } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
 import useAdminOrgBoards, {
   boardCodeOf,
   boardIdOf,
   boardTitleOf,
 } from './useAdminOrgBoards';
-import CreateProjectWizardPanel from './CreateProjectWizardPanel';
 
 function scopeLabel(board) {
   const type = String(board?.scopeType || '').trim();
@@ -28,10 +28,10 @@ function scopeLabel(board) {
 
 export default function TasksProjectsBoardsPanel({ orgId }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const { boards, loading, loadBoards } = useAdminOrgBoards(orgId);
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -62,18 +62,18 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
     }
   };
 
+  const openCreate = () => {
+    const id = String(orgId || '').trim();
+    if (!id) {
+      toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
+      return;
+    }
+    navigate(buildCollaborateProjectsNewPath(id, { from: 'admin' }));
+  };
+
   return (
     <AdminUserPanelShell title={t('adminDomains.projects.overview')} hint={t('adminTasks.boardsHint')} wide>
-      {showCreate ? (
-        <CreateProjectWizardPanel
-          orgId={orgId}
-          onCancel={() => setShowCreate(false)}
-          onCreated={async () => {
-            await loadBoards();
-          }}
-        />
-      ) : (
-        <>
+      <>
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
             <div className="relative min-w-[12rem] max-w-md flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -88,7 +88,7 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
             <button
               type="button"
               className={adminPrimaryBtnClass('inline-flex items-center gap-1.5')}
-              onClick={() => setShowCreate(true)}
+              onClick={openCreate}
             >
               <Plus className="h-4 w-4" />
               {t('adminTasks.createOpen')}
@@ -199,7 +199,6 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
             )}
           </div>
         </>
-      )}
     </AdminUserPanelShell>
   );
 }

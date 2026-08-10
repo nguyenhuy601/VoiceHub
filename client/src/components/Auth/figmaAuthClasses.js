@@ -6,14 +6,15 @@
 // useAppStrings (marker for strict i18n scanner)
 
 /** LoginPage.tsx — split layout */
-export const FIGMA_LOGIN_ROOT = 'min-h-screen flex bg-background';
+export const FIGMA_LOGIN_ROOT = 'min-h-screen flex bg-transparent';
 export const FIGMA_LOGIN_ASIDE =
   'hidden lg:flex flex-col justify-between flex-shrink-0 relative overflow-hidden w-[420px] p-10 border-r border-sidebar-border bg-gradient-to-br from-[#0D0D1A] to-[#0B0B16]';
 export const FIGMA_LOGIN_ASIDE_GLOW_PRIMARY =
   'pointer-events-none absolute -left-20 -top-20 h-[340px] w-[340px] rounded-full bg-primary/20 blur-3xl';
 export const FIGMA_LOGIN_ASIDE_GLOW_SECONDARY =
   'pointer-events-none absolute -right-[60px] bottom-[60px] h-[260px] w-[260px] rounded-full bg-indigo-400/10 blur-3xl';
-export const FIGMA_LOGIN_MAIN = 'flex flex-1 items-center justify-center px-6 py-10 bg-background';
+export const FIGMA_LOGIN_MAIN =
+  'flex flex-1 items-center justify-center px-6 py-10 bg-background/75 backdrop-blur-sm dark:bg-background/65';
 export const FIGMA_LOGIN_INNER = 'w-full max-w-[380px]';
 export const FIGMA_LOGIN_MOBILE_LOGO = 'lg:hidden flex items-center gap-[10px] mb-10 justify-center';
 export const FIGMA_LOGIN_MOBILE_LOGO_ICON = 'w-8 h-8 rounded-lg flex items-center justify-center bg-primary';
@@ -27,8 +28,9 @@ export const FIGMA_LOGIN_REMEMBER_LABEL = 'flex items-center gap-2 text-[0.8125r
 
 /** RegisterPage / Forgot / Reset / Verify — centered shell */
 export const FIGMA_AUTH_GRADIENT_ROOT =
-  'min-h-screen flex items-center justify-center px-6 py-12 bg-gradient-to-br from-background via-violet-950/35 to-background';
-export const FIGMA_CENTERED_ROOT = 'min-h-screen flex items-center justify-center px-6 py-12 bg-background';
+  'min-h-screen flex items-center justify-center px-6 py-12 bg-background/70 backdrop-blur-sm dark:bg-background/60';
+export const FIGMA_CENTERED_ROOT =
+  'min-h-screen flex items-center justify-center px-6 py-12 bg-background/75 backdrop-blur-sm dark:bg-background/65';
 export const FIGMA_CENTERED_400 = 'w-full max-w-[400px]';
 export const FIGMA_CENTERED_480 = 'w-full max-w-[480px]';
 export const FIGMA_CENTERED_LOGO_ROW_MB8 = 'flex items-center gap-3 mb-8 justify-center';

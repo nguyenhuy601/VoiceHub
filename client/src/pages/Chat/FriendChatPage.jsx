@@ -1896,7 +1896,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   };
 
   const chatShell = isDarkMode
-    ? 'flex h-screen overflow-hidden bg-background text-foreground'
+    ? 'flex h-screen overflow-hidden bg-background/75 text-foreground backdrop-blur-sm dark:bg-background/65'
     : `flex h-screen overflow-hidden ${appShellBg(false)} text-foreground`;
   const chatInner = suiteLayout
     ? `${FIGMA_CHAT_ROOT} min-h-0 flex-1`

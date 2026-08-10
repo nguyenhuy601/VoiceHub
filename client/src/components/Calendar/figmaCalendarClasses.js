@@ -2,7 +2,8 @@
 
 // useAppStrings (marker for strict i18n scanner)
 
-export const FIGMA_CAL_PAGE = 'flex h-full overflow-hidden bg-background';
+export const FIGMA_CAL_PAGE =
+  'flex h-full overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_CAL_MAIN = 'flex min-w-0 flex-1 flex-col overflow-hidden';
 

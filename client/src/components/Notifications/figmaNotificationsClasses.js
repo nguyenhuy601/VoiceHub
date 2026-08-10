@@ -1,6 +1,7 @@
 /** Figma NotificationsPage tokens */
 
-export const FIGMA_NOTIF_PAGE = 'flex h-full min-h-0 flex-col overflow-y-auto bg-background';
+export const FIGMA_NOTIF_PAGE =
+  'flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_NOTIF_HEADER =
   'sticky top-0 z-10 flex h-[60px] items-center gap-3 border-b border-border bg-background px-6';

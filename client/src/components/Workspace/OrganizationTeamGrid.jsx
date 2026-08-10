@@ -355,7 +355,7 @@ export default function OrganizationTeamGrid({
     : t('workspace.createFirstTeam');
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65">
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 shadow-xs backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">

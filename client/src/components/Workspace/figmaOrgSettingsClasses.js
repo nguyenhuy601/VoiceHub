@@ -1,7 +1,7 @@
 /** Figma org settings — sidebar tabs theo SettingsPage.tsx / WorkspaceSlugPage */
 
 export const FIGMA_ORG_SETTINGS_ROOT =
-  'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground';
+  'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/75 text-foreground backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_ORG_SETTINGS_BODY = 'flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row';
 

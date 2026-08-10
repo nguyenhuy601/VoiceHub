@@ -31,6 +31,7 @@ const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
 const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
 const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
+const CreateProjectWizardPage = lazy(() => import('./pages/Workspace/CreateProjectWizardPage'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
@@ -85,6 +86,24 @@ function App() {
           />
           <Route path="notifications" element={<NotificationsPage suiteLayout />} />
         </Route>
+
+        {/* Full-screen Project Setup Wizard — outside SuiteShell (no sidebar) */}
+        <Route
+          path="/app/collaborate/projects/new"
+          element={
+            <Protected>
+              <CreateProjectWizardPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/app/admin/projects/create"
+          element={
+            <Protected>
+              <CreateProjectWizardPage />
+            </Protected>
+          }
+        />
 
         {/* Collaborate suite */}
         <Route

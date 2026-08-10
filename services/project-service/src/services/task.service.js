@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { taskWebhook } = require('../clients/webhook.client');
+const { emitTaskFactBestEffort } = require('../clients/analyticsPublisher.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const {
@@ -135,6 +136,14 @@ class TaskService {
 
       const clientTask = await toClientTask(task);
 
+      emitTaskFactBestEffort({
+        taskId: task._id,
+        organizationId,
+        createdBy,
+        assigneeId,
+        status: task.status,
+      });
+
       // Gửi webhook
       if (assigneeId) {
         await taskWebhook.created(
@@ -259,12 +268,26 @@ class TaskService {
         updateFields.completedAt = null;
       }
 
+      const becameDone = updateFields.status === 'done' && task.status !== 'done';
+      const leftDone = updateFields.status && updateFields.status !== 'done' && task.status === 'done';
+
       const encryptedUpdate = writeTaskPayload(updateFields);
       const updated = await Task.findByIdAndUpdate(
         taskId,
         { $set: encryptedUpdate },
         { new: true, runValidators: true }
       );
+
+      if (becameDone || leftDone) {
+        emitTaskFactBestEffort({
+          taskId,
+          organizationId: task.organizationId,
+          createdBy: task.createdBy,
+          assigneeId: updated?.assigneeId || task.assigneeId,
+          status: updated?.status || updateFields.status,
+          doneDelta: becameDone ? 1 : -1,
+        });
+      }
 
       if (
         updateFields.estimateHours !== undefined &&

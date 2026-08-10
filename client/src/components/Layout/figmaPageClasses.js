@@ -1,6 +1,7 @@
 /** Shared Figma Enterprise page shell — dùng chung Me / Collaborate / Communicate */
 
-export const FIGMA_PAGE_SHELL = 'h-full min-w-0 overflow-y-auto overflow-x-hidden bg-background';
+export const FIGMA_PAGE_SHELL =
+  'h-full min-w-0 overflow-y-auto overflow-x-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_PAGE_INNER = 'flex min-h-full flex-col gap-5 px-6 py-5';
 

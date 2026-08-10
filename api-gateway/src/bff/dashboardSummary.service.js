@@ -1,4 +1,6 @@
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
+const { getDashboardReadModelMode } = require('@enterprise/shared/config/reportServiceFlags');
+const { fetchDashboardReadModel } = require('./dashboardReadModel.client');
 
 const SUMMARY_TIMEOUT_MS = Math.min(
   8000,
@@ -37,7 +39,7 @@ async function sumTaskDoneForOrgs(orgIds, headers) {
   };
 }
 
-async function buildDashboardSummary(userId, userEmail) {
+async function buildDashboardSummaryFanout(userId, userEmail) {
   const headers = buildTrustedHeaders(userId, userEmail);
   const startFrom = new Date();
   const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -106,4 +108,18 @@ async function buildDashboardSummary(userId, userEmail) {
   };
 }
 
-module.exports = { buildDashboardSummary };
+async function buildDashboardSummary(userId, userEmail) {
+  const mode = getDashboardReadModelMode();
+  if (mode !== 'off') {
+    const rm = await fetchDashboardReadModel(userId, userEmail);
+    if (rm.ok && rm.data) {
+      return { ...rm.data, _rm: 'HIT' };
+    }
+    const fanout = await buildDashboardSummaryFanout(userId, userEmail);
+    return { ...fanout, _rm: 'MISS' };
+  }
+  const fanout = await buildDashboardSummaryFanout(userId, userEmail);
+  return { ...fanout, _rm: 'OFF' };
+}
+
+module.exports = { buildDashboardSummary, buildDashboardSummaryFanout, sumTaskDoneForOrgs };

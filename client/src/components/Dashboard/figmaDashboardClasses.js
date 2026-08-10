@@ -3,7 +3,8 @@
  * Chỉ w/h/p/m/gap/rounded/typography — màu dùng design token (tailwind.config + index.css).
  */
 
-export const FIGMA_DASH_PAGE = 'h-full min-w-0 overflow-y-auto overflow-x-hidden bg-background';
+export const FIGMA_DASH_PAGE =
+  'h-full min-w-0 overflow-y-auto overflow-x-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_DASH_INNER = 'flex min-w-0 max-w-full flex-col gap-5 px-4 py-4 sm:px-5 lg:px-6 lg:py-5';
 

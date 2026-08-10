@@ -3,57 +3,44 @@ const assert = require('node:assert/strict');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
-  deptKeyword,
   nameKeyword,
 } = require('../utils/projectCodeGenerate');
 
-describe('projectCodeGenerate', () => {
-  it('T1: VoiceHub Q2 + Phòng IT + DEP + due → DEP-IT-…-20260723', () => {
-    const code = buildProjectCodeBase({
-      title: 'VoiceHub Q2',
-      scopeType: 'department',
-      scopeLabel: 'Phòng IT',
-      dueDate: '2026-07-23',
-    });
-    assert.match(code, /^DEP-/);
-    assert.ok(code.includes('-IT-'), code);
-    assert.ok(code.includes('VOICEHUB'), code);
-    assert.ok(code.endsWith('-20260723'), code);
+describe('projectCodeGenerate (acronym from title)', () => {
+  it('Sales Management → SM', () => {
+    assert.equal(buildProjectCodeBase({ title: 'Sales Management' }), 'SM');
+    assert.equal(nameKeyword('Sales Management'), 'SM');
   });
 
-  it('deptKeyword: short last token', () => {
-    assert.equal(deptKeyword('Phòng IT'), 'IT');
-    assert.equal(deptKeyword(''), 'UNIT');
+  it('Human Resource → HR', () => {
+    assert.equal(buildProjectCodeBase({ title: 'Human Resource' }), 'HR');
   });
 
-  it('nameKeyword: first two tokens', () => {
-    assert.equal(nameKeyword('VoiceHub Q2'), 'VOICEHUBQ2');
+  it('Customer Relationship Management → CRM', () => {
+    assert.equal(buildProjectCodeBase({ title: 'Customer Relationship Management' }), 'CRM');
   });
 
-  it('T2: collision → -2', () => {
-    const base = 'DEP-IT-VOICEHUBQ2-20260723';
-    assert.equal(allocateUniqueProjectCode(base, []), base);
-    assert.equal(allocateUniqueProjectCode(base, [base]), `${base}-2`);
-    assert.equal(allocateUniqueProjectCode(base, [base, `${base}-2`]), `${base}-3`);
+  it('Inventory System → IS', () => {
+    assert.equal(buildProjectCodeBase({ title: 'Inventory System' }), 'IS');
   });
 
-  it('scopeType organization → ORG', () => {
-    const code = buildProjectCodeBase({
-      title: 'ERP',
-      scopeType: 'organization',
-      scopeLabel: 'ORG',
-      now: new Date('2026-01-15T12:00:00'),
-    });
-    assert.match(code, /^ORG-/);
+  it('single word → first 3 letters', () => {
+    assert.equal(buildProjectCodeBase({ title: 'ERP' }), 'ERP');
+    assert.equal(buildProjectCodeBase({ title: 'Platform' }), 'PLA');
   });
 
-  it('scopeType team → TEAM', () => {
-    const code = buildProjectCodeBase({
-      title: 'Alpha',
-      scopeType: 'team',
-      scopeLabel: 'Core',
-      now: new Date('2026-01-15T12:00:00'),
-    });
-    assert.match(code, /^TEAM-CORE-ALPHA-20260115$/);
+  it('Vietnamese diacritics stripped then acronym', () => {
+    assert.equal(buildProjectCodeBase({ title: 'Quản lý bán hàng' }), 'QLBH');
+  });
+
+  it('collision → -1 then -2', () => {
+    const base = 'CRM';
+    assert.equal(allocateUniqueProjectCode(base, []), 'CRM');
+    assert.equal(allocateUniqueProjectCode(base, ['CRM']), 'CRM-1');
+    assert.equal(allocateUniqueProjectCode(base, ['CRM', 'CRM-1']), 'CRM-2');
+  });
+
+  it('empty title → PRJ', () => {
+    assert.equal(buildProjectCodeBase({ title: '' }), 'PRJ');
   });
 });

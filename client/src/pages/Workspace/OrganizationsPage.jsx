@@ -30,7 +30,6 @@ import friendService from '../../services/friendService';
 import userService from '../../services/userService';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { projectAPI } from '../../services/api/projectAPI';
-import CreateTaskBoardModal from '../../components/Organization/CreateTaskBoardModal';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useOrgShell } from '../../hooks/queries/useOrgShell';
@@ -70,6 +69,7 @@ import {
 import {
   buildCollaborateDocumentsPath,
   buildCollaborateOrgNotificationsPath,
+  buildCollaborateProjectsNewPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
   orgQueryFromSearch,
@@ -368,8 +368,6 @@ function OrganizationsPage({
   const [createDivisionModalOpen, setCreateDivisionModalOpen] = useState(false);
   const [createDivisionName, setCreateDivisionName] = useState('');
   const [createDivisionBranchId, setCreateDivisionBranchId] = useState('');
-  const [createTeamModalOpen, setCreateTeamModalOpen] = useState(false);
-  const [creatingProjectBoard, setCreatingProjectBoard] = useState(false);
   const [createChannelModalOpen, setCreateChannelModalOpen] = useState(false);
   const [createChannelType, setCreateChannelType] = useState('chat');
   const [createChannelName, setCreateChannelName] = useState('');
@@ -2555,7 +2553,7 @@ function OrganizationsPage({
     }
   };
 
-  /** Hub «Tạo dự án» — prop tên onCreateTeam (legacy); quyền = canCreateProject. */
+  /** Hub «Tạo dự án» — full-screen wizard route. */
   const handleCreateTeam = async () => {
     if (!canCreateProject) {
       notifyError(t('taskBoard.createBoardDenied'));
@@ -2565,65 +2563,7 @@ function OrganizationsPage({
       notifyError(t('organizations.selectOrgFirst'));
       return;
     }
-    setCreateTeamModalOpen(true);
-  };
-
-  const handleSubmitCreateProject = async (payload) => {
-    if (!canCreateProject) {
-      notifyError(t('taskBoard.createBoardDenied'));
-      return;
-    }
-    if (!selectedOrganizationId) {
-      notifyError(t('organizations.selectOrgFirst'));
-      return;
-    }
-    if (!String(payload?.title || '').trim()) {
-      notifyError(t('adminTasks.createNeedTitle'));
-      return;
-    }
-    setCreatingProjectBoard(true);
-    try {
-      const res = await projectAPI.create({
-        organizationId: String(selectedOrganizationId),
-        scopeType: 'organization',
-        scopeId: String(selectedOrganizationId),
-        title: payload.title,
-        description: payload.description,
-        projectCode: payload.projectCode,
-        scopeLabel: payload.scopeLabel || 'ORG',
-        dueDate: payload.dueDate,
-        background: payload.background,
-        visibility: payload.visibility,
-        delegationTemplateId: payload.delegationTemplateId,
-        members: payload.members,
-      });
-      const created = unwrapTaskApiPayload(res);
-      const boardId = String(created?.defaultBoardId || created?.board?._id || '').trim();
-      const projectId = String(created?._id || created?.projectId || '').trim();
-      notifySuccess(t('adminTasks.createSuccess'));
-      setCreateTeamModalOpen(false);
-      setSelectedTeamId('');
-      setWorkspaceTabView('tasks');
-      setSelectedChannelId('');
-      navigate(
-        buildCollaborateTasksPath(selectedOrganizationId, {
-          boardId,
-          projectId,
-        })
-      );
-      projectAPI
-        .list({ organizationId: selectedOrganizationId })
-        .then((listRes) => {
-          const raw = listRes?.data?.projects ?? listRes?.projects ?? listRes?.data ?? listRes ?? [];
-          setOrgProjects(Array.isArray(raw) ? raw : []);
-        })
-        .catch(() => {});
-      await reloadOrgShell(selectedOrganizationId);
-    } catch (error) {
-      notifyError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.createFail') }));
-    } finally {
-      setCreatingProjectBoard(false);
-    }
+    navigate(buildCollaborateProjectsNewPath(selectedOrganizationId, { from: 'hub' }));
   };
 
   const handleOpenWorkspace = (orgId) => {
@@ -4342,7 +4282,7 @@ function OrganizationsPage({
   }, [on, off, selectedOrganizationId, user?.userId, user?._id, user?.id]);
 
   const orgCenterShell = suiteLayout
-    ? 'flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground'
+    ? 'flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/75 text-foreground backdrop-blur-sm dark:bg-background/65'
     : isDarkMode
       ? 'flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent text-slate-100'
       : 'flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent text-slate-900';
@@ -5509,21 +5449,6 @@ function OrganizationsPage({
           </div>
         </div>
       </Modal>
-
-      <CreateTaskBoardModal
-        isOpen={createTeamModalOpen}
-        onClose={() => {
-          if (creatingProjectBoard) return;
-          setCreateTeamModalOpen(false);
-        }}
-        modalTitle={t('adminTasks.createOpen')}
-        defaultScopeType="organization"
-        organizationId={String(selectedOrganizationId || '')}
-        scopeId={String(selectedOrganizationId || '')}
-        defaultScopeLabel="ORG"
-        creating={creatingProjectBoard}
-        onSubmit={handleSubmitCreateProject}
-      />
 
       <Modal
         isOpen={createChannelModalOpen}

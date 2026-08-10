@@ -5,7 +5,8 @@
 
 // useAppStrings (marker for strict i18n scanner)
 
-export const FIGMA_CHAT_ROOT = 'flex h-full min-h-0 overflow-hidden bg-background text-foreground';
+export const FIGMA_CHAT_ROOT =
+  'flex h-full min-h-0 overflow-hidden bg-background/75 text-foreground backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_CHAT_SIDEBAR =
   'hidden h-full min-h-0 w-[min(280px,88vw)] shrink-0 flex-col overflow-hidden border-r border-border bg-surface text-foreground lg:flex';
@@ -80,7 +81,7 @@ export const FIGMA_CHAT_ICON_BTN_ACTIVE =
   'inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg border-none bg-primary/10 text-primary transition-[background-color,transform] duration-150 hover:-translate-y-0.5 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
 
 export const FIGMA_CHAT_MESSAGES =
-  'scrollbar-chat relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain bg-background';
+  'scrollbar-chat relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_CHAT_MESSAGES_INNER = 'flex min-h-full min-w-0 flex-col px-5 pb-2 pt-5';
 

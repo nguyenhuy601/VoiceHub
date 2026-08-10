@@ -260,7 +260,7 @@ export const figmaVoiceSidePanel = (suiteLayout, open, { inline = false } = {}) 
 
 /** Lobby — trước khi vào phòng (VoicePage Figma pre-join) */
 export const FIGMA_VOICE_LOBBY_ROOT =
-  'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background';
+  'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_VOICE_LOBBY_HEADER =
   'sticky top-0 z-10 flex h-auto min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2 shadow-xs sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0';

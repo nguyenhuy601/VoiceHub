@@ -1,10 +1,12 @@
 /**
- * Auto project code: {LOAI}-{DEPT_KW}-{NAME_KW}-{YYYYMMDD}
- * LOAI = ORG | DEP | TEAM | DIV from scopeType (ORG for org-level projects).
+ * Auto project code từ chữ cái đầu của từng từ trong tên dự án.
+ * Ví dụ: "Sales Management" → SM, "Customer Relationship Management" → CRM.
+ * Trùng: CRM, CRM-1, CRM-2, …
  */
 const { slugifyRoleKey } = require('./roleKeySlug');
 
 const PROJECT_CODE_MAX_LEN = 64;
+const PROJECT_CODE_ACRONYM_MAX = 12;
 const SCOPE_TYPE_CODE = Object.freeze({
   organization: 'ORG',
   department: 'DEP',
@@ -18,9 +20,7 @@ function scopeTypeCode(scopeType) {
 }
 
 /**
- * Keyword từ tên phòng/team: token cuối ≤6 → upper; không thì viết tắt chữ cái đầu (max 6).
- * @param {unknown} scopeLabel
- * @returns {string}
+ * @deprecated Giữ export tương thích; mã dự án mới không dùng scope label.
  */
 function deptKeyword(scopeLabel) {
   const slug = slugifyRoleKey(scopeLabel);
@@ -38,17 +38,24 @@ function deptKeyword(scopeLabel) {
 }
 
 /**
- * Từ title: ≤2 token đầu, upper, nối không `_`, max 12.
+ * Viết tắt: chữ cái đầu mỗi từ (sau slug). Một từ → tối đa 3 chữ cái đầu.
  * @param {unknown} title
  * @returns {string}
  */
 function nameKeyword(title) {
   const slug = slugifyRoleKey(title);
-  if (!slug || slug === 'role') return 'PROJECT';
-  const parts = slug.split('_').filter(Boolean).slice(0, 2);
-  let joined = parts.join('').toUpperCase();
-  if (joined.length > 12) joined = joined.slice(0, 12);
-  return joined || 'PROJECT';
+  if (!slug || slug === 'role') return 'PRJ';
+  const parts = slug.split('_').filter(Boolean);
+  if (!parts.length) return 'PRJ';
+  if (parts.length === 1) {
+    return parts[0].slice(0, 3).toUpperCase() || 'PRJ';
+  }
+  const ac = parts
+    .map((p) => p[0])
+    .join('')
+    .slice(0, PROJECT_CODE_ACRONYM_MAX)
+    .toUpperCase();
+  return ac || 'PRJ';
 }
 
 /**
@@ -74,19 +81,16 @@ function formatYmd(dateLike, now = new Date()) {
 }
 
 /**
- * @param {{ title?: string, scopeType?: string, scopeLabel?: string, dueDate?: unknown, now?: Date|string|number }} [opts]
+ * Mã dự án = viết tắt tên. opts.scopeType / scopeLabel / dueDate bị bỏ qua (giữ signature).
+ * @param {{ title?: string }} [opts]
  * @returns {string}
  */
 function buildProjectCodeBase(opts = {}) {
-  const loai = scopeTypeCode(opts.scopeType);
-  const dept = deptKeyword(opts.scopeLabel);
-  const name = nameKeyword(opts.title);
-  const ymd = formatYmd(opts.dueDate, opts.now);
-  return `${loai}-${dept}-${name}-${ymd}`.slice(0, PROJECT_CODE_MAX_LEN);
+  return nameKeyword(opts.title).slice(0, PROJECT_CODE_MAX_LEN);
 }
 
 /**
- * base, rồi base-2, base-3, …
+ * base, rồi base-1, base-2, …
  * @param {string} base
  * @param {Iterable<string>|Set<string>|string[]} existingCodes
  * @returns {string}
@@ -94,16 +98,16 @@ function buildProjectCodeBase(opts = {}) {
 function allocateUniqueProjectCode(base, existingCodes) {
   const taken =
     existingCodes instanceof Set
-      ? existingCodes
+      ? new Set([...existingCodes].map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))
       : new Set(
           [...(existingCodes || [])]
-            .map((c) => String(c || '').trim())
+            .map((c) => String(c || '').trim().toUpperCase())
             .filter(Boolean)
         );
-  const stem = String(base || '').trim() || 'ORG-UNIT-PROJECT-00000000';
+  const stem = String(base || '').trim().toUpperCase() || 'PRJ';
   if (!taken.has(stem)) return stem.slice(0, PROJECT_CODE_MAX_LEN);
 
-  let n = 2;
+  let n = 1;
   for (;;) {
     const candidate = `${stem}-${n}`.slice(0, PROJECT_CODE_MAX_LEN);
     if (!taken.has(candidate)) return candidate;
@@ -116,6 +120,7 @@ function allocateUniqueProjectCode(base, existingCodes) {
 
 module.exports = {
   PROJECT_CODE_MAX_LEN,
+  PROJECT_CODE_ACRONYM_MAX,
   SCOPE_TYPE_CODE,
   scopeTypeCode,
   deptKeyword,

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -79,9 +79,8 @@ import {
   unwrapTaskBoardListPayload,
 } from '../../services/api/taskAPI';
 import { projectAPI, mapProjectsToBoardPickerRows } from '../../services/api/projectAPI';
-import aiTaskService from '../../services/aiTaskService';
-import CreateTaskBoardModal from './CreateTaskBoardModal';
 import CreateProjectBriefModal from './CreateProjectBriefModal';
+import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
 import TaskBoardWorkspacePanel from './TaskBoardWorkspacePanel';
 import ProjectHubShell from './ProjectHub/ProjectHubShell';
 import WorkspaceOrgChatFigmaView from '../Workspace/WorkspaceOrgChatFigmaView';
@@ -579,6 +578,7 @@ const OrganizationMainPanel = ({
   const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setShowEmojiPicker(false);
@@ -646,13 +646,10 @@ const OrganizationMainPanel = ({
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [taskDepartmentFilter, setTaskDepartmentFilter] = useState('all');
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
-  const [taskBoardCreateOpen, setTaskBoardCreateOpen] = useState(false);
-  const [creatingTaskBoard, setCreatingTaskBoard] = useState(false);
   const [archivingTaskBoard, setArchivingTaskBoard] = useState(false);
   const [projectBriefCreateOpen, setProjectBriefCreateOpen] = useState(false);
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
-  const [activeBriefForBoard, setActiveBriefForBoard] = useState(null);
   const [taskBoards, setTaskBoards] = useState([]);
   const [loadingTaskBoards, setLoadingTaskBoards] = useState(false);
   const [selectedTaskBoardId, setSelectedTaskBoardId] = useState('');
@@ -660,7 +657,6 @@ const OrganizationMainPanel = ({
   const [taskBoardDetail, setTaskBoardDetail] = useState(null);
   const [accessibleTaskBoards, setAccessibleTaskBoards] = useState([]);
   const [loadingTaskBoardDetail, setLoadingTaskBoardDetail] = useState(false);
-  const [taskBoardTeam, setTaskBoardTeam] = useState(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskForm, setTaskForm] = useState({
     title: '',
@@ -974,11 +970,6 @@ const OrganizationMainPanel = ({
     }),
     [orgIdForTask, workspaceSlugForTask]
   );
-  useEffect(() => {
-    if (!initialTaskBoardTeam) return;
-    setTaskBoardTeam(initialTaskBoardTeam);
-    setTaskBoardCreateOpen(true);
-  }, [initialTaskBoardTeam]);
 
   const loadTaskBoards = useCallback(async () => {
     if (!orgIdForTask) {
@@ -1155,78 +1146,6 @@ const OrganizationMainPanel = ({
     [selectedTaskBoardId, taskBoardApiCtx]
   );
 
-  const handleCreateTaskBoard = async (payload) => {
-    if (!orgIdForTask) return;
-    setCreatingTaskBoard(true);
-    try {
-      let board = null;
-      const orgId = String(orgIdForTask);
-      if (payload?.aiDraftId) {
-        const confirmRes = await aiTaskService.confirmProjectDraft(payload.aiDraftId, {
-          payload: {
-            title: payload.title,
-            description: payload.description,
-            projectCode: payload.projectCode,
-            dueDate: payload.dueDate,
-            visibility: payload.visibility,
-            background: payload.background,
-            scopeType: 'organization',
-            scopeId: orgId,
-            lists: Array.isArray(payload.suggestedLists) ? payload.suggestedLists : [],
-            organizationId: orgId,
-          },
-        });
-        const result = confirmRes?.data?.data || confirmRes?.data || {};
-        board = result.board || { _id: result.boardId };
-      } else {
-        const res = await projectAPI.create({
-          ...taskBoardApiCtx,
-          organizationId: orgId,
-          scopeType: 'organization',
-          scopeId: orgId,
-          title: payload.title,
-          description: payload.description,
-          projectCode: payload.projectCode,
-          scopeLabel: payload.scopeLabel || 'ORG',
-          dueDate: payload.dueDate,
-          background: payload.background,
-          visibility: payload.visibility,
-          delegationTemplateId: payload.delegationTemplateId,
-          members: payload.members,
-        });
-        const created = unwrapTaskApiPayload(res);
-        const boardId = String(created?.defaultBoardId || created?.board?._id || '').trim();
-        board = boardId
-          ? {
-              _id: boardId,
-              projectId: String(created?._id || created?.projectId || ''),
-              title: created?.title,
-              ...((created?.board && typeof created.board === 'object') ? created.board : {}),
-            }
-          : null;
-      }
-      const briefId = payload?.fromBriefId || activeBriefForBoard?._id;
-      if (briefId && board?._id) {
-        try {
-          await taskAPI.acceptProjectBrief(String(briefId), { boardId: String(board._id) });
-        } catch {
-          toast.error(t('taskBoard.briefAcceptFail'));
-        }
-      }
-      setTaskBoardCreateOpen(false);
-      setActiveBriefForBoard(null);
-      await loadTaskBoards();
-      await loadProjectBriefs();
-      if (board?._id) setSelectedTaskBoardId(String(board._id));
-      onCreateTaskBoardFromTeamMenu?.(null);
-      toast.success(t('taskBoard.boardCreated'));
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.boardCreateFail')));
-    } finally {
-      setCreatingTaskBoard(false);
-    }
-  };
-
   const handleArchiveTaskBoard = async () => {
     if (!selectedTaskBoardId) return;
     const boardTitle =
@@ -1377,6 +1296,46 @@ const OrganizationMainPanel = ({
   };
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
   const canUseAiWorkspaceTask = Boolean(taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask);
+
+  const openProjectSetupWizard = useCallback(
+    (opts = {}) => {
+      const orgId = String(opts.organizationId || orgIdForTask || organizationId || '').trim();
+      if (!orgId) {
+        toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
+        return;
+      }
+      if (!canCreateWorkspaceTask) {
+        toast.error(t('taskBoard.createBoardDenied'));
+        return;
+      }
+      navigate(
+        buildCollaborateProjectsNewPath(orgId, {
+          from: 'hub',
+          title: opts.title || '',
+          description: opts.description || '',
+          projectCode: opts.projectCode || '',
+          briefId: opts.briefId || '',
+        })
+      );
+      onCreateTaskBoardFromTeamMenu?.(null);
+    },
+    [
+      navigate,
+      orgIdForTask,
+      organizationId,
+      canCreateWorkspaceTask,
+      t,
+      onCreateTaskBoardFromTeamMenu,
+    ]
+  );
+
+  useEffect(() => {
+    if (!initialTaskBoardTeam) return;
+    openProjectSetupWizard({
+      organizationId: String(orgIdForTask || organizationId || ''),
+    });
+  }, [initialTaskBoardTeam]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const membershipRoleNorm = String(
     taskWorkspaceScope?.membershipRole ||
       selectedOrganization?.myRole ||
@@ -1800,34 +1759,20 @@ const OrganizationMainPanel = ({
   const divisionName = selectedDivision?.name ? displayDepartmentName(selectedDivision.name, locale) : '—';
   const teamName = selectedTeam?.name || '—';
   const openCreateTaskBoardModal = useCallback(() => {
-    if (!canCreateWorkspaceTask) {
-      toast.error(t('taskBoard.createBoardDenied'));
-      return;
-    }
-    setTaskBoardTeam({
-      _id: String(orgIdForTask || organizationId || ''),
-      name: '',
-      scopeType: 'organization',
-    });
-    setTaskBoardCreateOpen(true);
-  }, [canCreateWorkspaceTask, orgIdForTask, organizationId, t]);
+    openProjectSetupWizard();
+  }, [openProjectSetupWizard]);
 
   const openCreateBoardFromBrief = useCallback(
     (brief) => {
       if (!brief?._id) return;
-      if (!canCreateWorkspaceTask) {
-        toast.error(t('taskBoard.createBoardDenied'));
-        return;
-      }
-      setActiveBriefForBoard(brief);
-      setTaskBoardTeam({
-        _id: String(orgIdForTask || organizationId || ''),
-        name: '',
-        scopeType: 'organization',
+      openProjectSetupWizard({
+        title: brief.title || '',
+        description: brief.body || '',
+        projectCode: brief.projectCode || '',
+        briefId: String(brief._id),
       });
-      setTaskBoardCreateOpen(true);
     },
-    [canCreateWorkspaceTask, orgIdForTask, organizationId, t]
+    [openProjectSetupWizard]
   );
 
   const chSlug = selectedChannel
@@ -2291,9 +2236,8 @@ const OrganizationMainPanel = ({
               canCreateTaskBoard={canCreateWorkspaceTask}
               onCreateTaskBoard={
                 canCreateWorkspaceTask
-                  ? (team) => {
-                      setTaskBoardTeam(team ? { ...team, scopeType: team.scopeType || 'team' } : null);
-                      setTaskBoardCreateOpen(true);
+                  ? () => {
+                      openProjectSetupWizard();
                     }
                   : undefined
               }
@@ -2337,7 +2281,7 @@ const OrganizationMainPanel = ({
 
         <div
           className={`${
-            suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background' : workspace.main
+            suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background/75 backdrop-blur-sm dark:bg-background/65' : workspace.main
           } h-full min-h-0 overflow-hidden ${isDarkMode && !suiteLayout && !useFigmaChannelHeader ? '!bg-transparent' : ''}`}
         >
           {suiteLayout && workspaceTab === 'tasks' ? null : (
@@ -2473,7 +2417,6 @@ const OrganizationMainPanel = ({
                     <button
                       type="button"
                       onClick={openCreateTaskBoardModal}
-                      disabled={creatingTaskBoard}
                       title={t('organization.createTaskBoardTitle')}
                       className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                         isDarkMode
@@ -3455,39 +3398,6 @@ const OrganizationMainPanel = ({
           onWorkspaceTasksRefresh?.();
           if (selectedTaskBoardId) loadTaskBoardDetail(selectedTaskBoardId);
         }}
-      />
-
-      <CreateTaskBoardModal
-        isOpen={taskBoardCreateOpen}
-        onClose={() => {
-          if (creatingTaskBoard) return;
-          setTaskBoardCreateOpen(false);
-          setTaskBoardTeam(null);
-          setActiveBriefForBoard(null);
-          onCreateTaskBoardFromTeamMenu?.(null);
-        }}
-        defaultTeamName={taskBoardTeam?.name || ''}
-        defaultScopeLabel="ORG"
-        defaultScopeType="organization"
-        organizationId={orgIdForTask || organizationId || ''}
-        scopeId={String(orgIdForTask || organizationId || '')}
-        teamsInScope={teamsInScope}
-        canUseAi={canUseAiWorkspaceTask}
-        creating={creatingTaskBoard}
-        onSubmit={handleCreateTaskBoard}
-        fromBriefId={activeBriefForBoard?._id ? String(activeBriefForBoard._id) : ''}
-        initialValues={
-          activeBriefForBoard
-            ? {
-                title: activeBriefForBoard.title || '',
-                description: activeBriefForBoard.body || '',
-                body: activeBriefForBoard.body || '',
-                projectCode: activeBriefForBoard.projectCode || '',
-                dueDate: activeBriefForBoard.dueDate || '',
-                brief: activeBriefForBoard.body || '',
-              }
-            : null
-        }
       />
 
       <CreateProjectBriefModal

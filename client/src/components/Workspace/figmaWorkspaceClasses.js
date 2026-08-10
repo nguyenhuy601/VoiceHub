@@ -1,6 +1,7 @@
 /** Figma WorkspacesPage / WorkspaceSlugPage tokens */
 
-export const FIGMA_WS_PAGE = 'flex h-full min-h-0 flex-col overflow-y-auto bg-background';
+export const FIGMA_WS_PAGE =
+  'flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_WS_INNER = 'w-full px-6 py-5';
 
@@ -26,7 +27,7 @@ export const FIGMA_WS_TEAM_CARD =
 
 /** WorkspaceSlugPage — org hub shell */
 export const FIGMA_WS_SHELL_ROOT =
-  'flex h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background';
+  'flex h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_WS_SHELL_TAB_BAR =
   'flex w-full shrink-0 items-center gap-1 border-b border-border bg-surface px-4';

@@ -1,9 +1,10 @@
 /**
  * Auto project code — mirror shared/utils/projectCodeGenerate.js (ESM for Vite).
- * Format: {LOAI}-{DEPT_KW}-{NAME_KW}-{YYYYMMDD}
+ * Viết tắt chữ cái đầu tên dự án: "Sales Management" → SM; trùng → SM-1, SM-2.
  */
 
 const PROJECT_CODE_MAX_LEN = 64;
+const PROJECT_CODE_ACRONYM_MAX = 12;
 const SLUG_FALLBACK = 'role';
 
 export const SCOPE_TYPE_CODE = Object.freeze({
@@ -33,6 +34,7 @@ export function scopeTypeCode(scopeType) {
   return SCOPE_TYPE_CODE[t] || 'ORG';
 }
 
+/** @deprecated Giữ export tương thích */
 export function deptKeyword(scopeLabel) {
   const slug = slugify(scopeLabel);
   if (!slug || slug === SLUG_FALLBACK) return 'UNIT';
@@ -50,11 +52,18 @@ export function deptKeyword(scopeLabel) {
 
 export function nameKeyword(title) {
   const slug = slugify(title);
-  if (!slug || slug === SLUG_FALLBACK) return 'PROJECT';
-  const parts = slug.split('_').filter(Boolean).slice(0, 2);
-  let joined = parts.join('').toUpperCase();
-  if (joined.length > 12) joined = joined.slice(0, 12);
-  return joined || 'PROJECT';
+  if (!slug || slug === SLUG_FALLBACK) return 'PRJ';
+  const parts = slug.split('_').filter(Boolean);
+  if (!parts.length) return 'PRJ';
+  if (parts.length === 1) {
+    return parts[0].slice(0, 3).toUpperCase() || 'PRJ';
+  }
+  const ac = parts
+    .map((p) => p[0])
+    .join('')
+    .slice(0, PROJECT_CODE_ACRONYM_MAX)
+    .toUpperCase();
+  return ac || 'PRJ';
 }
 
 export function formatYmd(dateLike, now = new Date()) {
@@ -75,25 +84,21 @@ export function formatYmd(dateLike, now = new Date()) {
 }
 
 export function buildProjectCodeBase(opts = {}) {
-  const loai = scopeTypeCode(opts.scopeType);
-  const dept = deptKeyword(opts.scopeLabel);
-  const name = nameKeyword(opts.title);
-  const ymd = formatYmd(opts.dueDate, opts.now);
-  return `${loai}-${dept}-${name}-${ymd}`.slice(0, PROJECT_CODE_MAX_LEN);
+  return nameKeyword(opts.title).slice(0, PROJECT_CODE_MAX_LEN);
 }
 
 export function allocateUniqueProjectCode(base, existingCodes) {
   const taken =
     existingCodes instanceof Set
-      ? existingCodes
+      ? new Set([...existingCodes].map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))
       : new Set(
           [...(existingCodes || [])]
-            .map((c) => String(c || '').trim())
+            .map((c) => String(c || '').trim().toUpperCase())
             .filter(Boolean)
         );
-  const stem = String(base || '').trim() || 'ORG-UNIT-PROJECT-00000000';
+  const stem = String(base || '').trim().toUpperCase() || 'PRJ';
   if (!taken.has(stem)) return stem.slice(0, PROJECT_CODE_MAX_LEN);
-  let n = 2;
+  let n = 1;
   for (;;) {
     const candidate = `${stem}-${n}`.slice(0, PROJECT_CODE_MAX_LEN);
     if (!taken.has(candidate)) return candidate;
@@ -102,4 +107,4 @@ export function allocateUniqueProjectCode(base, existingCodes) {
   }
 }
 
-export { PROJECT_CODE_MAX_LEN };
+export { PROJECT_CODE_MAX_LEN, PROJECT_CODE_ACRONYM_MAX };

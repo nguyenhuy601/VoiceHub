@@ -7,6 +7,11 @@ const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/s
 const PORT = process.env.PORT || 3015;
 
 // Kết nối MongoDB
+const {
+  runRbacProjectionConsumerLoop,
+  stopRbacProjectionConsumer,
+} = require('./workers/rbacProjectionConsumer');
+
 connectDB()
   .then(async () => {
     // Kết nối Redis
@@ -19,6 +24,8 @@ connectDB()
     } catch (seedErr) {
       logger.warn('RBAC V2 template seed skipped/failed', seedErr.message);
     }
+
+    runRbacProjectionConsumerLoop();
 
     // Khởi động server
     app.listen(PORT, () => {
@@ -33,6 +40,11 @@ connectDB()
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM signal received: closing HTTP server');
+  try {
+    await stopRbacProjectionConsumer();
+  } catch (e) {
+    logger.error('stopRbacProjectionConsumer', e.message);
+  }
   await disconnectDB();
   process.exit(0);
 });

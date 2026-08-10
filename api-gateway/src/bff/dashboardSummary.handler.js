@@ -24,7 +24,11 @@ async function handleDashboardSummary(req, res) {
     });
 
     if (fromCache) res.setHeader('X-Bff-Cache', 'HIT');
-    return res.json({ success: true, data });
+    const rmStatus = data?._rm;
+    if (rmStatus) res.setHeader('X-Dashboard-Rm', String(rmStatus));
+    const payload = { ...data };
+    delete payload._rm;
+    return res.json({ success: true, data: payload });
   } catch (error) {
     console.error('[bff:dashboard] error:', error.message);
     return sendApiError(res, 500, {

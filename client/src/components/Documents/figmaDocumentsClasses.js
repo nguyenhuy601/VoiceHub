@@ -1,6 +1,7 @@
 /** Figma DocumentsPage tokens */
 
-export const FIGMA_DOC_PAGE = 'flex h-full min-h-0 flex-col overflow-y-auto bg-background';
+export const FIGMA_DOC_PAGE =
+  'flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_DOC_HEADER =
   'sticky top-0 z-20 border-b border-border bg-surface backdrop-blur-sm';

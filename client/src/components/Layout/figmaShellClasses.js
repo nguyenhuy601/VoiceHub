@@ -14,7 +14,7 @@ export const SUITE_SEGMENT = {
   admin: 'admin',
 };
 
-export const FIGMA_SHELL_ROOT = 'flex h-screen flex-col overflow-hidden bg-background';
+export const FIGMA_SHELL_ROOT = 'flex h-screen flex-col overflow-hidden bg-transparent';
 
 export const FIGMA_SHELL_BODY = 'flex min-h-0 flex-1 overflow-hidden';
 
