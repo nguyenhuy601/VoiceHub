@@ -167,9 +167,28 @@ const userProfileSchema = new mongoose.Schema(
       },
       source: {
         type: String,
-        enum: ['manual', 'cv_parse'],
+        enum: ['manual', 'cv_parse', 'excel_import', 'closed_board'],
         default: 'manual',
       },
+      projectExperiences: [
+        {
+          name: { type: String, trim: true, default: '' },
+          role: { type: String, trim: true, default: '' },
+          work: { type: String, trim: true, maxlength: 300, default: '' },
+          year: { type: Number, min: 1970, max: 2100, default: undefined },
+          source: {
+            type: String,
+            enum: ['excel_import', 'closed_board', 'cv_parse', 'manual'],
+            default: 'manual',
+          },
+          status: {
+            type: String,
+            enum: ['verified', 'suggested'],
+            default: 'suggested',
+          },
+          evidenceBoardId: { type: mongoose.Schema.Types.ObjectId, default: null },
+        },
+      ],
       rejectReason: { type: String, maxlength: 500, default: '' },
       submittedAt: { type: Date, default: null },
       verifiedAt: { type: Date, default: null },

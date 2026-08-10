@@ -309,7 +309,9 @@ export default function UserExcelImportPanel({ orgId, embedded = false }) {
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Row</th>
+                  <th className="px-4 py-3">{t('adminUsers.importNameCol')}</th>
                   <th className="px-4 py-3">Email</th>
+                  <th className="px-4 py-3">{t('adminUsers.importPastProjectsCol')}</th>
                   <th className="px-4 py-3">Result</th>
                   <th className="px-4 py-3">{t('adminUsers.importEmailCol')}</th>
                   <th className="px-4 py-3">{t('adminUsers.importActivationCol')}</th>
@@ -320,7 +322,15 @@ export default function UserExcelImportPanel({ orgId, embedded = false }) {
                 {reportRows.map((r) => (
                   <tr key={`${r.rowNumber}-${r.email}`}>
                     <td className="px-4 py-2.5 font-medium text-foreground">{r.rowNumber}</td>
+                    <td className="px-4 py-2.5 font-medium text-foreground">
+                      {r.fullName || '—'}
+                    </td>
                     <td className="px-4 py-2.5 font-medium text-foreground">{r.email}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                      {Array.isArray(r.pastProjectNames) && r.pastProjectNames.length
+                        ? `${r.pastProjectNames.length}: ${r.pastProjectNames.join(', ')}`
+                        : '—'}
+                    </td>
                     <td className="px-4 py-2.5">{statusPill(r.status, r.errorMessage)}</td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {r.status === 'ok'

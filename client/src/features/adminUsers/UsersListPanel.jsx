@@ -14,10 +14,12 @@ import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { normalizeRoleDisplayName, unwrapList } from '../../utils/adminRbacUtils';
 import {
+  compareMembersForAdminList,
   formatRbacRoleLabels,
   memberDepartmentId,
   memberDisplayName,
   memberEmail,
+  memberEmployeeCode,
   memberOrgRole,
   memberStatusKey,
   memberStatusLabel,
@@ -136,6 +138,47 @@ function OrgRoleCell({ rows, emptyLabel }) {
   );
 }
 
+function ResponsibilityCell({ keys, emptyLabel }) {
+  const { visible, overflow } = formatResponsibilityBadges(keys);
+  if (!visible.length) return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
+  return (
+    <div className="flex max-w-[160px] flex-wrap gap-1">
+      {visible.map((key) => (
+        <span
+          key={key}
+          className="inline-flex rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] font-medium text-teal-800 ring-1 ring-teal-500/15 dark:text-teal-200"
+        >
+          {key}
+        </span>
+      ))}
+      {overflow > 0 ? (
+        <span className="text-[10px] text-muted-foreground">+{overflow}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function SortableTh({ label, columnKey, activeKey, dir, onSort }) {
+  const active = activeKey === columnKey;
+  return (
+    <th
+      className="px-4 py-3"
+      aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : undefined}
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
+        onClick={() => onSort(columnKey)}
+      >
+        {label}
+        <span className={active ? 'text-foreground' : 'opacity-40'} aria-hidden>
+          {active ? (dir === 'desc' ? '↓' : '↑') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function collectDeptTeamMaps(structure) {
   const departments = new Map();
   const teams = new Map();
@@ -173,6 +216,8 @@ export default function UsersListPanel({ orgId }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [capabilityFilter, setCapabilityFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
+  const [sortKey, setSortKey] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
@@ -320,6 +365,8 @@ export default function UsersListPanel({ orgId }) {
         normalizeRoleDisplayName(row?.name || row?.role?.name)
       );
       const jobTitle = memberJobTitle(m).toLowerCase();
+      const respKeys = (responsibilityByUser[id] || []).join(' ').toLowerCase();
+      const code = memberEmployeeCode(m).toLowerCase();
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
@@ -328,6 +375,7 @@ export default function UsersListPanel({ orgId }) {
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
         team.toLowerCase().includes(q) ||
+        code.includes(q) ||
         id.toLowerCase().includes(q)
       );
     });
@@ -342,6 +390,21 @@ export default function UsersListPanel({ orgId }) {
     rbacByUser,
     capabilityByUser,
   ]);
+
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) => compareMembersForAdminList(a, b, sortKey, sortDir)),
+    [filtered, sortKey, sortDir]
+  );
+
+  const handleSortColumn = (columnKey) => {
+    if (sortKey === columnKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(columnKey);
+    setSortDir('asc');
+  };
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -364,7 +427,7 @@ export default function UsersListPanel({ orgId }) {
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {organization?.name ? `${organization.name} · ` : ''}
-            {t('adminUsers.listCount', { n: filtered.length, total: members.length })}
+            {t('adminUsers.listCount', { n: sorted.length, total: members.length })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -437,6 +500,21 @@ export default function UsersListPanel({ orgId }) {
                 </option>
               ))}
             </select>
+            <select
+              value={`${sortKey}:${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = String(e.target.value || 'name:asc').split(':');
+                setSortKey(k === 'employeeCode' || k === 'email' ? k : 'name');
+                setSortDir(d === 'desc' ? 'desc' : 'asc');
+              }}
+              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+              aria-label={t('adminUsers.sortBy')}
+            >
+              <option value="name:asc">{t('adminUsers.sortNameAz')}</option>
+              <option value="name:desc">{t('adminUsers.sortNameZa')}</option>
+              <option value="employeeCode:asc">{t('adminUsers.sortCodeAz')}</option>
+              <option value="employeeCode:desc">{t('adminUsers.sortCodeZa')}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -449,8 +527,27 @@ export default function UsersListPanel({ orgId }) {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3">{t('adminUsers.colUser')}</th>
-                  <th className="px-4 py-3">{t('companyAdmin.colEmail')}</th>
+                  <SortableTh
+                    label={t('adminUsers.colUser')}
+                    columnKey="name"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={handleSortColumn}
+                  />
+                  <SortableTh
+                    label={t('adminUsers.colEmployeeCode')}
+                    columnKey="employeeCode"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={handleSortColumn}
+                  />
+                  <SortableTh
+                    label={t('companyAdmin.colEmail')}
+                    columnKey="email"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={handleSortColumn}
+                  />
                   <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
                   <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
                     {t('adminUsers.colUserRole')}
@@ -469,10 +566,10 @@ export default function UsersListPanel({ orgId }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((m) => {
+                {sorted.map((m) => {
                   const id = memberUserId(m);
                   const name = memberDisplayName(m);
-                  const isSystemAdmin = isSystemAdminMember(m);
+                  const code = memberEmployeeCode(m);
                   const depId = memberDepartmentId(m);
                   const teamId = memberTeamId(m);
                   const depName = structureMaps.departments.get(depId);
@@ -507,6 +604,9 @@ export default function UsersListPanel({ orgId }) {
                             ) : null}
                           </span>
                         </button>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
+                        {code || '—'}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
                       <td className="px-4 py-3">
@@ -554,7 +654,7 @@ export default function UsersListPanel({ orgId }) {
                 })}
               </tbody>
             </table>
-            {!filtered.length ? (
+            {!sorted.length ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">
                 {t('adminUsers.noUsers')}
               </p>

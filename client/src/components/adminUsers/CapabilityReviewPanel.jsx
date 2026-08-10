@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
@@ -35,6 +35,7 @@ export default function CapabilityReviewPanel({
   orgId,
   userId,
   canReview = false,
+  canConfirmExperience = false,
   onStatusChange,
 }) {
   const { t } = useAppStrings();
@@ -48,6 +49,12 @@ export default function CapabilityReviewPanel({
   const [rcRejectOpen, setRcRejectOpen] = useState(false);
   const [rcRejectReason, setRcRejectReason] = useState('');
 
+  // Tránh loop: parent truyền onStatusChange inline → không đưa vào deps của load.
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+  const tRef = useRef(t);
+  tRef.current = t;
+
   const load = useCallback(async () => {
     if (!orgId || !userId) return;
     setLoading(true);
@@ -58,10 +65,13 @@ export default function CapabilityReviewPanel({
       setCapability(parsed);
       setResourceConfig(readResourceConfig(data));
       setJobTitle(String(data?.preferences?.jobTitle || data?.jobTitle || '').trim());
-      onStatusChange?.(parsed.verificationStatus || 'draft');
+      onStatusChangeRef.current?.(parsed.verificationStatus || 'draft');
     } catch (error) {
       toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('adminUsers.capabilityLoadFail') })
+        resolveApiErrorMessage(error, {
+          t: tRef.current,
+          fallback: tRef.current('adminUsers.capabilityLoadFail'),
+        })
       );
       setCapability(null);
       setResourceConfig(null);
@@ -69,7 +79,7 @@ export default function CapabilityReviewPanel({
     } finally {
       setLoading(false);
     }
-  }, [orgId, userId, t, onStatusChange]);
+  }, [orgId, userId]);
 
   useEffect(() => {
     load();
@@ -80,6 +90,25 @@ export default function CapabilityReviewPanel({
     setCapability(parsed);
     setResourceConfig(readResourceConfig(data));
     onStatusChange?.(parsed.verificationStatus);
+  };
+
+  const confirmExperience = async (evidenceBoardId) => {
+    if (!canConfirmExperience || acting || !orgId || !userId) return;
+    const boardId = String(evidenceBoardId || '').trim();
+    if (!boardId) return;
+    setActing(true);
+    try {
+      const res = await adminUserAPI.confirmExperience(orgId, userId, boardId);
+      const data = unwrapApi(res)?.data ?? unwrapApi(res);
+      applyProfile(data);
+      toast.success(t('settingsCapability.confirmOk'));
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('settingsCapability.confirmFail') })
+      );
+    } finally {
+      setActing(false);
+    }
   };
 
   const verify = async () => {
@@ -255,6 +284,54 @@ export default function CapabilityReviewPanel({
                 {t(`settingsCapability.availabilityOptions.${capability.availability}`)}
               </dd>
             </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{t('settingsCapability.pastProjects')}</dt>
+              <dd className="mt-1 space-y-2">
+                {(capability.projectExperiences || []).length ? (
+                  capability.projectExperiences.map((p, idx) => (
+                    <div
+                      key={`${p.evidenceBoardId || p.name}-${idx}`}
+                      className="rounded-lg border border-border bg-background px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">
+                            {p.name || '—'}
+                            {p.year ? (
+                              <span className="ml-1 text-xs font-normal text-muted-foreground">({p.year})</span>
+                            ) : null}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {[p.role, p.work].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        {p.status === 'suggested' ? (
+                          <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                            {t('settingsCapability.experiencePending')}
+                          </span>
+                        ) : p.status === 'verified' ? (
+                          <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                            {t('settingsCapability.experienceVerified')}
+                          </span>
+                        ) : null}
+                      </div>
+                      {canConfirmExperience && p.status === 'suggested' && p.evidenceBoardId ? (
+                        <button
+                          type="button"
+                          disabled={acting}
+                          onClick={() => confirmExperience(p.evidenceBoardId)}
+                          className="mt-2 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                        >
+                          {t('settingsCapability.confirmExperience')}
+                        </button>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">{t('settingsCapability.pastProjectsEmpty')}</span>
+                )}
+              </dd>
+            </div>
             {capability.summary ? (
               <div>
                 <dt className="text-xs text-muted-foreground">{t('settingsCapability.summary')}</dt>
@@ -274,6 +351,14 @@ export default function CapabilityReviewPanel({
             ) : null}
           </dl>
         )}
+
+        {canReview && pending && (capability.skills || []).length > 0
+        && !(capability.projectExperiences || []).some((p) => p.status === 'verified')
+        && !capability.cvFileName ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            {t('adminUsers.capabilityNoEvidenceWarn')}
+          </p>
+        ) : null}
 
         {canReview && pending ? (
           <div className="space-y-3 border-t border-border pt-3">

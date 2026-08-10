@@ -32,6 +32,47 @@ export function memberEmail(member) {
   return String(member?.email || '').trim() || '—';
 }
 
+/** Mã NV hệ thống (VH-xxx) — trống nếu hồ sơ cũ chưa cấp. */
+export function memberEmployeeCode(member) {
+  return String(member?.employeeCode || '').trim().toUpperCase();
+}
+
+export function compareViNumeric(a, b) {
+  return String(a || '').localeCompare(String(b || ''), 'vi', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+/**
+ * Sort DS nhân sự: name | employeeCode | email. Mã trống luôn xếp cuối khi sort theo mã.
+ * @param {'name'|'employeeCode'|'email'} key
+ * @param {'asc'|'desc'} dir
+ */
+export function compareMembersForAdminList(a, b, key = 'name', dir = 'asc') {
+  const mul = dir === 'desc' ? -1 : 1;
+  if (key === 'employeeCode') {
+    const ca = memberEmployeeCode(a);
+    const cb = memberEmployeeCode(b);
+    if (!ca && !cb) {
+      return compareViNumeric(memberDisplayName(a, ''), memberDisplayName(b, '')) * mul;
+    }
+    if (!ca) return 1;
+    if (!cb) return -1;
+    const byCode = compareViNumeric(ca, cb);
+    if (byCode !== 0) return byCode * mul;
+    return compareViNumeric(memberDisplayName(a, ''), memberDisplayName(b, ''));
+  }
+  if (key === 'email') {
+    const byEmail = compareViNumeric(memberEmail(a), memberEmail(b));
+    if (byEmail !== 0) return byEmail * mul;
+    return compareViNumeric(memberDisplayName(a, ''), memberDisplayName(b, ''));
+  }
+  const byName = compareViNumeric(memberDisplayName(a, ''), memberDisplayName(b, ''));
+  if (byName !== 0) return byName * mul;
+  return compareViNumeric(memberEmployeeCode(a), memberEmployeeCode(b));
+}
+
 export function memberOrgRole(member) {
   return String(member?.role || member?.orgRole || 'member').toLowerCase();
 }
@@ -153,6 +194,7 @@ export function memberMatchesQuery(member, query) {
       member?.jobTitle,
       memberOrgRole(member),
       memberUserId(member),
+      memberEmployeeCode(member),
       member?.departmentName,
     ]
       .filter(Boolean)

@@ -48,13 +48,13 @@ export default function CapabilityProfilePanel() {
   const [form, setForm] = useState(() => emptyCapabilityForm());
   const [jobTitle, setJobTitle] = useState('');
   const [status, setStatus] = useState('draft');
+  const [capSource, setCapSource] = useState('manual');
   const [rejectReason, setRejectReason] = useState('');
   const [resourceStatus, setResourceStatus] = useState('verified');
   const [resourceRejectReason, setResourceRejectReason] = useState('');
   const [maxConcurrentProjects, setMaxConcurrentProjects] = useState(2);
   const [serverMaxConcurrentProjects, setServerMaxConcurrentProjects] = useState(2);
   const [cvFileName, setCvFileName] = useState('');
-  const [uploadingCv, setUploadingCv] = useState(false);
   const [skillToAdd, setSkillToAdd] = useState('');
 
   const availableSkills = useMemo(() => {
@@ -71,9 +71,11 @@ export default function CapabilityProfilePanel() {
         skills: parsed.skills,
         availability: parsed.availability,
         summary: parsed.summary,
+        projectExperiences: parsed.projectExperiences || [],
       });
       setJobTitle(readJobTitle(profile));
       setStatus(parsed.verificationStatus || 'draft');
+      setCapSource(parsed.source || 'manual');
       setRejectReason(parsed.rejectReason || '');
       setCvFileName(parsed.cvFileName || '');
 
@@ -114,37 +116,24 @@ export default function CapabilityProfilePanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCvUpload = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || uploadingCv || saving) return;
-    const name = String(file.name || '').toLowerCase();
-    if (!name.endsWith('.pdf')) {
-      toast.error(t('settingsCapability.cvPdfOnly'));
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error(t('settingsCapability.cvTooLarge'));
-      return;
-    }
-    setUploadingCv(true);
+  const confirmExperience = async (evidenceBoardId) => {
+    const boardId = String(evidenceBoardId || '').trim();
+    if (saving || !boardId) return;
+    setSaving(true);
     try {
-      const res = await userService.uploadCapabilityCv(file);
-      const body = res?.data ?? res;
-      const profile = unwrapApiData(body) || body?.data || body;
+      const res = await userService.updateProfile({
+        capabilityAction: 'confirm_experience',
+        evidenceBoardId: boardId,
+      });
+      const profile = unwrapApiData(res) || res;
       applyServerCapability(profile);
-      const note = body?.meta?.parseNote || res?.meta?.parseNote;
-      if (note === 'empty_or_scanned' || note === 'low_text') {
-        toast(t('settingsCapability.cvParseWeak'), { icon: '⚠️' });
-      } else {
-        toast.success(t('settingsCapability.cvParseOk'));
-      }
+      toast.success(t('settingsCapability.confirmOk'));
     } catch (error) {
       toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('settingsCapability.cvUploadFail') })
+        resolveApiErrorMessage(error, { t, fallback: t('settingsCapability.confirmFail') })
       );
     } finally {
-      setUploadingCv(false);
+      setSaving(false);
     }
   };
 
@@ -222,6 +211,8 @@ export default function CapabilityProfilePanel() {
   const resourceStatusLabel = t(`settingsCapability.status.${resourceStatus}`) || resourceStatus;
   const resourceBadgeClass = STATUS_BADGE[resourceStatus] || STATUS_BADGE.verified;
   const submitOk = canSubmitCapability(form, { jobTitle });
+  const excelLocked = capSource === 'excel_import' && status === 'verified';
+  const roInput = excelLocked ? `${FIGMA_SETTINGS_INPUT} bg-muted/40` : FIGMA_SETTINGS_INPUT;
 
   if (loading) {
     return (
@@ -248,6 +239,9 @@ export default function CapabilityProfilePanel() {
           {status === 'pending_hr' ? (
             <span className="text-xs text-muted-foreground">{t('settingsCapability.pendingHint')}</span>
           ) : null}
+          {excelLocked ? (
+            <p className="basis-full text-xs text-muted-foreground">{t('settingsCapability.excelLockedHint')}</p>
+          ) : null}
 
           <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${resourceBadgeClass}`}>
             Capacity: {resourceStatusLabel}
@@ -266,27 +260,11 @@ export default function CapabilityProfilePanel() {
           </div>
         ) : null}
 
-        <div className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-3">
-          <p className="mb-2 text-sm font-medium text-foreground">{t('settingsCapability.cvUploadTitle')}</p>
-          <p className="mb-3 text-xs text-muted-foreground">{t('settingsCapability.cvUploadHint')}</p>
-          <label className="inline-flex cursor-pointer">
-            <input
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              disabled={uploadingCv || saving}
-              onChange={handleCvUpload}
-            />
-            <span className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-              {uploadingCv ? t('settingsCapability.cvUploading') : t('settingsCapability.cvUploadBtn')}
-            </span>
-          </label>
-          {cvFileName ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('settingsCapability.cvFileLabel')}: {cvFileName}
-            </p>
-          ) : null}
-        </div>
+        {cvFileName ? (
+          <p className="text-xs text-muted-foreground">
+            {t('settingsCapability.cvFileLabel')}: {cvFileName}
+          </p>
+        ) : null}
 
         <div>
           <label className="mb-2 block text-sm font-medium text-foreground">
@@ -308,8 +286,9 @@ export default function CapabilityProfilePanel() {
             {t('settingsCapability.domain')}
           </label>
           <select
-            className={FIGMA_SETTINGS_INPUT}
+            className={roInput}
             value={form.primaryDomain}
+            disabled={excelLocked || saving}
             onChange={(e) => setForm((p) => ({ ...p, primaryDomain: e.target.value }))}
           >
             <option value="">{t('settingsCapability.selectPlaceholder')}</option>
@@ -329,8 +308,9 @@ export default function CapabilityProfilePanel() {
             type="number"
             min={0}
             max={YEARS_EXPERIENCE_MAX}
-            className={FIGMA_SETTINGS_INPUT}
+            className={roInput}
             value={form.yearsExperience}
+            disabled={excelLocked || saving}
             onChange={(e) => setForm((p) => ({ ...p, yearsExperience: e.target.value }))}
           />
         </div>
@@ -339,6 +319,7 @@ export default function CapabilityProfilePanel() {
           <label className="mb-2 block text-sm font-medium text-foreground">
             {t('settingsCapability.skills')}
           </label>
+          {excelLocked ? null : (
           <div className="mb-2 flex gap-2">
             <select
               className={FIGMA_SETTINGS_INPUT}
@@ -356,6 +337,7 @@ export default function CapabilityProfilePanel() {
               {t('settingsCapability.addSkill')}
             </GradientButton>
           </div>
+          )}
           <ul className="space-y-2">
             {(form.skills || []).map((s) => (
               <li
@@ -371,9 +353,11 @@ export default function CapabilityProfilePanel() {
                     max={SKILL_LEVEL_MAX}
                     className="h-8 w-14 rounded border border-border bg-background px-2 text-sm"
                     value={s.level}
+                    disabled={excelLocked || saving}
                     onChange={(e) => setSkillLevel(s.name, e.target.value)}
                   />
                 </label>
+                {excelLocked ? null : (
                 <button
                   type="button"
                   className="text-xs font-semibold text-destructive hover:underline"
@@ -381,6 +365,7 @@ export default function CapabilityProfilePanel() {
                 >
                   {t('settingsPage.delete')}
                 </button>
+                )}
               </li>
             ))}
           </ul>
@@ -391,8 +376,9 @@ export default function CapabilityProfilePanel() {
             {t('settingsCapability.availability')}
           </label>
           <select
-            className={FIGMA_SETTINGS_INPUT}
+            className={roInput}
             value={form.availability}
+            disabled={excelLocked || saving}
             onChange={(e) => setForm((p) => ({ ...p, availability: e.target.value }))}
           >
             {AVAILABILITY_VALUES.map((code) => (
@@ -428,18 +414,72 @@ export default function CapabilityProfilePanel() {
 
         <div>
           <label className="mb-2 block text-sm font-medium text-foreground">
+            {t('settingsCapability.pastProjects')}
+          </label>
+          {(form.projectExperiences || []).length ? (
+            <ul className="space-y-2">
+              {(form.projectExperiences || []).map((p, idx) => (
+                <li
+                  key={`${p.evidenceBoardId || p.name}-${idx}`}
+                  className="rounded-lg border border-border bg-background px-3 py-2"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {p.name || '—'}
+                        {p.year ? (
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">({p.year})</span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {[p.role, p.work].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    {p.status === 'suggested' ? (
+                      <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                        {t('settingsCapability.experiencePending')}
+                      </span>
+                    ) : p.status === 'verified' ? (
+                      <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                        {t('settingsCapability.experienceVerified')}
+                      </span>
+                    ) : null}
+                  </div>
+                  {p.status === 'suggested' && p.evidenceBoardId ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => confirmExperience(p.evidenceBoardId)}
+                      className="mt-2 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                    >
+                      {t('settingsCapability.confirmExperience')}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('settingsCapability.pastProjectsEmpty')}</p>
+          )}
+          <p className="mt-1.5 text-xs text-muted-foreground">{t('settingsCapability.pastProjectsHint')}</p>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
             {t('settingsCapability.summary')}
           </label>
           <textarea
             rows={3}
             maxLength={SUMMARY_MAX_LEN}
-            className={`${FIGMA_SETTINGS_INPUT} h-auto min-h-[80px] py-2`}
+            className={`${roInput} h-auto min-h-[80px] py-2`}
             value={form.summary}
+            disabled={excelLocked || saving}
             onChange={(e) => setForm((p) => ({ ...p, summary: e.target.value }))}
             placeholder={t('settingsCapability.summaryPlaceholder')}
           />
         </div>
 
+        {excelLocked ? null : (
         <div className="flex flex-wrap gap-2 pt-1">
           <GradientButton
             type="button"
@@ -458,6 +498,7 @@ export default function CapabilityProfilePanel() {
             {saving ? t('common.saving') : t('settingsCapability.submit')}
           </GradientButton>
         </div>
+        )}
       </div>
     </div>
   );

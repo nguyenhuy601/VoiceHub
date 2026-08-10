@@ -13,6 +13,7 @@ const {
 } = require('./employeeCodeAllocate.service');
 const { sendProvisionSetPasswordEmail } = require('../clients/authInviteEmail.client');
 const { runWithConcurrency, chunkArray } = require('../utils/runWithConcurrency');
+const { findEmailOrgConflicts } = require('../utils/orgImportEmailGate');
 const { logger } = require('@enterprise/shared');
 const Organization = require('../models/Organization');
 const ImportBatch = require('../models/ImportBatch');
@@ -129,6 +130,15 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
       yearsExperience: row.yearsExperience,
       availability: 'available',
       summary: '',
+      source: 'excel_import',
+      projectExperiences: (Array.isArray(row.pastProjects) ? row.pastProjects : []).map((p) => ({
+        name: p.name,
+        role: p.role,
+        work: p.work,
+        ...(p.year != null ? { year: p.year } : {}),
+        source: 'excel_import',
+        status: 'verified',
+      })),
     },
     resourceConfig: {
       maxConcurrentProjects: row.maxConcurrentProjects,
@@ -287,6 +297,18 @@ async function validateExcelForPreview({ organizationId, fileBuffer }) {
     return { ok: false, errorCode: 'VALIDATION_DEPARTMENT_NOT_FOUND', details: deptDetails };
   }
 
+  const emailConflicts = await findEmailOrgConflicts(
+    organizationId,
+    validation.normalizedRows
+  );
+  if (emailConflicts.length) {
+    return {
+      ok: false,
+      errorCode: 'VALIDATION_EMAIL_ALREADY_MEMBER',
+      details: emailConflicts,
+    };
+  }
+
   return {
     ok: true,
     organizationName: String(organization.name || 'VoiceHub').trim(),
@@ -325,6 +347,10 @@ async function previewMembersExcel({ organizationId, uploadedBy, fileBuffer, fil
     rows: normalizedRows.map((r) => ({
       rowNumber: r.rowNumber,
       email: r.email,
+      fullName: r.fullName || r.displayName || '',
+      pastProjectNames: (Array.isArray(r.pastProjects) ? r.pastProjects : [])
+        .map((p) => String(p?.name || '').trim())
+        .filter(Boolean),
       status: 'pending',
       userId: null,
       errorMessage: '',
@@ -448,6 +474,28 @@ async function processImportBatch({ organizationId, batchId }) {
   const deptMap = new Map(
     deptDocs.map((d) => [String(d.name || '').trim().toLowerCase(), String(d._id)])
   );
+
+  // Confirm-time: chặn re-import email đã trong org trước khi allocate (không đốt VH).
+  const emailConflicts = await findEmailOrgConflicts(organizationId, previewRows);
+  if (emailConflicts.length) {
+    await ImportBatch.updateOne(
+      { _id: claimed._id },
+      {
+        $set: {
+          status: 'failed',
+          errorCode: 'VALIDATION_EMAIL_ALREADY_MEMBER',
+          errorMessage: emailConflicts
+            .slice(0, 5)
+            .map((d) => d.message)
+            .join('; ')
+            .slice(0, 800),
+          validationDetails: emailConflicts,
+          completedAt: new Date(),
+        },
+      }
+    );
+    return { ok: false, reason: 'email_already_member', details: emailConflicts };
+  }
 
   let rowsWithCodes;
   try {

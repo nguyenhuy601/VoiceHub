@@ -30,6 +30,13 @@ export const adminUserAPI = {
       withOrg(organizationId)
     ),
 
+  confirmExperience: (organizationId, userId, evidenceBoardId) =>
+    apiClient.patch(
+      `/users/admin/${userId}`,
+      { organizationId, capabilityAction: 'confirm_experience', evidenceBoardId },
+      withOrg(organizationId)
+    ),
+
   /** C1 — HR reject hồ sơ năng lực */
   rejectCapability: (organizationId, userId, rejectReason) =>
     apiClient.patch(

@@ -8,7 +8,7 @@ describe('excelImportTemplate', () => {
   it('embeds live department names and dropdowns', async () => {
     const buf = await buildWorkbookBufferFromLists({
       deptNames: ['Backend', 'Front End'],
-      domains: ['fe', 'be'],
+      domains: ['Frontend', 'Backend'],
     });
     assert.ok(Buffer.isBuffer(buf));
     assert.ok(buf.length > 1000);
@@ -23,8 +23,11 @@ describe('excelImportTemplate', () => {
     const lists = wb.getWorksheet('lists');
     assert.equal(lists.getCell('A2').value, 'Backend');
     assert.equal(lists.getCell('A3').value, 'Front End');
-    assert.equal(lists.getCell('B2').value, 'fe');
+    assert.equal(lists.getCell('B2').value, 'Frontend');
+    assert.equal(lists.getCell('B3').value, 'Backend');
     assert.equal(lists.getCell('C2').value, 'member');
+    assert.equal(lists.getCell('E2').value, 'JavaScript');
+    assert.ok(String(lists.getCell('E3').value || '').length > 0);
     const jobTitles = [];
     for (let r = 2; r <= 40; r += 1) {
       const v = lists.getCell(r, 4).value;
@@ -38,19 +41,34 @@ describe('excelImportTemplate', () => {
     HEADERS.forEach((h, i) => {
       assert.equal(String(ws.getCell(1, i + 1).value), h);
     });
-    assert.equal(ws.getCell('A1').value, 'employeeCode');
-    assert.equal(String(ws.getCell('F2').value), 'Chức danh HR');
-    assert.equal(ws.getCell('E3').value, 'Backend');
-    assert.equal(ws.getCell('B3').value, 'Nguyễn An');
-    const deptDv = ws.getCell('E3').dataValidation;
+    assert.equal(ws.getCell('A1').value, 'fullName');
+    assert.ok(!HEADERS.includes('employeeCode'));
+    assert.ok(HEADERS.includes('skills'));
+    assert.ok(!HEADERS.includes('skill1'));
+    assert.ok(!HEADERS.includes('skill5'));
+    assert.ok(HEADERS.includes('pastProject5Year'));
+    assert.equal(String(ws.getCell('E2').value), 'Chức danh HR');
+    assert.equal(ws.getCell('D3').value, 'Backend');
+    assert.equal(ws.getCell('F3').value, 'Backend');
+    assert.equal(String(ws.getCell('G3').value || ''), 'Node.js, MongoDB');
+    assert.match(String(ws.getCell(3, 13).value || ''), /Node\.js/);
+    assert.equal(ws.getCell('A3').value, 'Nguyễn An');
+    assert.ok(!ws.getCell('G3').dataValidation);
+    const deptDv = ws.getCell('D3').dataValidation;
     assert.equal(deptDv?.type, 'list');
     assert.ok(String(deptDv?.formulae?.[0] || '').includes('lists!$A$2'));
-    const domainDv = ws.getCell('G3').dataValidation;
+    const domainDv = ws.getCell('F3').dataValidation;
     assert.equal(domainDv?.type, 'list');
-    const jobDv = ws.getCell('F3').dataValidation;
+    const jobDv = ws.getCell('E3').dataValidation;
     assert.equal(jobDv?.type, 'list');
     assert.ok(String(jobDv?.formulae?.[0] || '').includes('lists!$D$2'));
     assert.equal(jobDv?.errorStyle, 'warning');
+    const readme = wb.getWorksheet('README');
+    const readmeText = [];
+    readme.eachRow((row) => {
+      readmeText.push(String(row.getCell(1).value || ''), String(row.getCell(2).value || ''));
+    });
+    assert.ok(readmeText.some((t) => /tối đa 10/i.test(t)));
   });
 
   it('merges extra job titles into snapshot and parser accepts typed custom title', async () => {
@@ -84,9 +102,9 @@ describe('excelImportTemplate', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const ws = wb.getWorksheet('resource_import');
-    assert.equal(ws.getCell('E3').value || '', '');
-    assert.ok(!ws.getCell('E3').dataValidation);
-    assert.equal(ws.getCell('G3').dataValidation?.type, 'list');
+    assert.equal(ws.getCell('D3').value || '', '');
+    assert.ok(!ws.getCell('D3').dataValidation);
+    assert.equal(ws.getCell('F3').dataValidation?.type, 'list');
   });
 
   it('parser skips empty rows expanded by dropdown used-range', async () => {

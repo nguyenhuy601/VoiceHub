@@ -9,7 +9,13 @@ const {
   maybeMigrateProfilePii,
   readPiiFromProfile,
 } = require('../utils/profilePii');
-const { applyCapabilityAction, resolveCapabilityIntent } = require('./capabilityProfile.service');
+const {
+  applyCapabilityAction,
+  resolveCapabilityIntent,
+  resolveResourceConfigIntent,
+  emptyCapability,
+  mergeClosedBoardExperience,
+} = require('./capabilityProfile.service');
 const { parseCvFileToFields } = require('./cvParse.service');
 const path = require('path');
 const fs = require('fs');
@@ -323,6 +329,7 @@ class UserService {
           fields: capabilityIntent.fields,
           actorUserId,
           rejectReason: capabilityIntent.rejectReason,
+          evidenceBoardId: capabilityIntent.evidenceBoardId,
           jobTitle: resolveJobTitle({
             ...existingProfile,
             preferences: updateFields.preferences || existingProfile?.preferences,
@@ -433,6 +440,39 @@ class UserService {
   }
 
   /**
+   * Internal — append 1 DA closed_board (idempotent theo evidenceBoardId).
+   * Không đè skills / Excel / verificationStatus cả hồ sơ.
+   */
+  async appendClosedBoardExperience(userId, rawExperience) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw serviceError('userId là bắt buộc', 400, 'USER_VALIDATION');
+
+    const profile = await UserProfile.findOne({ userId: uid });
+    if (!profile) {
+      throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+    }
+
+    const capPlain =
+      typeof profile.capability?.toObject === 'function'
+        ? profile.capability.toObject()
+        : { ...(profile.capability || {}) };
+    const merged = mergeClosedBoardExperience(capPlain.projectExperiences, rawExperience);
+    if (!merged.ok) {
+      throw serviceError('projectExperience đóng board không hợp lệ', 400, merged.errorCode);
+    }
+
+    const nextCap = {
+      ...emptyCapability(),
+      ...capPlain,
+      projectExperiences: merged.list,
+      updatedAt: new Date(),
+    };
+    profile.set('capability', nextCap);
+    await profile.save();
+    return profile;
+  }
+
+  /**
    * Internal — bulk import profile fields from org-service (Excel).
    * Không chạy FSM verify/capability sanitize FSM vì org-service đã là HR internal.
    */
@@ -441,6 +481,9 @@ class UserService {
     if (!uid) throw serviceError('userId là bắt buộc', 400, 'USER_VALIDATION');
 
     const body = payload && typeof payload === 'object' ? payload : {};
+    if (String(body.mode || '').trim() === 'append_closed_board') {
+      return this.appendClosedBoardExperience(uid, body.experience || body);
+    }
     const now = new Date();
 
     const employeeCodeRaw =
@@ -494,6 +537,37 @@ class UserService {
     const safeAvailability = ['available', 'busy', 'partial'].includes(availability) ? availability : 'available';
     const safePrimaryDomain = primaryDomain ? primaryDomain : 'other';
 
+    const capSourceRaw = String(capRaw.source || '').trim();
+    const capSource =
+      capSourceRaw === 'excel_import' || capSourceRaw === 'cv_parse' ? capSourceRaw : 'manual';
+    const projectExperiences = (Array.isArray(capRaw.projectExperiences) ? capRaw.projectExperiences : [])
+      .map((p) => {
+        const name = String(p?.name || '').trim();
+        const role = String(p?.role || '').trim();
+        const work = String(p?.work || '').trim().slice(0, 300);
+        if (!name || !role || !work) return null;
+        const yearRaw = p?.year;
+        let year;
+        if (yearRaw != null && yearRaw !== '') {
+          const y = Number(yearRaw);
+          if (Number.isFinite(y) && y >= 1970 && y <= 2100) year = Math.floor(y);
+        }
+        const itemSource = String(p?.source || capSource || 'excel_import').trim();
+        const safeItemSource = ['excel_import', 'closed_board', 'cv_parse', 'manual'].includes(itemSource)
+          ? itemSource
+          : 'excel_import';
+        return {
+          name,
+          role,
+          work,
+          ...(year != null ? { year } : {}),
+          source: safeItemSource,
+          status: String(p?.status || 'verified') === 'suggested' ? 'suggested' : 'verified',
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 5);
+
     const capability = {
       positionCode: capRaw.positionCode || '',
       primaryDomain: safePrimaryDomain,
@@ -502,7 +576,7 @@ class UserService {
       availability: safeAvailability,
       summary,
       verificationStatus: 'verified',
-      source: 'manual',
+      source: projectExperiences.length && capSource === 'manual' ? 'excel_import' : capSource,
       rejectReason: '',
       submittedAt: null,
       verifiedAt: now,
@@ -512,6 +586,7 @@ class UserService {
       cvFilePath: capRaw.cvFilePath || '',
       cvFileName: capRaw.cvFileName || '',
       cvUploadedAt: capRaw.cvUploadedAt || null,
+      projectExperiences,
     };
 
     const rcRaw = body.resourceConfig && typeof body.resourceConfig === 'object' ? body.resourceConfig : {};

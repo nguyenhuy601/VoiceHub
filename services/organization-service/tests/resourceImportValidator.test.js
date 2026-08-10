@@ -133,6 +133,48 @@ describe('resourceImportValidator', () => {
     assert.equal(out.normalizedRows[0].lastName, 'Đỗ Công');
     assert.equal(out.normalizedRows[0].maxConcurrentProjects, 2);
   });
+
+  it('keeps complete past projects and skips empty blocks', () => {
+    const out = validateResourceImportRows([
+      baseRow({
+        pastProject1Name: 'Cổng thanh toán',
+        pastProject1Role: 'BE',
+        pastProject1Work: 'Đối soát',
+        pastProject1Year: 2024,
+        pastProject2Name: '',
+        pastProject2Role: '',
+        pastProject2Work: '',
+      }),
+    ]);
+    assert.equal(out.ok, true);
+    assert.equal(out.normalizedRows[0].pastProjects.length, 1);
+    assert.equal(out.normalizedRows[0].pastProjects[0].name, 'Cổng thanh toán');
+    assert.equal(out.normalizedRows[0].pastProjects[0].year, 2024);
+  });
+
+  it('rejects past project work over 300 chars or year out of range', () => {
+    const longWork = 'x'.repeat(301);
+    const workTooLong = validateResourceImportRows([
+      baseRow({
+        pastProject1Name: 'A',
+        pastProject1Role: 'BE',
+        pastProject1Work: longWork,
+      }),
+    ]);
+    assert.equal(workTooLong.ok, false);
+    assert.equal(workTooLong.details?.[0]?.errorCode, 'VALIDATION_PAST_PROJECT_WORK_LENGTH');
+
+    const badYear = validateResourceImportRows([
+      baseRow({
+        pastProject1Name: 'A',
+        pastProject1Role: 'BE',
+        pastProject1Work: 'API',
+        pastProject1Year: 1800,
+      }),
+    ]);
+    assert.equal(badYear.ok, false);
+    assert.equal(badYear.details?.[0]?.errorCode, 'VALIDATION_PAST_PROJECT_YEAR');
+  });
 });
 
 describe('resourceImportValidator helpers', () => {
@@ -149,5 +191,52 @@ describe('resourceImportValidator helpers', () => {
   it('normalizePrimaryDomain maps aliases', () => {
     const out = normalizePrimaryDomain('fe');
     assert.equal(out.ok, true);
+  });
+
+  it('normalizePrimaryDomain maps UI labels Frontend/Backend/Khác', () => {
+    assert.equal(normalizePrimaryDomain('Frontend').value, 'fe');
+    assert.equal(normalizePrimaryDomain('Backend').value, 'be');
+    assert.equal(normalizePrimaryDomain('Full-stack').value, 'fullstack');
+    assert.equal(normalizePrimaryDomain('Khác').value, 'other');
+  });
+});
+
+describe('resourceImportValidator skills catalog', () => {
+  const { SKILL_WHITELIST, normalizeSkillName } = require('../src/utils/resourceImportValidator');
+  const userCat = require('../../user-service/src/constants/capabilityCatalog');
+
+  it('mirrors user-service SKILL_WHITELIST', () => {
+    assert.deepEqual([...SKILL_WHITELIST], [...userCat.SKILL_WHITELIST]);
+  });
+
+  it('accepts Frontend + Node.js, mongo and rejects unknown skill', () => {
+    const ok = validateResourceImportRows([
+      baseRow({ primaryDomain: 'Frontend', skills: 'Node.js, mongo, REST API' }),
+    ]);
+    assert.equal(ok.ok, true, JSON.stringify(ok.details || []));
+    assert.equal(ok.normalizedRows[0].primaryDomain, 'fe');
+    assert.deepEqual(ok.normalizedRows[0].skills, ['Node.js', 'MongoDB', 'REST API']);
+
+    const bad = validateResourceImportRows([baseRow({ skills: 'Jira, FooLang' })]);
+    assert.equal(bad.ok, false);
+    assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILL_NOT_IN_CATALOG');
+  });
+
+  it('rejects hire skills above HIRE_SKILLS_MAX without silent truncate', () => {
+    const { HIRE_SKILLS_MAX, SKILL_WHITELIST } = require('../src/utils/resourceImportValidator');
+    const ten = SKILL_WHITELIST.slice(0, HIRE_SKILLS_MAX).join(', ');
+    const ok = validateResourceImportRows([baseRow({ skills: ten })]);
+    assert.equal(ok.ok, true, JSON.stringify(ok.details || []));
+    assert.equal(ok.normalizedRows[0].skills.length, HIRE_SKILLS_MAX);
+
+    const eleven = SKILL_WHITELIST.slice(0, HIRE_SKILLS_MAX + 1).join(', ');
+    const bad = validateResourceImportRows([baseRow({ skills: eleven })]);
+    assert.equal(bad.ok, false);
+    assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILLS_HIRE_MAX');
+  });
+
+  it('normalizeSkillName aliases match user-service', () => {
+    assert.equal(normalizeSkillName('nodejs'), userCat.normalizeSkillName('nodejs'));
+    assert.equal(normalizeSkillName('k8s'), 'Kubernetes');
   });
 });

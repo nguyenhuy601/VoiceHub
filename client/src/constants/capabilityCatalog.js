@@ -65,6 +65,10 @@ export const SKILL_LEVEL_MAX = 5;
 export const SUMMARY_MAX_LEN = 1000;
 export const YEARS_EXPERIENCE_MAX = 40;
 export const MAX_SKILLS = 20;
+/** Hire SoT (Excel / mời KN) — JD-fit; profile vẫn MAX_SKILLS. */
+export const HIRE_SKILLS_MAX = 10;
+
+export const MAX_PROJECT_EXPERIENCES = 20;
 
 export function emptyCapabilityForm() {
   return {
@@ -73,7 +77,31 @@ export function emptyCapabilityForm() {
     skills: [],
     availability: 'available',
     summary: '',
+    projectExperiences: [],
   };
+}
+
+export function projectExperiencesFromApi(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((p) => {
+      const name = String(p?.name || '').trim();
+      const role = String(p?.role || '').trim();
+      const work = String(p?.work || '').trim();
+      if (!name && !role && !work) return null;
+      const yearNum = Number(p?.year);
+      return {
+        name,
+        role,
+        work,
+        year: Number.isFinite(yearNum) ? yearNum : null,
+        source: String(p?.source || ''),
+        status: String(p?.status || ''),
+        evidenceBoardId: String(p?.evidenceBoardId || ''),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_PROJECT_EXPERIENCES);
 }
 
 export function capabilityFromApi(raw) {
@@ -105,6 +133,7 @@ export function capabilityFromApi(raw) {
     source: String(c.source || 'manual'),
     cvFileName: String(c.cvFileName || ''),
     cvFilePath: String(c.cvFilePath || ''),
+    projectExperiences: projectExperiencesFromApi(c.projectExperiences),
   };
 }
 

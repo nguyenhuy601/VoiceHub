@@ -1,5 +1,8 @@
 const ExcelJS = require('exceljs');
-const { PRIMARY_DOMAINS } = require('./resourceImportValidator');
+const {
+  PRIMARY_DOMAIN_LABELS,
+  SKILL_WHITELIST,
+} = require('./resourceImportValidator');
 
 const ORG_ROLES = ['member', 'hr', 'admin'];
 /** Mirror DEFAULT_HR_ROLE_LABELS (mời 1 người / hrRoleCatalog) — tránh require shared ở unit test. */
@@ -27,9 +30,27 @@ const EXTRA_JOB_TITLE_OPTIONS = [
   'Tech Lead',
 ];
 
-/** Dòng 1 — key parser (chuẩn). */
+/** Dòng 1 — key parser (chuẩn). Mã NV không có trên mẫu — máy cấp VH-xxx. */
+const PAST_PROJECT_HEADER_KEYS = [];
+const PAST_PROJECT_HEADER_HINTS = [];
+for (let n = 1; n <= 5; n += 1) {
+  PAST_PROJECT_HEADER_KEYS.push(
+    `pastProject${n}Name`,
+    `pastProject${n}Role`,
+    `pastProject${n}Work`,
+    `pastProject${n}Year`
+  );
+  PAST_PROJECT_HEADER_HINTS.push(
+    `Tên DA ${n} (HR chọn theo JD)`,
+    `Vai trò DA ${n}`,
+    `Việc + công nghệ DA ${n}`,
+    `Năm DA ${n}`
+  );
+}
+
+const SKILL_SLOT_COUNT = 5; // legacy file skill1…5 vẫn parse; mẫu mới chỉ cột skills
+
 const HEADERS = [
-  'employeeCode',
   'fullName',
   'email',
   'phone',
@@ -40,28 +61,30 @@ const HEADERS = [
   'yearsExperience',
   'maxConcurrentProjects',
   'orgRole',
+  ...PAST_PROJECT_HEADER_KEYS,
 ];
 
 /** Dòng 2 — chú thích tiếng Việt (không phải dữ liệu). */
 const HEADER_HINTS = [
-  'Mã NV (để trống)',
   'Họ tên',
   'Email',
   'SĐT',
   'Phòng ban',
   'Chức danh HR',
-  'Chuyên môn (fe|be|…)',
-  'Kỹ năng',
+  'Chuyên môn (Frontend|Backend|…)',
+  'Kỹ năng (phẩy, ≤10, lists!E)',
   'Số năm KN',
   'Trần số dự án (1–20)',
   'Vai trò công ty',
+  ...PAST_PROJECT_HEADER_HINTS,
 ];
 
 const COL = {
-  departmentCode: 5,
-  jobTitle: 6,
-  primaryDomain: 7,
-  orgRole: 11,
+  departmentCode: 4,
+  jobTitle: 5,
+  primaryDomain: 6,
+  skills: 7,
+  orgRole: 10,
 };
 
 const DATA_ROWS = 200;
@@ -135,9 +158,10 @@ async function loadJobTitles(organizationId) {
  */
 async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobTitles = [] } = {}) {
   const deptList = Array.isArray(deptNames) ? deptNames : [];
-  const domainList = Array.isArray(domains) && domains.length
-    ? domains
-    : (Array.isArray(PRIMARY_DOMAINS) ? [...PRIMARY_DOMAINS] : []);
+  const domainList =
+    Array.isArray(domains) && domains.length
+      ? domains
+      : [...PRIMARY_DOMAIN_LABELS];
   const jobTitleList = buildJobTitleSnapshot(jobTitles);
 
   const wb = new ExcelJS.Workbook();
@@ -150,6 +174,7 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
   lists.getCell('B1').value = 'primaryDomain';
   lists.getCell('C1').value = 'orgRole';
   lists.getCell('D1').value = 'jobTitle';
+  lists.getCell('E1').value = 'skill';
   deptList.forEach((n, i) => {
     lists.getCell(i + 2, 1).value = n;
   });
@@ -161,6 +186,9 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
   });
   jobTitleList.forEach((n, i) => {
     lists.getCell(i + 2, 4).value = n;
+  });
+  SKILL_WHITELIST.forEach((n, i) => {
+    lists.getCell(i + 2, 5).value = n;
   });
   lists.state = 'hidden';
 
@@ -176,18 +204,24 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
   const exampleJob = jobTitleList.includes('Backend Developer')
     ? 'Backend Developer'
     : (jobTitleList[0] || 'Backend Developer');
+  const exampleDomain = domainList.includes('Backend')
+    ? 'Backend'
+    : domainList[0] || 'Backend';
   ws.addRow([
-    '',
     'Nguyễn An',
     'an.nguyen@company.com',
     '',
     exampleDept,
     exampleJob,
-    'be',
-    'NodeJS,MongoDB',
+    exampleDomain,
+    'Node.js, MongoDB',
     1,
     2,
     'member',
+    'Cổng thanh toán nội bộ',
+    'Backend Developer',
+    'API đối soát Node.js/MongoDB; gỡ block sprint',
+    2024,
   ]);
 
   const deptEnd = Math.max(2, deptList.length + 1);
@@ -221,9 +255,16 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
   ]);
   notes.addRow([
     'Header',
-    'Dòng 1 = key chuẩn (employeeCode, jobTitle…). Dòng 2 = chú thích tiếng Việt — KHÔNG phải dữ liệu, máy bỏ qua. Đừng đổi tên dòng 1.',
+    'Dòng 1 = key chuẩn (fullName, jobTitle, pastProject1Name…). Dòng 2 = chú thích tiếng Việt — KHÔNG phải dữ liệu, máy bỏ qua. Đừng đổi tên dòng 1.',
   ]);
-  notes.addRow(['employeeCode', 'Mã NV — để trống → hệ thống cấp VH-001…. CẤM NV001.']);
+  notes.addRow([
+    'employeeCode',
+    'Không có cột trên mẫu — hệ thống cấp VH-001…. File cũ còn cột mã (trống hoặc VH-xxx) vẫn import được.',
+  ]);
+  notes.addRow([
+    'pastProject1..5',
+    'Tối đa 5 DA do HR chọn theo JD. Cột việc = việc đã làm + công nghệ (như CV, vd Node.js/MongoDB). Trống cả block = bỏ. Không paste cả CV. Không AI lọc lúc import.',
+  ]);
   notes.addRow([
     'departmentCode',
     'Phòng ban — CHỌN dropdown (tên phòng đúng HT). Gõ tay / file cũ lệch → Preview đỏ; sửa Excel hoặc tải mẫu lại.',
@@ -235,13 +276,22 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
     'jobTitle',
     `Chức danh HR — CHỌN dropdown (snapshot ${jobTitleList.length} mục, giống mời 1 người) hoặc GÕ TAY. Không phải Project Role.`,
   ]);
-  notes.addRow(['primaryDomain', 'Chuyên môn — CHỌN: fe | be | fullstack | mobile | qa | ba | devops | other. Không phải chức danh.']);
-  notes.addRow(['skills', 'Kỹ năng — tách bằng dấu phẩy hoặc ;']);
+  notes.addRow([
+    'primaryDomain',
+    'Chuyên môn — CHỌN dropdown giống tab Năng lực: Frontend | Backend | Full-stack | Mobile | QA | BA | DevOps | Other. File cũ fe|be vẫn nhận. Không phải chức danh.',
+  ]);
+  notes.addRow([
+    'skills',
+    `Một cột — tên đúng catalog lists!E, tách bởi dấu phẩy hoặc ;. Tối đa 10 skill JD-fit (HR chọn theo JD). Cần ≥1. File cũ skill1…skill5 vẫn parse. Không VBA multi-select. Profile sau Confirm vẫn tối đa 20.`,
+  ]);
   notes.addRow(['yearsExperience', 'Số năm KN — số ≥ 0']);
   notes.addRow(['maxConcurrentProjects', 'Trần số dự án 1–20 — trống = 2. Soft OT / người.']);
   notes.addRow(['orgRole', 'Vai trò công ty — member | hr | admin. Trống = member. CẤM owner.']);
   notes.addRow(['System Role / Gói quyền', 'KHÔNG có cột — gán sau ở phân quyền.']);
-  notes.addRow(['Luồng UI', 'Tải mẫu → điền Excel → Preview (máy quét) → 0 lỗi mới Confirm (lô 50). Không sửa trên web.']);
+  notes.addRow([
+    'Luồng UI',
+    'Tải mẫu → điền Excel → Preview → 0 lỗi mới Confirm. Sau Confirm: tab Năng lực khóa sửa KN (chỉ Đúng rồi DA đóng board). Sai JD → HR sửa file Preview lại.',
+  ]);
   notes.addRow(['Strict', 'Thiếu / sai 1 dòng → Preview fail, không Confirm. Sửa file rồi Preview lại.']);
   notes.addRow(['Giới hạn', 'Tối đa ~200 dòng/file. Confirm ghi tối đa 50/lô.']);
 
@@ -252,7 +302,7 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
 async function buildResourceImportTemplateBuffer(organizationId) {
   const deptNames = await loadDepartmentNames(organizationId);
   const jobTitles = await loadJobTitles(organizationId);
-  const domains = Array.isArray(PRIMARY_DOMAINS) ? [...PRIMARY_DOMAINS] : [];
+  const domains = [...PRIMARY_DOMAIN_LABELS];
   return buildWorkbookBufferFromLists({ deptNames, domains, jobTitles });
 }
 
@@ -266,4 +316,5 @@ module.exports = {
   HEADER_HINTS,
   ORG_ROLES,
   EXTRA_JOB_TITLE_OPTIONS,
+  SKILL_SLOT_COUNT,
 };

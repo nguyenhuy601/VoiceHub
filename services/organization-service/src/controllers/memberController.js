@@ -36,6 +36,10 @@ const {
 const CompanyInvite = require('../models/CompanyInvite');
 const { bulkUpdateUserProfileFields } = require('../clients/userProfileBulkImport.client');
 const {
+  parseOptionalHireCapability,
+  hireCapabilityHasDomain,
+} = require('../utils/inviteHireCapability');
+const {
   allocateNextEmployeeCode,
   peekNextEmployeeCode,
 } = require('../services/employeeCodeAllocate.service');
@@ -314,11 +318,13 @@ async function enrichMembersForAdminList(members) {
       profile.username ||
       emailLocal ||
       null;
+    const employeeCode = String(profile.employeeCode || '').trim().toUpperCase() || null;
     return {
       ...member,
       userId,
       email,
       displayName,
+      employeeCode,
       username: profile.username || null,
       avatar: profile.avatar || null,
       jobTitle: profile.jobTitle || profile.preferences?.jobTitle || null,
@@ -366,6 +372,11 @@ exports.inviteMember = async (req, res, next) => {
     const { email, firstName, lastName, role, departmentId, jobTitle } = req.body || {};
     const inviterId = req.user?.id || req.user?.userId || req.user?._id;
     const orgId = req.params.orgId;
+
+    const hireParsed = parseOptionalHireCapability(req.body || {});
+    if (!hireParsed.ok) {
+      return orgValidation(res, hireParsed.message);
+    }
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || !normalizedEmail.includes('@')) {
@@ -474,6 +485,7 @@ exports.inviteMember = async (req, res, next) => {
       tokenHash: hashInviteToken(rawToken),
       status: 'pending',
       expiresAt: new Date(Date.now() + COMPANY_INVITE_TTL_MS),
+      hireCapability: hireParsed.value,
     });
 
     const frontendUrl = resolveFrontendUrl(req).replace(/\/+$/, '');
@@ -488,6 +500,7 @@ exports.inviteMember = async (req, res, next) => {
       departmentName: invite.departmentName,
       jobTitle: jobTitleTrim,
       expiresAt: invite.expiresAt,
+      hireCapabilityApplied: Boolean(hireParsed.value),
     };
 
     try {
@@ -614,20 +627,46 @@ exports.acceptCompanyInvite = async (req, res, next) => {
 
     await syncUserOrgRole(resolvedUserId, invite.organization, normalizedRole);
 
-    // Ghi mã NV + chức danh HR; gắn phòng (cấu trúc — không để NV tự chọn).
+    // Ghi mã NV + chức danh HR; nếu HR điền KN lúc mời → cùng bulk-fields Excel (verified).
     const displayName = [invite.lastName, invite.firstName].filter(Boolean).join(' ').trim();
+    const hire = invite.hireCapability;
+    const hasHireKn = hireCapabilityHasDomain(hire);
     try {
       const profilePayload = {
-        structureOnly: true,
+        email: invite.email,
         uploadedBy: invite.invitedBy || null,
         resourceConfig: {
-          maxConcurrentProjects: 2,
+          maxConcurrentProjects: hasHireKn
+            ? Math.max(1, Math.min(20, Number(hire.maxConcurrentProjects) || 2))
+            : 2,
         },
       };
       if (invite.employeeCode) profilePayload.employeeCode = invite.employeeCode;
       if (invite.jobTitle) profilePayload.jobTitle = invite.jobTitle;
       if (displayName) profilePayload.displayName = displayName;
-      if (invite.employeeCode || invite.jobTitle || displayName) {
+      if (hasHireKn) {
+        const skills = Array.isArray(hire.skills) ? hire.skills : [];
+        const past = Array.isArray(hire.pastProjects) ? hire.pastProjects : [];
+        profilePayload.capability = {
+          primaryDomain: String(hire.primaryDomain || '').trim(),
+          skills: skills.map((name) => ({ name: String(name || '').trim(), level: 3 })).filter((s) => s.name),
+          yearsExperience: hire.yearsExperience,
+          availability: 'available',
+          summary: '',
+          source: 'excel_import',
+          projectExperiences: past.map((p) => ({
+            name: p.name,
+            role: p.role,
+            work: p.work,
+            ...(p.year != null ? { year: p.year } : {}),
+            source: 'excel_import',
+            status: 'verified',
+          })),
+        };
+      } else {
+        profilePayload.structureOnly = true;
+      }
+      if (invite.employeeCode || invite.jobTitle || displayName || hasHireKn) {
         await bulkUpdateUserProfileFields(resolvedUserId, profilePayload);
       }
     } catch (profileErr) {

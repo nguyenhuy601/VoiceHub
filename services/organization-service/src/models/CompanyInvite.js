@@ -63,6 +63,14 @@ const companyInviteSchema = new mongoose.Schema(
     },
     acceptedAt: { type: Date, default: null },
     acceptedUserId: { type: String, default: null },
+    /**
+     * KN hire optional (cùng catalog Excel). null = NV tự khai sau (draft).
+     * { primaryDomain, skills[], yearsExperience, maxConcurrentProjects, pastProjects[] }
+     */
+    hireCapability: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   { timestamps: true }
 );

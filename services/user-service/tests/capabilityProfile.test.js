@@ -10,6 +10,7 @@ const {
   sanitizeCapabilityFields,
   applyCapabilityAction,
   toPublicVerifiedCapability,
+  mergeClosedBoardExperience,
 } = require('../src/services/capabilityProfile.service');
 
 const HR_ID = 'bbbbbbbbbbbbbbbbbbbbbbbb';
@@ -188,5 +189,181 @@ describe('applyCapabilityAction FSM', () => {
     assert.equal(pub.verificationStatus, 'verified');
     assert.equal(pub.primaryDomain, 'be');
     assert.ok(Array.isArray(pub.skills));
+  });
+
+  it('toPublicVerifiedCapability hides suggested project experiences', () => {
+    const pub = toPublicVerifiedCapability({
+      ...validFields(),
+      verificationStatus: 'verified',
+      verifiedAt: NOW,
+      projectExperiences: [
+        {
+          name: 'Cổng thanh toán',
+          role: 'BE',
+          work: 'API',
+          year: 2024,
+          source: 'excel_import',
+          status: 'verified',
+        },
+        {
+          name: 'AI nháp',
+          role: 'Lead',
+          work: 'Gợi ý',
+          source: 'closed_board',
+          status: 'suggested',
+        },
+      ],
+    });
+    assert.equal(pub.projectExperiences.length, 1);
+    assert.equal(pub.projectExperiences[0].name, 'Cổng thanh toán');
+    assert.equal(pub.projectExperiences[0].status, 'verified');
+  });
+
+  it('confirm_experience verifies suggested closed_board; save_draft cannot spoof verified', () => {
+    const boardId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    const current = {
+      ...emptyCapability(),
+      ...validFields(),
+      verificationStatus: 'verified',
+      projectExperiences: [
+        {
+          name: 'VoiceHub',
+          role: 'developer',
+          work: 'VoiceHub · developer · 8/10 việc xong',
+          year: 2026,
+          source: 'closed_board',
+          status: 'suggested',
+          evidenceBoardId: boardId,
+        },
+      ],
+    };
+    const confirmed = applyCapabilityAction(current, 'confirm_experience', {
+      evidenceBoardId: boardId,
+      now: NOW,
+    });
+    assert.equal(confirmed.ok, true);
+    assert.equal(confirmed.capability.projectExperiences[0].status, 'verified');
+    assert.equal(confirmed.capability.verificationStatus, 'verified');
+
+    const spoof = applyCapabilityAction(confirmed.capability, 'save_draft', {
+      fields: {
+        ...validFields(),
+        projectExperiences: [
+          {
+            name: 'VoiceHub',
+            role: 'developer',
+            work: 'hack',
+            source: 'closed_board',
+            status: 'verified',
+            evidenceBoardId: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+          },
+        ],
+      },
+      now: NOW,
+    });
+    assert.equal(spoof.ok, true);
+    assert.equal(spoof.capability.projectExperiences[0].status, 'suggested');
+  });
+
+  it('mergeClosedBoardExperience is idempotent and does not downgrade verified', () => {
+    const boardId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    const first = mergeClosedBoardExperience([], {
+      name: 'VoiceHub',
+      role: 'PM',
+      work: 'VoiceHub · PM · hạn 2026-08-01',
+      evidenceBoardId: boardId,
+    });
+    assert.equal(first.ok, true);
+    assert.equal(first.list.length, 1);
+
+    const second = mergeClosedBoardExperience(first.list, {
+      name: 'VoiceHub',
+      role: 'PM',
+      work: 'VoiceHub · PM · 1/1 việc xong · hạn 2026-08-01',
+      evidenceBoardId: boardId,
+    });
+    assert.equal(second.list.length, 1);
+    assert.match(second.list[0].work, /1\/1/);
+
+    const verified = [{ ...second.list[0], status: 'verified' }];
+    const third = mergeClosedBoardExperience(verified, {
+      name: 'VoiceHub',
+      role: 'PM',
+      work: 'should not replace',
+      evidenceBoardId: boardId,
+    });
+    assert.equal(third.skippedVerified, true);
+    assert.equal(third.list[0].work, verified[0].work);
+    assert.equal(third.list[0].status, 'verified');
+  });
+
+  it('save_draft keeps excel_import source and projectExperiences', () => {
+    const current = {
+      ...emptyCapability(),
+      ...validFields(),
+      source: 'excel_import',
+      verificationStatus: 'verified',
+      projectExperiences: [
+        {
+          name: 'Cổng thanh toán',
+          role: 'BE',
+          work: 'API',
+          year: 2024,
+          source: 'excel_import',
+          status: 'verified',
+        },
+      ],
+    };
+    const r = applyCapabilityAction(current, 'save_draft', {
+      fields: validFields({ summary: 'Cập nhật mô tả' }),
+      now: NOW,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.capability.source, 'excel_import');
+    assert.equal(r.capability.projectExperiences.length, 1);
+    assert.equal(r.capability.projectExperiences[0].name, 'Cổng thanh toán');
+    assert.equal(r.capability.projectExperiences[0].status, 'verified');
+  });
+
+  it('excel_import verified: save_draft cannot change domain/skills; submit is locked', () => {
+    const current = {
+      ...emptyCapability(),
+      ...validFields(),
+      source: 'excel_import',
+      verificationStatus: 'verified',
+      projectExperiences: [
+        {
+          name: 'Cổng thanh toán',
+          role: 'BE',
+          work: 'API đối soát Node.js/MongoDB',
+          year: 2024,
+          source: 'excel_import',
+          status: 'verified',
+        },
+      ],
+    };
+    const r = applyCapabilityAction(current, 'save_draft', {
+      fields: validFields({
+        primaryDomain: 'qa',
+        yearsExperience: 12,
+        skills: [{ name: 'Selenium', level: 5 }],
+        summary: 'NV sửa tóm tắt',
+      }),
+      now: NOW,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.capability.primaryDomain, 'be');
+    assert.equal(r.capability.yearsExperience, 3);
+    assert.equal(r.capability.skills[0].name, 'Node.js');
+    assert.equal(r.capability.summary, 'NV sửa tóm tắt');
+    assert.equal(r.capability.projectExperiences[0].name, 'Cổng thanh toán');
+
+    const sub = applyCapabilityAction(current, 'submit', {
+      fields: validFields({ primaryDomain: 'qa' }),
+      jobTitle: JOB_TITLE,
+      now: NOW,
+    });
+    assert.equal(sub.ok, false);
+    assert.equal(sub.errorCode, 'CAPABILITY_EXCEL_LOCKED');
   });
 });

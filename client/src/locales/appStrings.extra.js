@@ -360,7 +360,7 @@ export const extraStrings = {
     settingsCapability: {
       title: 'Hồ sơ năng lực',
       subtitle:
-        'Khai báo kỹ năng để HR duyệt — phục vụ AI gợi ý team. Không cấp quyền kéo thẻ hay Project Role.',
+        'Kỹ năng từ Excel HR hoặc tự khai để duyệt. DA quá khứ: import tối đa 5 ô, hoặc đóng board trong cty. Không upload PDF.',
       loadFail: 'Không tải được hồ sơ năng lực.',
       saveFail: 'Không lưu được hồ sơ năng lực.',
       toastSaved: 'Đã lưu nháp hồ sơ năng lực.',
@@ -428,6 +428,17 @@ export const extraStrings = {
       cvParseOk: 'Đã đọc CV và điền gợi ý vào form.',
       cvParseWeak: 'PDF ít chữ (có thể là bản scan). Hãy kiểm tra và điền tay.',
       cvUploadFail: 'Không upload / đọc được CV.',
+      pastProjects: 'Dự án quá khứ',
+      pastProjectsEmpty: 'Chưa có dự án quá khứ trên hồ sơ.',
+      pastProjectsHint:
+        'Không paste CV / không PDF. Excel: HR chọn tối đa 5 DA (việc + công nghệ). Trong cty: đóng board → nháp → Đúng rồi.',
+      excelLockedHint:
+        'Hồ sơ HR đã xác minh (Excel hoặc mời 1 người kèm KN) — không sửa chuyên môn / kỹ năng / năm KN tại đây. Sai JD: HR Preview file mới hoặc mời lại. Chỉ xác nhận DA đóng board (Đúng rồi).',
+      experiencePending: 'Chờ xác nhận',
+      experienceVerified: 'Đã xác nhận',
+      confirmExperience: 'Đúng rồi',
+      confirmOk: 'Đã xác nhận kinh nghiệm dự án.',
+      confirmFail: 'Không xác nhận được kinh nghiệm.',
     },
   },
   en: {
@@ -788,7 +799,7 @@ export const extraStrings = {
     settingsCapability: {
       title: 'Capability profile',
       subtitle:
-        'Declare skills for HR verification — used for AI team suggestions. Does not grant card-drag rights or Project Roles.',
+        'Skills from HR Excel or self-declare for review. Past projects: up to 5 on import, or close an in-company board. No PDF upload.',
       loadFail: 'Could not load capability profile.',
       saveFail: 'Could not save capability profile.',
       toastSaved: 'Capability draft saved.',
@@ -856,6 +867,17 @@ export const extraStrings = {
       cvParseOk: 'CV parsed and form prefilled.',
       cvParseWeak: 'Little text extracted (maybe a scan). Please review and fill manually.',
       cvUploadFail: 'Could not upload or parse CV.',
+      pastProjects: 'Past projects',
+      pastProjectsEmpty: 'No past projects on this profile yet.',
+      pastProjectsHint:
+        'No resume dump / no PDF. Excel: HR picks up to 5 projects (work + tech). In-company: close board → draft → confirm.',
+      excelLockedHint:
+        'HR-verified profile (Excel or invite with capability) — domain, skills, and years are read-only here. Wrong JD: HR re-previews a file or re-invites. Only confirm closed-board projects.',
+      experiencePending: 'Awaiting confirmation',
+      experienceVerified: 'Confirmed',
+      confirmExperience: 'Looks right',
+      confirmOk: 'Project experience confirmed.',
+      confirmFail: 'Could not confirm project experience.',
     },
   },
 };

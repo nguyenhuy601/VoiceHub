@@ -38,7 +38,96 @@ function emptyCapability() {
     cvFilePath: '',
     cvFileName: '',
     cvUploadedAt: null,
+    projectExperiences: [],
   };
+}
+
+const PROJECT_EXPERIENCE_SOURCES = new Set(['excel_import', 'closed_board', 'cv_parse', 'manual']);
+const PROJECT_EXPERIENCE_STATUSES = new Set(['verified', 'suggested']);
+const PROJECT_EXPERIENCE_MAX = 20;
+const PROJECT_EXPERIENCE_WORK_MAX = 300;
+const EXCEL_PROJECT_EXPERIENCE_MAX = 5;
+
+function experienceBoardKey(item) {
+  return String(item?.evidenceBoardId || '').trim();
+}
+
+function lockProjectExperienceStatuses(incoming, currentList) {
+  const prev = cloneProjectExperiences(currentList);
+  const byBoard = new Map();
+  for (const p of prev) {
+    const k = experienceBoardKey(p);
+    if (k) byBoard.set(k, p);
+  }
+  return cloneProjectExperiences(incoming).map((p) => {
+    const match = experienceBoardKey(p) ? byBoard.get(experienceBoardKey(p)) : null;
+    if (match) {
+      return {
+        ...p,
+        status: match.status,
+        source: match.source,
+        evidenceBoardId: match.evidenceBoardId || p.evidenceBoardId,
+      };
+    }
+    return { ...p, status: 'suggested' };
+  });
+}
+
+/**
+ * Idempotent merge: cùng evidenceBoardId không nhân đôi; đã verified thì không downgrade.
+ */
+function mergeClosedBoardExperience(existingList, incoming) {
+  const exp = cloneProjectExperience({
+    ...(incoming || {}),
+    source: 'closed_board',
+    status: 'suggested',
+  });
+  if (!exp || !exp.name || !exp.role || !exp.work || !experienceBoardKey(exp)) {
+    return { ok: false, errorCode: 'CLOSED_BOARD_EXPERIENCE_INVALID', list: cloneProjectExperiences(existingList) };
+  }
+  exp.source = 'closed_board';
+  exp.status = 'suggested';
+  const list = cloneProjectExperiences(existingList);
+  const boardId = experienceBoardKey(exp);
+  const idx = list.findIndex((p) => experienceBoardKey(p) === boardId);
+  if (idx >= 0) {
+    if (list[idx].status === 'verified') {
+      return { ok: true, list, skippedVerified: true };
+    }
+    list[idx] = { ...list[idx], ...exp, status: 'suggested', source: 'closed_board' };
+  } else {
+    list.push(exp);
+  }
+  return { ok: true, list: list.slice(0, PROJECT_EXPERIENCE_MAX), skippedVerified: false };
+}
+
+function cloneProjectExperience(item) {
+  if (!item || typeof item !== 'object') return null;
+  const name = String(item.name || '').trim();
+  const role = String(item.role || '').trim();
+  const work = String(item.work || '').trim().slice(0, PROJECT_EXPERIENCE_WORK_MAX);
+  if (!name && !role && !work) return null;
+  const yearRaw = item.year;
+  let year;
+  if (yearRaw != null && yearRaw !== '') {
+    const y = Number(yearRaw);
+    if (Number.isFinite(y) && y >= 1970 && y <= 2100) year = Math.floor(y);
+  }
+  const source = PROJECT_EXPERIENCE_SOURCES.has(String(item.source || ''))
+    ? String(item.source)
+    : 'manual';
+  const status = PROJECT_EXPERIENCE_STATUSES.has(String(item.status || ''))
+    ? String(item.status)
+    : 'suggested';
+  const out = { name, role, work, source, status };
+  if (year != null) out.year = year;
+  if (item.evidenceBoardId) out.evidenceBoardId = item.evidenceBoardId;
+  return out;
+}
+
+function cloneProjectExperiences(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(cloneProjectExperience).filter(Boolean).slice(0, PROJECT_EXPERIENCE_MAX);
 }
 
 function cloneCapability(input) {
@@ -50,6 +139,7 @@ function cloneCapability(input) {
     skills: Array.isArray(input.skills) ? input.skills.map((s) => ({ ...s })) : [],
     languages: Array.isArray(input.languages) ? [...input.languages] : [],
     tools: Array.isArray(input.tools) ? [...input.tools] : [],
+    projectExperiences: cloneProjectExperiences(input.projectExperiences),
   };
 }
 
@@ -135,6 +225,17 @@ function sanitizeCapabilityFields(raw) {
     fields.summary = String(raw.summary || '').trim().slice(0, SUMMARY_MAX_LEN);
   }
 
+  if (raw.projectExperiences !== undefined) {
+    if (!Array.isArray(raw.projectExperiences)) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_PROJECTS_INVALID',
+        message: 'projectExperiences must be an array',
+      };
+    }
+    fields.projectExperiences = cloneProjectExperiences(raw.projectExperiences);
+  }
+
   return { ok: true, fields };
 }
 
@@ -205,6 +306,14 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
     const sanitized = sanitizeCapabilityFields(opts.fields || {});
     if (!sanitized.ok) return sanitized;
     const prevStatus = String(currentCapability?.verificationStatus || 'draft');
+    const prevSource = String(currentCapability?.source || next.source || '');
+    const excelLocked = prevSource === 'excel_import' && prevStatus === 'verified';
+    if (excelLocked) {
+      delete sanitized.fields.primaryDomain;
+      delete sanitized.fields.yearsExperience;
+      delete sanitized.fields.skills;
+      delete sanitized.fields.projectExperiences;
+    }
     Object.assign(next, sanitized.fields);
     // save_draft không đổi verificationStatus (và không nhận status từ payload)
     next.verificationStatus = VERIFICATION_STATUSES.includes(prevStatus) ? prevStatus : 'draft';
@@ -213,7 +322,13 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
       next.verifiedAt = currentCapability?.verifiedAt ?? next.verifiedAt;
       next.verifiedBy = currentCapability?.verifiedBy ?? next.verifiedBy;
     }
-    next.source = opts.source === 'cv_parse' ? 'cv_parse' : 'manual';
+    next.source = resolveCapabilitySource(currentCapability?.source, opts.source);
+    if (sanitized.fields.projectExperiences) {
+      next.projectExperiences = lockProjectExperienceStatuses(
+        sanitized.fields.projectExperiences,
+        currentCapability?.projectExperiences
+      );
+    }
     if (opts.cvMeta && typeof opts.cvMeta === 'object') {
       if (opts.cvMeta.cvFilePath != null) next.cvFilePath = String(opts.cvMeta.cvFilePath);
       if (opts.cvMeta.cvFileName != null) next.cvFileName = String(opts.cvMeta.cvFileName);
@@ -228,16 +343,28 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
   }
 
   if (act === 'submit') {
+    const prevStatusSubmit = String(currentCapability?.verificationStatus || 'draft');
+    const prevSourceSubmit = String(currentCapability?.source || '');
+    if (prevSourceSubmit === 'excel_import' && prevStatusSubmit === 'verified') {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_EXCEL_LOCKED',
+        message: 'Excel-verified capability cannot be resubmitted; ask HR to re-import',
+      };
+    }
     const sanitized = sanitizeCapabilityFields(opts.fields || {});
     if (!sanitized.ok) return sanitized;
     Object.assign(next, sanitized.fields);
     const min = requireSubmitMinimum(next, { jobTitle: opts.jobTitle });
     if (!min.ok) return min;
     next.verificationStatus = 'pending_hr';
-    next.source =
-      String(currentCapability?.source || '') === 'cv_parse' || opts.source === 'cv_parse'
-        ? 'cv_parse'
-        : 'manual';
+    next.source = resolveCapabilitySource(currentCapability?.source, opts.source);
+    if (sanitized.fields.projectExperiences) {
+      next.projectExperiences = lockProjectExperienceStatuses(
+        sanitized.fields.projectExperiences,
+        currentCapability?.projectExperiences
+      );
+    }
     next.cvFilePath = currentCapability?.cvFilePath || next.cvFilePath || '';
     next.cvFileName = currentCapability?.cvFileName || next.cvFileName || '';
     next.cvUploadedAt = currentCapability?.cvUploadedAt || next.cvUploadedAt || null;
@@ -247,6 +374,36 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
     // clear verify stamp khi nộp lại
     next.verifiedAt = null;
     next.verifiedBy = null;
+    next.updatedAt = now;
+    return { ok: true, capability: next };
+  }
+
+  if (act === 'confirm_experience') {
+    const boardId = String(opts.evidenceBoardId || opts.fields?.evidenceBoardId || '').trim();
+    if (!boardId) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_CONFIRM_BOARD',
+        message: 'evidenceBoardId is required',
+      };
+    }
+    let found = false;
+    next.projectExperiences = cloneProjectExperiences(next.projectExperiences).map((p) => {
+      const src = String(p.source || '');
+      const canConfirm = src === 'closed_board' || src === 'cv_parse';
+      if (experienceBoardKey(p) === boardId && p.status === 'suggested' && canConfirm) {
+        found = true;
+        return { ...p, status: 'verified' };
+      }
+      return p;
+    });
+    if (!found) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_CONFIRM_NOT_FOUND',
+        message: 'No suggested closed-board experience to confirm',
+      };
+    }
     next.updatedAt = now;
     return { ok: true, capability: next };
   }
@@ -308,9 +465,20 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
 /**
  * Payload công khai cho AI / member khác — chỉ khi verified.
  */
+function resolveCapabilitySource(currentSource, optsSource) {
+  if (optsSource === 'cv_parse') return 'cv_parse';
+  if (optsSource === 'excel_import') return 'excel_import';
+  const prev = String(currentSource || '');
+  if (prev === 'excel_import' || prev === 'cv_parse' || prev === 'closed_board') return prev;
+  return 'manual';
+}
+
 function toPublicVerifiedCapability(capability) {
   const c = cloneCapability(capability);
   if (c.verificationStatus !== 'verified') return null;
+  const projectExperiences = cloneProjectExperiences(c.projectExperiences).filter(
+    (p) => p.status === 'verified'
+  );
   return {
     positionCode: c.positionCode || '',
     primaryDomain: c.primaryDomain || '',
@@ -322,11 +490,12 @@ function toPublicVerifiedCapability(capability) {
     summary: c.summary || '',
     verificationStatus: 'verified',
     verifiedAt: c.verifiedAt || null,
+    projectExperiences,
   };
 }
 
-const SELF_CAPABILITY_ACTIONS = new Set(['save_draft', 'submit']);
-const ADMIN_CAPABILITY_ACTIONS = new Set(['verify', 'reject']);
+const SELF_CAPABILITY_ACTIONS = new Set(['save_draft', 'submit', 'confirm_experience']);
+const ADMIN_CAPABILITY_ACTIONS = new Set(['verify', 'reject', 'confirm_experience']);
 
 /**
  * @param {'self'|'admin'} mode
@@ -348,13 +517,13 @@ function resolveCapabilityIntent(updateData, mode) {
   }
 
   if (mode === 'self' && !SELF_CAPABILITY_ACTIONS.has(action)) {
-    const err = new Error('Members may only save_draft or submit capability');
+    const err = new Error('Members may only save_draft, submit, or confirm_experience');
     err.statusCode = 403;
     err.errorCode = 'CAPABILITY_ACTION_FORBIDDEN';
     throw err;
   }
   if (mode === 'admin' && !ADMIN_CAPABILITY_ACTIONS.has(action)) {
-    const err = new Error('Admins may only verify or reject capability');
+    const err = new Error('Admins may only verify, reject, or confirm_experience');
     err.statusCode = 403;
     err.errorCode = 'CAPABILITY_ACTION_FORBIDDEN';
     throw err;
@@ -364,6 +533,7 @@ function resolveCapabilityIntent(updateData, mode) {
     action,
     fields: hasFields && typeof updateData.capability === 'object' ? updateData.capability : {},
     rejectReason: updateData.rejectReason,
+    evidenceBoardId: updateData.evidenceBoardId || updateData.capability?.evidenceBoardId,
   };
 }
 
@@ -493,6 +663,11 @@ function resolveResourceConfigIntent(updateData, mode) {
 module.exports = {
   emptyCapability,
   cloneCapability,
+  cloneProjectExperiences,
+  mergeClosedBoardExperience,
+  lockProjectExperienceStatuses,
+  PROJECT_EXPERIENCE_MAX,
+  EXCEL_PROJECT_EXPERIENCE_MAX,
   sanitizeCapabilityFields,
   requireSubmitMinimum,
   applyCapabilityAction,

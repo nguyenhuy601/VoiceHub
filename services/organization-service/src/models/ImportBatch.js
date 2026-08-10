@@ -4,6 +4,8 @@ const importRowSchema = new mongoose.Schema(
   {
     rowNumber: { type: Number, required: true, index: true },
     email: { type: String, required: true, trim: true, lowercase: true },
+    fullName: { type: String, default: '', trim: true },
+    pastProjectNames: { type: [String], default: [] },
     status: {
       type: String,
       enum: ['ok', 'failed', 'compensated', 'skipped', 'pending'],

@@ -14,6 +14,7 @@ import {
   memberTeamId,
   memberUserId,
   formatRbacRoleLabels,
+  unwrapApi,
 } from '../../utils/adminUserUtils';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import { flattenOrgStructure } from '../../utils/adminOrgStructureUtils';
@@ -75,11 +76,15 @@ export default function AdminUserDetailDrawer({
   onCapabilityStatusChange,
 }) {
   const { t } = useAppStrings();
-  const { canVerifyCapability } = useCompanyAdminAccess();
+  const { canVerifyCapability, canAccessHub } = useCompanyAdminAccess();
   const canReviewCapability = Boolean(canVerifyCapability);
+  const canConfirmExperience = Boolean(canAccessHub);
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [loadedResponsibilityKeys, setLoadedResponsibilityKeys] = useState([]);
+  const [taxonomyLoading, setTaxonomyLoading] = useState(false);
+  const [employeeCode, setEmployeeCode] = useState('');
 
   const userId = member ? memberUserId(member) : '';
   const name = member ? memberDisplayName(member) : '';
@@ -104,6 +109,51 @@ export default function AdminUserDetailDrawer({
   useEffect(() => {
     if (!open) setTab('info');
   }, [open, userId]);
+
+  useEffect(() => {
+    if (!open || !orgId || !userId) {
+      setEmployeeCode('');
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminUserAPI.getProfile(orgId, userId);
+        const data = unwrapApi(res)?.data ?? unwrapApi(res);
+        const code = String(data?.employeeCode || '').trim();
+        if (!cancelled) setEmployeeCode(code);
+      } catch {
+        if (!cancelled) setEmployeeCode('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orgId, userId]);
+
+  useEffect(() => {
+    if (!open || tab !== 'taxonomy' || !orgId || !userId) return undefined;
+    if (responsibilityKeys.length) {
+      setLoadedResponsibilityKeys(responsibilityKeys);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      setTaxonomyLoading(true);
+      try {
+        const res = await organizationAPI.getUserResponsibilities(orgId, userId);
+        const keys = unwrapOrgList(res).map((r) => r.responsibilityKey || r.key).filter(Boolean);
+        if (!cancelled) setLoadedResponsibilityKeys(keys);
+      } catch {
+        if (!cancelled) setLoadedResponsibilityKeys([]);
+      } finally {
+        if (!cancelled) setTaxonomyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab, orgId, userId, responsibilityKeys]);
 
   useEffect(() => {
     if (!open || !orgId || !userId || tab !== 'history') return undefined;
@@ -184,6 +234,12 @@ export default function AdminUserDetailDrawer({
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.displayName')}</dt>
                 <dd className="font-medium">{name}</dd>
               </div>
+              {employeeCode ? (
+                <div>
+                  <dt className="text-xs text-muted-foreground">{t('adminUsers.employeeCode')}</dt>
+                  <dd className="font-mono font-medium">{employeeCode}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs text-muted-foreground">Email</dt>
                 <dd>{memberEmail(member)}</dd>
@@ -348,6 +404,7 @@ export default function AdminUserDetailDrawer({
               orgId={orgId}
               userId={userId}
               canReview={canReviewCapability}
+              canConfirmExperience={canConfirmExperience}
               onStatusChange={(status) => {
                 if (userId && status) onCapabilityStatusChange?.(userId, status);
               }}

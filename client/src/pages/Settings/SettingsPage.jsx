@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ConfirmDialog, GradientButton } from '../../components/Shared';
 import roleAPI from '../../services/api/roleAPI';
@@ -60,7 +61,12 @@ function SettingsPage() {
       })),
     [uiRole, t]
   );
+  const [searchParams] = useSearchParams();
   const [figmaTab, setFigmaTab] = useState('profile');
+  useEffect(() => {
+    const tab = String(searchParams.get('tab') || '').trim();
+    if (tab === 'capability') setFigmaTab('capability');
+  }, [searchParams]);
   const [sessions, setSessions] = useState([]);
   useEffect(() => {
     setSessions([

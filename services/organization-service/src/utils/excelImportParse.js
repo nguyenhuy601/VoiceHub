@@ -1,4 +1,5 @@
 const XLSX = require('xlsx');
+const { PAST_PROJECT_MAX, parsePastProjectBlocks } = require('./parsePastProjectBlocks');
 
 function resolveImportMaxRows() {
   return Math.max(1, Math.min(500, Number(process.env.IMPORT_MAX_ROWS || 200) || 200));
@@ -29,11 +30,36 @@ const HEADER_HINT_TOKENS = new Set(
     'chuyên môn',
     'chuyên môn (fe|be|…)',
     'chuyên môn (fe|be)',
+    'chuyên môn (frontend|backend|…)',
+    'chuyên môn (frontend|backend)',
     'kỹ năng',
+    'kỹ năng (đúng lists!e, phẩy)',
+    'kỹ năng (dung lists!e, phay)',
+    'kỹ năng 1 (dropdown)',
+    'kỹ năng 2 (dropdown)',
+    'kỹ năng 3 (dropdown)',
+    'kỹ năng 4 (dropdown)',
+    'kỹ năng 5 (dropdown)',
+    'ky nang 1 (dropdown)',
+    'kỹ năng 1',
+    'kỹ năng 2',
+    'kỹ năng 3',
+    'kỹ năng 4',
+    'kỹ năng 5',
     'số năm kn',
     'trần số dự án (1–20)',
     'trần số dự án (1-20)',
     'vai trò công ty',
+    'tên da 1 (hr chọn theo jd)',
+    'tên da 1 (hr chon theo jd)',
+    'vai trò da 1',
+    'vai tro da 1',
+    'việc đã xử lý da 1',
+    'viec da xu ly da 1',
+    'việc + công nghệ da 1',
+    'viec + cong nghe da 1',
+    'năm da 1',
+    'nam da 1',
   ].map((s) => normalizeHeaderToken(s))
 );
 
@@ -63,7 +89,18 @@ const HEADER_ALIASES = {
     'chuyên môn (fe/be/…)',
     'chuyên môn (fe/be)',
   ],
-  skills: ['skills', 'kỹ năng', 'ky nang'],
+  skills: [
+    'skills',
+    'kỹ năng',
+    'ky nang',
+    'kỹ năng (phẩy, ≤10, lists!e)',
+    'ky nang (phay, <=10, lists!e)',
+  ],
+  skill1: ['skill1', 'skill 1', 'kỹ năng 1', 'ky nang 1', 'kỹ năng 1 (dropdown)'],
+  skill2: ['skill2', 'skill 2', 'kỹ năng 2', 'ky nang 2', 'kỹ năng 2 (dropdown)'],
+  skill3: ['skill3', 'skill 3', 'kỹ năng 3', 'ky nang 3', 'kỹ năng 3 (dropdown)'],
+  skill4: ['skill4', 'skill 4', 'kỹ năng 4', 'ky nang 4', 'kỹ năng 4 (dropdown)'],
+  skill5: ['skill5', 'skill 5', 'kỹ năng 5', 'ky nang 5', 'kỹ năng 5 (dropdown)'],
   yearsExperience: ['yearsexperience', 'số năm kn', 'so nam kn', 'số năm kinh nghiệm', 'years'],
   maxConcurrentProjects: [
     'maxconcurrentprojects',
@@ -76,6 +113,35 @@ const HEADER_ALIASES = {
   orgRole: ['orgrole', 'vai trò công ty', 'vai tro cong ty', 'vai trò org', 'org role'],
 };
 
+for (let n = 1; n <= PAST_PROJECT_MAX; n += 1) {
+  HEADER_ALIASES[`pastProject${n}Name`] = [
+    `pastproject${n}name`,
+    `past project ${n} name`,
+    `tên da ${n}`,
+    `ten da ${n}`,
+    `tên da ${n} (hr chọn theo jd)`,
+    `tên da ${n} (hr chon theo jd)`,
+  ];
+  HEADER_ALIASES[`pastProject${n}Role`] = [
+    `pastproject${n}role`,
+    `past project ${n} role`,
+    `vai trò da ${n}`,
+    `vai tro da ${n}`,
+  ];
+  HEADER_ALIASES[`pastProject${n}Work`] = [
+    `pastproject${n}work`,
+    `past project ${n} work`,
+    `việc đã xử lý da ${n}`,
+    `viec da xu ly da ${n}`,
+  ];
+  HEADER_ALIASES[`pastProject${n}Year`] = [
+    `pastproject${n}year`,
+    `past project ${n} year`,
+    `năm da ${n}`,
+    `nam da ${n}`,
+  ];
+}
+
 const HEADER_TO_CANONICAL = new Map();
 for (const [canonical, aliases] of Object.entries(HEADER_ALIASES)) {
   HEADER_TO_CANONICAL.set(normalizeHeaderToken(canonical), canonical);
@@ -86,6 +152,18 @@ for (const [canonical, aliases] of Object.entries(HEADER_ALIASES)) {
 
 function resolveCanonicalHeader(raw) {
   return HEADER_TO_CANONICAL.get(normalizeHeaderToken(raw)) || '';
+}
+
+/** Gộp cột skills (phẩy) + legacy skill1…5 → 1 chuỗi cho validator. */
+function mergeSkillCells(skillsComma, skillSlots) {
+  const parts = [];
+  for (const slot of skillSlots || []) {
+    const t = String(slot ?? '').trim();
+    if (t) parts.push(t);
+  }
+  const comma = String(skillsComma ?? '').trim();
+  if (comma) parts.push(comma);
+  return parts.join(', ');
 }
 
 /**
@@ -126,6 +204,13 @@ function parseExcelToRawRows(fileBuffer, dataLimit = resolveImportMaxRows()) {
     const rowArr = rows2d[i];
     if (isBlankExcelRow(rowArr) || isHeaderHintRow(rowArr)) continue;
     const rowNumber = i + 1;
+    const pastFields = {};
+    for (let n = 1; n <= PAST_PROJECT_MAX; n += 1) {
+      pastFields[`pastProject${n}Name`] = getCell(rowArr, `pastproject${n}name`);
+      pastFields[`pastProject${n}Role`] = getCell(rowArr, `pastproject${n}role`);
+      pastFields[`pastProject${n}Work`] = getCell(rowArr, `pastproject${n}work`);
+      pastFields[`pastProject${n}Year`] = getCell(rowArr, `pastproject${n}year`);
+    }
     normalizedRowsRaw.push({
       rowNumber,
       employeeCode: getCell(rowArr, 'employeecode'),
@@ -135,10 +220,17 @@ function parseExcelToRawRows(fileBuffer, dataLimit = resolveImportMaxRows()) {
       departmentCode: getCell(rowArr, 'departmentcode'),
       jobTitle: getCell(rowArr, 'jobtitle'),
       primaryDomain: getCell(rowArr, 'primarydomain') || getCell(rowArr, 'domain'),
-      skills: getCell(rowArr, 'skills'),
+      skills: mergeSkillCells(getCell(rowArr, 'skills'), [
+        getCell(rowArr, 'skill1'),
+        getCell(rowArr, 'skill2'),
+        getCell(rowArr, 'skill3'),
+        getCell(rowArr, 'skill4'),
+        getCell(rowArr, 'skill5'),
+      ]),
       yearsExperience: getCell(rowArr, 'yearsexperience'),
       maxConcurrentProjects: getCell(rowArr, 'maxconcurrentprojects'),
       orgRole: getCell(rowArr, 'orgrole'),
+      ...pastFields,
     });
   }
   return normalizedRowsRaw;
@@ -146,6 +238,8 @@ function parseExcelToRawRows(fileBuffer, dataLimit = resolveImportMaxRows()) {
 
 module.exports = {
   parseExcelToRawRows,
+  mergeSkillCells,
+  parsePastProjectBlocks,
   isBlankExcelRow,
   isHeaderHintRow,
   resolveImportMaxRows,

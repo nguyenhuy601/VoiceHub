@@ -38,6 +38,7 @@ const CAPABILITY_ACTIONS = Object.freeze([
   'submit',
   'verify',
   'reject',
+  'confirm_experience',
 ]);
 
 /** Skill whitelist SE — name canonical (khớp không phân biệt hoa thường khi normalize). */

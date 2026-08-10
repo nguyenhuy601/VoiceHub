@@ -4,6 +4,11 @@
  * owner|admin|hr|human_resources|nhan_su -> hr
  * member|org_admin|department_head|team_leader|employee -> member (or admin for org_admin)
  */
+const {
+  parsePastProjectBlocks,
+  validatePastProjectBlock,
+} = require('./parsePastProjectBlocks');
+
 function normalizeRole(role) {
   const roleMap = {
     owner: 'owner',
@@ -38,6 +43,103 @@ function splitSkills(raw) {
     .split(/[;,]/g)
     .map((x) => String(x || '').trim())
     .filter(Boolean);
+}
+
+/** Mirror user-service capabilityCatalog — không require mongoose. */
+const SKILL_WHITELIST = Object.freeze([
+  'JavaScript',
+  'TypeScript',
+  'React',
+  'Vue',
+  'Node.js',
+  'Express',
+  'NestJS',
+  'Java',
+  'Spring',
+  'Python',
+  'Django',
+  'Go',
+  'C#',
+  '.NET',
+  'PHP',
+  'Laravel',
+  'MongoDB',
+  'PostgreSQL',
+  'MySQL',
+  'Redis',
+  'Docker',
+  'Kubernetes',
+  'CI/CD',
+  'Git',
+  'REST API',
+  'GraphQL',
+  'WebSocket',
+  'Selenium',
+  'Playwright',
+  'Jest',
+  'Cypress',
+  'Manual Testing',
+  'API Testing',
+  'Figma',
+  'Agile/Scrum',
+  'Jira',
+  'Requirement Analysis',
+  'System Design',
+  'AWS',
+  'Linux',
+]);
+
+const skillAliasMap = (() => {
+  const map = new Map();
+  for (const name of SKILL_WHITELIST) {
+    map.set(name.toLowerCase(), name);
+  }
+  map.set('js', 'JavaScript');
+  map.set('ts', 'TypeScript');
+  map.set('nodejs', 'Node.js');
+  map.set('node', 'Node.js');
+  map.set('react.js', 'React');
+  map.set('reactjs', 'React');
+  map.set('vue.js', 'Vue');
+  map.set('vuejs', 'Vue');
+  map.set('mongo', 'MongoDB');
+  map.set('postgres', 'PostgreSQL');
+  map.set('k8s', 'Kubernetes');
+  map.set('dotnet', '.NET');
+  return map;
+})();
+
+function normalizeSkillName(raw) {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!key) return null;
+  return skillAliasMap.get(key) || null;
+}
+
+/** Hire SoT (Excel / invite KN) — JD-fit; profile user-service vẫn MAX_SKILLS=20. */
+const HIRE_SKILLS_MAX = 10;
+
+/**
+ * Catalog + dedupe. Không cắt thầm — caller hire kiểm HIRE_SKILLS_MAX.
+ * @returns {{ ok:true, skills:string[] } | { ok:false, unknown:string }}
+ */
+function normalizeSkillList(raw) {
+  const tokens = splitSkills(raw);
+  if (!tokens.length) return { ok: false, skills: [], unknown: '' };
+  const out = [];
+  const seen = new Set();
+  for (const token of tokens) {
+    const name = normalizeSkillName(token);
+    if (!name) return { ok: false, skills: [], unknown: token };
+    const k = name.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(name);
+  }
+  if (!out.length) return { ok: false, skills: [], unknown: '' };
+  return { ok: true, skills: out };
 }
 
 /**
@@ -82,6 +184,18 @@ const PRIMARY_DOMAINS = new Set([
   'other',
 ]);
 
+/** Nhãn dropdown Excel = đúng UI Năng lực (DB vẫn lưu fe|be|…). */
+const PRIMARY_DOMAIN_LABELS = Object.freeze([
+  'Frontend',
+  'Backend',
+  'Full-stack',
+  'Mobile',
+  'QA',
+  'BA',
+  'DevOps',
+  'Other',
+]);
+
 const PRIMARY_DOMAIN_ALIASES = {
   frontend: 'fe',
   'front-end': 'fe',
@@ -99,6 +213,9 @@ const PRIMARY_DOMAIN_ALIASES = {
   'business analyst': 'ba',
   analyst: 'ba',
   sre: 'devops',
+  other: 'other',
+  khác: 'other',
+  khac: 'other',
 };
 
 /**
@@ -177,7 +294,7 @@ function validateResourceImportRows(rows, options = {}) {
     const nameParts = splitFullName(r.fullName);
     const phoneParts = normalizeOptionalPhone(r.phone);
     const domainParts = normalizePrimaryDomain(r.primaryDomain);
-    const skills = splitSkills(r.skills);
+    const skillParts = normalizeSkillList(r.skills);
     const yearsExperienceRaw = r.yearsExperience;
     const yearsExperience =
       yearsExperienceRaw == null || yearsExperienceRaw === ''
@@ -288,20 +405,32 @@ function validateResourceImportRows(rows, options = {}) {
     if (!domainParts.ok) {
       details.push({
         rowNumber,
-        message: 'primaryDomain bắt buộc (fe|be|fullstack|mobile|qa|ba|devops|other).',
+        message:
+          'primaryDomain bắt buộc (Frontend|Backend|Full-stack|Mobile|QA|BA|DevOps|Other, hoặc fe|be|…).',
         errorCode: 'VALIDATION_PRIMARY_DOMAIN_REQUIRED',
       });
       continue;
     }
 
-    if (!Array.isArray(skills) || skills.length === 0) {
+    if (!skillParts.ok || !skillParts.skills.length) {
       details.push({
         rowNumber,
-        message: 'skills bắt buộc (tách bởi dấu , hoặc ;).',
-        errorCode: 'VALIDATION_SKILLS_REQUIRED',
+        message: skillParts.unknown
+          ? `skills không có trong catalog (giống tab Năng lực): ${skillParts.unknown}`
+          : 'skills bắt buộc (tên đúng lists!E, tách bởi dấu , hoặc ;).',
+        errorCode: skillParts.unknown ? 'VALIDATION_SKILL_NOT_IN_CATALOG' : 'VALIDATION_SKILLS_REQUIRED',
       });
       continue;
     }
+    if (skillParts.skills.length > HIRE_SKILLS_MAX) {
+      details.push({
+        rowNumber,
+        message: `Hire Excel tối đa ${HIRE_SKILLS_MAX} kỹ năng JD-fit (HR chọn theo JD). Profile sau vẫn tới 20. Hiện: ${skillParts.skills.length}.`,
+        errorCode: 'VALIDATION_SKILLS_HIRE_MAX',
+      });
+      continue;
+    }
+    const skills = skillParts.skills;
 
     if (yearsExperience == null || !Number.isFinite(yearsExperience) || yearsExperience < 0) {
       details.push({
@@ -320,6 +449,24 @@ function validateResourceImportRows(rows, options = {}) {
       });
       continue;
     }
+
+    const pastBlocks = parsePastProjectBlocks(r);
+    const pastProjects = [];
+    let pastProjectFailed = false;
+    for (const block of pastBlocks) {
+      const checked = validatePastProjectBlock(block);
+      if (!checked.ok) {
+        details.push({
+          rowNumber,
+          message: checked.message,
+          errorCode: checked.errorCode,
+        });
+        pastProjectFailed = true;
+        break;
+      }
+      pastProjects.push(checked.value);
+    }
+    if (pastProjectFailed) continue;
 
     // orgRole: blank -> employ => store as member
     const mappedRole = orgRoleLower === 'employ' ? 'member' : orgRoleLower;
@@ -352,6 +499,7 @@ function validateResourceImportRows(rows, options = {}) {
       yearsExperience: Math.floor(yearsExperience),
       maxConcurrentProjects: Math.floor(maxConcurrentProjects),
       orgRole: normalizedRole,
+      pastProjects,
     });
   }
 
@@ -372,7 +520,13 @@ module.exports = {
   splitFullName,
   normalizeOptionalPhone,
   normalizePrimaryDomain,
+  normalizeSkillName,
+  normalizeSkillList,
   normalizeEmployeeCode,
+  parsePastProjectBlocks,
   PRIMARY_DOMAINS: [...PRIMARY_DOMAINS],
+  PRIMARY_DOMAIN_LABELS,
+  SKILL_WHITELIST,
+  HIRE_SKILLS_MAX,
 };
 

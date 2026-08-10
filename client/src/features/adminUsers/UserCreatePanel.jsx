@@ -16,6 +16,18 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  PRIMARY_DOMAINS,
+  SKILL_WHITELIST,
+  YEARS_EXPERIENCE_MAX,
+  HIRE_SKILLS_MAX,
+} from '../../constants/capabilityCatalog';
+
+const MAX_INVITE_PAST_PROJECTS = 5;
+
+function emptyPastProject() {
+  return { name: '', role: '', work: '', year: '' };
+}
 
 /** Catalog chức danh HR gợi ý khi mời (Position SoT — không phải Project Role). */
 const EXTRA_JOB_TITLE_OPTIONS = [
@@ -61,6 +73,8 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
   const [manualInviteUrl, setManualInviteUrl] = useState('');
   const [previewCode, setPreviewCode] = useState('');
   const [jobTitleSelect, setJobTitleSelect] = useState('');
+  const [includeHireCapability, setIncludeHireCapability] = useState(false);
+  const [skillToAdd, setSkillToAdd] = useState('');
   const [form, setForm] = useState({
     email: '',
     firstName: '',
@@ -68,7 +82,17 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
     role: 'member',
     departmentId: '',
     jobTitle: '',
+    primaryDomain: '',
+    skills: [],
+    yearsExperience: '',
+    maxConcurrentProjects: 2,
+    pastProjects: [],
   });
+
+  const availableSkills = useMemo(() => {
+    const taken = new Set((form.skills || []).map((n) => String(n)));
+    return SKILL_WHITELIST.filter((name) => !taken.has(name));
+  }, [form.skills]);
 
   const jobTitleOptions = useMemo(() => {
     const fromMembers = (members || [])
@@ -111,28 +135,54 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
       toast.error(t('adminUsers.inviteJobTitleRequired'));
       return;
     }
+    if (includeHireCapability) {
+      const years = Number(form.yearsExperience);
+      if (!PRIMARY_DOMAINS.includes(form.primaryDomain) || !(form.skills || []).length || !Number.isFinite(years) || years < 0) {
+        toast.error(t('adminUsers.inviteHireKnIncomplete'));
+        return;
+      }
+    }
     setSaving(true);
     setManualInviteUrl('');
     try {
-      const res = await organizationAPI.inviteMemberByEmail(orgId, {
+      const payload = {
         email,
         firstName: String(form.firstName || '').trim(),
         lastName: String(form.lastName || '').trim(),
         role: form.role || 'member',
         departmentId: String(form.departmentId || '').trim(),
         jobTitle: String(form.jobTitle || '').trim(),
-      });
+      };
+      if (includeHireCapability) {
+        payload.includeHireCapability = true;
+        payload.primaryDomain = form.primaryDomain;
+        payload.skills = (form.skills || []).map((name) => String(name));
+        payload.yearsExperience = Number(form.yearsExperience);
+        payload.maxConcurrentProjects = Math.max(1, Math.min(20, Number(form.maxConcurrentProjects) || 2));
+        payload.pastProjects = (form.pastProjects || [])
+          .map((p) => ({
+            name: String(p.name || '').trim(),
+            role: String(p.role || '').trim(),
+            work: String(p.work || '').trim(),
+            year: String(p.year || '').trim(),
+          }))
+          .filter((p) => p.name || p.role || p.work || p.year);
+      }
+      const res = await organizationAPI.inviteMemberByEmail(orgId, payload);
       const body = unwrapApiData(res) || res?.data || res;
       const data = body?.data || body;
       const inviteUrl = String(data?.inviteUrl || '').trim();
       const emailSent = data?.emailSent !== false;
       const assignedCode = String(data?.employeeCode || '').trim();
 
+      const hireApplied = data?.hireCapabilityApplied === true;
       if (emailSent) {
         toast.success(
-          assignedCode
-            ? t('adminUsers.inviteSentWithCode', { email, code: assignedCode })
-            : t('companyAdmin.inviteEmailSentTo', { email })
+          hireApplied && assignedCode
+            ? t('adminUsers.inviteSentWithKn', { email, code: assignedCode })
+            : assignedCode
+              ? t('adminUsers.inviteSentWithCode', { email, code: assignedCode })
+              : t('companyAdmin.inviteEmailSentTo', { email })
         );
       } else {
         toast.error(data?.emailError || t('adminUsers.inviteEmailFailedKeepLink'), {
@@ -147,8 +197,15 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
         role: 'member',
         departmentId: '',
         jobTitle: '',
+        primaryDomain: '',
+        skills: [],
+        yearsExperience: '',
+        maxConcurrentProjects: 2,
+        pastProjects: [],
       });
       setJobTitleSelect('');
+      setIncludeHireCapability(false);
+      setSkillToAdd('');
       if (assignedCode) setPreviewCode('');
       try {
         const peek = await organizationAPI.previewNextEmployeeCode(orgId);
@@ -295,6 +352,205 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           </select>
           <p className="mt-1.5 text-xs text-muted-foreground">{t('adminUsers.membershipRoleInviteHint')}</p>
         </label>
+
+        <label className="flex items-start gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={includeHireCapability}
+            onChange={(e) => setIncludeHireCapability(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-foreground">{t('adminUsers.inviteHireKnToggle')}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">{t('adminUsers.inviteHireKnHint')}</span>
+          </span>
+        </label>
+
+        {includeHireCapability ? (
+          <div className="space-y-4 rounded-xl border border-border/80 p-3">
+            <label className="block">
+              <span className={adminLabelClass()}>{t('adminUsers.inviteHireDomain')}</span>
+              <select
+                className={adminInputClass()}
+                value={form.primaryDomain}
+                onChange={(e) => setForm((f) => ({ ...f, primaryDomain: e.target.value }))}
+              >
+                <option value="">{t('settingsCapability.selectPlaceholder')}</option>
+                {PRIMARY_DOMAINS.map((code) => (
+                  <option key={code} value={code}>
+                    {t(`settingsCapability.domains.${code}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div>
+              <span className={adminLabelClass()}>{t('adminUsers.inviteHireSkills')}</span>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <select
+                  className={`${adminInputClass()} min-w-[10rem] flex-1`}
+                  value={skillToAdd}
+                  onChange={(e) => setSkillToAdd(e.target.value)}
+                >
+                  <option value="">{t('adminUsers.inviteHireSkillPlaceholder')}</option>
+                  {availableSkills.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className={adminPrimaryBtnClass()}
+                  onClick={() => {
+                    const name = String(skillToAdd || '').trim();
+                    if (!name || !SKILL_WHITELIST.includes(name)) return;
+                    setForm((f) => {
+                      if (f.skills.includes(name)) return f;
+                      if (f.skills.length >= HIRE_SKILLS_MAX) {
+                        toast.error(t('settingsCapability.maxSkills', { n: HIRE_SKILLS_MAX }));
+                        return f;
+                      }
+                      return { ...f, skills: [...f.skills, name] };
+                    });
+                    setSkillToAdd('');
+                  }}
+                >
+                  {t('adminUsers.inviteHireAddSkill')}
+                </button>
+              </div>
+              {form.skills.length ? (
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {form.skills.map((name) => (
+                    <li
+                      key={name}
+                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
+                    >
+                      {name}
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() =>
+                          setForm((f) => ({ ...f, skills: f.skills.filter((s) => s !== name) }))
+                        }
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className={adminLabelClass()}>{t('adminUsers.inviteHireYears')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={YEARS_EXPERIENCE_MAX}
+                  className={adminInputClass()}
+                  value={form.yearsExperience}
+                  onChange={(e) => setForm((f) => ({ ...f, yearsExperience: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className={adminLabelClass()}>{t('adminUsers.inviteHireMaxProjects')}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  className={adminInputClass()}
+                  value={form.maxConcurrentProjects}
+                  onChange={(e) => setForm((f) => ({ ...f, maxConcurrentProjects: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <div className="space-y-2">
+              <span className={adminLabelClass()}>{t('adminUsers.inviteHirePastProjects')}</span>
+              {(form.pastProjects || []).map((p, idx) => (
+                <div key={`past-${idx}`} className="grid grid-cols-1 gap-2 rounded-lg border border-border/60 p-2 sm:grid-cols-2">
+                  <input
+                    className={adminInputClass()}
+                    placeholder={t('adminUsers.inviteHireProjectName')}
+                    value={p.name}
+                    onChange={(e) =>
+                      setForm((f) => {
+                        const next = [...f.pastProjects];
+                        next[idx] = { ...next[idx], name: e.target.value };
+                        return { ...f, pastProjects: next };
+                      })
+                    }
+                  />
+                  <input
+                    className={adminInputClass()}
+                    placeholder={t('adminUsers.inviteHireProjectRole')}
+                    value={p.role}
+                    onChange={(e) =>
+                      setForm((f) => {
+                        const next = [...f.pastProjects];
+                        next[idx] = { ...next[idx], role: e.target.value };
+                        return { ...f, pastProjects: next };
+                      })
+                    }
+                  />
+                  <input
+                    className={`${adminInputClass()} sm:col-span-2`}
+                    placeholder={t('adminUsers.inviteHireProjectWork')}
+                    value={p.work}
+                    onChange={(e) =>
+                      setForm((f) => {
+                        const next = [...f.pastProjects];
+                        next[idx] = { ...next[idx], work: e.target.value };
+                        return { ...f, pastProjects: next };
+                      })
+                    }
+                  />
+                  <input
+                    type="number"
+                    className={adminInputClass()}
+                    placeholder={t('adminUsers.inviteHireProjectYear')}
+                    value={p.year}
+                    onChange={(e) =>
+                      setForm((f) => {
+                        const next = [...f.pastProjects];
+                        next[idx] = { ...next[idx], year: e.target.value };
+                        return { ...f, pastProjects: next };
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        pastProjects: f.pastProjects.filter((_, i) => i !== idx),
+                      }))
+                    }
+                  >
+                    {t('common.cancel')}
+                  </button>
+                </div>
+              ))}
+              {(form.pastProjects || []).length < MAX_INVITE_PAST_PROJECTS ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      pastProjects: [...(f.pastProjects || []), emptyPastProject()],
+                    }))
+                  }
+                >
+                  {t('adminUsers.inviteHireAddProject')}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <p className="text-xs text-muted-foreground">{t('adminUsers.inviteSelfServeHint')}</p>
 
