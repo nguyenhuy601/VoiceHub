@@ -74,6 +74,8 @@ services:
 
       - project-service
 
+      - project-service
+
       - ai-task-service
 
       - summary-service
@@ -363,6 +365,64 @@ services:
     volumes:
 
       - ./services/chat-service:/app
+
+      - ./shared:/shared
+
+      - /app/node_modules
+
+    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
+
+
+
+  project-service:
+
+    build:
+      context: .
+      dockerfile: services/project-service/Dockerfile
+
+    container_name: enterprise-project-service
+
+    env_file:
+
+      - .env
+
+      - ./services/project-service/.env
+
+    environment:
+
+      RABBITMQ_URL: ${RABBITMQ_URL}
+
+      CHAT_INTERNAL_TOKEN: ${CHAT_INTERNAL_TOKEN}
+
+    depends_on:
+
+      mongodb:
+
+        condition: service_started
+
+      redis:
+
+        condition: service_started
+
+      rabbitmq:
+
+        condition: service_healthy
+
+      chat-service:
+
+        condition: service_started
+
+      organization-service:
+
+        condition: service_started
+
+    networks:
+
+      - enterprise-network
+
+    volumes:
+
+      - ./services/project-service:/app
 
       - ./shared:/shared
 
