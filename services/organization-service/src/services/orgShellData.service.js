@@ -24,7 +24,9 @@ const {
   isMultiPlacementReadEnabled,
   resolveEffectiveScopesFromAssignments,
   pickPrimaryScope,
+  resolveStructuralScopes,
 } = require('./memberScopePolicy.service');
+const { mergeStructuralIntoVisibility } = require('./collabStructureAdmin');
 const {
   findPlacementByStructureMembers,
   isStructureMembersInShellScopeEnabled,
@@ -359,7 +361,7 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     teamIds: new Set(),
   };
 
-  const structureVisibility = !isStructureAdmin
+  let structureVisibility = !isStructureAdmin
     ? isMultiPlacementReadEnabled()
       ? {
           mode:
@@ -378,6 +380,23 @@ async function buildAccessibleChannelData(userId, orgId, access) {
   if (!isStructureAdmin && isStructureMembersInShellScopeEnabled()) {
     membersPlacement = await findPlacementByStructureMembers(orgId, userId);
     mergeStructureMembersIntoVisibility(structureVisibility, membersPlacement);
+  }
+
+  // Trưởng phòng / placement structural — mở scope phòng trên Collaborate/Task.
+  let expandDepartmentTeams = false;
+  let placementLevel = 'none';
+  if (!isStructureAdmin) {
+    const structural = await resolveStructuralScopes(orgId, userId);
+    structureVisibility = mergeStructuralIntoVisibility(structureVisibility, structural);
+    const headedDeptCount = await Department.countDocuments({ organization: orgId, head: uid });
+    if (headedDeptCount > 0) {
+      expandDepartmentTeams = true;
+      placementLevel = 'department';
+    } else if (String(structureVisibility.mode || '') === 'team') {
+      placementLevel = 'team';
+    } else if (structureVisibility.mode && structureVisibility.mode !== 'none') {
+      placementLevel = structureVisibility.mode;
+    }
   }
 
   const teamDepartmentByTeamId = buildTeamDepartmentMap(teams);
@@ -560,7 +579,11 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       }
     }
 
-    rolePlacement = pickPrimaryScope(structureVisibility);
+    rolePlacement = pickPrimaryScope(structureVisibility, {
+      teams,
+      departments,
+      preferDepartmentLand: expandDepartmentTeams,
+    });
     if (membersPlacement) {
       if (!rolePlacement.departmentId && membersPlacement.primaryDepartmentId) {
         rolePlacement.departmentId = membersPlacement.primaryDepartmentId;
@@ -600,6 +623,8 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       teamId: scopeTeamId,
       canSeeAllStructure: isStructureAdmin,
       structureMode,
+      placementLevel,
+      expandDepartmentTeams,
       scopedDivisionIds: [...scopedFromVisibleChannels.divisionIds],
       scopedDepartmentIds: [...scopedFromVisibleChannels.departmentIds],
       scopedTeamIds: [...scopedFromVisibleChannels.teamIds],
