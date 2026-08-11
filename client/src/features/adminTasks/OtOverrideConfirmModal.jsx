@@ -17,6 +17,7 @@ export default function OtOverrideConfirmModal({
   rationaleLabel = 'Lý do override',
   rationalePlaceholder = 'Ví dụ: Sprint gấp, chưa có người thay thế…',
   rationaleRequiredText = 'Vui lòng nhập lý do override.',
+  message = null,
   busy = false,
 }) {
   const { isDarkMode } = useTheme();
@@ -59,7 +60,7 @@ export default function OtOverrideConfirmModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10050] flex items-center justify-center p-4 animate-fadeIn"
+      className="fixed inset-0 z-[10100] flex items-center justify-center p-4 animate-fadeIn"
       onClick={handleClose}
       role="presentation"
     >
@@ -76,13 +77,19 @@ export default function OtOverrideConfirmModal({
             {title}
           </h3>
           <p className={`mb-3 text-sm leading-relaxed ${bodyCls}`}>
-            Nhân viên đang tham gia{' '}
-            <span className="font-semibold text-amber-600 dark:text-amber-400">
-              {currentActiveProjects ?? '—'}
-            </span>{' '}
-            dự án active (ngưỡng cấu hình:{' '}
-            <span className="font-semibold">{maxConfigured ?? '—'}</span>). Gán thêm sẽ vượt công
-            suất — nhập lý do để override (ghi audit log cho HR).
+            {message != null ? (
+              message
+            ) : (
+              <>
+                Nhân viên đang tham gia{' '}
+                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                  {currentActiveProjects ?? '—'}
+                </span>{' '}
+                dự án active (ngưỡng cấu hình:{' '}
+                <span className="font-semibold">{maxConfigured ?? '—'}</span>). Gán thêm sẽ vượt công
+                suất — nhập lý do để override (ghi audit log cho HR).
+              </>
+            )}
           </p>
           <label className={`mb-1.5 block text-xs font-medium ${bodyCls}`}>{rationaleLabel}</label>
           <textarea
