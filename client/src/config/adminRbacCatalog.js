@@ -1,6 +1,7 @@
 /**
- * Catalog quyền + scope cho admin RBAC (tạo/sửa role).
+ * Catalog quyền + scope cho admin RBAC (tạo/sửa gói Permission).
  * Lưu BE dạng { resource, actions: string[] }.
+ * Follow-up: gắn từng API (vd. GET /projects/resources/planner) vào slot matrix — chưa map Project Role PM.
  */
 
 export const ROLE_SCOPES = [

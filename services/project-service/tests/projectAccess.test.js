@@ -22,6 +22,7 @@ describe('projectAccess helpers', () => {
     const caps = permissionsToBoardCapabilities(defaultPermissionsForRoleKey('qa'));
     assert.ok(Array.isArray(caps.permissions));
     assert.equal(typeof caps.canManageMembers, 'boolean');
+    assert.equal(typeof caps.canViewMembers, 'boolean');
     assert.equal(hasPermission(caps.permissions, 'task:update'), true);
   });
 

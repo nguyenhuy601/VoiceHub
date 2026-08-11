@@ -311,10 +311,12 @@ export const organizationAPI = {
     return response;
   },
 
-  getMembersWithRoles: async (orgId) => {
+  getMembersWithRoles: async (orgId, params = {}) => {
+    const departmentId = String(params.departmentId || '').trim();
     const response = await apiClient.get(`/organizations/${orgId}/members/with-roles`, {
       skipPermissionDeniedToast: true,
       skipGlobalErrorHandling: true,
+      params: departmentId ? { departmentId } : undefined,
     });
     return response;
   },

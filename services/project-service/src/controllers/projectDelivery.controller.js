@@ -37,6 +37,35 @@ async function requireBoardAdmin(boardId, userId) {
   return board;
 }
 
+async function requireDeliveryPermission(boardId, userId, permission, message) {
+  const board = await TaskBoard.findById(boardId).lean();
+  if (!board) {
+    const err = new Error('Board không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled() && board.projectId) {
+    const { assertUserProjectPermission } = require('../services/projectAccess.service');
+    await assertUserProjectPermission({
+      userId,
+      projectId: board.projectId,
+      boardId,
+      permission,
+      message,
+    });
+    return board;
+  }
+  if (permission === 'delivery:manage') return requireBoardAdmin(boardId, userId);
+  const viewed = await boardService.ensureBoardViewAccess(boardId, userId);
+  if (!viewed) {
+    const err = new Error(message || 'Không có quyền xem Delegation Graph');
+    err.statusCode = 403;
+    throw err;
+  }
+  return viewed;
+}
+
 async function listRoles(req, res) {
   try {
     const userId = asUserId(req);
@@ -76,6 +105,16 @@ async function listMembers(req, res) {
       });
     }
     await migrateBoardMembersToProjectRoles(boardId, userId);
+    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    if (isProjectRbacV2Enabled()) {
+      const { assertUserAnyProjectPermission } = require('../services/projectAccess.service');
+      await assertUserAnyProjectPermission({
+        userId,
+        boardId,
+        permissions: ['members:view', 'members:manage'],
+        message: 'Không có quyền xem thành viên dự án',
+      });
+    }
     const members = await listProjectMemberships(boardId);
     return res.json({ success: true, data: members });
   } catch (err) {
@@ -123,14 +162,12 @@ async function listDelegation(req, res) {
   try {
     const userId = asUserId(req);
     const { boardId } = req.params;
-    const board = await boardService.ensureBoardViewAccess(boardId, userId);
-    if (!board) {
-      return sendServiceError(res, 403, {
-        errorCode: 'TASK_BOARD_FORBIDDEN',
-        messageUser: 'Không có quyền xem board.',
-        message: 'Forbidden',
-      });
-    }
+    const board = await requireDeliveryPermission(
+      boardId,
+      userId,
+      'delivery:view',
+      'Không có quyền xem Delegation Graph (delivery:view)'
+    );
     const [edges, templates] = await Promise.all([
       listEdges(boardId),
       Promise.resolve(listDelegationTemplates()),
@@ -146,7 +183,12 @@ async function putDelegationEdge(req, res) {
     const userId = asUserId(req);
     const { boardId } = req.params;
     const { fromRoleId, toRoleId, fromRoleKey, toRoleKey, taskTypes } = req.body || {};
-    const board = await requireBoardAdmin(boardId, userId);
+    const board = await requireDeliveryPermission(
+      boardId,
+      userId,
+      'delivery:manage',
+      'Không có quyền sửa Delegation Graph (delivery:manage)'
+    );
     let fromId = fromRoleId;
     let toId = toRoleId;
     if ((!fromId || !toId) && (fromRoleKey || toRoleKey)) {
@@ -190,7 +232,12 @@ async function removeDelegationEdge(req, res) {
   try {
     const userId = asUserId(req);
     const { boardId, edgeId } = req.params;
-    await requireBoardAdmin(boardId, userId);
+    await requireDeliveryPermission(
+      boardId,
+      userId,
+      'delivery:manage',
+      'Không có quyền sửa Delegation Graph (delivery:manage)'
+    );
     await deleteEdge(boardId, edgeId);
     return res.json({ success: true });
   } catch (err) {
@@ -203,7 +250,12 @@ async function postApplyTemplate(req, res) {
     const userId = asUserId(req);
     const { boardId } = req.params;
     const templateId = req.body?.templateId || 'product';
-    await requireBoardAdmin(boardId, userId);
+    await requireDeliveryPermission(
+      boardId,
+      userId,
+      'delivery:manage',
+      'Không có quyền sửa Delegation Graph (delivery:manage)'
+    );
     const result = await applyDelegationTemplate(boardId, templateId);
     return res.json({ success: true, data: result });
   } catch (err) {

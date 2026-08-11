@@ -35,8 +35,10 @@ router.use('/project-briefs', projectBriefRoutes);
 router.use('/admin/project-roles', projectRoleAdminRoutes);
 
 const worklog = require('../controllers/worklog.controller');
+const workHistory = require('../controllers/workHistory.controller');
 router.get('/:taskId/worklogs', worklog.listTaskWorklogs);
 router.post('/:taskId/worklogs', worklog.createTaskWorklog);
+router.get('/:taskId/history', workHistory.listTask);
 
 // Lấy task theo ID
 router.get('/:taskId', taskController.getTaskById.bind(taskController));

@@ -156,14 +156,14 @@ function applyInformationLevelToProject(project, informationLevel) {
   const level = String(informationLevel || 'summary').toLowerCase();
   const out = { ...project };
 
+  delete out.technicalSetup;
+
   if (level === 'summary') {
-    delete out.technicalSetup;
     delete out.customer;
     delete out.boards;
     return out;
   }
   if (level === 'details') {
-    delete out.technicalSetup;
     if (out.customer) {
       out.customer = {
         name: out.customer.name || '',

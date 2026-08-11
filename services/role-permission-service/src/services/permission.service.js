@@ -38,7 +38,9 @@ class PermissionService {
         }
       }
 
-      // RBAC V2: union master grants from bound permission groups
+      // Union grants từ mọi gói Permission đã bind (checkPermission).
+      // Follow-up: gắn từng API vào matrix gói — hiện nhiều gate vẫn Membership/Org Role (vd. org planner).
+      // Chưa invent master key PM trong wave naming.
       let masterGrants = [];
       try {
         masterGrants = await getRbacV2().collectEffectiveMasterGrants(userId, serverId);

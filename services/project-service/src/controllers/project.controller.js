@@ -1,9 +1,6 @@
 const mongoose = require('../db');
 const projectService = require('../services/project.service');
-const {
-  listProjectMemberships,
-  setUserProjectRoles,
-} = require('../services/projectTeam.service');
+const { setUserProjectRoles } = require('../services/projectTeam.service');
 const { listMemberCandidates } = require('../services/projectMemberCandidate.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 
@@ -93,7 +90,7 @@ async function createProject(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return sendErrorFromCatch(res, err, 400, 'Không thể tạo dự án', 'PROJECT_CREATE_FAILED');
+    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể tạo dự án', 'PROJECT_CREATE_FAILED');
   }
 }
 
@@ -222,8 +219,7 @@ async function listMembers(req, res) {
     const userId = asUserId(req);
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
-    await projectService.getProject({ userId, projectId });
-    const data = await listProjectMemberships(projectId);
+    const data = await projectService.listProjectMembersForUser({ userId, projectId });
     return res.json({ success: true, data });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể tải members', 'PROJECT_MEMBERS_FAILED');
@@ -375,55 +371,6 @@ async function patchSprint(req, res) {
   }
 }
 
-async function getTechnicalSetup(req, res) {
-  try {
-    const userId = asUserId(req);
-    const { projectId } = req.params;
-    if (!userId) return unauthorized(res);
-    if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
-    }
-    const data = await projectService.getTechnicalSetup({ userId, projectId });
-    return res.json({ success: true, data });
-  } catch (err) {
-    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể tải technical setup', 'PROJECT_TECH_SETUP_GET_FAILED');
-  }
-}
-
-async function putTechnicalSetup(req, res) {
-  try {
-    const userId = asUserId(req);
-    const { projectId } = req.params;
-    if (!userId) return unauthorized(res);
-    if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
-    }
-    const data = await projectService.updateTechnicalSetup({
-      userId,
-      projectId,
-      body: req.body || {},
-    });
-    return res.json({ success: true, data });
-  } catch (err) {
-    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể lưu technical setup', 'PROJECT_TECH_SETUP_PUT_FAILED');
-  }
-}
-
-async function completeTechnicalSetup(req, res) {
-  try {
-    const userId = asUserId(req);
-    const { projectId } = req.params;
-    if (!userId) return unauthorized(res);
-    if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
-    }
-    const data = await projectService.completeTechnicalSetup({ userId, projectId });
-    return res.json({ success: true, data });
-  } catch (err) {
-    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể hoàn tất technical setup', 'PROJECT_TECH_SETUP_COMPLETE_FAILED');
-  }
-}
-
 module.exports = {
   createProject,
   listProjects,
@@ -441,7 +388,4 @@ module.exports = {
   listSprints,
   createSprint,
   patchSprint,
-  getTechnicalSetup,
-  putTechnicalSetup,
-  completeTechnicalSetup,
 };

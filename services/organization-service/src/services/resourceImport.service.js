@@ -12,7 +12,6 @@ const {
   bumpCounterToAtLeast,
 } = require('./employeeCodeAllocate.service');
 const { sendProvisionSetPasswordEmail } = require('../clients/authInviteEmail.client');
-const { softAssignResponsibilityFromPrimaryDomain } = require('./responsibility.service');
 const { runWithConcurrency, chunkArray } = require('../utils/runWithConcurrency');
 const { logger } = require('@enterprise/shared');
 const Organization = require('../models/Organization');
@@ -153,15 +152,6 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
-  try {
-    await softAssignResponsibilityFromPrimaryDomain({
-      organizationId,
-      userId,
-      primaryDomain,
-    });
-  } catch (respErr) {
-    logger.warn('[resourceImport] soft Responsibility assign failed:', respErr?.message || respErr);
-  }
   const membershipMs = nowMs() - tMember;
 
   return {

@@ -17,8 +17,17 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'task:change_status',
   'task:delete',
   'task:assign',
+  'task:comment',
+  'task:estimate',
+  'epic:create',
+  'epic:update',
+  'epic:delete',
+  'story:create',
+  'story:update',
+  'bug:create',
   'sprint:view',
   'sprint:create',
+  'sprint:start',
   'sprint:close',
   'repository:view',
   'repository:push',
@@ -36,6 +45,15 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'members:manage',
   'settings:view',
   'settings:update',
+  'approval:request',
+  'approval:decide',
+  'approval:manage_policy',
+  'backlog:view',
+  'backlog:update',
+  'backlog:prioritize',
+  'delivery:view',
+  'delivery:manage',
+  'report:view',
 ]);
 
 const PERM_SET = new Set(PROJECT_PERMISSION_KEYS);
@@ -50,6 +68,9 @@ const VIEW_ONLY = Object.freeze([
   'wiki:view',
   'meeting:view',
   'release:view',
+  'backlog:view',
+  'delivery:view',
+  'report:view',
 ]);
 
 const DEV_PERMS = Object.freeze([
@@ -58,45 +79,88 @@ const DEV_PERMS = Object.freeze([
   'task:update',
   'task:change_status',
   'task:assign',
+  'task:comment',
+  'task:estimate',
+  'bug:create',
   'files:upload',
-  'wiki:edit',
-  'meeting:create',
   'repository:view',
   'repository:push',
+  'approval:request',
 ]);
 
 const LEAD_PERMS = Object.freeze([
   ...DEV_PERMS,
   'task:delete',
-  'sprint:create',
-  'sprint:close',
-  'project:edit',
-  'members:manage',
-  'settings:update',
-  'files:delete',
   'repository:merge',
+  'approval:decide',
 ]);
 
-const PM_PERMS = Object.freeze([...PROJECT_PERMISSION_KEYS]);
+const PO_PERMS = Object.freeze([
+  ...VIEW_ONLY,
+  'epic:create',
+  'epic:update',
+  'story:create',
+  'story:update',
+  'backlog:update',
+  'backlog:prioritize',
+  'meeting:create',
+  'approval:request',
+]);
+
+const BA_PERMS = Object.freeze([
+  ...VIEW_ONLY,
+  'epic:create',
+  'epic:update',
+  'story:create',
+  'story:update',
+  'backlog:update',
+  'wiki:edit',
+  'meeting:create',
+  'approval:request',
+]);
+
+const SM_PERMS = Object.freeze([
+  ...VIEW_ONLY,
+  'sprint:create',
+  'sprint:start',
+  'sprint:close',
+  'meeting:create',
+]);
+
+const PM_PERMS = Object.freeze([
+  ...VIEW_ONLY,
+  'project:edit',
+  'delivery:manage',
+  'release:create',
+  'settings:view',
+]);
 
 const QA_PERMS = Object.freeze([
   ...VIEW_ONLY,
+  'bug:create',
+  'task:create',
   'task:update',
   'task:change_status',
   'task:assign',
+  'task:comment',
+  'task:estimate',
   'files:upload',
-  'release:view',
-  'meeting:create',
 ]);
 
 const RELEASE_PERMS = Object.freeze([
   ...VIEW_ONLY,
-  'task:update',
-  'task:change_status',
-  'release:view',
   'release:create',
   'repository:view',
   'repository:merge',
+  'files:upload',
+]);
+
+const ARCHITECT_PERMS = Object.freeze([
+  ...VIEW_ONLY,
+  'task:comment',
+  'repository:view',
+  'repository:merge',
+  'wiki:edit',
   'files:upload',
 ]);
 
@@ -105,78 +169,30 @@ const DEFAULT_PERMISSIONS_BY_ROLE_KEY = Object.freeze({
   sponsor: [...VIEW_ONLY],
   stakeholder: [...VIEW_ONLY],
   [DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER]: [...PM_PERMS],
-  [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER]: [...PM_PERMS].filter(
-    (k) => k !== 'project:delete' && k !== 'repository:merge'
-  ),
-  [DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER]: [
-    ...VIEW_ONLY,
-    'task:create',
-    'task:update',
-    'task:change_status',
-    'task:assign',
-    'sprint:create',
-    'sprint:close',
-    'members:view',
-    'meeting:create',
-    'files:upload',
-  ],
-  [DEFAULT_PROJECT_ROLE_KEYS.SOLUTION_ARCHITECT]: [
-    ...VIEW_ONLY,
-    'task:update',
-    'task:change_status',
-    'repository:view',
-    'repository:merge',
-    'wiki:edit',
-    'files:upload',
-  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER]: [...PO_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER]: [...SM_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.SOLUTION_ARCHITECT]: [...ARCHITECT_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.TECHNICAL_LEAD]: [...LEAD_PERMS],
-  [DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST]: [
-    ...VIEW_ONLY,
-    'task:view',
-    'task:update',
-    'task:create',
-    'wiki:view',
-    'wiki:edit',
-    'meeting:view',
-    'meeting:create',
-  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST]: [...BA_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.BACKEND_DEVELOPER]: [...DEV_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.FRONTEND_DEVELOPER]: [...DEV_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.MOBILE_DEVELOPER]: [...DEV_PERMS],
-  [DEFAULT_PROJECT_ROLE_KEYS.FULLSTACK_DEVELOPER]: [...LEAD_PERMS].filter(
-    (k) => k !== 'project:delete' && k !== 'project:archive' && k !== 'settings:update'
-  ),
-  [DEFAULT_PROJECT_ROLE_KEYS.QA_LEAD]: [
-    ...QA_PERMS,
-    'task:delete',
-    'sprint:view',
-    'members:view',
-    'project:edit',
-  ],
+  [DEFAULT_PROJECT_ROLE_KEYS.FULLSTACK_DEVELOPER]: [...DEV_PERMS, 'repository:merge'],
+  [DEFAULT_PROJECT_ROLE_KEYS.QA_LEAD]: [...QA_PERMS, 'approval:decide'],
   [DEFAULT_PROJECT_ROLE_KEYS.QA_ENGINEER]: [...QA_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.UI_UX_DESIGNER]: [
     ...VIEW_ONLY,
     'task:update',
+    'task:comment',
     'files:upload',
-    'wiki:view',
     'wiki:edit',
   ],
   [DEFAULT_PROJECT_ROLE_KEYS.DEVOPS_ENGINEER]: [...RELEASE_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.OBSERVER]: [...VIEW_ONLY],
   /** Legacy keys — same templates via alias resolve in defaultPermissionsForRoleKey */
   [DEFAULT_PROJECT_ROLE_KEYS.TECH_LEAD]: [...LEAD_PERMS],
-  [DEFAULT_PROJECT_ROLE_KEYS.ARCHITECT]: [
-    ...VIEW_ONLY,
-    'task:update',
-    'task:change_status',
-    'repository:view',
-    'repository:merge',
-    'wiki:edit',
-    'files:upload',
-  ],
-  [DEFAULT_PROJECT_ROLE_KEYS.SENIOR_DEVELOPER]: [...LEAD_PERMS].filter(
-    (k) => k !== 'project:delete' && k !== 'project:archive' && k !== 'settings:update'
-  ),
+  [DEFAULT_PROJECT_ROLE_KEYS.ARCHITECT]: [...ARCHITECT_PERMS],
+  [DEFAULT_PROJECT_ROLE_KEYS.SENIOR_DEVELOPER]: [...DEV_PERMS, 'repository:merge'],
   [DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER]: [...DEV_PERMS],
   [DEFAULT_PROJECT_ROLE_KEYS.JUNIOR]: [...DEV_PERMS].filter((k) => k !== 'repository:push'),
   [DEFAULT_PROJECT_ROLE_KEYS.INTERN]: [
@@ -194,7 +210,7 @@ const DEFAULT_PERMISSIONS_BY_ROLE_KEY = Object.freeze({
     'repository:view',
   ],
   [DEFAULT_PROJECT_ROLE_KEYS.RELEASE_MANAGER]: [...RELEASE_PERMS],
-  [DEFAULT_PROJECT_ROLE_KEYS.WATCHER]: [...VIEW_ONLY],
+  watcher: [...VIEW_ONLY],
 });
 
 function isProjectRbacV2Enabled() {
@@ -270,6 +286,7 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
       canChangeStatus: true,
       canUseAiConfirm: true,
       canManageMembers: true,
+      canViewMembers: true,
       canUpdateSettings: true,
       canViewFiles: true,
       canViewRepository: true,
@@ -277,11 +294,15 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
     };
   }
   const canView = hasPermission(set, 'task:view') || hasPermission(set, 'project:view');
+  const canManageMembers = hasPermission(set, 'members:manage');
   return {
     canView,
     canManageBoard: hasPermission(set, 'project:edit') || hasPermission(set, 'project:archive'),
     canManageLists: hasPermission(set, 'settings:update') || hasPermission(set, 'project:edit'),
-    canCreateCards: hasPermission(set, 'task:create'),
+    canCreateCards:
+      hasPermission(set, 'task:create') ||
+      hasPermission(set, 'story:create') ||
+      hasPermission(set, 'bug:create'),
     canEditCards: hasPermission(set, 'task:update'),
     canAssign: hasPermission(set, 'task:assign'),
     canMoveCards:
@@ -295,7 +316,8 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
     canChangeStatus:
       hasPermission(set, 'task:change_status') || hasPermission(set, 'task:update'),
     canUseAiConfirm: hasPermission(set, 'task:assign') || hasPermission(set, 'task:create'),
-    canManageMembers: hasPermission(set, 'members:manage'),
+    canManageMembers,
+    canViewMembers: canManageMembers || hasPermission(set, 'members:view'),
     canUpdateSettings: hasPermission(set, 'settings:update') || hasPermission(set, 'project:edit'),
     canViewFiles: hasPermission(set, 'files:view'),
     canViewRepository: hasPermission(set, 'repository:view'),
@@ -326,6 +348,12 @@ module.exports = {
   PROJECT_PERMISSION_KEYS,
   DEFAULT_PERMISSIONS_BY_ROLE_KEY,
   VIEW_ONLY,
+  PO_PERMS,
+  BA_PERMS,
+  SM_PERMS,
+  PM_PERMS,
+  DEV_PERMS,
+  QA_PERMS,
   isProjectRbacV2Enabled,
   normalizePermissionList,
   defaultPermissionsForRoleKey,

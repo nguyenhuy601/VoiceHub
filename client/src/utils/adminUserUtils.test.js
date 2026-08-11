@@ -6,6 +6,7 @@ import {
   memberEligibleForDeptHead,
   memberDisplayName,
   memberLabelById,
+  memberDepartmentId,
 } from './adminUserUtils.js';
 
 test('memberNeedsOnboardingAssignment khi thiếu phòng ban hoặc RBAC', () => {
@@ -74,6 +75,11 @@ test('memberEligibleForDeptHead: đã có phòng ban và chưa là head', () => 
     ),
     true
   );
+});
+
+test('memberDepartmentId unwrap object department', () => {
+  assert.equal(memberDepartmentId({ department: { _id: 'd1', name: 'BE' } }), 'd1');
+  assert.equal(memberDepartmentId({ departmentId: 'd2' }), 'd2');
 });
 
 test('memberDisplayName đọc profile lồng user.*', () => {

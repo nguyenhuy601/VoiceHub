@@ -6,10 +6,10 @@ const assert = require('node:assert/strict');
 const { buildProjectInitFields } = require('../src/utils/projectInitFields');
 
 describe('buildProjectInitFields', () => {
-  it('defaults to planning + kanban + internal on create', () => {
+  it('defaults to ready_for_planning + kanban + internal on create', () => {
     const r = buildProjectInitFields({});
     assert.equal(r.ok, true);
-    assert.equal(r.fields.status, 'planning');
+    assert.equal(r.fields.status, 'ready_for_planning');
     assert.equal(r.fields.methodology, 'kanban');
     assert.equal(r.fields.category, 'internal');
     assert.equal(r.fields.customer, undefined);

@@ -21,6 +21,10 @@ import { getRoleMeta } from '../../config/roleMeta';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import {
+  extractOrganizationRoleKeys,
+  resolveNavRoleFromOrgKeys,
+} from '../../utils/organizationRoleKeys';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
@@ -73,12 +77,17 @@ const ROLE_COLORS = {
 };
 
 /**
- * Sidebar footer:
- * owner/admin/hr org → membership;
- * member + trưởng phòng/nhóm → chức vụ cấu trúc;
- * không map systemRole employee → «Thành viên».
+ * Sidebar footer: Org Role (membership) + Position/cấu trúc + catalog Org Role.
+ * Gói Permission chưa map API → không dùng để chọn nav.
+ * JWT systemRole chỉ khi isSystemAdmin (tài khoản nền tảng) — không map employee → «Thành viên».
  */
-function resolveSidebarDisplayRole({ uiRole, myOrgRole, myStructureRole, isSystemAdmin }) {
+function resolveSidebarDisplayRole({
+  uiRole,
+  myOrgRole,
+  myStructureRole,
+  isSystemAdmin,
+  organizationRoleKeys,
+}) {
   const org = String(myOrgRole || '').toLowerCase();
   if (org === 'owner') return 'owner';
   if (org === 'admin') return 'orgAdmin';
@@ -88,6 +97,8 @@ function resolveSidebarDisplayRole({ uiRole, myOrgRole, myStructureRole, isSyste
   const structure = String(myStructureRole || '').toLowerCase();
   if (structure === 'head') return 'deptHead';
   if (structure === 'leader') return 'teamLeader';
+  const fromOrgKeys = resolveNavRoleFromOrgKeys(organizationRoleKeys);
+  if (fromOrgKeys) return fromOrgKeys;
   if (org === 'member') return 'member';
   return String(uiRole || 'member').toLowerCase();
 }
@@ -259,11 +270,13 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();
+  const organizationRoleKeys = extractOrganizationRoleKeys(company, activeWorkspace);
   const displayRoleKey = resolveSidebarDisplayRole({
     uiRole: role,
     myOrgRole,
     myStructureRole,
     isSystemAdmin,
+    organizationRoleKeys,
   });
   const metaRoleKey =
     displayRoleKey === 'hr' || displayRoleKey === 'orgAdmin'

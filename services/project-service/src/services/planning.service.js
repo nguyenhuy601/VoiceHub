@@ -3,8 +3,9 @@ const PlanningItem = require('../models/PlanningItem');
 const { PLANNING_ITEM_TYPES, PLANNING_ITEM_STATUSES } = require('../utils/planningItemTypes');
 const Task = require('../models/Task');
 const projectService = require('./project.service');
-const { assertUserProjectPermission } = require('./projectAccess.service');
+const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
 const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+const { planningWritePermission } = require('../utils/projectIssueTypePerms');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -14,7 +15,7 @@ async function assertProjectAccess(userId, projectId) {
   return projectService.getProject({ userId, projectId });
 }
 
-async function assertPlanningManage(userId, projectId) {
+async function assertPlanningManage(userId, projectId, { type, action } = {}) {
   await assertProjectAccess(userId, projectId);
   if (!isProjectRbacV2Enabled()) {
     const project = await projectService.getProject({ userId, projectId });
@@ -26,11 +27,27 @@ async function assertPlanningManage(userId, projectId) {
     }
     return project;
   }
+  const permission = planningWritePermission(type, action || 'update');
   await assertUserProjectPermission({
     userId,
     projectId,
-    permission: 'project:edit',
-    message: 'Không có quyền quản lý planning',
+    permission,
+    message: `Không có quyền quản lý planning (${permission})`,
+  });
+  return projectService.getProject({ userId, projectId });
+}
+
+async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
+  await assertProjectAccess(userId, projectId);
+  if (!isProjectRbacV2Enabled()) {
+    return assertPlanningManage(userId, projectId, { type, action: 'update' });
+  }
+  const writeKey = planningWritePermission(type, 'update');
+  await assertUserAnyProjectPermission({
+    userId,
+    projectId,
+    permissions: ['backlog:prioritize', writeKey],
+    message: `Không có quyền sắp xếp backlog (${writeKey} / backlog:prioritize)`,
   });
   return projectService.getProject({ userId, projectId });
 }
@@ -52,6 +69,14 @@ function normalizeStatus(raw, fallback = 'planned') {
 
 async function listPlanningItems({ userId, projectId, type }) {
   await assertProjectAccess(userId, projectId);
+  if (isProjectRbacV2Enabled()) {
+    await assertUserProjectPermission({
+      userId,
+      projectId,
+      permission: 'backlog:view',
+      message: 'Không có quyền xem planning (backlog:view)',
+    });
+  }
   const filter = { projectId, isActive: true };
   const t = type ? normalizeType(type) : null;
   if (type && !t) {
@@ -74,13 +99,13 @@ async function createPlanningItem({
   status,
   sortOrder,
 }) {
-  const project = await assertPlanningManage(userId, projectId);
   const itemType = normalizeType(type);
   if (!itemType) {
     const err = new Error('type bắt buộc (roadmap|release|milestone|epic|feature)');
     err.statusCode = 400;
     throw err;
   }
+  const project = await assertPlanningManage(userId, projectId, { type: itemType, action: 'create' });
   const name = String(title || '').trim();
   if (!name) {
     const err = new Error('title là bắt buộc');
@@ -126,16 +151,33 @@ async function createPlanningItem({
     sortOrder: nextOrder,
     createdBy: userId,
   });
-  return row.toObject();
+  const created = row.toObject();
+  const { appendFieldChanges } = require('./workHistory.service');
+  await appendFieldChanges({
+    organizationId: project.organizationId,
+    projectId,
+    planningItemId: created._id,
+    actorId: userId,
+    changes: [{ field: 'issue', from: null, to: created.title }],
+  });
+  return created;
 }
 
 async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
-  await assertPlanningManage(userId, projectId);
   const item = await PlanningItem.findOne({ _id: itemId, projectId, isActive: true });
   if (!item) {
     const err = new Error('Planning item không tồn tại');
     err.statusCode = 404;
     throw err;
+  }
+  const beforeDoc = item.toObject();
+  const keys = Object.keys(patch || {}).filter((k) => patch[k] !== undefined);
+  const prioritizeOnly = keys.length === 1 && keys[0] === 'sortOrder';
+  const nextType = patch.type !== undefined ? normalizeType(patch.type) || item.type : item.type;
+  if (prioritizeOnly) {
+    await assertPlanningPrioritizeOrWrite(userId, projectId, nextType);
+  } else {
+    await assertPlanningManage(userId, projectId, { type: nextType, action: 'update' });
   }
   if (patch.title !== undefined) {
     const name = String(patch.title || '').trim();
@@ -177,17 +219,27 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     }
   }
   await item.save();
-  return item.toObject();
+  const afterDoc = item.toObject();
+  const { diffPlanningFields } = require('../utils/workHistoryDiff');
+  const { appendFieldChanges } = require('./workHistory.service');
+  await appendFieldChanges({
+    organizationId: item.organizationId,
+    projectId,
+    planningItemId: item._id,
+    actorId: userId,
+    changes: diffPlanningFields(beforeDoc, afterDoc),
+  });
+  return afterDoc;
 }
 
 async function deletePlanningItem({ userId, projectId, itemId }) {
-  await assertPlanningManage(userId, projectId);
   const item = await PlanningItem.findOne({ _id: itemId, projectId, isActive: true });
   if (!item) {
     const err = new Error('Planning item không tồn tại');
     err.statusCode = 404;
     throw err;
   }
+  await assertPlanningManage(userId, projectId, { type: item.type, action: 'delete' });
   item.isActive = false;
   await item.save();
   if (item.type === 'epic') {
@@ -219,7 +271,17 @@ async function listBacklog({ userId, projectId }) {
 }
 
 async function linkTaskToEpic({ userId, projectId, taskId, epicId, issueType }) {
-  await assertPlanningManage(userId, projectId);
+  await assertProjectAccess(userId, projectId);
+  if (isProjectRbacV2Enabled()) {
+    await assertUserAnyProjectPermission({
+      userId,
+      projectId,
+      permissions: ['epic:update', 'story:update', 'backlog:update'],
+      message: 'Không có quyền gắn epic (epic:update)',
+    });
+  } else {
+    await assertPlanningManage(userId, projectId, { type: 'epic', action: 'update' });
+  }
   const task = await Task.findOne({ _id: taskId, projectId, isActive: true });
   if (!task) {
     const err = new Error('Task không tồn tại trong project');

@@ -214,12 +214,12 @@ router.get(
   require('../controllers/worklog.controller').getSprintTimeSummaryController
 );
 
-router.get('/:projectId/technical-setup', controller.getTechnicalSetup);
-router.put('/:projectId/technical-setup', controller.putTechnicalSetup);
-router.post('/:projectId/technical-setup/complete', controller.completeTechnicalSetup);
-
 router.get('/:projectId/planning-items', planning.listItems);
 router.post('/:projectId/planning-items', planning.createItem);
+router.get(
+  '/:projectId/planning-items/:itemId/history',
+  require('../controllers/workHistory.controller').listPlanningItem
+);
 router.patch('/:projectId/planning-items/:itemId', planning.patchItem);
 router.delete('/:projectId/planning-items/:itemId', planning.deleteItem);
 router.get('/:projectId/backlog', planning.listBacklog);

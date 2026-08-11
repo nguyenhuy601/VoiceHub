@@ -13,6 +13,7 @@ const {
   canAssignUser,
   userCanAccessTask,
 } = require('../services/taskWorkspaceScope');
+const { getTaskStatistics } = require('../services/taskStatistics.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const { requireObjectId, requireUserId } = require('../utils/validateInput');
 
@@ -374,39 +375,45 @@ class TaskController {
       }
 
       const orgOid = new mongoose.Types.ObjectId(oid);
-      const stats = await Task.aggregate([
-        {
-          $match: {
-            organizationId: orgOid,
-            isActive: true,
-            ...(String(process.env.TASK_BOARD_CARDS_IN_TASKS_API || '').toLowerCase().trim() === 'true'
-              ? {}
-              : { boardId: null }),
+      const view = String(req.query.view || '').trim().toLowerCase();
+      let formatted;
+      if (view === 'dashboard') {
+        formatted = await getTaskStatistics({ orgOid, userId, scope, view: 'dashboard' });
+      } else {
+        const stats = await Task.aggregate([
+          {
+            $match: {
+              organizationId: orgOid,
+              isActive: true,
+              ...(String(process.env.TASK_BOARD_CARDS_IN_TASKS_API || '').toLowerCase().trim() === 'true'
+                ? {}
+                : { boardId: null }),
+            },
           },
-        },
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+            },
           },
-        },
-      ]);
+        ]);
 
-      const formatted = {
-        total: 0,
-        todo: 0,
-        in_progress: 0,
-        review: 0,
-        done: 0,
-        cancelled: 0,
-      };
+        formatted = {
+          total: 0,
+          todo: 0,
+          in_progress: 0,
+          review: 0,
+          done: 0,
+          cancelled: 0,
+        };
 
-      stats.forEach((s) => {
-        if (s._id && Object.prototype.hasOwnProperty.call(formatted, s._id)) {
-          formatted[s._id] = s.count;
-          formatted.total += s.count;
-        }
-      });
+        stats.forEach((s) => {
+          if (s._id && Object.prototype.hasOwnProperty.call(formatted, s._id)) {
+            formatted[s._id] = s.count;
+            formatted.total += s.count;
+          }
+        });
+      }
 
       res.json({
         success: true,

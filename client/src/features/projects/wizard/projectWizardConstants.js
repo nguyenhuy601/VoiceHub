@@ -1,4 +1,4 @@
-import { DEFAULT_PROJECT_ROLE_KEYS } from '../../../utils/roleTaxonomy';
+import { DEFAULT_PROJECT_ROLE_KEYS } from '../../../utils/roleTaxonomy.js';
 
 /** Full-screen wizard: Name → Setup → Team */
 export const PROJECT_WIZARD_STEPS = Object.freeze(['name', 'setup', 'team']);
@@ -88,5 +88,16 @@ export function previewColumnsForCard(cardId) {
 export const WIZARD_DEFAULT_MEMBER_ROLE = DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER || 'developer';
 export const WIZARD_PM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER;
 export const WIZARD_SM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER;
+
+/** userId đầu tiên trong seedMembers có Project Role `roleKey`. */
+export function firstSeedMemberWithRole(seedMembers, roleKey) {
+  const want = String(roleKey || '').trim().toLowerCase();
+  if (!want) return '';
+  for (const m of Array.isArray(seedMembers) ? seedMembers : []) {
+    const keys = (m.projectRoleKeys || []).map((k) => String(k || '').trim().toLowerCase());
+    if (keys.includes(want)) return String(m.userId || '').trim();
+  }
+  return '';
+}
 
 export const SETUP_SUBPANELS = Object.freeze(['', 'workTypes', 'statuses', 'views']);

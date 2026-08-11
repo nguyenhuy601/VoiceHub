@@ -28,6 +28,12 @@ const taskActivityLogSchema = new mongoose.Schema(
       index: true,
       ref: 'Task',
     },
+    planningItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+      ref: 'PlanningItem',
+    },
     actorId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
@@ -56,5 +62,6 @@ const taskActivityLogSchema = new mongoose.Schema(
 
 taskActivityLogSchema.index({ projectId: 1, createdAt: -1 });
 taskActivityLogSchema.index({ taskId: 1, createdAt: -1 });
+taskActivityLogSchema.index({ planningItemId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('TaskActivityLog', taskActivityLogSchema);

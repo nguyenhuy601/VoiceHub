@@ -67,7 +67,9 @@ export function WorkspaceProvider({ children }) {
           String(prev?.slug || '') === String(next?.slug || '') &&
           String(prev?.name || '') === String(next?.name || '') &&
           String(prev?.myRole || '') === String(next?.myRole || '') &&
-          String(prev?.myStructureRole || '') === String(next?.myStructureRole || '');
+          String(prev?.myStructureRole || '') === String(next?.myStructureRole || '') &&
+          JSON.stringify(prev?.myOrganizationRoles || []) ===
+            JSON.stringify(next?.myOrganizationRoles || []);
         if (!same && next) {
           const slug = String(next.slug || '').trim();
           const orgId = String(next._id || next.id || '').trim();

@@ -118,6 +118,14 @@ function boardOptsFromArgs(second, third) {
   return {};
 }
 
+function axiosCallConfig(opts = {}) {
+  const cfg = {};
+  if (opts.skipGlobalErrorHandling) cfg.skipGlobalErrorHandling = true;
+  if (opts.skipPermissionDeniedToast) cfg.skipPermissionDeniedToast = true;
+  if (opts.skipNotFoundToast) cfg.skipNotFoundToast = true;
+  return Object.keys(cfg).length ? cfg : undefined;
+}
+
 export const taskAPI = {
   // Get all tasks — truyền object: { organizationId?, dueFrom?, dueTo?, status?, ... }
   getTasks: (filters = {}) => {
@@ -147,6 +155,11 @@ export const taskAPI = {
 
   listWorklogs: (taskId, opts = {}) =>
     apiClient.get(`/tasks/${encodeURIComponent(taskId)}/worklogs${orgQuery(opts.organizationId)}`),
+
+  getTaskHistory: (taskId, params = {}, opts = {}) =>
+    apiClient.get(`/tasks/${encodeURIComponent(taskId)}/history${orgQuery(opts.organizationId)}`, {
+      params: { limit: params.limit, before: params.before },
+    }),
 
   createWorklog: (taskId, body = {}, opts = {}) =>
     apiClient.post(
@@ -212,10 +225,12 @@ export const taskAPI = {
 
   getBoardDetail: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
+    const silent = axiosCallConfig(opts);
     return requestWithWorkspaceFallback({
       ctx,
-      workspaceRequest: () => apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}`),
-      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}`),
+      workspaceRequest: () =>
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}`, silent),
+      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}`, silent),
     });
   },
 
@@ -362,11 +377,12 @@ export const taskAPI = {
   createBoardCard: (boardId, payload = {}, opts = {}) => {
     const ctx = boardOptsFromArgs(payload, opts) || extractWorkspaceApiContext(opts);
     const body = stripWorkspaceKeys(payload);
+    const silent = axiosCallConfig(opts);
     return requestWithWorkspaceFallback({
       ctx,
       workspaceRequest: () =>
-        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/cards`, body),
-      legacyRequest: () => apiClient.post(`${legacyBoardBase()}/${boardId}/cards`, body),
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}/cards`, body, silent),
+      legacyRequest: () => apiClient.post(`${legacyBoardBase()}/${boardId}/cards`, body, silent),
     });
   },
 

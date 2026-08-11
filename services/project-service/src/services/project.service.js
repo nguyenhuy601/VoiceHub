@@ -30,12 +30,12 @@ const {
 } = require('@enterprise/shared/utils/projectCodeGenerate');
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/boardIdentityPatch');
 const { buildProjectInitFields } = require('../utils/projectInitFields');
-const { normalizeRequiredProjectRoles } = require('../utils/requiredProjectRoles');
 const {
-  emptyTechnicalSetup,
-  mergeTechnicalSetup,
-  isTechnicalSetupComplete,
-} = require('../utils/technicalSetupFields');
+  assertDeliveryRoster,
+  collectCreateProjectRoleKeys,
+  normalizeRoleKeys,
+} = require('../utils/projectDeliveryRoster');
+const { normalizeRequiredProjectRoles } = require('../utils/requiredProjectRoles');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isProjectVisibilityV2Enabled,
@@ -119,7 +119,7 @@ async function seedDefaultLists(boardId) {
 }
 
 /**
- * Create Project + default Board (Main) + lists + PM ownership (G1 → status planning).
+ * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
  * projectId !== boardId.
  */
 async function createProject({
@@ -178,7 +178,7 @@ async function createProject({
   }
 
   const init = buildProjectInitFields({
-    status: 'planning',
+    status: 'ready_for_planning',
     projectType,
     category,
     priority,
@@ -206,6 +206,15 @@ async function createProject({
 
   const titleTrim = String(title || '').trim();
   if (!titleTrim) throw new Error('title là bắt buộc');
+
+  assertDeliveryRoster(
+    collectCreateProjectRoleKeys({
+      productOwnerId,
+      scrumMasterId,
+      techLeadId,
+      members,
+    })
+  );
 
   let code = String(projectCode || '').trim();
   if (!code) {
@@ -290,14 +299,26 @@ async function createProject({
 
   const templateId = normalizeDelegationTemplateId(delegationTemplateId);
 
-  // Creator mặc định: Product Owner + ProjectMember (đếm thành viên trên card).
+  // Creator mặc định: Product Owner (+ role kiêm nhiệm nếu gửi trong members).
   try {
     await ensureOrgProjectRoles(organizationId);
+    const creatorSeed = (Array.isArray(members) ? members : []).find(
+      (m) => String(m?.userId || m?.id || '') === String(userId)
+    );
+    const creatorKeys = normalizeRoleKeys([
+      DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER,
+      ...((creatorSeed && Array.isArray(creatorSeed.projectRoleKeys)
+        ? creatorSeed.projectRoleKeys
+        : [])),
+    ]);
     await setUserProjectRoles({
       projectId: project._id,
       boardId: board._id,
       userId: ownerUserId,
-      projectRoleKeys: [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER],
+      projectRoleKeys:
+        String(ownerUserId) === String(userId)
+          ? creatorKeys
+          : [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER],
       addedBy: userId,
       boardRole: 'owner',
     });
@@ -306,7 +327,7 @@ async function createProject({
         projectId: project._id,
         boardId: board._id,
         userId,
-        projectRoleKeys: [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER],
+        projectRoleKeys: creatorKeys,
         addedBy: userId,
         boardRole: 'editor',
       });
@@ -710,6 +731,9 @@ async function getProject({ userId, projectId }) {
 }
 
 async function attachProjectCapabilities(payload, userId, projectId) {
+  if (payload && typeof payload === 'object') {
+    delete payload.technicalSetup;
+  }
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
@@ -725,11 +749,41 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       permissions: perms,
       canManagePlanning: bypass || hasPermission(perms, 'project:edit'),
       canManageMembers: bypass || hasPermission(perms, 'members:manage'),
+      canViewMembers:
+        bypass ||
+        hasPermission(perms, 'members:view') ||
+        hasPermission(perms, 'members:manage'),
       canManageSettings: bypass || hasPermission(perms, 'settings:update'),
       canManageSprints:
         bypass || hasPermission(perms, 'sprint:create') || hasPermission(perms, 'sprint:close'),
+      canCreateEpic: bypass || hasPermission(perms, 'epic:create'),
+      canUpdateEpic: bypass || hasPermission(perms, 'epic:update'),
+      canDeleteEpic: bypass || hasPermission(perms, 'epic:delete'),
+      canCreateStory: bypass || hasPermission(perms, 'story:create'),
+      canUpdateStory: bypass || hasPermission(perms, 'story:update'),
+      canCreateTask: bypass || hasPermission(perms, 'task:create'),
+      canCreateBug: bypass || hasPermission(perms, 'bug:create'),
+      canPrioritizeBacklog: bypass || hasPermission(perms, 'backlog:prioritize'),
+      canUpdateBacklog: bypass || hasPermission(perms, 'backlog:update'),
+      canEstimate: bypass || hasPermission(perms, 'task:estimate'),
     },
   };
+}
+
+async function listProjectMembersForUser({ userId, projectId }) {
+  await getProject({ userId, projectId });
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserAnyProjectPermission } = require('./projectAccess.service');
+    await assertUserAnyProjectPermission({
+      userId,
+      projectId,
+      permissions: ['members:view', 'members:manage'],
+      message: 'Không có quyền xem thành viên dự án',
+    });
+  }
+  const { listProjectMemberships } = require('./projectTeam.service');
+  return listProjectMemberships(projectId);
 }
 
 async function userCanAdminProject(userId, project) {
@@ -741,6 +795,26 @@ async function userCanAdminProject(userId, project) {
   const scope = await fetchTaskWorkspaceScope(userId, project.organizationId);
   const orgRole = String(scope?.membershipRole || '').toLowerCase();
   return orgRole === 'owner' || orgRole === 'admin';
+}
+
+async function assertProjectMatrixOrAdmin(userId, project, permissions, message) {
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserAnyProjectPermission } = require('./projectAccess.service');
+    await assertUserAnyProjectPermission({
+      userId,
+      projectId: project._id || project.id,
+      permissions,
+      message,
+    });
+    return;
+  }
+  const canAdmin = await userCanAdminProject(userId, project);
+  if (!canAdmin) {
+    const err = new Error(message || 'Không có quyền trên dự án');
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 async function patchProject({ userId, projectId, patch }) {
@@ -910,8 +984,12 @@ async function patchProject({ userId, projectId, patch }) {
 async function archiveProject({ userId, projectId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  const canAdmin = await userCanAdminProject(userId, project.toObject());
-  if (!canAdmin) throw new Error('Không có quyền đóng dự án');
+  await assertProjectMatrixOrAdmin(
+    userId,
+    project.toObject(),
+    ['project:archive'],
+    'Không có quyền đóng dự án (project:archive)'
+  );
   const beforeSnap = project.toObject();
   const now = new Date();
   project.isActive = false;
@@ -967,8 +1045,12 @@ async function createBoardInProject({
 }) {
   const project = await Project.findById(projectId).lean();
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  const canAdmin = await userCanAdminProject(userId, project);
-  if (!canAdmin) throw new Error('Không có quyền tạo board trong dự án');
+  await assertProjectMatrixOrAdmin(
+    userId,
+    project,
+    ['project:edit'],
+    'Không có quyền tạo board trong dự án (project:edit)'
+  );
 
   const board = await TaskBoard.create({
     projectId: project._id,
@@ -1091,6 +1173,16 @@ async function getProjectFiles({ userId, projectId }) {
 
 async function listProjectSprints({ userId, projectId }) {
   await getProject({ userId, projectId });
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserAnyProjectPermission } = require('./projectAccess.service');
+    await assertUserAnyProjectPermission({
+      userId,
+      projectId,
+      permissions: ['sprint:view', 'project:view'],
+      message: 'Không có quyền xem sprint (sprint:view)',
+    });
+  }
   return Sprint.find({ projectId }).sort({ createdAt: -1 }).lean();
 }
 
@@ -1105,8 +1197,12 @@ async function createProjectSprint({
   boardId,
 }) {
   const project = await getProject({ userId, projectId });
-  const canAdmin = await userCanAdminProject(userId, project);
-  if (!canAdmin) throw new Error('Không có quyền tạo sprint');
+  await assertProjectMatrixOrAdmin(
+    userId,
+    project,
+    ['sprint:create', 'project:edit'],
+    'Không có quyền tạo sprint (sprint:create)'
+  );
   const title = String(name || '').trim();
   if (!title) throw new Error('name là bắt buộc');
   const st = ['planned', 'active', 'closed'].includes(String(status || ''))
@@ -1127,146 +1223,21 @@ async function createProjectSprint({
   return row.toObject();
 }
 
-async function getTechnicalSetup({ userId, projectId }) {
-  const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
-    const { resolveUserProjectPermissions } = require('./projectAccess.service');
-    const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const canView =
-      hasPermission(resolved.permissions, 'repository:view') ||
-      hasPermission(resolved.permissions, 'settings:view') ||
-      hasPermission(resolved.permissions, 'project:view') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
-    if (!canView) {
-      const err = new Error('Không có quyền xem technical setup / repository');
-      err.statusCode = 403;
-      throw err;
-    }
-    // Confidential surface: hide repo URL unless repository:view or confidential level
-    const setup = project.technicalSetup || emptyTechnicalSetup();
-    if (
-      resolved.informationLevel === 'summary' ||
-      (!hasPermission(resolved.permissions, 'repository:view') &&
-        !resolved.isOrgAdmin &&
-        !resolved.isCreator)
-    ) {
-      return {
-        ...emptyTechnicalSetup(),
-        _redacted: true,
-      };
-    }
-    return setup;
-  }
-  return project.technicalSetup || emptyTechnicalSetup();
-}
-
-async function updateTechnicalSetup({ userId, projectId, body }) {
-  const project = await Project.findById(projectId);
-  if (!project || project.isActive === false) {
-    const err = new Error('Project không tồn tại');
-    err.statusCode = 404;
-    throw err;
-  }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
-    const { resolveUserProjectPermissions } = require('./projectAccess.service');
-    const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const canEdit =
-      hasPermission(resolved.permissions, 'repository:push') ||
-      hasPermission(resolved.permissions, 'settings:update') ||
-      hasPermission(resolved.permissions, 'project:edit') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
-    if (!canEdit) {
-      const err = new Error('Không có quyền cập nhật technical setup (repository:push / settings:update)');
-      err.statusCode = 403;
-      throw err;
-    }
-  } else {
-    const canAdmin = await userCanAdminProject(userId, project.toObject());
-    if (!canAdmin) {
-      const err = new Error('Không có quyền cập nhật technical setup');
-      err.statusCode = 403;
-      throw err;
-    }
-  }
-  const merged = mergeTechnicalSetup(project.technicalSetup?.toObject?.() || project.technicalSetup, body);
-  if (!merged.ok) {
-    const err = new Error(merged.message);
-    err.statusCode = 400;
-    throw err;
-  }
-  const next = {
-    ...merged.setup,
-    completedAt: project.technicalSetup?.completedAt || null,
-    updatedBy: userId,
-  };
-  project.technicalSetup = next;
-  await project.save();
-  await logActivity({
-    organizationId: project.organizationId,
-    projectId: project._id,
-    boardId: project.defaultBoardId,
-    actorId: userId,
-    type: 'technical_setup_updated',
-    title: 'Cập nhật Technical Setup',
-  }).catch(() => {});
-  return project.technicalSetup?.toObject?.() || project.technicalSetup;
-}
-
-async function completeTechnicalSetup({ userId, projectId }) {
-  const project = await Project.findById(projectId);
-  if (!project || project.isActive === false) {
-    const err = new Error('Project không tồn tại');
-    err.statusCode = 404;
-    throw err;
-  }
-  const canAdmin = await userCanAdminProject(userId, project.toObject());
-  if (!canAdmin) {
-    const err = new Error('Không có quyền hoàn tất technical setup');
-    err.statusCode = 403;
-    throw err;
-  }
-  const setup = project.technicalSetup?.toObject?.() || project.technicalSetup || {};
-  if (!isTechnicalSetupComplete(setup)) {
-    const err = new Error('Cần repository.url và ít nhất 1 environment trước khi hoàn tất');
-    err.statusCode = 400;
-    throw err;
-  }
-  const now = new Date();
-  project.technicalSetup = {
-    ...setup,
-    completedAt: now,
-    updatedBy: userId,
-  };
-  if (project.status === 'planning') {
-    project.status = 'ready_for_planning';
-  }
-  await project.save();
-  await logActivity({
-    organizationId: project.organizationId,
-    projectId: project._id,
-    boardId: project.defaultBoardId,
-    actorId: userId,
-    type: 'technical_setup_completed',
-    title: 'Hoàn tất Technical Setup',
-  }).catch(() => {});
-  return {
-    technicalSetup: project.technicalSetup?.toObject?.() || project.technicalSetup,
-    status: project.status,
-  };
-}
-
 async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   const project = await getProject({ userId, projectId });
-  const canAdmin = await userCanAdminProject(userId, project);
-  if (!canAdmin) {
-    const err = new Error('Không có quyền cập nhật sprint');
-    err.statusCode = 403;
-    throw err;
-  }
+  const statusNext = patch.status !== undefined ? String(patch.status || '').trim() : '';
+  const sprintPerms =
+    statusNext === 'closed'
+      ? ['sprint:close', 'project:edit']
+      : statusNext === 'active'
+        ? ['sprint:start', 'sprint:create', 'project:edit']
+        : ['sprint:create', 'project:edit'];
+  await assertProjectMatrixOrAdmin(
+    userId,
+    project,
+    sprintPerms,
+    'Không có quyền cập nhật sprint'
+  );
   const sprint = await Sprint.findOne({ _id: sprintId, projectId });
   if (!sprint) {
     const err = new Error('Sprint không tồn tại');
@@ -1335,7 +1306,6 @@ async function attachProjectIdentityToBoard(board) {
     methodology: project.methodology,
     methodologySettings: project.methodologySettings,
     customer: project.customer,
-    technicalSetup: project.technicalSetup || null,
   };
 }
 
@@ -1345,6 +1315,7 @@ module.exports = {
   createProject,
   listProjects,
   getProject,
+  listProjectMembersForUser,
   patchProject,
   archiveProject,
   listProjectBoards,
@@ -1355,9 +1326,6 @@ module.exports = {
   listProjectSprints,
   createProjectSprint,
   patchProjectSprint,
-  getTechnicalSetup,
-  updateTechnicalSetup,
-  completeTechnicalSetup,
   userCanAdminProject,
   attachProjectIdentityToBoard,
   logActivity,

@@ -61,6 +61,7 @@ import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashPersonaShowsOrgHealth, resolveDashPersona } from '../../utils/dashboardPersona';
+import { extractOrganizationRoleKeys } from '../../utils/organizationRoleKeys';
 
 function truncateText(value, maxLength = 56) {
   const text = String(value || '').trim();
@@ -265,6 +266,7 @@ function DashboardPage({
     boards: [],
     membershipRole: null,
     structureRole: null,
+    organizationRoleKeys: [],
     overdueItems: [],
   });
   /** Bạn bè cho khung Trạng thái nhóm (từ GET /api/friends) */
@@ -470,6 +472,7 @@ function DashboardPage({
         boards: [],
         membershipRole: null,
         structureRole: null,
+        organizationRoleKeys: [],
         overdueItems: [],
       });
       setPresenceFriends([]);
@@ -498,6 +501,9 @@ function DashboardPage({
               slug: org?.slug || '',
               myRole: org?.myRole || org?.role || 'member',
               myStructureRole: org?.myStructureRole || org?.structureRole || null,
+              myOrganizationRoles: Array.isArray(org?.myOrganizationRoles)
+                ? org.myOrganizationRoles
+                : [],
               memberCount: Number.isFinite(memberCount) ? memberCount : Array.isArray(org?.members) ? org.members.length : null,
             };
           })
@@ -527,6 +533,11 @@ function DashboardPage({
         const membershipRole = summary?.membershipRole || orgList[0]?.myRole || orgList[0]?.role || null;
         const structureRole =
           summary?.structureRole || orgList[0]?.myStructureRole || orgList[0]?.structureRole || null;
+        const organizationRoleKeys = extractOrganizationRoleKeys(
+          summary?.organizationRoleKeys,
+          orgList[0],
+          company
+        );
 
         const friendsRaw = Array.isArray(friendsQuery.data) ? friendsQuery.data : [];
         const friendsTotal =
@@ -865,6 +876,7 @@ function DashboardPage({
             boards,
             membershipRole,
             structureRole,
+            organizationRoleKeys,
             overdueItems,
           });
           setActivityDailyMap({ ...daily });
@@ -902,6 +914,7 @@ function DashboardPage({
     friendsQuery.data,
     pendingQuery.pendingCount,
     notificationsQuery.data,
+    company,
   ]);
 
   /**
@@ -1027,9 +1040,22 @@ function DashboardPage({
         uiRole: role,
         membershipRole: metrics.membershipRole || workspaceEntries[0]?.myRole,
         structureRole: metrics.structureRole || workspaceEntries[0]?.myStructureRole,
+        organizationRoleKeys: extractOrganizationRoleKeys(
+          metrics.organizationRoleKeys,
+          workspaceEntries[0],
+          company
+        ),
         hasOrg: Number(metrics.orgCount || workspaceEntries.length) > 0,
       }),
-    [role, metrics.membershipRole, metrics.structureRole, metrics.orgCount, workspaceEntries]
+    [
+      role,
+      metrics.membershipRole,
+      metrics.structureRole,
+      metrics.organizationRoleKeys,
+      metrics.orgCount,
+      workspaceEntries,
+      company,
+    ]
   );
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
 

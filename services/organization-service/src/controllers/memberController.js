@@ -39,9 +39,11 @@ const {
   allocateNextEmployeeCode,
   peekNextEmployeeCode,
 } = require('../services/employeeCodeAllocate.service');
-const { softAssignResponsibilityFromPrimaryDomain } = require('../services/responsibility.service');
 const crypto = require('crypto');
-const { attachPlacementFromStructure } = require('../services/structurePlacement.service');
+const {
+  attachPlacementFromStructure,
+  buildDepartmentRoster,
+} = require('../services/structurePlacement.service');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'hr', 'member'];
 const INVITE_LINK_SECRET = String(process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || '').trim();
@@ -155,6 +157,11 @@ async function listMembersForOrg(req) {
     return [];
   }
 
+  const departmentIdQuery = String(req.query?.departmentId || '').trim();
+  if (departmentIdQuery) {
+    return listMembersForDepartmentRoster(orgId, departmentIdQuery);
+  }
+
   const members = await Membership.find({ organization: orgId, status: 'active' })
     .select('user organization role joinedAt status invitedBy createdAt updatedAt')
     .lean();
@@ -209,6 +216,69 @@ async function listMembersForOrg(req) {
       branch: null,
     };
   });
+}
+
+/**
+ * Roster 1 phòng cho wizard tạo project — People Graph + OU matrix.
+ * Query param trên GET /members (không thêm route).
+ */
+async function listMembersForDepartmentRoster(orgId, rawDeptId) {
+  const Department = require('../models/Department');
+  const OrganizationalUnit = require('../models/OrganizationalUnit');
+  const OrgUnitMembership = require('../models/OrgUnitMembership');
+
+  let legacyDeptId = String(rawDeptId || '').trim();
+  const asDept = await Department.findOne({ _id: legacyDeptId, organization: orgId })
+    .select('_id')
+    .lean();
+  const ouIds = [];
+  if (!asDept) {
+    const ou = await OrganizationalUnit.findOne({ _id: legacyDeptId, organization: orgId })
+      .select('_id legacyRef')
+      .lean();
+    if (ou?._id) ouIds.push(String(ou._id));
+    if (ou?.legacyRef?.id) legacyDeptId = String(ou.legacyRef.id);
+  } else {
+    const ouByLegacy = await OrganizationalUnit.findOne({
+      organization: orgId,
+      'legacyRef.id': asDept._id,
+    })
+      .select('_id')
+      .lean();
+    if (ouByLegacy?._id) ouIds.push(String(ouByLegacy._id));
+  }
+
+  const roster = await buildDepartmentRoster(orgId, { departmentIds: [legacyDeptId] });
+  const ids = new Set((roster[0]?.memberIds || []).map((id) => String(id)));
+
+  if (ouIds.length) {
+    const rows = await OrgUnitMembership.find({
+      organization: orgId,
+      unitId: { $in: ouIds },
+    })
+      .select('userId')
+      .lean();
+    for (const row of rows) {
+      if (row?.userId) ids.add(String(row.userId));
+    }
+  }
+
+  if (!ids.size) return [];
+
+  const objectIds = [...ids].map((id) => toObjectId(id)).filter(Boolean);
+  const members = await Membership.find({
+    organization: orgId,
+    status: 'active',
+    user: { $in: objectIds.length ? objectIds : ids },
+  })
+    .select('user organization role joinedAt status invitedBy createdAt updatedAt')
+    .lean();
+
+  return members.map((member) => ({
+    ...member,
+    department: legacyDeptId,
+    departmentId: legacyDeptId,
+  }));
 }
 
 exports.getMembers = async (req, res, next) => {
@@ -573,17 +643,6 @@ exports.acceptCompanyInvite = async (req, res, next) => {
       } catch (deptErr) {
         logger.warn('[acceptCompanyInvite] department placement failed:', deptErr?.message || deptErr);
       }
-    }
-
-    // A+C soft: đoán Responsibility từ jobTitle lời mời (không đè nếu đã gán)
-    try {
-      await softAssignResponsibilityFromPrimaryDomain({
-        organizationId: invite.organization,
-        userId: resolvedUserId,
-        jobTitle: invite.jobTitle || '',
-      });
-    } catch (respErr) {
-      logger.warn('[acceptCompanyInvite] soft Responsibility assign failed:', respErr?.message || respErr);
     }
 
     await CompanyInvite.updateOne(

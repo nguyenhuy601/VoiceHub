@@ -54,7 +54,7 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
     }
     fields.status = st;
   } else if (!partial) {
-    fields.status = 'planning';
+    fields.status = 'ready_for_planning';
   }
 
   if (body.projectType !== undefined || !partial) {

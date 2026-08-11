@@ -22,6 +22,15 @@ describe('structurePlacement', () => {
     assert.equal(place.primaryTeamId, null);
   });
 
+  it('department head is placed even when not in members[]', () => {
+    const departments = [
+      { _id: 'depA', name: 'Backend', members: ['u2'], head: 'u1', division: 'div1' },
+    ];
+    const maps = buildPlacementMaps(departments, []);
+    const place = placementFromMaps(maps.deptByUser, maps.teamByUser, 'u1');
+    assert.equal(place.primaryDepartmentId, 'depA');
+  });
+
   it('team members inherit department when not in department.members', () => {
     const departments = [{ _id: 'depA', name: 'Backend', members: [], division: 'div1' }];
     const teams = [{ _id: 'team1', name: 'API', department: 'depA', members: ['u9'] }];

@@ -126,12 +126,34 @@ async function resolveUserProjectPermissions({ userId, projectId, boardId } = {}
 
 async function assertUserProjectPermission({ userId, projectId, boardId, permission, message }) {
   const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
+  if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
   assertPermission(resolved.permissions, permission, message);
+  return resolved;
+}
+
+/**
+ * Cho phép một trong các key (vd. sprint:start fallback sprint:create).
+ */
+async function assertUserAnyProjectPermission({
+  userId,
+  projectId,
+  boardId,
+  permissions = [],
+  message,
+} = {}) {
+  const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
+  if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
+  const keys = (Array.isArray(permissions) ? permissions : [permissions])
+    .map((k) => String(k || '').trim())
+    .filter(Boolean);
+  if (keys.some((k) => hasPermission(resolved.permissions, k))) return resolved;
+  assertPermission(resolved.permissions, keys[0] || 'project:view', message);
   return resolved;
 }
 
 module.exports = {
   resolveUserProjectPermissions,
   assertUserProjectPermission,
+  assertUserAnyProjectPermission,
   hasPermission,
 };

@@ -51,12 +51,25 @@ export function memberStatusLabel(member, t) {
   return t('adminUsers.statusActive');
 }
 
+function refId(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'object') {
+    return String(value._id || value.id || value.departmentId || value.teamId || '').trim();
+  }
+  return String(value).trim();
+}
+
 export function memberDepartmentId(member) {
-  return String(member?.department || member?.departmentId || '').trim();
+  return (
+    refId(member?.departmentId) ||
+    refId(member?.department) ||
+    refId(member?.primaryDepartmentId) ||
+    ''
+  );
 }
 
 export function memberTeamId(member) {
-  return String(member?.team || member?.teamId || '').trim();
+  return refId(member?.teamId) || refId(member?.team) || refId(member?.primaryTeamId) || '';
 }
 
 /** Chưa gắn phòng ban và chưa gắn nhóm — dùng picker «Gán phòng ban / nhóm». */

@@ -1,6 +1,3 @@
-const axios = require('axios');
-const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
-
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 
@@ -9,6 +6,8 @@ const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
 async function fetchTaskWorkspaceScope(userId, organizationId) {
   if (!userId || !organizationId) return null;
   try {
+    const axios = require('axios');
+    const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
     const res = await axios.get(
       `${ORGANIZATION_SERVICE_URL}/api/organizations/${encodeURIComponent(String(organizationId))}/task-workspace-scope`,
       {

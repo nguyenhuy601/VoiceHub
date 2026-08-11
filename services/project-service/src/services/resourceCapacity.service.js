@@ -37,7 +37,9 @@ async function assertOrgMember(userId, organizationId) {
 }
 
 /**
- * Org-wide capacity/planner: owner/admin hoặc Org Role master `resource_manager`.
+ * Org-wide capacity/planner: Membership owner/admin hoặc Org Role key `resource_manager`.
+ * Follow-up: map GET /resources/planner vào gói Permission (checkPermission) — chưa gán API↔gói/PM.
+ * Không nới “mọi org member” (lộ PII toàn org). Wizard tạo project gọi planner chỉ để badge — FE skip toast 403.
  */
 async function assertCanViewOrgCapacity(actorUserId, organizationId) {
   const scope = await assertOrgMember(actorUserId, organizationId);

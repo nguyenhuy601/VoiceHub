@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -57,6 +58,7 @@ import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
 import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { queryKeys } from '../../lib/queryKeys';
 
 import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
 import OrganizationWorkspaceStructureSidebar from './OrganizationWorkspaceStructureSidebar';
@@ -579,6 +581,7 @@ const OrganizationMainPanel = ({
   const { isDarkMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     setShowEmojiPicker(false);
@@ -1054,6 +1057,9 @@ const OrganizationMainPanel = ({
     return [];
   }, [teams, selectedTeamId, resolvedDepartmentId]);
 
+  const taskBoardDetailRef = useRef(taskBoardDetail);
+  taskBoardDetailRef.current = taskBoardDetail;
+
   const loadTaskBoardDetail = useCallback(async (boardId, options = {}) => {
     const silent = Boolean(options?.silent);
     if (!boardId) {
@@ -1065,7 +1071,7 @@ const OrganizationMainPanel = ({
       const res = await taskAPI.getBoardDetail(String(boardId), taskBoardApiCtx);
       setTaskBoardDetail(unwrapTaskBoardDetailPayload(res));
     } catch (err) {
-      setTaskBoardDetail(null);
+      if (!silent) setTaskBoardDetail(null);
       toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail')));
     } finally {
       if (!silent) setLoadingTaskBoardDetail(false);
@@ -1102,7 +1108,12 @@ const OrganizationMainPanel = ({
 
   useEffect(() => {
     if (workspaceTab !== 'tasks') return;
-    loadTaskBoardDetail(selectedTaskBoardId);
+    const current = taskBoardDetailRef.current;
+    const sameBoard =
+      Boolean(selectedTaskBoardId) &&
+      current?.board &&
+      String(current.board._id) === String(selectedTaskBoardId);
+    loadTaskBoardDetail(selectedTaskBoardId, { silent: sameBoard });
   }, [workspaceTab, selectedTaskBoardId, loadTaskBoardDetail]);
 
   const refreshTaskBoardView = useCallback(async () => {
@@ -1297,6 +1308,18 @@ const OrganizationMainPanel = ({
       throw err;
     }
   };
+
+  /** Patch cards trên board hiện tại — không gọi API, không loading. */
+  const applyBoardCardsPatch = useCallback((updater) => {
+    setTaskBoardDetail((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev.cards) ? prev.cards : [];
+      const nextCards = typeof updater === 'function' ? updater(current) : current;
+      if (!Array.isArray(nextCards) || nextCards === current) return prev;
+      return { ...prev, cards: nextCards };
+    });
+  }, []);
+
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
   const canUseAiWorkspaceTask = Boolean(taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask);
 
@@ -2130,6 +2153,9 @@ const OrganizationMainPanel = ({
       organizationId={orgIdForTask || organizationId || ''}
       apiCtx={taskBoardApiCtx}
       onRefresh={refreshTaskBoardView}
+      onUpdateCard={handleUpdateBoardCard}
+      onPatchBoardCards={applyBoardCardsPatch}
+      workspaceSlug={workspaceSlugForTask}
       boardSlot={renderTaskBoardPanel(true)}
       emptySlot={renderTaskBoardPanel(false)}
       onBack={onBackFromTasks}

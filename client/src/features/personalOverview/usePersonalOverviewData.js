@@ -117,13 +117,6 @@ export function usePersonalOverviewData({ enabled = true } = {}) {
   }, [shell, orgs, orgId, company]);
 
   const displayProfile = useMemo(() => {
-    const jobTitle = String(
-      profile?.preferences?.jobTitle ||
-        profile?.jobTitle ||
-        user?.preferences?.jobTitle ||
-        user?.jobTitle ||
-        ''
-    ).trim();
     const displayName =
       profile?.displayName ||
       profile?.fullName ||
@@ -134,7 +127,7 @@ export function usePersonalOverviewData({ enabled = true } = {}) {
       '—';
     const email = String(profile?.email || user?.email || '').trim();
     const avatar = profile?.avatar || user?.avatar || null;
-    return { displayName, email, jobTitle, avatar, userId };
+    return { displayName, email, avatar, userId };
   }, [profile, user, userId]);
 
   const loading =

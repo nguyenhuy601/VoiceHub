@@ -17,8 +17,11 @@ async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create'
       projectId: board.projectId,
       boardId,
     });
+    const startFallback =
+      permission === 'sprint:start' && hasPermission(resolved.permissions, 'sprint:create');
     if (
       !hasPermission(resolved.permissions, permission) &&
+      !startFallback &&
       !hasPermission(resolved.permissions, 'project:edit') &&
       !resolved.isOrgAdmin &&
       !resolved.isCreator
@@ -105,6 +108,8 @@ async function updateSprint({
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
     if (st === 'closed') {
       await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
+    } else if (st === 'active') {
+      await requireBoardAdmin(boardId, userId, { permission: 'sprint:start' });
     }
     sprint.status = st;
   }

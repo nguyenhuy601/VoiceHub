@@ -59,6 +59,8 @@ export default function TaskBoardCardDetailModal({
   lists = [],
   initialPanel = 'detail',
   taskWorkspaceScope = null,
+  canCreateTask = true,
+  canEstimate = true,
   onClose,
   onUpdateCard,
   onRefresh,
@@ -602,7 +604,7 @@ export default function TaskBoardCardDetailModal({
               </div>
             ) : null}
 
-            {isTimeTrackingV1Enabled() ? (
+            {isTimeTrackingV1Enabled() && canEstimate ? (
               <div className="mb-3">
                 <label
                   className={`mb-1 block text-xs font-semibold uppercase tracking-wide ${
@@ -807,7 +809,7 @@ export default function TaskBoardCardDetailModal({
               </div>
             </div>
 
-            {!card?.parentTaskId && boardId && card?.listId ? (
+            {!card?.parentTaskId && boardId && card?.listId && canCreateTask ? (
               <div className="mb-4">
                 <h4 className="mb-2 text-sm font-semibold">Sub-tasks</h4>
                 <div className="flex gap-2">

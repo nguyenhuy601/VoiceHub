@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
 import { projectAPI, DEFAULT_PROJECT_ROLES } from '../../../services/api/projectAPI';
-import { taskAPI } from '../../../services/api/taskAPI';
+import { taskAPI, unwrapTaskBoardDetailPayload } from '../../../services/api/taskAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { DEFAULT_PROJECT_ROLE_KEYS } from '../../../utils/roleTaxonomy';
@@ -22,7 +22,9 @@ import {
   WIZARD_PM_ROLE,
   WIZARD_SM_ROLE,
   WIZARD_DEFAULT_MEMBER_ROLE,
+  firstSeedMemberWithRole,
 } from './projectWizardConstants';
+import { collectWizardRosterKeys, deliveryRosterStatus } from './projectDeliveryRoster';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -39,9 +41,11 @@ function emptyForm(initial = {}) {
       : 'software',
     projectCode: explicitCode || (title.trim() ? buildProjectCodeBase({ title }) : ''),
     projectCodeTouched: Boolean(explicitCode),
-    projectManagerId: String(initial.projectManagerId || '').trim(),
-    scrumMasterId: String(initial.scrumMasterId || '').trim(),
     seedMembers: Array.isArray(initial.seedMembers) ? initial.seedMembers : [],
+    participationScale: initial.participationScale === 'department' ? 'department' : 'company',
+    relatedDepartmentIds: Array.isArray(initial.relatedDepartmentIds)
+      ? initial.relatedDepartmentIds.map(String).filter(Boolean)
+      : [],
     workflowCardId: String(initial.workflowCardId || 'kanban').toLowerCase(),
     sprintDurationDays: String(initial.sprintDurationDays || '14'),
     wipLimit: String(initial.wipLimit ?? '0'),
@@ -144,13 +148,25 @@ export default function useCreateProjectWizard({
         return true;
       }
       if (id === 'team') {
-        if (!String(form.projectManagerId || '').trim()) {
-          toast.error(t('adminTasks.wizardNeedPm'));
+        const scale = form.participationScale === 'department' ? 'department' : 'company';
+        const depts = (Array.isArray(form.relatedDepartmentIds) ? form.relatedDepartmentIds : [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean);
+        if (scale === 'department' && depts.length !== 1) {
+          toast.error(t('adminTasks.wizardNeedOneDept'));
           return false;
         }
-        const card = resolveWorkflowCard(form.workflowCardId);
-        if (card.id === 'scrum' && !String(form.scrumMasterId || '').trim()) {
-          toast.error(t('adminTasks.wizardNeedSm'));
+        if (scale === 'company' && depts.length < 1) {
+          toast.error(t('adminTasks.wizardNeedRelatedDepts'));
+          return false;
+        }
+        const roster = deliveryRosterStatus(collectWizardRosterKeys(form.seedMembers));
+        if (!roster.hasFacilitate) {
+          toast.error(t('adminTasks.wizardRosterNeedFacilitate'));
+          return false;
+        }
+        if (!roster.hasBuild) {
+          toast.error(t('adminTasks.wizardRosterNeedBuild'));
           return false;
         }
         return true;
@@ -199,23 +215,9 @@ export default function useCreateProjectWizard({
 
   const buildPayload = useCallback(() => {
     const { methodology, workflowTemplateKey } = mapWorkflowCardToBackend(form.workflowCardId);
-    const pm = String(form.projectManagerId || '').trim();
-    const sm = String(form.scrumMasterId || '').trim();
-
     const seedMembers = [...(form.seedMembers || [])];
-    const ensureLead = (userId, roleKey) => {
-      if (!userId) return;
-      const idx = seedMembers.findIndex((m) => m.userId === userId);
-      if (idx >= 0) {
-        const keys = new Set(seedMembers[idx].projectRoleKeys || []);
-        keys.add(roleKey);
-        seedMembers[idx] = { ...seedMembers[idx], projectRoleKeys: [...keys] };
-      } else if (userId !== creatorUserId) {
-        seedMembers.push({ userId, projectRoleKeys: [roleKey] });
-      }
-    };
-    ensureLead(pm, WIZARD_PM_ROLE || DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER);
-    ensureLead(sm, WIZARD_SM_ROLE || DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER);
+    const pm = firstSeedMemberWithRole(seedMembers, WIZARD_PM_ROLE || DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER);
+    const sm = firstSeedMemberWithRole(seedMembers, WIZARD_SM_ROLE || DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER);
 
     const enabledWorkTypes = Object.entries(form.workTypes || {})
       .filter(([, on]) => on)
@@ -243,6 +245,9 @@ export default function useCreateProjectWizard({
         projectManagerId: pm,
         scrumMasterId: sm,
         seedMembers,
+        relatedDepartmentIds: Array.isArray(form.relatedDepartmentIds)
+          ? form.relatedDepartmentIds.map(String).filter(Boolean)
+          : [],
         delegationTemplateId: 'product',
       },
       {
@@ -265,6 +270,22 @@ export default function useCreateProjectWizard({
   const seedSampleCards = useCallback(
     async (boardId, projectId) => {
       if (!boardId || !form.sampleWorkItems) return;
+      const silent = {
+        organizationId,
+        skipGlobalErrorHandling: true,
+        skipPermissionDeniedToast: true,
+        skipNotFoundToast: true,
+      };
+      let listId = '';
+      try {
+        const detailRes = await taskAPI.getBoardDetail(boardId, silent);
+        const detail = unwrapTaskBoardDetailPayload(detailRes) || unwrap(detailRes);
+        const lists = Array.isArray(detail?.lists) ? detail.lists : [];
+        listId = String(lists[0]?._id || lists[0]?.id || '').trim();
+      } catch {
+        return;
+      }
+      if (!listId) return;
       const types = Object.entries(form.workTypes || {})
         .filter(([key, on]) => on && ['task', 'bug', 'story'].includes(key))
         .map(([key]) => key);
@@ -278,8 +299,9 @@ export default function useCreateProjectWizard({
               issueType: pick[i],
               organizationId,
               projectId,
+              listId,
             },
-            { organizationId }
+            silent
           );
         }
       } catch (_) {

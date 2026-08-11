@@ -110,6 +110,10 @@ export const projectAPI = {
       if (o.leaveDate !== undefined) body.leaveDate = o.leaveDate;
       if (o.billable !== undefined) body.billable = o.billable;
       if (o.status !== undefined) body.status = o.status;
+      if (o.otOverride) body.otOverride = true;
+      if (o.otRationale != null && String(o.otRationale).trim()) {
+        body.otRationale = String(o.otRationale).trim();
+      }
     }
     return apiClient.put(
       `/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberUserId)}/roles`,
@@ -138,15 +142,6 @@ export const projectAPI = {
       body
     ),
 
-  getTechnicalSetup: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/technical-setup`),
-
-  putTechnicalSetup: (projectId, body = {}) =>
-    apiClient.put(`/projects/${encodeURIComponent(projectId)}/technical-setup`, body),
-
-  completeTechnicalSetup: (projectId) =>
-    apiClient.post(`/projects/${encodeURIComponent(projectId)}/technical-setup/complete`),
-
   listPlanningItems: (projectId, params = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning-items`, { params }),
 
@@ -157,6 +152,12 @@ export const projectAPI = {
     apiClient.patch(
       `/projects/${encodeURIComponent(projectId)}/planning-items/${encodeURIComponent(itemId)}`,
       body
+    ),
+
+  getPlanningItemHistory: (projectId, itemId, params = {}) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/planning-items/${encodeURIComponent(itemId)}/history`,
+      { params: { limit: params.limit, before: params.before } }
     ),
 
   deletePlanningItem: (projectId, itemId) =>
@@ -187,24 +188,31 @@ export const projectAPI = {
       withOrg(organizationId, { params: { ...params, organizationId } })
     ),
 
-  /** Phase 3 — Resource Planner (org-scoped) */
-  getResourcePlanner: (organizationId, params = {}) =>
+  /** Phase 3 — Resource Planner (org-scoped). config.skipPermissionDeniedToast cho best-effort badge. */
+  getResourcePlanner: (organizationId, params = {}, config = {}) =>
     apiClient.get(
       '/projects/resources/planner',
-      withOrg(organizationId, { params: { ...params, organizationId } })
+      withOrg(organizationId, {
+        params: { ...params, organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
     ),
 
   /** Phase 3 — Resource Planner (project related depts) */
-  getProjectPlanner: (projectId, params = {}) =>
+  getProjectPlanner: (projectId, params = {}, config = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/resources/planner`, {
       params,
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
     }),
 
   /** Phase 3 — multi-project allocation timeline */
-  getUserAllocations: (organizationId, userId) =>
+  getUserAllocations: (organizationId, userId, config = {}) =>
     apiClient.get(
       `/projects/resources/users/${encodeURIComponent(userId)}/allocations`,
-      withOrg(organizationId, { params: { organizationId } })
+      withOrg(organizationId, {
+        params: { organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
     ),
 
   /** Phase 3b — Utilization (planned ∩ actual hours) */

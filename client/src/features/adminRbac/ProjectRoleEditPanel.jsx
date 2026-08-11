@@ -26,11 +26,45 @@ const PERMISSION_GROUPS = [
   },
   {
     title: 'Task',
-    keys: ['task:view', 'task:create', 'task:update', 'task:delete', 'task:assign'],
+    keys: [
+      'task:view',
+      'task:create',
+      'task:update',
+      'task:change_status',
+      'task:delete',
+      'task:assign',
+      'task:comment',
+      'task:estimate',
+      'story:create',
+      'story:update',
+      'bug:create',
+    ],
   },
   {
-    title: 'Sprint',
-    keys: ['sprint:view', 'sprint:create', 'sprint:close'],
+    title: 'Epic / Sprint / Backlog',
+    keys: [
+      'epic:create',
+      'epic:update',
+      'epic:delete',
+      'sprint:view',
+      'sprint:create',
+      'sprint:start',
+      'sprint:close',
+      'backlog:view',
+      'backlog:update',
+      'backlog:prioritize',
+    ],
+  },
+  {
+    title: 'Approval / Delivery / Report',
+    keys: [
+      'approval:request',
+      'approval:decide',
+      'approval:manage_policy',
+      'delivery:view',
+      'delivery:manage',
+      'report:view',
+    ],
   },
   {
     title: 'Repository',
@@ -207,14 +241,14 @@ export default function ProjectRoleEditPanel({ orgId }) {
               <>
                 <div className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
                   <div className="font-medium">
-                    {t('adminTasks.roleKey') || 'Key'}: {role.key}
+                    {t('adminRbac.roleKeyField')}: {role.key}
                   </div>
                   {role.isSystem ? <div className="mt-1 text-xs text-emerald-700">System</div> : null}
                   <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyImmutableHint')}</p>
                 </div>
 
                 <label className="mb-4 block">
-                  <span className={adminLabelClass()}>{t('adminTasks.roleLabel') || 'Label'}</span>
+                  <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
                   <div className="flex overflow-hidden rounded-lg border border-border bg-background">
                     <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                       {PROJECT_ROLE_LABEL_PREFIX.trimEnd()}
@@ -242,7 +276,7 @@ export default function ProjectRoleEditPanel({ orgId }) {
                     onChange={(e) => setCanAssign(e.target.checked)}
                     disabled={role.isSystem}
                   />
-                  <span className="text-muted-foreground">{t('adminTasks.canAssign') || 'Can assign'}</span>
+                  <span className="text-muted-foreground">{t('adminRbac.canAssignField')}</span>
                 </label>
 
                 <div className="mt-4 flex flex-wrap gap-2">

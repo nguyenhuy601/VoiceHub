@@ -1,35 +1,38 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
-import ProjectHubTechnicalSetupPanel from './ProjectHubTechnicalSetupPanel';
 import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
+import ProjectHubListPanel from './ProjectHubListPanel';
+import { isBoardSprintReady } from './projectHubHierarchy';
 import {
   PROJECT_HUB_TABS,
   collectCardActivity,
   collectCardAttachments,
   computeHubBoardSummary,
+  countCardsByIssueType,
   formatHubDate,
   projectInitials,
+  unwrapPlanningList,
 } from './projectHubUtils';
 
 function OverviewPanel({
   board,
   summary,
+  issueCounts = { story: 0, task: 0, bug: 0 },
   activity,
   locale,
   isDarkMode,
   onOpenBoard,
-  onOpenSetup,
+  onOpenBacklog,
   t,
 }) {
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const cardCls = 'rounded-xl border border-border bg-surface p-4';
-  const needsSetup = String(board?.status || '') === 'planning';
 
   const nextActions = useMemo(() => {
     return (activity || [])
@@ -53,15 +56,13 @@ function OverviewPanel({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {needsSetup && onOpenSetup ? (
-            <button
-              type="button"
-              onClick={onOpenSetup}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold"
-            >
-              {t('workspace.projectHubContinueSetup')}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={onOpenBacklog}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold"
+          >
+            {t('workspace.projectHubOpenBacklog')}
+          </button>
           <button
             type="button"
             onClick={onOpenBoard}
@@ -89,6 +90,21 @@ function OverviewPanel({
                 className="rounded-lg border border-border bg-background px-2 py-3 text-center"
               >
                 <div className={`text-lg font-bold ${titleCls}`}>{v}</div>
+                <div className={`text-[10px] ${muted}`}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {[
+              [String(issueCounts.story || 0), t('workspace.projectHubStatStories')],
+              [String(issueCounts.task || 0), t('workspace.projectHubStatTasks')],
+              [String(issueCounts.bug || 0), t('workspace.projectHubStatBugs')],
+            ].map(([v, l]) => (
+              <div
+                key={l}
+                className="rounded-lg border border-dashed border-border bg-background px-2 py-2 text-center"
+              >
+                <div className={`text-sm font-bold ${titleCls}`}>{v}</div>
                 <div className={`text-[10px] ${muted}`}>{l}</div>
               </div>
             ))}
@@ -246,16 +262,28 @@ export default function ProjectHubShell({
   organizationId = '',
   apiCtx = null,
   onRefresh,
+  onUpdateCard = null,
+  onPatchBoardCards = null,
+  workspaceSlug = '',
   boardSlot = null,
   emptySlot = null,
   onBack = null,
   onBoardChange = null,
 }) {
   const { t } = useAppStrings();
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('list');
+  const [visitedTabs, setVisitedTabs] = useState(() => ({ list: true }));
+  const [membersEpoch, setMembersEpoch] = useState(0);
   const [apiActivity, setApiActivity] = useState(null);
   const [apiFiles, setApiFiles] = useState(null);
   const [projectPayload, setProjectPayload] = useState(null);
+  const [sprints, setSprints] = useState([]);
+  const [planningItems, setPlanningItems] = useState([]);
+  const [planningLoading, setPlanningLoading] = useState(false);
+  const [planningError, setPlanningError] = useState(false);
+  const [planningReloadToken, setPlanningReloadToken] = useState(0);
+  const loadedPlanningProjectRef = useRef('');
+  const boardReadyAppliedRef = useRef(false);
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -295,6 +323,91 @@ export default function ProjectHubShell({
     };
   }, [projectId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    boardReadyAppliedRef.current = false;
+    (async () => {
+      if (!projectId) {
+        setSprints([]);
+        return;
+      }
+      try {
+        const res = await projectAPI.listSprints(projectId);
+        if (!cancelled) setSprints(unwrapPlanningList(res));
+      } catch {
+        if (!cancelled) setSprints([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const patchPlanningItems = useCallback((updater) => {
+    setPlanningItems((prev) => (typeof updater === 'function' ? updater(prev) : prev));
+  }, []);
+
+  const reloadPlanning = useCallback(() => setPlanningReloadToken((n) => n + 1), []);
+
+  const reloadSprints = useCallback(async () => {
+    const pid = String(projectId || '').trim();
+    if (!pid) {
+      setSprints([]);
+      return;
+    }
+    try {
+      const res = await projectAPI.listSprints(pid);
+      setSprints(unwrapPlanningList(res));
+    } catch {
+      /* giữ sprint hiện tại */
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!projectId) {
+        loadedPlanningProjectRef.current = '';
+        setPlanningItems([]);
+        setPlanningLoading(false);
+        setPlanningError(false);
+        return;
+      }
+      const isFirstForProject = loadedPlanningProjectRef.current !== projectId;
+      if (isFirstForProject) {
+        setPlanningLoading(true);
+        setPlanningError(false);
+      }
+      try {
+        const res = await projectAPI.listPlanningItems(projectId);
+        if (cancelled) return;
+        setPlanningItems(unwrapPlanningList(res));
+        loadedPlanningProjectRef.current = projectId;
+        setPlanningError(false);
+      } catch {
+        if (cancelled) return;
+        if (isFirstForProject) {
+          setPlanningItems([]);
+          setPlanningError(true);
+        }
+      } finally {
+        if (!cancelled && isFirstForProject) setPlanningLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, planningReloadToken]);
+
+  const boardReady = useMemo(() => isBoardSprintReady(sprints), [sprints]);
+
+  useEffect(() => {
+    if (boardReadyAppliedRef.current) return;
+    if (!projectId) return;
+    boardReadyAppliedRef.current = true;
+    if (!boardReady && tab === 'board') setTab('list');
+  }, [projectId, boardReady, tab]);
+
   const projectAccess = projectPayload?.access || null;
 
   const informationLevel = String(
@@ -309,7 +422,7 @@ export default function ProjectHubShell({
     return PROJECT_HUB_TABS.filter((item) => {
       if (isSummaryOnly && item.id !== 'overview') return false;
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
-      if (item.id === 'setup' && !hubCaps.canManageSettings) return false;
+      if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       return true;
     });
   }, [hubCaps, isSummaryOnly]);
@@ -318,25 +431,33 @@ export default function ProjectHubShell({
     if (isSummaryOnly && tab !== 'overview') setTab('overview');
   }, [isSummaryOnly, tab]);
 
+  useEffect(() => {
+    if (tab === 'members' && !hubCaps.canViewMembers) setTab('overview');
+  }, [tab, hubCaps.canViewMembers]);
+
+  useEffect(() => {
+    setVisitedTabs((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
+  }, [tab]);
+
+  const showListPanel = Boolean(visitedTabs.list);
+  const showPlanningPanel = Boolean(visitedTabs.planning);
+  const needsActivityFiles = tab === 'overview' || tab === 'files' || tab === 'activity';
+
   const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
   const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
 
   const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
+  const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
+  const defaultListId = String(lists[0]?._id || '').trim();
   const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
   const derivedActivity = useMemo(() => collectCardActivity(cards), [cards]);
   const files = Array.isArray(apiFiles) ? apiFiles : derivedFiles;
   const activity = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
 
   useEffect(() => {
-    setTab('board');
-  }, [boardId, projectId]);
-
-  useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!projectId) {
-        setApiActivity(null);
-        setApiFiles(null);
+      if (!projectId || !needsActivityFiles) {
         return;
       }
       try {
@@ -373,7 +494,7 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, needsActivityFiles]);
 
   const hasBoard = Boolean(boardId && resolvedBoard);
   const initials = projectInitials(resolvedBoard?.title);
@@ -490,7 +611,7 @@ export default function ProjectHubShell({
                 resolvedBoard?.visibility === 'workspace'
                   ? t('workspace.projectHubVisibilityWorkspace')
                   : null,
-                `${summary.donePercent}% done`,
+                t('workspace.projectHubStatDonePct', { pct: summary.donePercent }),
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -544,41 +665,115 @@ export default function ProjectHubShell({
           <OverviewPanel
             board={resolvedBoard}
             summary={summary}
+            issueCounts={issueCounts}
             activity={activity}
             locale={locale}
             isDarkMode={isDarkMode}
             onOpenBoard={() => setTab('board')}
-            onOpenSetup={() => setTab('setup')}
+            onOpenBacklog={() => setTab('planning')}
             t={t}
           />
         ) : null}
-        {tab === 'setup' ? (
-          <ProjectHubTechnicalSetupPanel
+        {showListPanel ? (
+        <div
+          className={
+            tab === 'list' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'list'}
+          aria-hidden={tab !== 'list'}
+        >
+          <ProjectHubListPanel
             projectId={projectId}
-            canManage={hubCaps.canManageSettings || canManage}
-            isDarkMode={isDarkMode}
-            projectStatus={resolvedBoard?.status}
-            onCompleted={() => onRefresh?.()}
-          />
-        ) : null}
-        {tab === 'planning' ? (
-          <ProjectHubPlanningPanel
-            projectId={projectId}
-            canManage={hubCaps.canManagePlanning || canManage}
+            boardId={boardId}
+            defaultListId={defaultListId}
+            boardCards={cards}
+            lists={lists}
+            projectCode={resolvedBoard?.projectCode || ''}
+            hubCaps={hubCaps}
+            canManage={canManage}
+            apiCtx={apiCtx}
             isDarkMode={isDarkMode}
             locale={locale}
+            workspaceSlug={workspaceSlug}
+            planningItems={planningItems}
+            planningLoading={planningLoading}
+            planningError={planningError}
+            onPatchPlanningItems={patchPlanningItems}
+            onReloadPlanning={reloadPlanning}
+            onRefresh={onRefresh}
+            onUpdateCard={onUpdateCard}
+            onPatchBoardCards={onPatchBoardCards}
+            onOpenSettings={() => setTab('settings')}
+            listActive={tab === 'list'}
+            membersEpoch={membersEpoch}
           />
+        </div>
+        ) : null}
+        {showPlanningPanel ? (
+        <div
+          className={
+            tab === 'planning' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'planning'}
+          aria-hidden={tab !== 'planning'}
+        >
+          <ProjectHubPlanningPanel
+            projectId={projectId}
+            canManage={canManage}
+            hubCaps={hubCaps}
+            isDarkMode={isDarkMode}
+            locale={locale}
+            boardId={boardId}
+            defaultListId={defaultListId}
+            apiCtx={apiCtx}
+            boardCards={cards}
+            lists={lists}
+            projectCode={resolvedBoard?.projectCode || ''}
+            planningItems={planningItems}
+            planningLoading={planningLoading}
+            planningError={planningError}
+            sprints={sprints}
+            onPatchPlanningItems={patchPlanningItems}
+            onReloadPlanning={reloadPlanning}
+            onReloadSprints={reloadSprints}
+            onRefresh={() => {
+              onRefresh?.();
+              void reloadSprints();
+            }}
+            onPatchBoardCards={onPatchBoardCards}
+            onOpenBoard={() => setTab('board')}
+          />
+        </div>
         ) : null}
         {tab === 'board' ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardSlot}</div>
+          boardReady ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardSlot}</div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+              <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-foreground'}`}>
+                {t('workspace.projectHubBoardLockedTitle')}
+              </p>
+              <p className={`max-w-md text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}>
+                {t('workspace.projectHubBoardLockedHint')}
+              </p>
+              <button
+                type="button"
+                className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+                onClick={() => setTab('planning')}
+              >
+                {t('workspace.projectHubBoardLockedCta')}
+              </button>
+            </div>
+          )
         ) : null}
-        {tab === 'members' ? (
+        {tab === 'members' && hubCaps.canViewMembers ? (
           <ProjectHubMembersPanel
             projectId={projectId}
             boardId={boardId}
             organizationId={organizationId}
             canManage={hubCaps.canManageMembers || canManage}
             isDarkMode={isDarkMode}
+            onMembersChanged={() => setMembersEpoch((n) => n + 1)}
           />
         ) : null}
         {tab === 'files' ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}

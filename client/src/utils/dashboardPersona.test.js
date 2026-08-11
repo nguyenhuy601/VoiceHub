@@ -41,6 +41,28 @@ describe('resolveDashPersona', () => {
   it('không org → personal', () => {
     assert.equal(resolveDashPersona({ membershipRole: 'member', hasOrg: false }), 'personal');
   });
+
+  it('member + Org Role department_manager → manager', () => {
+    assert.equal(
+      resolveDashPersona({
+        membershipRole: 'member',
+        hasOrg: true,
+        organizationRoleKeys: ['department_manager'],
+      }),
+      'manager'
+    );
+  });
+
+  it('member + Org Role hr_approver → hr', () => {
+    assert.equal(
+      resolveDashPersona({
+        membershipRole: 'member',
+        hasOrg: true,
+        organizationRoleKeys: [{ roleKey: 'hr_approver' }],
+      }),
+      'hr'
+    );
+  });
 });
 
 describe('dashPersonaShowsOrgHealth', () => {

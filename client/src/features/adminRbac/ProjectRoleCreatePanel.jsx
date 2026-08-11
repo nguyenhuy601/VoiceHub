@@ -127,7 +127,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
               checked={canAssign}
               onChange={(e) => setCanAssign(e.target.checked)}
             />
-            <span className="text-muted-foreground">{t('adminTasks.canAssign') || 'Can assign'}</span>
+            <span className="text-muted-foreground">{t('adminRbac.canAssignField')}</span>
           </label>
 
           <AdminRoleInsertPositionPicker

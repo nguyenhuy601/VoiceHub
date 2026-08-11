@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
@@ -64,6 +65,11 @@ function resolveDisplayName(row, orgById) {
   return id.slice(-6) || '—';
 }
 
+const MEMBER_TAB_ROSTER = 'roster';
+const MEMBER_TAB_ADD = 'add';
+const MEMBER_TAB_PLANNER = 'planner';
+const MEMBER_TAB_BULK = 'bulk';
+
 function defaultAllocSegments() {
   const start = new Date();
   return [
@@ -84,12 +90,14 @@ export default function ProjectHubMembersPanel({
   organizationId = '',
   canManage = false,
   isDarkMode = false,
+  onMembersChanged = null,
 }) {
   const { t } = useAppStrings();
   const projectIdStr = String(projectId || '').trim();
 
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [orgMembers, setOrgMembers] = useState([]);
   const [orgLoading, setOrgLoading] = useState(false);
   const [deptMemberIds, setDeptMemberIds] = useState([]);
@@ -115,9 +123,10 @@ export default function ProjectHubMembersPanel({
   const [submitting, setSubmitting] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkRoleKeys, setBulkRoleKeys] = useState([]);
-  const [bulkOpen, setBulkOpen] = useState(false);
   const [peerProjects, setPeerProjects] = useState([]);
-  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [memberTab, setMemberTab] = useState(MEMBER_TAB_ROSTER);
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const tabMenuRef = useRef(null);
 
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -128,9 +137,11 @@ export default function ProjectHubMembersPanel({
     const id = pid || bid;
     if (!id) {
       setMembers([]);
+      setLoadError(false);
       return;
     }
     setLoading(true);
+    setLoadError(false);
     try {
       const res = await projectDeliveryAPI.listProjectMembers(id, { asProject: Boolean(pid) });
       const data = unwrap(res);
@@ -138,6 +149,7 @@ export default function ProjectHubMembersPanel({
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
       setMembers([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -229,6 +241,8 @@ export default function ProjectHubMembersPanel({
   };
 
   const startEdit = (row) => {
+    setMemberTab(MEMBER_TAB_ADD);
+    setTabMenuOpen(false);
     setFormMode('edit');
     setSelectedUserId(String(row?.id || '').trim());
     setSelectedRoleKeys(Array.isArray(row?.roles) ? row.roles : []);
@@ -236,6 +250,41 @@ export default function ProjectHubMembersPanel({
     setAllocSegments(segs.length ? segs : defaultAllocSegments());
     setBillable(Boolean(row?.billable));
   };
+
+  const memberTabs = useMemo(() => {
+    const roster = { id: MEMBER_TAB_ROSTER, label: t('workspace.projectHubMembersRoster') };
+    if (!canManage) return [roster];
+    return [
+      roster,
+      { id: MEMBER_TAB_ADD, label: t('workspace.projectHubMembersAddTitle') },
+      { id: MEMBER_TAB_PLANNER, label: t('workspace.projectHubPlannerTitle') },
+      { id: MEMBER_TAB_BULK, label: t('workspace.projectHubBulkTitle') },
+    ];
+  }, [canManage, t]);
+
+  const activeTab = memberTabs.some((tab) => tab.id === memberTab) ? memberTab : MEMBER_TAB_ROSTER;
+
+  const selectMemberTab = (id) => {
+    if (id !== activeTab && formMode === 'edit') resetForm();
+    setMemberTab(id);
+    setTabMenuOpen(false);
+  };
+
+  useEffect(() => {
+    if (!tabMenuOpen) return undefined;
+    const onDoc = (e) => {
+      if (tabMenuRef.current && !tabMenuRef.current.contains(e.target)) setTabMenuOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setTabMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tabMenuOpen]);
 
   useEffect(() => {
     const uid = String(selectedUserId || '').trim();
@@ -247,7 +296,9 @@ export default function ProjectHubMembersPanel({
     let cancelled = false;
     (async () => {
       try {
-        const res = await projectAPI.getUserAllocations(oid, uid);
+        const res = await projectAPI.getUserAllocations(oid, uid, {
+          skipPermissionDeniedToast: true,
+        });
         const data = unwrap(res);
         if (!cancelled) {
           setPeerProjects(
@@ -367,9 +418,11 @@ export default function ProjectHubMembersPanel({
     (async () => {
       setRosterLoading(true);
       try {
-        const res = await projectAPI.getProjectPlanner(projectIdStr, {
-          includeOverallocated: '1',
-        });
+        const res = await projectAPI.getProjectPlanner(
+          projectIdStr,
+          { includeOverallocated: '1' },
+          { skipPermissionDeniedToast: true }
+        );
         const data = unwrap(res);
         if (cancelled) return;
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
@@ -386,12 +439,15 @@ export default function ProjectHubMembersPanel({
         if (!cancelled) {
           setDeptRosterItems([]);
           setDeptRosterHint(null);
-          toast.error(
-            resolveApiErrorMessage(err, {
-              t,
-              fallback: t('workspace.projectHubMembersCandidateLoadFail'),
-            })
-          );
+          const status = Number(err?.response?.status || 0);
+          if (status !== 403) {
+            toast.error(
+              resolveApiErrorMessage(err, {
+                t,
+                fallback: t('workspace.projectHubMembersCandidateLoadFail'),
+              })
+            );
+          }
         }
       } finally {
         if (!cancelled) setRosterLoading(false);
@@ -525,6 +581,7 @@ export default function ProjectHubMembersPanel({
       }
       await load();
       resetForm();
+      onMembersChanged?.();
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersRoleSaveFail') }));
     } finally {
@@ -569,6 +626,7 @@ export default function ProjectHubMembersPanel({
       }
       toast.success(t('workspace.projectHubBulkDone', { ok, fail, over }));
       await load();
+      if (ok > 0) onMembersChanged?.();
     } finally {
       setBulkBusy(false);
     }
@@ -606,6 +664,11 @@ export default function ProjectHubMembersPanel({
   const fieldCls =
     'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary';
   const cardCls = 'rounded-xl border border-border bg-surface';
+  const activeTabMeta = memberTabs.find((tab) => tab.id === activeTab);
+  const triggerLabel =
+    activeTab === MEMBER_TAB_ADD && formMode === 'edit'
+      ? t('workspace.projectHubMembersEditTitle')
+      : activeTabMeta?.label || t('workspace.projectHubMembersRoster');
 
   const renderRoleChips = (keys, selectedKeys, onToggle, { onlyAssignable = false } = {}) => {
     const list = onlyAssignable ? assignableRoles : roleCatalog || [];
@@ -657,7 +720,7 @@ export default function ProjectHubMembersPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-2">
+      <header className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h3 className={`text-base font-bold tracking-tight ${titleCls}`}>
             {t('workspace.projectHubTabMembers')}
@@ -666,12 +729,55 @@ export default function ProjectHubMembersPanel({
             {loading ? '…' : t('workspace.projectHubMembersCount', { n: rows.length })}
           </p>
         </div>
+        {memberTabs.length > 1 ? (
+          <div ref={tabMenuRef} className="relative w-full sm:w-64">
+            <button
+              type="button"
+              className={`${fieldCls} flex items-center justify-between gap-2 text-left`}
+              aria-haspopup="menu"
+              aria-expanded={tabMenuOpen}
+              aria-label={t('workspace.projectHubMembersFunctionAria')}
+              onClick={() => setTabMenuOpen((v) => !v)}
+            >
+              <span className="truncate">{triggerLabel}</span>
+              <ChevronDown size={16} className="shrink-0 text-muted-foreground" aria-hidden />
+            </button>
+            {tabMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-30 mt-1 w-full rounded-lg border border-border bg-surface py-1 shadow-lg"
+              >
+                {memberTabs.map((tab) => {
+                  const selected = tab.id === activeTab;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="menuitem"
+                      aria-current={selected ? 'page' : undefined}
+                      onClick={() => selectMemberTab(tab.id)}
+                      className={[
+                        'flex w-full px-3 py-2 text-left text-sm',
+                        selected
+                          ? 'bg-primary/10 font-semibold text-foreground'
+                          : 'text-foreground hover:bg-muted/40',
+                      ].join(' ')}
+                    >
+                      {tab.id === MEMBER_TAB_ADD && formMode === 'edit' && selected
+                        ? t('workspace.projectHubMembersEditTitle')
+                        : tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
-          {/* Member roster — primary on mobile (order) */}
-          <section className={`${cardCls} order-2 flex min-h-0 flex-col p-3 sm:p-4 lg:order-1`}>
+        {activeTab === MEMBER_TAB_ROSTER ? (
+          <section className={`${cardCls} flex min-h-0 flex-col p-3 sm:p-4`} aria-label={t('workspace.projectHubMembersRoster')}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h4 className={`text-sm font-semibold ${titleCls}`}>
                 {t('workspace.projectHubMembersRoster')}
@@ -681,8 +787,21 @@ export default function ProjectHubMembersPanel({
               </span>
             </div>
 
-            {loading ? (
-              <p className={`py-8 text-center text-sm ${muted}`}>…</p>
+            {loadError ? (
+              <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
+                <p className={`text-sm ${muted}`}>{t('workspace.projectHubMembersFail')}</p>
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+                >
+                  {t('workspace.projectHubMembersRetry')}
+                </button>
+              </div>
+            ) : loading ? (
+              <p className={`py-8 text-center text-sm ${muted}`} role="status">
+                {t('common.loading')}
+              </p>
             ) : rows.length === 0 ? (
               <p
                 className={`rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm ${muted}`}
@@ -759,11 +878,10 @@ export default function ProjectHubMembersPanel({
               </ul>
             )}
           </section>
+        ) : null}
 
-          {canManage ? (
-            <div className="order-1 flex flex-col gap-3 lg:order-2">
-              {/* Add / edit member */}
-              <section className={`${cardCls} p-3 sm:p-4`}>
+        {canManage && activeTab === MEMBER_TAB_ADD ? (
+              <section className={`${cardCls} p-3 sm:p-4`} aria-label={t('workspace.projectHubMembersAddTitle')}>
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h4 className={`text-sm font-semibold ${titleCls}`}>
@@ -778,7 +896,10 @@ export default function ProjectHubMembersPanel({
                   {formMode === 'edit' ? (
                     <button
                       type="button"
-                      onClick={resetForm}
+                      onClick={() => {
+                        resetForm();
+                        setMemberTab(MEMBER_TAB_ROSTER);
+                      }}
                       disabled={submitting}
                       className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40"
                     >
@@ -956,64 +1077,42 @@ export default function ProjectHubMembersPanel({
                   </button>
                 </div>
               </section>
+        ) : null}
 
-              {/* Resource Planner — related depts */}
-              <section className={`${cardCls} overflow-hidden`}>
-                <button
-                  type="button"
-                  onClick={() => setPlannerOpen((v) => !v)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left sm:px-4"
-                >
-                  <div className="min-w-0">
-                    <h4 className={`text-sm font-semibold ${titleCls}`}>
-                      {t('workspace.projectHubPlannerTitle')}
-                    </h4>
-                    <p className={`mt-0.5 text-xs ${muted}`}>{t('workspace.projectHubPlannerHint')}</p>
-                  </div>
-                  <span className={`shrink-0 text-xs font-semibold ${muted}`}>
-                    {plannerOpen ? '▴' : '▾'}
-                  </span>
-                </button>
-                {plannerOpen ? (
-                  <div className="border-t border-border px-3 pb-4 pt-3 sm:px-4">
-                    <ResourcePlannerPanel
-                      orgId={String(organizationId || projectSummary?.organizationId || '')}
-                      projectId={projectIdStr}
-                      canManage={canManage}
-                      embedded
-                      isDarkMode={isDarkMode}
-                    />
-                  </div>
-                ) : null}
+        {canManage && activeTab === MEMBER_TAB_PLANNER ? (
+              <section className={`${cardCls} p-3 sm:p-4`} aria-label={t('workspace.projectHubPlannerTitle')}>
+                <div className="mb-3">
+                  <h4 className={`text-sm font-semibold ${titleCls}`}>
+                    {t('workspace.projectHubPlannerTitle')}
+                  </h4>
+                  <p className={`mt-0.5 text-xs ${muted}`}>{t('workspace.projectHubPlannerHint')}</p>
+                </div>
+                <ResourcePlannerPanel
+                  orgId={String(organizationId || projectSummary?.organizationId || '')}
+                  projectId={projectIdStr}
+                  canManage={canManage}
+                  embedded
+                  isDarkMode={isDarkMode}
+                />
               </section>
+        ) : null}
 
-              {/* Bulk from department — secondary / collapsible */}
-              <section className={`${cardCls} overflow-hidden`}>
-                <button
-                  type="button"
-                  onClick={() => setBulkOpen((v) => !v)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left sm:px-4"
-                >
-                  <div className="min-w-0">
-                    <h4 className={`text-sm font-semibold ${titleCls}`}>
-                      {t('workspace.projectHubBulkTitle')}
-                    </h4>
-                    <p className={`mt-0.5 text-xs ${muted}`}>
-                      {bulkDeptId
-                        ? t('workspace.projectHubBulkHint', {
-                            dept: deptName || t('workspace.projectHubMembersUnplacedDept'),
-                            n: deptCandidates.length,
-                          })
-                        : t('workspace.projectHubBulkPickDept')}
-                    </p>
-                  </div>
-                  <span className={`shrink-0 text-xs font-semibold ${muted}`}>
-                    {bulkOpen ? '▴' : '▾'}
-                  </span>
-                </button>
-
-                {bulkOpen ? (
-                  <div className="space-y-3 border-t border-border px-3 pb-4 pt-3 sm:px-4">
+        {canManage && activeTab === MEMBER_TAB_BULK ? (
+              <section className={`${cardCls} p-3 sm:p-4`} aria-label={t('workspace.projectHubBulkTitle')}>
+                <div className="mb-3">
+                  <h4 className={`text-sm font-semibold ${titleCls}`}>
+                    {t('workspace.projectHubBulkTitle')}
+                  </h4>
+                  <p className={`mt-0.5 text-xs ${muted}`}>
+                    {bulkDeptId
+                      ? t('workspace.projectHubBulkHint', {
+                          dept: deptName || t('workspace.projectHubMembersUnplacedDept'),
+                          n: deptCandidates.length,
+                        })
+                      : t('workspace.projectHubBulkPickDept')}
+                  </p>
+                </div>
+                <div className="space-y-3">
                     <select
                       value={bulkDeptId}
                       onChange={(e) => setBulkDeptId(e.target.value)}
@@ -1061,12 +1160,9 @@ export default function ProjectHubMembersPanel({
                             n: deptCandidates.length,
                           })}
                     </button>
-                  </div>
-                ) : null}
+                </div>
               </section>
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </div>
   );

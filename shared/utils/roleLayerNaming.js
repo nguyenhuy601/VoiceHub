@@ -1,6 +1,7 @@
 /**
- * Naming convention across System / Org / Project role layers.
+ * Naming convention across Permission pack / Org / Project role layers.
  * Position (HR) has no forced prefix — titles are intentional.
+ * Prefix «Gói quyền — » = Permission catalog (cũ gọi System Role); JWT systemRole admin/employee ≠ lớp này.
  */
 
 const SYSTEM_ROLE_NAME_PREFIX = 'Gói quyền — ';
@@ -81,7 +82,7 @@ function normalizeLayerLabel(raw, layer) {
 }
 
 /**
- * True when System Role suffix looks like a job title / org structure role.
+ * True when Permission-pack suffix looks like a job title / org structure role.
  * @param {unknown} raw
  * @returns {boolean}
  */
@@ -150,7 +151,7 @@ const LEGACY_SYSTEM_ROLE_CANONICAL = Object.freeze({
 });
 
 /**
- * Rewrite title-like System Role suffixes into permission-pack style.
+ * Rewrite title-like Permission-pack suffixes into permission-pack style.
  * @param {string} suffix
  * @returns {string}
  */
@@ -195,7 +196,7 @@ function rewriteTitleLikeSystemSuffix(suffix) {
 }
 
 /**
- * Canonical System Role display name (prefix + pack-style suffix).
+ * Canonical Permission-pack display name (prefix + pack-style suffix).
  * Idempotent for names already on convention.
  * @param {unknown} raw
  * @returns {string}

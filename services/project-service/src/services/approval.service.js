@@ -373,6 +373,18 @@ async function maybeStartTaskApproval({
   });
   if (!policy) return { blocked: false };
 
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserProjectPermission } = require('./projectAccess.service');
+    await assertUserProjectPermission({
+      userId,
+      projectId: board.projectId,
+      boardId: board._id,
+      permission: 'approval:request',
+      message: 'Không có quyền tạo yêu cầu duyệt (approval:request)',
+    });
+  }
+
   // Tránh request trùng pending
   const existing = await ApprovalRequest.findOne({
     entityType: 'task',
@@ -505,6 +517,19 @@ async function decideRequest({
   }
 
   const actor = await resolveActorContext(userId, request.projectId, request.organizationId);
+  if (request.projectId) {
+    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    if (isProjectRbacV2Enabled()) {
+      const { assertUserProjectPermission } = require('./projectAccess.service');
+      await assertUserProjectPermission({
+        userId,
+        projectId: request.projectId,
+        boardId: request.boardId,
+        permission: 'approval:decide',
+        message: 'Không có quyền duyệt (approval:decide)',
+      });
+    }
+  }
   const result = applyDecisionToChain({
     steps: request.stepsSnapshot,
     currentStep: request.currentStep,
@@ -706,6 +731,18 @@ async function startStubEntityApproval({
     throw err;
   }
   await ensureOrgApprovalPolicies(organizationId, userId);
+  if (projectId) {
+    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    if (isProjectRbacV2Enabled()) {
+      const { assertUserProjectPermission } = require('./projectAccess.service');
+      await assertUserProjectPermission({
+        userId,
+        projectId,
+        permission: 'approval:request',
+        message: 'Không có quyền tạo yêu cầu duyệt (approval:request)',
+      });
+    }
+  }
   const key = policyKey || (entityType === 'release' ? 'release_deploy' : 'mr_merge');
   const policy = await ApprovalPolicy.findOne({
     organizationId,
@@ -761,12 +798,11 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId }) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     const can =
-      hasPermission(resolved.permissions, 'settings:update') ||
-      hasPermission(resolved.permissions, 'project:edit') ||
+      hasPermission(resolved.permissions, 'approval:manage_policy') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
     if (!can) {
-      const err = new Error('Không có quyền sửa settings (settings:update)');
+      const err = new Error('Không có quyền gắn policy duyệt (approval:manage_policy)');
       err.statusCode = 403;
       throw err;
     }

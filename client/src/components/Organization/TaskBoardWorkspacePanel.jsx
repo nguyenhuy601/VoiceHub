@@ -20,6 +20,9 @@ import { CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, 
 import toast from 'react-hot-toast';
 import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
 import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
+import { allowedIssueTypesFromCaps } from '../../features/projectHub/hubCaps';
+import { visibleCreateTypes } from './ProjectHub/projectWorkTypes';
+import { useProjectWorkTypes } from './ProjectHub/useProjectWorkTypes';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
 import { useAppStrings } from '../../locales/appStrings';
@@ -419,7 +422,18 @@ export default function TaskBoardWorkspacePanel({
   const [boardSearchOpen, setBoardSearchOpen] = useState(false);
   const boardSearchInputRef = useRef(null);
   const [cardDraftByList, setCardDraftByList] = useState({});
+  const [cardIssueTypeByList, setCardIssueTypeByList] = useState({});
   const [cardComposerOpen, setCardComposerOpen] = useState({});
+  const hubProjectId = String(
+    boardDetail?.board?.projectId || boards.find((b) => String(b._id) === String(selectedBoardId))?.projectId || ''
+  ).trim();
+  const { config: workTypeConfig } = useProjectWorkTypes(hubProjectId);
+  const allowedIssueTypes = useMemo(() => {
+    const fromCaps = allowedIssueTypesFromCaps(boardCapabilities);
+    const base = fromCaps.length ? fromCaps : canCreateCards ? ['story', 'task', 'bug'] : [];
+    return visibleCreateTypes(workTypeConfig, base);
+  }, [boardCapabilities, canCreateCards, workTypeConfig]);
+  const canCreateCardsEffective = canCreateCards || allowedIssueTypes.length > 0;
   const [menuList, setMenuList] = useState(null);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [cardMenuCard, setCardMenuCard] = useState(null);
@@ -1546,7 +1560,29 @@ export default function TaskBoardWorkspacePanel({
                                   }`}
                                   autoFocus
                                 />
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {allowedIssueTypes.length > 1 ? (
+                                    <select
+                                      className={`rounded-md border px-1.5 py-1 text-[11px] ${
+                                        isDarkMode
+                                          ? 'border-white/15 bg-[#1a1d26] text-white'
+                                          : 'border-slate-200 bg-white text-slate-900'
+                                      }`}
+                                      value={cardIssueTypeByList[cellKey] || allowedIssueTypes[0]}
+                                      onChange={(e) =>
+                                        setCardIssueTypeByList((prev) => ({
+                                          ...prev,
+                                          [cellKey]: e.target.value,
+                                        }))
+                                      }
+                                    >
+                                      {allowedIssueTypes.map((it) => (
+                                        <option key={it} value={it}>
+                                          {it}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : null}
                                   <button
                                     type="button"
                                     disabled={!String(cardDraftByList[cellKey] || '').trim()}
@@ -1557,6 +1593,10 @@ export default function TaskBoardWorkspacePanel({
                                         listId: list._id,
                                         title,
                                         ownerTeamId: lane.teamId || null,
+                                        issueType:
+                                          cardIssueTypeByList[cellKey] ||
+                                          allowedIssueTypes[0] ||
+                                          'task',
                                       });
                                       setCardDraftByList((prev) => ({ ...prev, [cellKey]: '' }));
                                       setCardComposerOpen((prev) => ({
@@ -1588,7 +1628,7 @@ export default function TaskBoardWorkspacePanel({
                                   </button>
                                 </div>
                               </div>
-                            ) : canCreateCards ? (
+                            ) : canCreateCardsEffective ? (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1715,14 +1755,41 @@ export default function TaskBoardWorkspacePanel({
                           }`}
                           autoFocus
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {allowedIssueTypes.length > 1 ? (
+                            <select
+                              className={`rounded-md border px-1.5 py-1 text-[11px] ${
+                                isDarkMode
+                                  ? 'border-white/15 bg-[#1a1d26] text-white'
+                                  : 'border-slate-200 bg-white text-slate-900'
+                              }`}
+                              value={cardIssueTypeByList[listKey] || allowedIssueTypes[0]}
+                              onChange={(e) =>
+                                setCardIssueTypeByList((prev) => ({
+                                  ...prev,
+                                  [listKey]: e.target.value,
+                                }))
+                              }
+                            >
+                              {allowedIssueTypes.map((it) => (
+                                <option key={it} value={it}>
+                                  {it}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
                           <button
                             type="button"
                             disabled={!String(cardDraftByList[listKey] || '').trim()}
                             onClick={() => {
                               const title = String(cardDraftByList[listKey] || '').trim();
                               if (!title) return;
-                              onAddCard?.(list._id, { listId: list._id, title });
+                              onAddCard?.(list._id, {
+                                listId: list._id,
+                                title,
+                                issueType:
+                                  cardIssueTypeByList[listKey] || allowedIssueTypes[0] || 'task',
+                              });
                               setCardDraftByList((prev) => ({ ...prev, [listKey]: '' }));
                               setCardComposerOpen((prev) => ({ ...prev, [listKey]: false }));
                             }}
@@ -1745,7 +1812,7 @@ export default function TaskBoardWorkspacePanel({
                           </button>
                         </div>
                       </div>
-                    ) : canCreateCards ? (
+                    ) : canCreateCardsEffective ? (
                       <button
                         type="button"
                         onClick={() => setCardComposerOpen((prev) => ({ ...prev, [listKey]: true }))}
@@ -1935,6 +2002,18 @@ export default function TaskBoardWorkspacePanel({
         lists={listMap}
         initialPanel={detailPanel}
         taskWorkspaceScope={taskWorkspaceScope}
+        canCreateTask={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:create') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : canCreateCards
+        }
+        canEstimate={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:estimate') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : true
+        }
         onClose={() => {
           setDetailCard(null);
           setDetailPanel('detail');

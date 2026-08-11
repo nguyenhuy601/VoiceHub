@@ -39,6 +39,10 @@ function buildPlacementMaps(departments = [], teams = []) {
     const depName = String(dep.name || '').trim();
     const divisionId = dep.division ? normalizeId(dep.division) : null;
     deptMeta.set(depId, { name: depName, divisionId });
+    const headId = dep.head ? normalizeId(dep.head) : null;
+    if (headId && !deptByUser.has(headId)) {
+      deptByUser.set(headId, { departmentId: depId, departmentName: depName, divisionId });
+    }
     for (const mid of dep.members || []) {
       const uid = normalizeId(mid);
       if (!uid || deptByUser.has(uid)) continue;
@@ -142,7 +146,7 @@ async function findPlacementByStructureMembers(organizationId, userId) {
   if (!oid || !uid) return emptyPlacement();
 
   const [departments, teams] = await Promise.all([
-    Department.find({ organization: oid }).select('_id name members division').lean(),
+    Department.find({ organization: oid }).select('_id name members division head').lean(),
     Team.find({ organization: oid, isActive: { $ne: false } })
       .select('_id name department members')
       .lean(),
@@ -164,7 +168,7 @@ async function mapPlacementByUserIds(organizationId, userIds = []) {
   if (!oid || !ids.length) return out;
 
   const [departments, teams] = await Promise.all([
-    Department.find({ organization: oid }).select('_id name members division').lean(),
+    Department.find({ organization: oid }).select('_id name members division head').lean(),
     Team.find({ organization: oid, isActive: { $ne: false } })
       .select('_id name department members')
       .lean(),

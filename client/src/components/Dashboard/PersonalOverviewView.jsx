@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import {
-  Briefcase,
   Building2,
   ChevronRight,
   FolderKanban,
@@ -168,16 +167,6 @@ export default function PersonalOverviewView({ onNavigate }) {
                   </h2>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                     {displayProfile.email ? <span className="truncate">{displayProfile.email}</span> : null}
-                    {displayProfile.jobTitle ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
-                        <Briefcase size={12} aria-hidden />
-                        {displayProfile.jobTitle}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {t('dashboard.personalJobTitleEmpty')}
-                      </span>
-                    )}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Building2 size={13} className="shrink-0" aria-hidden />

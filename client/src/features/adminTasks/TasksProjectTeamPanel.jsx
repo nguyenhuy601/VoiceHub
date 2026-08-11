@@ -13,6 +13,7 @@ import projectAPI from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberUserId } from '../../utils/adminUserUtils';
+import { isOtSoftWarning, readOtSoftWarningMeta } from '../../utils/otSoftWarning';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 import OtOverrideConfirmModal from './OtOverrideConfirmModal';
 
@@ -41,6 +42,7 @@ export default function TasksProjectTeamPanel({
   const [loading, setLoading] = useState(false);
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [otModal, setOtModal] = useState(null);
   const syncedUserIdRef = useRef(null);
 
   const setBoardId = (id) => {
@@ -130,6 +132,14 @@ export default function TasksProjectTeamPanel({
     });
   };
 
+  const persistRoles = async ({ otOverride = false, otRationale = '' } = {}) => {
+    const pid = String(projectId || '').trim();
+    await projectAPI.setMemberRoles(pid, userId, [...selectedRoleKeys], {
+      otOverride,
+      otRationale,
+    });
+  };
+
   const saveRoles = async (e) => {
     e.preventDefault();
     if (!boardId || !userId || saving) return;
@@ -140,8 +150,28 @@ export default function TasksProjectTeamPanel({
     }
     setSaving(true);
     try {
-      // Cùng write path với Resource Planner — project-level setMemberRoles
-      await projectAPI.setMemberRoles(pid, userId, [...selectedRoleKeys]);
+      await persistRoles();
+      toast.success(t('adminTasks.teamRolesSaved'));
+      await load();
+    } catch (error) {
+      if (isOtSoftWarning(error)) {
+        setOtModal(readOtSoftWarningMeta(error));
+        return;
+      }
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.teamRolesFail') }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmOtOverride = async (rationale) => {
+    if (!boardId || !userId || saving) return;
+    const pid = String(projectId || '').trim();
+    if (!pid) return;
+    setSaving(true);
+    try {
+      await persistRoles({ otOverride: true, otRationale: rationale });
+      setOtModal(null);
       toast.success(t('adminTasks.teamRolesSaved'));
       await load();
     } catch (error) {

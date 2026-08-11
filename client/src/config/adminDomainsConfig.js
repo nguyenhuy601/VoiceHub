@@ -276,6 +276,7 @@ export const ADMIN_DOMAINS = [
         ],
       },
       {
+        // id path giữ systemRoles (URL /rbac/roles); copy UI = Permission / Gói quyền.
         id: 'systemRoles',
         labelKey: 'adminDomains.rbac.sectionSystemRoles',
         items: [
