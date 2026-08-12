@@ -110,6 +110,13 @@ async function updateSprint({
       await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
     } else if (st === 'active') {
       await requireBoardAdmin(boardId, userId, { permission: 'sprint:start' });
+      if (String(sprint.status || '').toLowerCase() !== 'active' && sprint.projectId) {
+        const { assertNoMemberOverlapWithActiveSprints } = require('../utils/sprintMemberOverlap');
+        await assertNoMemberOverlapWithActiveSprints({
+          projectId: sprint.projectId,
+          sprintId,
+        });
+      }
     }
     sprint.status = st;
   }

@@ -7,7 +7,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
-import { toDateInputValue } from './projectHubUtils';
+import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
 
@@ -145,6 +145,7 @@ export default function ProjectHubSettingsPanel({
   const [departments, setDepartments] = useState([]);
   const [orgPolicySeed, setOrgPolicySeed] = useState(null);
   const [dueDate, setDueDate] = useState('');
+  const [startDate, setStartDate] = useState('');
   const [background, setBackground] = useState('');
   const [roleCatalog, setRoleCatalog] = useState([]);
   const [requiredProjectRoles, setRequiredProjectRoles] = useState([]);
@@ -178,7 +179,8 @@ export default function ProjectHubSettingsPanel({
         ? board.relatedDepartmentIds.map(String)
         : []
     );
-    setDueDate(toDateInputValue(board?.dueDate));
+    setDueDate(toDateInputValue(board?.dueDate || board?.expectedEndDate));
+    setStartDate(toDateInputValue(board?.startDate));
     setBackground(String(board?.background || ''));
     setRequiredProjectRoles(Array.isArray(board?.requiredProjectRoles) ? board.requiredProjectRoles : []);
     setWorkflowTemplateId(String(board?.workflowTemplateId || '').trim());
@@ -303,10 +305,15 @@ export default function ProjectHubSettingsPanel({
   const handleSave = async (e) => {
     e?.preventDefault?.();
     if (!canManage || saving || !title.trim()) return;
+    if (isProjectDateRangeInvalid(startDate, dueDate)) {
+      toast.error(t('workspace.projectHubDateRangeInvalid'));
+      return;
+    }
     const id = resolvedProjectId || String(boardId || '').trim();
     if (!id) return;
     setSaving(true);
     try {
+      const endValue = dueDate || null;
       const body = {
         title: title.trim(),
         projectCode: projectCode.trim(),
@@ -314,7 +321,9 @@ export default function ProjectHubSettingsPanel({
         visibility,
         visibilityMode,
         relatedDepartmentIds,
-        dueDate: dueDate || null,
+        startDate: startDate || null,
+        dueDate: endValue,
+        expectedEndDate: endValue,
         background,
         requiredProjectRoles,
       };
@@ -399,14 +408,23 @@ export default function ProjectHubSettingsPanel({
         {t('workspace.projectHubFieldTitle')}
         <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} required />
       </label>
-      <label className={fieldLabelCls}>
+      <label className={`${fieldLabelCls} sm:col-span-2`}>
         {t('workspace.projectHubFieldCode')}
         <input className={inputCls} value={projectCode} onChange={(e) => setProjectCode(e.target.value)} />
+      </label>
+      <label className={fieldLabelCls}>
+        {t('workspace.projectHubFieldStart')}
+        <input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
       </label>
       <label className={fieldLabelCls}>
         {t('workspace.projectHubFieldDue')}
         <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </label>
+      {isProjectDateRangeInvalid(startDate, dueDate) ? (
+        <p className="text-sm text-destructive sm:col-span-2" role="alert">
+          {t('workspace.projectHubDateRangeInvalid')}
+        </p>
+      ) : null}
       <label className={`${fieldLabelCls} sm:col-span-2`}>
         {t('workspace.projectHubFieldDescription')}
         <textarea className={`${inputCls} min-h-[72px] resize-y`} value={description} onChange={(e) => setDescription(e.target.value)} />

@@ -13,6 +13,7 @@ export default function ProjectHubSprintSection({
   lists = [],
   canManageSprints = false,
   sprints = [],
+  memberIdsBySprintId = null,
   allowedCreateTypes = [],
   depthById = null,
   hasBoardColumn = false,
@@ -55,6 +56,7 @@ export default function ProjectHubSprintSection({
     sprints,
     issueCount: n,
     canManage: canManageSprints,
+    memberIdsBySprintId,
   });
   const dates = defaultSprintDateRange(sprint);
   const canStart = startCheck.ok && !dates.error;
@@ -111,6 +113,9 @@ export default function ProjectHubSprintSection({
             <button
               type="button"
               disabled={!canStart || busy}
+              title={
+                !canStart && startCheck.errorKey ? t(startCheck.errorKey) : undefined
+              }
               onClick={onStart}
               className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground disabled:opacity-40"
             >
@@ -124,7 +129,7 @@ export default function ProjectHubSprintSection({
               onClick={onComplete}
               className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
             >
-              {t('workspace.projectHubPlanCloseSprint')}
+              {t('workspace.projectHubPlanCompleteSprint')}
             </button>
           ) : null}
           {canManageSprints ? (

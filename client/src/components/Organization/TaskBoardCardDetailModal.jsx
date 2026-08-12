@@ -21,7 +21,13 @@ import { TASK_BOARD_LABELS, labelById, parseCardLabelIds } from './taskBoardCard
 import { uploadTaskBoardAttachment } from './taskBoardAttachmentUpload';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  buildHoursWarnMessage,
+  isHoursSoftWarning,
+  readHoursSoftWarningMeta,
+} from '../../utils/hoursSoftWarning';
 import { canSetCardAssignee } from '../../utils/goldenAssignPolicy';
+import OtOverrideConfirmModal from '../../features/adminTasks/OtOverrideConfirmModal';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
@@ -36,6 +42,22 @@ function toDatetimeLocalValue(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toDateInputValue(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function hoursInputValue(raw) {
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : '';
 }
 
 function initialsFromName(name) {
@@ -71,7 +93,10 @@ export default function TaskBoardCardDetailModal({
   const [editingDescription, setEditingDescription] = useState(false);
   const [labelIds, setLabelIds] = useState([]);
   const [dueDateLocal, setDueDateLocal] = useState('');
+  const [startDateLocal, setStartDateLocal] = useState('');
   const [estimateHours, setEstimateHours] = useState('');
+  const [hoursWarn, setHoursWarn] = useState(null);
+  const [pendingPatch, setPendingPatch] = useState(null);
   const [assigneeId, setAssigneeId] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [checklists, setChecklists] = useState([]);
@@ -103,11 +128,10 @@ export default function TaskBoardCardDetailModal({
     setDescription(String(card.description || ''));
     setLabelIds(parseCardLabelIds(card.tags));
     setDueDateLocal(toDatetimeLocalValue(card.dueDate));
-    setEstimateHours(
-      card.estimateHours != null && card.estimateHours !== ''
-        ? String(card.estimateHours)
-        : ''
-    );
+    setStartDateLocal(toDateInputValue(card.startDate));
+    setEstimateHours(hoursInputValue(card.estimateHours));
+    setHoursWarn(null);
+    setPendingPatch(null);
     setAssigneeId(card.assigneeId ? String(card.assigneeId) : '');
     setAttachments(Array.isArray(card.attachments) ? [...card.attachments] : []);
     setChecklists(Array.isArray(card.checklists) ? JSON.parse(JSON.stringify(card.checklists)) : []);
@@ -227,17 +251,40 @@ export default function TaskBoardCardDetailModal({
   };
 
   const save = async (patch) => {
-    if (!cardId || saving) return;
+    if (!cardId || saving) return false;
     setSaving(true);
     try {
       await onUpdateCard?.(cardId, patch);
       toast.success(t('taskBoard.saved'));
+      setHoursWarn(null);
+      setPendingPatch(null);
+      return true;
     } catch (err) {
+      if (isHoursSoftWarning(err)) {
+        setPendingPatch(patch);
+        setHoursWarn(readHoursSoftWarningMeta(err));
+        return false;
+      }
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.saveFail') }));
       throw err;
     } finally {
       setSaving(false);
     }
+  };
+
+  const hoursAssigneeName =
+    selectedAssignees[0]?.name ||
+    boardMembers.find((m) => m.id === String(assigneeId))?.name ||
+    '';
+
+  const confirmHoursOverride = async (rationale) => {
+    if (!pendingPatch) return;
+    const ok = await save({
+      ...pendingPatch,
+      hoursOverride: true,
+      hoursRationale: rationale,
+    });
+    if (ok) setPanel('detail');
   };
 
   if (!isOpen || !cardId) return null;
@@ -377,7 +424,16 @@ export default function TaskBoardCardDetailModal({
           </button>
         </div>
         <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Ngày hết hạn
+          {t('taskBoard.startDate')}
+        </label>
+        <input
+          type="date"
+          value={startDateLocal}
+          onChange={(e) => setStartDateLocal(e.target.value)}
+          className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
+        />
+        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          {t('taskBoard.dueDate')}
         </label>
         <input
           type="datetime-local"
@@ -385,13 +441,36 @@ export default function TaskBoardCardDetailModal({
           onChange={(e) => setDueDateLocal(e.target.value)}
           className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
         />
+        {isTimeTrackingV1Enabled() && canEstimate ? (
+          <>
+            <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              {t('taskBoard.estimateHours')}
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.25"
+              value={estimateHours}
+              onChange={(e) => setEstimateHours(e.target.value)}
+              className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
+            />
+          </>
+        ) : null}
         <button
           type="button"
           disabled={saving}
           className={`mb-2 w-full ${FIGMA_ORG_TASK_MODAL_PRIMARY_BTN}`}
           onClick={async () => {
-            await save({ dueDate: dueDateLocal ? new Date(dueDateLocal).toISOString() : null });
-            setPanel('detail');
+            const hoursRaw = String(estimateHours || '').trim();
+            const patch = {
+              startDate: startDateLocal || null,
+              dueDate: dueDateLocal ? new Date(dueDateLocal).toISOString() : null,
+            };
+            if (isTimeTrackingV1Enabled() && canEstimate) {
+              patch.estimateHours = hoursRaw === '' ? null : Number(hoursRaw);
+            }
+            const ok = await save(patch);
+            if (ok) setPanel('detail');
           }}
         >
           Lưu
@@ -402,8 +481,9 @@ export default function TaskBoardCardDetailModal({
           className={`w-full text-sm ${isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
           onClick={async () => {
             setDueDateLocal('');
-            await save({ dueDate: null });
-            setPanel('detail');
+            setStartDateLocal('');
+            const ok = await save({ dueDate: null, startDate: null });
+            if (ok) setPanel('detail');
           }}
         >
           Gỡ bỏ
@@ -597,10 +677,20 @@ export default function TaskBoardCardDetailModal({
               </div>
             </div>
 
-            {dueDateLocal ? (
-              <div className={`mb-3 flex items-center gap-2 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                <Calendar className="h-4 w-4" />
-                Hạn: {new Date(dueDateLocal).toLocaleString('vi-VN')}
+            {dueDateLocal || startDateLocal ? (
+              <div className={`mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                {startDateLocal ? (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4" />
+                    {t('taskBoard.startDate')}: {startDateLocal}
+                  </span>
+                ) : null}
+                {dueDateLocal ? (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4" />
+                    {t('taskBoard.dueDate')}: {new Date(dueDateLocal).toLocaleString('vi-VN')}
+                  </span>
+                ) : null}
               </div>
             ) : null}
 
@@ -932,6 +1022,22 @@ export default function TaskBoardCardDetailModal({
           </aside>
         </div>
       </div>
+      <OtOverrideConfirmModal
+        isOpen={Boolean(hoursWarn)}
+        onClose={() => {
+          setHoursWarn(null);
+          setPendingPatch(null);
+        }}
+        onConfirm={confirmHoursOverride}
+        busy={saving}
+        title={t('taskBoard.hoursOverrideTitle')}
+        confirmText={t('taskBoard.hoursOverrideConfirm')}
+        cancelText={t('taskBoard.cancelAria')}
+        rationaleLabel={t('taskBoard.hoursOverrideRationale')}
+        rationalePlaceholder={t('taskBoard.hoursOverridePlaceholder')}
+        rationaleRequiredText={t('taskBoard.hoursOverrideNeedReason')}
+        message={buildHoursWarnMessage(hoursWarn, t, hoursAssigneeName)}
+      />
     </>,
     document.body
   );

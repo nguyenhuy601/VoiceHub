@@ -35,9 +35,12 @@ export default function TaskWorklogPanel({
       const res = await taskAPI.listWorklogs(taskId, { organizationId });
       setSummary(unwrapTaskApiPayload(res));
     } catch (err) {
-      toast.error(
-        resolveApiErrorMessage(err, { t, fallback: t('taskBoard.worklogLoadFail') })
-      );
+      const code = err?.response?.data?.errorCode || err?.response?.data?.code || '';
+      // When task was removed/moved and the UI still holds a stale cardId,
+      // treat TASK_NOT_FOUND as a non-blocking empty state.
+      if (code !== 'TASK_NOT_FOUND') {
+        toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.worklogLoadFail') }));
+      }
       setSummary(null);
     } finally {
       setLoading(false);

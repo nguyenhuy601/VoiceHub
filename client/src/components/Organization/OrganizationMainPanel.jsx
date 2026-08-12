@@ -58,6 +58,7 @@ import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
 import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
 import { queryKeys } from '../../lib/queryKeys';
 
 import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
@@ -1304,7 +1305,9 @@ const OrganizationMainPanel = ({
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));
+      if (!isHoursSoftWarning(err)) {
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));
+      }
       throw err;
     }
   };
@@ -2160,6 +2163,7 @@ const OrganizationMainPanel = ({
       emptySlot={renderTaskBoardPanel(false)}
       onBack={onBackFromTasks}
       onBoardChange={setSelectedTaskBoardId}
+      currentUserId={currentUserId ? String(currentUserId) : ''}
     />
   );
 

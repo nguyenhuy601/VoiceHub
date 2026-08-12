@@ -44,7 +44,7 @@ describe('projectVisibility resolve', () => {
     assert.equal(access.discover, false);
   });
 
-  it('T3: related dept manager on → summary', () => {
+  it('T3: related dept manager alone → no discover (bỏ discover theo phòng)', () => {
     const access = resolveProjectAccess({
       actor: {
         userId: 'u2',
@@ -63,9 +63,8 @@ describe('projectVisibility resolve', () => {
       membership: { isMember: false, projectRoleKeys: [] },
       orgPolicy,
     });
-    assert.equal(access.discover, true);
-    assert.equal(access.informationLevel, 'summary');
-    assert.ok(access.audiences.includes('related_department_managers'));
+    assert.equal(access.discover, false);
+    assert.equal(access.audiences.includes('related_department_managers'), false);
   });
 
   it('project member + related dept manager → details (not stuck at summary)', () => {
@@ -125,7 +124,7 @@ describe('projectVisibility resolve', () => {
     assert.ok(audiences.includes('project_managers'));
   });
 
-  it('custom override levels apply', () => {
+  it('custom related-dept override alone → no discover', () => {
     const access = resolveProjectAccess({
       actor: {
         userId: 'u3',
@@ -149,6 +148,35 @@ describe('projectVisibility resolve', () => {
         visibility: 'private',
       },
       membership: { isMember: false, projectRoleKeys: [] },
+      orgPolicy,
+    });
+    assert.equal(access.discover, false);
+  });
+
+  it('custom override on project_members still applies when member', () => {
+    const access = resolveProjectAccess({
+      actor: {
+        userId: 'u3',
+        isOrgMember: true,
+        membershipRole: 'member',
+        headedDepartmentIds: [],
+        memberDepartmentIds: [],
+        organizationRoleKeys: [],
+      },
+      project: {
+        createdBy: 'other',
+        relatedDepartmentIds: [],
+        visibilityMode: 'custom',
+        visibilityPolicy: normalizeProjectVisibilityPolicy({
+          discoverAudiences: { project_members: true },
+          defaultInformationLevels: { project_members: 'details' },
+        }),
+        informationLevelOverrides: [
+          { audience: 'project_members', level: 'confidential' },
+        ],
+        visibility: 'private',
+      },
+      membership: { isMember: true, projectRoleKeys: ['developer'] },
       orgPolicy,
     });
     assert.equal(access.discover, true);

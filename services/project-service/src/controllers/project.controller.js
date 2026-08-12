@@ -1,5 +1,6 @@
 const mongoose = require('../db');
 const projectService = require('../services/project.service');
+const sprintCloseService = require('../services/sprintClose.service');
 const { setUserProjectRoles } = require('../services/projectTeam.service');
 const { listMemberCandidates } = require('../services/projectMemberCandidate.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
@@ -371,6 +372,74 @@ async function patchSprint(req, res) {
   }
 }
 
+async function completeSprintPreview(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId, sprintId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId) || !validOid(sprintId)) {
+      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+    }
+    const data = await sprintCloseService.getCompleteSprintPreview({
+      userId,
+      projectId,
+      sprintId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể tải preview đóng sprint',
+      'PROJECT_SPRINT_COMPLETE_PREVIEW_FAILED'
+    );
+  }
+}
+
+async function completeSprint(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId, sprintId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId) || !validOid(sprintId)) {
+      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+    }
+
+    const body = req.body || {};
+    const incompleteAction = body.incompleteAction;
+    const targetSprintId = body.targetSprintId;
+
+    if (incompleteAction !== undefined && incompleteAction !== null) {
+      const v = String(incompleteAction || '').toLowerCase().trim();
+      if (!['backlog', 'sprint'].includes(v)) {
+        return res.status(400).json({ success: false, message: 'incompleteAction không hợp lệ' });
+      }
+    }
+
+    if (targetSprintId !== undefined && targetSprintId !== null && !validOid(targetSprintId)) {
+      return res.status(400).json({ success: false, message: 'targetSprintId không hợp lệ' });
+    }
+
+    const data = await sprintCloseService.completeSprint({
+      userId,
+      projectId,
+      sprintId,
+      incompleteAction,
+      targetSprintId: targetSprintId || null,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể hoàn thành sprint',
+      'PROJECT_SPRINT_COMPLETE_FAILED'
+    );
+  }
+}
+
 module.exports = {
   createProject,
   listProjects,
@@ -388,4 +457,6 @@ module.exports = {
   listSprints,
   createSprint,
   patchSprint,
+  completeSprintPreview,
+  completeSprint,
 };

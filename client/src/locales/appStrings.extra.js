@@ -67,6 +67,8 @@ export const extraStrings = {
         MESSAGE_NOT_FOUND: 'Không tìm thấy tin nhắn.',
         CHAT_INTERNAL_ERROR: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
         TASK_NOT_FOUND: 'Không tìm thấy task.',
+        SPRINT_MEMBER_OVERLAP:
+          'Không thể start sprint: có thành viên đang tham gia sprint đang chạy khác.',
         TASK_BOARD_NOT_FOUND: 'Không tìm thấy board.',
         TASK_INTERNAL_ERROR: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
         TASK_BOARD_INTERNAL_ERROR: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
@@ -506,6 +508,8 @@ export const extraStrings = {
         MESSAGE_NOT_FOUND: 'Message not found.',
         CHAT_INTERNAL_ERROR: 'System is temporarily unavailable. Please try again later.',
         TASK_NOT_FOUND: 'Task not found.',
+        SPRINT_MEMBER_OVERLAP:
+          'Cannot start sprint: a member is already on another active sprint.',
         TASK_BOARD_NOT_FOUND: 'Board not found.',
         TASK_INTERNAL_ERROR: 'System is temporarily unavailable. Please try again later.',
         TASK_BOARD_INTERNAL_ERROR: 'System is temporarily unavailable. Please try again later.',

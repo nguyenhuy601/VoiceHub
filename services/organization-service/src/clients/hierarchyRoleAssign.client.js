@@ -1,10 +1,10 @@
 /**
- * Dual-write RBAC hierarchy roles (dep_ / team_) when People Graph members change.
+ * One-way cleanup: gỡ UserRole hierarchy (dep_/team_) khi user bị gỡ khỏi phòng/team.
+ * Không gán UserRole khi add member — People Graph (Department.members) độc lập RBAC pack.
  * S2S via GATEWAY_INTERNAL_TOKEN — role-permission bypasses requireOrgRoleManager.
  */
 const axios = require('axios');
 const { logger } = require('@enterprise/shared');
-const { ensureDepartmentRole, ensureTeamRole } = require('../services/hierarchyRoleSync');
 
 const ROLE_PERMISSION_BASE = String(process.env.ROLE_PERMISSION_SERVICE_URL || '')
   .trim()
@@ -56,6 +56,7 @@ async function postAssignOrRemove(path, { userId, serverId, roleId }) {
 async function assignDepartmentHierarchyRole(organizationId, userId, departmentId, departmentName) {
   if (!userId || !departmentId) return false;
   try {
+    const { ensureDepartmentRole } = require('../services/hierarchyRoleSync');
     await ensureDepartmentRole(organizationId, departmentId, departmentName);
     const roles = await listRoles(organizationId);
     const roleId = findRoleIdByTag(roles, `dep_${shortId(departmentId)}`);
@@ -96,6 +97,7 @@ async function revokeDepartmentHierarchyRole(organizationId, userId, departmentI
 async function assignTeamHierarchyRole(organizationId, userId, teamId, teamName) {
   if (!userId || !teamId) return false;
   try {
+    const { ensureTeamRole } = require('../services/hierarchyRoleSync');
     await ensureTeamRole(organizationId, teamId, teamName);
     const roles = await listRoles(organizationId);
     const roleId = findRoleIdByTag(roles, `team_${shortId(teamId)}`);
@@ -134,21 +136,12 @@ async function revokeTeamHierarchyRole(organizationId, userId, teamId) {
 }
 
 /**
- * Diff before/after department patches → assign/revoke dep_ roles (best-effort).
+ * Diff before/after department patches → members added/removed per dept.
  * @param {Array<{ _id: string, members: string[] }>} beforeDepts
  * @param {Array<{ deptId: string, members: string[] }>} patches
- * @param {Map<string, string>|Record<string, string>} [deptNameById]
+ * @returns {{ assigns: Array<{ userId: string, departmentId: string }>, revokes: Array<{ userId: string, departmentId: string }> }}
  */
-async function syncDepartmentHierarchyRolesFromPatches(
-  organizationId,
-  beforeDepts,
-  patches,
-  deptNameById = {}
-) {
-  const nameOf = (deptId) => {
-    if (deptNameById instanceof Map) return deptNameById.get(String(deptId)) || '';
-    return deptNameById[String(deptId)] || '';
-  };
+function diffDepartmentHierarchyRoleChanges(beforeDepts, patches) {
   const beforeById = new Map(
     (beforeDepts || []).map((d) => [String(d._id || d.id), new Set((d.members || []).map(String))])
   );
@@ -167,41 +160,57 @@ async function syncDepartmentHierarchyRolesFromPatches(
       if (uid && !after.has(uid)) revokes.push({ userId: uid, departmentId: deptId });
     }
   }
+  return { assigns, revokes };
+}
 
-  for (const row of assigns) {
-    await assignDepartmentHierarchyRole(
-      organizationId,
-      row.userId,
-      row.departmentId,
-      nameOf(row.departmentId)
-    );
-  }
+/**
+ * Cleanup legacy dep_ UserRole khi user bị gỡ khỏi phòng — không assign khi add member.
+ * @param {Array<{ _id: string, members: string[] }>} beforeDepts
+ * @param {Array<{ deptId: string, members: string[] }>} patches
+ */
+async function syncDepartmentHierarchyRolesFromPatches(
+  organizationId,
+  beforeDepts,
+  patches,
+  _deptNameById = {}
+) {
+  const { revokes } = diffDepartmentHierarchyRoleChanges(beforeDepts, patches);
   for (const row of revokes) {
     await revokeDepartmentHierarchyRole(organizationId, row.userId, row.departmentId);
   }
 }
 
 /**
- * Sync team_ roles when Team.members array is replaced.
+ * Diff team member list → added/removed user ids.
+ * @returns {{ added: string[], removed: string[] }}
+ */
+function diffTeamHierarchyRoleChanges(previousMemberIds, nextMemberIds) {
+  const before = new Set((previousMemberIds || []).map(String).filter(Boolean));
+  const after = new Set((nextMemberIds || []).map(String).filter(Boolean));
+  const added = [];
+  const removed = [];
+  for (const uid of after) {
+    if (!before.has(uid)) added.push(uid);
+  }
+  for (const uid of before) {
+    if (!after.has(uid)) removed.push(uid);
+  }
+  return { added, removed };
+}
+
+/**
+ * Cleanup legacy team_ UserRole khi member bị gỡ — không assign khi add member.
  */
 async function syncTeamHierarchyRolesFromMemberChange(
   organizationId,
   teamId,
-  teamName,
+  _teamName,
   previousMemberIds,
   nextMemberIds
 ) {
-  const before = new Set((previousMemberIds || []).map(String).filter(Boolean));
-  const after = new Set((nextMemberIds || []).map(String).filter(Boolean));
-  for (const uid of after) {
-    if (!before.has(uid)) {
-      await assignTeamHierarchyRole(organizationId, uid, teamId, teamName);
-    }
-  }
-  for (const uid of before) {
-    if (!after.has(uid)) {
-      await revokeTeamHierarchyRole(organizationId, uid, teamId);
-    }
+  const { removed } = diffTeamHierarchyRoleChanges(previousMemberIds, nextMemberIds);
+  for (const uid of removed) {
+    await revokeTeamHierarchyRole(organizationId, uid, teamId);
   }
 }
 
@@ -210,6 +219,8 @@ module.exports = {
   revokeDepartmentHierarchyRole,
   assignTeamHierarchyRole,
   revokeTeamHierarchyRole,
+  diffDepartmentHierarchyRoleChanges,
+  diffTeamHierarchyRoleChanges,
   syncDepartmentHierarchyRolesFromPatches,
   syncTeamHierarchyRolesFromMemberChange,
 };

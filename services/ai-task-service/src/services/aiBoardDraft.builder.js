@@ -57,25 +57,6 @@ function buildProjectDraft({
   };
 }
 
-/**
- * Suy Responsibility key từ tên list / brief — khớp Excel primaryDomain → soft-assign.
- * Rỗng = không đoán (AI không bịa chuyên môn).
- */
-function inferResponsibilityKeyFromText(raw) {
-  const t = String(raw || '')
-    .trim()
-    .toLowerCase();
-  if (!t) return '';
-  if (/\b(backend|back-end|\bbe\b)\b/.test(t)) return 'backend';
-  if (/\b(frontend|front-end|\bfe\b)\b/.test(t)) return 'frontend';
-  if (/\b(devops|sre|kubernetes)\b/.test(t)) return 'devops';
-  if (/\b(qa|tester|kiểm thử)\b/.test(t)) return 'qa';
-  if (/\b(design|ui\/ux|\bux\b|\bui\b)\b/.test(t)) return 'design';
-  if (/\b(architect|architecture)\b/.test(t)) return 'architecture';
-  if (/\b(product|\bba\b|business analyst|scrum|\bpo\b)\b/.test(t)) return 'product';
-  return '';
-}
-
 function buildTeamAssignSuggestions({
   listTitle = '',
   boardTitle = '',
@@ -127,5 +108,4 @@ module.exports = {
   STATUS_LISTS_VI,
   buildProjectDraft,
   buildTeamAssignSuggestions,
-  inferResponsibilityKeyFromText,
 };

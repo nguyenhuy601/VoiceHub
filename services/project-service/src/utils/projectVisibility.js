@@ -32,11 +32,6 @@ function classifyAudiences(actor = {}, project = {}, membership = {}) {
       String(k || '').trim().toLowerCase()
     )
   );
-  const headed = new Set((actor.headedDepartmentIds || []).map(String));
-  const memberDepts = new Set((actor.memberDepartmentIds || []).map(String));
-  const related = (Array.isArray(project.relatedDepartmentIds) ? project.relatedDepartmentIds : []).map(
-    String
-  );
 
   if (membershipRole === 'owner') matched.add('system_admins');
   if (membershipRole === 'owner' || membershipRole === 'admin') matched.add('organization_admins');
@@ -50,8 +45,7 @@ function classifyAudiences(actor = {}, project = {}, membership = {}) {
   if (isMember) matched.add('project_members');
   if (isCreator || roleKeys.some((k) => PM_ROLE_KEYS.has(k))) matched.add('project_managers');
 
-  if (related.some((id) => headed.has(id))) matched.add('related_department_managers');
-  if (related.some((id) => memberDepts.has(id))) matched.add('related_department_members');
+  // relatedDepartmentIds không còn dùng để discover (chỉ thành viên dự án / elevated org).
 
   if (actor.isOrgMember) matched.add('all_employees');
 

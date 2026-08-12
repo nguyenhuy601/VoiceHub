@@ -209,6 +209,8 @@ router.post('/:projectId/boards', controller.createBoard);
 router.get('/:projectId/sprints', controller.listSprints);
 router.post('/:projectId/sprints', controller.createSprint);
 router.patch('/:projectId/sprints/:sprintId', controller.patchSprint);
+router.get('/:projectId/sprints/:sprintId/complete-preview', controller.completeSprintPreview);
+router.post('/:projectId/sprints/:sprintId/complete', controller.completeSprint);
 router.get(
   '/:projectId/sprints/:sprintId/time-summary',
   require('../controllers/worklog.controller').getSprintTimeSummaryController

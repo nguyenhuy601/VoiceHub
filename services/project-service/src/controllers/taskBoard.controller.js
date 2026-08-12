@@ -28,6 +28,19 @@ function boardValidation(res, message, errorCode = 'VALIDATION_INVALID_ID') {
   return sendServiceError(res, 400, { errorCode, messageUser: msg, message: msg });
 }
 
+function sendHoursSoftWarning(res, err) {
+  return sendServiceError(res, 409, {
+    errorCode: 'HOURS_SOFT_WARNING',
+    messageUser: err.messageUser || err.message || 'HOURS_SOFT_WARNING',
+    message: err.message || 'HOURS_SOFT_WARNING',
+    extra: {
+      daily: err.daily || [],
+      weekly: err.weekly || [],
+      assigneeId: err.assigneeId || null,
+    },
+  });
+}
+
 class TaskBoardController {
   async createBoard(req, res) {
     return sendServiceError(res, 410, {
@@ -127,6 +140,7 @@ class TaskBoardController {
       const data = await boardService.createCard({ userId, boardId, ...req.body });
       return res.status(201).json({ success: true, data });
     } catch (err) {
+      if (err?.errorCode === 'HOURS_SOFT_WARNING') return sendHoursSoftWarning(res, err);
       return sendError(res, err, 400, 'Không thể tạo card', 'TASK_BOARD_CARD_CREATE_FAILED');
     }
   }
@@ -336,11 +350,14 @@ class TaskBoardController {
         summary,
         priority,
         dueDate,
+        startDate,
         tags,
         assigneeId,
         ownerTeamId,
         attachments,
         status,
+        hoursOverride,
+        hoursRationale,
       } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
@@ -352,11 +369,14 @@ class TaskBoardController {
         summary,
         priority,
         dueDate,
+        startDate,
         tags,
         assigneeId,
         ownerTeamId,
         attachments,
         status,
+        hoursOverride,
+        hoursRationale,
         taskType: req.body?.taskType,
         assignments: req.body?.assignments,
         checklists: req.body?.checklists,
@@ -367,6 +387,7 @@ class TaskBoardController {
       });
       return res.json({ success: true, data });
     } catch (err) {
+      if (err?.errorCode === 'HOURS_SOFT_WARNING') return sendHoursSoftWarning(res, err);
       return sendError(res, err, 400, 'Không thể cập nhật card', 'TASK_BOARD_CARD_UPDATE_FAILED');
     }
   }

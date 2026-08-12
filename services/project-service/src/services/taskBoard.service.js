@@ -34,6 +34,10 @@ const {
   isProjectVisibilityV2Enabled,
   resolveProjectAccess,
 } = require('../utils/projectVisibility');
+const {
+  isOrgElevatedMembershipRole,
+  memberScopedProjectFilter,
+} = require('../utils/projectListMembershipScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isCreateBoardSeedEnabled,
@@ -44,6 +48,12 @@ const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
+const {
+  normalizeEstimateHours: normalizeHoursEstimate,
+  parseStartDate,
+  hoursFieldsTouched,
+  assertHoursCapacityOrThrow,
+} = require('./hoursCapacityGuard.service');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -402,18 +412,37 @@ async function discoverableProjectIdsForUser(userId, organizationId) {
   const orgOid = mongoose.Types.ObjectId.isValid(organizationId)
     ? new mongoose.Types.ObjectId(String(organizationId))
     : null;
-  if (!orgOid || !userId) return [];
+  const userOid = mongoose.Types.ObjectId.isValid(userId)
+    ? new mongoose.Types.ObjectId(String(userId))
+    : null;
+  if (!orgOid || !userOid) return [];
 
   const ctx = await fetchProjectVisibilityContext(organizationId, userId);
   if (!ctx.isOrgMember) return [];
 
   const Project = require('../models/Project');
-  const projects = await Project.find({ organizationId: orgOid, isActive: true }).lean();
+  const base = { organizationId: orgOid, isActive: true };
+  const elevated = isOrgElevatedMembershipRole(ctx.membershipRole);
+
+  const membershipRowsEarly = await ProjectMembership.find({ userId: userOid })
+    .select('projectId projectRoleId')
+    .lean();
+  const memberProjectIds = [
+    ...new Set(
+      membershipRowsEarly
+        .map((r) => String(r.projectId || ''))
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    ),
+  ].map((id) => new mongoose.Types.ObjectId(id));
+
+  const projects = elevated
+    ? await Project.find(base).lean()
+    : await Project.find(memberScopedProjectFilter(base, userOid, memberProjectIds)).lean();
   if (!projects.length) return [];
 
   const projectIds = projects.map((p) => p._id);
   const membershipRows = await ProjectMembership.find({
-    userId,
+    userId: userOid,
     projectId: { $in: projectIds },
   })
     .select('projectId projectRoleId')
@@ -445,7 +474,9 @@ async function discoverableProjectIdsForUser(userId, organizationId) {
     const pid = String(project._id);
     const projectRoleKeys = rolesByProject.get(pid) || [];
     const isMember =
-      projectRoleKeys.length > 0 || String(project.createdBy || '') === String(userId);
+      membershipRows.some((r) => String(r.projectId) === pid) ||
+      projectRoleKeys.length > 0 ||
+      String(project.createdBy || '') === String(userId);
     const access = resolveProjectAccess({
       actor,
       project,
@@ -939,6 +970,10 @@ async function createCard({
   epicId,
   issueType,
   sprintId,
+  estimateHours,
+  startDate,
+  hoursOverride,
+  hoursRationale,
 }) {
   const board = await ensureBoardCreateCards(boardId, userId);
   if (!board) {
@@ -1022,6 +1057,26 @@ async function createCard({
   const nextPos = (Number(last?.position) || 0) + 1000;
   const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
 
+  const nextEstimateHours =
+    estimateHours !== undefined ? normalizeHoursEstimate(estimateHours) : null;
+  const nextStartDate = startDate !== undefined ? parseStartDate(startDate) : null;
+  const nextDueDate = dueDate ? new Date(dueDate) : null;
+
+  await assertHoursCapacityOrThrow({
+    assigneeId: nextAssigneeId || null,
+    excludeCardId: null,
+    proposed: {
+      estimateHours: nextEstimateHours,
+      startDate: nextStartDate,
+      dueDate: nextDueDate,
+    },
+    hoursOverride: Boolean(hoursOverride),
+    hoursRationale,
+    organizationId: board.organizationId,
+    boardId: board._id,
+    overriddenBy: userId,
+  });
+
   const row = await Task.create({
     boardId,
     listId,
@@ -1037,7 +1092,9 @@ async function createCard({
     assignments: nextAssignments,
     createdBy: userId,
     priority: priority || 'medium',
-    dueDate: dueDate || null,
+    dueDate: nextDueDate,
+    startDate: nextStartDate,
+    estimateHours: nextEstimateHours,
     position: nextPos,
     tags: Array.isArray(tags) ? tags : [],
     checklists: Array.isArray(checklists) ? checklists : [],
@@ -1364,6 +1421,9 @@ async function updateCard({
   epicId,
   issueType,
   estimateHours,
+  startDate,
+  hoursOverride,
+  hoursRationale,
 }) {
   const card = await Task.findById(cardId);
   if (!card || !card.boardId) throw new Error('Card không tồn tại');
@@ -1378,6 +1438,7 @@ async function updateCard({
   if (summary !== undefined) next.summary = String(summary).trim();
   if (priority !== undefined) next.priority = priority || 'medium';
   if (dueDate !== undefined) next.dueDate = dueDate ? new Date(dueDate) : null;
+  if (startDate !== undefined) next.startDate = startDate ? parseStartDate(startDate) : null;
   if (estimateHours !== undefined) {
     const { normalizeEstimateHours } = require('../utils/timeTracking');
     next.estimateHours = normalizeEstimateHours(estimateHours);
@@ -1582,6 +1643,26 @@ async function updateCard({
       boardId: board._id,
       assigneeId: effectiveAssignee || null,
       actorId: userId,
+    });
+  }
+
+  if (
+    hoursFieldsTouched({ assigneeId, assignments, estimateHours, startDate, dueDate })
+  ) {
+    await assertHoursCapacityOrThrow({
+      assigneeId: effectiveAssignee || null,
+      excludeCardId: card._id,
+      proposed: {
+        estimateHours:
+          next.estimateHours !== undefined ? next.estimateHours : card.estimateHours,
+        startDate: next.startDate !== undefined ? next.startDate : card.startDate,
+        dueDate: next.dueDate !== undefined ? next.dueDate : card.dueDate,
+      },
+      hoursOverride: Boolean(hoursOverride),
+      hoursRationale,
+      organizationId: board.organizationId,
+      boardId: board._id,
+      overriddenBy: userId,
     });
   }
 

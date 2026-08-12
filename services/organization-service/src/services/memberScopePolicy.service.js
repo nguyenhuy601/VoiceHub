@@ -266,6 +266,7 @@ module.exports = {
   listActiveAssignments,
   upsertAssignmentsFromScopes,
   mergeAssignmentsIntoScopes,
+  resolveStructuralScopes,
   resolveEffectiveScopesFromAssignments,
   pickPrimaryScope,
 };

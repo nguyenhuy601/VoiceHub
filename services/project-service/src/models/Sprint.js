@@ -47,6 +47,29 @@ const sprintSchema = new mongoose.Schema(
       default: 'planned',
       index: true,
     },
+    /**
+     * Lifecycle fields (close).
+     * Additive-only: không phá dữ liệu hiện có.
+     */
+    closedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+    /**
+     * Snapshot payload phục vụ Sprint Review/Report.
+     * Không dùng cho query index.
+     */
+    closureSnapshot: {
+      type: Object,
+      default: null,
+    },
     reviewNotes: {
       type: String,
       trim: true,

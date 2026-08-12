@@ -9,6 +9,7 @@ import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
 import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
+import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import { isBoardSprintReady } from './projectHubHierarchy';
 import {
   PROJECT_HUB_TABS,
@@ -18,7 +19,7 @@ import {
   countCardsByIssueType,
   formatHubDate,
   projectInitials,
-  resolveActiveSprint,
+  resolveViewerActiveSprint,
   unwrapPlanningList,
 } from './projectHubUtils';
 
@@ -272,6 +273,7 @@ export default function ProjectHubShell({
   emptySlot = null,
   onBack = null,
   onBoardChange = null,
+  currentUserId = '',
 }) {
   const { t } = useAppStrings();
   const [tab, setTab] = useState('overview');
@@ -291,7 +293,7 @@ export default function ProjectHubShell({
   const sprintsLoadedForRef = useRef('');
   const activityLoadedForRef = useRef('');
   const filesLoadedForRef = useRef('');
-  const boardReadyAppliedRef = useRef(false);
+  const [completeSprintId, setCompleteSprintId] = useState(null);
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -326,7 +328,6 @@ export default function ProjectHubShell({
     sprintsLoadedForRef.current = '';
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
-    boardReadyAppliedRef.current = false;
   }
 
   const needsSprints = tab === 'planning' || tab === 'board';
@@ -429,7 +430,19 @@ export default function ProjectHubShell({
   }, [projectId, planningReloadToken, needsPlanningItems]);
 
   const boardReady = useMemo(() => isBoardSprintReady(sprints), [sprints]);
-  const activeSprint = useMemo(() => resolveActiveSprint(sprints), [sprints]);
+  const cardsForSprintResolve = useMemo(
+    () => (Array.isArray(boardDetail?.cards) ? boardDetail.cards : []),
+    [boardDetail?.cards]
+  );
+  const activeSprint = useMemo(
+    () =>
+      resolveViewerActiveSprint({
+        sprints,
+        cards: cardsForSprintResolve,
+        userId: currentUserId,
+      }),
+    [sprints, cardsForSprintResolve, currentUserId]
+  );
   const sprintFilterId =
     boardReady && activeSprint?._id ? String(activeSprint._id) : '';
   const boardEpics = useMemo(
@@ -476,13 +489,6 @@ export default function ProjectHubShell({
         },
       })
     : boardSlot;
-
-  useEffect(() => {
-    if (boardReadyAppliedRef.current) return;
-    if (!projectId) return;
-    boardReadyAppliedRef.current = true;
-    if (!boardReady && tab === 'board') setTab('list');
-  }, [projectId, boardReady, tab]);
 
   const projectAccess = projectPayload?.access || null;
 
@@ -609,6 +615,16 @@ export default function ProjectHubShell({
             </option>
           ))}
         </select>
+      ) : null}
+      {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
+        <button
+          type="button"
+          onClick={() => setCompleteSprintId(String(activeSprint._id))}
+          disabled={!boardReady}
+          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
+        >
+          {t('workspace.projectHubPlanCompleteSprint')}
+        </button>
       ) : null}
     </div>
   );
@@ -893,6 +909,25 @@ export default function ProjectHubShell({
             workTypeConfig={projectPayload?.workTypeConfig}
           />
         ) : null}
+
+        <ProjectHubCompleteSprintModal
+          isOpen={Boolean(completeSprintId)}
+          projectId={projectId}
+          sprint={
+            completeSprintId
+              ? sprints.find((s) => String(s._id) === String(completeSprintId)) || null
+              : null
+          }
+          canManageSprints={Boolean(hubCaps?.canManageSprints || canManage)}
+          onClose={() => setCompleteSprintId(null)}
+          onCompleted={() => {
+            toast.success(t('workspace.projectHubPlanSprintClosed'));
+            void reloadSprints();
+            reloadPlanning();
+            onRefresh?.();
+            setCompleteSprintId(null);
+          }}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { Search, UserPlus, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConfirmDialog } from '../../components/Shared';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
@@ -30,6 +30,8 @@ import {
 import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
+/** Số dòng mỗi trang trên danh sách admin users. */
+const USERS_LIST_PAGE_SIZE = 10;
 const CAP_BADGE = {
   pending_hr: 'bg-amber-500/12 text-amber-800 ring-1 ring-amber-500/25 dark:text-amber-200',
   verified: 'bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300',
@@ -138,26 +140,6 @@ function OrgRoleCell({ rows, emptyLabel }) {
   );
 }
 
-function ResponsibilityCell({ keys, emptyLabel }) {
-  const { visible, overflow } = formatResponsibilityBadges(keys);
-  if (!visible.length) return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
-  return (
-    <div className="flex max-w-[160px] flex-wrap gap-1">
-      {visible.map((key) => (
-        <span
-          key={key}
-          className="inline-flex rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] font-medium text-teal-800 ring-1 ring-teal-500/15 dark:text-teal-200"
-        >
-          {key}
-        </span>
-      ))}
-      {overflow > 0 ? (
-        <span className="text-[10px] text-muted-foreground">+{overflow}</span>
-      ) : null}
-    </div>
-  );
-}
-
 function SortableTh({ label, columnKey, activeKey, dir, onSort }) {
   const active = activeKey === columnKey;
   return (
@@ -218,6 +200,7 @@ export default function UsersListPanel({ orgId }) {
   const [scopeFilter, setScopeFilter] = useState('');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
+  const [page, setPage] = useState(1);
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
@@ -225,6 +208,10 @@ export default function UsersListPanel({ orgId }) {
   const [capabilityByUser, setCapabilityByUser] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [orgId, query, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
 
   useEffect(() => {
     if (!orgId) return undefined;
@@ -257,6 +244,100 @@ export default function UsersListPanel({ orgId }) {
       cancelled = true;
     };
   }, [orgId, t]);
+
+  const formatWhen = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(locale === 'en' ? 'en-US' : 'vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const scopeOptions = useMemo(() => {
+    const opts = [];
+    for (const [id, name] of structureMaps.departments) {
+      opts.push({ id: `dep:${id}`, label: name, type: 'department' });
+    }
+    for (const [id, name] of structureMaps.teams) {
+      opts.push({ id: `team:${id}`, label: name, type: 'team' });
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [structureMaps]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return members.filter((m) => {
+      if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
+      if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
+      if (capabilityFilter) {
+        const id = memberUserId(m);
+        const cap = capabilityByUser[id] || 'draft';
+        if (capabilityFilter === 'draft') {
+          if (cap !== 'draft' && cap !== '') return false;
+        } else if (cap !== capabilityFilter) {
+          return false;
+        }
+      }
+      if (scopeFilter) {
+        const [kind, id] = scopeFilter.split(':');
+        if (kind === 'dep' && memberDepartmentId(m) !== id) return false;
+        if (kind === 'team' && memberTeamId(m) !== id) return false;
+      }
+      if (!q) return true;
+      const id = memberUserId(m);
+      const dep = structureMaps.departments.get(memberDepartmentId(m)) || '';
+      const team = structureMaps.teams.get(memberTeamId(m)) || '';
+      const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
+        normalizeRoleDisplayName(row?.name || row?.role?.name)
+      );
+      const jobTitle = memberJobTitle(m).toLowerCase();
+      const code = memberEmployeeCode(m).toLowerCase();
+      return (
+        memberDisplayName(m).toLowerCase().includes(q) ||
+        memberEmail(m).toLowerCase().includes(q) ||
+        memberOrgRole(m).includes(q) ||
+        jobTitle.includes(q) ||
+        rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
+        dep.toLowerCase().includes(q) ||
+        team.toLowerCase().includes(q) ||
+        code.includes(q) ||
+        id.toLowerCase().includes(q)
+      );
+    });
+  }, [
+    members,
+    query,
+    roleFilter,
+    statusFilter,
+    capabilityFilter,
+    scopeFilter,
+    structureMaps,
+    rbacByUser,
+    capabilityByUser,
+  ]);
+
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) => compareMembersForAdminList(a, b, sortKey, sortDir)),
+    [filtered, sortKey, sortDir]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / USERS_LIST_PAGE_SIZE) || 1);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  const pageItems = useMemo(() => {
+    const start = (safePage - 1) * USERS_LIST_PAGE_SIZE;
+    return sorted.slice(start, start + USERS_LIST_PAGE_SIZE);
+  }, [sorted, safePage]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   useEffect(() => {
     if (!orgId || !members.length) {
@@ -314,89 +395,6 @@ export default function UsersListPanel({ orgId }) {
     };
   }, [orgId, members]);
 
-  const formatWhen = (value) => {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleString(locale === 'en' ? 'en-US' : 'vi-VN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const scopeOptions = useMemo(() => {
-    const opts = [];
-    for (const [id, name] of structureMaps.departments) {
-      opts.push({ id: `dep:${id}`, label: name, type: 'department' });
-    }
-    for (const [id, name] of structureMaps.teams) {
-      opts.push({ id: `team:${id}`, label: name, type: 'team' });
-    }
-    return opts.sort((a, b) => a.label.localeCompare(b.label));
-  }, [structureMaps]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return members.filter((m) => {
-      if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
-      if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
-      if (capabilityFilter) {
-        const id = memberUserId(m);
-        const cap = capabilityByUser[id] || 'draft';
-        if (capabilityFilter === 'draft') {
-          if (cap !== 'draft' && cap !== '') return false;
-        } else if (cap !== capabilityFilter) {
-          return false;
-        }
-      }
-      if (scopeFilter) {
-        const [kind, id] = scopeFilter.split(':');
-        if (kind === 'dep' && memberDepartmentId(m) !== id) return false;
-        if (kind === 'team' && memberTeamId(m) !== id) return false;
-      }
-      if (!q) return true;
-      const id = memberUserId(m);
-      const dep = structureMaps.departments.get(memberDepartmentId(m)) || '';
-      const team = structureMaps.teams.get(memberTeamId(m)) || '';
-      const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
-        normalizeRoleDisplayName(row?.name || row?.role?.name)
-      );
-      const jobTitle = memberJobTitle(m).toLowerCase();
-      const respKeys = (responsibilityByUser[id] || []).join(' ').toLowerCase();
-      const code = memberEmployeeCode(m).toLowerCase();
-      return (
-        memberDisplayName(m).toLowerCase().includes(q) ||
-        memberEmail(m).toLowerCase().includes(q) ||
-        memberOrgRole(m).includes(q) ||
-        jobTitle.includes(q) ||
-        rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
-        dep.toLowerCase().includes(q) ||
-        team.toLowerCase().includes(q) ||
-        code.includes(q) ||
-        id.toLowerCase().includes(q)
-      );
-    });
-  }, [
-    members,
-    query,
-    roleFilter,
-    statusFilter,
-    capabilityFilter,
-    scopeFilter,
-    structureMaps,
-    rbacByUser,
-    capabilityByUser,
-  ]);
-
-  const sorted = useMemo(
-    () =>
-      [...filtered].sort((a, b) => compareMembersForAdminList(a, b, sortKey, sortDir)),
-    [filtered, sortKey, sortDir]
-  );
-
   const handleSortColumn = (columnKey) => {
     if (sortKey === columnKey) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -428,6 +426,8 @@ export default function UsersListPanel({ orgId }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {organization?.name ? `${organization.name} · ` : ''}
             {t('adminUsers.listCount', { n: sorted.length, total: members.length })}
+            {' · '}
+            {t('adminUsers.listPageSizeHint', { size: USERS_LIST_PAGE_SIZE })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -566,10 +566,11 @@ export default function UsersListPanel({ orgId }) {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((m) => {
+                {pageItems.map((m) => {
                   const id = memberUserId(m);
                   const name = memberDisplayName(m);
                   const code = memberEmployeeCode(m);
+                  const isSystemAdmin = isSystemAdminMember(m);
                   const depId = memberDepartmentId(m);
                   const teamId = memberTeamId(m);
                   const depName = structureMaps.departments.get(depId);
@@ -659,6 +660,33 @@ export default function UsersListPanel({ orgId }) {
                 {t('adminUsers.noUsers')}
               </p>
             ) : null}
+            {sorted.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
+                <button
+                  type="button"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  aria-label={t('adminUsers.listPrev')}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+                  {t('adminUsers.listPrev')}
+                </button>
+                <span className="text-xs text-muted-foreground" aria-live="polite">
+                  {t('adminUsers.listPage', { page: safePage, total: totalPages })}
+                </span>
+                <button
+                  type="button"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  aria-label={t('adminUsers.listNext')}
+                >
+                  {t('adminUsers.listNext')}
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -679,7 +707,6 @@ export default function UsersListPanel({ orgId }) {
         rbacRoles={
           detailMember ? rbacByUser[memberUserId(detailMember)] || [] : []
         }
-        structureRaw={structureRaw}
         formatWhen={formatWhen}
         onCapabilityStatusChange={(userId, status) => {
           setCapabilityByUser((prev) => ({ ...prev, [userId]: status }));

@@ -225,14 +225,12 @@ async function syncHierarchyRolesBestEffort(organizationId, beforeDepts, patches
   const {
     syncDepartmentHierarchyRolesFromPatches,
   } = require('../clients/hierarchyRoleAssign.client');
-  const nameById = new Map((beforeDepts || []).map((d) => [String(d._id), d.name || '']));
   await syncDepartmentHierarchyRolesFromPatches(
     organizationId,
     beforeDepts,
-    patches,
-    nameById
+    patches
   ).catch((error) => {
-    logger.warn('[departmentMembership] hierarchy role dual-write skipped:', error.message);
+    logger.warn('[departmentMembership] hierarchy role revoke cleanup skipped:', error.message);
   });
 }
 

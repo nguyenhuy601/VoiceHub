@@ -6,6 +6,7 @@ import {
   resolveWorkflowCard,
 } from './projectWizardConstants';
 import { wizardUi } from './projectWizardUi';
+import { isProjectDateRangeInvalid } from '../../../components/Organization/ProjectHub/projectHubUtils';
 
 function SetupRow({ title, subtitle, onClick }) {
   return (
@@ -22,6 +23,15 @@ function SetupRow({ title, subtitle, onClick }) {
   );
 }
 
+function formatProjectDatesSummary(form, t) {
+  const start = String(form?.startDate || '').trim();
+  const end = String(form?.dueDate || '').trim();
+  if (!start && !end) return t('adminTasks.wizardProjectDatesEmpty') || 'Chưa đặt';
+  if (start && end) return `${start} → ${end}`;
+  if (start) return `${start} → …`;
+  return `… → ${end}`;
+}
+
 export default function ProjectWizardStepSetup({
   form,
   patchForm,
@@ -36,6 +46,7 @@ export default function ProjectWizardStepSetup({
   const viewSummary = PROJECT_HUB_VIEW_OPTIONS.filter((v) => form.enabledViews?.[v.id])
     .map((v) => t(v.labelKey) || v.labelFallback)
     .join(', ');
+  const datesInvalid = isProjectDateRangeInvalid(form.startDate, form.dueDate);
 
   if (setupPanel === 'workTypes') {
     return (
@@ -170,6 +181,42 @@ export default function ProjectWizardStepSetup({
     );
   }
 
+  if (setupPanel === 'dates') {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold text-foreground">
+          {t('adminTasks.wizardProjectDatesTitle')}
+        </h2>
+        <p className="text-sm text-muted-foreground">{t('adminTasks.wizardProjectDatesHint')}</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block text-xs font-semibold text-muted-foreground">
+            {t('adminTasks.wizardProjectDateStart')}
+            <input
+              type="date"
+              className={`${wizardUi.input} mt-1`}
+              value={String(form.startDate || '')}
+              onChange={(e) => patchForm({ startDate: e.target.value })}
+            />
+          </label>
+          <label className="block text-xs font-semibold text-muted-foreground">
+            {t('adminTasks.wizardProjectDateEnd')}
+            <input
+              type="date"
+              className={`${wizardUi.input} mt-1`}
+              value={String(form.dueDate || '')}
+              onChange={(e) => patchForm({ dueDate: e.target.value })}
+            />
+          </label>
+        </div>
+        {datesInvalid ? (
+          <p className="text-sm text-destructive" role="alert">
+            {t('adminTasks.wizardProjectDateRangeInvalid')}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -197,6 +244,11 @@ export default function ProjectWizardStepSetup({
           title={t('adminTasks.wizardViewsTitle') || 'Views'}
           subtitle={viewSummary || 'Overview, Planning, Board…'}
           onClick={() => setSetupPanel('views')}
+        />
+        <SetupRow
+          title={t('adminTasks.wizardProjectDatesTitle')}
+          subtitle={formatProjectDatesSummary(form, t)}
+          onClick={() => setSetupPanel('dates')}
         />
       </div>
 

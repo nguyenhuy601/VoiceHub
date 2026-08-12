@@ -196,7 +196,12 @@ apiClient.interceptors.response.use(
     } else if (error.response?.status >= 500) {
       toast.error(t('errors.server'));
     } else {
-      toast.error(message);
+      const errorCode = String(
+        error.response?.data?.errorCode || error.response?.data?.code || ''
+      ).trim();
+      if (errorCode !== 'HOURS_SOFT_WARNING') {
+        toast.error(message);
+      }
     }
 
     return Promise.reject(toNormalizedError(error, 'errors.generic'));

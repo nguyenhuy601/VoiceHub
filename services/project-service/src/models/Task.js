@@ -186,6 +186,11 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Ngày bắt đầu (calendar). Máy chia giờ T2–T6 từ startDate → dueDate. */
+    startDate: {
+      type: Date,
+      default: null,
+    },
     /**
      * Planned work estimate in hours (Phase 3b).
      * Same unit as Worklog — not story points (P3b.2).

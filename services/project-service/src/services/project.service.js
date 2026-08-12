@@ -46,6 +46,10 @@ const {
   normalizeProjectVisibilityPolicy,
   assertCanUseCustomProjectVisibility,
 } = require('../utils/projectVisibility');
+const {
+  isOrgElevatedMembershipRole,
+  memberScopedProjectFilter,
+} = require('../utils/projectListMembershipScope');
 
 const DEFAULT_BOARD_TITLE = 'Main';
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
@@ -511,15 +515,19 @@ async function listProjects({
     .map((id) => new mongoose.Types.ObjectId(id));
 
   let projects;
-  if (useV2) {
-    // Broad org list — filter discover in-memory (related depts / policy).
+  const elevated =
+    useV2 && visibilityCtx
+      ? isOrgElevatedMembershipRole(visibilityCtx.membershipRole)
+      : false;
+  if (useV2 && elevated) {
     projects = await Project.find(base).sort({ createdAt: -1 }).lean();
   } else {
-    const accessOr = [{ createdBy: userOid }];
-    if (memberProjectIds.length) accessOr.push({ _id: { $in: memberProjectIds } });
-    const workspaceScope = await fetchTaskWorkspaceScope(userId, organizationId);
-    if (workspaceScope) accessOr.push({ visibility: 'workspace' });
-    projects = await Project.find({ ...base, $or: accessOr }).sort({ createdAt: -1 }).lean();
+    // Non-admin (V2 + legacy): chỉ project membership / creator — không workspace / phòng ban.
+    projects = await Project.find(
+      memberScopedProjectFilter(base, userOid, memberProjectIds)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
   }
 
   if (!projects.length) return [];
@@ -663,6 +671,14 @@ async function getProject({ userId, projectId }) {
       membershipRows.length > 0 ||
       projectRoleKeys.length > 0 ||
       String(project.createdBy) === String(userId);
+    if (
+      !isOrgElevatedMembershipRole(visibilityCtx.membershipRole) &&
+      !isMember
+    ) {
+      const err = new Error('Project không tồn tại');
+      err.statusCode = 404;
+      throw err;
+    }
     const access = resolveProjectAccess({
       actor: {
         userId: String(userId),
@@ -1263,6 +1279,13 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   if (patch.status !== undefined) {
     const st = String(patch.status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
+    if (st === 'active' && String(sprint.status || '').toLowerCase() !== 'active') {
+      const { assertNoMemberOverlapWithActiveSprints } = require('../utils/sprintMemberOverlap');
+      await assertNoMemberOverlapWithActiveSprints({
+        projectId,
+        sprintId,
+      });
+    }
     sprint.status = st;
   }
   if (patch.reviewNotes !== undefined) {

@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { shouldSkipAuthRouteRateLimit } = require('./utils/shouldSkipAuthRouteRateLimit');
 require('dotenv').config();
 
 const app = express();
@@ -24,6 +25,7 @@ const authRouteLimiter = rateLimit({
   max: Number(process.env.AUTH_RATE_LIMIT_MAX_PER_MIN || 120),
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldSkipAuthRouteRateLimit,
 });
 app.use('/api/auth', authRouteLimiter);
 

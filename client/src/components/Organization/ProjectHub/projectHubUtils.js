@@ -296,6 +296,70 @@ export function isSprintDateRangeInvalid(startValue, endValue) {
 }
 
 /**
+ * Timeline dự án (ngày calendar): cả hai có giá trị và start > end.
+ * Thiếu một trong hai → không invalid (cho phép chỉ start hoặc chỉ end).
+ */
+export function isProjectDateRangeInvalid(startYmd, endYmd) {
+  const start = String(startYmd || '').trim().slice(0, 10);
+  const end = String(endYmd || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return false;
+  return start > end;
+}
+
+/**
+ * Thành viên được gán trên một work item (assigneeId + assignments + assignees).
+ * @returns {Set<string>}
+ */
+export function collectIssueMemberIds(issue) {
+  const out = new Set();
+  const primary = String(issue?.assigneeId || '').trim();
+  if (primary) out.add(primary);
+  for (const row of issue?.assignments || []) {
+    const uid = String(row?.userId || '').trim();
+    if (uid) out.add(uid);
+  }
+  for (const row of issue?.assignees || []) {
+    const uid = String(row?.id || row?.userId || '').trim();
+    if (uid) out.add(uid);
+  }
+  return out;
+}
+
+/**
+ * @param {Iterable<{ sprintId?: unknown, assigneeId?: unknown, assignments?: unknown[], assignees?: unknown[] }>} issues
+ * @returns {Map<string, Set<string>>}
+ */
+export function buildSprintMemberIdsBySprintId(issues = []) {
+  const map = new Map();
+  for (const issue of issues || []) {
+    const sid = String(issue?.sprintId || '').trim();
+    if (!sid) continue;
+    if (!map.has(sid)) map.set(sid, new Set());
+    const bucket = map.get(sid);
+    for (const uid of collectIssueMemberIds(issue)) bucket.add(uid);
+  }
+  return map;
+}
+
+function memberSetForSprint(memberIdsBySprintId, sprintId) {
+  const sid = String(sprintId || '').trim();
+  if (!sid || !memberIdsBySprintId) return new Set();
+  if (memberIdsBySprintId instanceof Map) {
+    return memberIdsBySprintId.get(sid) || new Set();
+  }
+  const raw = memberIdsBySprintId[sid];
+  if (!raw) return new Set();
+  return raw instanceof Set ? raw : new Set(raw);
+}
+
+function setsIntersect(a, b) {
+  for (const id of a) {
+    if (b.has(id)) return true;
+  }
+  return false;
+}
+
+/**
  * @returns {{ ok: true } | { ok: false, errorKey: string }}
  */
 export function assertCanStartSprint({
@@ -303,6 +367,7 @@ export function assertCanStartSprint({
   sprints = [],
   issueCount = 0,
   canManage = false,
+  memberIdsBySprintId = null,
 } = {}) {
   if (!canManage) {
     return { ok: false, errorKey: 'workspace.projectHubSprintStartNoPermission' };
@@ -317,12 +382,17 @@ export function assertCanStartSprint({
   if (!Number.isFinite(Number(issueCount)) || Number(issueCount) <= 0) {
     return { ok: false, errorKey: 'workspace.projectHubPlanSprintIssuesEmpty' };
   }
-  const otherActive = (Array.isArray(sprints) ? sprints : []).some((row) => {
+  const candidateMembers = memberSetForSprint(memberIdsBySprintId, sid);
+  const otherActive = (Array.isArray(sprints) ? sprints : []).filter((row) => {
     const id = String(row?._id || row?.id || '');
     return id && id !== sid && String(row?.status || '').toLowerCase() === 'active';
   });
-  if (otherActive) {
-    return { ok: false, errorKey: 'workspace.projectHubSprintStartOtherActive' };
+  for (const row of otherActive) {
+    const activeId = String(row?._id || row?.id || '');
+    const activeMembers = memberSetForSprint(memberIdsBySprintId, activeId);
+    if (setsIntersect(candidateMembers, activeMembers)) {
+      return { ok: false, errorKey: 'workspace.projectHubSprintStartMemberOverlap' };
+    }
   }
   return { ok: true };
 }
@@ -339,6 +409,35 @@ export function resolveActiveSprint(sprints = []) {
     const ta = new Date(a?.createdAt || 0).getTime();
     return tb - ta;
   })[0];
+}
+
+function sortSprintsNewestFirst(rows) {
+  return [...rows].sort((a, b) => {
+    const tb = new Date(b?.createdAt || 0).getTime();
+    const ta = new Date(a?.createdAt || 0).getTime();
+    return tb - ta;
+  });
+}
+
+/**
+ * Sprint active gắn với viewer (có work được gán). Nhiều → newest.
+ * Không có → fallback resolveActiveSprint (toolbar Complete sprint).
+ */
+export function resolveViewerActiveSprint({ sprints = [], cards = [], userId = '' } = {}) {
+  const uid = String(userId || '').trim();
+  const active = (Array.isArray(sprints) ? sprints : []).filter(
+    (s) => String(s?.status || '').toLowerCase() === 'active'
+  );
+  if (!active.length) return null;
+  if (!uid) return resolveActiveSprint(active);
+
+  const memberBySprint = buildSprintMemberIdsBySprintId(cards);
+  const mine = active.filter((s) => {
+    const sid = String(s?._id || s?.id || '').trim();
+    return sid && memberBySprint.get(sid)?.has(uid);
+  });
+  if (mine.length) return sortSprintsNewestFirst(mine)[0];
+  return resolveActiveSprint(active);
 }
 
 export function isCardInSprint(card, sprintId) {

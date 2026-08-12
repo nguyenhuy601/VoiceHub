@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, User } from 'lucide-react';
+import { Check, Pencil, User } from 'lucide-react';
 import UserAvatar from '../../Shared/UserAvatar';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
@@ -47,6 +47,7 @@ export default function ProjectHubSprintBoardCard({
   onLinkParent = null,
   onOpenMenu = null,
   busy = false,
+  showDoneCheck = false,
 }) {
   const { t, locale } = useAppStrings();
   const [epicOpen, setEpicOpen] = useState(false);
@@ -160,7 +161,14 @@ export default function ProjectHubSprintBoardCard({
         <span className="truncate text-[10px] font-semibold text-muted-foreground">
           {displayIssueKey(projectCode, issueId)}
         </span>
-        <span className="ml-auto shrink-0">
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {showDoneCheck ? (
+            <Check
+              className="h-3.5 w-3.5 text-success"
+              strokeWidth={2.75}
+              aria-label={t('taskBoard.doneColumnCheckAria')}
+            />
+          ) : null}
           {assignee ? (
             <UserAvatar
               avatar={assignee.avatar}

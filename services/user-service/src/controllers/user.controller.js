@@ -747,6 +747,62 @@ class UserController {
       return sendError(res, error, 400, 'Không thể xóa hồ sơ người dùng', 'USER_DELETE_FAILED');
     }
   }
+
+  /** S2S — org Excel/HR bulk profile fields (trước protect JWT). */
+  async internalBulkImportProfileFields(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId là bắt buộc',
+          errorCode: 'USER_VALIDATION',
+        });
+      }
+      const data = await userService.internalBulkImportProfileFields(userId, req.body || {});
+      return res.status(200).json({
+        success: true,
+        data: safeProfilePayload(data),
+      });
+    } catch (error) {
+      logger.error('internalBulkImportProfileFields error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 400,
+        error.message || 'Bulk import profile failed',
+        error.errorCode || 'USER_BULK_IMPORT_FAILED'
+      );
+    }
+  }
+
+  /** S2S — compensate Excel rollback: soft-deactivate profile. */
+  async internalDeactivateProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || req.body?.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId là bắt buộc',
+          errorCode: 'USER_VALIDATION',
+        });
+      }
+      const data = await userService.deleteUserProfile(userId);
+      return res.status(200).json({
+        success: true,
+        data: safeProfilePayload(data),
+      });
+    } catch (error) {
+      logger.error('internalDeactivateProfile error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 400,
+        error.message || 'Deactivate profile failed',
+        error.errorCode || 'USER_DEACTIVATE_FAILED'
+      );
+    }
+  }
 }
 
 module.exports = new UserController();

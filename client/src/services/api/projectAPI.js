@@ -142,6 +142,17 @@ export const projectAPI = {
       body
     ),
 
+  completeSprintPreview: (projectId, sprintId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete-preview`
+    ),
+
+  completeSprint: (projectId, sprintId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete`,
+      body
+    ),
+
   listPlanningItems: (projectId, params = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning-items`, { params }),
 

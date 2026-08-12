@@ -52,6 +52,18 @@ router.post(
 );
 
 router.post(
+  '/internal/profile/:userId/bulk-fields',
+  internalServiceAuth,
+  userController.internalBulkImportProfileFields.bind(userController)
+);
+
+router.post(
+  '/internal/profile/:userId/deactivate',
+  internalServiceAuth,
+  userController.internalDeactivateProfile.bind(userController)
+);
+
+router.post(
   '/internal/profiles/batch',
   internalServiceAuth,
   userController.internalProfilesBatch.bind(userController)

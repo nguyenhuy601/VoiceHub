@@ -18,10 +18,12 @@ import ProjectHubBacklogIssueRow from './ProjectHubBacklogIssueRow';
 import ProjectHubWorkDetailDrawer from './ProjectHubWorkDetailDrawer';
 import { childWorkStats } from './projectHubBacklogStats';
 import ProjectHubEditSprintModal from './ProjectHubEditSprintModal';
+import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubSprintSection from './ProjectHubSprintSection';
 import {
   assertCanStartSprint,
+  buildSprintMemberIdsBySprintId,
   countIssuesByStatusBucket,
   defaultSprintDateRange,
   formatHubDate,
@@ -112,6 +114,7 @@ export default function ProjectHubPlanningPanel({
   const [title, setTitle] = useState('');
   const [itemType, setItemType] = useState('release');
   const [editSprint, setEditSprint] = useState(null);
+  const [completeSprintId, setCompleteSprintId] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [detailIssueId, setDetailIssueId] = useState('');
 
@@ -249,6 +252,11 @@ export default function ProjectHubPlanningPanel({
     }
     return map;
   }, [allIssues, matchesFilters, workTypeConfig, epicIdSet]);
+
+  const memberIdsBySprintId = useMemo(
+    () => buildSprintMemberIdsBySprintId(allIssues),
+    [allIssues]
+  );
 
   const productBacklog = useMemo(
     () =>
@@ -436,6 +444,7 @@ export default function ProjectHubPlanningPanel({
       sprints,
       issueCount,
       canManage: canManageSprints,
+      memberIdsBySprintId,
     });
     if (!check.ok) {
       if (check.errorKey !== 'workspace.projectHubSprintStartNoPermission') {
@@ -477,22 +486,9 @@ export default function ProjectHubPlanningPanel({
     }
   };
 
-  const closeSprint = async (sprintId) => {
+  const openCompleteSprint = (sprintId) => {
     if (!canManageSprints || busy) return;
-    setBusy(true);
-    try {
-      await projectAPI.patchSprint(projectId, sprintId, {
-        status: 'closed',
-      });
-      toast.success(t('workspace.projectHubPlanSprintClosed'));
-      refreshAll();
-    } catch (err) {
-      toast.error(
-        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanSprintFail') })
-      );
-    } finally {
-      setBusy(false);
-    }
+    setCompleteSprintId(sprintId);
   };
 
   const deleteSprint = async (sprintId) => {
@@ -932,6 +928,7 @@ export default function ProjectHubPlanningPanel({
                       lists={lists}
                       canManageSprints={canManageSprints}
                       sprints={sprints}
+                      memberIdsBySprintId={memberIdsBySprintId}
                       allowedCreateTypes={allowedCreateTypes}
                       depthById={workTypeConfig.depthById}
                       hasBoardColumn={hasBoardColumn}
@@ -941,7 +938,7 @@ export default function ProjectHubPlanningPanel({
                         setCollapsed((c) => ({ ...c, [sid]: !c[sid] }))
                       }
                       onStart={() => startSprint(sid)}
-                      onComplete={() => closeSprint(sid)}
+                      onComplete={() => openCompleteSprint(sid)}
                       onEdit={() => setEditSprint(sprint)}
                       onDeleteSprint={() => setConfirm({ kind: 'sprint', id: sid, title: sprint.name })}
                       onCreateIssue={(type, text) => createIssue(type, text, sid)}
@@ -1086,6 +1083,18 @@ export default function ProjectHubPlanningPanel({
         onClose={() => setEditSprint(null)}
         onSave={saveSprint}
         t={t}
+      />
+
+      <ProjectHubCompleteSprintModal
+        isOpen={Boolean(completeSprintId)}
+        projectId={projectId}
+        sprint={completeSprintId ? sprints.find((s) => String(s._id) === String(completeSprintId)) || null : null}
+        canManageSprints={canManageSprints}
+        onClose={() => setCompleteSprintId(null)}
+        onCompleted={() => {
+          toast.success(t('workspace.projectHubPlanSprintClosed'));
+          refreshAll();
+        }}
       />
 
       <ConfirmDialog

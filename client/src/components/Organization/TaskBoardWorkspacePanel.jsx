@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
 import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
@@ -62,6 +62,9 @@ function buildSwimlaneRows(teamsInScope, t) {
 const CARD_OVERLAY_WIDTH = 'w-[248px]';
 const COLUMN_ENTER =
   'animate-[taskBoardColumnIn_280ms_ease-out] motion-reduce:animate-none';
+const DONE_ARRIVE_MS = 1100;
+const DONE_ARRIVE_CLASS =
+  'task-board-card-done-arrive border-[color:var(--success)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--success)_55%,transparent)] motion-reduce:animate-none';
 
 const cardSortId = (cardId) => `card-${cardId}`;
 const parseCardSortId = (id) => String(id).replace(/^card-/, '');
@@ -171,6 +174,18 @@ function isDoneListTitle(title) {
   if (!n) return false;
   if (['xong', 'done', 'completed', 'hoan thanh'].includes(n)) return true;
   return n.endsWith(' xong') || n.startsWith('done');
+}
+
+/** Cột cuối workflow (theo order) hoặc cột Done theo statusKey/title. */
+function isWorkflowEndList(list, orderedLists = []) {
+  if (!list) return false;
+  if (orderedLists.length) {
+    const last = orderedLists[orderedLists.length - 1];
+    if (String(last?._id) === String(list._id)) return true;
+  }
+  const statusKey = String(list.statusKey || '').toLowerCase();
+  if (statusKey === 'done' || statusKey === 'completed') return true;
+  return isDoneListTitle(list.title);
 }
 
 function isReviewListTitle(title) {
@@ -346,6 +361,8 @@ function KanbanSortableCard({
   card,
   isDarkMode,
   cardShell,
+  isWorkflowDone = false,
+  isCelebratingDone = false,
   onOpenDetail,
   onOpenMenu,
   onToggleComplete,
@@ -373,9 +390,12 @@ function KanbanSortableCard({
         onKeyDown={(e) => {
           if (e.key === 'Enter') onOpenDetail(card);
         }}
-        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-shadow hover:shadow-md active:cursor-grabbing ${cardShell}`}
+        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-[box-shadow,border-color] hover:shadow-md active:cursor-grabbing ${cardShell} ${
+          isCelebratingDone ? DONE_ARRIVE_CLASS : ''
+        } ${isWorkflowDone && !isCelebratingDone ? 'border-[color:color-mix(in_srgb,var(--success)_35%,transparent)]' : ''}`}
+        data-workflow-done={isWorkflowDone ? 'true' : undefined}
       >
-        {renderCardBody(card, { onOpenMenu, onToggleComplete })}
+        {renderCardBody(card, { onOpenMenu, onToggleComplete, isWorkflowDone })}
       </div>
     </div>
   );
@@ -455,8 +475,10 @@ export default function TaskBoardWorkspacePanel({
   const [draggingCard, setDraggingCard] = useState(null);
   const [cardItemsByList, setCardItemsByList] = useState({});
   const [cardsOverListId, setCardsOverListId] = useState('');
+  const [celebratingDoneIds, setCelebratingDoneIds] = useState(() => new Set());
   const [swimlaneView, setSwimlaneView] = useState(false);
   const boardScrollRef = useRef(null);
+  const celebrateDoneTimersRef = useRef(new Map());
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -473,6 +495,9 @@ export default function TaskBoardWorkspacePanel({
     setShowMyTasksOnly(false);
     setBoardSearchQuery('');
     setBoardSearchOpen(false);
+    setCelebratingDoneIds(new Set());
+    for (const timer of celebrateDoneTimersRef.current.values()) clearTimeout(timer);
+    celebrateDoneTimersRef.current.clear();
     // Mặc định bật swimlane khi phòng có ≥1 team (step 2 — chỉ đọc/group).
     setSwimlaneView(Array.isArray(teamsInScope) && teamsInScope.length > 0);
   }, [selectedBoardId, teamsInScope]);
@@ -617,6 +642,20 @@ export default function TaskBoardWorkspacePanel({
   const canUseSwimlane = Array.isArray(teamsInScope) && teamsInScope.length > 0;
   const showSwimlaneGrid = Boolean(swimlaneView && canUseSwimlane && listMap.length > 0);
 
+  const filteredBoardCardCount = useMemo(() => {
+    let n = 0;
+    for (const list of listMap || []) {
+      const id = String(list?._id || list?.id || '');
+      n += filterCardsForView(cardItemsByList[id] || []).length;
+    }
+    return n;
+  }, [listMap, cardItemsByList, filterCardsForView]);
+
+  const showSprintFilterEmpty =
+    Boolean(String(sprintFilterId || '').trim()) &&
+    filteredBoardCardCount === 0 &&
+    Object.values(cardItemsByList || {}).some((rows) => Array.isArray(rows) && rows.length > 0);
+
   const cardsInSwimlaneCell = useCallback(
     (listId, laneKey) => {
       const listCards = filterCardsForView(cardItemsByList[String(listId)] || []);
@@ -712,6 +751,36 @@ export default function TaskBoardWorkspacePanel({
     originLaneKey: '',
     originListId: '',
   });
+
+  useEffect(
+    () => () => {
+      for (const timer of celebrateDoneTimersRef.current.values()) clearTimeout(timer);
+      celebrateDoneTimersRef.current.clear();
+    },
+    []
+  );
+
+  const celebrateDoneArrival = useCallback((cardId) => {
+    const id = String(cardId || '');
+    if (!id) return;
+    setCelebratingDoneIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    const prevTimer = celebrateDoneTimersRef.current.get(id);
+    if (prevTimer) clearTimeout(prevTimer);
+    const timer = setTimeout(() => {
+      setCelebratingDoneIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      celebrateDoneTimersRef.current.delete(id);
+    }, DONE_ARRIVE_MS);
+    celebrateDoneTimersRef.current.set(id, timer);
+  }, []);
 
   useEffect(() => {
     if (skipCardLayoutSyncRef.current) return;
@@ -952,13 +1021,18 @@ export default function TaskBoardWorkspacePanel({
               }
             : prev
         );
+        const targetList = listMap.find((l) => String(l._id) === String(listId));
+        const originList = listMap.find((l) => String(l._id) === String(originListId));
+        if (isWorkflowEndList(targetList, listMap) && !isWorkflowEndList(originList, listMap)) {
+          celebrateDoneArrival(activeCardId);
+        }
       } catch {
         setCardItemsByList(buildCardItemsByList(listMap));
       } finally {
         releaseCardLayoutLock();
       }
     },
-    [cardItemsByList, listMap, onMoveCard, canTransitionLists, t]
+    [cardItemsByList, listMap, onMoveCard, canTransitionLists, celebrateDoneArrival, t]
   );
 
   const resolveSwimOverTarget = useCallback(
@@ -1136,6 +1210,14 @@ export default function TaskBoardWorkspacePanel({
     return list?.title || '';
   };
 
+  const isCardInWorkflowEnd = useCallback(
+    (card) => {
+      const list = listMap.find((l) => String(l._id) === String(card?.listId || ''));
+      return isWorkflowEndList(list, listMap);
+    },
+    [listMap]
+  );
+
   const toggleCardComplete = async (card, event) => {
     event.stopPropagation();
     const isDone = String(card?.status || '') === 'done';
@@ -1146,7 +1228,9 @@ export default function TaskBoardWorkspacePanel({
     }
   };
 
-  const renderCardBody = (card, { onOpenMenu, onToggleComplete }) => {
+  const renderCardBody = (card, { onOpenMenu, onToggleComplete, isWorkflowDone: doneProp }) => {
+    const isWorkflowDone =
+      typeof doneProp === 'boolean' ? doneProp : isCardInWorkflowEnd(card);
     if (hubSprintCard) {
       return (
         <ProjectHubSprintBoardCard
@@ -1157,11 +1241,12 @@ export default function TaskBoardWorkspacePanel({
           onLinkParent={hubSprintCard.onLinkParent}
           onOpenMenu={onOpenMenu}
           busy={Boolean(hubSprintCard.busy)}
+          showDoneCheck={isWorkflowDone}
         />
       );
     }
     const labelIds = parseCardLabelIds(card.tags);
-    const isDone = String(card?.status || '') === 'done';
+    const isDone = String(card?.status || '') === 'done' || isWorkflowDone;
     const awaitingApproval = String(card?.status || '') === 'awaiting_approval';
     const listTitle = listTitleForCard(card);
     const overdue = isCardOverdue(card, listTitle);
@@ -1179,7 +1264,7 @@ export default function TaskBoardWorkspacePanel({
             className="mt-0.5 shrink-0 rounded-full"
           >
             {isDone ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="h-4 w-4 text-success" />
             ) : (
               <Circle className={`h-4 w-4 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
             )}
@@ -1238,8 +1323,15 @@ export default function TaskBoardWorkspacePanel({
             ) : null}
           </div>
         ) : null}
-        {visibleAssignees.length > 0 ? (
+        {visibleAssignees.length > 0 || isWorkflowDone ? (
           <div className="mt-1.5 flex items-center gap-1">
+            {isWorkflowDone ? (
+              <Check
+                className="h-3.5 w-3.5 shrink-0 text-success"
+                strokeWidth={2.75}
+                aria-label={t('taskBoard.doneColumnCheckAria')}
+              />
+            ) : null}
             {visibleAssignees.map((m, idx) => (
               <span
                 key={`${m.userId || m.displayName || 'assignee'}-${idx}`}
@@ -1286,6 +1378,28 @@ export default function TaskBoardWorkspacePanel({
           to {
             opacity: 1;
             transform: translateX(0) scale(1);
+          }
+        }
+        @keyframes taskBoardDoneArrive {
+          0% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent);
+            border-color: color-mix(in srgb, var(--success) 20%, transparent);
+          }
+          35% {
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 45%, transparent);
+            border-color: var(--success);
+          }
+          100% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent);
+            border-color: color-mix(in srgb, var(--success) 35%, transparent);
+          }
+        }
+        .task-board-card-done-arrive {
+          animation: taskBoardDoneArrive ${DONE_ARRIVE_MS}ms ease-out;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .task-board-card-done-arrive {
+            animation: none;
           }
         }
       `}</style>
@@ -1509,6 +1623,14 @@ export default function TaskBoardWorkspacePanel({
               </div>
             </div>
           ) : null}
+        {showSprintFilterEmpty ? (
+          <p
+            className={`px-3 pb-1 text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}
+            role="status"
+          >
+            {t('taskBoard.emptySprintFilter')}
+          </p>
+        ) : null}
         <div
           ref={boardScrollRef}
           className={`min-h-0 flex-1 px-3 pb-4 pt-3 ${
@@ -1691,6 +1813,8 @@ export default function TaskBoardWorkspacePanel({
                               card={card}
                               isDarkMode={isDarkMode}
                               cardShell={cardShell}
+                              isWorkflowDone={isCardInWorkflowEnd(card)}
+                              isCelebratingDone={celebratingDoneIds.has(String(card._id))}
                               onOpenDetail={(c) => openCardDetail(c, 'detail')}
                               onOpenMenu={openCardMenu}
                               onToggleComplete={toggleCardComplete}
@@ -1768,6 +1892,8 @@ export default function TaskBoardWorkspacePanel({
                         card={card}
                         isDarkMode={isDarkMode}
                         cardShell={cardShell}
+                        isWorkflowDone={isCardInWorkflowEnd(card)}
+                        isCelebratingDone={celebratingDoneIds.has(String(card._id))}
                         onOpenDetail={(c) => openCardDetail(c, 'detail')}
                         onOpenMenu={openCardMenu}
                         onToggleComplete={toggleCardComplete}

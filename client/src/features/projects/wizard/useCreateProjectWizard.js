@@ -25,6 +25,7 @@ import {
   firstSeedMemberWithRole,
 } from './projectWizardConstants';
 import { collectWizardRosterKeys, deliveryRosterStatus } from './projectDeliveryRoster';
+import { isProjectDateRangeInvalid } from '../../../components/Organization/ProjectHub/projectHubUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -143,6 +144,10 @@ export default function useCreateProjectWizard({
         const card = resolveWorkflowCard(form.workflowCardId);
         if (!card) {
           toast.error(t('adminTasks.wizardNeedStatuses') || 'Chọn Statuses / workflow.');
+          return false;
+        }
+        if (isProjectDateRangeInvalid(form.startDate, form.dueDate)) {
+          toast.error(t('adminTasks.wizardProjectDateRangeInvalid'));
           return false;
         }
         return true;
