@@ -47,12 +47,20 @@ function permRow(id, title, description, key) {
   return { id, title, description, key };
 }
 
-export function channelPermissionGroups({ isVoiceChannel }) {
+function tr(t, key, fallback) {
+  return typeof t === 'function' ? t(key) : fallback;
+}
+
+export function channelPermissionGroups({ isVoiceChannel, t }) {
   const general = [
     permRow(
       'view',
-      'Xem kênh',
-      'Cho phép thành viên có vai trò này nhìn thấy kênh trong danh sách và mở kênh.',
+      tr(t, 'organizations.channelPermViewTitle', 'View channel'),
+      tr(
+        t,
+        'organizations.channelPermViewDesc',
+        'Allow members with this role to see and open this channel.'
+      ),
       CHANNEL_PERM_KEYS.see
     ),
   ];
@@ -60,20 +68,32 @@ export function channelPermissionGroups({ isVoiceChannel }) {
   const text = [
     permRow(
       'history',
-      'Xem lịch sử tin nhắn',
-      'Cho phép đọc tin nhắn đã gửi trong kênh này (kể cả khi không trực tuyến lúc gửi).',
+      tr(t, 'organizations.channelPermHistoryTitle', 'View message history'),
+      tr(
+        t,
+        'organizations.channelPermHistoryDesc',
+        'Allow reading messages sent in this channel.'
+      ),
       CHANNEL_PERM_KEYS.read
     ),
     permRow(
       'send',
-      'Gửi tin nhắn',
-      'Cho phép gửi tin nhắn và tương tác trong kênh chat này.',
+      tr(t, 'organizations.channelPermSendTitle', 'Send messages'),
+      tr(
+        t,
+        'organizations.channelPermSendDesc',
+        'Allow sending and interacting in this chat channel.'
+      ),
       CHANNEL_PERM_KEYS.write
     ),
     permRow(
       'manage',
-      'Quản lý tin nhắn',
-      'Cho phép xóa hoặc gỡ nội dung tin nhắn của thành viên khác trong kênh.',
+      tr(t, 'organizations.channelPermManageTitle', 'Manage messages'),
+      tr(
+        t,
+        'organizations.channelPermManageDesc',
+        'Allow deleting or moderating messages of other members.'
+      ),
       CHANNEL_PERM_KEYS.delete
     ),
   ];
@@ -81,19 +101,25 @@ export function channelPermissionGroups({ isVoiceChannel }) {
   const voice = [
     permRow(
       'connect',
-      'Kết nối',
-      'Cho phép tham gia kênh voice và nghe người khác nói.',
+      tr(t, 'organizations.channelPermConnectTitle', 'Connect'),
+      tr(
+        t,
+        'organizations.channelPermConnectDesc',
+        'Allow joining the voice channel and hearing others.'
+      ),
       CHANNEL_PERM_KEYS.voice
     ),
   ];
 
-  const groups = [{ id: 'general', title: 'Quyền tổng quát kênh', items: general }];
+  const groups = [
+    { id: 'general', title: tr(t, 'organizations.channelPermGroupGeneral', 'General channel permissions'), items: general },
+  ];
 
   if (isVoiceChannel) {
-    groups.push({ id: 'voice', title: 'Quyền kênh thoại', items: voice });
-    groups.push({ id: 'text-in-voice', title: 'Chat kênh voice', items: text });
+    groups.push({ id: 'voice', title: tr(t, 'organizations.channelPermGroupVoice', 'Voice channel permissions'), items: voice });
+    groups.push({ id: 'text-in-voice', title: tr(t, 'organizations.channelPermGroupTextInVoice', 'Voice channel chat'), items: text });
   } else {
-    groups.push({ id: 'text', title: 'Quyền tin nhắn', items: text });
+    groups.push({ id: 'text', title: tr(t, 'organizations.channelPermGroupText', 'Message permissions'), items: text });
   }
 
   return groups;
@@ -111,47 +137,67 @@ export function defaultScopeRolePermissions() {
 }
 
 /** Nhóm quyền cho cài đặt khối / phòng ban (mọi loại kênh con). */
-export function scopePermissionGroups() {
+export function scopePermissionGroups(t) {
   const general = [
     permRow(
       'view',
-      'Xem kênh',
-      'Cho phép nhìn thấy các kênh thuộc phạm vi này trong danh sách.',
+      tr(t, 'organizations.scopePermViewTitle', 'View channels'),
+      tr(
+        t,
+        'organizations.scopePermViewDesc',
+        'Allow seeing channels in this scope.'
+      ),
       CHANNEL_PERM_KEYS.see
     ),
   ];
   const text = [
     permRow(
       'history',
-      'Xem lịch sử tin nhắn',
-      'Cho phép đọc tin nhắn trong các kênh chat thuộc phạm vi.',
+      tr(t, 'organizations.scopePermHistoryTitle', 'View message history'),
+      tr(
+        t,
+        'organizations.scopePermHistoryDesc',
+        'Allow reading messages in scoped chat channels.'
+      ),
       CHANNEL_PERM_KEYS.read
     ),
     permRow(
       'send',
-      'Gửi tin nhắn',
-      'Cho phép gửi tin nhắn trong các kênh chat thuộc phạm vi.',
+      tr(t, 'organizations.scopePermSendTitle', 'Send messages'),
+      tr(
+        t,
+        'organizations.scopePermSendDesc',
+        'Allow sending messages in scoped chat channels.'
+      ),
       CHANNEL_PERM_KEYS.write
     ),
     permRow(
       'manage',
-      'Quản lý tin nhắn',
-      'Cho phép xóa hoặc gỡ tin nhắn trong các kênh chat thuộc phạm vi.',
+      tr(t, 'organizations.scopePermManageTitle', 'Manage messages'),
+      tr(
+        t,
+        'organizations.scopePermManageDesc',
+        'Allow deleting or moderating messages in scoped chat channels.'
+      ),
       CHANNEL_PERM_KEYS.delete
     ),
   ];
   const voice = [
     permRow(
       'connect',
-      'Kết nối voice',
-      'Cho phép tham gia các kênh voice thuộc phạm vi.',
+      tr(t, 'organizations.scopePermConnectTitle', 'Connect voice'),
+      tr(
+        t,
+        'organizations.scopePermConnectDesc',
+        'Allow joining voice channels in this scope.'
+      ),
       CHANNEL_PERM_KEYS.voice
     ),
   ];
   return [
-    { id: 'general', title: 'Quyền tổng quát', items: general },
-    { id: 'text', title: 'Quyền kênh chat', items: text },
-    { id: 'voice', title: 'Quyền kênh voice', items: voice },
+    { id: 'general', title: tr(t, 'organizations.scopePermGroupGeneral', 'General permissions'), items: general },
+    { id: 'text', title: tr(t, 'organizations.scopePermGroupText', 'Chat channel permissions'), items: text },
+    { id: 'voice', title: tr(t, 'organizations.scopePermGroupVoice', 'Voice channel permissions'), items: voice },
   ];
 }
 

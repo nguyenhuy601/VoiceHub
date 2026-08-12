@@ -51,7 +51,28 @@ async function hasLobbyBootstrap(roomId, userId) {
   }
 }
 
+async function clearLobbyBootstrap(roomId) {
+  const rid = String(roomId || '').trim();
+  if (!rid) return false;
+
+  let redis;
+  try {
+    redis = getRedisClient();
+  } catch {
+    return false;
+  }
+  if (!redis) return false;
+
+  try {
+    await redis.del(keyFor(rid));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   rememberLobbyBootstrap,
   hasLobbyBootstrap,
+  clearLobbyBootstrap,
 };

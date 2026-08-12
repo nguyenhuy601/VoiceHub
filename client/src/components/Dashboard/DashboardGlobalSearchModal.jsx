@@ -3,6 +3,7 @@ import { ChevronLeft, Loader2 } from 'lucide-react';
 import Modal from '../Shared/Modal';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useLocale } from '../../context/LocaleContext';
 import { useDebouncedValue } from '../../features/search/useDebouncedValue';
 import {
@@ -169,7 +170,7 @@ export default function DashboardGlobalSearchModal({ isOpen, onClose, layer1Quer
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e?.message || t('dashboard.globalSearch.loadError'));
+        setError(resolveApiErrorMessage(e, { t, fallback: t('dashboard.globalSearch.loadError') }));
         setResults([]);
       })
       .finally(() => {

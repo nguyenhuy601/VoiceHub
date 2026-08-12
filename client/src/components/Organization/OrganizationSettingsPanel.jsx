@@ -1,32 +1,117 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
+import {
+  Bell,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  FileText,
+  Lock,
+  Palette,
+  Settings,
+  Shield,
+  User,
+} from 'lucide-react';
 import { ConfirmDialog, Modal, GlassCard, GradientButton } from '../Shared';
+import {
+  FIGMA_PAGE_CARD,
+  FIGMA_PAGE_HEADER,
+  FIGMA_PAGE_SUBTITLE,
+  FIGMA_PAGE_TITLE,
+  FIGMA_TAB_ACTIVE,
+  FIGMA_TAB_INACTIVE,
+} from '../Layout/figmaPageClasses';
+import OrganizationSettingsFigmaLayout from '../Workspace/OrganizationSettingsFigmaLayout';
 import { useAuth } from '../../context/AuthContext';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import OrganizationRbacSettings from './OrganizationRbacSettings';
+import { hasBackendCapability } from '../../config/backendCapabilities';
+import {
+  enrichMembershipsWithProfiles,
+  enrichUserIdsWithProfiles,
+} from '../../features/search/enrichOrgMembers';
 
-const unwrap = (payload) => payload?.data ?? payload;
+const ADMIN_TAB_ICONS = {
+  general: Settings,
+  structure: Building2,
+  join: ClipboardList,
+  roles: Shield,
+  security: Lock,
+  integrations: FileText,
+  billing: CreditCard,
+  audit: FileText,
+};
 
-const ADMIN_TABS = [
-  { id: 'general', label: 'Tổng quan', icon: '⚙️' },
-  { id: 'structure', label: 'Cấu trúc tổ chức', icon: '🏢' },
-  { id: 'join', label: 'Đơn gia nhập', icon: '📋' },
-  { id: 'roles', label: 'Phân quyền', icon: '🔐' },
-  { id: 'security', label: 'Bảo mật', icon: '🛡️' },
-  { id: 'integrations', label: 'Tích hợp', icon: '🔗' },
-  { id: 'billing', label: 'Thanh toán', icon: '💳' },
-  { id: 'audit', label: 'Nhật ký', icon: '📜' },
+const MEMBER_TAB_ICONS = {
+  profile: User,
+  notifications: Bell,
+  privacy: Lock,
+  appearance: Palette,
+};
+
+function buildAdminTabs(t) {
+  return [
+    { id: 'general', label: t('organizationSettings.tabGeneral'), icon: '⚙️' },
+    { id: 'structure', label: t('organizationSettings.tabStructure'), icon: '🏢' },
+    { id: 'roles', label: t('organizationSettings.tabRoles'), icon: '🔐' },
+    { id: 'security', label: t('organizationSettings.tabSecurity'), icon: '🛡️' },
+    ...(hasBackendCapability('integrations')
+      ? [{ id: 'integrations', label: t('organizationSettings.tabIntegrations'), icon: '🔗' }]
+      : []),
+    ...(hasBackendCapability('billingInvoices')
+      ? [{ id: 'billing', label: t('organizationSettings.tabBilling'), icon: '💳' }]
+      : []),
+    ...(hasBackendCapability('auditLogs')
+      ? [{ id: 'audit', label: t('organizationSettings.tabAudit'), icon: '📜' }]
+      : []),
+  ];
+}
+
+function buildMemberTabs(t) {
+  return [
+    { id: 'profile', label: t('organizationSettings.tabProfile'), icon: '👤' },
+    { id: 'notifications', label: t('organizationSettings.tabNotifications'), icon: '🔔' },
+    { id: 'privacy', label: t('organizationSettings.tabPrivacy'), icon: '🔒' },
+    { id: 'appearance', label: t('organizationSettings.tabAppearance'), icon: '🎨' },
+  ];
+}
+
+const SECURITY_SETTING_DEFS = [
+  { id: '2fa', labelKey: 'security2fa', checked: false },
+  { id: 'strong-password', labelKey: 'securityStrongPassword', checked: false },
 ];
 
-const MEMBER_TABS = [
-  { id: 'profile', label: 'Hồ sơ cá nhân', icon: '👤' },
-  { id: 'notifications', label: 'Thông báo', icon: '🔔' },
-  { id: 'privacy', label: 'Quyền riêng tư', icon: '🔒' },
-  { id: 'appearance', label: 'Giao diện', icon: '🎨' },
+const NOTIFICATION_SETTING_DEFS = [
+  { id: 'new-message', labelKey: 'notifNewMessage', checked: true },
+  { id: 'mention', labelKey: 'notifMention', checked: true },
+  { id: 'email', labelKey: 'notifEmail', checked: false },
 ];
+
+function stripDiacritics(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizePrivacyValue(value) {
+  const v = String(value || '').trim();
+  if (v === 'everyone' || v === 'colleagues' || v === 'nobody') return v;
+
+  // Backward-compat: map legacy Vietnamese privacy labels -> canonical enum values.
+  const norm = stripDiacritics(v).toLowerCase();
+  if (norm === 'everyone' || norm === 'moi nguoi') return 'everyone';
+  if (norm === 'colleagues only' || norm === 'chi dong nghiep') return 'colleagues';
+  if (norm === 'nobody' || norm === 'khong ai') return 'nobody';
+
+  return 'everyone';
+}
 
 const storageKey = (orgId, key) => `orgSettings:${orgId}:${key}`;
+
+const unwrap = (payload) => payload?.data ?? payload;
 
 const JOIN_CHOICE_MAX = 8;
 const JOIN_CHOICE_MIN = 2;
@@ -66,7 +151,15 @@ function OrganizationSettingsPanel({
   onOrganizationDeleted,
   /** ?tab=join trên URL */
   initialTab = null,
+  suiteLayout = false,
+  /** Nhúng trong CompanyAdminConsole — chỉ render nội dung tab */
+  hideChrome = false,
+  /** Khóa một tab (structure | roles | join | …) */
+  lockTab = null,
+  /** Single-company: ẩn UI chọn chi nhánh */
+  hideBranchUi = false,
 }) {
+  const { t } = useAppStrings();
   const { user, updateUser } = useAuth();
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
@@ -112,18 +205,15 @@ function OrganizationSettingsPanel({
     { id: 'slack', name: 'Slack', icon: '💬', connected: false, color: 'from-purple-600 to-pink-600' },
     { id: 'gdrive', name: 'Google Drive', icon: '📁', connected: false, color: 'from-blue-500 to-cyan-500' },
   ]);
-  const [securitySettings, setSecuritySettings] = useState([
-    { id: '2fa', label: 'Bắt buộc 2FA cho tất cả thành viên', checked: false },
-    { id: 'strong-password', label: 'Yêu cầu mật khẩu mạnh', checked: false },
-  ]);
-  const [notificationSettings, setNotificationSettings] = useState([
-    { id: 'new-message', label: 'Thông báo tin nhắn mới trong tổ chức', checked: true },
-    { id: 'mention', label: 'Thông báo khi được @mention', checked: true },
-    { id: 'email', label: 'Thông báo qua email', checked: false },
-  ]);
+  const [securitySettings, setSecuritySettings] = useState(() =>
+    SECURITY_SETTING_DEFS.map((s) => ({ id: s.id, checked: s.checked }))
+  );
+  const [notificationSettings, setNotificationSettings] = useState(() =>
+    NOTIFICATION_SETTING_DEFS.map((s) => ({ id: s.id, checked: s.checked }))
+  );
   const [privacySettings, setPrivacySettings] = useState({
-    onlineStatus: 'Mọi người',
-    directMessagePermission: 'Mọi người',
+    onlineStatus: 'everyone',
+    directMessagePermission: 'everyone',
   });
   const [themeMode, setThemeMode] = useState('dark');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -223,11 +313,11 @@ function OrganizationSettingsPanel({
       setJoinFormDefaultRole(fd?.defaultRoleOnApprove === 'admin' ? 'admin' : 'member');
       setJoinFormFields(Array.isArray(fd?.fields) ? fd.fields : []);
     } catch {
-      toast.error('Không tải được cấu hình đơn gia nhập');
+      toast.error(t('organizationSettings.joinFormLoadFail'));
     } finally {
       setJoinFormLoading(false);
     }
-  }, [orgId, isFullAccess]);
+  }, [orgId, isFullAccess, t]);
 
   const loadStructure = useCallback(async () => {
     if (!orgId || !isFullAccess) return;
@@ -270,9 +360,9 @@ function OrganizationSettingsPanel({
 
   useEffect(() => {
     if (!orgId) return;
-    const first = isFullAccess ? 'general' : 'profile';
-    const allowed = (isFullAccess ? ADMIN_TABS : MEMBER_TABS).map((t) => t.id);
-    const urlTab = searchParams.get('tab') || initialTab;
+    const first = lockTab || (isFullAccess ? 'general' : 'profile');
+    const allowed = (isFullAccess ? buildAdminTabs(t) : buildMemberTabs(t)).map((tab) => tab.id);
+    const urlTab = lockTab || searchParams.get('tab') || initialTab;
     const nextTab = urlTab && allowed.includes(urlTab) ? urlTab : first;
     setActiveTab(nextTab);
     loadOrgFromApi();
@@ -282,13 +372,20 @@ function OrganizationSettingsPanel({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.notificationSettings) setNotificationSettings(parsed.notificationSettings);
-        if (parsed.privacySettings) setPrivacySettings(parsed.privacySettings);
+        if (parsed.privacySettings) {
+          setPrivacySettings({
+            onlineStatus: normalizePrivacyValue(parsed.privacySettings.onlineStatus),
+            directMessagePermission: normalizePrivacyValue(
+              parsed.privacySettings.directMessagePermission
+            ),
+          });
+        }
         if (parsed.themeMode) setThemeMode(parsed.themeMode);
       }
     } catch {
       /* ignore */
     }
-  }, [orgId, isFullAccess, initialTab, searchParams, loadOrgFromApi]);
+  }, [orgId, isFullAccess, initialTab, lockTab, searchParams, loadOrgFromApi, t]);
 
   useEffect(() => {
     if (!user) return;
@@ -330,17 +427,12 @@ function OrganizationSettingsPanel({
     setDeletingOrg(true);
     try {
       await organizationAPI.deleteOrganization(orgId);
-      toast.success('Đã xóa tổ chức');
+      toast.success(t('organizationSettings.orgDeleted'));
       setDeleteOrgModalOpen(false);
       setDeleteOrgNameInput('');
       onOrganizationDeleted?.(orgId);
     } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        e?.message ||
-        'Không thể xóa tổ chức';
-      toast.error(typeof msg === 'string' ? msg : 'Không thể xóa tổ chức');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.orgDeleteFail') }));
     } finally {
       setDeletingOrg(false);
     }
@@ -348,7 +440,7 @@ function OrganizationSettingsPanel({
 
   const handleSaveOrganization = async () => {
     if (!orgId || !organizationForm.name?.trim()) {
-      toast.error('Vui lòng nhập tên tổ chức');
+      toast.error(t('organizationSettings.orgNameRequired'));
       return;
     }
     try {
@@ -358,17 +450,17 @@ function OrganizationSettingsPanel({
         description: organizationForm.description,
       });
       setServerOrgName(trimmedName);
-      toast.success('Đã lưu thông tin tổ chức');
+      toast.success(t('organizationSettings.orgSaved'));
       onOrganizationUpdated?.();
     } catch {
-      toast.error('Không thể cập nhật tổ chức');
+      toast.error(t('organizationSettings.orgUpdateFail'));
     }
   };
 
   const handleSaveUserProfile = () => {
     updateUser({ displayName: userProfileForm.fullName, phone: userProfileForm.phone });
     persistMemberPrefs();
-    toast.success('Đã cập nhật hồ sơ');
+    toast.success(t('organizationSettings.profileUpdated'));
   };
 
   const handleToggleNotification = (id) => {
@@ -389,7 +481,7 @@ function OrganizationSettingsPanel({
     const reader = new FileReader();
     reader.onload = () => {
       setAvatarUrl(typeof reader.result === 'string' ? reader.result : '');
-      toast.success('Đã cập nhật avatar');
+      toast.success(t('organizationSettings.avatarUpdated'));
     };
     reader.readAsDataURL(file);
     event.target.value = '';
@@ -456,7 +548,7 @@ function OrganizationSettingsPanel({
     const fallbackBranchId =
       manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
     if (!fallbackBranchId) {
-      toast.error('Chưa có chi nhánh để tạo khối');
+      toast.error(t('organizationSettings.noBranchForDivision'));
       return;
     }
     setCreateDivisionBranchId(fallbackBranchId);
@@ -473,9 +565,9 @@ function OrganizationSettingsPanel({
       setCreateDivisionName('');
       setCreateDivisionModalOpen(false);
       await loadStructure();
-      toast.success('Đã tạo khối');
+      toast.success(t('organizationSettings.divisionCreated'));
     } catch {
-      toast.error('Không tạo được khối');
+      toast.error(t('organizationSettings.divisionCreateFail'));
     }
   };
 
@@ -486,7 +578,7 @@ function OrganizationSettingsPanel({
     const fallbackDivisionId =
       manageDivisionId || (branch?.divisions?.[0]?._id ? String(branch.divisions[0]._id) : '');
     if (!fallbackBranchId || !fallbackDivisionId) {
-      toast.error('Cần có chi nhánh và khối trước khi tạo phòng ban');
+      toast.error(t('organizationSettings.needBranchDivisionForDept'));
       return;
     }
     setCreateDepartmentBranchId(fallbackBranchId);
@@ -504,9 +596,9 @@ function OrganizationSettingsPanel({
       setCreateDepartmentName('');
       setCreateDepartmentModalOpen(false);
       await loadStructure();
-      toast.success('Đã tạo phòng ban');
+      toast.success(t('organizationSettings.departmentCreated'));
     } catch {
-      toast.error('Không tạo được phòng ban');
+      toast.error(t('organizationSettings.departmentCreateFail'));
     }
   };
 
@@ -521,7 +613,7 @@ function OrganizationSettingsPanel({
       manageDepartmentId ||
       (division?.departments?.[0]?._id ? String(division.departments[0]._id) : '');
     if (!fallbackBranchId || !fallbackDivisionId || !fallbackDepartmentId) {
-      toast.error('Cần có đủ chi nhánh, khối và phòng ban trước khi tạo team');
+      toast.error(t('organizationSettings.needFullStructureForTeam'));
       return;
     }
     setCreateTeamBranchId(fallbackBranchId);
@@ -540,9 +632,9 @@ function OrganizationSettingsPanel({
       setCreateTeamName('');
       setCreateTeamModalOpen(false);
       await loadStructure();
-      toast.success('Đã tạo team');
+      toast.success(t('organizationSettings.teamCreated'));
     } catch {
-      toast.error('Không tạo được team');
+      toast.error(t('organizationSettings.teamCreateFail'));
     }
   };
 
@@ -564,7 +656,7 @@ function OrganizationSettingsPanel({
     const fallbackTeamId =
       manageTeamId || (department?.teams?.[0]?._id ? String(department.teams[0]._id) : '');
     if (!fallbackBranchId || !fallbackDivisionId) {
-      toast.error('Cần có ít nhất chi nhánh và khối trước khi tạo kênh');
+      toast.error(t('organizationSettings.needBranchDivisionForChannel'));
       return;
     }
     setCreateChannelLevel('team');
@@ -580,15 +672,15 @@ function OrganizationSettingsPanel({
   const handleCreateChannel = async () => {
     if (!orgId || !createChannelName.trim()) return;
     if (createChannelLevel === 'division' && !createChannelDivisionId) {
-      toast.error('Vui lòng chọn khối');
+      toast.error(t('organizationSettings.selectDivision'));
       return;
     }
     if (createChannelLevel === 'department' && !createChannelDepartmentId) {
-      toast.error('Vui lòng chọn phòng ban');
+      toast.error(t('organizationSettings.selectDepartment'));
       return;
     }
     if (createChannelLevel === 'team' && !createChannelTeamId) {
-      toast.error('Vui lòng chọn team');
+      toast.error(t('organizationSettings.selectTeam'));
       return;
     }
     try {
@@ -609,9 +701,9 @@ function OrganizationSettingsPanel({
           new CustomEvent('vh:org-structure-changed', { detail: { orgId } })
         );
       }
-      toast.success('Đã tạo kênh');
+      toast.success(t('organizationSettings.channelCreated'));
     } catch {
-      toast.error('Không tạo được kênh');
+      toast.error(t('organizationSettings.channelCreateFail'));
     }
   };
   const handleRenameDivision = async () => {
@@ -619,9 +711,9 @@ function OrganizationSettingsPanel({
     try {
       await organizationAPI.updateDivision(orgId, manageDivisionId, { name: renameDivisionName.trim() });
       await loadStructure();
-      toast.success('Đã đổi tên khối');
+      toast.success(t('organizationSettings.divisionRenamed'));
     } catch {
-      toast.error('Không đổi được tên khối');
+      toast.error(t('organizationSettings.divisionRenameFail'));
     }
   };
   const handleRenameDepartment = async () => {
@@ -631,9 +723,9 @@ function OrganizationSettingsPanel({
         name: renameDepartmentName.trim(),
       });
       await loadStructure();
-      toast.success('Đã đổi tên phòng ban');
+      toast.success(t('organizationSettings.departmentRenamed'));
     } catch {
-      toast.error('Không đổi được tên phòng ban');
+      toast.error(t('organizationSettings.departmentRenameFail'));
     }
   };
   const handleRenameTeam = async () => {
@@ -641,9 +733,9 @@ function OrganizationSettingsPanel({
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, manageTeamId, { name: renameTeamName.trim() });
       await loadStructure();
-      toast.success('Đã đổi tên team');
+      toast.success(t('organizationSettings.teamRenamed'));
     } catch {
-      toast.error('Không đổi được tên team');
+      toast.error(t('organizationSettings.teamRenameFail'));
     }
   };
   const handleRenameChannel = async () => {
@@ -653,9 +745,9 @@ function OrganizationSettingsPanel({
         name: renameChannelName.trim(),
       });
       await loadStructure();
-      toast.success('Đã đổi tên kênh');
+      toast.success(t('organizationSettings.channelRenamed'));
     } catch {
-      toast.error('Không đổi được tên kênh');
+      toast.error(t('organizationSettings.channelRenameFail'));
     }
   };
 
@@ -665,11 +757,15 @@ function OrganizationSettingsPanel({
       const payload = await organizationAPI.getMembers(orgId);
       const raw = unwrap(payload);
       const rows = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
-      setOrgMembers(rows);
+      const enriched = await enrichMembershipsWithProfiles(rows, {
+        fallback: t('organizations.memberFallbackShort'),
+        limit: 120,
+      });
+      setOrgMembers(enriched);
     } catch {
       setOrgMembers([]);
     }
-  }, [orgId, isFullAccess]);
+  }, [orgId, isFullAccess, t]);
 
   const loadChannelAccessRows = useCallback(async () => {
     if (!orgId || !renameChannelId) {
@@ -680,11 +776,26 @@ function OrganizationSettingsPanel({
       const payload = await organizationAPI.listChannelAccess(orgId, renameChannelId);
       const raw = unwrap(payload);
       const data = raw?.data ?? raw;
-      setAccessRows(Array.isArray(data?.accesses) ? data.accesses : []);
+      const accesses = Array.isArray(data?.accesses) ? data.accesses : [];
+      const profileById = await enrichUserIdsWithProfiles(
+        accesses.map((row) => row?.user),
+        { fallback: t('organizations.memberFallbackShort') }
+      );
+      setAccessRows(
+        accesses.map((row) => {
+          const uid = String(row?.user || '');
+          const profile = profileById[uid];
+          return {
+            ...row,
+            userId: uid,
+            displayName: profile?.displayName || uid.slice(-6) || '—',
+          };
+        })
+      );
     } catch {
       setAccessRows([]);
     }
-  }, [orgId, renameChannelId]);
+  }, [orgId, renameChannelId, t]);
 
   useEffect(() => {
     if (!orgId || !isFullAccess || activeTab !== 'structure') return;
@@ -708,9 +819,9 @@ function OrganizationSettingsPanel({
         },
       });
       await loadChannelAccessRows();
-      toast.success('Đã cấp quyền kênh');
+      toast.success(t('organizationSettings.channelAccessGranted'));
     } catch {
-      toast.error('Không thể cấp quyền kênh');
+      toast.error(t('organizationSettings.channelAccessGrantFail'));
     }
   };
 
@@ -719,9 +830,9 @@ function OrganizationSettingsPanel({
     try {
       await organizationAPI.revokeChannelAccess(orgId, renameChannelId, { userId });
       await loadChannelAccessRows();
-      toast.success('Đã gỡ quyền kênh');
+      toast.success(t('organizationSettings.channelAccessRevoked'));
     } catch {
-      toast.error('Không thể gỡ quyền kênh');
+      toast.error(t('organizationSettings.channelAccessRevokeFail'));
     }
   };
 
@@ -734,16 +845,11 @@ function OrganizationSettingsPanel({
         defaultRoleOnApprove: joinFormDefaultRole,
         fields: joinFormFields,
       });
-      toast.success('Đã lưu form gia nhập');
+      toast.success(t('organizationSettings.joinFormSaved'));
       onOrganizationUpdated?.();
       await loadJoinWorkspace();
     } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        e?.message ||
-        'Không lưu được';
-      toast.error(typeof msg === 'string' ? msg : 'Không lưu được');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.saveFailed') }));
     } finally {
       setJoinFormSaving(false);
     }
@@ -754,7 +860,7 @@ function OrganizationSettingsPanel({
       ...prev,
       {
         id: `field_${Date.now()}`,
-        label: 'Câu hỏi mới',
+        label: t('organizationSettings.newQuestionLabel'),
         type: 'short_text',
         required: false,
         options: [],
@@ -774,136 +880,103 @@ function OrganizationSettingsPanel({
     setJoinFormFields((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const tabs = isFullAccess ? ADMIN_TABS : MEMBER_TABS;
+  const tabs = isFullAccess ? buildAdminTabs(t) : buildMemberTabs(t);
+  const tabIconMap = isFullAccess ? ADMIN_TAB_ICONS : MEMBER_TAB_ICONS;
+  const figmaTabs = useMemo(
+    () => tabs.map((tab) => ({ ...tab, Icon: tabIconMap[tab.id] })),
+    [tabs, tabIconMap]
+  );
+  const roleLabel =
+    myRole === 'owner'
+      ? t('organizationSettings.roleOwner')
+      : myRole === 'admin'
+        ? t('organizationSettings.roleAdmin')
+        : myRole === 'hr'
+          ? t('organizationSettings.roleHr')
+          : t('organizationSettings.roleMember');
+  const roleHint = !isFullAccess ? t('organizationSettings.roleHintMember') : '';
+
+  const gc = suiteLayout ? FIGMA_PAGE_CARD : 'border border-border bg-slate-900/60';
+  const rootShell = suiteLayout
+    ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-y-contain bg-background text-foreground'
+    : 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-y-contain bg-background text-slate-100';
+  const pageHeader = suiteLayout
+    ? `shrink-0 border-b border-border bg-surface px-4 py-4 md:px-8 ${FIGMA_PAGE_HEADER}`
+    : 'shrink-0 border-b border-white/[0.08] px-4 py-4 md:px-8';
+  const backLinkCls = suiteLayout
+    ? 'mb-3 text-sm text-primary hover:text-primary/80 hover:underline'
+    : 'mb-3 text-sm text-cyan-400/90 hover:text-cyan-300 hover:underline';
+  const asideShell = suiteLayout
+    ? 'scrollbar-org-settings hidden w-56 shrink-0 overflow-y-auto border-b border-border bg-muted/30 py-4 overscroll-y-contain md:block md:border-b-0 md:border-r lg:w-64'
+    : 'scrollbar-org-settings hidden w-56 shrink-0 overflow-y-auto border-b border-white/[0.08] bg-[#06080d] py-4 overscroll-y-contain md:block md:border-b-0 md:border-r lg:w-64';
+  const tabActiveCls = suiteLayout
+    ? `${FIGMA_TAB_ACTIVE} flex w-full items-center gap-3 text-left`
+    : 'flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-3 py-2.5 text-left text-sm font-semibold text-white shadow-lg';
+  const tabInactiveCls = suiteLayout
+    ? `flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold ${FIGMA_TAB_INACTIVE}`
+    : 'flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left text-sm font-semibold text-muted-foreground transition-all hover:border-white/10 hover:bg-white/[0.04] hover:text-white';
+  const mobileTabBar = suiteLayout
+    ? 'shrink-0 border-b border-border bg-muted/30 px-2 py-2 md:hidden'
+    : 'shrink-0 border-b border-white/[0.08] bg-[#080a10] px-2 py-2 md:hidden';
 
   if (!organization) return null;
 
-  return (
+  const tabPanels = (
     <>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-y-contain bg-[#0b0e14] text-slate-100">
-        <header className="shrink-0 border-b border-white/[0.08] px-4 py-4 md:px-8">
-          <button
-            type="button"
-            onClick={onBack}
-            className="mb-3 text-sm text-cyan-400/90 hover:text-cyan-300 hover:underline"
-          >
-            ← Quay lại Tổ chức
-          </button>
-          <h1 className="text-xl font-bold text-white md:text-2xl">Cài đặt tổ chức</h1>
-          <p className="mt-1 text-sm font-semibold text-white/90">{organization.name}</p>
-          <p className="text-xs text-gray-400">
-            Vai trò của bạn:{' '}
-            <span className="text-cyan-300">
-              {myRole === 'owner'
-                ? 'Chủ sở hữu'
-                : myRole === 'admin'
-                  ? 'Quản trị viên'
-                  : myRole === 'hr'
-                    ? 'Nhân sự'
-                  : 'Thành viên'}
-            </span>
-            {!isFullAccess && ' — chỉ xem các mục cá nhân trong tổ chức'}
-          </p>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="scrollbar-org-settings hidden w-56 shrink-0 overflow-y-auto border-b border-white/[0.08] bg-[#06080d] py-4 overscroll-y-contain md:block md:border-b-0 md:border-r lg:w-64">
-            <nav className="flex flex-col gap-1 px-3">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => selectTab(tab.id)}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
-                      : 'border border-transparent text-gray-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
-                  }`}
-                >
-                  <span className="text-lg leading-none">{tab.icon}</span>
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-            </nav>
-          </aside>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-white/[0.08] bg-[#080a10] px-2 py-2 md:hidden">
-              <div className="scrollbar-org-settings flex gap-1 overflow-x-auto pb-1">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => selectTab(tab.id)}
-                    className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${
-                      activeTab === tab.id
-                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
-                        : 'border border-slate-800 bg-[#040f2a] text-gray-400'
-                    }`}
-                  >
-                    <span className="mr-0.5">{tab.icon}</span>
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="scrollbar-org-settings min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-6 md:px-10 md:py-8">
               {loadingOrg && isFullAccess && (
-                <p className="mb-4 text-sm text-gray-400">Đang tải thông tin tổ chức…</p>
+                <p className="mb-4 text-sm text-muted-foreground">{t('organizationSettings.loadingOrgInfo')}</p>
               )}
 
           {/* ——— Admin ——— */}
           {isFullAccess && activeTab === 'general' && (
             <div className="mx-auto max-w-4xl space-y-4">
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h3 className="mb-4 text-xl font-bold text-white">Thông tin tổ chức</h3>
+              <GlassCard className={gc}>
+                <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.orgInfoTitle')}</h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-sm text-gray-300">Tên tổ chức</label>
+                    <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.orgNameLabel')}</label>
                     <input
                       value={organizationForm.name}
                       onChange={(e) =>
                         setOrganizationForm((p) => ({ ...p, name: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm text-gray-300">Mô tả</label>
+                    <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.descriptionLabel')}</label>
                     <textarea
                       rows={3}
                       value={organizationForm.description}
                       onChange={(e) =>
                         setOrganizationForm((p) => ({ ...p, description: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-indigo-500"
                     />
                   </div>
                   <GradientButton variant="primary" onClick={handleSaveOrganization}>
-                    Lưu thay đổi
+                    {t('organizationSettings.saveChanges')}
                   </GradientButton>
                 </div>
               </GlassCard>
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h3 className="mb-2 text-lg font-bold text-white">Quota & giới hạn</h3>
-                <p className="text-sm text-gray-400">
-                  Theo gói đăng ký — chi tiết sẽ đồng bộ khi backend billing sẵn sàng.
+              <GlassCard className={gc}>
+                <h3 className="mb-2 text-lg font-bold text-foreground">{t('organizationSettings.quotaTitle')}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {t('organizationSettings.quotaHint')}
                 </p>
               </GlassCard>
               {myRole === 'owner' && (
                 <GlassCard className="border border-red-900/40 bg-red-950/20">
-                  <h3 className="mb-2 text-lg font-bold text-red-300">Vùng nguy hiểm</h3>
-                  <p className="mb-3 text-sm text-gray-400">
-                    Xóa tổ chức sẽ vô hiệu hóa tổ chức này. Nếu bạn là chủ sở hữu duy nhất và không thể rời
-                    tổ chức, hãy xóa tổ chức hoặc chuyển quyền sở hữu trước.
+                  <h3 className="mb-2 text-lg font-bold text-red-300">{t('organizationSettings.dangerZoneTitle')}</h3>
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    {t('organizationSettings.dangerZoneDesc')}
                   </p>
                   <button
                     type="button"
                     onClick={openDeleteOrgModal}
                     className="rounded-xl border border-red-500/60 bg-red-950/40 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-950/60"
                   >
-                    Xóa tổ chức vĩnh viễn
+                    {t('organizationSettings.deleteOrgPermanent')}
                   </button>
                 </GlassCard>
               )}
@@ -912,14 +985,15 @@ function OrganizationSettingsPanel({
 
           {isFullAccess && activeTab === 'structure' && (
             <div className="mx-auto max-w-6xl space-y-4">
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h3 className="mb-3 text-xl font-bold text-white">Quản trị cấu trúc tổ chức</h3>
+              <GlassCard className={gc}>
+                <h3 className="mb-3 text-xl font-bold text-foreground">{t('organizationSettings.structureAdminTitle')}</h3>
                 {structureLoading ? (
-                  <p className="text-sm text-gray-400">Đang tải cấu trúc…</p>
+                  <p className="text-sm text-muted-foreground">{t('organizationSettings.loadingStructure')}</p>
                 ) : (
                   <div className="space-y-4">
                     <div className="grid gap-2 md:grid-cols-2">
-                      <label className="text-sm text-gray-300">Chi nhánh
+                      {!hideBranchUi ? (
+                      <label className="text-sm text-gray-300">{t('organizationSettings.branchLabel')}
                         <select value={manageBranchId} onChange={(e) => {
                           const nextBranchId = e.target.value;
                           const nextBranch = structureBranches.find((b) => String(b._id) === String(nextBranchId)) || null;
@@ -927,114 +1001,119 @@ function OrganizationSettingsPanel({
                           const nextDepartmentId = nextBranch?.divisions?.[0]?.departments?.[0]?._id ? String(nextBranch.divisions[0].departments[0]._id) : '';
                           const nextTeamId = nextBranch?.divisions?.[0]?.departments?.[0]?.teams?.[0]?._id ? String(nextBranch.divisions[0].departments[0].teams[0]._id) : '';
                           setManageBranchId(nextBranchId); setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
                           {structureBranches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}
                         </select>
                       </label>
-                      <label className="text-sm text-gray-300">Khối
+                      ) : null}
+                      <label className="text-sm text-gray-300">{t('organizationSettings.divisionLabel')}
                         <select value={manageDivisionId} onChange={(e) => {
                           const nextDivisionId = e.target.value;
                           const nextDivision = manageDivisions.find((d) => String(d._id) === String(nextDivisionId)) || null;
                           const nextDepartmentId = nextDivision?.departments?.[0]?._id ? String(nextDivision.departments[0]._id) : '';
                           const nextTeamId = nextDivision?.departments?.[0]?.teams?.[0]?._id ? String(nextDivision.departments[0].teams[0]._id) : '';
                           setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
                           {manageDivisions.map((division) => <option key={division._id} value={division._id}>{division.name}</option>)}
                         </select>
                       </label>
-                      <label className="text-sm text-gray-300">Phòng ban
+                      <label className="text-sm text-gray-300">{t('organizationSettings.departmentLabel')}
                         <select value={manageDepartmentId} onChange={(e) => {
                           const nextDepartmentId = e.target.value;
                           const nextDepartment = manageDepartments.find((d) => String(d._id) === String(nextDepartmentId)) || null;
                           const nextTeamId = nextDepartment?.teams?.[0]?._id ? String(nextDepartment.teams[0]._id) : '';
                           setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
                           {manageDepartments.map((department) => <option key={department._id} value={department._id}>{department.name}</option>)}
                         </select>
                       </label>
-                      <label className="text-sm text-gray-300">Team
-                        <select value={manageTeamId} onChange={(e) => setManageTeamId(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white">
+                      <label className="text-sm text-gray-300">{t('organizationSettings.teamLabel')}
+                        <select value={manageTeamId} onChange={(e) => setManageTeamId(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
                           {manageTeams.map((team) => <option key={team._id} value={team._id}>{team.name}</option>)}
                         </select>
                       </label>
                     </div>
 
                     <div className="grid gap-2 md:grid-cols-2">
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                      <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
                           onClick={openCreateDivisionModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
-                          Tạo khối
+                          {t('organizationSettings.createDivisionBtn')}
                         </button>
                       </div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                      <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
                           onClick={openCreateDepartmentModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
-                          Tạo phòng ban
+                          {t('organizationSettings.createDepartmentBtn')}
                         </button>
                       </div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                      <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
                           onClick={openCreateTeamModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
-                          Mở form tạo team
+                          {t('organizationSettings.openCreateTeamForm')}
                         </button>
                       </div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
+                      <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
                           onClick={openCreateChannelModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
-                          Mở form tạo kênh
+                          {t('organizationSettings.openCreateChannelForm')}
                         </button>
                       </div>
                     </div>
 
                     <div className="grid gap-2 md:grid-cols-2">
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên khối</div><div className="flex gap-2"><input value={renameDivisionName} onChange={(e) => setRenameDivisionName(e.target.value)} placeholder={manageDivision?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameDivision} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên phòng ban</div><div className="flex gap-2"><input value={renameDepartmentName} onChange={(e) => setRenameDepartmentName(e.target.value)} placeholder={manageDepartment?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameDepartment} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên team</div><div className="flex gap-2"><input value={renameTeamName} onChange={(e) => setRenameTeamName(e.target.value)} placeholder={manageTeam?.name || 'Tên mới'} className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameTeam} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
-                      <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3"><div className="mb-2 text-sm font-semibold text-white">Đổi tên kênh</div><div className="mb-2 flex gap-2"><select value={renameChannelId} onChange={(e) => { const nextId = e.target.value; const ch = manageChannels.find((c) => String(c._id) === String(nextId)); setRenameChannelId(nextId); setRenameChannelName(ch?.name || ''); }} className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"><option value="">Chọn kênh</option>{manageChannels.map((channel) => <option key={`${channel._id}-${channel.__scope || 'team'}`} value={channel._id}>[{channel.__scope === 'division' ? 'Khối' : channel.__scope === 'department' ? 'Phòng' : 'Team'}] {channel.name}</option>)}</select><input value={renameChannelName} onChange={(e) => setRenameChannelName(e.target.value)} placeholder="Tên mới" className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white" /><button type="button" onClick={handleRenameChannel} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Lưu</button></div></div>
+                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameDivisionTitle')}</div><div className="flex gap-2"><input value={renameDivisionName} onChange={(e) => setRenameDivisionName(e.target.value)} placeholder={manageDivision?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameDivision} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
+                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameDepartmentTitle')}</div><div className="flex gap-2"><input value={renameDepartmentName} onChange={(e) => setRenameDepartmentName(e.target.value)} placeholder={manageDepartment?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameDepartment} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
+                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameTeamTitle')}</div><div className="flex gap-2"><input value={renameTeamName} onChange={(e) => setRenameTeamName(e.target.value)} placeholder={manageTeam?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameTeam} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
+                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameChannelTitle')}</div><div className="mb-2 flex gap-2"><select value={renameChannelId} onChange={(e) => { const nextId = e.target.value; const ch = manageChannels.find((c) => String(c._id) === String(nextId)); setRenameChannelId(nextId); setRenameChannelName(ch?.name || ''); }} className="rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground"><option value="">{t('organizationSettings.selectChannel')}</option>{manageChannels.map((channel) => <option key={`${channel._id}-${channel.__scope || 'team'}`} value={channel._id}>[{channel.__scope === 'division' ? t('organizationSettings.scopeDivision') : channel.__scope === 'department' ? t('organizationSettings.scopeDepartment') : t('organizationSettings.scopeTeam')}] {channel.name}</option>)}</select><input value={renameChannelName} onChange={(e) => setRenameChannelName(e.target.value)} placeholder={t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameChannel} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
                     </div>
 
-                    <div className="rounded-xl border border-slate-800 bg-[#040f2a] p-3">
-                      <div className="mb-2 text-sm font-semibold text-white">Phân quyền kênh liên phòng (ACL)</div>
+                    <div className="rounded-xl border border-border bg-muted p-3">
+                      <div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.channelAclTitle')}</div>
                       <div className="grid gap-2 md:grid-cols-2">
                         <select
                           value={accessUserId}
                           onChange={(e) => setAccessUserId(e.target.value)}
-                          className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+                          className="rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground"
                         >
-                          <option value="">Chọn thành viên</option>
-                          {orgMembers.map((member) => (
-                            <option key={member._id} value={member?.user?._id || member?.user}>
-                              {member?.user?.displayName ||
-                                member?.user?.fullName ||
-                                member?.user?.username ||
-                                String(member.user)}
-                            </option>
-                          ))}
+                          <option value="">{t('organizationSettings.selectMember')}</option>
+                          {orgMembers.map((member) => {
+                            const uid = String(member.userId || '');
+                            if (!uid) return null;
+                            const label = member.email
+                              ? `${member.displayName} (${member.email})`
+                              : member.displayName;
+                            return (
+                              <option key={uid} value={uid}>
+                                {label}
+                              </option>
+                            );
+                          })}
                         </select>
                         <div className="flex items-center gap-4 text-xs text-gray-300">
                           <label className="flex items-center gap-1">
                             <input type="checkbox" checked={accessCanRead} onChange={(e) => setAccessCanRead(e.target.checked)} />
-                            Read
+                            {t('organizationSettings.permRead')}
                           </label>
                           <label className="flex items-center gap-1">
                             <input type="checkbox" checked={accessCanWrite} onChange={(e) => setAccessCanWrite(e.target.checked)} />
-                            Write
+                            {t('organizationSettings.permWrite')}
                           </label>
                           <label className="flex items-center gap-1">
                             <input type="checkbox" checked={accessCanVoice} onChange={(e) => setAccessCanVoice(e.target.checked)} />
-                            Voice
+                            {t('organizationSettings.permVoice')}
                           </label>
                         </div>
                       </div>
@@ -1042,28 +1121,29 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           onClick={handleGrantChannelAccess}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
                         >
-                          Cấp quyền
+                          {t('organizationSettings.grantAccess')}
                         </button>
                       </div>
                       <div className="mt-3 space-y-1">
                         {accessRows.map((row) => (
                           <div
-                            key={`${row.user}-${row.channel || 'c'}`}
-                            className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs text-gray-200"
+                            key={`${row.userId || row.user}-${row.channel || 'c'}`}
+                            className="flex items-center justify-between rounded-lg border border-border bg-slate-900/50 px-3 py-2 text-xs text-gray-200"
                           >
                             <span>
-                              {String(row.user)} — R:{row.permissions?.canRead ? 'Y' : 'N'} W:
+                              {row.displayName || String(row.user)} — R:
+                              {row.permissions?.canRead ? 'Y' : 'N'} W:
                               {row.permissions?.canWrite ? 'Y' : 'N'} V:
                               {row.permissions?.canVoice ? 'Y' : 'N'}
                             </span>
                             <button
                               type="button"
-                              onClick={() => handleRevokeChannelAccess(row.user)}
+                              onClick={() => handleRevokeChannelAccess(row.userId || row.user)}
                               className="text-red-300 hover:text-red-200"
                             >
-                              Gỡ
+                              {t('organizationSettings.revoke')}
                             </button>
                           </div>
                         ))}
@@ -1077,11 +1157,10 @@ function OrganizationSettingsPanel({
 
           {isFullAccess && activeTab === 'join' && (
             <div className="mx-auto w-full max-w-6xl space-y-4">
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h3 className="mb-3 text-xl font-bold text-white">Form gia nhập (link mời)</h3>
-                <p className="mb-2 text-sm text-gray-400">
-                  Khi bật, người dùng phải điền form trước khi vào tổ chức. Bạn có thể thêm trường ngắn, đoạn
-                  văn hoặc một lựa chọn.
+              <GlassCard className={gc}>
+                <h3 className="mb-3 text-xl font-bold text-foreground">{t('organizationSettings.joinFormTitle')}</h3>
+                <p className="mb-2 text-sm text-muted-foreground">
+                  {t('organizationSettings.joinFormDesc')}
                 </p>
                 {orgId && (
                   <p className="mb-4 text-sm">
@@ -1089,12 +1168,12 @@ function OrganizationSettingsPanel({
                       to={`/organizations/join/${orgId}?name=${encodeURIComponent(organization?.name || '')}`}
                       className="text-cyan-400 hover:underline"
                     >
-                      Mở trang đơn gia nhập (xem trước)
+                      {t('organizationSettings.previewJoinPage')}
                     </Link>
                   </p>
                 )}
                 {joinFormLoading ? (
-                  <p className="text-sm text-gray-500">Đang tải…</p>
+                  <p className="text-sm text-gray-500">{t('common.loadingEllipsis')}</p>
                 ) : (
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-200">
@@ -1104,37 +1183,37 @@ function OrganizationSettingsPanel({
                         onChange={(e) => setJoinFormEnabled(e.target.checked)}
                         className="h-4 w-4 rounded"
                       />
-                      Bật form gia nhập
+                      {t('organizationSettings.enableJoinForm')}
                     </label>
                     <div>
-                      <label className="mb-1 block text-sm text-gray-300">Vai trò khi duyệt</label>
+                      <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.roleOnApprove')}</label>
                       <select
                         value={joinFormDefaultRole}
                         onChange={(e) => setJoinFormDefaultRole(e.target.value)}
-                        className="w-full max-w-xs rounded-xl border border-slate-800 bg-[#040f2a] px-3 py-2 text-white"
+                        className="w-full max-w-xs rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
                       >
-                        <option value="member">Thành viên</option>
-                        <option value="admin">Quản trị viên</option>
+                        <option value="member">{t('organizationSettings.roleMember')}</option>
+                        <option value="admin">{t('organizationSettings.roleAdmin')}</option>
                       </select>
                     </div>
                     <div className="space-y-3">
                       {joinFormFields.map((f, idx) => (
                         <div
                           key={f.id || idx}
-                          className="rounded-xl border border-slate-800 bg-[#040f2a] p-3 space-y-2"
+                          className="rounded-xl border border-border bg-muted p-3 space-y-2"
                         >
                           <div className="grid gap-2 md:grid-cols-2">
                             <input
                               value={f.label}
                               onChange={(e) => updateJoinField(idx, { label: e.target.value })}
-                              placeholder="Nhãn câu hỏi"
-                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                              placeholder={t('organizationSettings.questionLabelPh')}
+                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
                             />
                             <input
                               value={f.id}
                               onChange={(e) => updateJoinField(idx, { id: e.target.value.trim() })}
-                              placeholder="id (vd: full_name)"
-                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                              placeholder={t('organizationSettings.fieldIdPh')}
+                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
                             />
                           </div>
                           <div className="flex flex-wrap items-center gap-3">
@@ -1150,35 +1229,37 @@ function OrganizationSettingsPanel({
                                   options: needsOptions ? joinCreateEmptyOptionsForType(nextType) : [],
                                 });
                               }}
-                              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white"
+                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
                             >
-                              <option value="short_text">Một dòng</option>
-                              <option value="long_text">Đoạn văn</option>
-                              <option value="single_choice">Chọn một (dropdown)</option>
-                              <option value="radio">Radio (một lựa chọn)</option>
-                              <option value="checkbox">Checkbox (nhiều lựa chọn)</option>
+                              <option value="short_text">{t('organizationSettings.fieldTypeShortText')}</option>
+                              <option value="long_text">{t('organizationSettings.fieldTypeLongText')}</option>
+                              <option value="single_choice">{t('organizationSettings.fieldTypeSingleChoice')}</option>
+                              <option value="radio">{t('organizationSettings.fieldTypeRadio')}</option>
+                              <option value="checkbox">{t('organizationSettings.fieldTypeCheckbox')}</option>
                             </select>
-                            <label className="flex items-center gap-1 text-xs text-gray-400">
+                            <label className="flex items-center gap-1 text-xs text-muted-foreground">
                               <input
                                 type="checkbox"
                                 checked={Boolean(f.required)}
                                 onChange={(e) => updateJoinField(idx, { required: e.target.checked })}
                               />
-                              Bắt buộc
+                              {t('organizationSettings.fieldRequired')}
                             </label>
                             <button
                               type="button"
                               onClick={() => removeJoinField(idx)}
                               className="ml-auto text-xs text-red-400 hover:underline"
                             >
-                              Xóa trường
+                              {t('organizationSettings.removeField')}
                             </button>
                           </div>
                           {['single_choice', 'radio', 'checkbox'].includes(f.type) && (
                             <div className="space-y-2 border-t border-white/5 pt-3">
                               <p className="text-xs text-gray-500">
-                                Lựa chọn — tối đa {JOIN_CHOICE_MAX} ô (tối thiểu {JOIN_CHOICE_MIN} giá trị có nội
-                                dung khi lưu).
+                                {t('organizationSettings.choiceHint', {
+                                  max: JOIN_CHOICE_MAX,
+                                  min: JOIN_CHOICE_MIN,
+                                })}
                               </p>
                               <div className="grid gap-2 sm:grid-cols-2">
                                 {joinPadOptionsForDisplay(f.type, f.options).map((opt, optIdx) => (
@@ -1190,8 +1271,8 @@ function OrganizationSettingsPanel({
                                       padded[optIdx] = e.target.value;
                                       updateJoinField(idx, { options: padded });
                                     }}
-                                    placeholder={`Lựa chọn ${optIdx + 1}`}
-                                    className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-white placeholder:text-gray-600"
+                                    placeholder={t('organizationSettings.choicePh', { n: optIdx + 1 })}
+                                    className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground placeholder:text-gray-600"
                                   />
                                 ))}
                               </div>
@@ -1208,7 +1289,7 @@ function OrganizationSettingsPanel({
                                   }}
                                   className="text-xs font-medium text-cyan-400 hover:underline disabled:cursor-not-allowed disabled:text-gray-600"
                                 >
-                                  + Thêm lựa chọn
+                                  {t('organizationSettings.addChoice')}
                                 </button>
                                 <button
                                   type="button"
@@ -1220,9 +1301,9 @@ function OrganizationSettingsPanel({
                                     if (padded.length <= JOIN_CHOICE_MIN) return;
                                     updateJoinField(idx, { options: padded.slice(0, -1) });
                                   }}
-                                  className="text-xs text-gray-400 hover:text-red-300 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                                  className="text-xs text-muted-foreground hover:text-red-300 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                  Xóa ô cuối
+                                  {t('organizationSettings.removeLastChoice')}
                                 </button>
                               </div>
                             </div>
@@ -1234,7 +1315,7 @@ function OrganizationSettingsPanel({
                         onClick={addJoinField}
                         className="text-sm font-medium text-cyan-400 hover:underline"
                       >
-                        + Thêm trường
+                        {t('organizationSettings.addField')}
                       </button>
                     </div>
                     <GradientButton
@@ -1242,45 +1323,47 @@ function OrganizationSettingsPanel({
                       onClick={handleSaveJoinForm}
                       disabled={joinFormSaving}
                     >
-                      {joinFormSaving ? 'Đang lưu…' : 'Lưu form'}
+                      {joinFormSaving ? t('organizationSettings.saving') : t('organizationSettings.saveForm')}
                     </GradientButton>
                   </div>
                 )}
               </GlassCard>
 
-              <GlassCard className="border border-slate-800 bg-slate-900/60">
-                <h3 className="mb-2 text-sm font-semibold text-white">Đơn chờ duyệt</h3>
-                <p className="text-sm leading-relaxed text-gray-400">
-                  Danh sách đơn gia nhập cần bạn xử lý được gom tại{' '}
-                  <span className="font-medium text-gray-200">Trang chủ tổ chức</span> (Organization
-                  Home) để xem và duyệt thống nhất từ mọi tổ chức bạn quản trị.
+              <GlassCard className={gc}>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.pendingAppsTitle')}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {t('organizationSettings.pendingAppsDesc', {
+                    highlight: t('organizationSettings.orgHomeHighlight'),
+                  })}
                 </p>
                 <Link
                   to="/organizations"
                   className="mt-3 inline-block text-sm font-medium text-cyan-400 hover:text-cyan-300 hover:underline"
                 >
-                  Mở Trang chủ tổ chức →
+                  {t('organizationSettings.openOrgHome')}
                 </Link>
               </GlassCard>
             </div>
           )}
 
           {isFullAccess && activeTab === 'roles' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60 p-4 sm:p-6">
+            <GlassCard className={`${gc} p-4 sm:p-6`}>
               <OrganizationRbacSettings orgId={orgId} />
             </GlassCard>
           )}
 
           {isFullAccess && activeTab === 'security' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Chính sách bảo mật</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.securityPolicyTitle')}</h3>
               <div className="space-y-2">
-                {securitySettings.map((s) => (
+                {securitySettings.map((s) => {
+                  const def = SECURITY_SETTING_DEFS.find((d) => d.id === s.id);
+                  return (
                   <label
                     key={s.id}
-                    className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-4"
+                    className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-muted p-4"
                   >
-                    <span>{s.label}</span>
+                    <span>{def ? t(`organizationSettings.${def.labelKey}`) : s.id}</span>
                     <input
                       type="checkbox"
                       checked={s.checked}
@@ -1288,19 +1371,20 @@ function OrganizationSettingsPanel({
                       className="h-5 w-5 rounded"
                     />
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </GlassCard>
           )}
 
           {isFullAccess && activeTab === 'integrations' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Tích hợp</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.integrationsTitle')}</h3>
               <div className="grid grid-cols-2 gap-3">
                 {integrations.map((i) => (
-                  <div key={i.id} className="rounded-xl border border-slate-800 bg-[#040f2a] p-4">
+                  <div key={i.id} className="rounded-xl border border-border bg-muted p-4">
                     <div className="text-2xl">{i.icon}</div>
-                    <div className="font-semibold text-white">{i.name}</div>
+                    <div className="font-semibold text-foreground">{i.name}</div>
                   </div>
                 ))}
               </div>
@@ -1308,23 +1392,23 @@ function OrganizationSettingsPanel({
           )}
 
           {isFullAccess && activeTab === 'billing' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-2 text-xl font-bold text-white">Thanh toán</h3>
-              <p className="text-sm text-gray-400">Quản lý gói cước và hóa đơn — bản demo.</p>
+            <GlassCard className={gc}>
+              <h3 className="mb-2 text-xl font-bold text-foreground">{t('organizationSettings.billingTitle')}</h3>
+              <p className="text-sm text-muted-foreground">{t('organizationSettings.billingDemo')}</p>
             </GlassCard>
           )}
 
           {isFullAccess && activeTab === 'audit' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-2 text-xl font-bold text-white">Nhật ký hoạt động</h3>
-              <p className="text-sm text-gray-400">Nhật ký audit sẽ hiển thị khi backend cung cấp API.</p>
+            <GlassCard className={gc}>
+              <h3 className="mb-2 text-xl font-bold text-foreground">{t('organizationSettings.auditTitle')}</h3>
+              <p className="text-sm text-muted-foreground">{t('organizationSettings.auditDemo')}</p>
             </GlassCard>
           )}
 
           {/* ——— Member ——— */}
           {!isFullAccess && activeTab === 'profile' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Thông tin trong tổ chức</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.profileInOrgTitle')}</h3>
               <div className="mb-4 flex items-center gap-4">
                 <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-purple-600 to-pink-600 text-4xl">
                   {avatarUrl ? (
@@ -1336,46 +1420,48 @@ function OrganizationSettingsPanel({
                 <label className="inline-flex cursor-pointer">
                   <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                   <span className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white">
-                    Đổi avatar
+                    {t('organizationSettings.changeAvatar')}
                   </span>
                 </label>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-sm text-gray-300">Họ và tên</label>
+                  <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.fullNameLabel')}</label>
                   <input
                     value={userProfileForm.fullName}
                     onChange={(e) =>
                       setUserProfileForm((p) => ({ ...p, fullName: e.target.value }))
                     }
-                    className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white"
+                    className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-gray-300">Email</label>
+                  <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.emailLabel')}</label>
                   <input
                     value={user?.email || ''}
                     disabled
-                    className="w-full rounded-xl border border-slate-800 bg-[#040f2a]/60 px-4 py-3 text-gray-400"
+                    className="w-full rounded-xl border border-border bg-muted/60 px-4 py-3 text-muted-foreground"
                   />
                 </div>
                 <GradientButton variant="primary" onClick={handleSaveUserProfile}>
-                  Lưu thay đổi
+                  {t('organizationSettings.saveChanges')}
                 </GradientButton>
               </div>
             </GlassCard>
           )}
 
           {!isFullAccess && activeTab === 'notifications' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Thông báo (tổ chức)</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.notificationsOrgTitle')}</h3>
               <div className="space-y-2">
-                {notificationSettings.map((s) => (
+                {notificationSettings.map((s) => {
+                  const def = NOTIFICATION_SETTING_DEFS.find((d) => d.id === s.id);
+                  return (
                   <label
                     key={s.id}
-                    className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-4"
+                    className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-muted p-4"
                   >
-                    <span>{s.label}</span>
+                    <span>{def ? t(`organizationSettings.${def.labelKey}`) : s.id}</span>
                     <input
                       type="checkbox"
                       checked={s.checked}
@@ -1383,41 +1469,42 @@ function OrganizationSettingsPanel({
                       className="h-5 w-5 rounded"
                     />
                   </label>
-                ))}
+                  );
+                })}
               </div>
               <button
                 type="button"
                 className="mt-3 text-sm text-indigo-400 hover:underline"
                 onClick={() => {
                   persistMemberPrefs();
-                  toast.success('Đã lưu cài đặt thông báo');
+                  toast.success(t('organizationSettings.notificationsSaved'));
                 }}
               >
-                Lưu cài đặt thông báo
+                {t('organizationSettings.saveNotifications')}
               </button>
             </GlassCard>
           )}
 
           {!isFullAccess && activeTab === 'privacy' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Quyền riêng tư</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.privacyTitle')}</h3>
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-sm text-gray-300">Hiển thị trạng thái online</label>
+                  <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.onlineStatusLabel')}</label>
                   <select
                     value={privacySettings.onlineStatus}
                     onChange={(e) =>
                       setPrivacySettings((p) => ({ ...p, onlineStatus: e.target.value }))
                     }
-                    className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white"
+                    className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground"
                   >
-                    <option>Mọi người</option>
-                    <option>Chỉ đồng nghiệp</option>
-                    <option>Không ai</option>
+                    <option value="everyone">{t('organizationSettings.privacyEveryone')}</option>
+                    <option value="colleagues">{t('organizationSettings.privacyColleagues')}</option>
+                    <option value="nobody">{t('organizationSettings.privacyNobody')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-gray-300">Ai có thể nhắn tin cho tôi</label>
+                  <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.dmPermissionLabel')}</label>
                   <select
                     value={privacySettings.directMessagePermission}
                     onChange={(e) =>
@@ -1426,10 +1513,10 @@ function OrganizationSettingsPanel({
                         directMessagePermission: e.target.value,
                       }))
                     }
-                    className="w-full rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white"
+                    className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground"
                   >
-                    <option>Mọi người</option>
-                    <option>Chỉ đồng nghiệp</option>
+                    <option value="everyone">{t('organizationSettings.privacyEveryone')}</option>
+                    <option value="colleagues">{t('organizationSettings.privacyColleagues')}</option>
                   </select>
                 </div>
                 <button
@@ -1437,63 +1524,141 @@ function OrganizationSettingsPanel({
                   className="text-sm text-indigo-400 hover:underline"
                   onClick={() => {
                     persistMemberPrefs();
-                    toast.success('Đã lưu quyền riêng tư');
+                    toast.success(t('organizationSettings.privacySaved'));
                   }}
                 >
-                  Lưu
+                  {t('common.save')}
                 </button>
               </div>
             </GlassCard>
           )}
 
           {!isFullAccess && activeTab === 'appearance' && (
-            <GlassCard className="border border-slate-800 bg-slate-900/60">
-              <h3 className="mb-4 text-xl font-bold text-white">Giao diện</h3>
+            <GlassCard className={gc}>
+              <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.appearanceTitle')}</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { id: 'dark', name: 'Tối', icon: '🌙' },
-                  { id: 'light', name: 'Sáng', icon: '☀️' },
-                ].map((t) => (
+                  { id: 'dark', labelKey: 'themeDark', icon: '🌙' },
+                  { id: 'light', labelKey: 'themeLight', icon: '☀️' },
+                ].map((themeItem) => (
                   <button
-                    key={t.id}
+                    key={themeItem.id}
                     type="button"
                     onClick={() => {
-                      setThemeMode(t.id);
+                      setThemeMode(themeItem.id);
                       persistMemberPrefs();
-                      toast.success(`Đã chọn giao diện ${t.name.toLowerCase()}`);
+                      toast.success(
+                        t('organizationSettings.themeSelected', {
+                          name: t(`organizationSettings.${themeItem.labelKey}`),
+                        })
+                      );
                     }}
                     className={`rounded-xl p-6 text-left transition-all ${
-                      themeMode === t.id
+                      themeMode === themeItem.id
                         ? 'bg-gradient-to-br from-purple-600 to-pink-600'
-                        : 'border border-slate-800 bg-[#040f2a] hover:bg-slate-800/70'
+                        : 'border border-border bg-muted hover:bg-slate-800/70'
                     }`}
                   >
-                    <div className="mb-2 text-4xl">{t.icon}</div>
-                    <div className="font-bold text-white">{t.name}</div>
+                    <div className="mb-2 text-4xl">{themeItem.icon}</div>
+                    <div className="font-bold text-foreground">{t(`organizationSettings.${themeItem.labelKey}`)}</div>
                   </button>
                 ))}
               </div>
             </GlassCard>
           )}
+    </>
+  );
+
+  return (
+    <>
+      {hideChrome ? (
+        <div className="min-w-0">{tabPanels}</div>
+      ) : suiteLayout ? (
+        <OrganizationSettingsFigmaLayout
+          organizationName={organization.name}
+          roleLabel={roleLabel}
+          roleHint={roleHint}
+          onBack={onBack}
+          tabs={figmaTabs}
+          activeTab={activeTab}
+          onTabChange={selectTab}
+        >
+          {tabPanels}
+        </OrganizationSettingsFigmaLayout>
+      ) : (
+        <div className={rootShell}>
+          <header className={pageHeader}>
+            <button type="button" onClick={onBack} className={backLinkCls}>
+              ← {t('organizationSettings.backOrgs')}
+            </button>
+            <h1 className="text-xl font-bold text-white md:text-2xl">{t('organizationSettings.settingsTitle')}</h1>
+            <p className="mt-1 text-sm font-semibold text-white/90">{organization.name}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('organizationSettings.yourRole')} <span className="text-cyan-300">{roleLabel}</span>
+              {roleHint ? ` — ${roleHint}` : ''}
+            </p>
+          </header>
+
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <aside className={asideShell}>
+              <nav className="flex flex-col gap-1 px-3">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => selectTab(tab.id)}
+                    className={activeTab === tab.id ? tabActiveCls : tabInactiveCls}
+                  >
+                    <span className="text-lg leading-none">{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </aside>
+
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div className={mobileTabBar}>
+                <div className="scrollbar-org-settings flex gap-1 overflow-x-auto pb-1">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => selectTab(tab.id)}
+                      className={`whitespace-nowrap px-3 py-2 text-xs font-semibold ${
+                        activeTab === tab.id
+                          ? 'rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                          : 'rounded-lg border border-border bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      <span className="mr-0.5">{tab.icon}</span>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="scrollbar-org-settings min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-6 md:px-10 md:py-8">
+                {tabPanels}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       <Modal
         isOpen={createDivisionModalOpen}
         onClose={() => setCreateDivisionModalOpen(false)}
-        title="Tạo khối"
+        title={t('organizationSettings.createDivisionTitle')}
         size="sm"
         layerClassName="z-[250]"
       >
         <div className="space-y-3 text-slate-100">
           <label className="block text-sm text-gray-300">
-            Chi nhánh
+            {t('organizationSettings.branchLabel')}
             <select
               value={createDivisionBranchId}
               onChange={(e) => setCreateDivisionBranchId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1503,12 +1668,12 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Tên khối
+            {t('organizationSettings.divisionNameLabel')}
             <input
               value={createDivisionName}
               onChange={(e) => setCreateDivisionName(e.target.value)}
-              placeholder="Tên khối"
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              placeholder={t('organizationSettings.divisionNamePh')}
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -1517,14 +1682,14 @@ function OrganizationSettingsPanel({
               onClick={() => setCreateDivisionModalOpen(false)}
               className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
             >
-              Hủy
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={handleCreateDivision}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
             >
-              Tạo
+              {t('common.create')}
             </button>
           </div>
         </div>
@@ -1533,13 +1698,13 @@ function OrganizationSettingsPanel({
       <Modal
         isOpen={createDepartmentModalOpen}
         onClose={() => setCreateDepartmentModalOpen(false)}
-        title="Tạo phòng ban"
+        title={t('organizationSettings.createDepartmentTitle')}
         size="sm"
         layerClassName="z-[250]"
       >
         <div className="space-y-3 text-slate-100">
           <label className="block text-sm text-gray-300">
-            Chi nhánh
+            {t('organizationSettings.branchLabel')}
             <select
               value={createDepartmentBranchId}
               onChange={(e) => {
@@ -1551,7 +1716,7 @@ function OrganizationSettingsPanel({
                 setCreateDepartmentBranchId(nextBranchId);
                 setCreateDepartmentDivisionId(nextDivisionId);
               }}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1561,11 +1726,11 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Khối
+            {t('organizationSettings.divisionLabel')}
             <select
               value={createDepartmentDivisionId}
               onChange={(e) => setCreateDepartmentDivisionId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {createDepartmentDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1575,12 +1740,12 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Tên phòng ban
+            {t('organizationSettings.departmentNameLabel')}
             <input
               value={createDepartmentName}
               onChange={(e) => setCreateDepartmentName(e.target.value)}
-              placeholder="Tên phòng ban"
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              placeholder={t('organizationSettings.departmentNamePh')}
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -1589,14 +1754,14 @@ function OrganizationSettingsPanel({
               onClick={() => setCreateDepartmentModalOpen(false)}
               className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
             >
-              Hủy
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={handleCreateDepartment}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
             >
-              Tạo
+              {t('common.create')}
             </button>
           </div>
         </div>
@@ -1605,13 +1770,13 @@ function OrganizationSettingsPanel({
       <Modal
         isOpen={createTeamModalOpen}
         onClose={() => setCreateTeamModalOpen(false)}
-        title="Tạo team"
+        title={t('organizationSettings.createTeamTitle')}
         size="sm"
         layerClassName="z-[250]"
       >
         <div className="space-y-3 text-slate-100">
           <label className="block text-sm text-gray-300">
-            Chi nhánh
+            {t('organizationSettings.branchLabel')}
             <select
               value={createTeamBranchId}
               onChange={(e) => {
@@ -1627,7 +1792,7 @@ function OrganizationSettingsPanel({
                 setCreateTeamDivisionId(nextDivisionId);
                 setCreateTeamDepartmentId(nextDepartmentId);
               }}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1637,7 +1802,7 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Khối
+            {t('organizationSettings.divisionLabel')}
             <select
               value={createTeamDivisionId}
               onChange={(e) => {
@@ -1651,7 +1816,7 @@ function OrganizationSettingsPanel({
                 setCreateTeamDivisionId(nextDivisionId);
                 setCreateTeamDepartmentId(nextDepartmentId);
               }}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {createTeamDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1661,11 +1826,11 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Phòng ban
+            {t('organizationSettings.departmentLabel')}
             <select
               value={createTeamDepartmentId}
               onChange={(e) => setCreateTeamDepartmentId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {createTeamDepartments.map((department) => (
                 <option key={department._id} value={department._id}>
@@ -1675,12 +1840,12 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Tên team
+            {t('organizationSettings.teamNameLabel')}
             <input
               value={createTeamName}
               onChange={(e) => setCreateTeamName(e.target.value)}
-              placeholder="Tên team"
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              placeholder={t('organizationSettings.teamNamePh')}
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -1689,14 +1854,14 @@ function OrganizationSettingsPanel({
               onClick={() => setCreateTeamModalOpen(false)}
               className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
             >
-              Hủy
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={handleCreateTeam}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
             >
-              Tạo
+              {t('common.create')}
             </button>
           </div>
         </div>
@@ -1705,39 +1870,39 @@ function OrganizationSettingsPanel({
       <Modal
         isOpen={createChannelModalOpen}
         onClose={() => setCreateChannelModalOpen(false)}
-        title="Tạo kênh"
+        title={t('organizationSettings.createChannelTitle')}
         size="sm"
         layerClassName="z-[250]"
       >
         <div className="space-y-3 text-slate-100">
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-sm text-gray-300">
-              Loại kênh
+              {t('organizationSettings.channelTypeLabel')}
               <select
                 value={createChannelType}
                 onChange={(e) => setCreateChannelType(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+                className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
               >
-                <option value="chat">Chat</option>
-                <option value="voice">Voice</option>
+                <option value="chat">{t('organizationSettings.channelTypeChat')}</option>
+                <option value="voice">{t('organizationSettings.channelTypeVoice')}</option>
               </select>
             </label>
             <label className="block text-sm text-gray-300">
-              Cấp tạo
+              {t('organizationSettings.channelLevelLabel')}
               <select
                 value={createChannelLevel}
                 onChange={(e) => setCreateChannelLevel(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+                className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
               >
-                <option value="division">Khối</option>
-                <option value="department">Phòng ban</option>
-                <option value="team">Team</option>
+                <option value="division">{t('organizationSettings.levelDivision')}</option>
+                <option value="department">{t('organizationSettings.levelDepartment')}</option>
+                <option value="team">{t('organizationSettings.levelTeam')}</option>
               </select>
             </label>
           </div>
 
           <label className="block text-sm text-gray-300">
-            Chi nhánh
+            {t('organizationSettings.branchLabel')}
             <select
               value={createChannelBranchId}
               onChange={(e) => {
@@ -1757,7 +1922,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelDepartmentId(nextDepartmentId);
                 setCreateChannelTeamId(nextTeamId);
               }}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1767,7 +1932,7 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Khối
+            {t('organizationSettings.divisionLabel')}
             <select
               value={createChannelDivisionId}
               onChange={(e) => {
@@ -1785,7 +1950,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelDepartmentId(nextDepartmentId);
                 setCreateChannelTeamId(nextTeamId);
               }}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             >
               {createChannelDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1795,7 +1960,7 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Phòng ban
+            {t('organizationSettings.departmentLabel')}
             <select
               value={createChannelDepartmentId}
               onChange={(e) => {
@@ -1810,7 +1975,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelTeamId(nextTeamId);
               }}
               disabled={createChannelLevel === 'division'}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white disabled:opacity-50"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground disabled:opacity-50"
             >
               {createChannelDepartments.map((department) => (
                 <option key={department._id} value={department._id}>
@@ -1820,12 +1985,12 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Team
+            {t('organizationSettings.teamLabel')}
             <select
               value={createChannelTeamId}
               onChange={(e) => setCreateChannelTeamId(e.target.value)}
               disabled={createChannelLevel !== 'team'}
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white disabled:opacity-50"
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground disabled:opacity-50"
             >
               {createChannelTeams.map((team) => (
                 <option key={team._id} value={team._id}>
@@ -1835,12 +2000,12 @@ function OrganizationSettingsPanel({
             </select>
           </label>
           <label className="block text-sm text-gray-300">
-            Tên kênh
+            {t('organizationSettings.channelNameLabel')}
             <input
               value={createChannelName}
               onChange={(e) => setCreateChannelName(e.target.value)}
-              placeholder="Tên kênh"
-              className="mt-1 w-full rounded-xl border border-slate-700 bg-[#040f2a] px-3 py-2 text-white"
+              placeholder={t('organizationSettings.channelNamePh')}
+              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -1849,14 +2014,14 @@ function OrganizationSettingsPanel({
               onClick={() => setCreateChannelModalOpen(false)}
               className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
             >
-              Hủy
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={handleCreateChannel}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
             >
-              Tạo
+              {t('common.create')}
             </button>
           </div>
         </div>
@@ -1865,30 +2030,30 @@ function OrganizationSettingsPanel({
       <Modal
         isOpen={deleteOrgModalOpen}
         onClose={closeDeleteOrgModal}
-        title="Xóa tổ chức vĩnh viễn?"
+        title={t('organizationSettings.deleteOrgModalTitle')}
         size="sm"
         layerClassName="z-[250]"
       >
         <div className="space-y-4 text-slate-100">
           <p className="text-sm text-gray-300">
-            Hành động này vô hiệu hóa tổ chức và không thể hoàn tác từ giao diện này.
+            {t('organizationSettings.deleteOrgWarning')}
           </p>
-          <div className="rounded-xl border border-white/10 bg-[#040f2a] px-3 py-2 text-sm">
-            <span className="text-gray-400">Tên tổ chức: </span>
-            <span className="font-semibold text-white">{expectedOrgNameForDelete || '—'}</span>
+          <div className="rounded-xl border border-white/10 bg-muted px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{t('organizationSettings.orgNameConfirm')} </span>
+            <span className="font-semibold text-foreground">{expectedOrgNameForDelete || '—'}</span>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-400">
-              Nhập tên tổ chức để xác nhận.
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t('organizationSettings.typeOrgNameConfirm')}
             </label>
             <input
               type="text"
               value={deleteOrgNameInput}
               onChange={(e) => setDeleteOrgNameInput(e.target.value)}
-              placeholder="Nhập tên tổ chức"
+              placeholder={t('organizationSettings.typeOrgNamePh')}
               autoComplete="off"
               disabled={deletingOrg}
-              className="w-full rounded-xl border border-slate-700 bg-[#040f2a] px-4 py-3 text-white outline-none placeholder:text-gray-500 focus:border-indigo-500 disabled:opacity-50"
+              className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none placeholder:text-gray-500 focus:border-indigo-500 disabled:opacity-50"
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -1898,7 +2063,7 @@ function OrganizationSettingsPanel({
               disabled={deletingOrg}
               className="rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-semibold text-gray-200 hover:bg-white/5 disabled:opacity-50"
             >
-              Hủy
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -1906,7 +2071,7 @@ function OrganizationSettingsPanel({
               disabled={!deleteNameMatches || deletingOrg || !expectedOrgNameForDelete}
               className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-gray-600 disabled:text-gray-300"
             >
-              {deletingOrg ? 'Đang xóa…' : 'Xóa tổ chức'}
+              {deletingOrg ? t('organizationSettings.deleting') : t('organizationSettings.deleteOrgBtn')}
             </button>
           </div>
         </div>

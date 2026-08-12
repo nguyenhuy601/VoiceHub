@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Shield,
@@ -14,13 +15,12 @@ import {
   Info,
 } from 'lucide-react';
 import { GradientButton } from '../Shared';
+import PermissionEditorGrid from '../adminRbac/PermissionEditorGrid';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import api from '../../services/api';
 import userService from '../../services/userService';
 import {
-  ACTION_LABEL,
-  RBAC_PERMISSION_GROUPS,
   MEMBERSHIP_ROLE_LABEL,
   buildStructurePath,
   grantedPermissionCount,
@@ -28,32 +28,50 @@ import {
   isProtectedDefaultRole,
   isStructuralRole,
   isSystemCatalogRole,
+  memberScopeFromRoleNames,
   normalizeRoleDisplayName,
   normalizeRoleId,
-  permissionEntriesFromState,
-  permissionStateFromEntries,
   structureMapsFromPayload,
   structureTierSections,
   totalPermissionSlotCount,
   unwrapList,
 } from './rbacSettingsHelpers';
+import {
+  permissionDraftForEditor,
+  permissionEntriesForPersist,
+} from '../../utils/rbacPermissionBridge';
 import { priorityFromTier, TIER_EXEC } from './roleRbacUtils';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
-const RBAC_TABS = [
-  { id: 'system', label: 'Vai trò hệ thống', icon: Shield },
-  { id: 'structure', label: 'Phạm vi cấu trúc', icon: Briefcase },
-  { id: 'assign', label: 'Gán quyền', icon: UserCog },
-];
+function stripDiacritics(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function buildRbacTabs(t) {
+  return [
+    { id: 'system', label: t('organizationSettings.rbacTabSystem'), icon: Shield },
+    { id: 'structure', label: t('organizationSettings.rbacTabStructure'), icon: Briefcase },
+    { id: 'assign', label: t('organizationSettings.rbacTabAssign'), icon: UserCog },
+  ];
+}
 
 function roleAccentColor(role) {
   const name = String(role?.name || '').toLowerCase();
-  if (name.includes('quản trị') || name.includes('admin')) return 'border-rose-500/40 bg-rose-500/10 text-rose-200';
-  if (name.includes('nhân sự') || name === 'hr') return 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200';
-  if (role?.isDefault || name.includes('thành viên')) return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200';
+  const norm = stripDiacritics(name);
+  if (norm.includes('quan tri') || norm.includes('admin'))
+    return 'border-rose-500/40 bg-rose-500/10 text-rose-200';
+  if (norm.includes('nhan su') || norm === 'hr') return 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200';
+  if (role?.isDefault || norm.includes('thanh vien'))
+    return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200';
   return 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200';
 }
 
 export default function OrganizationRbacSettings({ orgId }) {
+  const { t } = useAppStrings();
+  const rbacTabs = useMemo(() => buildRbacTabs(t), [t]);
   const [activeRbacTab, setActiveRbacTab] = useState('system');
   const [loading, setLoading] = useState(false);
   const [roles, setRoles] = useState([]);
@@ -121,7 +139,7 @@ export default function OrganizationRbacSettings({ orgId }) {
       setMembers(memberRows);
 
       const structureBody = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
-      setStructureMaps(structureMapsFromPayload(structureBody || {}));
+      setStructureMaps(structureMapsFromPayload(structureBody || {}, t));
 
       const assignmentEntries = await Promise.all(
         memberRows.map(async (m) => {
@@ -158,11 +176,11 @@ export default function OrganizationRbacSettings({ orgId }) {
       );
       setMemberProfiles(Object.fromEntries(profileEntries));
     } catch (e) {
-      toast.error(e?.message || 'Không tải được dữ liệu phân quyền');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacLoadFail') }));
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, t]);
 
   useEffect(() => {
     loadAll();
@@ -176,7 +194,7 @@ export default function OrganizationRbacSettings({ orgId }) {
 
   useEffect(() => {
     if (!selectedRole) return;
-    setPermDraft(permissionStateFromEntries(selectedRole.permissions));
+    setPermDraft(permissionDraftForEditor(selectedRole.permissions));
     setPermEditMode(false);
   }, [selectedRole]);
 
@@ -185,15 +203,15 @@ export default function OrganizationRbacSettings({ orgId }) {
     setSavingPerms(true);
     try {
       await roleAPI.updateRole(normalizeRoleId(selectedRole), {
-        permissions: permissionEntriesFromState(permDraft),
+        permissions: permissionEntriesForPersist(permDraft),
         serverId: orgId,
         organizationId: orgId,
       });
-      toast.success('Đã lưu quyền vai trò');
+      toast.success(t('organizationSettings.rbacPermsSaved'));
       setPermEditMode(false);
       await loadAll();
     } catch (e) {
-      toast.error(e?.message || 'Không lưu được quyền');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacPermsSaveFail') }));
     } finally {
       setSavingPerms(false);
     }
@@ -202,25 +220,27 @@ export default function OrganizationRbacSettings({ orgId }) {
   const handleCreateRole = async () => {
     const name = createName.trim();
     if (!name || !orgId) {
-      toast.error('Nhập tên vai trò');
+      toast.error(t('organizationSettings.rbacRoleNameRequired'));
       return;
     }
     try {
       setLoading(true);
-      await roleAPI.createRole({
-        name,
-        serverId: orgId,
+      await roleAPI.clonePermissionGroup({
         organizationId: orgId,
-        permissions: permissionEntriesFromState(permDraft),
+        serverId: orgId,
+        templateKey: 'viewer',
+        specialization: 'Other',
+        allowOtherName: true,
+        otherName: name,
+        createRole: true,
         priority: priorityFromTier(TIER_EXEC),
-        isDefault: false,
       });
-      toast.success('Đã tạo vai trò');
+      toast.success(t('organizationSettings.rbacRoleCreated'));
       setCreateOpen(false);
       setCreateName('');
       await loadAll();
     } catch (e) {
-      toast.error(e?.message || 'Không tạo được vai trò');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacRoleCreateFail') }));
     } finally {
       setLoading(false);
     }
@@ -229,15 +249,15 @@ export default function OrganizationRbacSettings({ orgId }) {
   const handleDeleteRole = async (role) => {
     if (!role || isProtectedDefaultRole(role)) return;
     const rid = normalizeRoleId(role);
-    if (!rid || !window.confirm(`Xóa vai trò "${normalizeRoleDisplayName(role.name)}"?`)) return;
+    if (!rid || !window.confirm(t('organizationSettings.rbacDeleteRoleConfirm', { name: normalizeRoleDisplayName(role.name) }))) return;
     try {
       setLoading(true);
       await roleAPI.deleteRole(rid, orgId);
-      toast.success('Đã xóa vai trò');
+      toast.success(t('organizationSettings.rbacRoleDeleted'));
       if (selectedRoleId === rid) setSelectedRoleId(null);
       await loadAll();
     } catch (e) {
-      toast.error(e?.message || 'Không xóa được vai trò');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacRoleDeleteFail') }));
     } finally {
       setLoading(false);
     }
@@ -247,19 +267,21 @@ export default function OrganizationRbacSettings({ orgId }) {
     if (!role || !orgId) return;
     try {
       setLoading(true);
-      await roleAPI.createRole({
-        name: `${normalizeRoleDisplayName(role.name)} (bản sao)`,
-        serverId: orgId,
+      await roleAPI.clonePermissionGroup({
         organizationId: orgId,
-        permissions: role.permissions || [],
+        serverId: orgId,
+        templateKey: 'viewer',
+        specialization: 'Other',
+        allowOtherName: true,
+        otherName: `${normalizeRoleDisplayName(role.name)}${t('organizationSettings.rbacRoleCopySuffix')}`,
+        createRole: true,
         priority: role.priority || priorityFromTier(TIER_EXEC),
         color: role.color,
-        isDefault: false,
       });
-      toast.success('Đã nhân bản vai trò');
+      toast.success(t('organizationSettings.rbacRoleDuplicated'));
       await loadAll();
     } catch (e) {
-      toast.error(e?.message || 'Không nhân bản được');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacRoleDuplicateFail') }));
     } finally {
       setLoading(false);
     }
@@ -275,7 +297,7 @@ export default function OrganizationRbacSettings({ orgId }) {
       setMemberDetailPerms(Array.isArray(list) ? list : []);
     } catch (e) {
       setMemberDetailPerms([]);
-      toast.error(e?.message || 'Không tải được quyền của thành viên');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacMemberPermsLoadFail') }));
     }
   };
 
@@ -289,11 +311,11 @@ export default function OrganizationRbacSettings({ orgId }) {
       } else {
         await roleAPI.assignRoleToUser(rid, uid, orgId);
       }
-      toast.success(assigned ? 'Đã gỡ vai trò' : 'Đã gán vai trò');
+      toast.success(assigned ? t('organizationSettings.rbacRoleUnassigned') : t('organizationSettings.rbacRoleAssigned'));
       await loadAll();
       if (selectedMemberId === uid) await openMemberDetail(member);
     } catch (e) {
-      toast.error(e?.message || 'Không cập nhật được vai trò');
+      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacRoleUpdateFail') }));
     }
   };
 
@@ -302,12 +324,17 @@ export default function OrganizationRbacSettings({ orgId }) {
       .map((m) => {
         const uid = String(m?.user?._id || m?.user || m?.userId || '');
         const profile = memberProfiles[uid];
-        const assigned = (assignmentsByUser[uid] || [])
+        const userAssignments = assignmentsByUser[uid] || [];
+        const assigned = userAssignments
           .map((row) => {
             const rid = String(row?.roleId || row?._id || row?.id || row?.role?._id || '');
             return systemRoles.find((r) => normalizeRoleId(r) === rid);
           })
           .filter(Boolean);
+        const roleNames = userAssignments
+          .map((row) => String(row?.name || row?.role?.name || row?.displayName || ''))
+          .filter(Boolean);
+        const fromRoles = memberScopeFromRoleNames(roleNames, structureMaps);
         const membershipRole = String(m?.role || 'member').toLowerCase();
         return {
           member: m,
@@ -317,9 +344,9 @@ export default function OrganizationRbacSettings({ orgId }) {
           membershipLabel: MEMBERSHIP_ROLE_LABEL[membershipRole] || membershipRole,
           path: buildStructurePath(
             {
-              teamId: m?.team,
-              departmentId: m?.department,
-              divisionId: m?.division,
+              teamId: m?.team || fromRoles.teamId,
+              departmentId: m?.department || fromRoles.departmentId,
+              divisionId: m?.division || fromRoles.divisionId,
             },
             structureMaps
           ),
@@ -340,15 +367,23 @@ export default function OrganizationRbacSettings({ orgId }) {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
+      <div className="flex flex-col gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-300">{t('adminRbac.adminHubHint')}</p>
+        <Link
+          to="/app/admin/rbac/roles"
+          className="shrink-0 text-sm font-medium text-cyan-300 underline-offset-2 hover:text-cyan-200 hover:underline"
+        >
+          {t('adminRbac.adminHubLink')}
+        </Link>
+      </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-xl font-bold text-white">
             <Shield className="h-5 w-5 text-violet-400" />
-            Phân quyền (RBAC)
+            {t('organizationSettings.rbacTitle')}
           </h3>
           <p className="mt-1 max-w-2xl text-sm text-slate-400">
-            Quản lý vai trò hệ thống, phạm vi cấu trúc (khối/phòng/team) và gán vai trò cho thành viên.
-            Quyền kênh chat/voice cấu hình riêng tại từng kênh.
+            {t('organizationSettings.rbacSubtitle')}
           </p>
         </div>
         <GradientButton
@@ -361,12 +396,12 @@ export default function OrganizationRbacSettings({ orgId }) {
           disabled={loading}
         >
           <Plus className="mr-1 inline h-4 w-4" />
-          Tạo vai trò mới
+          {t('organizationSettings.rbacCreateRole')}
         </GradientButton>
       </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-800 pb-1">
-        {RBAC_TABS.map((tab) => {
+        {rbacTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeRbacTab === tab.id;
           return (
@@ -392,20 +427,20 @@ export default function OrganizationRbacSettings({ orgId }) {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3">
             <div className="mb-3 flex items-center justify-between px-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Danh sách vai trò
+                {t('organizationSettings.rbacRoleList')}
               </span>
               <button
                 type="button"
                 className="text-xs text-cyan-400 hover:text-cyan-300"
                 onClick={() => setCreateOpen(true)}
               >
-                + Tạo
+                {t('organizationSettings.rbacCreateShort')}
               </button>
             </div>
             {loading && systemRoles.length === 0 ? (
-              <p className="px-2 py-6 text-center text-sm text-slate-500">Đang tải…</p>
+              <p className="px-2 py-6 text-center text-sm text-slate-500">{t('common.loadingEllipsis')}</p>
             ) : systemRoles.length === 0 ? (
-              <p className="px-2 py-6 text-center text-sm text-slate-500">Chưa có vai trò hệ thống.</p>
+              <p className="px-2 py-6 text-center text-sm text-slate-500">{t('organizationSettings.rbacNoSystemRoles')}</p>
             ) : (
               <div className="max-h-[560px] space-y-1 overflow-y-auto scrollbar-overlay">
                 {systemRoles.map((role) => {
@@ -430,12 +465,16 @@ export default function OrganizationRbacSettings({ orgId }) {
                         </span>
                         {isProtectedDefaultRole(role) ? (
                           <span className="shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">
-                            Hệ thống
+                            {t('organizationSettings.rbacSystemBadge')}
                           </span>
                         ) : null}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {membersN} thành viên · {granted}/{totalSlots} quyền
+                        {t('organizationSettings.rbacMembersPerms', {
+                          members: membersN,
+                          granted,
+                          total: totalSlots,
+                        })}
                       </div>
                     </button>
                   );
@@ -446,7 +485,7 @@ export default function OrganizationRbacSettings({ orgId }) {
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
             {!selectedRole ? (
-              <p className="py-16 text-center text-sm text-slate-500">Chọn một vai trò để xem quyền.</p>
+              <p className="py-16 text-center text-sm text-slate-500">{t('organizationSettings.rbacSelectRole')}</p>
             ) : (
               <>
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -462,13 +501,12 @@ export default function OrganizationRbacSettings({ orgId }) {
                       </span>
                       {permEditMode ? (
                         <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
-                          Đang chỉnh sửa
+                          {t('organizationSettings.rbacEditing')}
                         </span>
                       ) : null}
                     </div>
                     <p className="mt-2 text-sm text-slate-400">
-                      Quyền tính năng toàn tổ chức (chat, task, tài liệu, voice). Quyền từng kênh cấu hình tại
-                      bánh răng kênh.
+                      {t('organizationSettings.rbacRoleDesc')}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -478,7 +516,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                       className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
                     >
                       <Copy className="mr-1 inline h-3.5 w-3.5" />
-                      Nhân bản
+                      {t('organizationSettings.rbacDuplicate')}
                     </button>
                     {!isProtectedDefaultRole(selectedRole) ? (
                       <button
@@ -487,7 +525,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                         className="rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
                       >
                         <Trash2 className="mr-1 inline h-3.5 w-3.5" />
-                        Xóa
+                        {t('common.delete')}
                       </button>
                     ) : null}
                     {permEditMode ? (
@@ -496,11 +534,11 @@ export default function OrganizationRbacSettings({ orgId }) {
                           type="button"
                           onClick={() => {
                             setPermEditMode(false);
-                            setPermDraft(permissionStateFromEntries(selectedRole.permissions));
+                            setPermDraft(permissionDraftForEditor(selectedRole.permissions));
                           }}
                           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300"
                         >
-                          Hủy
+                          {t('common.cancel')}
                         </button>
                         <button
                           type="button"
@@ -508,7 +546,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                           disabled={savingPerms}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
                         >
-                          Lưu
+                          {t('common.save')}
                         </button>
                       </>
                     ) : (
@@ -518,46 +556,37 @@ export default function OrganizationRbacSettings({ orgId }) {
                         className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-200"
                       >
                         <Pencil className="mr-1 inline h-3.5 w-3.5" />
-                        Chỉnh sửa
+                        {t('organizationSettings.rbacEdit')}
                       </button>
                     )}
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  {RBAC_PERMISSION_GROUPS.map((group) => (
-                    <div key={group.id} className="rounded-xl border border-slate-800 bg-[#0a0f18] p-4">
-                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {group.label}
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {group.resources.flatMap((res) =>
-                          res.actions.map((action) => {
-                            const key = `${res.resource}:${action}`;
-                            const on = Boolean(permDraft[key]);
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                disabled={!permEditMode}
-                                onClick={() =>
-                                  setPermDraft((prev) => ({ ...prev, [key]: !prev[key] }))
-                                }
-                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                                  on
-                                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
-                                    : 'border-slate-700 bg-slate-900 text-slate-500'
-                                } ${permEditMode ? 'cursor-pointer hover:border-slate-500' : 'cursor-default opacity-90'}`}
-                              >
-                                {on ? <Check className="h-3 w-3" /> : null}
-                                {ACTION_LABEL[action] || action}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                  <PermissionEditorGrid
+                    permDraft={permDraft}
+                    editable={permEditMode}
+                    roleName={normalizeRoleDisplayName(selectedRole.name)}
+                    roleScope={selectedRole.scope || 'ORGANIZATION'}
+                    onToggle={(key) =>
+                      setPermDraft((prev) => {
+                        const next = { ...prev };
+                        if (next[key]) delete next[key];
+                        else next[key] = true;
+                        return next;
+                      })
+                    }
+                    onSetMany={(keys, value) => {
+                      setPermDraft((prev) => {
+                        const next = { ...prev };
+                        for (const key of keys) {
+                          if (value) next[key] = true;
+                          else delete next[key];
+                        }
+                        return next;
+                      });
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -570,9 +599,7 @@ export default function OrganizationRbacSettings({ orgId }) {
           <div className="flex gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-sm text-cyan-100/90">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Vai trò phạm vi cấu trúc được đồng bộ tự động từ khối / phòng ban / team. Dùng để gán vị trí
-              và quyền kênh theo phạm vi — không thay thế vai trò hệ thống (Quản trị viên, Nhân sự, Thành
-              viên).
+              {t('organizationSettings.rbacStructureInfo')}
             </p>
           </div>
           {structureTierSections().map((tier) => {
@@ -583,7 +610,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                   <h4 className="text-sm font-semibold uppercase tracking-wide text-amber-200/90">
                     {tier.title}
                   </h4>
-                  <span className="text-xs text-slate-500">{list.length} vai trò</span>
+                  <span className="text-xs text-slate-500">{t('organizationSettings.rbacRolesCount', { n: list.length })}</span>
                 </div>
                 {list.length === 0 ? (
                   <p className="text-sm text-slate-500">
@@ -597,13 +624,13 @@ export default function OrganizationRbacSettings({ orgId }) {
                       return (
                         <div
                           key={rid}
-                          className="rounded-xl border border-slate-700/80 bg-[#0c1220] p-4"
+                          className="rounded-xl border border-border bg-muted/30 p-4"
                         >
                           <div className="font-semibold text-white">
                             {normalizeRoleDisplayName(role.name)}
                           </div>
                           <p className="mt-1 text-xs text-slate-500">{tier.hint}</p>
-                          <p className="mt-2 text-xs text-slate-400">{membersN} thành viên được gán</p>
+                          <p className="mt-2 text-xs text-slate-400">{t('organizationSettings.rbacMembersAssigned', { n: membersN })}</p>
                         </div>
                       );
                     })}
@@ -624,25 +651,30 @@ export default function OrganizationRbacSettings({ orgId }) {
                 <input
                   value={assignSearch}
                   onChange={(e) => setAssignSearch(e.target.value)}
-                  placeholder="Tìm tên hoặc đơn vị…"
+                  placeholder={t('organizationSettings.rbacSearchPh')}
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
                 />
               </div>
               <div className="flex flex-wrap gap-1">
-                {['all', 'Quản trị', 'Nhân sự', 'Thành viên'].map((f) => {
-                  const active = f === 'all' ? assignFilter === 'all' : assignFilter === f;
+                {[
+                  { id: 'all', label: t('organizationSettings.rbacFilterAll') },
+                  { id: t('organizationSettings.roleAdmin'), label: t('organizationSettings.roleAdmin') },
+                  { id: t('organizationSettings.roleHr'), label: t('organizationSettings.roleHr') },
+                  { id: t('organizationSettings.roleMember'), label: t('organizationSettings.roleMember') },
+                ].map((f) => {
+                  const active = f.id === 'all' ? assignFilter === 'all' : assignFilter === f.id;
                   return (
                   <button
-                    key={f}
+                    key={f.id}
                     type="button"
-                    onClick={() => setAssignFilter(f === 'all' ? 'all' : f)}
+                    onClick={() => setAssignFilter(f.id === 'all' ? 'all' : f.id)}
                     className={`rounded-lg px-2.5 py-1 text-xs ${
                       active
                         ? 'bg-cyan-500/20 text-cyan-200'
                         : 'bg-slate-800 text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    {f === 'all' ? 'Tất cả' : f}
+                    {f.label}
                   </button>
                   );
                 })}
@@ -652,10 +684,10 @@ export default function OrganizationRbacSettings({ orgId }) {
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3">Thành viên</th>
-                    <th className="px-4 py-3">Đơn vị tổ chức</th>
+                    <th className="px-4 py-3">{t('organizationSettings.rbacColMember')}</th>
+                    <th className="px-4 py-3">{t('organizationSettings.rbacColUnit')}</th>
                     <th className="px-4 py-3">Membership</th>
-                    <th className="px-4 py-3">Vai trò hệ thống</th>
+                    <th className="px-4 py-3">{t('organizationSettings.rbacColSystemRole')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -689,7 +721,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                               </span>
                             ))
                           ) : (
-                            <span className="text-xs text-slate-500">Chưa gán</span>
+                            <span className="text-xs text-slate-500">{t('organizationSettings.rbacNotAssigned')}</span>
                           )}
                         </div>
                       </td>
@@ -702,12 +734,12 @@ export default function OrganizationRbacSettings({ orgId }) {
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
             {!selectedMemberRow ? (
-              <p className="py-12 text-center text-sm text-slate-500">Chọn thành viên để gán vai trò.</p>
+              <p className="py-12 text-center text-sm text-slate-500">{t('organizationSettings.rbacSelectMemberAssign')}</p>
             ) : (
               <>
                 <div className="mb-4 flex items-start justify-between">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Chi tiết thành viên</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{t('organizationSettings.rbacMemberDetail')}</p>
                     <h4 className="mt-1 text-lg font-semibold text-white">{selectedMemberRow.displayName}</h4>
                     <p className="text-xs text-slate-400">{selectedMemberRow.membershipLabel}</p>
                   </div>
@@ -721,7 +753,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                 </div>
                 <p className="mb-3 text-xs text-slate-500">{selectedMemberRow.path}</p>
 
-                <p className="mb-2 text-xs font-semibold uppercase text-slate-500">Vai trò hệ thống</p>
+                <p className="mb-2 text-xs font-semibold uppercase text-slate-500">{t('organizationSettings.rbacTabSystem')}</p>
                 <div className="mb-4 max-h-48 space-y-1 overflow-y-auto">
                   {systemRoles.map((role) => {
                     const rid = normalizeRoleId(role);
@@ -746,7 +778,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                   })}
                 </div>
 
-                <p className="mb-2 text-xs font-semibold uppercase text-slate-500">Quyền hiệu lực</p>
+                <p className="mb-2 text-xs font-semibold uppercase text-slate-500">{t('organizationSettings.rbacEffectivePerms')}</p>
                 <div className="max-h-40 space-y-2 overflow-y-auto text-xs text-slate-400">
                   {memberDetailPerms.length === 0 ? (
                     <p>Chưa có quyền hoặc chưa gán vai trò.</p>
@@ -768,11 +800,11 @@ export default function OrganizationRbacSettings({ orgId }) {
       {createOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
-            <h4 className="text-lg font-semibold text-white">Tạo vai trò hệ thống</h4>
+            <h4 className="text-lg font-semibold text-white">{t('organizationSettings.rbacCreateSystemRoleTitle')}</h4>
             <input
               value={createName}
               onChange={(e) => setCreateName(e.target.value)}
-              placeholder="Tên vai trò"
+              placeholder={t('organizationSettings.rbacRoleNamePh')}
               className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-white focus:border-violet-500/50 focus:outline-none"
             />
             <div className="mt-5 flex justify-end gap-2">

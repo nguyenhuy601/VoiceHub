@@ -1,0 +1,165 @@
+# P1-Redis-A — Redis master + 2 replica + 3 Sentinel (Docker Swarm overlay)
+# Deploy: bash devops/swarm/redis-sentinel/deploy-sentinel-stack.sh
+# Local test: docker compose -f ... -f docker-compose.sentinel.local.yml up -d
+
+x-redis-common: &redis-common
+  image: redis:7-alpine
+  networks:
+    - enterprise-network
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    REDIS_MASTER_HOST: redis-master
+    REDIS_MASTER_PORT: "6379"
+
+x-sentinel-common: &sentinel-common
+  image: redis:7-alpine
+  entrypoint: ["/bin/sh", "/scripts/sentinel-entrypoint.sh"]
+  networks:
+    - enterprise-network
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+    REDIS_MASTER_HOST: redis-master
+    REDIS_MASTER_PORT: "6379"
+    REDIS_SENTINEL_NAME: ${REDIS_SENTINEL_NAME:-mymaster}
+    REDIS_SENTINEL_QUORUM: "2"
+  volumes:
+    - type: bind
+      source: ./scripts/sentinel-entrypoint.sh
+      target: /scripts/sentinel-entrypoint.sh
+      read_only: true
+  deploy:
+    restart_policy:
+      condition: on-failure
+    resources:
+      limits:
+        cpus: "0.25"
+        memory: 128M
+      reservations:
+        cpus: "0.05"
+        memory: 32M
+    placement:
+      preferences:
+        - spread: node.id
+
+services:
+  redis-master:
+    <<: *redis-common
+    hostname: redis-master
+    entrypoint: ["/bin/sh", "/scripts/redis-master-entrypoint.sh"]
+    volumes:
+      - redis_master_data:/data
+      - type: bind
+        source: ./config/redis-master.conf
+        target: /usr/local/etc/redis/redis.conf
+        read_only: true
+      - type: bind
+        source: ./scripts/redis-master-entrypoint.sh
+        target: /scripts/redis-master-entrypoint.sh
+        read_only: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+      placement:
+        preferences:
+          - spread: node.id
+
+  redis-replica-1:
+    <<: *redis-common
+    hostname: redis-replica-1
+    entrypoint: ["/bin/sh", "/scripts/redis-replica-entrypoint.sh"]
+    volumes:
+      - redis_replica_1_data:/data
+      - type: bind
+        source: ./scripts/redis-replica-entrypoint.sh
+        target: /scripts/redis-replica-entrypoint.sh
+        read_only: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+      placement:
+        preferences:
+          - spread: node.id
+
+  redis-replica-2:
+    <<: *redis-common
+    hostname: redis-replica-2
+    entrypoint: ["/bin/sh", "/scripts/redis-replica-entrypoint.sh"]
+    volumes:
+      - redis_replica_2_data:/data
+      - type: bind
+        source: ./scripts/redis-replica-entrypoint.sh
+        target: /scripts/redis-replica-entrypoint.sh
+        read_only: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+      placement:
+        preferences:
+          - spread: node.id
+
+  redis-sentinel-1:
+    <<: *sentinel-common
+    hostname: redis-sentinel-1
+    volumes:
+      - redis_sentinel_1_data:/data
+      - type: bind
+        source: ./scripts/sentinel-entrypoint.sh
+        target: /scripts/sentinel-entrypoint.sh
+        read_only: true
+
+  redis-sentinel-2:
+    <<: *sentinel-common
+    hostname: redis-sentinel-2
+    volumes:
+      - redis_sentinel_2_data:/data
+      - type: bind
+        source: ./scripts/sentinel-entrypoint.sh
+        target: /scripts/sentinel-entrypoint.sh
+        read_only: true
+
+  redis-sentinel-3:
+    <<: *sentinel-common
+    hostname: redis-sentinel-3
+    volumes:
+      - redis_sentinel_3_data:/data
+      - type: bind
+        source: ./scripts/sentinel-entrypoint.sh
+        target: /scripts/sentinel-entrypoint.sh
+        read_only: true
+
+volumes:
+  redis_master_data:
+  redis_replica_1_data:
+  redis_replica_2_data:
+  redis_sentinel_1_data:
+  redis_sentinel_2_data:
+  redis_sentinel_3_data:
+
+networks:
+  enterprise-network:
+    external: true
+    name: ${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}

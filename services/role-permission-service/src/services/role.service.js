@@ -4,6 +4,7 @@ const UserRole = require('../models/UserRole');
 const { roleWebhook } = require('../clients/webhook.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
+const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -31,6 +32,12 @@ function internalOrgHeaders() {
     'Content-Type': 'application/json',
     ...(GATEWAY_INTERNAL_TOKEN ? { 'x-gateway-internal-token': GATEWAY_INTERNAL_TOKEN } : {}),
   };
+}
+
+function normalizeSystemRoleNameForPersist(name) {
+  const current = String(name || '').trim();
+  if (!current || isHierarchyRoleName(current)) return current;
+  return canonicalizeSystemRoleName(current) || current;
 }
 
 /** serverId trong RBAC = organizationId (không có /api/servers trên organization-service). */
@@ -98,19 +105,99 @@ async function syncOrgMembershipPlacement(userId, organizationId) {
 }
 
 class RoleService {
+  async mergeDuplicateSystemRole({
+    sourceRole,
+    targetRole,
+  }) {
+    const assignments = await UserRole.find({
+      roleId: sourceRole._id,
+      serverId: sourceRole.serverId,
+      isActive: true,
+    }).lean();
+
+    for (const assignment of assignments) {
+      await UserRole.updateOne(
+        {
+          userId: assignment.userId,
+          serverId: assignment.serverId,
+          roleId: targetRole._id,
+        },
+        {
+          $setOnInsert: {
+            assignedBy: assignment.assignedBy || null,
+            assignedAt: assignment.assignedAt || new Date(),
+            expiresAt: assignment.expiresAt || null,
+          },
+          $set: { isActive: true },
+        },
+        { upsert: true }
+      );
+      await UserRole.updateOne({ _id: assignment._id }, { $set: { isActive: false } });
+    }
+
+    await Role.updateOne(
+      { _id: sourceRole._id },
+      {
+        $set: {
+          isActive: false,
+          description: String(sourceRole.description || '')
+            .concat(sourceRole.description ? ' ' : '')
+            .concat(`[merged->${String(targetRole._id)}]`)
+            .slice(0, 1000),
+        },
+      }
+    );
+  }
+
   // Tạo role mới
   async createRole(roleData) {
     try {
-      const { name, serverId, organizationId, permissions, color, isDefault, priority } = roleData;
+      const {
+        name,
+        description,
+        scope,
+        serverId,
+        organizationId,
+        permissions,
+        color,
+        isDefault,
+        priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
+      } = roleData;
+
+      // RBAC V2: cấm tạo role/permission blank — chỉ clone template (hoặc internal migration).
+      if (
+        !allowBlankLegacy &&
+        !String(fromTemplateKey || '').trim() &&
+        !String(permissionGroupId || '').trim()
+      ) {
+        throw roleServiceError(
+          'Không được tạo role blank. Hãy clone Permission Group từ template hệ thống.',
+          400,
+          'RBAC_V2_CLONE_REQUIRED'
+        );
+      }
+
+      const normalizedName = normalizeSystemRoleNameForPersist(name);
 
       // Kiểm tra role name đã tồn tại trong server chưa
-      const existingRole = await Role.findOne({ name, serverId });
+      const existingRole = await Role.findOne({ name: normalizedName, serverId });
       if (existingRole) {
         throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 400, 'ROLE_NAME_EXISTS');
       }
 
+      const normalizedScope = String(scope || 'ORGANIZATION').toUpperCase();
+      const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
+      if (!allowedScopes.includes(normalizedScope)) {
+        throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
+      }
+
       const role = new Role({
-        name,
+        name: normalizedName,
+        description: description != null ? String(description).trim() : '',
+        scope: normalizedScope,
         serverId,
         organizationId,
         permissions: permissions || [],
@@ -154,6 +241,51 @@ class RoleService {
         isActive: true,
         $or: [{ serverId }, { organizationId: serverId }],
       }).sort({ priority: -1, createdAt: 1 });
+
+      let renamed = 0;
+      let merged = 0;
+      for (const role of roles) {
+        const current = String(role.name || '').trim();
+        if (!current || isHierarchyRoleName(current)) continue;
+        const next = normalizeSystemRoleNameForPersist(current);
+        if (!next || next === current) continue;
+
+        const clash = await Role.findOne({
+          _id: { $ne: role._id },
+          name: next,
+          isActive: true,
+          $or: [{ serverId: role.serverId }, { organizationId: role.organizationId || role.serverId }],
+        })
+          .select('_id')
+          .lean();
+        if (clash) {
+          await this.mergeDuplicateSystemRole({ sourceRole: role, targetRole: clash });
+          merged += 1;
+          logger.warn('[role.service] merged duplicate system role', {
+            from: current,
+            to: next,
+            roleId: String(role._id),
+            targetRoleId: String(clash._id),
+          });
+          continue;
+        }
+
+        role.name = next;
+        await role.save();
+        renamed += 1;
+      }
+
+      if (renamed > 0 || merged > 0) {
+        logger.info('[role.service] normalized system role names', {
+          serverId: String(serverId),
+          renamed,
+          merged,
+        });
+        return Role.find({
+          isActive: true,
+          $or: [{ serverId }, { organizationId: serverId }],
+        }).sort({ priority: -1, createdAt: 1 });
+      }
 
       return roles;
     } catch (error) {
@@ -318,13 +450,29 @@ class RoleService {
   // Cập nhật role
   async updateRole(roleId, updateData) {
     try {
-      const allowedFields = ['name', 'permissions', 'color', 'priority', 'isDefault'];
+      const allowedFields = ['name', 'description', 'scope', 'permissions', 'color', 'priority', 'isDefault'];
       const updateFields = {};
 
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
           updateFields[field] = updateData[field];
         }
+      }
+
+      if (updateFields.scope !== undefined) {
+        const normalizedScope = String(updateFields.scope || '').toUpperCase();
+        const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
+        if (!allowedScopes.includes(normalizedScope)) {
+          throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
+        }
+        updateFields.scope = normalizedScope;
+      }
+
+      if (updateFields.description !== undefined) {
+        updateFields.description = String(updateFields.description || '').trim();
+      }
+      if (updateFields.name !== undefined) {
+        updateFields.name = normalizeSystemRoleNameForPersist(updateFields.name);
       }
 
       const role = await Role.findByIdAndUpdate(

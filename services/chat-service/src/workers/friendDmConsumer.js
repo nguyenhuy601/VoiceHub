@@ -1,5 +1,7 @@
 const amqp = require('amqplib');
 const { getRedisClient } = require('@enterprise/shared');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { assertDmCanSend } = require('../utils/verifyDmRelationship');
@@ -44,6 +46,7 @@ async function processPayload(data) {
   try {
     await assertDmCanSend({
       peerId: receiverId,
+      senderId,
       authorizationHeader: authorization,
     });
   } catch (dmErr) {
@@ -82,19 +85,23 @@ async function processPayload(data) {
   maybeNotifyDmReceived(message).catch(() => null);
 }
 
-async function startFriendDmConsumer() {
+function isFriendDmConsumerEnabled() {
   const url = process.env.RABBITMQ_URL;
   const enabled = process.env.FRIEND_DM_USE_QUEUE !== 'false';
-  if (!url || !enabled) {
+  return Boolean(url && enabled);
+}
+
+async function startFriendDmConsumer() {
+  if (!isFriendDmConsumerEnabled()) {
     console.log('[friendDmConsumer] skipped (no RABBITMQ_URL or FRIEND_DM_USE_QUEUE=false)');
-    return;
+    return null;
   }
 
-  const conn = await amqp.connect(url);
+  const conn = await amqp.connect(process.env.RABBITMQ_URL);
   const ch = await conn.createChannel();
 
   await ch.assertExchange(EXCHANGE, 'topic', { durable: true });
-  await ch.assertQueue(QUEUE, { durable: true });
+  await assertQuorumQueue(ch, QUEUE);
   await ch.bindQueue(QUEUE, EXCHANGE, ROUTING_KEY);
 
   const { consumerTag: tag } = await ch.consume(
@@ -117,7 +124,15 @@ async function startFriendDmConsumer() {
   console.log(`[friendDmConsumer] listening on ${QUEUE}`);
 
   dmConsumer = { conn, ch, tag };
+  await waitForAmqpClose(conn);
+  await stopFriendDmConsumer();
   return dmConsumer;
+}
+
+function runFriendDmConsumerLoop() {
+  return runWithReconnect('friendDmConsumer', startFriendDmConsumer, {
+    shouldRun: isFriendDmConsumerEnabled,
+  });
 }
 
 async function stopFriendDmConsumer() {
@@ -140,4 +155,4 @@ async function stopFriendDmConsumer() {
   dmConsumer = null;
 }
 
-module.exports = { startFriendDmConsumer, stopFriendDmConsumer };
+module.exports = { startFriendDmConsumer, stopFriendDmConsumer, runFriendDmConsumerLoop };

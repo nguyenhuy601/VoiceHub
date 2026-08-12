@@ -89,6 +89,44 @@ export function collectMentionLabelsFromContacts(contacts = []) {
     const name = c?.name || c?.displayName || c?.label;
     if (name) set.add(String(name).trim());
     if (c?.username) set.add(String(c.username).trim());
+    const email = String(c?.email || '');
+    if (email.includes('@')) set.add(email.split('@')[0].trim());
   }
   return [...set];
+}
+
+function normalizeMentionKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Khớp @token với contact theo tên hoặc username. */
+export function findContactForMentionLabel(contacts = [], label = '') {
+  const norm = normalizeMentionKey(label);
+  if (!norm || !Array.isArray(contacts)) return null;
+  return (
+    contacts.find((c) => {
+      const emailLocal = String(c?.email || '').includes('@')
+        ? String(c.email).split('@')[0]
+        : '';
+      const keys = [c?.name, c?.displayName, c?.username, c?.label, emailLocal]
+        .filter(Boolean)
+        .map(normalizeMentionKey);
+      return keys.some((k) => k === norm);
+    }) || null
+  );
+}
+
+/** Hiển thị @Tên thay vì @username khi có danh bạ. */
+export function resolveMentionDisplay(rawMention, contacts = []) {
+  const raw = String(rawMention || '');
+  const label = raw.replace(/^@/, '').trim();
+  if (!label) return raw;
+  const contact = findContactForMentionLabel(contacts, label);
+  const display = String(contact?.name || contact?.displayName || '').trim();
+  if (display) return `@${display}`;
+  return raw.startsWith('@') ? raw : `@${raw}`;
 }

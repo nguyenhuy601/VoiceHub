@@ -1,4 +1,13 @@
 require('dotenv').config();
+
+if (process.env.NODE_ENV === 'production') {
+  const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (!gatewayToken) {
+    console.error('[document-service] FATAL: GATEWAY_INTERNAL_TOKEN is required in production.');
+    process.exit(1);
+  }
+}
+
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
 

@@ -1,0 +1,55 @@
+---
+description: Clean Code khi viết/sửa VoiceHub — tên rõ, hàm nhỏ, không side-effect ẩn, diff tối thiểu
+alwaysApply: true
+---
+
+# Clean Code — VoiceHub
+
+Áp dụng khi viết hoặc sửa code. Không thay `voicehub-constraints.mdc` (bảo mật, env, không đụng ngoài scope).
+
+## Đặt tên
+
+- Tên biến/hàm/file **nói ý nghiệp vụ** (`kickParticipant`, `assertCanManageMeeting`), không `tmp`, `data2`, `handleClick1`.
+- Boolean: `is`/`has`/`can` (`isActive`, `canManage`).
+- Tránh từ mơ hồ: `process`, `manage`, `doStuff` nếu có thể cụ thể hơn.
+
+## Hàm & module
+
+- **Một hàm ≈ một việc**; nếu cần comment “và sau đó…” → tách.
+- Controller/route: validate + gọi service + map HTTP. Business logic nằm **service** (đã có pattern VoiceHub).
+- Tránh tham số boolean cờ hành vi kép (`save(x, true)`); dùng options object hoặc hai hàm rõ tên.
+- Early return thay vì nested `if` sâu.
+
+```js
+// ❌ BAD
+async function update(userId, data, isAdmin, sendMail) { /* ... */ }
+
+// ✅ GOOD
+async function updateProfile(userId, data) { /* ... */ }
+async function adminUpdateProfile(userId, data) { /* ... */ }
+```
+
+## Rõ ràng hơn “thông minh”
+
+- Ưu tiên code đọc thẳng hơn trick ngắn (không nest ternary 3 tầng, không abuse `||` che `0`/`''` sai chỗ).
+- Magic number/string → hằng có tên gần chỗ dùng hoặc config hiện có.
+- Không “đóng khung” abstraction mới nếu chỉ dùng một lần (YAGNI) — trừ khi task yêu cầu.
+
+## Side effects & lỗi
+
+- Hàm tên `get`/`build`/`map` **không** ghi DB / emit / toast; side effect nằm chỗ gọi rõ (`save`, `emit`, `notify`).
+- Lỗi: message/user-facing qua helper sẵn (`safeErrorMessage`, `resolveApiErrorMessage`); log đủ ngữ cảnh, không nuốt `catch` trống.
+- Không đổi contract API/public shape “tiện tay” trong PR unrelated.
+
+## Diff & trách nhiệm
+
+- Chỉ sửa đúng scope task — không drive-by format/rename file lân cận.
+- Tách PR/commit theo concern nếu diff lớn; không gộp refactor Clean Code rộng với feature.
+- Comment: **why** (ràng buộc, workaround), không nhắc lại **what** code đã nói.
+
+## Checklist nhanh trước khi coi xong
+
+- [ ] Tên đọc hiểu không cần đoán?
+- [ ] Hàm > ~40 dòng logic dày → đã xét tách?
+- [ ] Không duplicate khối có thểReuse helper địa phương nhỏ?
+- [ ] Không thêm comment/doc thừa / file markdown user không xin?

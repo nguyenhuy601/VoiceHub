@@ -15,23 +15,30 @@ async function getChannel() {
 
   if (!connectPromise) {
     connectPromise = (async () => {
-      const conn = await amqp.connect(url);
-      connection = conn;
-      conn.on('error', (err) => {
-        console.error('[rabbitPublisher] connection error', err.message);
+      try {
+        const conn = await amqp.connect(url);
+        connection = conn;
+        conn.on('error', (err) => {
+          console.error('[rabbitPublisher] connection error', err.message);
+          channel = null;
+          connection = null;
+          connectPromise = null;
+        });
+        conn.on('close', () => {
+          channel = null;
+          connection = null;
+          connectPromise = null;
+        });
+        const ch = await conn.createChannel();
+        await ch.assertExchange(EXCHANGE, 'topic', { durable: true });
+        channel = ch;
+        return ch;
+      } catch (err) {
         channel = null;
         connection = null;
         connectPromise = null;
-      });
-      conn.on('close', () => {
-        channel = null;
-        connection = null;
-        connectPromise = null;
-      });
-      const ch = await conn.createChannel();
-      await ch.assertExchange(EXCHANGE, 'topic', { durable: true });
-      channel = ch;
-      return ch;
+        throw err;
+      }
     })();
   }
 

@@ -1,14 +1,61 @@
-/** Kênh gắn team cụ thể */
+export function isProtectedDefaultChannel(channel) {
+  if (!channel) return true;
+  const name = String(channel.name || '').trim().toLowerCase();
+  const type = String(channel.type || 'chat').trim().toLowerCase();
+  if (type === 'voice') return name === 'voice';
+  return name === 'general';
+}
+
+/** Kênh gắn team cụ thể (dedupe theo `_id`) */
 export function channelsForTeam(channels, teamId) {
-  return (channels || []).filter((ch) => String(ch.team || '') === String(teamId));
+  const seen = new Set();
+  return (channels || []).filter((ch) => {
+    if (String(ch.team || '') !== String(teamId)) return false;
+    const id = String(ch._id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 /** Kênh chung phòng ban (department có, team null) */
 export function channelsForDepartment(channels, departmentId) {
-  return (channels || []).filter(
-    (ch) =>
-      String(ch.department || '') === String(departmentId) && !String(ch.team || '')
-  );
+  const seen = new Set();
+  return (channels || []).filter((ch) => {
+    if (
+      String(ch.department || '') !== String(departmentId) ||
+      String(ch.team || '')
+    ) {
+      return false;
+    }
+    const id = String(ch._id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+export function isDeptOnlyChannel(channel) {
+  return Boolean(channel?.department) && !String(channel?.team || '');
+}
+
+/**
+ * Kênh theo ngữ cảnh workspace.
+ * Khi chọn team: chỉ kênh của team (không lẫn kênh phòng cùng tên general/voice).
+ * departmentOnly / chỉ dept: kênh chung phòng (team null).
+ */
+export function resolveScopedWorkspaceChannels(
+  channels,
+  { teamId = '', departmentId = '', departmentOnly = false } = {}
+) {
+  const list = Array.isArray(channels) ? channels : [];
+  const team = String(teamId || '');
+  const dept = String(departmentId || '');
+  if (team && !departmentOnly) {
+    return channelsForTeam(list, team);
+  }
+  if (dept) return channelsForDepartment(list, dept);
+  return list;
 }
 
 /** Kênh chung khối (division có, department & team null) */

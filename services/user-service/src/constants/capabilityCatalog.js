@@ -1,0 +1,157 @@
+/**
+ * Catalog năng lực SE — MVP C1 (whitelist cứng).
+ * Không free-text skill; CRUD Admin để pha sau.
+ */
+
+const POSITION_CODES = Object.freeze([
+  'dev',
+  'qa',
+  'ba',
+  'pm',
+  'tl',
+  'intern',
+  'other',
+]);
+
+const PRIMARY_DOMAINS = Object.freeze([
+  'fe',
+  'be',
+  'fullstack',
+  'mobile',
+  'qa',
+  'ba',
+  'devops',
+  'other',
+]);
+
+const AVAILABILITY_VALUES = Object.freeze(['available', 'busy', 'partial']);
+
+const VERIFICATION_STATUSES = Object.freeze([
+  'draft',
+  'pending_hr',
+  'verified',
+  'rejected',
+]);
+
+const CAPABILITY_ACTIONS = Object.freeze([
+  'save_draft',
+  'submit',
+  'verify',
+  'reject',
+  'confirm_experience',
+]);
+
+/** Skill whitelist SE — name canonical (khớp không phân biệt hoa thường khi normalize). */
+const SKILL_WHITELIST = Object.freeze([
+  'JavaScript',
+  'TypeScript',
+  'React',
+  'Vue',
+  'Node.js',
+  'Express',
+  'NestJS',
+  'Java',
+  'Spring',
+  'Python',
+  'Django',
+  'Go',
+  'C#',
+  '.NET',
+  'PHP',
+  'Laravel',
+  'MongoDB',
+  'PostgreSQL',
+  'MySQL',
+  'Redis',
+  'Docker',
+  'Kubernetes',
+  'CI/CD',
+  'Git',
+  'REST API',
+  'GraphQL',
+  'WebSocket',
+  'Selenium',
+  'Playwright',
+  'Jest',
+  'Cypress',
+  'Manual Testing',
+  'API Testing',
+  'Figma',
+  'Agile/Scrum',
+  'Jira',
+  'Requirement Analysis',
+  'System Design',
+  'AWS',
+  'Linux',
+]);
+
+const SKILL_LEVEL_MIN = 1;
+const SKILL_LEVEL_MAX = 5;
+const SUMMARY_MAX_LEN = 1000;
+const YEARS_EXPERIENCE_MAX = 40;
+const MAX_SKILLS = 20;
+
+const skillAliasMap = (() => {
+  const map = new Map();
+  for (const name of SKILL_WHITELIST) {
+    map.set(name.toLowerCase(), name);
+  }
+  // Alias thường gặp → canonical
+  map.set('js', 'JavaScript');
+  map.set('ts', 'TypeScript');
+  map.set('nodejs', 'Node.js');
+  map.set('node', 'Node.js');
+  map.set('react.js', 'React');
+  map.set('reactjs', 'React');
+  map.set('vue.js', 'Vue');
+  map.set('vuejs', 'Vue');
+  map.set('mongo', 'MongoDB');
+  map.set('postgres', 'PostgreSQL');
+  map.set('k8s', 'Kubernetes');
+  map.set('dotnet', '.NET');
+  return map;
+})();
+
+function normalizeSkillName(raw) {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!key) return null;
+  return skillAliasMap.get(key) || null;
+}
+
+function isPositionCode(value) {
+  return POSITION_CODES.includes(String(value || '').trim());
+}
+
+function isPrimaryDomain(value) {
+  return PRIMARY_DOMAINS.includes(String(value || '').trim());
+}
+
+function isAvailability(value) {
+  return AVAILABILITY_VALUES.includes(String(value || '').trim());
+}
+
+function isVerificationStatus(value) {
+  return VERIFICATION_STATUSES.includes(String(value || '').trim());
+}
+
+module.exports = {
+  POSITION_CODES,
+  PRIMARY_DOMAINS,
+  AVAILABILITY_VALUES,
+  VERIFICATION_STATUSES,
+  CAPABILITY_ACTIONS,
+  SKILL_WHITELIST,
+  SKILL_LEVEL_MIN,
+  SKILL_LEVEL_MAX,
+  SUMMARY_MAX_LEN,
+  YEARS_EXPERIENCE_MAX,
+  MAX_SKILLS,
+  normalizeSkillName,
+  isPositionCode,
+  isPrimaryDomain,
+  isAvailability,
+  isVerificationStatus,
+};

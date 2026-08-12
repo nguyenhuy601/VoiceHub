@@ -5,15 +5,17 @@ import BrandPageLoader from './components/Shared/BrandPageLoader';
 import SuiteShellLayout from './components/Layout/SuiteShellLayout';
 import CommunicateSidebar from './components/Layout/CommunicateSidebar';
 import CollaborateSidebar from './components/Layout/CollaborateSidebar';
+import AdminShellLayout from './components/Layout/AdminShellLayout';
 import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
+import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
-const HomePage = lazy(() => import('./pages/Auth/HomePage'));
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
-const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage'));
+const RegisterRedirect = lazy(() => import('./components/Auth/RegisterRedirect'));
 const VerifyEmailPage = lazy(() => import('./pages/Auth/VerifyEmailPage'));
+const AcceptCompanyInvitePage = lazy(() => import('./pages/Auth/AcceptCompanyInvitePage'));
 const ForgotPasswordPage = lazy(() => import('./pages/Auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/Auth/ResetPasswordPage'));
 const TermsOfServicePage = lazy(() => import('./pages/Auth/TermsOfServicePage'));
@@ -23,7 +25,13 @@ const FriendChatPage = lazy(() => import('./pages/Chat/FriendChatPage'));
 const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
 const OrganizationsPage = lazy(() => import('./pages/Workspace/OrganizationsPage'));
 const OrganizationSettingsPage = lazy(() => import('./pages/Workspace/OrganizationSettingsPage'));
+const CompanyAdminLayout = lazy(() => import('./pages/Admin/CompanyAdminLayout'));
+const AdminHubPage = lazy(() => import('./pages/Admin/AdminHubPage'));
+const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
+const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
+const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
+const CreateProjectWizardPage = lazy(() => import('./pages/Workspace/CreateProjectWizardPage'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
@@ -34,13 +42,15 @@ const Protected = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
 
 function App() {
   return (
-    <Suspense fallback={<BrandPageLoader />}>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
+    <RouteErrorBoundary>
+      <Suspense fallback={<BrandPageLoader />}>
+        <Routes>
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register" element={<RegisterRedirect />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email-change" element={<VerifyEmailPage />} />
+        <Route path="/accept-company-invite" element={<AcceptCompanyInvitePage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
@@ -65,7 +75,8 @@ function App() {
             </Protected>
           }
         >
-          <Route index element={<Navigate to="chat/friends" replace />} />
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<DashboardPage suiteLayout suiteScope="communicate" />} />
           <Route path="chat/friends" element={<FriendChatPage suiteLayout />} />
           <Route path="voice" element={<VoiceRoomPage suiteLayout />} />
           <Route path="voice/:roomId" element={<VoiceRoomPage suiteLayout />} />
@@ -76,6 +87,24 @@ function App() {
           <Route path="notifications" element={<NotificationsPage suiteLayout />} />
         </Route>
 
+        {/* Full-screen Project Setup Wizard — outside SuiteShell (no sidebar) */}
+        <Route
+          path="/app/collaborate/projects/new"
+          element={
+            <Protected>
+              <CreateProjectWizardPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/app/admin/projects/create"
+          element={
+            <Protected>
+              <CreateProjectWizardPage />
+            </Protected>
+          }
+        />
+
         {/* Collaborate suite */}
         <Route
           path="/app/collaborate"
@@ -85,7 +114,8 @@ function App() {
             </Protected>
           }
         >
-          <Route index element={<Navigate to="workspaces" replace />} />
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<DashboardPage suiteLayout suiteScope="collaborate" />} />
           <Route
             path="workspaces"
             element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
@@ -100,10 +130,33 @@ function App() {
             element={<NotificationsPage orgScope suiteLayout />}
           />
           <Route path="organizations/:orgId/settings" element={<OrganizationSettingsPage suiteLayout />} />
+          <Route path="admin" element={<AdminLegacyRedirect />} />
+          <Route path="approvals" element={<ApprovalInboxPage suiteLayout />} />
           <Route path="join/:orgId" element={<JoinApplicationPage suiteLayout />} />
         </Route>
 
-        {/* Me suite */}
+        {/* Admin suite — menu quản lý tách khỏi collaborate */}
+        <Route
+          path="/app/admin"
+          element={
+            <Protected>
+              <AdminShellLayout />
+            </Protected>
+          }
+        >
+          <Route element={<CompanyAdminLayout />}>
+            <Route index element={<AdminHubPage />} />
+            <Route path="overview" element={<Navigate to="/app/admin" replace />} />
+            <Route path="people" element={<Navigate to="/app/admin/users" replace />} />
+            <Route path="approvals" element={<Navigate to="/app/admin/users" replace />} />
+            <Route path="general" element={<Navigate to="/app/admin/system-config" replace />} />
+            <Route path="structure" element={<Navigate to="/app/admin/system-config/structure" replace />} />
+            <Route path="roles" element={<Navigate to="/app/admin/rbac/roles" replace />} />
+            <Route path="policy" element={<Navigate to="/app/admin/system-config/policy" replace />} />
+            <Route path=":domain/*" element={<AdminDomainPage />} />
+          </Route>
+        </Route>
+
         <Route
           path="/app/me"
           element={
@@ -113,13 +166,13 @@ function App() {
           }
         >
           <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage suiteLayout />} />
+          <Route path="dashboard" element={<DashboardPage suiteLayout suiteScope="me" />} />
           <Route path="calendar" element={<CalendarPage suiteLayout />} />
           <Route path="settings" element={<SettingsPage suiteLayout />} />
         </Route>
 
-        {/* Legacy redirects */}
-        <Route path="/dashboard" element={<Navigate to="/app/me/dashboard" replace />} />
+        {/* Legacy redirects — giữ URL cũ (/dashboard, /chat/friends, /w/:slug, …) trỏ sang /app/* suite */}
+        <Route path="/dashboard" element={<Navigate to="/app/communicate/overview" replace />} />
         <Route path="/calendar" element={<Navigate to="/app/me/calendar" replace />} />
         <Route path="/settings" element={<Navigate to="/app/me/settings" replace />} />
         <Route path="/profile" element={<Navigate to="/app/me/dashboard" replace />} />
@@ -166,6 +219,7 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
+    </RouteErrorBoundary>
   );
 }
 

@@ -17,7 +17,20 @@ class RoleController {
   // Tạo role mới
   async createRole(req, res) {
     try {
-      const { name, serverId, organizationId, permissions, color, isDefault, priority } = req.body;
+      const {
+        name,
+        description,
+        scope,
+        serverId,
+        organizationId,
+        permissions,
+        color,
+        isDefault,
+        priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
+      } = req.body;
 
       if (!name || !serverId || !organizationId) {
         return res.status(400).json({
@@ -28,12 +41,17 @@ class RoleController {
 
       const role = await roleService.createRole({
         name,
+        description,
+        scope,
         serverId,
         organizationId,
         permissions,
         color,
         isDefault,
         priority,
+        fromTemplateKey,
+        permissionGroupId,
+        allowBlankLegacy,
       });
 
       res.status(201).json({

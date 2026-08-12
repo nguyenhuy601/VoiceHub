@@ -30,6 +30,12 @@ const meetingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    /** Mã phòng lobby tự do (vd. room-abc123) */
+    lobbyRoomId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     participants: [
       {
         userId: {
@@ -75,6 +81,66 @@ const meetingSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** Path Opus trên MinIO, vd. meeting-recordings/room1/xxx.opus */
+    audioStoragePath: {
+      type: String,
+      default: null,
+    },
+    transcript: {
+      type: String,
+      default: '',
+    },
+    transcriptChunks: [
+      {
+        seq: { type: Number, required: true },
+        text: { type: String, default: '' },
+        speakerId: { type: String, default: '' },
+        displayName: { type: String, default: '' },
+        at: { type: Date, default: Date.now },
+      },
+    ],
+    transcriptSource: {
+      type: String,
+      enum: ['none', 'realtime', 'post_audio'],
+      default: 'none',
+    },
+    summary: {
+      type: String,
+      default: '',
+    },
+    summaryStructured: {
+      summary: { type: String, default: '' },
+      keyPoints: [{ type: String }],
+      actionItems: [{ type: String }],
+    },
+    summaryStatus: {
+      type: String,
+      enum: ['none', 'processing', 'ready', 'failed'],
+      default: 'none',
+    },
+    aiSummaryEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    recordingStatus: {
+      type: String,
+      enum: ['none', 'pending_upload', 'processing', 'ready', 'failed', 'audio_expired'],
+      default: 'none',
+    },
+    durationSec: {
+      type: Number,
+      default: null,
+    },
+    /** Path WebM tạm trên MinIO (worker xóa sau transcode) */
+    tempStoragePath: {
+      type: String,
+      default: null,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Runtime: có phiên ghi âm đang active trong phòng (opt-in) */
     isRecording: {
       type: Boolean,
       default: false,

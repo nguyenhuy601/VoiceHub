@@ -5,7 +5,7 @@ const userAuthSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       required: false, // Sẽ được tạo sau khi verify email
-      // Không dùng sparse ở đây, sẽ dùng trong index() để tránh duplicate
+      // CẤM populate User — model User không đăng ký trong auth-service.
       ref: 'User',
     },
     email: {
@@ -111,9 +111,60 @@ const userAuthSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    /** Admin provision — bắt buộc đổi mật khẩu lần đầu */
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
+    /** Vai trò tài khoản hệ thống: admin hoặc nhân viên */
+    systemRole: {
+      type: String,
+      enum: ['admin', 'employee'],
+      default: 'employee',
+    },
   },
   {
     timestamps: true,
+    toJSON: {
+      transform(_doc, ret) {
+        delete ret.password;
+        delete ret.refreshToken;
+        delete ret.refreshTokenExpiresAt;
+        delete ret.emailVerificationToken;
+        delete ret.emailVerificationExpiresAt;
+        delete ret.emailChangeToken;
+        delete ret.emailChangeExpiresAt;
+        delete ret.passwordResetToken;
+        delete ret.passwordResetExpiresAt;
+        delete ret.pendingEmail;
+        delete ret.pendingEmailBlindIndex;
+        delete ret.loginAttempts;
+        delete ret.lockUntil;
+        delete ret.tokenVersion;
+        delete ret.__v;
+        return ret;
+      },
+    },
+    toObject: {
+      transform(_doc, ret) {
+        delete ret.password;
+        delete ret.refreshToken;
+        delete ret.refreshTokenExpiresAt;
+        delete ret.emailVerificationToken;
+        delete ret.emailVerificationExpiresAt;
+        delete ret.emailChangeToken;
+        delete ret.emailChangeExpiresAt;
+        delete ret.passwordResetToken;
+        delete ret.passwordResetExpiresAt;
+        delete ret.pendingEmail;
+        delete ret.pendingEmailBlindIndex;
+        delete ret.loginAttempts;
+        delete ret.lockUntil;
+        delete ret.tokenVersion;
+        delete ret.__v;
+        return ret;
+      },
+    },
   }
 );
 

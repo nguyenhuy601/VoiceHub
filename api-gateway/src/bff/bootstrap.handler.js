@@ -2,6 +2,7 @@ const { bffCachedRead } = require('./bffRead');
 const { bootstrapCacheKey } = require('./cache');
 const { buildBootstrap } = require('./bootstrap.service');
 const { normalizeBootstrapSuite } = require('./bootstrapEnrichment');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const TTL_SEC = Math.min(
   120,
@@ -21,7 +22,14 @@ async function handleBootstrap(req, res) {
       cacheKey,
       coalesceKey: cacheKey,
       ttlSec: TTL_SEC,
-      loader: () => buildBootstrap(userId, req.user?.email, suite),
+      loader: () =>
+        buildBootstrap(
+          userId,
+          req.user?.email,
+          suite,
+          req.user?.systemRole,
+          req.user?.mustChangePassword
+        ),
     });
 
     if (fromCache) res.setHeader('X-Bff-Cache', 'HIT');
@@ -29,9 +37,17 @@ async function handleBootstrap(req, res) {
   } catch (error) {
     const status = error.statusCode || 500;
     console.error('[bff:bootstrap] error:', error.message);
-    return res.status(status).json({
-      success: false,
+    if (status >= 500) {
+      return sendApiError(res, status, {
+        errorCode: 'GATEWAY_INTERNAL_ERROR',
+        message: 'Bootstrap failed',
+        messageUser: GENERIC_5XX_MESSAGE,
+      });
+    }
+    return sendApiError(res, status, {
+      errorCode: error.errorCode || 'GATEWAY_INTERNAL_ERROR',
       message: error.message || 'Bootstrap failed',
+      messageUser: error.messageUser || error.message || 'Bootstrap failed',
     });
   }
 }

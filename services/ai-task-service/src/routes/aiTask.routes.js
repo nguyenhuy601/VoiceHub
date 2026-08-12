@@ -1,5 +1,7 @@
-const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const TASK_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
 const express = require('express');
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
@@ -7,6 +9,12 @@ const AiTaskExtraction = require('../models/AiTaskExtraction');
 const SyncSuggestion = require('../models/SyncSuggestion');
 const { publishJson } = require('../messaging/rabbit');
 const { assertUserCanExtractFromMessage } = require('../utils/verifyExtractSource');
+const { assertCanUseAiTask } = require('../clients/orgScope.client');
+const AiBoardDraft = require('../models/AiBoardDraft');
+const {
+  buildProjectDraft,
+  buildTeamAssignSuggestions,
+} = require('../services/aiBoardDraft.builder');
 
 const router = express.Router();
 
@@ -27,10 +35,8 @@ function fail(res, status, message, errorCode) {
 router.post('/extract', async (req, res) => {
   const { messageId, organizationId, titleHint, mentions, channelId } = req.body || {};
 
-  // Phase 2: auth sẽ đi qua API Gateway; tạm lấy userId từ header để test nội bộ
-  const generatedBy = req.user?.id || req.headers['x-user-id'] || req.headers['x-generated-by'];
-
-  if (!generatedBy) return res.status(401).json({ success: false, message: 'Missing user context' });
+  const generatedBy = req.user?.id;
+  if (!generatedBy) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
   if (!messageId || !organizationId) {
     return res.status(400).json({ success: false, message: 'messageId and organizationId are required' });
   }
@@ -111,7 +117,14 @@ function resolveTrustedAssigneeId(extraction, bodyAssigneeId) {
 }
 
 router.post('/confirm', async (req, res) => {
-  const { extractionId, assigneeId: bodyAssigneeId, boardId, listId } = req.body || {};
+  const {
+    extractionId,
+    assigneeId: bodyAssigneeId,
+    boardId,
+    listId,
+    ownerTeamId: bodyOwnerTeamId,
+    isProjectMilestone: bodyIsProjectMilestone,
+  } = req.body || {};
   const userId = req.user?.id || req.headers['x-user-id'];
   const idemKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 
@@ -125,6 +138,18 @@ router.post('/confirm', async (req, res) => {
   }
   if (!['ready', 'confirmed'].includes(extraction.status)) {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng để xác nhận', 'AI_EXTRACTION_NOT_READY');
+  }
+
+  let scope;
+  try {
+    scope = await assertCanUseAiTask(userId, extraction.organizationId);
+  } catch (roleErr) {
+    return fail(
+      res,
+      Number(roleErr.statusCode) || 403,
+      roleErr.message || 'Forbidden',
+      roleErr.errorCode || 'AI_CONFIRM_ROLE_DENIED'
+    );
   }
 
   if (extraction.status === 'confirmed' && extraction.taskId) {
@@ -154,13 +179,26 @@ router.post('/confirm', async (req, res) => {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng hoặc đang được xác nhận', 'AI_EXTRACTION_NOT_READY');
   }
 
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
   const draft = locked.draft || {};
   if (!draft.dueDate) {
     await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
     return fail(res, 422, 'Tin nhắn chưa có deadline rõ ngày/giờ nên chưa thể tạo task tự động', 'AI_DUE_DATE_REQUIRED');
   }
-  const assigneeId = resolveTrustedAssigneeId(locked, bodyAssigneeId);
+
+  // Chuẩn vàng: TL (ledTeamIds) mới gán NV; PM chỉ epic + ownerTeamId.
+  const led = new Set((scope?.ledTeamIds || []).map(String).filter(Boolean));
+  const role = String(scope?.membershipRole || '').toLowerCase();
+  const isOrgAdmin = role === 'owner' || role === 'admin';
+  const canAssignNv = isOrgAdmin || led.size > 0;
+  let assigneeId = canAssignNv ? resolveTrustedAssigneeId(locked, bodyAssigneeId) : undefined;
+  const ownerTeamId =
+    (bodyOwnerTeamId && String(bodyOwnerTeamId).trim()) ||
+    (draft.ownerTeamId && String(draft.ownerTeamId).trim()) ||
+    (draft.teamId && String(draft.teamId).trim()) ||
+    undefined;
+  const isProjectMilestone = Boolean(bodyIsProjectMilestone || draft.isProjectMilestone);
+
   const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
 
   let createRes;
@@ -177,6 +215,8 @@ router.post('/confirm', async (req, res) => {
         tags: Array.isArray(draft.tags) ? draft.tags : [],
         attachments,
         assigneeId: assigneeId || undefined,
+        ownerTeamId: ownerTeamId || undefined,
+        isProjectMilestone: isProjectMilestone || undefined,
         aiGenerated: true,
         sourceMessageId: locked.sourceRef?.messageId || undefined,
       },
@@ -265,7 +305,7 @@ router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
     return res.status(409).json({ success: false, message: `Suggestion already ${suggestion.status}` });
   }
 
-  const taskServiceUrl = process.env.TASK_SERVICE_URL;
+  const taskServiceUrl = TASK_SERVICE_URL;
   const taskRes = await axios.get(`${taskServiceUrl}/api/tasks/${suggestion.taskId}`, {
     headers: buildTrustedGatewayHeaders(userId),
     timeout: 15000,
@@ -301,6 +341,328 @@ router.post('/:taskId/sync-suggestions/:id/approve', async (req, res) => {
   suggestion.approvedBy = userId;
   await suggestion.save();
   return res.json({ success: true, data: suggestion });
+});
+
+/**
+ * P2 — AI gợi ý tạo dự án (board + lists). Sync heuristic → PM review → confirm.
+ */
+router.post('/project-draft', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  const {
+    organizationId,
+    brief,
+    title,
+    projectCode,
+    description,
+    dueDate,
+    scopeType,
+    scopeId,
+    teamId,
+    teams,
+    visibility,
+  } = req.body || {};
+
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+  if (!organizationId) return fail(res, 400, 'organizationId là bắt buộc', 'VALIDATION_REQUIRED');
+
+  let scope;
+  try {
+    scope = await assertCanUseAiTask(userId, organizationId);
+  } catch (roleErr) {
+    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+  }
+  if (!scope?.canCreateTask) {
+    return fail(res, 403, 'Chỉ PM/TL/Admin mới được tạo dự án bằng AI', 'AI_PROJECT_ROLE_DENIED');
+  }
+
+  const payload = buildProjectDraft({
+    brief,
+    title,
+    projectCode,
+    description,
+    dueDate,
+    teams:
+      Array.isArray(teams) && teams.length
+        ? teams
+        : [],
+    visibility,
+  });
+  payload.scopeType = scopeType || (teamId ? 'team' : 'department');
+  payload.scopeId = scopeId || teamId || scope.departmentId || scope.teamId || null;
+  payload.organizationId = String(organizationId);
+
+      // Nếu client gửi teams có tên — ưu tiên; không thì bỏ list team placeholder id
+      if (!payload.lists.some((l) => l.kind === 'team') && Array.isArray(teams) && teams.length) {
+        for (const t of teams) {
+          const name = String(t?.name || t?.title || '').trim();
+          if (!name) continue;
+          payload.lists.push({
+            title: name.startsWith('Team ') ? name : `Team ${name}`,
+            teamId: t?._id || t?.id || null,
+            kind: 'team',
+          });
+        }
+      }
+
+  const draft = await AiBoardDraft.create({
+    kind: 'project',
+    generatedBy: userId,
+    organizationId,
+    status: 'ready',
+    payload,
+  });
+
+  return res.status(201).json({
+    success: true,
+    data: { draftId: String(draft._id), status: draft.status, payload: draft.payload },
+  });
+});
+
+router.get('/project-drafts/:id', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+  const draft = await AiBoardDraft.findById(req.params.id).lean();
+  if (!draft || draft.kind !== 'project') {
+    return fail(res, 404, 'Không tìm thấy draft dự án', 'AI_PROJECT_DRAFT_NOT_FOUND');
+  }
+  if (String(draft.generatedBy) !== String(userId)) {
+    return fail(res, 403, 'Forbidden', 'AI_PROJECT_DRAFT_FORBIDDEN');
+  }
+  return res.json({ success: true, data: draft });
+});
+
+router.post('/project-drafts/:id/confirm', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+
+  const draftDoc = await AiBoardDraft.findById(req.params.id);
+  if (!draftDoc || draftDoc.kind !== 'project') {
+    return fail(res, 404, 'Không tìm thấy draft dự án', 'AI_PROJECT_DRAFT_NOT_FOUND');
+  }
+  if (String(draftDoc.generatedBy) !== String(userId)) {
+    return fail(res, 403, 'Forbidden', 'AI_PROJECT_DRAFT_FORBIDDEN');
+  }
+  if (draftDoc.status === 'confirmed' && draftDoc.result?.boardId) {
+    return res.json({ success: true, data: draftDoc.result });
+  }
+  if (draftDoc.status !== 'ready') {
+    return fail(res, 409, 'Draft không sẵn sàng', 'AI_PROJECT_DRAFT_NOT_READY');
+  }
+
+  try {
+    await assertCanUseAiTask(userId, draftDoc.organizationId);
+  } catch (roleErr) {
+    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+  }
+
+  const edited = req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : draftDoc.payload;
+  const taskServiceUrl = TASK_SERVICE_URL;
+  draftDoc.status = 'confirming';
+  await draftDoc.save();
+
+  const createRes = await axios.post(
+    `${taskServiceUrl}/api/tasks/boards`,
+    {
+      organizationId: String(draftDoc.organizationId),
+      title: edited.title,
+      description: edited.description,
+      projectCode: edited.projectCode,
+      dueDate: edited.dueDate || undefined,
+      visibility: edited.visibility || 'workspace',
+      scopeType: edited.scopeType,
+      scopeId: edited.scopeId,
+      teamId: edited.scopeType === 'team' ? edited.scopeId : undefined,
+      background: edited.background || 'linear-gradient(135deg,#0f172a,#1e293b)',
+    },
+    {
+      headers: buildTrustedGatewayHeaders(userId),
+      timeout: 20000,
+      validateStatus: () => true,
+    }
+  );
+
+  if (![200, 201].includes(createRes.status) || !createRes.data?.success) {
+    draftDoc.status = 'ready';
+    draftDoc.error = createRes.data?.message || `HTTP ${createRes.status}`;
+    await draftDoc.save();
+    return fail(res, 400, draftDoc.error || 'Không tạo được board', 'AI_PROJECT_CREATE_FAILED');
+  }
+
+  const board = createRes.data.data || createRes.data;
+  const boardId = String(board._id || board.id);
+  const listIds = [];
+  for (const list of edited.lists || []) {
+    const title = String(list?.title || '').trim();
+    if (!title) continue;
+    const listRes = await axios.post(
+      `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/lists`,
+      { title },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if ([200, 201].includes(listRes.status)) {
+      const row = listRes.data?.data || listRes.data;
+      if (row?._id) listIds.push(String(row._id));
+    }
+  }
+
+  const result = { boardId, projectCode: edited.projectCode, listIds, board };
+  draftDoc.status = 'confirmed';
+  draftDoc.boardId = boardId;
+  draftDoc.payload = edited;
+  draftDoc.result = result;
+  draftDoc.error = '';
+  await draftDoc.save();
+
+  return res.json({ success: true, data: result });
+});
+
+/**
+ * P2.5 — AI gợi ý thẻ + assignee trên list team (TL confirm).
+ */
+router.post('/boards/:boardId/lists/:listId/suggest-cards', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  const { boardId, listId } = req.params;
+  const { organizationId, prompt, boardTitle, listTitle, members, maxCards } = req.body || {};
+
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+  if (!organizationId) return fail(res, 400, 'organizationId là bắt buộc', 'VALIDATION_REQUIRED');
+
+  try {
+    await assertCanUseAiTask(userId, organizationId);
+  } catch (roleErr) {
+    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+  }
+
+  let memberRows = Array.isArray(members) ? members : [];
+  if (!memberRows.length) {
+    try {
+      const taskServiceUrl = TASK_SERVICE_URL;
+      const memRes = await axios.get(
+        `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/assignable-members`,
+        {
+          headers: buildTrustedGatewayHeaders(userId),
+          timeout: 15000,
+          validateStatus: () => true,
+        }
+      );
+      const data = memRes.data?.data || memRes.data;
+      memberRows = Array.isArray(data?.members) ? data.members : [];
+    } catch {
+      memberRows = [];
+    }
+  }
+
+  const suggestions = buildTeamAssignSuggestions({
+    listTitle,
+    boardTitle,
+    prompt,
+    members: memberRows,
+    maxCards: Number(maxCards) || 5,
+  });
+
+  const draft = await AiBoardDraft.create({
+    kind: 'team_assign',
+    generatedBy: userId,
+    organizationId,
+    status: 'ready',
+    boardId,
+    listId,
+    payload: { suggestions, prompt: String(prompt || ''), listTitle, boardTitle },
+  });
+
+  return res.status(201).json({
+    success: true,
+    data: {
+      draftId: String(draft._id),
+      status: draft.status,
+      suggestions,
+    },
+  });
+});
+
+router.post('/team-assign-drafts/:id/confirm', async (req, res) => {
+  const userId = req.user?.id || req.headers['x-user-id'];
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+
+  const draftDoc = await AiBoardDraft.findById(req.params.id);
+  if (!draftDoc || draftDoc.kind !== 'team_assign') {
+    return fail(res, 404, 'Không tìm thấy draft giao việc', 'AI_TEAM_ASSIGN_NOT_FOUND');
+  }
+  if (String(draftDoc.generatedBy) !== String(userId)) {
+    return fail(res, 403, 'Forbidden', 'AI_TEAM_ASSIGN_FORBIDDEN');
+  }
+  if (draftDoc.status === 'confirmed' && draftDoc.result?.cardIds) {
+    return res.json({ success: true, data: draftDoc.result });
+  }
+  if (draftDoc.status !== 'ready') {
+    return fail(res, 409, 'Draft không sẵn sàng', 'AI_TEAM_ASSIGN_NOT_READY');
+  }
+
+  try {
+    await assertCanUseAiTask(userId, draftDoc.organizationId);
+  } catch (roleErr) {
+    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+  }
+
+  const items =
+    Array.isArray(req.body?.items) && req.body.items.length
+      ? req.body.items
+      : draftDoc.payload?.suggestions || [];
+  const boardId = String(draftDoc.boardId);
+  const listId = String(draftDoc.listId);
+  const taskServiceUrl = TASK_SERVICE_URL;
+
+  draftDoc.status = 'confirming';
+  await draftDoc.save();
+
+  const cardIds = [];
+  const errors = [];
+  for (const item of items) {
+    const title = String(item?.title || '').trim();
+    if (!title) continue;
+    const createRes = await axios.post(
+      `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/cards`,
+      {
+        listId,
+        title,
+        summary: item.summary || '',
+        description: item.description || '',
+        priority: item.priority || 'medium',
+        dueDate: item.dueDate || null,
+        assigneeId: item.assigneeId || undefined,
+        aiGenerated: true,
+      },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if ([200, 201].includes(createRes.status)) {
+      const row = createRes.data?.data || createRes.data;
+      if (row?._id) cardIds.push(String(row._id));
+    } else {
+      errors.push(createRes.data?.message || `HTTP ${createRes.status}`);
+    }
+  }
+
+  if (!cardIds.length) {
+    draftDoc.status = 'ready';
+    draftDoc.error = errors[0] || 'Không tạo được thẻ';
+    await draftDoc.save();
+    return fail(res, 400, draftDoc.error, 'AI_TEAM_ASSIGN_CREATE_FAILED');
+  }
+
+  const result = { boardId, listId, cardIds, errors };
+  draftDoc.status = 'confirmed';
+  draftDoc.result = result;
+  draftDoc.error = '';
+  await draftDoc.save();
+  return res.json({ success: true, data: result });
 });
 
 module.exports = router;

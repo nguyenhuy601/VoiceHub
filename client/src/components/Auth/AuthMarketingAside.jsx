@@ -1,73 +1,58 @@
-import { useTheme } from '../../context/ThemeContext';
+import { ShieldCheck, Zap } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 
+const FEATURE_DOT_COLORS = ['#3B82F6', '#34D399', '#FBBF24', '#22D3EE'];
+
 /**
- * Cột trái auth — typography lớn hơn một bậc để dễ đọc; nền họa tiết do AuthAsideAmbient xử lý.
+ * Left panel Login — 420px / p-10 (figmaAuthClasses.js).
  */
 function AuthMarketingAside() {
-  const { isDarkMode } = useTheme();
   const { t, dict } = useAppStrings();
-  const chipLabels = dict.authMarketing.chips;
-
-  const badgeOuter = isDarkMode
-    ? 'border-slate-600/55 bg-slate-900/50 text-slate-200'
-    : 'border-white/35 bg-white/12 text-white';
-  const badgeInner = isDarkMode ? 'text-cyan-300/95' : 'text-white';
-  const accentBar = isDarkMode ? 'border-cyan-400/55' : 'border-white/85';
-  const h1Main = 'text-white';
-  const h1Sub = isDarkMode ? 'text-slate-200' : 'text-white/95';
-  const body = isDarkMode ? 'text-slate-300' : 'text-white/92';
-  const quote = isDarkMode
-    ? 'border-cyan-500/30 bg-slate-900/30 text-slate-400'
-    : 'border-white/40 bg-white/[0.08] text-white/85';
-  const foot = isDarkMode ? 'text-slate-500' : 'text-white/75';
-  const chips = isDarkMode ? 'border-slate-700/50 bg-slate-900/25 text-slate-400' : 'border-white/20 bg-white/[0.08] text-white/88';
+  const features = dict.authMarketing?.features ?? [];
 
   return (
     <div className="flex max-w-lg flex-col gap-8 lg:gap-10">
       <div>
-        <p
-          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium tracking-wide backdrop-blur-sm sm:text-sm ${badgeOuter}`}
-        >
-          <span className={`font-semibold ${badgeInner}`}>VoiceHub</span>
-          <span className={isDarkMode ? 'text-slate-500' : 'text-white/50'} aria-hidden>
-            /
+        <div className="flex items-center gap-[10px] mb-14">
+          <div className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center bg-primary shadow-md shadow-primary/40">
+            <Zap size={17} className="fill-primary-foreground text-primary-foreground" aria-hidden />
+          </div>
+          <span className="font-display text-[1.0625rem] font-bold tracking-tight text-sidebar-foreground-active">
+            VoiceHub
           </span>
-          <span className={isDarkMode ? 'text-slate-400' : 'text-white/85'}>{t('authMarketing.badgeSub')}</span>
-        </p>
-      </div>
+        </div>
 
-      <div className={`border-l-[3px] pl-5 sm:pl-7 ${accentBar}`}>
-        <h1
-          className={`font-semibold leading-snug tracking-tight ${h1Main} text-[1.55rem] sm:text-[1.85rem] xl:text-[2.2rem] xl:leading-[1.2]`}
-        >
+        <h2 className="font-display text-[1.75rem] font-bold leading-[1.3] tracking-[-0.03em] text-sidebar-foreground-active mb-3.5">
           {t('authMarketing.h1a')}
-          <span className={`mt-2 block font-bold ${h1Sub} text-[1.3rem] sm:text-[1.65rem] xl:text-[1.95rem]`}>
-            {t('authMarketing.h1b')}
-          </span>
-        </h1>
+          <br />
+          <span className="text-primary">{t('authMarketing.h1b')}</span>
+        </h2>
+        <p className="text-[0.875rem] leading-[1.7] max-w-[300px] text-[#5E5E7E]">{t('authMarketing.body')}</p>
       </div>
 
-      <div className="space-y-5">
-        <p className={`text-base leading-[1.75] sm:text-lg ${body}`}>{t('authMarketing.body')}</p>
+      <div>
+        {features.length > 0 && (
+          <ul className="flex flex-col gap-3 mb-10">
+            {features.map((label, i) => (
+              <li key={label} className="flex items-center gap-3">
+                <span
+                  className="w-1.5 h-1.5 shrink-0 rounded-full"
+                  style={{ background: FEATURE_DOT_COLORS[i % FEATURE_DOT_COLORS.length] }}
+                  aria-hidden
+                />
+                <span className="text-[0.8125rem] text-[#A0A0C0]">{label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
 
-        <blockquote className={`border-l-2 py-1 pl-5 text-sm font-normal italic leading-relaxed sm:text-base ${quote}`}>
-          {t('authMarketing.quote')}
-        </blockquote>
-
-        <p className={`text-sm leading-relaxed sm:text-[0.95rem] ${foot}`}>{t('authMarketing.foot')}</p>
+        <div className="flex items-center gap-2 px-[14px] py-2.5 rounded-lg border border-white/[0.07] bg-white/[0.04]">
+          <ShieldCheck size={15} className="shrink-0 text-success" aria-hidden />
+          <span className="text-[0.75rem] leading-snug text-[#5E5E7E]">{t('authMarketing.trustBadge')}</span>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2.5">
-        {chipLabels.map((label) => (
-          <span
-            key={label}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium sm:text-sm ${chips}`}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
+      <p className="text-[0.6875rem] text-[#2A2A40]">{t('authMarketing.copyright')}</p>
     </div>
   );
 }

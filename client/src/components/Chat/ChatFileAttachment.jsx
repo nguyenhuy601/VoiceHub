@@ -161,7 +161,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
   if (compact) {
     return (
       <div
-        className={`flex min-w-0 max-w-full flex-col gap-1.5 rounded-lg border border-white/[0.12] bg-[#141821] p-2 text-left ${className}`}
+        className={`flex min-w-0 max-w-full flex-col gap-1.5 rounded-lg border border-border bg-surface p-2 text-left ${className}`}
       >
         <button
           type="button"
@@ -175,11 +175,11 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             <FileTypeIcon name={name} mime={mime} className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-semibold text-white">{name}</span>
-            <span className="mt-0.5 block text-[10px] leading-tight text-[#8e9297]">
+            <span className="block truncate text-xs font-semibold text-foreground">{name}</span>
+            <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
               {sizeLabel}
-              <span className="mx-1 text-[#4e5257]">·</span>
-              <span className="text-emerald-400/90">{t('friendChat.clickToOpen')}</span>
+              <span className="mx-1 text-muted-foreground/60">·</span>
+              <span className="text-success">{t('friendChat.clickToOpen')}</span>
             </span>
           </span>
         </button>
@@ -191,7 +191,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
               e.stopPropagation();
               saveFileWithPicker(url, name);
             }}
-            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] text-[10px] text-white/90 transition hover:bg-white/[0.08]"
+            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80"
           >
             <FolderDown className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             {t('friendChat.saveFileShort')}
@@ -203,7 +203,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
               e.stopPropagation();
               downloadToDisk(url, name);
             }}
-            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] text-[10px] text-white/90 transition hover:bg-white/[0.08]"
+            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80"
           >
             <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             {t('friendChat.downloadFileShort')}
@@ -215,7 +215,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
 
   return (
     <div
-      className={`flex min-w-0 items-stretch gap-3 rounded-xl border border-white/[0.12] bg-[#141821] p-3 text-left ${className}`}
+      className={`flex min-w-0 items-stretch gap-3 rounded-xl border border-border bg-surface p-3 text-left ${className}`}
     >
       <button
         type="button"
@@ -229,8 +229,8 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
           <FileTypeIcon name={name} mime={mime} className="h-6 w-6" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold text-white">{name}</span>
-          <span className="mt-0.5 block text-xs text-[#8e9297]">
+          <span className="block truncate font-semibold text-foreground">{name}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
             {sizeLabel}
             <span className="mx-1.5 text-[#4e5257]">·</span>
             <span className="text-emerald-400/90">{t('friendChat.clickToOpen')}</span>
@@ -245,7 +245,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             e.stopPropagation();
             saveFileWithPicker(url, name);
           }}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.04] text-white/90 transition hover:bg-white/[0.08]"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80"
         >
           <FolderDown className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
@@ -256,7 +256,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             e.stopPropagation();
             downloadToDisk(url, name);
           }}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.04] text-white/90 transition hover:bg-white/[0.08]"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80"
         >
           <Download className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
@@ -283,6 +283,7 @@ export function ChatMessageAttachmentBody({
   compact = false,
   mentionVariant = null,
   mentionLabels = [],
+  mentionContacts = [],
   onImageClick,
   currentUserId = null,
   onFriendCallBack = null,
@@ -336,10 +337,12 @@ export function ChatMessageAttachmentBody({
           </div>
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wide text-cyan-100/70">
-              Danh thiếp
+              {t('friendChat.contactCardLabel')}
             </div>
-            <div className="truncate text-sm font-semibold text-white">Tên: {fullName}</div>
-            <div className="truncate text-xs text-cyan-100/75">SĐT: {phone}</div>
+            <div className="truncate text-sm font-semibold text-white">
+              {t('friendChat.contactName', { name: fullName })}
+            </div>
+            <div className="truncate text-xs text-cyan-100/75">{t('friendChat.contactPhone', { phone })}</div>
             <div className="truncate text-xs text-cyan-100/75">Email: {email}</div>
           </div>
         </div>
@@ -436,6 +439,7 @@ export function ChatMessageAttachmentBody({
       text={content}
       mentionVariant={mentionVariant}
       mentionLabels={mentionLabels}
+      mentionContacts={mentionContacts}
       isDarkMode={isDarkMode}
       className="whitespace-pre-wrap break-words leading-relaxed text-inherit"
     />

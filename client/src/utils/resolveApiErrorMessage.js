@@ -1,17 +1,20 @@
-const ERROR_CODE_MESSAGES = {
-  AUTH_NO_TOKEN: 'Vui lòng đăng nhập lại.',
-  AUTH_TOKEN_EXPIRED: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
-  AUTH_TOKEN_INVALID: 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.',
-  AUTH_INVALID_CREDENTIALS: 'Email hoặc mật khẩu không đúng.',
-  AUTH_EMAIL_NOT_VERIFIED: 'Vui lòng xác thực email trước khi đăng nhập.',
-  AUTH_ACCOUNT_INACTIVE: 'Tài khoản chưa kích hoạt.',
-  AUTH_ACCOUNT_LOCKED: 'Tài khoản đang tạm khóa do đăng nhập sai nhiều lần.',
-  AUTH_DB_UNAVAILABLE: 'Hệ thống đang bận. Vui lòng thử lại sau ít phút.',
-  USER_PROFILE_NOT_FOUND: 'Chưa tìm thấy hồ sơ người dùng.',
-  USER_NOT_AUTHENTICATED: 'Vui lòng đăng nhập lại.',
-  USER_PROFILE_FORBIDDEN: 'Bạn không có quyền thực hiện hành động này.',
-  USER_VALIDATION: 'Dữ liệu chưa hợp lệ.',
-};
+import { createTranslator } from '../locales/buildStrings.js';
+import { readStoredLocale } from './localeFormat.js';
+
+export const API_ERROR_CODES = [
+  'AUTH_NO_TOKEN',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_TOKEN_INVALID',
+  'AUTH_INVALID_CREDENTIALS',
+  'AUTH_EMAIL_NOT_VERIFIED',
+  'AUTH_ACCOUNT_INACTIVE',
+  'AUTH_ACCOUNT_LOCKED',
+  'AUTH_DB_UNAVAILABLE',
+  'USER_PROFILE_NOT_FOUND',
+  'USER_NOT_AUTHENTICATED',
+  'USER_PROFILE_FORBIDDEN',
+  'USER_VALIDATION',
+];
 
 function stripTechnicalPrefix(message) {
   const raw = String(message || '').trim();
@@ -22,13 +25,30 @@ function stripTechnicalPrefix(message) {
     .trim();
 }
 
-export function resolveApiErrorMessage(errorLike, fallback = 'Đã xảy ra lỗi') {
+/**
+ * @param {unknown} errorLike
+ * @param {{ t?: (path: string) => string, locale?: string, fallback?: string } | string} [optsOrFallback]
+ */
+export function resolveApiErrorMessage(errorLike, optsOrFallback = {}) {
+  const opts = typeof optsOrFallback === 'string' ? { fallback: optsOrFallback } : optsOrFallback;
+  const locale = opts.locale || readStoredLocale();
+  const t = opts.t || createTranslator(locale);
+  const fallback = opts.fallback ?? t('errors.generic');
+
   const data = errorLike?.data || errorLike?.response?.data || {};
   const code = data?.errorCode || data?.code || '';
-  if (code && ERROR_CODE_MESSAGES[code]) return ERROR_CODE_MESSAGES[code];
+  if (code) {
+    const mapped = t(`errors.codes.${code}`);
+    if (mapped && mapped !== `errors.codes.${code}`) return mapped;
+  }
   const messageUser = data?.messageUser || '';
+  const msg = stripTechnicalPrefix(data?.message || errorLike?.message || messageUser || '');
+  // Legacy BE: validatePasswordStrength trả chuỗi Anh thuần (chưa có errorCode).
+  if (/Password must (contain|be at least)/i.test(msg) || /uppercase letter|special character/i.test(msg)) {
+    const weak = t('errors.codes.AUTH_WEAK_PASSWORD');
+    if (weak && weak !== 'errors.codes.AUTH_WEAK_PASSWORD') return weak;
+  }
   if (String(messageUser).trim()) return String(messageUser).trim();
-  const msg = stripTechnicalPrefix(data?.message || errorLike?.message || '');
   return msg || fallback;
 }
 

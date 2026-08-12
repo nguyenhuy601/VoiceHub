@@ -2,14 +2,21 @@ const roleService = require('../services/role.service');
 const {
   getAction,
   extractServerId,
-  noPermissionRoutes,
+  isNoPermissionRoute,
+  isAdminServiceAuthRoute,
+  isTaskAuthBypassRoute,
+  isDownstreamAuthorizedRoute,
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
+  isRbacV2CatalogRead,
   isDelegatedUserRoleRead,
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,
 } = require('../config/permissions');
-const { isPublicRoute, normalizePath } = require('../config/services');
+const { isPublicRoute, isAuthInternalS2SPath, resolveReqApiPath } = require('../config/services');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
+
+const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
 
 /** Cache kết quả checkPermission (giảm tải role-service) */
 const permissionCache = new Map();
@@ -25,58 +32,69 @@ function cacheKey(userId, serverId, action) {
  */
 const permissionMiddleware = async (req, res, next) => {
   try {
+    const apiPath = resolveReqApiPath(req);
     const pathOnly = String(req.originalUrl || req.url || req.path || '')
       .split('?')[0]
       .replace(/\/+/g, '/');
 
-    // Bỏ qua routes public (đăng ký, đăng nhập, ...),
-    // và các routes được đánh dấu không cần kiểm tra permission
-    if (isPublicRoute(req.path) || noPermissionRoutes.some((route) => req.path.startsWith(route))) {
+    // Bỏ qua routes public và routes chỉ cần JWT (service đích tự authorize)
+    if (
+      isPublicRoute(apiPath) ||
+      isPublicRoute(req.path) ||
+      isNoPermissionRoute(apiPath) ||
+      isNoPermissionRoute(req.path)
+    ) {
+      return next();
+    }
+
+    // Bootstrap S2S — auth-service tự internalGatewayAuth; không cần req.user ở gateway
+    if (isAuthInternalS2SPath(apiPath) || isAuthInternalS2SPath(req.path)) {
       return next();
     }
 
     // Lấy userId từ req.user (đã được set bởi authMiddleware)
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_NO_TOKEN',
         message: 'Unauthorized',
+        messageUser: 'Vui lòng đăng nhập lại.',
       });
     }
 
-    // Task / Work / AI-task: bỏ qua role theo serverId — chạy NGAY và dùng originalUrl vì req.path
-    // có thể không khớp (proxy/mount). task-service tự kiểm tra creator/assignee.
-    const pathNorm = normalizePath(pathOnly).toLowerCase();
-    if (
-      pathNorm.startsWith('/api/tasks') ||
-      pathNorm.startsWith('/api/work') ||
-      pathNorm.startsWith('/api/ai/tasks') ||
-      /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/.test(pathNorm)
-    ) {
+    // Admin management routes — downstream service tự authorize bằng companyAdminAuth.
+    if (isAdminServiceAuthRoute(apiPath) || isAdminServiceAuthRoute(pathOnly)) {
       return next();
     }
 
-    // Lấy action từ route và method
-    const action = getAction(req.method, req.path);
-    
+    // Task / Work / AI-task / workspace boards — task-service tự authorize.
+    if (isTaskAuthBypassRoute(apiPath) || isTaskAuthBypassRoute(pathOnly)) {
+      return next();
+    }
+
+    // Lấy action từ route và method (chuẩn hóa /api prefix)
+    const action = getAction(req.method, apiPath);
+
     if (!action) {
-      const pathNormUnmapped = normalizePath(pathOnly).toLowerCase();
-      const downstreamAuthPrefixes = [
-        '/api/voice',
-        '/api/meetings',
-        '/api/organizations',
-        '/api/channels',
-        '/api/tasks',
-        '/api/work',
-        '/api/ai/tasks',
-        '/api/workspaces',
-      ];
-      if (downstreamAuthPrefixes.some((prefix) => pathNormUnmapped.startsWith(prefix))) {
+      // null action = không cần role-service HOẶC chưa map — phân biệt rõ
+      if (isNoPermissionRoute(apiPath) || isNoPermissionRoute(req.path)) {
         return next();
       }
-      return res.status(403).json({
-        success: false,
+      if (isDownstreamAuthorizedRoute(apiPath) || isDownstreamAuthorizedRoute(pathOnly)) {
+        return next();
+      }
+      console.warn(
+        `[permission] unmapped route${DENY_UNMAPPED ? ' denied' : ' (log-only)'}:`,
+        req.method,
+        pathOnly
+      );
+      if (!DENY_UNMAPPED) {
+        return next();
+      }
+      return sendApiError(res, 403, {
+        errorCode: 'ROUTE_NOT_PERMITTED',
         message: 'Route not permitted',
+        messageUser: 'Route chưa được cấp quyền tại gateway.',
       });
     }
 
@@ -89,6 +107,18 @@ const permissionMiddleware = async (req, res, next) => {
     // Voice/WebRTC MVP hiện chưa gắn role-context theo organization/server cho từng event.
     // Cho phép gateway bỏ qua permission check để tránh chặn bootstrap/join room.
     if (action.startsWith('voice:')) {
+      return next();
+    }
+
+    // Role CRUD/assign: ủy quyền xuống role-service (gateway không parse JSON body → không lấy được serverId từ body).
+    if (
+      isSelfRoleReadRequest(req, action) ||
+      isOrgRoleCatalogRead(req, action) ||
+      isRbacV2CatalogRead(req, action) ||
+      isDelegatedUserRoleRead(req, action) ||
+      isDelegatedUserPermissionRead(req, action) ||
+      isDelegatedRoleManageRoute(req, action)
+    ) {
       return next();
     }
 
@@ -148,16 +178,6 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
-    if (
-      isSelfRoleReadRequest(req, action) ||
-      isOrgRoleCatalogRead(req, action) ||
-      isDelegatedUserRoleRead(req, action) ||
-      isDelegatedUserPermissionRead(req, action) ||
-      isDelegatedRoleManageRoute(req, action)
-    ) {
-      return next();
-    }
-
     const ck = cacheKey(userId, serverId, action);
     const now = Date.now();
     const hit = permissionCache.get(ck);
@@ -193,9 +213,10 @@ const permissionMiddleware = async (req, res, next) => {
     console.error('Permission middleware error:', error);
 
     // Fail-closed: deny access khi có lỗi
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'PERMISSION_CHECK_FAILED',
       message: 'Permission check failed',
+      messageUser: GENERIC_5XX_MESSAGE,
     });
   }
 };

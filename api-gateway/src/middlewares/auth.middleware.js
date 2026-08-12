@@ -1,8 +1,22 @@
 const jwt = require('jsonwebtoken');
-const { isPublicRoute } = require('../config/services');
+const { isPublicRoute, isAuthInternalS2SPath } = require('../config/services');
 const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
+const { fetchTokenVersionFromAuth } = require('../clients/authTokenVersionClient');
+const { sendApiError } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
+
+function getInternalTokenFromRequest(req) {
+  return String(
+    req.headers['x-gateway-internal-token'] || req.headers['x-internal-token'] || ''
+  ).trim();
+}
+
+function isInternalGatewayTokenValid(req) {
+  const expected = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (!expected) return false;
+  return getInternalTokenFromRequest(req) === expected;
+}
 
 /**
  * Middleware xác thực JWT
@@ -11,9 +25,10 @@ const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 const authMiddleware = (req, res, next) => {
   Promise.resolve(authMiddlewareAsync(req, res, next)).catch((error) => {
     console.error('[API-Gateway] authMiddleware:', error);
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
       message: 'Authentication error',
+      messageUser: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
     });
   });
 };
@@ -38,30 +53,46 @@ async function authMiddlewareAsync(req, res, next) {
     return next();
   }
 
+  // Route S2S /internal/* qua gateway: chỉ kiểm tra internal token (bootstrap IT), không JWT user.
+  // Service đích (auth internalGatewayAuth) verify lại cùng token.
+  if (isAuthInternalS2SPath(pathWithoutQuery) || isAuthInternalS2SPath(fromOriginal)) {
+    if (isInternalGatewayTokenValid(req)) {
+      return next();
+    }
+    return sendApiError(res, 401, {
+      errorCode: 'GATEWAY_TRUST_INVALID',
+      message: 'Invalid internal token',
+      messageUser: 'Yêu cầu không hợp lệ.',
+    });
+  }
+
   try {
     const jwtSecret = getJwtSecret();
     if (!jwtSecret) {
-      return res.status(500).json({
-        success: false,
+      return sendApiError(res, 500, {
+        errorCode: 'GATEWAY_INTERNAL_ERROR',
         message: 'Authentication service misconfigured',
+        messageUser: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
       });
     }
 
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_NO_TOKEN',
         message: 'No token provided',
+        messageUser: 'Vui lòng đăng nhập lại.',
       });
     }
 
     const token = authHeader.split(' ')[1];
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_NO_TOKEN',
         message: 'No token provided',
+        messageUser: 'Vui lòng đăng nhập lại.',
       });
     }
 
@@ -71,17 +102,21 @@ async function authMiddlewareAsync(req, res, next) {
       const userId = decoded.id || decoded.userId || decoded._id;
       const normalizedUserId = userId != null ? String(userId).trim() : '';
       if (!normalizedUserId) {
-        return res.status(401).json({
-          success: false,
+        return sendApiError(res, 401, {
+          errorCode: 'AUTH_TOKEN_INVALID',
           message: 'Invalid token',
+          messageUser: 'Phiên đăng nhập không hợp lệ.',
         });
       }
 
-      const versionOk = await isAccessTokenVersionValid(normalizedUserId, decoded.tv);
+      const versionOk = await isAccessTokenVersionValid(normalizedUserId, decoded.tv, {
+        resolveVersion: fetchTokenVersionFromAuth,
+      });
       if (!versionOk) {
-        return res.status(401).json({
-          success: false,
+        return sendApiError(res, 401, {
+          errorCode: 'AUTH_TOKEN_INVALID',
           message: 'Token revoked',
+          messageUser: 'Phiên đăng nhập không hợp lệ.',
         });
       }
 
@@ -94,16 +129,18 @@ async function authMiddlewareAsync(req, res, next) {
       return next();
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          success: false,
+        return sendApiError(res, 401, {
+          errorCode: 'AUTH_TOKEN_EXPIRED',
           message: 'Token expired',
+          messageUser: 'Phiên đăng nhập đã hết hạn.',
         });
       }
 
       if (error.name === 'JsonWebTokenError') {
-        return res.status(401).json({
-          success: false,
+        return sendApiError(res, 401, {
+          errorCode: 'AUTH_TOKEN_INVALID',
           message: 'Invalid token',
+          messageUser: 'Phiên đăng nhập không hợp lệ.',
         });
       }
 
@@ -111,15 +148,12 @@ async function authMiddlewareAsync(req, res, next) {
     }
   } catch (error) {
     console.error('[API-Gateway] authMiddleware:', error);
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
       message: 'Authentication error',
+      messageUser: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
     });
   }
 }
 
 module.exports = authMiddleware;
-
-
-
-

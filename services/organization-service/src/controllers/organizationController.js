@@ -1,4 +1,18 @@
 const Organization = require('../models/Organization');
+const {
+  orgUnauthorized,
+  orgAccessDenied,
+  orgNotFound,
+  orgValidation,
+  orgConflict,
+  orgCatch,
+  orgOperationalError,
+  orgFail,
+  sendServiceError,
+} = require('../utils/orgApiError');
+const { requireObjectId } = require('../utils/validateInput');
+const { toPublicOrganization } = require('../utils/orgDto');
+const { membershipCountMap } = require('../utils/membershipCountMap');
 const Membership = require('../models/Membership');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
@@ -12,6 +26,7 @@ const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { syncUserOrgRole, ensureDefaultOrgRoles } = require('../services/rolePermissionOrgSync');
 const { syncHierarchyRoles } = require('../services/hierarchyRoleSync');
+const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
 const { purgeOrganizationEverywhere } = require('../services/organizationCascadePurge');
 const { resolveTaskWorkspaceScope } = require('../services/taskWorkspaceScope.service');
 const {
@@ -34,6 +49,7 @@ const {
   normalizeRoleChannelPermissions,
   hasAnyRoleChannelPermission,
 } = require('../utils/orgChannelAclHelpers');
+const { assertCanCreateOrganization } = require('../utils/singleCompanyPolicy');
 
 const getUserId = (req) => {
   const raw = req.user?.id || req.user?.userId || req.user?._id;
@@ -65,11 +81,11 @@ const DEFAULT_STRUCTURE_BLUEPRINT = {
   ],
 };
 
-const normalizeHierarchyBlueprint = (raw) => {
+const normalizeHierarchyBlueprint = (raw, { allowEmpty = false } = {}) => {
   const fallback = DEFAULT_STRUCTURE_BLUEPRINT;
-  if (!raw || typeof raw !== 'object') return fallback;
+  if (!raw || typeof raw !== 'object') return allowEmpty ? { branches: [] } : fallback;
   const sourceBranches = Array.isArray(raw.branches) ? raw.branches : [];
-  if (sourceBranches.length === 0) return fallback;
+  if (sourceBranches.length === 0) return allowEmpty ? { branches: [] } : fallback;
   const branches = sourceBranches
     .map((branch, bIdx) => {
       const branchName = String(branch?.name || '').trim() || `Chi nhánh ${bIdx + 1}`;
@@ -254,6 +270,15 @@ const seedHierarchyStructure = async ({ organizationId, ownerId, blueprint }) =>
     : [];
   const departmentByKey = new Map(departmentsSeed.map((item, idx) => [item.__key, departments[idx]]));
 
+  for (const department of departments) {
+    await ensureDepartmentDefaultChannels({
+      orgId: organizationId,
+      departmentId: department._id,
+      department,
+      actorId: ownerId,
+    });
+  }
+
   const teamsSeed = [];
   for (let bIdx = 0; bIdx < normalized.branches.length; bIdx += 1) {
     const branchRaw = normalized.branches[bIdx];
@@ -391,22 +416,65 @@ exports.getMyOrganizations = async (req, res, next) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const userRef = toObjectId(userId);
     if (!userRef) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const memberships = await Membership.find({ user: userRef, status: 'active' })
-      .populate({ path: 'organization', match: { isActive: true } })
-      .select('organization role');
+      .select('organization role')
+      .lean();
+
+    const orgIds = memberships.map((m) => m.organization).filter(Boolean);
+    const orgDocs = orgIds.length
+      ? await Organization.find({ _id: { $in: orgIds }, isActive: true }).lean()
+      : [];
+    const orgMap = Object.fromEntries(orgDocs.map((o) => [String(o._id), o]));
+
+    const countRows = orgIds.length
+      ? await Membership.aggregate([
+          { $match: { organization: { $in: orgIds }, status: 'active' } },
+          { $group: { _id: '$organization', n: { $sum: 1 } } },
+        ])
+      : [];
+    const memberCountByOrg = membershipCountMap(countRows);
+
+    /** head / leader theo cấu trúc phòng-team — hiển thị chức vụ (không thay membership.role). */
+    const headOrgIds = new Set();
+    const leaderOrgIds = new Set();
+    if (orgIds.length) {
+      const [headDepts, leaderTeams] = await Promise.all([
+        Department.find({ organization: { $in: orgIds }, head: userRef })
+          .select('organization')
+          .lean(),
+        Team.find({ organization: { $in: orgIds }, leader: userRef })
+          .select('organization')
+          .lean(),
+      ]);
+      for (const d of headDepts) {
+        if (d?.organization) headOrgIds.add(String(d.organization));
+      }
+      for (const t of leaderTeams) {
+        if (t?.organization) leaderOrgIds.add(String(t.organization));
+      }
+    }
 
     const organizations = memberships
-      .filter((membership) => !!membership.organization)
-      .map((membership) => ({
-        ...membership.organization.toObject(),
-        myRole: membership.role,
-      }));
+      .map((membership) => {
+        const org = orgMap[String(membership.organization)];
+        if (!org) return null;
+        const oid = String(membership.organization);
+        let myStructureRole = null;
+        if (headOrgIds.has(oid)) myStructureRole = 'head';
+        else if (leaderOrgIds.has(oid)) myStructureRole = 'leader';
+        return toPublicOrganization(org, {
+          myRole: membership.role,
+          myStructureRole,
+          memberCount: memberCountByOrg[oid] ?? 0,
+        });
+      })
+      .filter(Boolean);
 
     res.json({ status: 'success', data: organizations });
   } catch (error) {
@@ -416,22 +484,26 @@ exports.getMyOrganizations = async (req, res, next) => {
 
 exports.createOrganization = async (req, res, next) => {
   try {
-    const { name, description, logo, slug, status, type, teamSize, industry, structureBlueprint } = req.body;
+    const canCreate = await assertCanCreateOrganization(req, res, orgConflict);
+    if (!canCreate) return;
+
+    const { name, description, logo, slug, status, type, teamSize, industry, structureBlueprint, skipDefaultStructure } =
+      req.body;
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const normalizedName = String(name || '').trim();
     if (normalizedName.length < 2) {
-      return res.status(400).json({ status: 'fail', message: 'Organization name must be at least 2 characters' });
+      return orgValidation(res, 'Organization name must be at least 2 characters');
     }
 
     const normalizedSlug = normalizeSlug(slug || normalizedName);
     if (normalizedSlug.length < 3) {
-      return res.status(400).json({ status: 'fail', message: 'Slug must be at least 3 characters' });
+      return orgValidation(res, 'Slug must be at least 3 characters');
     }
     if (RESERVED_SLUGS.has(normalizedSlug)) {
-      return res.status(422).json({ status: 'fail', message: 'Slug is reserved' });
+      return orgFail(res, 422, 'Slug is reserved', 'VALIDATION_REQUIRED');
     }
 
     const ownerCount = await Membership.countDocuments({
@@ -439,19 +511,21 @@ exports.createOrganization = async (req, res, next) => {
       role: 'owner',
       status: 'active',
     });
-    if (ownerCount >= MAX_OWNED_ORGS_PER_USER) {
-      return res.status(409).json({
-        status: 'fail',
-        message: `Owner can create up to ${MAX_OWNED_ORGS_PER_USER} organizations`,
-      });
+    const maxOwned = process.env.SINGLE_ORG_MODE === 'true' ? 1 : MAX_OWNED_ORGS_PER_USER;
+    if (ownerCount >= maxOwned) {
+      return orgConflict(res, `Owner can create up to ${maxOwned} organizations`, 'ORG_SLUG_EXISTS');
     }
 
     const slugExists = await Organization.exists({ slug: normalizedSlug });
     if (slugExists) {
-      return res.status(409).json({ status: 'fail', message: 'Slug already exists' });
+      return orgConflict(res, 'Slug tổ chức đã tồn tại.', 'ORG_SLUG_EXISTS');
     }
 
-    const normalizedBlueprint = normalizeHierarchyBlueprint(structureBlueprint);
+    const allowEmptyStructure = Boolean(skipDefaultStructure) || process.env.SINGLE_ORG_MODE === 'true';
+    const normalizedBlueprint = normalizeHierarchyBlueprint(structureBlueprint, {
+      allowEmpty: allowEmptyStructure,
+    });
+    const skipStructureSeed = normalizedBlueprint.branches.length === 0;
     const organization = await Organization.create({
       name: normalizedName,
       description,
@@ -464,9 +538,9 @@ exports.createOrganization = async (req, res, next) => {
       industry: String(industry || '').trim(),
       provisioning: {
         structure: {
-          status: STRUCTURE_PROVISION.PENDING,
+          status: skipStructureSeed ? STRUCTURE_PROVISION.READY : STRUCTURE_PROVISION.PENDING,
           startedAt: null,
-          completedAt: null,
+          completedAt: skipStructureSeed ? new Date() : null,
           error: '',
         },
       },
@@ -481,11 +555,17 @@ exports.createOrganization = async (req, res, next) => {
     });
 
     await syncUserOrgRole(userId, organization._id, 'owner');
-    runStructureSeedInBackground({
-      organizationId: organization._id,
-      ownerId: userId,
-      normalizedBlueprint,
-    });
+    const { ensureOrgMasterDataSeed, mapTeamSizeToCompanySize } = require('../services/orgMasterData.service');
+    await ensureOrgMasterDataSeed(organization._id, {
+      companySize: mapTeamSizeToCompanySize(teamSize),
+    }).catch(() => null);
+    if (!skipStructureSeed) {
+      runStructureSeedInBackground({
+        organizationId: organization._id,
+        ownerId: userId,
+        normalizedBlueprint,
+      });
+    }
 
     emitRealtimeEvent({
       event: 'organization:created',
@@ -513,25 +593,25 @@ exports.getOrganizationBySlug = async (req, res, next) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const slug = normalizeSlug(req.params.slug);
     if (!slug) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid slug' });
+      return orgValidation(res, 'Invalid slug');
     }
     const organization = await Organization.findOne({ slug, isActive: true });
     if (!organization) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
     const access = await resolveOrgAccess(userId, organization._id);
     if (!access.ok) {
-      return res.status(403).json({ status: 'fail', message: 'Access denied', code: 'ORG_ACCESS_DENIED' });
+      return orgAccessDenied(res);
     }
     const myRole = access.membership?.role || 'member';
 
     res.json({
       status: 'success',
-      data: { ...organization.toObject(), myRole },
+      data: toPublicOrganization(organization, { myRole }),
     });
   } catch (error) {
     next(error);
@@ -542,20 +622,22 @@ exports.getOrganization = async (req, res, next) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
-    const organization = await Organization.findById(req.params.id);
+    const orgId = requireObjectId(res, req.params.id, 'orgId');
+    if (!orgId) return;
+    const organization = await Organization.findById(orgId);
     if (!organization) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
 
     const access = await resolveOrgAccess(userId, organization._id);
     if (!access.ok) {
-      return res.status(403).json({ status: 'fail', message: 'Access denied', code: 'ORG_ACCESS_DENIED' });
+      return orgAccessDenied(res);
     }
     const myRole = access.membership?.role || 'member';
 
-    res.json({ status: 'success', data: { ...organization.toObject(), myRole } });
+    res.json({ status: 'success', data: toPublicOrganization(organization, { myRole }) });
   } catch (error) {
     next(error);
   }
@@ -593,10 +675,10 @@ exports.deleteOrganization = async (req, res, next) => {
     const userId = getUserId(req);
     const organization = await Organization.findById(orgId);
     if (!organization) {
-      return res.status(404).json({ status: 'fail', message: 'Organization not found' });
+      return orgNotFound(res);
     }
     if (String(organization.ownerId) !== String(userId)) {
-      return res.status(403).json({ status: 'fail', message: 'Only the organization owner can delete the organization' });
+      return orgFail(res, 403, 'Only the organization owner can delete the organization', 'ORG_ACCESS_DENIED');
     }
 
     await purgeOrganizationEverywhere(orgId);
@@ -626,18 +708,18 @@ exports.getOrganizationStructure = async (req, res, next) => {
     const userId = getUserId(req);
     const { orgId } = req.params;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const access = await resolveOrgAccess(userId, orgId);
     if (!access.ok) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Access denied',
-        code: 'ORG_ACCESS_DENIED',
-      });
+      return orgAccessDenied(res);
     }
 
-    const data = await getCachedOrganizationStructureData(orgId, buildOrganizationStructureData);
+    const includeInactive = String(req.query?.includeInactive || '') === '1';
+    // Huy: includeInactive bypass cache — panel vô hiệu cần thấy unit đã tắt
+    const data = includeInactive
+      ? await buildOrganizationStructureData(orgId, { includeInactive: true })
+      : await getCachedOrganizationStructureData(orgId, buildOrganizationStructureData);
     return res.json({ status: 'success', data });
   } catch (error) {
     return next(error);
@@ -650,15 +732,11 @@ exports.getAccessibleChannelIds = async (req, res, next) => {
     const userId = getUserId(req);
     const { orgId } = req.params;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const access = await resolveOrgAccess(userId, orgId);
     if (!access.ok) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Access denied',
-        code: 'ORG_ACCESS_DENIED',
-      });
+      return orgAccessDenied(res);
     }
     const data = await getCachedAccessibleChannelData(
       userId,
@@ -678,17 +756,14 @@ exports.getDocumentsOverview = async (req, res, next) => {
     const userId = getUserId(req);
     const { orgId } = req.params;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const data = await buildDocumentsOverview(orgId, userId);
     return res.json({ status: 'success', data });
   } catch (error) {
-    const status = error.statusCode || 500;
-    return res.status(status).json({
-      status: 'fail',
-      message: error.message || 'Documents overview failed',
-      code: error.code,
-    });
+    const handled = orgOperationalError(res, error);
+    if (handled) return handled;
+    return next(error);
   }
 };
 
@@ -698,15 +773,11 @@ exports.getOrgShell = async (req, res, next) => {
     const userId = getUserId(req);
     const { orgId } = req.params;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const access = await resolveOrgAccess(userId, orgId);
     if (!access.ok) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Access denied',
-        code: 'ORG_ACCESS_DENIED',
-      });
+      return orgAccessDenied(res);
     }
 
     const existingRoles = await fetchUserRolesInOrg(userId, orgId);
@@ -714,6 +785,27 @@ exports.getOrgShell = async (req, res, next) => {
       await ensureDefaultOrgRoles(orgId);
       await syncUserOrgRole(userId, orgId, access.membership.role || 'member');
     }
+
+    const OrgRoleAssignment = require('../models/OrgRoleAssignment');
+    const OrgRoleCatalog = require('../models/OrgRoleCatalog');
+    const orgOid = toObjectId(orgId);
+    const userOid = toObjectId(userId);
+    const [orgRoleAssignments, orgRoleCatalog] = await Promise.all([
+      orgOid && userOid
+        ? OrgRoleAssignment.find({ organizationId: orgOid, userId: userOid }).select('roleKey').lean()
+        : Promise.resolve([]),
+      orgOid
+        ? OrgRoleCatalog.find({ organizationId: orgOid }).select('key label').lean()
+        : Promise.resolve([]),
+    ]);
+    const orgRoleLabelByKey = new Map(
+      (orgRoleCatalog || []).map((r) => [String(r.key || '').trim(), String(r.label || r.key || '').trim()])
+    );
+    const myOrganizationRoles = [...new Set((orgRoleAssignments || []).map((a) => String(a.roleKey || '').trim()).filter(Boolean))]
+      .map((roleKey) => ({
+        roleKey,
+        roleLabel: orgRoleLabelByKey.get(roleKey) || roleKey,
+      }));
 
     const orgDoc = await Organization.findById(orgId).select('name slug logo').lean();
     const [structureSummary, accessData, taskWorkspaceScope, notificationsUnreadOrg, shellVersion] =
@@ -726,12 +818,21 @@ exports.getOrgShell = async (req, res, next) => {
       ]);
 
     if (!taskWorkspaceScope) {
-      return res.status(403).json({ status: 'fail', message: 'Access denied' });
+      return orgAccessDenied(res);
     }
 
     const membershipRole = access.membership?.role
       ? Membership.normalizeRole(access.membership.role)
       : null;
+
+    const scope = accessData.scope || {};
+    const isElevated = ['owner', 'admin', 'hr'].includes(String(membershipRole || ''));
+    const hasPlacement =
+      Boolean(scope.departmentId) ||
+      Boolean(scope.teamId) ||
+      (Array.isArray(scope.scopedDepartmentIds) && scope.scopedDepartmentIds.length > 0) ||
+      (Array.isArray(scope.scopedTeamIds) && scope.scopedTeamIds.length > 0);
+    const memberReady = Boolean(isElevated || scope.canSeeAllStructure || hasPlacement);
 
     return res.json({
       status: 'success',
@@ -742,14 +843,25 @@ exports.getOrgShell = async (req, res, next) => {
           slug: orgDoc?.slug || '',
           icon: orgDoc?.logo || null,
           myRole: membershipRole,
+          myOrganizationRoles,
         },
         structureSummary,
         access: {
-          channelIds: accessData.channelIds,
-          permissionsByChannelId: accessData.permissionsByChannelId,
-          scope: accessData.scope,
+          channelIds: memberReady ? accessData.channelIds : [],
+          permissionsByChannelId: memberReady ? accessData.permissionsByChannelId : {},
+          scope,
+          memberReady,
+          memberReadyCode: memberReady ? null : 'ORG_MEMBER_NOT_READY',
         },
-        taskWorkspaceScope,
+        taskWorkspaceScope: memberReady
+          ? taskWorkspaceScope
+          : {
+              ...taskWorkspaceScope,
+              visibility: 'self',
+              canCreateTask: false,
+              canUseAiTask: false,
+              assignableUserIds: [],
+            },
         badges: { notificationsUnreadOrg },
         shellVersion,
       },
@@ -765,11 +877,11 @@ exports.getTaskWorkspaceScope = async (req, res, next) => {
     const userId = getUserId(req);
     const { orgId } = req.params;
     if (!userId) {
-      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return orgUnauthorized(res);
     }
     const scope = await resolveTaskWorkspaceScope(userId, orgId);
     if (!scope) {
-      return res.status(403).json({ status: 'fail', message: 'Access denied' });
+      return orgAccessDenied(res);
     }
     return res.json({ status: 'success', data: scope });
   } catch (error) {
@@ -788,7 +900,7 @@ exports.listChannelAccess = async (req, res, next) => {
       .select('_id name type team department division')
       .lean();
     if (!channel) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
     const rows = await ChannelAccess.find({ organization: orgId, channel: channelId })
       .select('user permissions grantedBy grantedAt')
@@ -805,7 +917,7 @@ exports.grantChannelAccess = async (req, res, next) => {
     const { orgId, channelId } = req.params;
     const { userId, permissions } = req.body || {};
     if (!userId) {
-      return res.status(400).json({ status: 'fail', message: 'userId is required' });
+      return orgValidation(res, 'userId is required');
     }
     const channel = await Channel.findOne({
       _id: channelId,
@@ -815,7 +927,7 @@ exports.grantChannelAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!channel) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
     const membership = await Membership.findOne({
       user: userId,
@@ -825,7 +937,7 @@ exports.grantChannelAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!membership) {
-      return res.status(400).json({ status: 'fail', message: 'User is not a member of organization' });
+      return orgValidation(res, 'User is not a member of organization');
     }
     const nextPermissions = {
       canRead: permissions?.canRead !== undefined ? Boolean(permissions.canRead) : true,
@@ -856,7 +968,7 @@ exports.revokeChannelAccess = async (req, res, next) => {
     const { orgId, channelId } = req.params;
     const { userId } = req.body || {};
     if (!userId) {
-      return res.status(400).json({ status: 'fail', message: 'userId is required' });
+      return orgValidation(res, 'userId is required');
     }
     await ChannelAccess.deleteOne({
       organization: orgId,
@@ -881,7 +993,7 @@ exports.listChannelRoleAccess = async (req, res, next) => {
       .select('_id name type team department division')
       .lean();
     if (!channel) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
     const rows = await ChannelRoleAccess.find({ organization: orgId, channel: channelId })
       .select('roleId permissions updatedAt')
@@ -914,7 +1026,7 @@ exports.saveChannelRoleAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!channel) {
-      return res.status(404).json({ status: 'fail', message: 'Channel not found' });
+      return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
     }
 
     const keepRoleIds = [];
@@ -979,7 +1091,7 @@ exports.listDivisionRoleAccess = async (req, res, next) => {
       .select('_id name')
       .lean();
     if (!division) {
-      return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
     const rows = await ScopeRoleAccess.find({
       organization: orgId,
@@ -1016,7 +1128,7 @@ exports.saveDivisionRoleAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!division) {
-      return res.status(404).json({ status: 'fail', message: 'Division not found' });
+      return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
     const saved = await persistScopeRoleAccess(orgId, 'division', divisionId, entries, actorId);
     await invalidateOrgAcl(orgId);
@@ -1036,7 +1148,7 @@ exports.listDepartmentRoleAccess = async (req, res, next) => {
       .select('_id name')
       .lean();
     if (!department) {
-      return res.status(404).json({ status: 'fail', message: 'Department not found' });
+      return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
     }
     const rows = await ScopeRoleAccess.find({
       organization: orgId,
@@ -1072,7 +1184,7 @@ exports.saveDepartmentRoleAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!department) {
-      return res.status(404).json({ status: 'fail', message: 'Department not found' });
+      return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
     }
     const saved = await persistScopeRoleAccess(orgId, 'department', departmentId, entries, actorId);
     await invalidateOrgAcl(orgId);
@@ -1093,7 +1205,7 @@ exports.listTeamRoleAccess = async (req, res, next) => {
       .select('_id name')
       .lean();
     if (!team) {
-      return res.status(404).json({ status: 'fail', message: 'Team not found' });
+      return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
     const rows = await ScopeRoleAccess.find({
       organization: orgId,
@@ -1130,7 +1242,7 @@ exports.saveTeamRoleAccess = async (req, res, next) => {
       .select('_id')
       .lean();
     if (!team) {
-      return res.status(404).json({ status: 'fail', message: 'Team not found' });
+      return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
     const saved = await persistScopeRoleAccess(orgId, 'team', teamId, entries, actorId);
     await invalidateOrgAcl(orgId);

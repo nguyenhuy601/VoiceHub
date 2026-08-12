@@ -1,6 +1,9 @@
 /**
  * TTL message file trên Storage (ms) theo ngữ cảnh.
  * Có thể override bằng biến môi trường.
+ *
+ * Khác hot window UI (FE `VITE_FILE_HOT_DISPLAY_DAYS`, mặc định 90 ngày):
+ * ẩn khỏi danh sách nóng ≠ xóa object — soft-hide UI trước, purge theo TTL này.
  */
 function ttlMsForRetentionContext(context) {
   const meetingHours = Math.max(1, parseInt(process.env.FILE_RETENTION_MEETING_HOURS || '6', 10) || 6);

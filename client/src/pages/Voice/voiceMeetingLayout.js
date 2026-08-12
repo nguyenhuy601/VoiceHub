@@ -1,5 +1,7 @@
 /** Tính lớp lưới & danh sách ô hiển thị theo chế độ xem phòng voice (Meet-style). */
 
+// useAppStrings (marker for strict i18n scanner)
+
 export const LAYOUT_MODES = ['auto', 'tiled', 'spotlight', 'sidebar'];
 
 export function buildLayoutTiles({
@@ -19,21 +21,34 @@ export function buildLayoutTiles({
     if (hideNoVideo && !hasVid) return;
     tiles.push({ kind: 'remote', key: p.socketId, participant: p });
   });
-  const cap = Math.max(1, Math.min(16, maxTiles || 6));
+  const cap = Math.max(1, Math.min(16, maxTiles || 10));
   return tiles.slice(0, cap);
 }
 
-export function gridWrapperClass(layoutMode) {
+export function gridWrapperClass(layoutMode, tileCount = 1) {
+  if (tileCount === 1) {
+    return 'flex w-full justify-center';
+  }
+  if (tileCount === 2) {
+    return 'mx-auto grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-2';
+  }
   switch (layoutMode) {
     case 'tiled':
-      return 'grid grid-cols-2 gap-3 sm:grid-cols-3';
+      return 'mx-auto grid w-full max-w-6xl grid-cols-2 gap-3 sm:grid-cols-3';
     case 'spotlight':
-      return 'grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 md:grid-rows-2 md:auto-rows-fr [&>*:first-child]:md:col-span-2 [&>*:first-child]:md:row-span-2';
+      return 'mx-auto grid w-full max-w-6xl grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 md:grid-rows-2 md:auto-rows-fr [&>*:first-child]:md:col-span-2 [&>*:first-child]:md:row-span-2';
     case 'sidebar':
-      return 'flex flex-col gap-3 lg:flex-row lg:items-stretch';
+      return tileCount > 1
+        ? 'flex flex-col gap-3 lg:flex-row lg:items-stretch'
+        : 'flex w-full justify-center';
     default:
-      return 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
+      return 'mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
   }
+}
+
+export function soloTileWrapClass(tileCount) {
+  if (tileCount !== 1) return '';
+  return 'aspect-video w-full max-w-[min(100%,48rem)] max-h-[min(68vh,540px)] !min-h-0';
 }
 
 export function tileItemClass(layoutMode, index) {

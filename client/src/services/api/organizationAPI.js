@@ -8,18 +8,6 @@ export const organizationAPI = {
     return response;
   },
 
-  /** Đơn gia nhập đang chờ duyệt của user (sidebar). */
-  getMyPendingJoinApplications: async () => {
-    const response = await apiClient.get('/organizations/my/pending-join-applications');
-    return response;
-  },
-
-  /** Đơn gia nhập cần duyệt (owner/admin), gom cho Trang chủ tổ chức. */
-  getJoinApplicationsToReview: async () => {
-    const response = await apiClient.get('/organizations/my/join-applications-to-review');
-    return response;
-  },
-
   // Get single organization
   getOrganization: async (orgId) => {
     const response = await apiClient.get(`/organizations/${orgId}`);
@@ -46,20 +34,56 @@ export const organizationAPI = {
     return response;
   },
 
-  getStructure: async (orgId) => {
+  getStructure: async (orgId, { includeInactive = false } = {}) => {
     const response = await apiClient.get(`/organizations/${orgId}/structure`, {
       skipPermissionDeniedToast: true,
+      params: includeInactive ? { includeInactive: '1' } : undefined,
     });
     return response;
   },
 
-  getBranches: async (orgId) => {
-    const response = await apiClient.get(`/organizations/${orgId}/hierarchy/branches`);
+  // Huy: Dynamic Organizational Structure API
+  listStructureTemplates: async (orgId) =>
+    apiClient.get(`/organizations/${orgId}/structure/templates`),
+  getStructureLevels: async (orgId) =>
+    apiClient.get(`/organizations/${orgId}/structure/levels`),
+  putStructureLevels: async (orgId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/levels`, data),
+  listStructureUnits: async (orgId, { includeInactive = false } = {}) =>
+    apiClient.get(`/organizations/${orgId}/structure/units`, {
+      params: includeInactive ? { includeInactive: '1' } : undefined,
+    }),
+  createStructureUnit: async (orgId, data) =>
+    apiClient.post(`/organizations/${orgId}/structure/units`, data),
+  updateStructureUnit: async (orgId, unitId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/units/${unitId}`, data),
+  deleteStructureUnit: async (orgId, unitId) =>
+    apiClient.delete(`/organizations/${orgId}/structure/units/${unitId}`),
+  applyStructureTemplate: async (orgId, data) =>
+    apiClient.post(`/organizations/${orgId}/structure/apply-template`, data),
+  backfillStructureOu: async (orgId) =>
+    apiClient.post(`/organizations/${orgId}/structure/backfill`),
+  listStructureUnitMembers: async (orgId, unitId) =>
+    apiClient.get(`/organizations/${orgId}/structure/units/${unitId}/members`),
+  setStructureUnitMembers: async (orgId, unitId, data) =>
+    apiClient.put(`/organizations/${orgId}/structure/units/${unitId}/members`, data),
+
+  // Huy: Domain Cơ cấu tổ chức — getBranches hỗ trợ includeInactive
+  getBranches: async (orgId, { includeInactive = false } = {}) => {
+    const response = await apiClient.get(`/organizations/${orgId}/hierarchy/branches`, {
+      params: includeInactive ? { includeInactive: '1' } : undefined,
+    });
     return response;
   },
 
   createBranch: async (orgId, data) => {
     const response = await apiClient.post(`/organizations/${orgId}/hierarchy/branches`, data);
+    return response;
+  },
+
+  // Huy: PUT chi nhánh — sửa / vô hiệu hóa
+  updateBranch: async (orgId, branchId, data) => {
+    const response = await apiClient.put(`/organizations/${orgId}/hierarchy/branches/${branchId}`, data);
     return response;
   },
 
@@ -69,8 +93,10 @@ export const organizationAPI = {
   },
 
   createDivision: async (orgId, branchId, data) => {
-    const response = await apiClient.post(`/organizations/${orgId}/hierarchy/branches/${branchId}/divisions`, data);
-    return response;
+    if (branchId) {
+      return apiClient.post(`/organizations/${orgId}/hierarchy/branches/${branchId}/divisions`, data);
+    }
+    return apiClient.post(`/organizations/${orgId}/hierarchy/divisions`, data);
   },
   updateDivision: async (orgId, divisionId, data) => {
     const response = await apiClient.put(`/organizations/${orgId}/hierarchy/divisions/${divisionId}`, data);
@@ -83,8 +109,10 @@ export const organizationAPI = {
   },
 
   createDepartmentByDivision: async (orgId, divisionId, data) => {
-    const response = await apiClient.post(`/organizations/${orgId}/hierarchy/divisions/${divisionId}/departments`, data);
-    return response;
+    if (divisionId) {
+      return apiClient.post(`/organizations/${orgId}/hierarchy/divisions/${divisionId}/departments`, data);
+    }
+    return apiClient.post(`/organizations/${orgId}/hierarchy/departments`, data);
   },
 
   getTeamsByDepartment: async (orgId, deptId) => {
@@ -96,6 +124,10 @@ export const organizationAPI = {
     const response = await apiClient.post(`/organizations/${orgId}/hierarchy/departments/${deptId}/teams`, data);
     return response;
   },
+  createTeamByDivision: async (orgId, divisionId, data) =>
+    apiClient.post(`/organizations/${orgId}/hierarchy/divisions/${divisionId}/teams`, data),
+  createTeamRoot: async (orgId, data) =>
+    apiClient.post(`/organizations/${orgId}/hierarchy/teams`, data),
   updateTeamByHierarchy: async (orgId, teamId, data) => {
     const response = await apiClient.put(`/organizations/${orgId}/hierarchy/teams/${teamId}`, data);
     return response;
@@ -120,6 +152,10 @@ export const organizationAPI = {
   },
   updateChannelByScope: async (orgId, channelId, data) => {
     const response = await apiClient.put(`/organizations/${orgId}/hierarchy/channels/${channelId}`, data);
+    return response;
+  },
+  deleteChannelByScope: async (orgId, channelId) => {
+    const response = await apiClient.delete(`/organizations/${orgId}/hierarchy/channels/${channelId}`);
     return response;
   },
 
@@ -225,6 +261,28 @@ export const organizationAPI = {
     return response;
   },
 
+  getProjectVisibilityPolicy: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/project-visibility-policy`);
+    return response;
+  },
+
+  putProjectVisibilityPolicy: async (orgId, policy) => {
+    const response = await apiClient.put(`/organizations/${orgId}/project-visibility-policy`, {
+      policy,
+    });
+    return response;
+  },
+
+  getMasterData: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/master-data`);
+    return response;
+  },
+
+  patchMasterDataEnabled: async (orgId, masterDataPatch) => {
+    const response = await apiClient.patch(`/organizations/${orgId}/master-data/enabled`, masterDataPatch);
+    return response;
+  },
+
   // Delete organization
   deleteOrganization: async (orgId) => {
     const response = await apiClient.delete(`/organizations/${orgId}`);
@@ -253,10 +311,12 @@ export const organizationAPI = {
     return response;
   },
 
-  getMembersWithRoles: async (orgId) => {
+  getMembersWithRoles: async (orgId, params = {}) => {
+    const departmentId = String(params.departmentId || '').trim();
     const response = await apiClient.get(`/organizations/${orgId}/members/with-roles`, {
       skipPermissionDeniedToast: true,
       skipGlobalErrorHandling: true,
+      params: departmentId ? { departmentId } : undefined,
     });
     return response;
   },
@@ -264,6 +324,81 @@ export const organizationAPI = {
   // Add member to organization
   addMember: async (orgId, data) => {
     const response = await apiClient.post(`/organizations/${orgId}/members`, data);
+    return response;
+  },
+
+  /** HR mời nhân viên bằng email — gửi mail, user accept để provision */
+  inviteMemberByEmail: async (orgId, data) => {
+    const response = await apiClient.post(`/organizations/${orgId}/members/invite`, data, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Xem trước mã NV hệ thống sẽ cấp (không trừ counter). */
+  previewNextEmployeeCode: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/next-employee-code`, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** HR import nhân sự qua Excel (.xlsx) — strict rejection + compensate (legacy one-shot) */
+  importMembersExcel: async (orgId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/organizations/${orgId}/members/import`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Preview Excel — validate only, chưa ghi user */
+  previewMembersExcel: async (orgId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/organizations/${orgId}/members/import/preview`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Confirm batch preview → provision (chunk + concurrency) */
+  confirmMembersExcel: async (orgId, batchId) => {
+    const response = await apiClient.post(
+      `/organizations/${orgId}/members/import/confirm`,
+      { batchId },
+      { skipGlobalErrorHandling: true }
+    );
+    return response;
+  },
+
+  /** Lấy trạng thái batch import Excel */
+  getImportBatchStatus: async (orgId, batchId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/import/${batchId}`, {
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Download template Excel import */
+  downloadImportTemplate: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/members/import/template`, {
+      responseType: 'blob',
+      skipGlobalErrorHandling: true,
+    });
+    return response;
+  },
+
+  /** Public — nhân viên xác nhận lời mời → tạo tài khoản */
+  acceptCompanyInvite: async (token) => {
+    const response = await apiClient.post(
+      '/organizations/company-invites/accept',
+      { token },
+      { skipGlobalErrorHandling: true }
+    );
     return response;
   },
 
@@ -288,36 +423,6 @@ export const organizationAPI = {
   // Join organization via invite link (beta)
   joinByInviteLink: async (orgId, token) => {
     const response = await apiClient.post(`/organizations/${orgId}/members/join-link`, { token });
-    return response;
-  },
-
-  /** Form gia nhập (owner/admin) */
-  getJoinApplicationForm: async (orgId) => {
-    const response = await apiClient.get(`/organizations/${orgId}/join-application-form`);
-    return response;
-  },
-  updateJoinApplicationForm: async (orgId, data) => {
-    const response = await apiClient.put(`/organizations/${orgId}/join-application-form`, data);
-    return response;
-  },
-  /** Schema công khai (user đã đăng nhập, trước khi vào org) */
-  getJoinApplicationFormPublic: async (orgId) => {
-    const response = await apiClient.get(`/organizations/${orgId}/join-application-form/public`);
-    return response;
-  },
-  submitJoinApplication: async (orgId, answers) => {
-    const response = await apiClient.post(`/organizations/${orgId}/join-applications`, { answers });
-    return response;
-  },
-  listJoinApplications: async (orgId, params = {}) => {
-    const response = await apiClient.get(`/organizations/${orgId}/join-applications`, { params });
-    return response;
-  },
-  reviewJoinApplication: async (orgId, applicationId, body) => {
-    const response = await apiClient.patch(
-      `/organizations/${orgId}/join-applications/${applicationId}`,
-      body
-    );
     return response;
   },
 
@@ -378,6 +483,17 @@ export const organizationAPI = {
   // Get organization statistics
   getStatistics: async (orgId) => {
     const response = await apiClient.get(`/organizations/${orgId}/statistics`);
+    return response;
+  },
+
+  // HR Positions (job titles) catalog — dùng để tạo mà không cần gán cho nhân viên ngay
+  listHrPositions: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/hr-positions`);
+    return response;
+  },
+
+  createHrPosition: async (orgId, { title } = {}) => {
+    const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, { title });
     return response;
   },
 };

@@ -37,7 +37,7 @@ export function messageMatchesDmScope(msg, scope) {
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
-    return /(\b\d{1,2}[\/\-.]\d{1,2}(\/\d{2,4})?|\b\d{4}-\d{2}-\d{2}|lịch|calendar|meeting|họp|deadline|schedule|cuộc họp|📅|⏰|🗓)/i.test(
+    return /(\b\d{1,2}[/\-.]\d{1,2}(?:\/\d{2,4})?|\b\d{4}-\d{2}-\d{2}|lịch|calendar|meeting|họp|deadline|schedule|cuộc họp|📅|⏰|🗓)/i.test(
       blob
     );
   }

@@ -44,6 +44,7 @@ const organizationSchema = new mongoose.Schema(
     ownerId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
+      // CẤM populate User — model User không đăng ký trong organization-service.
       ref: 'User',
     },
     logo: {
@@ -84,9 +85,32 @@ const organizationSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      /**
+       * Allowlist domain email (không có @). Rỗng = không chặn (dev/UAT).
+       * Ví dụ: ['voicehub.local', 'gmail.com', 'congty.vn']
+       */
+      allowedEmailDomains: {
+        type: [String],
+        default: [],
+      },
       joinApplicationForm: {
         type: joinApplicationFormSettingsSchema,
         default: () => ({}),
+      },
+      /** Phase 1 — org default who can discover projects + information levels */
+      projectVisibilityPolicy: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
+      },
+      /** Phase 2.0 — company size + enabled master catalog keys */
+      companySize: {
+        type: String,
+        trim: true,
+        default: 'startup',
+      },
+      masterData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
       },
     },
     provisioning: {

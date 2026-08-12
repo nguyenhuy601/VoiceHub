@@ -16,16 +16,55 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, X } from 'lucide-react';
+import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
 import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
+import { allowedIssueTypesFromCaps } from '../../features/projectHub/hubCaps';
+import { visibleCreateTypes } from './ProjectHub/projectWorkTypes';
+import { useProjectWorkTypes } from './ProjectHub/useProjectWorkTypes';
+import ProjectHubSprintBoardCard from './ProjectHub/ProjectHubSprintBoardCard';
+import { isCardInSprint } from './ProjectHub/projectHubUtils';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
+import { useAppStrings } from '../../locales/appStrings';
+import { Modal } from '../Shared';
+import aiTaskService from '../../services/aiTaskService';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 const LIST_WIDTH = 'w-[272px]';
+const LANE_LABEL_WIDTH = 'w-[140px] min-w-[140px]';
+
+function cardOwnerTeamKey(card) {
+  const id = String(card?.ownerTeamId || '').trim();
+  return id || '__unassigned__';
+}
+
+function buildSwimlaneRows(teamsInScope, t) {
+  const rows = (teamsInScope || [])
+    .map((team) => {
+      const id = String(team?._id || team?.id || '').trim();
+      if (!id) return null;
+      return {
+        key: id,
+        teamId: id,
+        label: String(team?.name || '').trim() || id.slice(-6),
+      };
+    })
+    .filter(Boolean);
+  rows.push({
+    key: '__unassigned__',
+    teamId: null,
+    label: t('taskBoard.swimlaneUnassigned'),
+  });
+  return rows;
+}
 const CARD_OVERLAY_WIDTH = 'w-[248px]';
 const COLUMN_ENTER =
   'animate-[taskBoardColumnIn_280ms_ease-out] motion-reduce:animate-none';
+const DONE_ARRIVE_MS = 1100;
+const DONE_ARRIVE_CLASS =
+  'task-board-card-done-arrive border-[color:var(--success)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--success)_55%,transparent)] motion-reduce:animate-none';
 
 const cardSortId = (cardId) => `card-${cardId}`;
 const parseCardSortId = (id) => String(id).replace(/^card-/, '');
@@ -33,6 +72,21 @@ const listColId = (listId) => `list-col-${listId}`;
 const listCardsDropId = (listId) => `list-cards-${listId}`;
 const parseListColId = (id) => String(id).replace(/^list-col-/, '');
 const parseListCardsDropId = (id) => String(id).replace(/^list-cards-/, '');
+
+const SWIM_CELL_PREFIX = 'swim-cell-';
+const swimCellDropId = (listId, laneKey) => `${SWIM_CELL_PREFIX}${listId}__${laneKey}`;
+function parseSwimCellId(id) {
+  const s = String(id || '');
+  if (!s.startsWith(SWIM_CELL_PREFIX)) return null;
+  const rest = s.slice(SWIM_CELL_PREFIX.length);
+  const sep = rest.indexOf('__');
+  if (sep < 0) return null;
+  return { listId: rest.slice(0, sep), laneKey: rest.slice(sep + 2) };
+}
+function ownerTeamIdFromLaneKey(laneKey) {
+  if (!laneKey || laneKey === '__unassigned__') return null;
+  return String(laneKey);
+}
 
 function sortCardsByPosition(a, b) {
   const pa = Number(a?.position) || 0;
@@ -107,6 +161,114 @@ function findCardContainer(cardId, itemsByList) {
   );
 }
 
+function normalizeListTitle(title) {
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isDoneListTitle(title) {
+  const n = normalizeListTitle(title);
+  if (!n) return false;
+  if (['xong', 'done', 'completed', 'hoan thanh'].includes(n)) return true;
+  return n.endsWith(' xong') || n.startsWith('done');
+}
+
+/** Cột cuối workflow (theo order) hoặc cột Done theo statusKey/title. */
+function isWorkflowEndList(list, orderedLists = []) {
+  if (!list) return false;
+  if (orderedLists.length) {
+    const last = orderedLists[orderedLists.length - 1];
+    if (String(last?._id) === String(list._id)) return true;
+  }
+  const statusKey = String(list.statusKey || '').toLowerCase();
+  if (statusKey === 'done' || statusKey === 'completed') return true;
+  return isDoneListTitle(list.title);
+}
+
+function isReviewListTitle(title) {
+  const n = normalizeListTitle(title);
+  if (!n) return false;
+  return (
+    n === 'cho duyet' ||
+    n === 'in review' ||
+    n === 'review' ||
+    n.includes('cho duyet') ||
+    n.includes('in review')
+  );
+}
+
+function isCardComplete(card, listTitle) {
+  if (String(card?.status || '') === 'done') return true;
+  return isDoneListTitle(listTitle);
+}
+
+/** Trễ hạn: có dueDate, đã qua cuối ngày due, và chưa Xong. */
+function isCardOverdue(card, listTitle) {
+  if (!card?.dueDate) return false;
+  if (isCardComplete(card, listTitle)) return false;
+  const due = new Date(card.dueDate);
+  if (Number.isNaN(due.getTime())) return false;
+  const endOfDueDay = new Date(due);
+  endOfDueDay.setHours(23, 59, 59, 999);
+  return endOfDueDay.getTime() < Date.now();
+}
+
+function computeBoardSummary(cards, lists) {
+  const listById = new Map((lists || []).map((l) => [String(l._id), l]));
+  let done = 0;
+  let overdue = 0;
+  let inReview = 0;
+  const rows = Array.isArray(cards) ? cards : [];
+  for (const card of rows) {
+    const listTitle = listById.get(String(card?.listId || ''))?.title || '';
+    const complete = isCardComplete(card, listTitle);
+    if (complete) done += 1;
+    else if (isCardOverdue(card, listTitle)) overdue += 1;
+    if (!complete && isReviewListTitle(listTitle)) inReview += 1;
+  }
+  const total = rows.length;
+  return {
+    total,
+    done,
+    overdue,
+    inReview,
+    donePercent: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
+function SwimlaneDropCell({
+  listId,
+  laneKey,
+  listColumnShell,
+  cardSortableIds,
+  isOverHighlight,
+  children,
+  footer,
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: swimCellDropId(listId, laneKey),
+    data: { type: 'swim-cell', listId, laneKey },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${LIST_WIDTH} shrink-0 rounded-xl border ${listColumnShell} flex max-h-[280px] flex-col ${
+        isOver || isOverHighlight ? 'ring-2 ring-cyan-400/50' : ''
+      }`}
+    >
+      <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
+        <SortableContext items={cardSortableIds} strategy={verticalListSortingStrategy}>
+          {children}
+        </SortableContext>
+      </div>
+      {footer}
+    </div>
+  );
+}
+
 function KanbanListColumn({
   list,
   isDarkMode,
@@ -117,6 +279,7 @@ function KanbanListColumn({
   isCardsOver,
   children,
 }) {
+  const { t } = useAppStrings();
   const listId = String(list._id);
   const { setNodeRef: setListDragRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } =
     useDraggable({
@@ -158,7 +321,7 @@ function KanbanListColumn({
           className={`shrink-0 cursor-grab rounded p-0.5 active:cursor-grabbing ${
             isDarkMode ? 'text-slate-500 hover:bg-white/10' : 'text-slate-400 hover:bg-slate-200'
           }`}
-          aria-label="Kéo danh sách"
+          aria-label={t('taskBoard.dragListAria')}
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
@@ -167,7 +330,7 @@ function KanbanListColumn({
         {list.isWatching || list.watcherCount > 0 ? (
           <span
             className={`flex items-center gap-0.5 text-[10px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
-            title="Người theo dõi"
+            title={t('taskBoard.watchersTitle')}
           >
             <Eye className="h-3 w-3" />
             {list.watcherCount > 0 ? list.watcherCount : ''}
@@ -180,7 +343,7 @@ function KanbanListColumn({
             onMenuClick(e);
           }}
           className={`rounded p-1 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
-          aria-label="Thao tác danh sách"
+          aria-label={t('taskBoard.listActionsAria')}
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
@@ -198,6 +361,8 @@ function KanbanSortableCard({
   card,
   isDarkMode,
   cardShell,
+  isWorkflowDone = false,
+  isCelebratingDone = false,
   onOpenDetail,
   onOpenMenu,
   onToggleComplete,
@@ -225,9 +390,12 @@ function KanbanSortableCard({
         onKeyDown={(e) => {
           if (e.key === 'Enter') onOpenDetail(card);
         }}
-        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-shadow hover:shadow-md active:cursor-grabbing ${cardShell}`}
+        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-[box-shadow,border-color] hover:shadow-md active:cursor-grabbing ${cardShell} ${
+          isCelebratingDone ? DONE_ARRIVE_CLASS : ''
+        } ${isWorkflowDone && !isCelebratingDone ? 'border-[color:color-mix(in_srgb,var(--success)_35%,transparent)]' : ''}`}
+        data-workflow-done={isWorkflowDone ? 'true' : undefined}
       >
-        {renderCardBody(card, { onOpenMenu, onToggleComplete })}
+        {renderCardBody(card, { onOpenMenu, onToggleComplete, isWorkflowDone })}
       </div>
     </div>
   );
@@ -243,30 +411,74 @@ export default function TaskBoardWorkspacePanel({
   boardBackground = '',
   loadingBoards = false,
   loadingBoardDetail = false,
+  currentUserId = '',
+  teamsInScope = [],
   onAddList,
   onAddCard,
   onMoveCard,
   onUpdateCard,
   onReorderList,
   onRefresh,
+  onCreateBoard = null,
+  canCreateBoard = false,
+  boardCapabilities = null,
+  canManageLists = false,
+  canCreateCards = false,
+  organizationId = '',
+  canUseAiAssign = false,
+  onAiAssignComplete = null,
+  renderCardExtra = null,
+  /** Tăng số này từ parent (nút Search header) để focus ô tìm thẻ trên board. */
+  boardSearchFocusToken = 0,
+  taskWorkspaceScope = null,
+  /** Ẩn title/code/summary — Project Hub đã có identity header. */
+  hideIdentityHeader = false,
+  /** Lọc card theo sprint active (Hub). Không set → không lọc. */
+  sprintFilterId = '',
+  defaultSprintId = '',
+  hubSprintCard = null,
 }) {
+  const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
   const [addingListOpen, setAddingListOpen] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const [submittingList, setSubmittingList] = useState(false);
+  const [showMyTasksOnly, setShowMyTasksOnly] = useState(false);
+  const [boardSearchQuery, setBoardSearchQuery] = useState('');
+  const [boardSearchOpen, setBoardSearchOpen] = useState(false);
+  const boardSearchInputRef = useRef(null);
   const [cardDraftByList, setCardDraftByList] = useState({});
+  const [cardIssueTypeByList, setCardIssueTypeByList] = useState({});
   const [cardComposerOpen, setCardComposerOpen] = useState({});
+  const hubProjectId = String(
+    boardDetail?.board?.projectId || boards.find((b) => String(b._id) === String(selectedBoardId))?.projectId || ''
+  ).trim();
+  const { config: workTypeConfig } = useProjectWorkTypes(hubProjectId);
+  const allowedIssueTypes = useMemo(() => {
+    const fromCaps = allowedIssueTypesFromCaps(boardCapabilities);
+    const base = fromCaps.length ? fromCaps : canCreateCards ? ['story', 'task', 'bug'] : [];
+    return visibleCreateTypes(workTypeConfig, base);
+  }, [boardCapabilities, canCreateCards, workTypeConfig]);
+  const canCreateCardsEffective = canCreateCards || allowedIssueTypes.length > 0;
   const [menuList, setMenuList] = useState(null);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [cardMenuCard, setCardMenuCard] = useState(null);
   const [cardMenuAnchor, setCardMenuAnchor] = useState(null);
   const [detailCard, setDetailCard] = useState(null);
   const [detailPanel, setDetailPanel] = useState('detail');
+  const [aiAssignOpen, setAiAssignOpen] = useState(false);
+  const [aiAssignList, setAiAssignList] = useState(null);
+  const [aiAssignDraftId, setAiAssignDraftId] = useState('');
+  const [aiAssignItems, setAiAssignItems] = useState([]);
+  const [aiAssignLoading, setAiAssignLoading] = useState(false);
   const [draggingListId, setDraggingListId] = useState('');
   const [draggingCard, setDraggingCard] = useState(null);
   const [cardItemsByList, setCardItemsByList] = useState({});
   const [cardsOverListId, setCardsOverListId] = useState('');
+  const [celebratingDoneIds, setCelebratingDoneIds] = useState(() => new Set());
+  const [swimlaneView, setSwimlaneView] = useState(false);
   const boardScrollRef = useRef(null);
+  const celebrateDoneTimersRef = useRef(new Map());
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -280,7 +492,67 @@ export default function TaskBoardWorkspacePanel({
     setNewListTitle('');
     setCardComposerOpen({});
     setCardDraftByList({});
-  }, [selectedBoardId]);
+    setShowMyTasksOnly(false);
+    setBoardSearchQuery('');
+    setBoardSearchOpen(false);
+    setCelebratingDoneIds(new Set());
+    for (const timer of celebrateDoneTimersRef.current.values()) clearTimeout(timer);
+    celebrateDoneTimersRef.current.clear();
+    // Mặc định bật swimlane khi phòng có ≥1 team (step 2 — chỉ đọc/group).
+    setSwimlaneView(Array.isArray(teamsInScope) && teamsInScope.length > 0);
+  }, [selectedBoardId, teamsInScope]);
+
+  useEffect(() => {
+    if (!boardSearchFocusToken) return;
+    setBoardSearchOpen(true);
+    requestAnimationFrame(() => {
+      try {
+        boardSearchInputRef.current?.focus();
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [boardSearchFocusToken]);
+
+  const activeBoardMeta = useMemo(() => {
+    if (boardDetail?.board) return boardDetail.board;
+    return boards.find((b) => String(b._id) === String(selectedBoardId)) || null;
+  }, [boardDetail?.board, boards, selectedBoardId]);
+
+  const filterCardsForView = useCallback(
+    (cards) => {
+      let next = Array.isArray(cards) ? cards : [];
+      const sprintId = String(sprintFilterId || '').trim();
+      if (sprintId) {
+        next = next.filter((c) => isCardInSprint(c, sprintId));
+      }
+      if (showMyTasksOnly && currentUserId) {
+        next = next.filter((c) => String(c.assigneeId || '') === String(currentUserId));
+      }
+      const q = String(boardSearchQuery || '').trim().toLowerCase();
+      if (q) {
+        next = next.filter((c) => {
+          const hay = `${c.title || ''} ${c.description || ''} ${c.summary || ''} ${c.assigneeName || ''}`.toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      return next;
+    },
+    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId]
+  );
+
+  const attachSprintToCreate = (payload) => {
+    const filter = String(sprintFilterId || '').trim();
+    const def = String(defaultSprintId || '').trim();
+    if (filter) {
+      if (!def || def !== filter) {
+        toast.error(t('workspace.projectHubSprintCreateNotActive'));
+        return null;
+      }
+      return { ...payload, sprintId: def };
+    }
+    return payload;
+  };
 
   useEffect(() => {
     if (!detailCard || !boardDetail?.cards) return;
@@ -293,8 +565,222 @@ export default function TaskBoardWorkspacePanel({
     [boardDetail, optimisticLists]
   );
 
+  const workflowTransitionsByFrom = boardDetail?.workflow?.transitionsByFrom || null;
+  const listStatusKeyById = useMemo(() => {
+    const map = new Map();
+    for (const l of listMap || []) {
+      const key = String(l.statusKey || '').trim();
+      if (key) map.set(String(l._id), key);
+    }
+    return map;
+  }, [listMap]);
+
+  const canTransitionLists = useCallback(
+    (fromListId, toListId) => {
+      if (!workflowTransitionsByFrom) return true;
+      if (String(fromListId) === String(toListId)) return true;
+      const fromKey = listStatusKeyById.get(String(fromListId));
+      const toKey = listStatusKeyById.get(String(toListId));
+      if (!fromKey || !toKey) return true;
+      if (fromKey === toKey) return true;
+      const edges = workflowTransitionsByFrom[fromKey] || [];
+      return edges.some((e) => String(e.toKey) === toKey);
+    },
+    [workflowTransitionsByFrom, listStatusKeyById]
+  );
+
+  const boardSummary = useMemo(
+    () =>
+      computeBoardSummary(
+        Array.isArray(boardDetail?.cards) ? boardDetail.cards : [],
+        listMap
+      ),
+    [boardDetail?.cards, listMap]
+  );
+
+  const existingListTitles = useMemo(
+    () => new Set(listMap.map((l) => String(l.title || '').trim().toLowerCase())),
+    [listMap]
+  );
+
+  const teamListSuggestions = useMemo(() => {
+    return (teamsInScope || [])
+      .map((team) => {
+        const name = String(team?.name || '').trim();
+        if (!name) return null;
+        const title = t('taskBoard.teamListTitle', { name });
+        if (existingListTitles.has(title.trim().toLowerCase())) return null;
+        return { teamId: String(team._id || team.id || ''), title };
+      })
+      .filter(Boolean);
+  }, [teamsInScope, existingListTitles, t]);
+
+  const canCreateTeamLists = false;
+
+  const statusColumnTitles = useMemo(
+    () => [
+      t('taskBoard.statusColTodo'),
+      t('taskBoard.statusColDoing'),
+      t('taskBoard.statusColReview'),
+      t('taskBoard.statusColDone'),
+    ],
+    [t]
+  );
+
+  const statusColumnSuggestions = useMemo(() => {
+    return statusColumnTitles.filter(
+      (title) => !existingListTitles.has(String(title || '').trim().toLowerCase())
+    );
+  }, [statusColumnTitles, existingListTitles]);
+
+  const canCreateStatusColumns = canManageLists && statusColumnSuggestions.length > 0 && !submittingList;
+
+  const swimlaneRows = useMemo(
+    () => buildSwimlaneRows(teamsInScope, t),
+    [teamsInScope, t]
+  );
+  const canUseSwimlane = Array.isArray(teamsInScope) && teamsInScope.length > 0;
+  const showSwimlaneGrid = Boolean(swimlaneView && canUseSwimlane && listMap.length > 0);
+
+  const filteredBoardCardCount = useMemo(() => {
+    let n = 0;
+    for (const list of listMap || []) {
+      const id = String(list?._id || list?.id || '');
+      n += filterCardsForView(cardItemsByList[id] || []).length;
+    }
+    return n;
+  }, [listMap, cardItemsByList, filterCardsForView]);
+
+  const showSprintFilterEmpty =
+    Boolean(String(sprintFilterId || '').trim()) &&
+    filteredBoardCardCount === 0 &&
+    Object.values(cardItemsByList || {}).some((rows) => Array.isArray(rows) && rows.length > 0);
+
+  const cardsInSwimlaneCell = useCallback(
+    (listId, laneKey) => {
+      const listCards = filterCardsForView(cardItemsByList[String(listId)] || []);
+      return listCards.filter((c) => cardOwnerTeamKey(c) === laneKey);
+    },
+    [cardItemsByList, filterCardsForView]
+  );
+
+  const handleCreateTeamLists = useCallback(async () => {
+    if (!teamListSuggestions.length || submittingList) return;
+    setSubmittingList(true);
+    try {
+      for (const item of teamListSuggestions) {
+        await onAddList?.(item.title);
+      }
+    } finally {
+      setSubmittingList(false);
+    }
+  }, [teamListSuggestions, submittingList, onAddList]);
+
+  const handleCreateStatusColumns = useCallback(async () => {
+    if (!statusColumnSuggestions.length || submittingList) return;
+    setSubmittingList(true);
+    try {
+      for (const title of statusColumnSuggestions) {
+        await onAddList?.(title);
+      }
+    } finally {
+      setSubmittingList(false);
+    }
+  }, [statusColumnSuggestions, submittingList, onAddList]);
+
+  const openAiAssign = useCallback(
+    async (list) => {
+      if (!canCreateCards || !canUseAiAssign || !organizationId || !selectedBoardId || !list?._id) {
+        return;
+      }
+      setAiAssignList(list);
+      setAiAssignOpen(true);
+      setAiAssignLoading(true);
+      setAiAssignItems([]);
+      setAiAssignDraftId('');
+      try {
+        const res = await aiTaskService.suggestTeamCards(selectedBoardId, list._id, {
+          organizationId: String(organizationId),
+          listTitle: list.title,
+          boardTitle: activeBoardMeta?.title || '',
+          prompt: `${activeBoardMeta?.description || ''} — ${list.title}`,
+        });
+        const data = res?.data?.data || res?.data || {};
+        setAiAssignDraftId(String(data.draftId || ''));
+        setAiAssignItems(Array.isArray(data.suggestions) ? data.suggestions : []);
+      } catch (err) {
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.aiAssignFail')));
+        setAiAssignOpen(false);
+      } finally {
+        setAiAssignLoading(false);
+      }
+    },
+    [
+      canCreateCards,
+      canUseAiAssign,
+      organizationId,
+      selectedBoardId,
+      activeBoardMeta?.title,
+      activeBoardMeta?.description,
+      t,
+    ]
+  );
+
+  const confirmAiAssign = useCallback(async () => {
+    if (!aiAssignDraftId || !aiAssignItems.length) return;
+    setAiAssignLoading(true);
+    try {
+      await aiTaskService.confirmTeamAssignDraft(aiAssignDraftId, { items: aiAssignItems });
+      toast.success(t('taskBoard.aiAssignSuccess'));
+      setAiAssignOpen(false);
+      onAiAssignComplete?.();
+      onRefresh?.();
+    } catch (err) {
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.aiAssignFail')));
+    } finally {
+      setAiAssignLoading(false);
+    }
+  }, [aiAssignDraftId, aiAssignItems, onAiAssignComplete, onRefresh, t]);
+
   const skipCardLayoutSyncRef = useRef(false);
-  const cardDragSnapshotRef = useRef({ cardId: '', listId: '', index: -1 });
+  const cardDragSnapshotRef = useRef({
+    cardId: '',
+    listId: '',
+    index: -1,
+    ownerTeamId: undefined,
+    originLaneKey: '',
+    originListId: '',
+  });
+
+  useEffect(
+    () => () => {
+      for (const timer of celebrateDoneTimersRef.current.values()) clearTimeout(timer);
+      celebrateDoneTimersRef.current.clear();
+    },
+    []
+  );
+
+  const celebrateDoneArrival = useCallback((cardId) => {
+    const id = String(cardId || '');
+    if (!id) return;
+    setCelebratingDoneIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    const prevTimer = celebrateDoneTimersRef.current.get(id);
+    if (prevTimer) clearTimeout(prevTimer);
+    const timer = setTimeout(() => {
+      setCelebratingDoneIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      celebrateDoneTimersRef.current.delete(id);
+    }, DONE_ARRIVE_MS);
+    celebrateDoneTimersRef.current.set(id, timer);
+  }, []);
 
   useEffect(() => {
     if (skipCardLayoutSyncRef.current) return;
@@ -380,6 +866,16 @@ export default function TaskBoardWorkspacePanel({
     const card = (cardItemsByList[listId] || []).find((c) => String(c._id) === cardId);
     if (card) setDraggingCard(card);
     setDraggingListId('');
+    const laneKey = cardOwnerTeamKey(card);
+    const idx = (cardItemsByList[listId] || []).findIndex((c) => String(c._id) === cardId);
+    cardDragSnapshotRef.current = {
+      cardId,
+      listId: listId || '',
+      index: idx,
+      ownerTeamId: ownerTeamIdFromLaneKey(laneKey),
+      originLaneKey: laneKey,
+      originListId: listId || '',
+    };
   }, [cardItemsByList]);
 
   const handleCardDragOver = useCallback((event) => {
@@ -447,7 +943,13 @@ export default function TaskBoardWorkspacePanel({
       const targetListId = activeContainer === overContainer ? activeContainer : overContainer;
       const targetIndex = (nextState[targetListId] || []).findIndex((c) => String(c._id) === activeCardId);
       if (targetIndex >= 0) {
-        cardDragSnapshotRef.current = { cardId: activeCardId, listId: targetListId, index: targetIndex };
+        cardDragSnapshotRef.current = {
+          cardId: activeCardId,
+          listId: targetListId,
+          index: targetIndex,
+          ownerTeamId: undefined,
+          originLaneKey: '',
+        };
       }
       return nextState;
     });
@@ -486,18 +988,166 @@ export default function TaskBoardWorkspacePanel({
         return;
       }
 
+      const ownerTeamId =
+        snap.cardId === activeCardId && snap.ownerTeamId !== undefined
+          ? snap.ownerTeamId
+          : undefined;
+
+      const originListId =
+        snap.cardId === activeCardId && snap.originListId
+          ? snap.originListId
+          : (() => {
+              const card = (listMap || [])
+                .flatMap((l) => (l.cards || []).map((c) => ({ listId: l._id, card: c })))
+                .find((row) => String(row.card._id) === activeCardId);
+              return card ? String(card.listId) : '';
+            })();
+
+      if (originListId && listId && !canTransitionLists(originListId, listId)) {
+        toast.error(t('workspace.workflowTransitionDenied'));
+        setCardItemsByList(buildCardItemsByList(listMap));
+        releaseCardLayoutLock();
+        return;
+      }
+
       try {
-        await onMoveCard?.(activeCardId, listId, index);
+        await onMoveCard?.(activeCardId, listId, index, ownerTeamId);
         setDetailCard((prev) =>
-          prev && String(prev._id) === activeCardId ? { ...prev, listId } : prev
+          prev && String(prev._id) === activeCardId
+            ? {
+                ...prev,
+                listId,
+                ...(ownerTeamId !== undefined ? { ownerTeamId } : {}),
+              }
+            : prev
         );
+        const targetList = listMap.find((l) => String(l._id) === String(listId));
+        const originList = listMap.find((l) => String(l._id) === String(originListId));
+        if (isWorkflowEndList(targetList, listMap) && !isWorkflowEndList(originList, listMap)) {
+          celebrateDoneArrival(activeCardId);
+        }
       } catch {
         setCardItemsByList(buildCardItemsByList(listMap));
       } finally {
         releaseCardLayoutLock();
       }
     },
-    [cardItemsByList, listMap, onMoveCard]
+    [cardItemsByList, listMap, onMoveCard, canTransitionLists, celebrateDoneArrival, t]
+  );
+
+  const resolveSwimOverTarget = useCallback(
+    (overId) => {
+      const cell = parseSwimCellId(overId);
+      if (cell) return cell;
+      if (String(overId).startsWith('card-')) {
+        const cid = parseCardSortId(overId);
+        const listId = findCardContainer(cid, cardItemsByList);
+        if (!listId) return null;
+        const card = (cardItemsByList[listId] || []).find((c) => String(c._id) === cid);
+        if (!card) return null;
+        return { listId, laneKey: cardOwnerTeamKey(card) };
+      }
+      return null;
+    },
+    [cardItemsByList]
+  );
+
+  const handleSwimlaneCardDragOver = useCallback(
+    (event) => {
+      const { active, over } = event;
+      if (!over || !active) return;
+      const activeId = String(active.id);
+      if (!activeId.startsWith('card-')) return;
+
+      const activeCardId = parseCardSortId(activeId);
+      const overId = String(over.id);
+      const activeListId = findCardContainer(activeCardId, cardItemsByList);
+      const target = resolveSwimOverTarget(overId);
+      if (!activeListId || !target?.listId) return;
+
+      // Kéo ngang dễ bị closestCenter “hút” xuống hàng Chưa gán team — chỉ đổi lane khi kéo dọc đủ xa.
+      const originLaneKey =
+        cardDragSnapshotRef.current.cardId === activeCardId
+          ? cardDragSnapshotRef.current.originLaneKey
+          : '';
+      const initialTop = active.rect.current?.initial?.top;
+      const translatedTop = active.rect.current?.translated?.top;
+      const dy =
+        Number.isFinite(initialTop) && Number.isFinite(translatedTop)
+          ? translatedTop - initialTop
+          : 0;
+      const laneIntentional = Math.abs(dy) >= 56;
+      const effectiveLaneKey =
+        !laneIntentional && originLaneKey ? originLaneKey : target.laneKey;
+
+      const nextOwnerTeamId = ownerTeamIdFromLaneKey(effectiveLaneKey);
+      const overListId = target.listId;
+      setCardsOverListId(swimCellDropId(overListId, effectiveLaneKey));
+
+      setCardItemsByList((prev) => {
+        const activeItems = [...(prev[activeListId] || [])];
+        const activeIndex = activeItems.findIndex((c) => String(c._id) === activeCardId);
+        if (activeIndex < 0) return prev;
+        const moving = activeItems[activeIndex];
+        const sameList = activeListId === overListId;
+        const sameLane = cardOwnerTeamKey(moving) === effectiveLaneKey;
+
+        let nextState = prev;
+        if (sameList && sameLane && overId.startsWith('card-')) {
+          const overCardId = parseCardSortId(overId);
+          if (activeCardId === overCardId) return prev;
+          const laneCards = activeItems.filter((c) => cardOwnerTeamKey(c) === effectiveLaneKey);
+          const otherCards = activeItems.filter((c) => cardOwnerTeamKey(c) !== effectiveLaneKey);
+          const from = laneCards.findIndex((c) => String(c._id) === activeCardId);
+          let to = laneCards.findIndex((c) => String(c._id) === overCardId);
+          if (from < 0 || to < 0) return prev;
+          const isBelow =
+            active.rect.current?.translated &&
+            over.rect &&
+            active.rect.current.translated.top > over.rect.top + over.rect.height / 2;
+          to = to + (isBelow ? 1 : 0);
+          if (to > from) to -= 1;
+          if (to === from) return prev;
+          const reorderedLane = arrayMove(laneCards, from, to);
+          nextState = { ...prev, [activeListId]: [...otherCards, ...reorderedLane] };
+        } else if (sameList) {
+          const patched = activeItems.map((c) =>
+            String(c._id) === activeCardId ? { ...c, ownerTeamId: nextOwnerTeamId } : c
+          );
+          nextState = { ...prev, [activeListId]: patched };
+        } else {
+          const itemsCopy = [...activeItems];
+          const [moved] = itemsCopy.splice(activeIndex, 1);
+          const overItems = [...(prev[overListId] || [])];
+          overItems.push({
+            ...moved,
+            listId: overListId,
+            ownerTeamId: nextOwnerTeamId,
+          });
+          nextState = {
+            ...prev,
+            [activeListId]: itemsCopy,
+            [overListId]: overItems,
+          };
+        }
+
+        const targetIndex = (nextState[overListId] || []).findIndex(
+          (c) => String(c._id) === activeCardId
+        );
+        if (targetIndex >= 0) {
+          cardDragSnapshotRef.current = {
+            ...cardDragSnapshotRef.current,
+            cardId: activeCardId,
+            listId: overListId,
+            index: targetIndex,
+            ownerTeamId: nextOwnerTeamId,
+            originLaneKey: originLaneKey || cardDragSnapshotRef.current.originLaneKey,
+          };
+        }
+        return nextState;
+      });
+    },
+    [cardItemsByList, resolveSwimOverTarget]
   );
 
   const handleDragStart = useCallback(
@@ -560,6 +1210,14 @@ export default function TaskBoardWorkspacePanel({
     return list?.title || '';
   };
 
+  const isCardInWorkflowEnd = useCallback(
+    (card) => {
+      const list = listMap.find((l) => String(l._id) === String(card?.listId || ''));
+      return isWorkflowEndList(list, listMap);
+    },
+    [listMap]
+  );
+
   const toggleCardComplete = async (card, event) => {
     event.stopPropagation();
     const isDone = String(card?.status || '') === 'done';
@@ -570,9 +1228,28 @@ export default function TaskBoardWorkspacePanel({
     }
   };
 
-  const renderCardBody = (card, { onOpenMenu, onToggleComplete }) => {
+  const renderCardBody = (card, { onOpenMenu, onToggleComplete, isWorkflowDone: doneProp }) => {
+    const isWorkflowDone =
+      typeof doneProp === 'boolean' ? doneProp : isCardInWorkflowEnd(card);
+    if (hubSprintCard) {
+      return (
+        <ProjectHubSprintBoardCard
+          card={card}
+          projectCode={hubSprintCard.projectCode || ''}
+          epics={hubSprintCard.epics || []}
+          canLinkEpic={Boolean(hubSprintCard.canLinkEpic)}
+          onLinkParent={hubSprintCard.onLinkParent}
+          onOpenMenu={onOpenMenu}
+          busy={Boolean(hubSprintCard.busy)}
+          showDoneCheck={isWorkflowDone}
+        />
+      );
+    }
     const labelIds = parseCardLabelIds(card.tags);
-    const isDone = String(card?.status || '') === 'done';
+    const isDone = String(card?.status || '') === 'done' || isWorkflowDone;
+    const awaitingApproval = String(card?.status || '') === 'awaiting_approval';
+    const listTitle = listTitleForCard(card);
+    const overdue = isCardOverdue(card, listTitle);
     const assignees = cardAssignees(card);
     const visibleAssignees = assignees.length > 3 ? assignees.slice(0, 2) : assignees.slice(0, 3);
     const overflowAssigneeCount = assignees.length > 3 ? assignees.length - 2 : 0;
@@ -583,11 +1260,11 @@ export default function TaskBoardWorkspacePanel({
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => onToggleComplete(card, e)}
-            title={isDone ? 'Đánh dấu chưa hoàn tất' : 'Đánh dấu hoàn tất'}
+            title={isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
             className="mt-0.5 shrink-0 rounded-full"
           >
             {isDone ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="h-4 w-4 text-success" />
             ) : (
               <Circle className={`h-4 w-4 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
             )}
@@ -609,19 +1286,56 @@ export default function TaskBoardWorkspacePanel({
               </div>
             ) : null}
             <div className={`font-semibold ${isDone ? 'text-slate-400 line-through' : ''}`}>{card.title}</div>
+            {awaitingApproval ? (
+              <span
+                className={`mt-1 inline-block rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${
+                  isDarkMode ? 'bg-amber-500/25 text-amber-200' : 'bg-amber-100 text-amber-900'
+                }`}
+              >
+                {t('approvals.pendingBadge')}
+              </span>
+            ) : null}
           </div>
         </div>
         {card.dueDate ? (
-          <div className={`mt-1 text-[10px] ${isDarkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
-            {new Date(card.dueDate).toLocaleDateString('vi-VN')}
+          <div
+            className={`mt-1 flex flex-wrap items-center gap-1 text-[10px] ${
+              overdue
+                ? isDarkMode
+                  ? 'text-rose-300'
+                  : 'text-rose-700'
+                : isDarkMode
+                  ? 'text-amber-300/90'
+                  : 'text-amber-700'
+            }`}
+          >
+            <span>
+              {new Date(card.dueDate).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')}
+            </span>
+            {overdue ? (
+              <span
+                className={`rounded px-1 py-px font-semibold uppercase tracking-wide ${
+                  isDarkMode ? 'bg-rose-500/25 text-rose-200' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {t('taskBoard.overdueBadge')}
+              </span>
+            ) : null}
           </div>
         ) : null}
-        {visibleAssignees.length > 0 ? (
+        {visibleAssignees.length > 0 || isWorkflowDone ? (
           <div className="mt-1.5 flex items-center gap-1">
+            {isWorkflowDone ? (
+              <Check
+                className="h-3.5 w-3.5 shrink-0 text-success"
+                strokeWidth={2.75}
+                aria-label={t('taskBoard.doneColumnCheckAria')}
+              />
+            ) : null}
             {visibleAssignees.map((m, idx) => (
               <span
                 key={`${m.userId || m.displayName || 'assignee'}-${idx}`}
-                title={m.displayName || 'Thành viên phụ trách'}
+                title={m.displayName || t('taskBoard.assigneeTitle')}
                 className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-semibold text-white"
               >
                 {assigneeInitials(m)}
@@ -630,16 +1344,17 @@ export default function TaskBoardWorkspacePanel({
             {overflowAssigneeCount > 0 ? (
               <span
                 className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}
-                title={`${overflowAssigneeCount} thành viên khác`}
+                title={t('taskBoard.moreAssignees', { n: overflowAssigneeCount })}
               >
                 +{overflowAssigneeCount}
               </span>
             ) : null}
           </div>
         ) : null}
+        {typeof renderCardExtra === 'function' ? renderCardExtra(card) : null}
         <button
           type="button"
-          title="Chỉnh sửa thẻ"
+          title={t('taskBoard.editCard')}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => onOpenMenu(card, e)}
           className={`absolute right-1.5 top-1.5 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
@@ -665,6 +1380,28 @@ export default function TaskBoardWorkspacePanel({
             transform: translateX(0) scale(1);
           }
         }
+        @keyframes taskBoardDoneArrive {
+          0% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent);
+            border-color: color-mix(in srgb, var(--success) 20%, transparent);
+          }
+          35% {
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 45%, transparent);
+            border-color: var(--success);
+          }
+          100% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent);
+            border-color: color-mix(in srgb, var(--success) 35%, transparent);
+          }
+        }
+        .task-board-card-done-arrive {
+          animation: taskBoardDoneArrive ${DONE_ARRIVE_MS}ms ease-out;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .task-board-card-done-arrive {
+            animation: none;
+          }
+        }
       `}</style>
 
       {!loadingBoards && boards.length === 0 ? (
@@ -673,7 +1410,7 @@ export default function TaskBoardWorkspacePanel({
             isDarkMode ? 'border-white/10 text-slate-400' : 'border-slate-300 text-slate-600'
           }`}
         >
-          Chưa có Task Board. Chuột phải vào team ở cột trái → «Tạo Task Board».
+          <p>{t('taskBoard.boardEmptyHint')}</p>
         </div>
       ) : !selectedBoardId ? (
         <div
@@ -681,18 +1418,430 @@ export default function TaskBoardWorkspacePanel({
             isDarkMode ? 'border-white/10 text-slate-400' : 'border-slate-300 text-slate-600'
           }`}
         >
-          Chọn một Task Board để xem danh sách và công việc.
+          {t('taskBoard.boardSelectHint')}
         </div>
       ) : loadingBoardDetail ? (
         <div className={`m-4 rounded-xl p-4 text-sm ${isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-white text-slate-600'}`}>
           Đang tải nội dung board...
         </div>
       ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {activeBoardMeta ? (
+            <div
+              className={`shrink-0 border-b px-4 py-3 ${
+                isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-white/80'
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                {!hideIdentityHeader ? (
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2
+                      className={`truncate text-base font-semibold ${
+                        isDarkMode ? 'text-white' : 'text-slate-900'
+                      }`}
+                    >
+                      {activeBoardMeta.title}
+                    </h2>
+                    {activeBoardMeta.projectCode ? (
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                          isDarkMode ? 'bg-indigo-500/20 text-indigo-200' : 'bg-indigo-50 text-indigo-700'
+                        }`}
+                      >
+                        {t('taskBoard.projectCodeBadge', { code: activeBoardMeta.projectCode })}
+                      </span>
+                    ) : null}
+                  </div>
+                  {activeBoardMeta.description ? (
+                    <p
+                      className={`mt-1 line-clamp-2 text-xs ${
+                        isDarkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      {activeBoardMeta.description}
+                    </p>
+                  ) : null}
+                  <div
+                    className="mt-2 flex flex-wrap items-center gap-1.5"
+                    title={t('taskBoard.boardSummaryHint')}
+                  >
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                        isDarkMode ? 'bg-white/10 text-slate-200' : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {t('taskBoard.boardSummaryTotal', { n: boardSummary.total })}
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                        isDarkMode ? 'bg-emerald-500/20 text-emerald-200' : 'bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      {t('taskBoard.boardSummaryDone', { pct: boardSummary.donePercent })}
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                        boardSummary.overdue > 0
+                          ? isDarkMode
+                            ? 'bg-rose-500/25 text-rose-200'
+                            : 'bg-rose-100 text-rose-800'
+                          : isDarkMode
+                            ? 'bg-white/10 text-slate-400'
+                            : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {t('taskBoard.boardSummaryOverdue', { n: boardSummary.overdue })}
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                        boardSummary.inReview > 0
+                          ? isDarkMode
+                            ? 'bg-amber-500/20 text-amber-200'
+                            : 'bg-amber-50 text-amber-800'
+                          : isDarkMode
+                            ? 'bg-white/10 text-slate-400'
+                            : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {t('taskBoard.boardSummaryReview', { n: boardSummary.inReview })}
+                    </span>
+                  </div>
+                </div>
+                ) : (
+                  <div className="min-w-0 flex-1" />
+                )}
+                <div className={`flex flex-wrap items-center gap-2 ${hideIdentityHeader ? 'w-full justify-end' : ''}`}>
+                  {boardSearchOpen ? (
+                    <div
+                      className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
+                        isDarkMode ? 'border-white/15 bg-black/20' : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <Search size={14} className={isDarkMode ? 'text-slate-400' : 'text-slate-500'} />
+                      <input
+                        ref={boardSearchInputRef}
+                        value={boardSearchQuery}
+                        onChange={(e) => setBoardSearchQuery(e.target.value)}
+                        placeholder={t('taskBoard.searchCardsPh')}
+                        className={`w-[160px] bg-transparent text-xs outline-none sm:w-[200px] ${
+                          isDarkMode ? 'text-white placeholder:text-slate-500' : 'text-slate-900 placeholder:text-slate-400'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        title={t('taskBoard.searchCardsClear')}
+                        onClick={() => {
+                          setBoardSearchQuery('');
+                          setBoardSearchOpen(false);
+                        }}
+                        className={`rounded p-0.5 ${isDarkMode ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-100'}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      title={t('taskBoard.searchCardsAria')}
+                      onClick={() => {
+                        setBoardSearchOpen(true);
+                        requestAnimationFrame(() => boardSearchInputRef.current?.focus());
+                      }}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border ${
+                        isDarkMode
+                          ? 'border-white/15 text-slate-300 hover:bg-white/10'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Search size={14} />
+                    </button>
+                  )}
+                  {currentUserId ? (
+                    <button
+                      type="button"
+                      title={t('taskBoard.myTasksOnlyHint')}
+                      onClick={() => setShowMyTasksOnly((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                        showMyTasksOnly
+                          ? 'border-indigo-400 bg-indigo-500/20 text-indigo-100'
+                          : isDarkMode
+                            ? 'border-white/15 text-slate-300 hover:bg-white/10'
+                            : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {t('taskBoard.myTasksOnly')}
+                    </button>
+                  ) : null}
+                  {canUseSwimlane ? (
+                    <button
+                      type="button"
+                      title={t('taskBoard.swimlaneToggleHint')}
+                      onClick={() => setSwimlaneView((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                        swimlaneView
+                          ? 'border-cyan-400 bg-cyan-500/20 text-cyan-100'
+                          : isDarkMode
+                            ? 'border-white/15 text-slate-300 hover:bg-white/10'
+                            : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {t('taskBoard.swimlaneToggle')}
+                    </button>
+                  ) : null}
+                  {canCreateTeamLists ? (
+                    <button
+                      type="button"
+                      disabled={submittingList}
+                      onClick={handleCreateTeamLists}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+                        isDarkMode
+                          ? 'border-indigo-400/50 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'
+                          : 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                      }`}
+                    >
+                      {submittingList ? t('taskBoard.creatingTeamLists') : t('taskBoard.createTeamLists')}
+                    </button>
+                  ) : null}
+                  {canCreateStatusColumns ? (
+                    <button
+                      type="button"
+                      disabled={submittingList}
+                      onClick={handleCreateStatusColumns}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+                        isDarkMode
+                          ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {submittingList
+                        ? t('taskBoard.creatingStatusColumns')
+                        : t('taskBoard.createStatusColumns')}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        {showSprintFilterEmpty ? (
+          <p
+            className={`px-3 pb-1 text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}
+            role="status"
+          >
+            {t('taskBoard.emptySprintFilter')}
+          </p>
+        ) : null}
         <div
           ref={boardScrollRef}
-          className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-3 pb-4 pt-3"
+          className={`min-h-0 flex-1 px-3 pb-4 pt-3 ${
+            showSwimlaneGrid ? 'overflow-auto' : 'overflow-x-auto overflow-y-hidden'
+          }`}
           style={boardSurfaceStyle}
         >
+          {showSwimlaneGrid ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleCardDragStart}
+              onDragOver={handleSwimlaneCardDragOver}
+              onDragEnd={handleCardDragEnd}
+              onDragCancel={handleDragCancel}
+            >
+            <div className="min-h-[min(520px,calc(100vh-220px))] min-w-max">
+              <p
+                className={`mb-2 text-[11px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
+              >
+                {t('taskBoard.swimlaneToggleHint')}
+              </p>
+              <div className="flex items-end gap-2 border-b pb-2 mb-2 border-white/10">
+                <div
+                  className={`${LANE_LABEL_WIDTH} shrink-0 px-1 text-[10px] font-bold uppercase tracking-wide ${
+                    isDarkMode ? 'text-slate-500' : 'text-slate-500'
+                  }`}
+                >
+                  {t('taskBoard.swimlaneTeamCol')}
+                </div>
+                {listMap.map((list) => (
+                  <div
+                    key={`head-${list._id}`}
+                    className={`${LIST_WIDTH} shrink-0 truncate px-2 text-sm font-semibold`}
+                  >
+                    {list.title}
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-3">
+                {swimlaneRows.map((lane) => (
+                  <div key={lane.key} className="flex items-stretch gap-2">
+                    <div
+                      className={`${LANE_LABEL_WIDTH} shrink-0 rounded-lg border px-2 py-2 text-xs font-semibold ${
+                        isDarkMode
+                          ? 'border-white/10 bg-white/[0.04] text-slate-200'
+                          : 'border-slate-200 bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      {lane.label}
+                    </div>
+                    {listMap.map((list) => {
+                      const listKey = String(list._id);
+                      const cellKey = `${listKey}__${lane.key}`;
+                      const cellCards = cardsInSwimlaneCell(listKey, lane.key);
+                      const cardSortableIds = cellCards.map((c) => cardSortId(c._id));
+                      const composerOpen = Boolean(cardComposerOpen[cellKey]);
+                      const cellDropId = swimCellDropId(listKey, lane.key);
+                      return (
+                        <SwimlaneDropCell
+                          key={cellKey}
+                          listId={listKey}
+                          laneKey={lane.key}
+                          listColumnShell={listColumnShell}
+                          cardSortableIds={cardSortableIds}
+                          isOverHighlight={cardsOverListId === cellDropId}
+                          footer={
+                          <div className="p-2 pt-0">
+                            {composerOpen ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={cardDraftByList[cellKey] || ''}
+                                  onChange={(e) =>
+                                    setCardDraftByList((prev) => ({
+                                      ...prev,
+                                      [cellKey]: e.target.value,
+                                    }))
+                                  }
+                                  rows={2}
+                                  placeholder={t('taskBoard.cardTitlePh')}
+                                  className={`w-full resize-none rounded-lg border px-2 py-1.5 text-xs outline-none ${
+                                    isDarkMode
+                                      ? 'border-white/15 bg-[#1a1d26] text-white'
+                                      : 'border-slate-200 bg-white text-slate-900'
+                                  }`}
+                                  autoFocus
+                                />
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {allowedIssueTypes.length > 1 ? (
+                                    <select
+                                      className={`rounded-md border px-1.5 py-1 text-[11px] ${
+                                        isDarkMode
+                                          ? 'border-white/15 bg-[#1a1d26] text-white'
+                                          : 'border-slate-200 bg-white text-slate-900'
+                                      }`}
+                                      value={cardIssueTypeByList[cellKey] || allowedIssueTypes[0]}
+                                      onChange={(e) =>
+                                        setCardIssueTypeByList((prev) => ({
+                                          ...prev,
+                                          [cellKey]: e.target.value,
+                                        }))
+                                      }
+                                    >
+                                      {allowedIssueTypes.map((it) => (
+                                        <option key={it} value={it}>
+                                          {it}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    disabled={!String(cardDraftByList[cellKey] || '').trim()}
+                                    onClick={() => {
+                                      const title = String(cardDraftByList[cellKey] || '').trim();
+                                      if (!title) return;
+                                      const created = attachSprintToCreate({
+                                        listId: list._id,
+                                        title,
+                                        ownerTeamId: lane.teamId || null,
+                                        issueType:
+                                          cardIssueTypeByList[cellKey] ||
+                                          allowedIssueTypes[0] ||
+                                          'task',
+                                      });
+                                      if (!created) return;
+                                      onAddCard?.(list._id, created);
+                                      setCardDraftByList((prev) => ({ ...prev, [cellKey]: '' }));
+                                      setCardComposerOpen((prev) => ({
+                                        ...prev,
+                                        [cellKey]: false,
+                                      }));
+                                    }}
+                                    className="rounded-md bg-[#5865F2] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                                  >
+                                    Thêm thẻ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`rounded-md p-1 ${
+                                      isDarkMode
+                                        ? 'text-slate-400 hover:bg-white/10'
+                                        : 'text-slate-500 hover:bg-slate-200'
+                                    }`}
+                                    onClick={() => {
+                                      setCardComposerOpen((prev) => ({
+                                        ...prev,
+                                        [cellKey]: false,
+                                      }));
+                                      setCardDraftByList((prev) => ({ ...prev, [cellKey]: '' }));
+                                    }}
+                                    aria-label={t('common.close')}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : canCreateCardsEffective ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCardComposerOpen((prev) => ({ ...prev, [cellKey]: true }))
+                                }
+                                className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors ${
+                                  isDarkMode
+                                    ? 'text-slate-300 hover:bg-white/10'
+                                    : 'text-slate-600 hover:bg-slate-200/80'
+                                }`}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Thêm thẻ
+                              </button>
+                            ) : null}
+                          </div>
+                          }
+                        >
+                          {cellCards.map((card) => (
+                            <KanbanSortableCard
+                              key={card._id}
+                              card={card}
+                              isDarkMode={isDarkMode}
+                              cardShell={cardShell}
+                              isWorkflowDone={isCardInWorkflowEnd(card)}
+                              isCelebratingDone={celebratingDoneIds.has(String(card._id))}
+                              onOpenDetail={(c) => openCardDetail(c, 'detail')}
+                              onOpenMenu={openCardMenu}
+                              onToggleComplete={toggleCardComplete}
+                              renderCardBody={renderCardBody}
+                            />
+                          ))}
+                        </SwimlaneDropCell>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <DragOverlay dropAnimation={null}>
+              {draggingCard ? (
+                <div
+                  className={`${CARD_OVERLAY_WIDTH} cursor-grabbing rounded-lg border px-2 py-2 text-xs shadow-2xl ${cardShell}`}
+                >
+                  {renderCardBody(draggingCard, {
+                    onOpenMenu: () => {},
+                    onToggleComplete: (c, e) => e.stopPropagation(),
+                  })}
+                </div>
+              ) : null}
+            </DragOverlay>
+            </DndContext>
+          ) : (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -705,8 +1854,9 @@ export default function TaskBoardWorkspacePanel({
               {listMap.map((list) => {
                 const listKey = String(list._id);
                 const composerOpen = Boolean(cardComposerOpen[listKey]);
-                const listCards = cardItemsByList[listKey] || [];
+                const listCards = filterCardsForView(cardItemsByList[listKey] || []);
                 const cardSortableIds = listCards.map((c) => cardSortId(c._id));
+                const isTeamList = /^team\s+/i.test(String(list.title || '').trim());
                 return (
                   <KanbanListColumn
                     key={listKey}
@@ -718,6 +1868,23 @@ export default function TaskBoardWorkspacePanel({
                     cardSortableIds={cardSortableIds}
                     isCardsOver={cardsOverListId === listKey}
                   >
+                  {isTeamList && canCreateCards && canUseAiAssign ? (
+                    <div className="px-2 pb-1">
+                      <button
+                        type="button"
+                        title={t('taskBoard.aiAssignTeamHint')}
+                        onClick={() => openAiAssign(list)}
+                        className={`inline-flex w-full items-center justify-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium ${
+                          isDarkMode
+                            ? 'border-violet-400/40 bg-violet-500/15 text-violet-100'
+                            : 'border-violet-300 bg-violet-50 text-violet-700'
+                        }`}
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        {t('taskBoard.aiAssignTeam')}
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-1">
                     {listCards.map((card) => (
                       <KanbanSortableCard
@@ -725,6 +1892,8 @@ export default function TaskBoardWorkspacePanel({
                         card={card}
                         isDarkMode={isDarkMode}
                         cardShell={cardShell}
+                        isWorkflowDone={isCardInWorkflowEnd(card)}
+                        isCelebratingDone={celebratingDoneIds.has(String(card._id))}
                         onOpenDetail={(c) => openCardDetail(c, 'detail')}
                         onOpenMenu={openCardMenu}
                         onToggleComplete={toggleCardComplete}
@@ -742,7 +1911,7 @@ export default function TaskBoardWorkspacePanel({
                             setCardDraftByList((prev) => ({ ...prev, [listKey]: e.target.value }))
                           }
                           rows={2}
-                          placeholder="Nhập tiêu đề thẻ..."
+                          placeholder={t('taskBoard.cardTitlePh')}
                           className={`w-full resize-none rounded-lg border px-2 py-1.5 text-xs outline-none ${
                             isDarkMode
                               ? 'border-white/15 bg-[#1a1d26] text-white'
@@ -750,14 +1919,43 @@ export default function TaskBoardWorkspacePanel({
                           }`}
                           autoFocus
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {allowedIssueTypes.length > 1 ? (
+                            <select
+                              className={`rounded-md border px-1.5 py-1 text-[11px] ${
+                                isDarkMode
+                                  ? 'border-white/15 bg-[#1a1d26] text-white'
+                                  : 'border-slate-200 bg-white text-slate-900'
+                              }`}
+                              value={cardIssueTypeByList[listKey] || allowedIssueTypes[0]}
+                              onChange={(e) =>
+                                setCardIssueTypeByList((prev) => ({
+                                  ...prev,
+                                  [listKey]: e.target.value,
+                                }))
+                              }
+                            >
+                              {allowedIssueTypes.map((it) => (
+                                <option key={it} value={it}>
+                                  {it}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
                           <button
                             type="button"
                             disabled={!String(cardDraftByList[listKey] || '').trim()}
                             onClick={() => {
                               const title = String(cardDraftByList[listKey] || '').trim();
                               if (!title) return;
-                              onAddCard?.(list._id, { listId: list._id, title });
+                              const created = attachSprintToCreate({
+                                listId: list._id,
+                                title,
+                                issueType:
+                                  cardIssueTypeByList[listKey] || allowedIssueTypes[0] || 'task',
+                              });
+                              if (!created) return;
+                              onAddCard?.(list._id, created);
                               setCardDraftByList((prev) => ({ ...prev, [listKey]: '' }));
                               setCardComposerOpen((prev) => ({ ...prev, [listKey]: false }));
                             }}
@@ -774,13 +1972,13 @@ export default function TaskBoardWorkspacePanel({
                               setCardComposerOpen((prev) => ({ ...prev, [listKey]: false }));
                               setCardDraftByList((prev) => ({ ...prev, [listKey]: '' }));
                             }}
-                            aria-label="Đóng"
+                            aria-label={t('common.close')}
                           >
                             <X className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
-                    ) : (
+                    ) : canCreateCardsEffective ? (
                       <button
                         type="button"
                         onClick={() => setCardComposerOpen((prev) => ({ ...prev, [listKey]: true }))}
@@ -793,7 +1991,7 @@ export default function TaskBoardWorkspacePanel({
                         <Plus className="h-3.5 w-3.5" />
                         Thêm thẻ
                       </button>
-                    )}
+                    ) : null}
                   </div>
                   </KanbanListColumn>
                 );
@@ -820,7 +2018,7 @@ export default function TaskBoardWorkspacePanel({
                         setNewListTitle('');
                       }
                     }}
-                    placeholder="Nhập tên danh sách..."
+                    placeholder={t('taskBoard.listNamePh')}
                     className={`w-full rounded-lg border px-2.5 py-2 text-sm outline-none ${
                       isDarkMode
                         ? 'border-white/15 bg-[#1a1d26] text-white placeholder:text-slate-500'
@@ -829,6 +2027,34 @@ export default function TaskBoardWorkspacePanel({
                     autoFocus
                     disabled={submittingList}
                   />
+                  {teamListSuggestions.length > 0 ? (
+                    <div className="mt-2">
+                      <div
+                        className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${
+                          isDarkMode ? 'text-slate-500' : 'text-slate-500'
+                        }`}
+                      >
+                        {t('taskBoard.teamListSuggestions')}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {teamListSuggestions.map((item) => (
+                          <button
+                            key={item.teamId || item.title}
+                            type="button"
+                            disabled={submittingList}
+                            onClick={() => setNewListTitle(item.title)}
+                            className={`rounded-md px-2 py-1 text-[11px] font-medium ${
+                              isDarkMode
+                                ? 'bg-white/10 text-slate-200 hover:bg-white/15'
+                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            }`}
+                          >
+                            {item.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex items-center gap-2">
                     <button
                       type="button"
@@ -836,7 +2062,7 @@ export default function TaskBoardWorkspacePanel({
                       onClick={handleSubmitNewList}
                       className="rounded-md bg-[#5865F2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      {submittingList ? 'Đang thêm...' : 'Thêm danh sách'}
+                      {submittingList ? t('taskBoard.addingList') : t('taskBoard.addList')}
                     </button>
                     <button
                       type="button"
@@ -848,13 +2074,13 @@ export default function TaskBoardWorkspacePanel({
                       className={`rounded-md p-1.5 ${
                         isDarkMode ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'
                       }`}
-                      aria-label="Hủy"
+                      aria-label={t('taskBoard.cancelAria')}
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : canManageLists ? (
                 <button
                   type="button"
                   onClick={() => setAddingListOpen(true)}
@@ -867,7 +2093,7 @@ export default function TaskBoardWorkspacePanel({
                   <Plus className="h-4 w-4 shrink-0" />
                   Thêm danh sách khác
                 </button>
-              )}
+              ) : null}
             </div>
             </div>
             <DragOverlay dropAnimation={null}>
@@ -891,6 +2117,8 @@ export default function TaskBoardWorkspacePanel({
               ) : null}
             </DragOverlay>
           </DndContext>
+          )}
+        </div>
         </div>
       )}
 
@@ -939,6 +2167,19 @@ export default function TaskBoardWorkspacePanel({
         listTitle={detailCard ? listTitleForCard(detailCard) : ''}
         lists={listMap}
         initialPanel={detailPanel}
+        taskWorkspaceScope={taskWorkspaceScope}
+        canCreateTask={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:create') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : canCreateCards
+        }
+        canEstimate={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:estimate') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : true
+        }
         onClose={() => {
           setDetailCard(null);
           setDetailPanel('detail');
@@ -949,6 +2190,57 @@ export default function TaskBoardWorkspacePanel({
           setDetailCard((prev) => (prev && String(prev._id) === String(cardId) ? { ...prev, ...patch } : prev));
         }}
       />
+
+      <Modal
+        isOpen={aiAssignOpen}
+        onClose={() => !aiAssignLoading && setAiAssignOpen(false)}
+        title={t('taskBoard.aiAssignTeam')}
+        size="md"
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">
+            {aiAssignList?.title || ''} — {t('taskBoard.aiAssignTeamHint')}
+          </p>
+          {aiAssignLoading && !aiAssignItems.length ? (
+            <p className="text-sm text-slate-300">{t('taskBoard.aiProjectSuggesting')}</p>
+          ) : (
+            <ul className="max-h-64 space-y-2 overflow-y-auto">
+              {aiAssignItems.map((item, idx) => (
+                <li
+                  key={`${item.title}-${idx}`}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                >
+                  <div className="font-medium">{item.title}</div>
+                  <div className="mt-0.5 text-xs text-slate-400">
+                    {item.assigneeName || t('taskBoard.unassigned')}
+                    {item.dueDate
+                      ? ` · ${new Date(item.dueDate).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')}`
+                      : ''}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              disabled={aiAssignLoading}
+              onClick={() => setAiAssignOpen(false)}
+              className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/10"
+            >
+              {t('nav.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={aiAssignLoading || !aiAssignItems.length}
+              onClick={confirmAiAssign}
+              className="rounded-lg bg-[#5865F2] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {aiAssignLoading ? t('taskBoard.aiProjectSuggesting') : t('taskBoard.aiAssignConfirm')}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -9,15 +9,16 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import UserAvatar from '../Shared/UserAvatar';
+import { useAppStrings } from '../../locales/appStrings';
 
 function UnifiedChatComposer({
   value = '',
   onChange,
   onSend,
-  placeholder = 'Nhập tin nhắn...',
+  placeholder,
   disabled = false,
   sendDisabled = false,
-  sendLabel = 'Gửi',
+  sendLabel,
   plusItems = [],
   onOpenGift,
   onOpenGif,
@@ -40,13 +41,19 @@ function UnifiedChatComposer({
   showSendButton = true,
   /** Ô nhập phẳng, không viền/nền bọc trong */
   flatInner = false,
+  /** Các nút icon nằm bên trái ô nhập, dùng cho composer Figma DM. */
+  leadingItems = [],
+  rowClassName,
   /** Một dòng (input text) thay vì textarea */
   singleLine = false,
   mentionItems = [],
   onPaste,
+  forceLight = false,
 }) {
-  const MAX_TEXTAREA_HEIGHT = 100;
+  const MAX_TEXTAREA_HEIGHT = 240;
+  const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
+  const composerDark = isDarkMode && !forceLight;
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -65,23 +72,33 @@ function UnifiedChatComposer({
     () => (Array.isArray(mentionItems) ? mentionItems.filter((item) => item && item.label) : []),
     [mentionItems]
   );
+  const safeLeadingItems = useMemo(
+    () => (Array.isArray(leadingItems) ? leadingItems.filter((item) => item && item.key) : []),
+    [leadingItems]
+  );
   const filteredMentionItems = useMemo(() => {
     const q = mentionQuery.trim().toLowerCase();
     if (!q) return safeMentionItems;
-    return safeMentionItems.filter((item) => String(item.label || '').toLowerCase().includes(q));
+    return safeMentionItems.filter((item) => {
+      const label = String(item.label || '').toLowerCase();
+      const username = String(item.username || '').toLowerCase();
+      return label.includes(q) || username.includes(q);
+    });
   }, [safeMentionItems, mentionQuery]);
+  const resolvedPlaceholder = placeholder ?? t('chat.placeholderInput');
+  const resolvedSendLabel = sendLabel ?? t('chat.send');
   const resolvedActionItems = useMemo(() => {
     if (Array.isArray(actionItems)) {
       return actionItems.filter((item) => item && item.key);
     }
     return [
-      { key: 'gift', title: 'Quà tặng', content: '🎁', onClick: onOpenGift, className: 'text-lg' },
-      { key: 'gif', title: 'GIF', content: 'GIF', onClick: onOpenGif, className: 'px-1 text-[11px] font-bold min-w-8' },
-      { key: 'sticker', title: 'Sticker', content: '😶‍🌫️', onClick: onOpenSticker, className: 'text-base' },
-      { key: 'emoji', title: 'Emoji', content: '🙂', onClick: onOpenEmoji, className: 'text-lg' },
-      { key: 'apps', title: 'Ứng dụng', content: '✳️', onClick: onOpenApps, className: 'text-base' },
+      { key: 'gift', title: t('chat.actionGift'), content: '🎁', onClick: onOpenGift, className: 'text-lg' },
+      { key: 'gif', title: t('chat.actionGif'), content: 'GIF', onClick: onOpenGif, className: 'px-1 text-[11px] font-bold min-w-8' },
+      { key: 'sticker', title: t('chat.actionSticker'), content: '😶‍🌫️', onClick: onOpenSticker, className: 'text-base' },
+      { key: 'emoji', title: t('chat.actionEmoji'), content: '🙂', onClick: onOpenEmoji, className: 'text-lg' },
+      { key: 'apps', title: t('chat.actionApps'), content: '✳️', onClick: onOpenApps, className: 'text-base' },
     ];
-  }, [actionItems, onOpenGift, onOpenGif, onOpenSticker, onOpenEmoji, onOpenApps]);
+  }, [actionItems, onOpenGift, onOpenGif, onOpenSticker, onOpenEmoji, onOpenApps, t]);
 
   useEffect(() => {
     if (!showPlusMenu && !showMentionMenu) return undefined;
@@ -209,39 +226,39 @@ function UnifiedChatComposer({
     }
   };
 
-  const defaultWrapper = isDarkMode
+  const defaultWrapper = composerDark
     ? 'shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5'
     : 'shrink-0 border-t border-slate-200 bg-white p-3.5';
-  const richToolbarDivider = isDarkMode ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
-  const fmtBtn = isDarkMode
+  const richToolbarDivider = composerDark ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
+  const fmtBtn = composerDark
     ? 'rounded-md p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40'
     : 'rounded-md p-2 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-40';
   const composerInner = flatInner
     ? 'relative flex flex-col gap-1.5'
-    : isDarkMode
+    : composerDark
       ? 'relative flex flex-col gap-2 rounded-2xl border border-white/[0.08] bg-[#171B24] px-2.5 py-2 shadow-inner'
       : 'relative flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-2 shadow-inner';
-  const plusBtnClass = isDarkMode
+  const plusBtnClass = composerDark
     ? 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50'
     : 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50';
-  const plusMenuClass = isDarkMode
+  const plusMenuClass = composerDark
     ? 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
     : 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl';
-  const plusMenuRow = isDarkMode
+  const plusMenuRow = composerDark
     ? 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40'
     : 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40';
-  const textareaClass = isDarkMode
-    ? `scrollbar-composer max-h-[100px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60 ${
+  const textareaClass = composerDark
+    ? `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60 ${
         richToolbar
           ? 'min-h-[36px] py-1.5 leading-normal'
           : 'min-h-[44px] py-2 leading-relaxed'
       }`
-    : `scrollbar-composer max-h-[100px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60 ${
+    : `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60 ${
         richToolbar
           ? 'min-h-[36px] py-1.5 leading-normal'
           : 'min-h-[44px] py-2 leading-relaxed'
       }`;
-  const inputClass = isDarkMode
+  const inputClass = composerDark
     ? 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60'
     : 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
 
@@ -275,7 +292,7 @@ function UnifiedChatComposer({
       handleSend();
     }
   };
-  const actionBtn = isDarkMode
+  const actionBtn = composerDark
     ? 'h-9 rounded-md text-gray-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50'
     : 'h-9 rounded-md text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50';
 
@@ -285,11 +302,11 @@ function UnifiedChatComposer({
       {richToolbar && (
         <div className={`mb-2 flex flex-wrap items-center gap-0.5 pb-2 ${richToolbarDivider}`}>
           {[
-            { k: 'bold', Icon: Bold, title: 'Đậm' },
-            { k: 'italic', Icon: Italic, title: 'Nghiêng' },
-            { k: 'link', Icon: Link2, title: 'Liên kết' },
-            { k: 'mention', Icon: AtSign, title: 'Nhắc tên' },
-            { k: 'code', Icon: Code, title: 'Mã' },
+            { k: 'bold', Icon: Bold, title: t('chat.toolbarBold') },
+            { k: 'italic', Icon: Italic, title: t('chat.toolbarItalic') },
+            { k: 'link', Icon: Link2, title: t('chat.toolbarLink') },
+            { k: 'mention', Icon: AtSign, title: t('chat.toolbarMention') },
+            { k: 'code', Icon: Code, title: t('chat.toolbarCode') },
           ].map(({ k, Icon, title }) => (
             <button
               key={k}
@@ -313,12 +330,12 @@ function UnifiedChatComposer({
         {showMentionMenu && safeMentionItems.length > 0 && (
           <div
             ref={mentionMenuRef}
-            className={isDarkMode
+            className={composerDark
               ? 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
               : 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl'}
           >
-            <div className={`border-b px-3 py-2 text-xs font-semibold uppercase ${isDarkMode ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
-              Gợi ý thành viên
+            <div className={`border-b px-3 py-2 text-xs font-semibold uppercase ${composerDark ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+              {t('chat.mentionSuggestions')}
             </div>
             <div className="max-h-56 overflow-y-auto">
               {filteredMentionItems.map((item) => (
@@ -326,18 +343,38 @@ function UnifiedChatComposer({
                   key={String(item.value || item.label)}
                   type="button"
                   onClick={() => insertMention(item.label)}
-                  className={isDarkMode
+                  className={composerDark
                     ? 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80'
                     : 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100'}
                 >
                   <UserAvatar avatar={item.avatar} name={item.label} size="chip" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{item.label}</span>
+                    {item.username ? (
+                      <span className={`block truncate text-xs ${composerDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        @{item.username}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         )}
-        <div className={`flex gap-2 ${singleLine || richToolbar ? 'items-center' : 'items-end'}`}>
+        <div className={rowClassName ?? `flex gap-2 ${singleLine || richToolbar ? 'items-center' : 'items-end'}`}>
+        {safeLeadingItems.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            disabled={disabled || item.disabled}
+            onClick={item.onClick}
+            className={`${actionBtn} ${item.className || 'w-9 text-base'}`}
+            title={item.title || item.label || item.key}
+            aria-label={item.title || item.label || item.key}
+          >
+            {item.content}
+          </button>
+        ))}
         {safePlusItems.length > 0 && (
           <>
             <button
@@ -346,7 +383,7 @@ function UnifiedChatComposer({
               disabled={disabled}
               onClick={() => setShowPlusMenu((prev) => !prev)}
               className={plusBtnClass}
-              title="Thêm tiện ích"
+              title={t('chat.addUtilities')}
             >
               +
             </button>
@@ -387,7 +424,7 @@ function UnifiedChatComposer({
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
             disabled={disabled}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             className={inputClass}
             autoComplete="off"
           />
@@ -399,7 +436,7 @@ function UnifiedChatComposer({
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
             disabled={disabled}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             className={textareaClass}
           />
         )}
@@ -430,14 +467,14 @@ function UnifiedChatComposer({
                 onClick={() => onAiToggle?.(!aiEnabled)}
                 className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
                   aiEnabled
-                    ? isDarkMode
+                    ? composerDark
                       ? 'bg-cyan-600/35 text-cyan-50 ring-1 ring-cyan-500/45'
                       : 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400/50'
-                    : isDarkMode
+                    : composerDark
                       ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
                       : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
                 }`}
-                title="Gợi ý AI (beta)"
+                title={t('chat.aiSuggestBeta')}
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 AI
@@ -451,7 +488,7 @@ function UnifiedChatComposer({
               disabled={disabled || sendDisabled}
               className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-900/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {sendLabel}
+              {resolvedSendLabel}
             </button>
           )}
         </div>

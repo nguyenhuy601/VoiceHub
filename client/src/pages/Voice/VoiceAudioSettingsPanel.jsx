@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { saveVoiceAudioPrefs } from './voiceAudioPrefs';
+import { useAppStrings } from '../../locales/appStrings';
 
 const BAR_COUNT = 12;
 /** Hệ số nghe lại giọng mình — tránh hú quá to khi bật loa gần mic */
@@ -23,7 +24,7 @@ function buildMicConstraints(deviceId) {
  * Cấu hình mic / loa + kiểm tra đầu vào / đầu ra (dùng trong modal Cài đặt Voice).
  */
 export default function VoiceAudioSettingsPanel({
-  t,
+  t: tProp,
   isDarkMode = true,
   micId,
   speakerId,
@@ -37,7 +38,11 @@ export default function VoiceAudioSettingsPanel({
   active = true,
   /** Đang trong kênh voice — không giữ mic test (tránh tranh Realtek/BT với mediasoup). */
   voiceSessionActive = false,
+  /** Chỉ hiện mic, loa, hoặc cả hai (mặc định). */
+  sectionFilter = 'both',
 }) {
+  const { t: tFromHook } = useAppStrings();
+  const t = tProp ?? tFromHook;
   const [audioInputs, setAudioInputs] = useState([]);
   const [audioOutputs, setAudioOutputs] = useState([]);
   const [micTesting, setMicTesting] = useState(false);
@@ -58,11 +63,11 @@ export default function VoiceAudioSettingsPanel({
   const speakerAudioRef = useRef(null);
   const speakerOscRef = useRef(null);
 
-  const labelClass = isDarkMode ? 'text-gray-300' : 'text-slate-700';
+  const labelClass = isDarkMode ? 'text-foreground/90' : 'text-slate-700';
   const fieldClass = isDarkMode
-    ? 'w-full rounded-lg border border-white/15 bg-[#1a1a1a] px-3 py-2.5 text-sm text-white focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30'
-    : 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900';
-  const sliderClass = 'w-full accent-cyan-500';
+    ? 'w-full rounded-lg border border-white/15 bg-surface-raised px-3 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30'
+    : 'w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30';
+  const sliderClass = 'w-full accent-primary';
 
   const stopMicMonitor = useCallback(() => {
     const gain = testGainRef.current;
@@ -226,7 +231,7 @@ export default function VoiceAudioSettingsPanel({
     };
   }, [active, ensureMicPermission, refreshDevices, releaseMicCapture, stopSpeakerTest]);
 
-  /** Chỉ giữ mic khi đang bấm "Kiểm tra mic" */
+  /** Keep mic active while the mic test is running */
   useEffect(() => {
     if (voiceSessionActive && micTesting) {
       setMicTesting(false);
@@ -457,7 +462,10 @@ export default function VoiceAudioSettingsPanel({
         <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">{deviceError}</p>
       ) : null}
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div
+        className={`grid gap-6 ${sectionFilter === 'both' ? 'md:grid-cols-2' : 'max-w-xl grid-cols-1'}`}
+      >
+        {sectionFilter !== 'speaker' ? (
         <div className="space-y-4">
           <div>
             <label className={`mb-2 block text-sm font-medium ${labelClass}`}>{t('voiceRoom.micLabel')}</label>
@@ -494,7 +502,9 @@ export default function VoiceAudioSettingsPanel({
             />
           </div>
         </div>
+        ) : null}
 
+        {sectionFilter !== 'mic' ? (
         <div className="space-y-4">
           <div>
             <label className={`mb-2 block text-sm font-medium ${labelClass}`}>{t('voiceRoom.speakerLabel')}</label>
@@ -537,8 +547,10 @@ export default function VoiceAudioSettingsPanel({
             />
           </div>
         </div>
+        ) : null}
       </div>
 
+      {sectionFilter !== 'both' ? null : (
       <div
         className={`flex flex-wrap items-center gap-4 rounded-xl border px-4 py-4 ${
           isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'
@@ -583,6 +595,55 @@ export default function VoiceAudioSettingsPanel({
           {speakerTesting ? t('voiceRoom.speakerTestPlaying') : t('voiceRoom.speakerTestStart')}
         </button>
       </div>
+      )}
+      {sectionFilter === 'mic' && !voiceSessionActive ? (
+        <div
+          className={`flex flex-wrap items-center gap-4 rounded-xl border px-4 py-4 ${
+            isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={toggleMicTest}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              micTesting
+                ? 'bg-cyan-600 text-white'
+                : isDarkMode
+                  ? 'bg-cyan-600/90 text-white hover:bg-cyan-500'
+                  : 'bg-cyan-600 text-white hover:bg-cyan-500'
+            }`}
+          >
+            {micTesting ? t('voiceRoom.micTestStop') : t('voiceRoom.micTestStart')}
+          </button>
+          <div className="flex h-10 flex-1 min-w-[140px] items-end justify-center gap-1">
+            {barLevels.map((level, i) => (
+              <span
+                key={i}
+                className={`w-2 rounded-sm transition-all duration-75 ${
+                  micTesting ? 'bg-cyan-400' : isDarkMode ? 'bg-gray-600' : 'bg-slate-300'
+                }`}
+                style={{ height: `${Math.round(8 + level * 32)}px` }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {sectionFilter === 'speaker' ? (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={playSpeakerTest}
+            disabled={speakerTesting}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+              isDarkMode
+                ? 'border-white/15 text-gray-200 hover:bg-white/5 disabled:opacity-50'
+                : 'border-slate-300 text-slate-800 hover:bg-slate-100 disabled:opacity-50'
+            }`}
+          >
+            {speakerTesting ? t('voiceRoom.speakerTestPlaying') : t('voiceRoom.speakerTestStart')}
+          </button>
+        </div>
+      ) : null}
       {voiceSessionActive ? (
         <p className={`text-xs ${isDarkMode ? 'text-amber-400/90' : 'text-amber-700'}`}>
           {t('voiceRoom.micTestBlockedInCall')}

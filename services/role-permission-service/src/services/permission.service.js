@@ -1,15 +1,20 @@
 const UserRole = require('../models/UserRole');
 const Role = require('../models/Role');
 const { getRedisClient, logger } = require('@enterprise/shared');
-const axios = require('axios');
-
-const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
-
 const { isTestUnlockEnabled } = require('../utils/rbacTestUnlock');
+const {
+  materializeLegacyPermissions,
+  resolveMasterKeysForLegacyAction,
+  isValidMasterPermission,
+} = require('../config/rbacV2Catalog');
+
+let rbacV2Service;
+function getRbacV2() {
+  if (!rbacV2Service) rbacV2Service = require('./rbacV2.service');
+  return rbacV2Service;
+}
 
 class PermissionService {
-  // Kiểm tra quyền truy cập
   async checkPermission(userId, serverId, action) {
     try {
       if (isTestUnlockEnabled()) {
@@ -19,7 +24,6 @@ class PermissionService {
         };
       }
 
-      // Kiểm tra cache trước
       const redis = getRedisClient();
       if (redis) {
         const cacheKey = `permissions:${userId}:${serverId}`;
@@ -34,18 +38,43 @@ class PermissionService {
         }
       }
 
-      // Lấy roles của user trong server
+      // Union grants từ mọi gói Permission đã bind (checkPermission).
+      // Follow-up: gắn từng API vào matrix gói — hiện nhiều gate vẫn Membership/Org Role (vd. org planner).
+      // Chưa invent master key PM trong wave naming.
+      let masterGrants = [];
+      try {
+        masterGrants = await getRbacV2().collectEffectiveMasterGrants(userId, serverId);
+      } catch (e) {
+        logger.warn('[permission] collectEffectiveMasterGrants failed', e.message);
+      }
+
+      if (masterGrants.length) {
+        const actionKey = String(action || '').trim();
+        if (isValidMasterPermission(actionKey) && masterGrants.includes(actionKey)) {
+          const materialized = materializeLegacyPermissions(masterGrants);
+          if (redis) {
+            await redis.setex(`permissions:${userId}:${serverId}`, 300, JSON.stringify(materialized));
+          }
+          return { allowed: true, reason: null };
+        }
+        const needed = resolveMasterKeysForLegacyAction(actionKey);
+        if (needed.length && needed.some((k) => masterGrants.includes(k))) {
+          const materialized = materializeLegacyPermissions(masterGrants);
+          if (redis) {
+            await redis.setex(`permissions:${userId}:${serverId}`, 300, JSON.stringify(materialized));
+          }
+          return { allowed: true, reason: null };
+        }
+      }
+
+      // Fallback / also cache materialize: Role.permissions (rematerialized from groups)
       const userRoles = await UserRole.find({
         userId,
         serverId,
         isActive: true,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $gt: new Date() } },
-        ],
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       }).populate('roleId');
 
-      // Lấy tất cả permissions từ các roles
       const allPermissions = [];
       for (const userRole of userRoles) {
         if (userRole.roleId && userRole.roleId.permissions) {
@@ -53,13 +82,17 @@ class PermissionService {
         }
       }
 
-      // Kiểm tra quyền
+      // If we have master grants but legacy action didn't match via adapter, deny via master path
+      // still allow Role.permissions fallback for any rematerialized entries
       const allowed = this.hasPermission(allPermissions, action);
 
-      // Cache permissions
       if (redis) {
         const cacheKey = `permissions:${userId}:${serverId}`;
-        await redis.setex(cacheKey, 300, JSON.stringify(allPermissions)); // 5 minutes
+        const toCache =
+          masterGrants.length > 0
+            ? materializeLegacyPermissions(masterGrants)
+            : allPermissions;
+        await redis.setex(cacheKey, 300, JSON.stringify(toCache));
       }
 
       return {
@@ -75,21 +108,43 @@ class PermissionService {
     }
   }
 
-  // Kiểm tra user có permission không
   hasPermission(permissions, action) {
     if (!permissions || permissions.length === 0) {
       return false;
     }
 
-    // Parse action: "chat:read" -> { resource: "chat", action: "read" }
-    const [resource, actionType] = action.split(':');
+    const actionKey = String(action || '').trim();
+    if (isValidMasterPermission(actionKey)) {
+      // Role.permissions is legacy shape — map via reverse check of materialize
+      const neededLegacy = materializeLegacyPermissions([actionKey]);
+      for (const entry of neededLegacy) {
+        for (const perm of permissions) {
+          if (perm.resource === entry.resource || perm.resource === '*') {
+            if (
+              entry.actions.some(
+                (a) =>
+                  (perm.actions || []).includes(a) ||
+                  (perm.actions || []).includes('*') ||
+                  (perm.actions || []).includes('admin')
+              )
+            ) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    const [resource, actionType] = actionKey.split(':');
+    if (!resource || !actionType) return false;
 
     for (const perm of permissions) {
       if (perm.resource === resource || perm.resource === '*') {
         if (
-          perm.actions.includes(actionType) ||
-          perm.actions.includes('*') ||
-          perm.actions.includes('admin')
+          (perm.actions || []).includes(actionType) ||
+          (perm.actions || []).includes('*') ||
+          (perm.actions || []).includes('admin')
         ) {
           return true;
         }
@@ -99,21 +154,27 @@ class PermissionService {
     return false;
   }
 
-  // Lấy tất cả permissions của user trong server
   async getUserPermissions(userId, serverId) {
     try {
       if (isTestUnlockEnabled()) {
         return [{ resource: '*', actions: ['*'] }];
       }
 
+      let masterGrants = [];
+      try {
+        masterGrants = await getRbacV2().collectEffectiveMasterGrants(userId, serverId);
+      } catch (_) {
+        /* ignore */
+      }
+      if (masterGrants.length) {
+        return materializeLegacyPermissions(masterGrants);
+      }
+
       const userRoles = await UserRole.find({
         userId,
         serverId,
         isActive: true,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $gt: new Date() } },
-        ],
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       }).populate('roleId');
 
       const allPermissions = [];
@@ -130,7 +191,6 @@ class PermissionService {
     }
   }
 
-  // Lấy role của user trong server (cho API Gateway)
   async getUserRole(userId, serverId) {
     try {
       if (isTestUnlockEnabled()) {
@@ -147,10 +207,7 @@ class PermissionService {
         userId,
         serverId,
         isActive: true,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $gt: new Date() } },
-        ],
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       })
         .populate('roleId', 'name permissions color')
         .sort({ 'roleId.priority': -1 })
@@ -169,4 +226,3 @@ class PermissionService {
 }
 
 module.exports = new PermissionService();
-

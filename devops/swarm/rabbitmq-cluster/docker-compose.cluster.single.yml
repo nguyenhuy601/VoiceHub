@@ -1,0 +1,8 @@
+# Tạm thời giảm RAM — chỉ chạy rabbitmq-1 (seed). Khôi phục HA: RABBITMQ_CLUSTER_SIZE=3
+services:
+  rabbitmq-2:
+    deploy:
+      replicas: 0
+  rabbitmq-3:
+    deploy:
+      replicas: 0

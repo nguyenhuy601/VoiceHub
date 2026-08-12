@@ -7,6 +7,5 @@ export { useNotificationsInfinite } from './useNotificationsInfinite';
 export { useDashboardSummary } from './useDashboardSummary';
 export { useOrgShell } from './useOrgShell';
 export { useOrganizationDocumentsOverview } from './useOrganizationDocumentsOverview';
-export { useOrgChannelMessages, useInvalidateOrgChannelMessages } from './useOrgChannelMessages';
-export { useDmConversation } from './useDmConversation';
+export { useOrgChannelMessages } from './useOrgChannelMessages';
 export * from './fetchers';

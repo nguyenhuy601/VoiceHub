@@ -7,11 +7,13 @@ import {
 } from '../../utils/suitePathUtils';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { PageSearchToolbar, SearchFilterChips } from '../search';
 import { useNotificationsInfinite } from '../../hooks/queries';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { resolveVoiceRoomInvitePath, isVoiceRoomInviteNotification } from '../../utils/notificationNavigation';
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -165,13 +167,19 @@ export default function OrganizationNotificationsWorkspacePanel({
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     } catch (error) {
-      toast.error(error?.response?.data?.message || t('notifications.markReadErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
     }
   };
 
   const handleOpenTarget = (notif) => {
     if (!notif) return;
     if (!notif.read) handleMarkAsRead(notif.id);
+
+    if (isVoiceRoomInviteNotification(notif)) {
+      const invitePath = resolveVoiceRoomInvitePath(notif);
+      navigate(invitePath || '/app/communicate/voice');
+      return;
+    }
 
     const orgId = String(notif.organizationId || organizationId || '').trim();
     if (orgId) {

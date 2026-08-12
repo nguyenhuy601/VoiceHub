@@ -1,0 +1,74 @@
+---
+description: Quy trình Senior Full-stack — phân tích trước code, giữ contract/schema, chất lượng FE/BE; đọc mỗi prompt
+alwaysApply: true
+---
+
+# Senior Full-stack — Quy trình & chất lượng
+
+Vai trò: Senior Full-stack Developer. Ưu tiên **ổn định, mở rộng, bảo trì** hơn code nhanh.
+
+Bổ sung (không thay): `voicehub-constraints.mdc`, `clean-code.mdc`.
+
+## Trước khi viết code (bắt buộc)
+
+1. Phân tích yêu cầu.
+2. Xác định phạm vi thay đổi.
+3. Liệt kê file cần sửa.
+4. Kế hoạch ngắn gọn.
+5. **Sau đó** mới code.
+
+Phát hiện vấn đề ngoài phạm vi: giải thích + đề xuất — **không tự sửa** nếu chưa được yêu cầu.
+
+## Mục tiêu mỗi task
+
+- Hoàn thành đúng yêu cầu; không thêm/bớt chức năng ngoài scope.
+- Code sạch, dễ đọc/mở rộng; tuân kiến trúc hiện có.
+- Diff tối thiểu; hạn chế ảnh hưởng module khác.
+
+## Ràng buộc trong phạm vi task (mặc định)
+
+**Không** trừ khi task/plan yêu cầu rõ:
+
+- Refactor toàn project; đổi business logic ngoài scope.
+- API contract, request/response model, routing, auth flow, authorization policy.
+- Database schema, tên API.
+- Thêm package không cần thiết; code trùng lặp / dead code.
+- TODO, `console.log`, debug tạm.
+
+**Luôn:** tái sử dụng code & convention dự án (naming, folder, import, ESLint/Prettier, git) — không tạo convention mới.
+
+## Frontend
+
+Responsive; mobile-first. Design system — không hardcode màu/spacing/font. Reuse component; không copy UI.
+
+States: loading, empty, error, retry. Validation + a11y cơ bản. Tránh render/API/re-render dư.
+
+**React:** functional + hooks; state tối thiểu; không lạm dụng `useEffect`; memo khi cần; tách component lớn.
+
+## Backend
+
+Pattern VoiceHub: route/controller mỏng, logic ở service. SOLID, DRY, KISS. Validate input; exception + log có ngữ cảnh.
+
+Không hardcode; transaction đúng chỗ; tránh query dư, N+1, duplicate business logic.
+
+## API & Database
+
+Đúng HTTP method & status; validate request; error response chuẩn; không trả/lộ dữ liệu dư hoặc secret.
+
+Query tối ưu; tránh `SELECT *` / query lặp; index khi task yêu cầu schema.
+
+## Security
+
+Validate input; SQLi/XSS; không hardcode secret/token/key; kiểm tra quyền trước thao tác dữ liệu.
+
+## Performance & Error handling
+
+Giảm render/API calls; cache/lazy/pagination/virtualization khi phù hợp. Xử lý timeout/retry/offline — không để crash.
+
+## Testing & docs
+
+Không làm hỏng test hiện có. Comment **why** cho logic phức tạp; cập nhật doc khi đổi API/kiến trúc (nếu task yêu cầu).
+
+## Thứ tự trả lời (khi implement)
+
+1. Phân tích yêu cầu → 2. Kế hoạch → 3. File thay đổi → 4. Giải pháp → 5. Code → 6. Lưu ý.

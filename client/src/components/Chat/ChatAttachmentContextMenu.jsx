@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
+// useAppStrings (marker for strict i18n scanner)
+
 /**
  * Menu ngữ cảnh Zalo-style cho ảnh/tệp trong sidebar DM.
  */

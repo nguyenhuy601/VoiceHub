@@ -45,8 +45,15 @@ class WebhookPayload(BaseModel):
         return self.model_dump(exclude_none=False)
 
 # Webhook secret for authentication — phải trùng WEBHOOK_SECRET trên friend-service / các service gọi webhook
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-webhook-secret-key-change-this-in-production")
+_DEFAULT_WEBHOOK_SECRET = "your-webhook-secret-key-change-this-in-production"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", _DEFAULT_WEBHOOK_SECRET)
 NOTIFICATION_SERVICE_URL = os.environ["NOTIFICATION_SERVICE_URL"].strip().rstrip("/")
+
+if os.getenv("NODE_ENV") == "production" or os.getenv("ENV") == "production":
+    if not WEBHOOK_SECRET or WEBHOOK_SECRET == _DEFAULT_WEBHOOK_SECRET:
+        raise RuntimeError(
+            "WEBHOOK_SECRET must be set to a strong non-default value in production"
+        )
 
 
 async def verify_webhook_secret(x_webhook_secret: Optional[str] = Header(None)):

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Smile } from 'lucide-react';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Chỉnh sửa tin nhắn trực tiếp trên dòng (Discord-like).
@@ -13,13 +14,18 @@ export default function OrgMessageInlineEditor({
   onCancel,
   isDarkMode = true,
   saving = false,
-  escapeHint = 'nhấn escape để',
-  enterHint = 'nhấn enter để',
-  cancelLabel = 'hủy',
-  saveLabel = 'lưu',
+  escapeHint,
+  enterHint,
+  cancelLabel,
+  saveLabel,
 }) {
+  const { t } = useAppStrings();
   const inputRef = useRef(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const escapeHintText = escapeHint || t('friendChat.editEscape');
+  const enterHintText = enterHint || t('friendChat.editEnter');
+  const cancelText = cancelLabel || t('friendChat.editCancel');
+  const saveText = saveLabel || t('friendChat.editSave');
 
   useEffect(() => {
     const el = inputRef.current;
@@ -75,12 +81,12 @@ export default function OrgMessageInlineEditor({
           rows={1}
           disabled={saving}
           className={`max-h-40 min-h-[34px] flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none ${inputCls}`}
-          aria-label="Chỉnh sửa tin nhắn"
+          aria-label={t('friendChat.editMessageAria')}
         />
         <div className="relative shrink-0 self-end pb-1">
           <button
             type="button"
-            title="Emoji"
+            title={t('friendChat.emojiTab')}
             disabled={saving}
             onClick={() => setEmojiOpen((v) => !v)}
             className={`flex h-8 w-8 items-center justify-center rounded-md transition ${iconBtnCls} disabled:opacity-40`}
@@ -91,7 +97,7 @@ export default function OrgMessageInlineEditor({
             <>
               <button
                 type="button"
-                aria-label="Đóng emoji"
+                aria-label={t('friendChat.closeEmoji')}
                 className={`${shellNavRailBackdrop} z-[60] cursor-default bg-transparent`}
                 onClick={() => setEmojiOpen(false)}
               />
@@ -120,14 +126,14 @@ export default function OrgMessageInlineEditor({
         </div>
       </div>
       <p className={`text-[11px] leading-snug ${hintCls}`}>
-        {escapeHint}{' '}
+        {escapeHintText}{' '}
         <button type="button" className={linkCls} onClick={onCancel} disabled={saving}>
-          {cancelLabel}
+          {cancelText}
         </button>
         <span className="mx-1 opacity-60">·</span>
-        {enterHint}{' '}
+        {enterHintText}{' '}
         <button type="button" className={linkCls} onClick={onSave} disabled={saving}>
-          {saving ? '…' : saveLabel}
+          {saving ? '…' : saveText}
         </button>
       </p>
     </div>

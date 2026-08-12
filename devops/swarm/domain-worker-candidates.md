@@ -1,7 +1,7 @@
 # Domain Worker Candidates (b4)
 
 ## Priority 1 (implemented)
-- `task-worker`
+- `project-worker`
 - `ai-task-extract-worker`
 - `ai-task-sync-worker`
 - `notification-dispatch-worker`

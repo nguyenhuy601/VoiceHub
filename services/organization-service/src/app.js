@@ -27,6 +27,12 @@ const channelRoutes = require('./routes/channelRoutes');
 const hierarchyRoutes = require('./routes/hierarchyRoutes');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const internalOrganizationRoutes = require('./routes/internalOrganization.routes');
+const memberController = require('./controllers/memberController');
+
+/** Public — xác nhận email lời mời công ty (không JWT) */
+app.post('/api/organizations/company-invites/accept', (req, res, next) => {
+  Promise.resolve(memberController.acceptCompanyInvite(req, res, next)).catch(next);
+});
 
 app.use('/api/organizations/internal', internalGatewayAuth, internalOrganizationRoutes);
 app.use('/api/organizations', organizationRoutes);

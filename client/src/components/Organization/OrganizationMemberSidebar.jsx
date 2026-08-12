@@ -14,6 +14,7 @@ import userService from '../../services/userService';
 import friendService from '../../services/friendService';
 import { ConfirmDialog } from '../Shared';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useTheme } from '../../context/ThemeContext';
 import { shellNavRailBackdrop, shellNavRailMenuBackdropZ } from '../../theme/shellTheme';
 import OrgWorkspaceSearchSidebar from '../../features/search/components/OrgWorkspaceSearchSidebar';
@@ -21,6 +22,16 @@ import OrgMemberSidebarAttachments from '../../features/orgAttachments/OrgMember
 import UserAvatar from '../Shared/UserAvatar';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
 import { usePresenceSubscribe } from '../../hooks/usePresenceSubscribe';
+import { enrichMembershipsWithProfiles } from '../../features/search/enrichOrgMembers';
+import {
+  FIGMA_ORG_MEMBER_SIDEBAR_HEAD,
+  FIGMA_ORG_MEMBER_SIDEBAR_ROOT,
+  FIGMA_ORG_MEMBER_SIDEBAR_SUB,
+  FIGMA_ORG_MEMBER_SIDEBAR_TITLE,
+  FIGMA_ORG_MEMBER_TAB_BTN,
+  FIGMA_ORG_MEMBER_TAB_BTN_ACTIVE,
+  FIGMA_ORG_MEMBER_TAB_STRIP,
+} from './figmaOrganizationClasses';
 
 const unwrapBody = (payload) => payload?.data ?? payload;
 
@@ -74,43 +85,7 @@ async function fetchMembersWithRolesBundle(orgId) {
 }
 
 async function enrichMembersWithProfiles(members, memberFallback) {
-  const out = await Promise.all(
-    members.map(async (m) => {
-      const uid = memberUserId(m);
-      let displayName = uid.slice(-6) || memberFallback;
-      let avatar = null;
-      let username = null;
-      if (uid) {
-        try {
-          const res = await userService.getProfile(uid);
-          const u = unwrapBody(res)?.data ?? unwrapBody(res);
-          const profile = u?.data ?? u;
-          displayName =
-            profile?.displayName ||
-            profile?.fullName ||
-            profile?.username ||
-            profile?.email?.split('@')[0] ||
-            displayName;
-          avatar = profile?.avatar || null;
-          username = profile?.username || null;
-        } catch {
-          /* giữ mặc định */
-        }
-      }
-      return {
-        membershipId: String(m._id),
-        userId: uid,
-        role: String(m.role || 'member').toLowerCase(),
-        divisionId: m?.division ? String(m.division) : '',
-        departmentId: m?.department ? String(m.department) : '',
-        teamId: m?.team ? String(m.team) : '',
-        displayName,
-        username,
-        avatar,
-      };
-    })
-  );
-  return out;
+  return enrichMembershipsWithProfiles(members, { fallback: memberFallback });
 }
 
 /**
@@ -397,7 +372,7 @@ function OrganizationMemberSidebar({
             })
             .map((card) => ({
               _id: String(card?._id || ''),
-              title: String(card?.title || '').trim() || 'Untitled',
+              title: String(card?.title || '').trim() || t('organizations.memberSidebarTaskUntitled'),
               status: String(card?.status || 'todo'),
               dueDate: card?.dueDate || null,
               listTitle: listsMap.get(String(card?.listId || '')) || '',
@@ -423,7 +398,7 @@ function OrganizationMemberSidebar({
             });
             return {
               teamId,
-              teamName: teamNameById.get(teamId) || 'Team chưa xác định',
+              teamName: teamNameById.get(teamId) || t('organizations.memberSidebarTeamUnknown'),
               tasks: sorted,
             };
           })
@@ -433,7 +408,9 @@ function OrganizationMemberSidebar({
       } catch (err) {
         if (cancelled) return;
         setTeamTaskSections([]);
-        setSidebarTasksError(err?.response?.data?.message || 'Không tải được danh sách việc cần làm');
+        setSidebarTasksError(
+          resolveApiErrorMessage(err, { t, fallback: t('organizations.memberSidebarTasksLoadError') })
+        );
       } finally {
         if (!cancelled) setLoadingSidebarTasks(false);
       }
@@ -534,7 +511,7 @@ function OrganizationMemberSidebar({
   const groupedByMembershipRole = useMemo(() => {
     const roleLabel = {
       owner: t('organizations.memberGroupManagement'),
-      admin: t('organizations.memberGroupLeads'),
+      admin: t('organizations.memberGroupAdmins'),
       member: t('organizations.memberGroupMembers'),
     };
     const buckets = { owner: [], admin: [], member: [] };
@@ -795,23 +772,16 @@ function OrganizationMemberSidebar({
         toast.success(t('organizations.toastBlocked'));
       }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        (memberConfirm.type === 'remove' ? t('organizations.toastRemoveFail') : t('organizations.toastBlockFail'));
-      toast.error(
-        typeof msg === 'string'
-          ? msg
-          : memberConfirm.type === 'remove'
-            ? t('organizations.toastRemoveFail')
-            : t('organizations.toastBlockFail')
-      );
+      const fallback =
+        memberConfirm.type === 'remove' ? t('organizations.toastRemoveFail') : t('organizations.toastBlockFail');
+      toast.error(resolveApiErrorMessage(err, { t, fallback }));
     }
   }, [memberConfirm, organizationId, onMemberRemoved, t]);
 
   const mentionText = (m) => {
-    const tag = m.username || String(m.displayName || 'user').replace(/\s+/g, '_');
+    const display = String(m.displayName || m.name || '').trim();
+    if (display) return `@${display} `;
+    const tag = m.username || String(m.displayName || m.name || 'user').replace(/\s+/g, '_');
     return `@${tag} `;
   };
 
@@ -930,23 +900,26 @@ function OrganizationMemberSidebar({
           if (placementSync?.success) {
             toast.success(
               isSelected
-                ? 'Đã gỡ vai trò và cập nhật danh sách member theo scope'
-                : 'Đã gán vai trò và thêm member vào scope tương ứng'
+                ? t('organizations.memberRoleSyncRemovedOk')
+                : t('organizations.memberRoleSyncAssignedOk')
             );
           } else {
             toast.error(
               isSelected
-                ? 'Đã gỡ vai trò nhưng chưa đồng bộ member theo scope'
-                : 'Đã gán vai trò nhưng chưa đồng bộ member theo scope'
+                ? t('organizations.memberRoleSyncRemovedPartial')
+                : t('organizations.memberRoleSyncAssignedPartial')
             );
           }
         } else {
-          toast.success(isSelected ? 'Đã gỡ vai trò thành công' : 'Đã gán vai trò thành công');
+          toast.success(
+            isSelected
+              ? t('organizations.memberRoleRemovedOk')
+              : t('organizations.memberRoleAssignedOk')
+          );
         }
       } catch (err) {
         setRolesSubmenu((prev) => ({ ...prev, busyRoleId: '' }));
-        const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Không thể cập nhật vai trò';
-        toast.error(typeof msg === 'string' ? msg : 'Không thể cập nhật vai trò');
+        toast.error(resolveApiErrorMessage(err, { t, fallback: t('organizations.memberRoleUpdateFail') }));
       }
     },
     [canManageRoleAssignments, organizationId, rolesSubmenu]
@@ -1092,9 +1065,7 @@ function OrganizationMemberSidebar({
                     await friendService.sendRequest(m.userId);
                     toast.success(t('organizations.toastFriendSent'));
                   } catch (err) {
-                    const msg =
-                      err?.response?.data?.message || err?.response?.data?.error || err?.message;
-                    toast.error(typeof msg === 'string' ? msg : t('organizations.toastFriendFail'));
+                    toast.error(resolveApiErrorMessage(err, { t, fallback: t('organizations.toastFriendFail') }));
                   }
                 }}
               >
@@ -1130,7 +1101,7 @@ function OrganizationMemberSidebar({
             onClick={() => {
               if (!canManageRoleAssignments) {
                 closeMenu();
-                toast('Bạn không có quyền gán vai trò', { icon: '🔒' });
+                toast(t('organizations.memberRoleNoPermission'), { icon: '🔒' });
                 return;
               }
               openRolesSubmenu(menu.member);
@@ -1164,15 +1135,15 @@ function OrganizationMemberSidebar({
             style={{ left: rolesSubmenu.x, top: rolesSubmenu.y, maxHeight: 'min(70vh, 360px)' }}
           >
             <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#9ca3af]">
-              Vai trò của {rolesSubmenu.member.displayName}
+              {t('organizations.memberRoleOf', { name: rolesSubmenu.member.displayName })}
             </div>
             <div className="my-1 border-t border-white/10" />
             {!canManageRoleAssignments ? (
-              <p className="px-3 py-2 text-xs text-gray-400">Bạn không có quyền gán vai trò.</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground">{t('organizations.memberRoleNoPermissionFull')}</p>
             ) : organizationRoles.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-gray-400">Chưa có vai trò tùy chỉnh.</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground">{t('organizations.memberRoleNoCustom')}</p>
             ) : rolesSubmenu.loading ? (
-              <p className="px-3 py-2 text-xs text-gray-400">Đang tải danh sách vai trò...</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground">{t('organizations.memberRoleLoading')}</p>
             ) : (
               <div className="max-h-[290px] overflow-y-auto scrollbar-overlay">
                 {organizationRoles.map((role) => {
@@ -1227,7 +1198,7 @@ function OrganizationMemberSidebar({
           >
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h4 className="text-sm font-semibold">Chi tiết đơn xét duyệt</h4>
+                <h4 className="text-sm font-semibold">{t('organizations.joinReviewDetailTitle')}</h4>
                 <p className={`mt-1 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
                   {selectedJoinApplication.submittedAt
                     ? new Date(selectedJoinApplication.submittedAt).toLocaleString()
@@ -1239,19 +1210,19 @@ function OrganizationMemberSidebar({
                 onClick={() => setSelectedJoinApplication(null)}
                 className={`rounded-md px-2 py-1 text-xs ${isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'}`}
               >
-                Đóng
+                {t('organizations.modalClose')}
               </button>
             </div>
 
             <div className={`space-y-2 rounded-lg border p-3 text-xs ${
               isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'
             }`}>
-              <div><span className="font-semibold">Tên:</span>{' '}
+              <div><span className="font-semibold">{t('common.name')}:</span>{' '}
                 {selectedJoinApplication?.applicantSnapshot?.fullName ||
                   selectedJoinApplication?.applicantSnapshot?.username ||
                   selectedJoinApplication?.applicantSnapshot?.email ||
                   selectedJoinApplication?.applicantUser ||
-                  'Unknown'}
+                  t('common.user')}
               </div>
               {!!selectedJoinApplication?.applicantSnapshot?.email && (
                 <div><span className="font-semibold">Email:</span> {selectedJoinApplication.applicantSnapshot.email}</div>
@@ -1260,14 +1231,14 @@ function OrganizationMemberSidebar({
                 <div><span className="font-semibold">Username:</span> {selectedJoinApplication.applicantSnapshot.username}</div>
               )}
               <div className={isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}>
-                <span className="font-semibold">ID:</span> {selectedJoinApplication?.applicantUser || 'Unknown'}
+                <span className="font-semibold">ID:</span> {selectedJoinApplication?.applicantUser || t('common.user')}
               </div>
             </div>
 
             {selectedJoinApplication?.answers && Object.keys(selectedJoinApplication.answers).length > 0 && (
               <div className="mt-3">
                 <div className={`mb-1 text-xs font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                  Câu trả lời
+                  {t('organizations.joinReviewAnswers')}
                 </div>
                 <div className={`max-h-48 space-y-1 overflow-y-auto rounded-lg border p-2 text-xs ${
                   isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-white'
@@ -1295,7 +1266,7 @@ function OrganizationMemberSidebar({
                 }
                 className="rounded-md border border-rose-500/60 px-3 py-1.5 text-xs font-semibold text-rose-300 disabled:opacity-50"
               >
-                Từ chối
+                {t('organizations.rejectBtnShort')}
               </button>
               <button
                 type="button"
@@ -1308,7 +1279,7 @@ function OrganizationMemberSidebar({
                 }
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
               >
-                Duyệt
+                {t('organizations.approveBtn')}
               </button>
             </div>
           </div>
@@ -1343,22 +1314,29 @@ function OrganizationMemberSidebar({
               className={`rounded-md px-2 py-1 text-xs ${isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'}`}
               onClick={() => setMemberCard((prev) => ({ ...prev, open: false }))}
             >
-              Đóng
+              {t('organizations.modalClose')}
             </button>
           </div>
           <div className="mt-2.5">
             <h4 className="text-[24px] font-bold leading-none">{memberCard.member.displayName}</h4>
-            <p className={`mt-1 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+            <p className={`mt-1 text-sm ${isDarkMode ? 'text-muted-foreground' : 'text-slate-600'}`}>
               {memberCard.profile?.username || memberCard.member.username || ''}
             </p>
             <p className={`mt-1 text-sm ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
               {memberCard.loading
-                ? 'Đang tải hồ sơ...'
-                : memberCard.profile?.pronouns || memberCard.profile?.pronoun || 'Chưa đặt đại từ danh xưng'}
+                ? t('organizations.memberProfileLoading')
+                : memberCard.profile?.pronouns ||
+                  memberCard.profile?.pronoun ||
+                  t('organizations.memberProfilePronounUnset')}
             </p>
-            <p className={`mt-2 text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-              {(Number(memberCard.profile?.mutualFriendsCount) || 0)} bạn chung •{' '}
-              {(Number(memberCard.profile?.mutualOrganizationsCount) || 1)} máy chủ chung
+            <p className={`mt-2 text-sm ${isDarkMode ? 'text-muted-foreground' : 'text-slate-600'}`}>
+              {t('organizations.memberMutualFriends', {
+                count: Number(memberCard.profile?.mutualFriendsCount) || 0,
+              })}{' '}
+              •{' '}
+              {t('organizations.memberMutualServers', {
+                count: Number(memberCard.profile?.mutualOrganizationsCount) || 1,
+              })}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1377,7 +1355,9 @@ function OrganizationMemberSidebar({
                 </span>
               ))}
               {!memberCard.loading && memberCard.assignedRoleNames.length === 0 && (
-                <span className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Chưa gán role tùy chỉnh</span>
+                <span className={`text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
+                  {t('organizations.memberRoleCustomUnset')}
+                </span>
               )}
             </div>
           </div>
@@ -1391,18 +1371,20 @@ function OrganizationMemberSidebar({
                 }}
                 className="w-full rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
               >
-                Sửa hồ sơ
+                {t('organizations.memberEditProfile')}
               </button>
             ) : (
               <div className="space-y-2">
                 <input
                   value={memberCard.quickMessage}
                   onChange={(e) => setMemberCard((prev) => ({ ...prev, quickMessage: e.target.value }))}
-                  placeholder={`Nhắn tin @${memberCard.member.displayName}`}
+                  placeholder={t('organizations.memberQuickMessagePlaceholder', {
+                    name: memberCard.member.displayName,
+                  })}
                   className={`w-full rounded-xl border px-3 py-2 text-sm outline-none ${
                     isDarkMode
                       ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-indigo-400/70'
-                      : 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                      : 'border-slate-300 bg-white text-slate-900 placeholder:text-muted-foreground focus:border-indigo-500'
                   }`}
                 />
                 <button
@@ -1410,7 +1392,7 @@ function OrganizationMemberSidebar({
                   onClick={handleQuickMessageSubmit}
                   className="w-full rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
                 >
-                  Chat nhanh
+                  {t('organizations.memberQuickChat')}
                 </button>
               </div>
             )}
@@ -1425,24 +1407,14 @@ function OrganizationMemberSidebar({
       key={id}
       type="button"
       onClick={() => setSidebarTab(id)}
-      className={`min-w-0 flex-1 rounded-lg px-1.5 py-2 text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-        sidebarTab === id
-          ? isDarkMode
-            ? 'bg-[#4F6BED]/15 text-[#F3F4F6] ring-1 ring-[#4F6BED]/30'
-            : 'bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200'
-          : isDarkMode
-            ? 'text-[#8e9297] hover:bg-white/[0.04] hover:text-white'
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+      className={`min-w-0 flex-1 ${FIGMA_ORG_MEMBER_TAB_BTN} ${
+        sidebarTab === id ? FIGMA_ORG_MEMBER_TAB_BTN_ACTIVE : ''
       }`}
     >
       <span className="inline-flex items-center gap-1">
         <span>{label}</span>
         {badgeCount > 0 && (
-          <span
-            className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
-              isDarkMode ? 'bg-rose-500/25 text-rose-100' : 'bg-rose-100 text-rose-800'
-            }`}
-          >
+          <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-bold text-destructive">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
@@ -1471,31 +1443,18 @@ function OrganizationMemberSidebar({
   }
 
   return (
-    <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl ${isDarkMode ? 'bg-[#11141C]' : 'bg-white'}`}
-    >
-      <div
-        className={`shrink-0 rounded-t-xl border-b px-3 py-2.5 ${isDarkMode ? 'border-white/[0.06]' : 'border-slate-200/80'}`}
-      >
-        <div
-          className={`truncate text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-          title={organizationName}
-        >
+    <div className={FIGMA_ORG_MEMBER_SIDEBAR_ROOT}>
+      <div className={FIGMA_ORG_MEMBER_SIDEBAR_HEAD}>
+        <div className={FIGMA_ORG_MEMBER_SIDEBAR_TITLE} title={organizationName}>
           {organizationName || t('organizations.memberSidebarOrgFallback')}
         </div>
-        <p
-          className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
-        >
+        <p className={FIGMA_ORG_MEMBER_SIDEBAR_SUB}>
           {t('organizations.memberSidebarSubtitle')}
         </p>
       </div>
 
       {showSidebarTabs ? (
-        <div
-          className={`grid shrink-0 grid-cols-2 gap-1 border-b px-2 py-2 sm:grid-cols-4 ${
-            isDarkMode ? 'border-white/[0.06] bg-[#0F1117]' : 'border-slate-200 bg-slate-50'
-          }`}
-        >
+        <div className={FIGMA_ORG_MEMBER_TAB_STRIP}>
           {tabBtn('people', t('organizations.memberSidebarTabPeople'), pendingReviewCount)}
           {tabBtn('activity', t('organizations.memberSidebarTabActivity'))}
           {canShowTasksTab && tabBtn('tasks', t('organizations.memberSidebarTabTasks'))}
@@ -1534,7 +1493,7 @@ function OrganizationMemberSidebar({
               <p
                 className={`py-6 text-center text-xs ${isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'}`}
               >
-                Không có việc cần làm phù hợp. Bạn chỉ thấy task được giao cho bạn hoặc task public của team.
+                {t('organizations.memberSidebarTasksNoMatch')}
               </p>
             ) : (
               teamTaskSections.map((section) => (
@@ -1570,9 +1529,13 @@ function OrganizationMemberSidebar({
                               isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'
                             }`}
                           >
-                            <span className="truncate">{task.boardTitle || 'Task Board'}</span>
+                            <span className="truncate">
+                              {task.boardTitle || t('organizations.memberSidebarTaskBoardFallback')}
+                            </span>
                             <span className={isMine ? 'text-emerald-400' : ''}>
-                              {isMine ? 'Được giao cho bạn' : 'Public team'}
+                              {isMine
+                                ? t('organizations.memberSidebarTaskAssignedToYou')
+                                : t('organizations.memberSidebarTaskPublicTeam')}
                             </span>
                           </div>
                           <div
@@ -1580,8 +1543,12 @@ function OrganizationMemberSidebar({
                               isDarkMode ? 'text-[#6d7380]' : 'text-slate-500'
                             }`}
                           >
-                            <span className="truncate">{task.listTitle || 'Không có danh sách'}</span>
-                            <span>{formatTaskDueDate(task.dueDate) || 'Không hạn'}</span>
+                            <span className="truncate">
+                              {task.listTitle || t('organizations.memberSidebarTaskListNone')}
+                            </span>
+                            <span>
+                              {formatTaskDueDate(task.dueDate) || t('organizations.memberSidebarTaskNoDeadline')}
+                            </span>
                           </div>
                         </li>
                       );
@@ -1638,9 +1605,9 @@ function OrganizationMemberSidebar({
                 }`}
               >
                 {section.key === 'on'
-                  ? `ĐANG ONLINE - ${section.items.length}`
+                  ? t('organizations.memberSidebarOnlineCount', { count: section.items.length })
                   : section.key === 'off'
-                    ? `NGOẠI TUYẾN - ${section.items.length}`
+                    ? t('organizations.memberSidebarOfflineCount', { count: section.items.length })
                     : t('organizations.memberSidebarMemberLine', {
                         title: section.title,
                         count: section.items.length,
@@ -1701,7 +1668,7 @@ function OrganizationMemberSidebar({
                 isDarkMode ? 'bg-[#0a0c12]/95 text-[#6d7380]' : 'bg-sky-50/95 text-slate-500'
               }`}
             >
-              Danh sách đang chờ xét duyệt ({pendingReviewCount})
+              {t('organizations.memberJoinPendingTitle', { count: pendingReviewCount })}
             </div>
             {loadingJoinApplicationsToReview ? (
               <div className="space-y-2">
@@ -1710,7 +1677,7 @@ function OrganizationMemberSidebar({
               </div>
             ) : pendingReviewCount === 0 ? (
               <p className={`px-1 py-2 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                Không có đơn chờ xét duyệt.
+                {t('organizations.memberJoinPendingEmpty')}
               </p>
             ) : (
               <ul className="space-y-2">
@@ -1721,7 +1688,7 @@ function OrganizationMemberSidebar({
                     app?.applicantSnapshot?.username ||
                     app?.applicantSnapshot?.email ||
                     app?.applicantUser ||
-                    'Unknown';
+                    t('common.user');
                   return (
                     <li
                       key={key}

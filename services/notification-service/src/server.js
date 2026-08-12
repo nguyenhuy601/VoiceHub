@@ -2,11 +2,11 @@ require('dotenv').config();
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/shared');
 const {
-  startNotificationDispatchWorker,
+  runNotificationDispatchWorkerLoop,
   stopNotificationDispatchWorker,
 } = require('./workers/notificationDispatch.worker');
 const {
-  startOrgEventsConsumer,
+  runOrgEventsConsumerLoop,
   stopOrgEventsConsumer,
 } = require('./workers/orgEventsConsumer');
 
@@ -18,13 +18,9 @@ connectDB()
     // Kết nối Redis
     connectRedis();
 
-    startNotificationDispatchWorker().catch((err) => {
-      logger.error('notificationDispatchWorker failed:', err.message);
-    });
+    runNotificationDispatchWorkerLoop();
 
-    startOrgEventsConsumer().catch((err) => {
-      logger.error('orgEventsConsumer failed:', err.message);
-    });
+    runOrgEventsConsumerLoop();
 
     // Khởi động server
     const server = app.listen(PORT, () => {

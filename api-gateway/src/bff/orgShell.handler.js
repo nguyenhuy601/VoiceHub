@@ -1,6 +1,7 @@
 const { bffCachedRead } = require('./bffRead');
 const { shellCacheKey } = require('./cache');
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
 const TTL_SEC = Math.min(
   180,
@@ -55,10 +56,19 @@ async function handleOrgShell(req, res) {
   } catch (error) {
     const status = error.statusCode || 500;
     console.error('[bff:orgShell] error:', error.message);
-    return res.status(status).json({
-      status: 'fail',
-      success: false,
+    if (status >= 500) {
+      return sendApiError(res, status, {
+        errorCode: 'GATEWAY_INTERNAL_ERROR',
+        message: 'Org shell failed',
+        messageUser: GENERIC_5XX_MESSAGE,
+        extra: { status: 'fail' },
+      });
+    }
+    return sendApiError(res, status, {
+      errorCode: error.errorCode || 'GATEWAY_INTERNAL_ERROR',
       message: error.message || 'Org shell failed',
+      messageUser: error.messageUser || error.message || 'Org shell failed',
+      extra: { status: 'fail' },
     });
   }
 }

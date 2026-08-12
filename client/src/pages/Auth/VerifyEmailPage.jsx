@@ -8,6 +8,8 @@ import { authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { readAuthTokenFromUrl } from '../../utils/authUrlToken';
 
 function VerifyEmailPage() {
   const navigate = useNavigate();
@@ -16,7 +18,7 @@ function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [verified, setVerified] = useState(false);
-  const token = searchParams.get('token');
+  const token = readAuthTokenFromUrl(searchParams);
   const mode = String(searchParams.get('mode') || '').trim().toLowerCase();
   const isEmailChangeMode = mode === 'email-change' || window.location.pathname === '/verify-email-change';
   const hasRunRef = useRef(false);
@@ -71,7 +73,10 @@ function VerifyEmailPage() {
           }, 2000);
         }
       } catch (error) {
-        const errorMessage = error?.message || t('verifyEmail.verifyFailedGeneric');
+        const errorMessage = resolveApiErrorMessage(error, {
+          t,
+          fallback: t('verifyEmail.verifyFailedGeneric'),
+        });
         toast.error(`${t('verifyEmail.verifyFailedPrefix')} ${errorMessage}`);
         setTimeout(() => {
           navigate('/register', { state: { error: errorMessage } });

@@ -1,81 +1,44 @@
-import { useMemo } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import NavigationSidebar from '../../components/Layout/NavigationSidebar';
-import { useTheme } from '../../context/ThemeContext';
-import { appShellBg } from '../../theme/shellTheme';
-import JoinApplicationForm from '../../components/Organization/JoinApplicationForm';
+import { Building2 } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  FIGMA_PAGE_CARD,
+  FIGMA_PAGE_INNER,
+  FIGMA_PAGE_SHELL,
+  FIGMA_PAGE_SUBTITLE,
+  FIGMA_PAGE_TITLE,
+} from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
-/**
- * Trang điền đơn gia nhập workspace (thay cho modal).
- * Đường dẫn: /workspaces/join/:orgId?name=Tên+TC
- */
-export default function JoinApplicationPage({ suiteLayout = false } = {}) {
-  const { isDarkMode } = useTheme();
+/** Luồng đơn gia nhập đã bỏ — giữ route để bookmark cũ không 404. */
+export default function JoinApplicationPage() {
   const { t } = useAppStrings();
-  const shell = isDarkMode ? 'flex min-h-screen bg-[#0b0e14]' : `flex min-h-screen ${appShellBg(false)}`;
   const { orgId } = useParams();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
-  const organizationName = useMemo(() => {
-    const raw = searchParams.get('name') || '';
-    try {
-      return decodeURIComponent(raw);
-    } catch {
-      return raw;
-    }
-  }, [searchParams]);
-
-  const handleSubmitted = () => {
-    toast.success(t('joinApplication.toastSent'));
-    navigate('/app/collaborate/workspaces', { replace: true });
-  };
-
-  const handleCancel = () => {
-    navigate('/app/collaborate/workspaces');
-  };
-
-  if (!orgId) {
-    return (
-      <div className={shell}>
-        {!suiteLayout && <NavigationSidebar />}
-        <main className={`flex flex-1 items-center justify-center p-6 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-          {t('joinApplication.missingOrgId')}
-        </main>
-      </div>
-    );
-  }
+  const shell = `flex h-full ${FIGMA_PAGE_SHELL} text-foreground`;
 
   return (
     <div className={shell}>
-      {!suiteLayout && <NavigationSidebar />}
-      <main className="flex flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 md:py-12">
+      <div className={`mx-auto flex w-full max-w-lg flex-col justify-center ${FIGMA_PAGE_INNER}`}>
+        <div className={`${FIGMA_PAGE_CARD} p-8 text-center`}>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+            <Building2 className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <h1 className={FIGMA_PAGE_TITLE}>{t('joinApplication.removedTitle')}</h1>
+          <p className={`mt-2 ${FIGMA_PAGE_SUBTITLE}`}>
+            {t('joinApplication.removedBody')}
+          </p>
           <button
             type="button"
-            onClick={handleCancel}
-            className="mb-6 text-sm text-cyan-400/90 hover:text-cyan-300 hover:underline"
+            className="mt-6 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            onClick={() => navigate('/app/collaborate/workspaces', { replace: true })}
           >
             {t('joinApplication.backToOrgs')}
           </button>
-          <div className="rounded-2xl border border-white/[0.08] bg-[#12151c] p-6 shadow-xl md:p-8">
-            <h1 className="mb-1 text-2xl font-bold text-white">{t('joinApplication.title')}</h1>
-            {organizationName ? (
-              <p className="mb-2 text-lg font-semibold text-[#a29bfe]">{organizationName}</p>
-            ) : null}
-            <p className="mb-6 text-sm text-gray-400">{t('joinApplication.hint')}</p>
-            <JoinApplicationForm
-              orgId={orgId}
-              organizationName={organizationName}
-              onSubmitted={handleSubmitted}
-              onCancel={handleCancel}
-              showCancel
-            />
-          </div>
+          {!orgId ? null : (
+            <p className="mt-3 text-xs text-muted-foreground">{orgId}</p>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

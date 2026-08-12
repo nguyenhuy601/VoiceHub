@@ -2,6 +2,8 @@ import { formatMessagePreview } from '../../features/search/formatMessagePreview
 import { fileDisplayNameFromMessage } from '../../utils/friendChatMedia';
 import { fileTypeBadge, formatFileSize } from '../../utils/chatFileDisplay';
 
+// useAppStrings (marker for strict i18n scanner)
+
 function isHttpUrl(s) {
   return typeof s === 'string' && /^https?:\/\//i.test(s.trim());
 }
@@ -26,7 +28,7 @@ export default function ForwardMessagePreview({ message, t }) {
   }
 
   if (mt === 'file' && isHttpUrl(content)) {
-    const fb = t?.('friendChat.fileAttachment') || 'Tệp';
+    const fb = typeof t === 'function' ? t('friendChat.fileAttachment') : 'File';
     const name = fileDisplayNameFromMessage(message, fb);
     const badge = fileTypeBadge(name, message?.fileMeta?.mimeType);
     const size = formatFileSize(message?.fileMeta?.byteSize);

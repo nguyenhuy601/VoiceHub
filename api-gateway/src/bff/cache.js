@@ -1,4 +1,5 @@
 const Redis = require('ioredis');
+const { buildIoredisOptions, describeRedisConnectionMode } = require('@enterprise/shared/config/redisConnection');
 
 let redisClient = null;
 
@@ -10,12 +11,13 @@ function isCacheEnabled() {
 function connectBffRedis() {
   if (redisClient || !isCacheEnabled()) return redisClient;
   try {
-    redisClient = new Redis({
-      host: process.env.REDIS_HOST || 'redis',
-      port: Number(process.env.REDIS_PORT || 6379),
+    const opts = buildIoredisOptions({
       maxRetriesPerRequest: 2,
       retryStrategy: (times) => (times > 3 ? null : Math.min(times * 100, 2000)),
     });
+    const { connectionUrl, ...rest } = opts;
+    redisClient = connectionUrl ? new Redis(connectionUrl, rest) : new Redis(rest);
+    console.log(`[bff:cache] Redis mode ${describeRedisConnectionMode()}`);
     redisClient.on('error', (err) => {
       console.warn('[bff:cache] Redis error:', err.message);
     });
@@ -73,7 +75,7 @@ function documentsOverviewCacheKey(userId, orgId) {
 }
 
 function dashboardSummaryCacheKey(userId) {
-  return `bff:dashboard-summary:${String(userId || '').trim()}`;
+  return `bff:dashboard-summary:v4:${String(userId || '').trim()}`;
 }
 
 module.exports = {

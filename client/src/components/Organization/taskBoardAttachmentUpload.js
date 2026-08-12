@@ -1,4 +1,5 @@
 import apiClient from '../../services/api/apiClient';
+import { createTranslator } from '../../locales/buildStrings';
 
 function guessMimeFromFileName(name) {
   const n = String(name || '').toLowerCase();
@@ -11,7 +12,7 @@ function guessMimeFromFileName(name) {
   return '';
 }
 
-function putFileWithProgress(url, file, contentType, onProgress) {
+function putFileWithProgress(url, file, contentType, onProgress, tr) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -23,9 +24,9 @@ function putFileWithProgress(url, file, contentType, onProgress) {
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`Upload thất bại (${xhr.status})`));
+      else reject(new Error(tr('taskBoard.errorUploadFailed', { status: xhr.status })));
     };
-    xhr.onerror = () => reject(new Error('Upload: lỗi mạng'));
+    xhr.onerror = () => reject(new Error(tr('taskBoard.errorUploadNetwork')));
     xhr.send(file);
   });
 }
@@ -34,8 +35,10 @@ function putFileWithProgress(url, file, contentType, onProgress) {
  * Upload file đính kèm thẻ (Firebase signed URL — cùng luồng chat org_room).
  * @returns {{ name: string, url: string, storagePath?: string, mimeType?: string }}
  */
-export async function uploadTaskBoardAttachment(file, onProgress) {
-  if (!file) throw new Error('Không có tệp');
+export async function uploadTaskBoardAttachment(file, onProgress, { t, locale = 'vi' } = {}) {
+  const tr = typeof t === 'function' ? t : createTranslator(locale);
+
+  if (!file) throw new Error(tr('taskBoard.errorNoFile'));
   const resolvedMime = file.type || guessMimeFromFileName(file.name) || 'application/octet-stream';
 
   onProgress?.(5);
@@ -48,13 +51,13 @@ export async function uploadTaskBoardAttachment(file, onProgress) {
   const payload = signedRes?.data ?? signedRes;
   const data = payload?.data ?? payload;
   if (!data?.uploadUrl || !data?.storagePath) {
-    throw new Error(payload?.message || 'Không lấy được URL upload');
+    throw new Error(payload?.message || tr('taskBoard.errorMissingUploadUrl'));
   }
 
   onProgress?.(15);
   await putFileWithProgress(data.uploadUrl, file, resolvedMime, (pct) => {
     onProgress?.(15 + Math.round((pct / 100) * 80));
-  });
+  }, tr);
   onProgress?.(100);
 
   return {

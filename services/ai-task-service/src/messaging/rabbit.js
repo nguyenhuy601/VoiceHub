@@ -1,4 +1,5 @@
 const amqp = require('amqplib');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
 
 let conn = null;
 let channel = null;
@@ -23,7 +24,7 @@ async function getChannel() {
 
 async function publishJson(queue, payload) {
   const ch = await getChannel();
-  await ch.assertQueue(queue, { durable: true });
+  await assertQuorumQueue(ch, queue);
   const buf = Buffer.from(JSON.stringify(payload));
   const opts = {
     persistent: true,

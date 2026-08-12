@@ -10,6 +10,8 @@ const {
   invalidateUnreadBadgeCache,
   invalidateUnreadForOrg,
 } = require('../cache/notificationReadCache');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
 const NOTIFICATION_BINDING_KEYS = [
   ORG_EVENT_TYPES.MEMBER_JOINED,
@@ -21,7 +23,7 @@ const NOTIFICATION_BINDING_KEYS = [
 let consumerHandle = null;
 
 async function publishDlq(ch, msg, err) {
-  await ch.assertQueue(ORG_EVENTS_NOTIFICATION_DLQ, { durable: true });
+  await assertQuorumQueue(ch, ORG_EVENTS_NOTIFICATION_DLQ);
   ch.sendToQueue(
     ORG_EVENTS_NOTIFICATION_DLQ,
     Buffer.from(
@@ -71,8 +73,8 @@ async function startOrgEventsConsumer() {
   const conn = await amqp.connect(url);
   const ch = await conn.createChannel();
   await ch.assertExchange(ORG_EVENT_EXCHANGE, 'topic', { durable: true });
-  await ch.assertQueue(ORG_EVENTS_NOTIFICATION_QUEUE, { durable: true });
-  await ch.assertQueue(ORG_EVENTS_NOTIFICATION_DLQ, { durable: true });
+  await assertQuorumQueue(ch, ORG_EVENTS_NOTIFICATION_QUEUE);
+  await assertQuorumQueue(ch, ORG_EVENTS_NOTIFICATION_DLQ);
 
   for (const key of NOTIFICATION_BINDING_KEYS) {
     await ch.bindQueue(ORG_EVENTS_NOTIFICATION_QUEUE, ORG_EVENT_EXCHANGE, key);
@@ -99,7 +101,15 @@ async function startOrgEventsConsumer() {
   );
 
   consumerHandle = { conn, ch, tag };
+  await waitForAmqpClose(conn);
+  await stopOrgEventsConsumer();
   return consumerHandle;
+}
+
+function runOrgEventsConsumerLoop() {
+  return runWithReconnect('orgEventsConsumer', startOrgEventsConsumer, {
+    shouldRun: () => isConsumerEnabled() && Boolean(process.env.RABBITMQ_URL),
+  });
 }
 
 async function stopOrgEventsConsumer() {
@@ -122,4 +132,8 @@ async function stopOrgEventsConsumer() {
   consumerHandle = null;
 }
 
-module.exports = { startOrgEventsConsumer, stopOrgEventsConsumer };
+module.exports = {
+  startOrgEventsConsumer,
+  stopOrgEventsConsumer,
+  runOrgEventsConsumerLoop,
+};

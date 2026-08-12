@@ -7,6 +7,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI } from '../../services/api/taskAPI';
 import { meetingAPI } from '../../services/api/meetingAPI';
 import friendService from '../../services/friendService';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { fetchOrgMessageSearch, formatOrgMessageSearchError } from '../search/orgChatSearchConfig';
 import { formatMessagePreview } from '../search/formatMessagePreview';
 import { enrichMessagesBusinessCards } from '../search/businessCardDisplay';
@@ -174,7 +175,7 @@ export async function fetchDashboardSearchResults({
         };
         const scope = scopeMap[subfilterId] || DM_SCOPE.ALL;
         const resp = await api.get('/messages', {
-          params: { receiverId: friendId, limit: 200, page: 1 },
+          params: { receiverId: friendId, limit: 200, fields: 'summary' },
         });
         const payload = resp?.data ?? resp;
         const result = payload?.data ?? payload;
@@ -218,7 +219,6 @@ export async function fetchDashboardSearchResults({
       if (subfilterId === 'recent') {
         const data = await fetchOrgMessageSearch([], detailQuery, {
           organizationId: orgId,
-          page: 1,
           limit: MAX_ITEMS,
         });
         const msgs = data?.messages ?? data?.data?.messages ?? [];
@@ -229,7 +229,6 @@ export async function fetchDashboardSearchResults({
       } else if (subfilterId === 'with_links') {
         const data = await fetchOrgMessageSearch([{ key: 'has', value: 'link', label: '' }], detailQuery, {
           organizationId: orgId,
-          page: 1,
           limit: MAX_ITEMS,
         });
         const msgs = data?.messages ?? data?.data?.messages ?? [];
@@ -372,10 +371,7 @@ export async function fetchDashboardSearchResults({
   } catch (e) {
     const msg =
       formatOrgMessageSearchError(e) ||
-      e?.data?.message ||
-      e?.response?.data?.message ||
-      e?.message ||
-      t('dashboard.globalSearch.loadError');
+      resolveApiErrorMessage(e, { t, fallback: t('dashboard.globalSearch.loadError') });
     return { items: [], truncated: false, error: msg };
   }
 }

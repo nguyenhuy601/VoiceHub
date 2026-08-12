@@ -1,45 +1,19 @@
 require('dotenv').config();
 const app = require('./app');
-const { connectDB, connectRedis, disconnectDB, disconnectRedis, logger } = require('@enterprise/shared');
-const { startTaskFromFileWorker, stopTaskFromFileWorker } = require('./workers/taskFromFileWorker');
 
-const PORT = process.env.PORT || 3009;
+let logger;
+try {
+  logger = require('@enterprise/shared').logger;
+} catch {
+  logger = console;
+}
 
-// Kết nối MongoDB
-connectDB()
-  .then(() => {
-    // Kết nối Redis
-    connectRedis();
+const PORT = process.env.PORT || 3019;
 
-    startTaskFromFileWorker().catch((err) => {
-      logger.error('taskFromFileWorker failed:', err.message);
-    });
+const server = app.listen(PORT, () => {
+  logger.info(`task-service scaffold đang chạy trên cổng ${PORT}`);
+});
 
-    // Khởi động server
-    const server = app.listen(PORT, () => {
-      logger.info(`Task Service đang chạy trên cổng ${PORT}`);
-    });
-
-    process.on('SIGTERM', async () => {
-      logger.info('SIGTERM signal received: closing HTTP server');
-      server.close(async () => {
-        try {
-          await stopTaskFromFileWorker();
-        } catch (e) {
-          logger.error('stopTaskFromFileWorker', e.message);
-        }
-        try {
-          await disconnectRedis();
-          await disconnectDB();
-        } catch (e) {
-          /* ignore */
-        }
-        process.exit(0);
-      });
-    });
-  })
-  .catch((error) => {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  });
-
+process.on('SIGTERM', () => {
+  server.close(() => process.exit(0));
+});

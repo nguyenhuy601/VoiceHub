@@ -16,7 +16,7 @@ export async function fetchOrgShell(orgId) {
 }
 
 export function useOrgShell(orgId, { enabled: enabledProp = true } = {}) {
-  const { isAuthenticated, loading: authLoading, accessToken } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const id = orgId ? String(orgId) : '';
   const authReady = Boolean(getResolvedBearerToken());
   const enabled =

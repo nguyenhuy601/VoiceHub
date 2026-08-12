@@ -1,12 +1,22 @@
 const Membership = require('../models/Membership');
 const Department = require('../models/Department');
 const Team = require('../models/Team');
+const Division = require('../models/Division');
 const { resolveOrgAccess } = require('../utils/orgAccess');
+const { fetchUserRolesInOrg } = require('../utils/orgRoles');
+const {
+  resolveStructureVisibilityFromRoles,
+  getRoleHierarchyLevel,
+} = require('../utils/memberPlacementScope');
 const {
   isMultiPlacementReadEnabled,
   resolveEffectiveScopesFromAssignments,
 } = require('./memberScopePolicy.service');
 
+/**
+ * Phạm vi task workspace — khớp shell: owner/admin, head/leader,
+ * RoleScopeAssignment (flag), hoặc hierarchy roles (dep_/team_/div_).
+ */
 async function resolveTaskWorkspaceScope(userId, orgId) {
   const uid = String(userId || '').trim();
   const oid = String(orgId || '').trim();
@@ -20,9 +30,13 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
       visibility: 'self',
       canCreateTask: false,
       canUseAiTask: false,
+      membershipRole: null,
       assignableUserIds: [uid],
       departmentIds: [],
       teamIds: [],
+      ledTeamIds: [],
+      organizationRoles: [],
+      ledTeamIdsDeprecatedForAssign: true,
       divisionIds: [],
     };
   }
@@ -56,9 +70,11 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
   }
 
   const departmentIds = headedDepts.map((d) => String(d._id));
-  const ledTeamIds = ledTeams.map((t) => String(t._id));
-
+  /** Team user đang là leader — không bị overwrite khi expand scope phòng. */
+  const leaderOfTeamIds = ledTeams.map((t) => String(t._id));
+  const ledTeamIds = [...leaderOfTeamIds];
   let scopedDivisionIds = [];
+
   if (isMultiPlacementReadEnabled()) {
     const effectiveScopes = await resolveEffectiveScopesFromAssignments(oid, uid);
     if (effectiveScopes.teamIds.size) {
@@ -84,6 +100,28 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     }
     if (visibility === 'team') {
       ledTeamIds.splice(0, ledTeamIds.length, ...effectiveScopes.teamIds);
+    }
+  } else if (visibility === 'self' && membershipRole !== 'hr') {
+    // Khớp org shell: suy scope từ RBAC hierarchy (dep_/team_/div_).
+    const [userRoles, divisions, departments, teams] = await Promise.all([
+      fetchUserRolesInOrg(uid, oid),
+      Division.find({ organization: oid }).select('_id name').lean(),
+      Department.find({ organization: oid }).select('_id name division').lean(),
+      Team.find({ organization: oid, isActive: true }).select('_id name department division').lean(),
+    ]);
+    const roleNames = (userRoles || []).map((r) => r.name);
+    const structure = resolveStructureVisibilityFromRoles(roleNames, {
+      divisions,
+      departments,
+      teams,
+    });
+    const mapped = mapStructureToTaskVisibility(structure, roleNames);
+    if (mapped) {
+      visibility = mapped.visibility;
+      canCreateTask = mapped.canCreateTask;
+      departmentIds.splice(0, departmentIds.length, ...mapped.departmentIds);
+      ledTeamIds.splice(0, ledTeamIds.length, ...mapped.teamIds);
+      scopedDivisionIds = mapped.divisionIds;
     }
   }
 
@@ -111,6 +149,9 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     ledTeams,
   });
 
+  const { resolveOrganizationRoles } = require('./organizationRoles.service');
+  const organizationRoles = await resolveOrganizationRoles(uid, oid);
+
   return {
     visibility,
     canCreateTask,
@@ -118,12 +159,51 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     membershipRole,
     departmentIds,
     teamIds,
+    /**
+     * @deprecated P1–P5: Team.leader scope for roster/swimlane only.
+     * Do NOT use for task assign authorize — use Assignment Engine + Project Role.
+     */
+    ledTeamIds: leaderOfTeamIds,
+    ledTeamIdsDeprecatedForAssign: true,
+    organizationRoles,
     divisionIds: scopedDivisionIds,
     divisionId: scopedDivisionIds[0] || null,
     departmentId: departmentIds[0] || null,
     teamId: teamIds[0] || null,
     assignableUserIds,
   };
+}
+
+function mapStructureToTaskVisibility(structure, roleNames) {
+  if (!structure || structure.mode === 'none') return null;
+  const departmentIds = [...(structure.departmentIds || [])];
+  const teamIds = [...(structure.teamIds || [])];
+  const divisionIds = [...(structure.divisionIds || [])];
+
+  if (structure.mode === 'team') {
+    return { visibility: 'team', canCreateTask: true, departmentIds, teamIds, divisionIds };
+  }
+  if (structure.mode === 'department') {
+    return { visibility: 'department', canCreateTask: true, departmentIds, teamIds, divisionIds };
+  }
+  if (structure.mode === 'division') {
+    return { visibility: 'division', canCreateTask: true, departmentIds, teamIds, divisionIds };
+  }
+  if (structure.mode === 'multi') {
+    const levels = new Set(
+      (roleNames || []).map((n) => getRoleHierarchyLevel(n)).filter(Boolean)
+    );
+    if (levels.has('department')) {
+      return { visibility: 'department', canCreateTask: true, departmentIds, teamIds, divisionIds };
+    }
+    if (levels.has('division')) {
+      return { visibility: 'division', canCreateTask: true, departmentIds, teamIds, divisionIds };
+    }
+    if (levels.has('team') || teamIds.length) {
+      return { visibility: 'team', canCreateTask: true, departmentIds, teamIds, divisionIds };
+    }
+  }
+  return null;
 }
 
 async function collectAssignableUserIds(orgId, visibility, { divisionIds, departmentIds, teamIds, ledTeams }) {
@@ -191,6 +271,13 @@ async function collectAssignableUserIds(orgId, visibility, { divisionIds, depart
       if (row?.user) ids.add(String(row.user));
     }
     for (const team of ledTeams) {
+      if (team?.leader) ids.add(String(team.leader));
+      for (const m of team.members || []) {
+        if (m) ids.add(String(m));
+      }
+    }
+    const teams = await Team.find({ _id: { $in: teamIds } }).select('members leader').lean();
+    for (const team of teams) {
       if (team?.leader) ids.add(String(team.leader));
       for (const m of team.members || []) {
         if (m) ids.add(String(m));

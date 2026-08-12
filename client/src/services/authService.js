@@ -16,23 +16,40 @@
 // Import api instance từ ./api.js
 // api đã có sẵn: base URL, interceptors, auth headers
 import api from './api';
+import { setToken } from '../utils/tokenStorage';
+import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
+
+const GATEWAY_TRUST_TIMEOUT_MS = 8000;
+
+const gatewayTrustRequestConfig = {
+  timeout: GATEWAY_TRUST_TIMEOUT_MS,
+  __skipNetworkRetry: true,
+  skipGlobalErrorHandling: true,
+};
+
+function gatewayTrustErrorMessage(e) {
+  const isTimeout =
+    e?.code === 'ECONNABORTED' || String(e?.message || '').toLowerCase().includes('timeout');
+  if (isTimeout) {
+    return 'API Gateway không phản hồi (quá 8 giây). Kiểm tra Docker container enterprise-api-gateway đang chạy và https://voicehub.local/api/health/gateway-trust trả 200.';
+  }
+  if (e?.code === 'ERR_NETWORK' || e?.message === 'Network Error') {
+    return 'Không kết nối được API Gateway. Hãy chạy stack Docker + Nginx (start-lan-https-dev.bat) và kiểm tra VITE_API_URL=/api.';
+  }
+  return e?.message || 'Không kiểm tra được cấu hình gateway.';
+}
 
 /** Kiểm tra API Gateway đã đặt GATEWAY_INTERNAL_TOKEN (public GET, không cần JWT). */
 async function assertGatewayTrustConfigured() {
   try {
-    const data = await api.get('/health/gateway-trust');
+    const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
     if (data?.gatewayTrustConfigured) return;
     throw new Error(
       data?.message ||
         'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với user-service, task-service, docker-compose (xem .env.example).'
     );
   } catch (e) {
-    if (e.message && !e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
-      throw new Error(
-        'Không kết nối được API Gateway để kiểm tra cấu hình. Hãy chạy API Gateway và kiểm tra Vite proxy / VITE_API_URL.'
-      );
-    }
-    throw e;
+    throw new Error(gatewayTrustErrorMessage(e));
   }
 }
 
@@ -45,7 +62,7 @@ const authService = {
   /** Dùng cho trang Đăng nhập/Đăng ký: hiển thị cảnh báo sớm (không chặn nếu chỉ đọc UI). */
   checkGatewayTrust: async () => {
     try {
-      const data = await api.get('/health/gateway-trust');
+      const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
       return {
         gatewayTrustConfigured: !!data?.gatewayTrustConfigured,
         message: data?.message || '',
@@ -53,10 +70,7 @@ const authService = {
     } catch (e) {
       return {
         gatewayTrustConfigured: false,
-        message:
-          e?.code === 'ERR_NETWORK' || e?.message === 'Network Error'
-            ? 'Không kết nối được API Gateway.'
-            : e?.message || 'Không kiểm tra được cấu hình gateway.',
+        message: gatewayTrustErrorMessage(e),
       };
     }
   },
@@ -128,11 +142,20 @@ const authService = {
       api.get('/auth/me'),
       api.get('/users/me', { skipGlobalAuthFailure: true }),
     ]);
-    if (profileSettled.status === 'fulfilled') {
-      return profileSettled.value;
-    }
-    if (authSettled.status === 'fulfilled') {
-      return authSettled.value;
+    const authBody =
+      authSettled.status === 'fulfilled'
+        ? authSettled.value?.data ?? authSettled.value
+        : null;
+    const profileBody =
+      profileSettled.status === 'fulfilled'
+        ? profileSettled.value?.data ?? profileSettled.value
+        : null;
+    // /users/me không có systemRole — phải gộp với /auth/me để không mất admin hệ thống.
+    if (profileBody || authBody) {
+      return mergeAuthUserFromProfile(
+        unwrapApiData(authBody) || authBody || {},
+        unwrapApiData(profileBody) || profileBody || authBody
+      );
     }
     throw authSettled.reason || profileSettled.reason;
   },
@@ -163,16 +186,16 @@ const authService = {
      Server verify oldPassword trước khi đổi
      Được gọi từ: SettingsPage → Security tab */
   changePassword: async (oldPassword, newPassword) => {
-    // Gửi cả old và new password
-    // Server sẽ:
-    // 1. Verify oldPassword đúng
-    // 2. Hash newPassword
-    // 3. Update database
     const response = await api.post('/auth/change-password', {
       oldPassword,
       newPassword,
     });
-    return response;
+    const payload = response?.data || response;
+    const accessToken = payload?.accessToken;
+    if (accessToken) {
+      setToken(accessToken);
+    }
+    return payload;
   },
 
   /* ----- FORGOT PASSWORD: Quên mật khẩu -----
@@ -233,23 +256,23 @@ const authService = {
     return response;
   },
 
-  /* ----- REFRESH TOKEN: Làm mới token -----
-     
-     Gọi: POST /auth/refresh-token
-     Header: Authorization: Bearer <old-token>
-     Return: { token: "new-jwt..." }
-     
-     Dùng khi:
-     - Token sắp hết hạn
-     - Response 401 từ API
-     
-     TODO: Implement auto refresh trong interceptor */
+  /* ----- REFRESH TOKEN: Làm mới access token -----
+     POST /auth/refresh-token body: { refreshToken }
+     Auto retry: api.js interceptor (single-flight). */
   refreshToken: async () => {
-    // Gửi token cũ, nhận token mới
-    const response = await api.post('/auth/refresh-token');
-    
-    // Return: { token: "new-jwt..." }
-    // Cần update localStorage với token mới
+    const response = await api.post(
+      '/auth/refresh-token',
+      {},
+      {
+        skipAuthRefresh: true,
+        withCredentials: true,
+        headers: { 'X-VoiceHub-Client': '1' },
+      }
+    );
+    const accessToken = response?.accessToken || response?.token || response?.data?.accessToken;
+    if (accessToken) {
+      setToken(accessToken);
+    }
     return response;
   },
 

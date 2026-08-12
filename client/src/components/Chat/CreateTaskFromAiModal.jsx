@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Modal } from '../Shared';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import aiTaskService from '../../services/aiTaskService';
-import { AI_TASK_TOOLTIP_SHORT } from '../../utils/aiTaskEligibility';
+import { getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { sanitizeMentionsForApi } from '../../utils/parseMessageMentions';
 import {
   taskAPI,
@@ -28,6 +30,7 @@ export default function CreateTaskFromAiModal({
   teamId = null,
   onConfirmed,
 }) {
+  const { t, locale } = useAppStrings();
   const [phase, setPhase] = useState('idle'); // idle | queued | ready | failed
   const [extractionId, setExtractionId] = useState(null);
   const [extraction, setExtraction] = useState(null);
@@ -76,7 +79,7 @@ export default function CreateTaskFromAiModal({
     startedRef.current = true;
 
     if (!messageId || !organizationId || !currentUserId) {
-      setError('Thiếu thông tin tin nhắn hoặc tổ chức.');
+      setError(t('taskBoard.aiMissingInfo'));
       setPhase('failed');
       return;
     }
@@ -96,7 +99,7 @@ export default function CreateTaskFromAiModal({
           userHeaders
         );
         const id = res?.data?.extractionId || res?.data?.data?.extractionId || res?.extractionId;
-        if (!id) throw new Error(res?.message || 'Không nhận được extractionId');
+        if (!id) throw new Error(res?.message || t('taskBoard.aiNoExtractionId'));
         if (cancelled) return;
         setExtractionId(id);
 
@@ -112,17 +115,17 @@ export default function CreateTaskFromAiModal({
           }
           if (st === 'failed') {
             setPhase('failed');
-            setError(row?.error || 'Phân tích thất bại.');
+            setError(row?.error || t('taskBoard.aiAnalysisFailed'));
             return;
           }
           await new Promise((r) => setTimeout(r, POLL_MS));
         }
         setPhase('failed');
-        setError('Hết thời gian chờ kết quả AI.');
+        setError(t('taskBoard.aiPollTimeout'));
       } catch (e) {
         if (cancelled) return;
         setPhase('failed');
-        setError(e?.response?.data?.message || e?.message || 'Lỗi không xác định');
+        setError(resolveApiErrorMessage(e, { t, fallback: t('taskBoard.aiUnknownError') }));
       }
     };
 
@@ -130,7 +133,7 @@ export default function CreateTaskFromAiModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, messageId, organizationId, currentUserId, mentionsKey, channelId, reset, userHeaders]);
+  }, [isOpen, messageId, organizationId, currentUserId, mentionsKey, channelId, reset, userHeaders, t]);
 
   // Load board/list theo team của kênh chat
   useEffect(() => {
@@ -153,11 +156,9 @@ export default function CreateTaskFromAiModal({
           setSelectedBoardId((prev) => prev || String(firstBoard));
         }
       } catch {
-        if (cancelled) return;
-        setTaskBoards([]);
+        if (!cancelled) setTaskBoards([]);
       } finally {
-        if (cancelled) return;
-        setBoardsLoading(false);
+        if (!cancelled) setBoardsLoading(false);
       }
     };
     run();
@@ -188,12 +189,12 @@ export default function CreateTaskFromAiModal({
         const firstList = lists[0]?._id || lists[0]?.id;
         setSelectedListId(firstList ? String(firstList) : '');
       } catch {
-        if (cancelled) return;
-        setTaskLists([]);
-        setSelectedListId('');
+        if (!cancelled) {
+          setTaskLists([]);
+          setSelectedListId('');
+        }
       } finally {
-        if (cancelled) return;
-        setListsLoading(false);
+        if (!cancelled) setListsLoading(false);
       }
     };
     run();
@@ -220,35 +221,39 @@ export default function CreateTaskFromAiModal({
       if (resolvedAssigneeId) body.assigneeId = resolvedAssigneeId;
       body.boardId = selectedBoardId || undefined;
       body.listId = selectedListId || undefined;
+      if (teamId) body.ownerTeamId = String(teamId);
       if (!body.boardId || !body.listId) {
-        throw new Error('Chưa chọn Task Board hoặc Danh sách trong board');
+        throw new Error(t('taskBoard.aiBoardListRequired'));
       }
       const res = await aiTaskService.confirm(body, userHeaders);
       const taskId = res?.data?.taskId || res?.data?.data?.taskId || res?.taskId;
       onConfirmed?.(taskId, extractionId);
       onClose();
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Không tạo được task');
+      setError(resolveApiErrorMessage(e, { t, fallback: t('taskBoard.aiCreateFailed') }));
     } finally {
       setConfirming(false);
     }
   };
 
-  const title = draft.title || '(Chưa có tiêu đề)';
+  const LOCALE_TAG_EN = 'en-US';
+  const LOCALE_TAG_VI = 'vi-VN';
+  const dateLocale = locale === 'en' ? LOCALE_TAG_EN : LOCALE_TAG_VI;
+  const title = draft.title || t('taskBoard.aiNoTitle');
   const summary = draft.summary || '';
   const description = draft.description || '';
   const priority = draft.priority || 'medium';
   const assigneeName = draft.assigneeName || '';
   const departmentName = draft.departmentName || '';
   const dueLabel = draft.dueDate
-    ? new Date(draft.dueDate).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+    ? new Date(draft.dueDate).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })
     : '';
   const draftAttachments = Array.isArray(draft.attachments) ? draft.attachments : [];
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Tạo task bằng AI" size="lg">
-      <p className="mb-3 text-xs text-slate-400" title={AI_TASK_TOOLTIP_SHORT}>
-        Phân tích nội dung tin nhắn để gợi ý task. Bạn có thể chỉnh sau trong mục Task.
+    <Modal isOpen={isOpen} onClose={onClose} title={t('taskBoard.aiModalTitle')} size="lg">
+      <p className="mb-3 text-xs text-slate-400" title={getAiTaskTooltipShort(t)}>
+        {t('taskBoard.aiModalDesc')}
       </p>
       {messagePreview ? (
         <div className="mb-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300 line-clamp-4">
@@ -257,7 +262,7 @@ export default function CreateTaskFromAiModal({
       ) : null}
 
       {phase === 'queued' && (
-        <div className="py-8 text-center text-sm text-slate-300">Đang phân tích bằng AI…</div>
+        <div className="py-8 text-center text-sm text-slate-300">{t('taskBoard.aiAnalyzing')}</div>
       )}
 
       {phase === 'failed' && error && (
@@ -268,19 +273,19 @@ export default function CreateTaskFromAiModal({
         <div className="space-y-3">
           {(teamId && (!selectedBoardId || !selectedListId)) ? (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-              Chọn Task Board và Danh sách để tạo task.
+              {t('taskBoard.aiSelectBoardList')}
             </div>
           ) : null}
           {!dueLabel ? (
             <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-              Tin nhắn chưa có ngày/giờ deadline rõ ràng nên chưa thể tạo task tự động.
+              {t('taskBoard.aiNoDeadline')}
             </div>
           ) : null}
 
           {teamId ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Task Board</div>
+                <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiBoardLabel')}</div>
                 <select
                   value={selectedBoardId}
                   onChange={(e) => {
@@ -291,81 +296,81 @@ export default function CreateTaskFromAiModal({
                   disabled={boardsLoading || !taskBoards.length}
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
                 >
-                  {taskBoards.length === 0 ? <option value="">Chưa có board</option> : null}
+                  {taskBoards.length === 0 ? <option value="">{t('taskBoard.aiNoBoard')}</option> : null}
                   {taskBoards.map((b) => (
                     <option key={b._id || b.id} value={String(b._id || b.id)}>
                       {b.title}
                     </option>
                   ))}
                 </select>
-                {boardsLoading ? <div className="mt-1 text-[10px] text-slate-400">Đang tải board...</div> : null}
+                {boardsLoading ? <div className="mt-1 text-[10px] text-slate-400">{t('taskBoard.aiLoadingBoard')}</div> : null}
               </div>
               <div>
-                <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Danh sách</div>
+                <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiListLabel')}</div>
                 <select
                   value={selectedListId}
                   onChange={(e) => setSelectedListId(e.target.value)}
                   disabled={listsLoading || !taskLists.length}
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
                 >
-                  {taskLists.length === 0 ? <option value="">Chưa có list</option> : null}
+                  {taskLists.length === 0 ? <option value="">{t('taskBoard.aiNoList')}</option> : null}
                   {taskLists.map((l) => (
                     <option key={l._id || l.id} value={String(l._id || l.id)}>
                       {l.title}
                     </option>
                   ))}
                 </select>
-                {listsLoading ? <div className="mt-1 text-[10px] text-slate-400">Đang tải list...</div> : null}
+                {listsLoading ? <div className="mt-1 text-[10px] text-slate-400">{t('taskBoard.aiLoadingList')}</div> : null}
               </div>
             </div>
           ) : null}
 
           <div>
-            <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Tiêu đề gợi ý</div>
+            <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiSuggestedTitle')}</div>
             <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white">{title}</div>
           </div>
           {summary ? (
             <div>
-              <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Tóm tắt</div>
+              <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiSummary')}</div>
               <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
                 {summary}
               </div>
             </div>
           ) : null}
           <div>
-            <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Mô tả chi tiết</div>
+            <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiDetailDesc')}</div>
             <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
               {description || '—'}
             </div>
           </div>
           {mentions.length > 0 && !resolvedAssigneeId && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-              Đã @mention nhưng chưa xác định được người nhận — task có thể không hiện với người được giao.
+              {t('taskBoard.aiMentionNoAssignee')}
             </div>
           )}
           {(assigneeName || resolvedAssigneeId || departmentName || dueLabel) && (
             <div className="grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
               {assigneeName || resolvedAssigneeId ? (
                 <div>
-                  Người nhận:{' '}
-                  <span className="text-slate-200">{assigneeName || 'Đã chọn từ @mention'}</span>
+                  {t('taskBoard.aiAssigneeLabel')}{' '}
+                  <span className="text-slate-200">{assigneeName || t('taskBoard.aiAssigneeFromMention')}</span>
                 </div>
               ) : null}
               {departmentName ? (
                 <div>
-                  Phòng ban: <span className="text-slate-200">{departmentName}</span>
+                  {t('taskBoard.aiDepartmentLabel')} <span className="text-slate-200">{departmentName}</span>
                 </div>
               ) : null}
               {dueLabel ? (
                 <div>
-                  Hạn: <span className="text-slate-200">{dueLabel}</span>
+                  {t('taskBoard.aiDueLabel')} <span className="text-slate-200">{dueLabel}</span>
                 </div>
               ) : null}
             </div>
           )}
           {draftAttachments.length > 0 ? (
             <div>
-              <div className="mb-1 text-xs font-semibold uppercase text-slate-500">Tệp đính kèm tự chọn</div>
+              <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{t('taskBoard.aiDraftAttachments')}</div>
               <ul className="space-y-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200">
                 {draftAttachments.map((a, idx) => (
                   <li key={`${a.url || a.name}-${idx}`} className="truncate">
@@ -376,11 +381,13 @@ export default function CreateTaskFromAiModal({
             </div>
           ) : null}
           <div className="text-xs text-slate-400">
-            Độ ưu tiên gợi ý: <span className="text-slate-200">{priority}</span>
+            {t('taskBoard.aiSuggestedPriority')}{' '}
+            <span className="text-slate-200">{priority}</span>
             {extraction?.confidence != null && (
               <>
                 {' '}
-                · Độ tin cậy: <span className="text-slate-200">{(Number(extraction.confidence) * 100).toFixed(0)}%</span>
+                · {t('taskBoard.aiConfidence')}{' '}
+                <span className="text-slate-200">{(Number(extraction.confidence) * 100).toFixed(0)}%</span>
               </>
             )}
           </div>
@@ -390,7 +397,7 @@ export default function CreateTaskFromAiModal({
               onClick={onClose}
               className="rounded-lg border border-white/15 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
             >
-              Đóng
+              {t('common.close')}
             </button>
             <button
               type="button"
@@ -402,7 +409,7 @@ export default function CreateTaskFromAiModal({
               onClick={handleConfirm}
               className="rounded-lg bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
             >
-              {confirming ? 'Đang tạo…' : 'Tạo task'}
+              {confirming ? t('taskBoard.creatingTask') : t('taskBoard.approveAiDraft')}
             </button>
           </div>
         </div>

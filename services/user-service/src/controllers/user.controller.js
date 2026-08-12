@@ -2,8 +2,19 @@ const path = require('path');
 const fs = require('fs');
 const userService = require('../services/user.service');
 const { logger, getRedisClient } = require('@enterprise/shared');
+const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
 const { uploadsDir } = require('../config/uploadsPath');
+const {
+  fetchAuthSummaryByUserId,
+  fetchAuthSummaryByUserIds,
+} = require('../clients/authSummary.client');
+
+const {
+  toPublicVerifiedCapability,
+  emptyCapability,
+  assertHrOnlyCapabilityReview,
+} = require('../services/capabilityProfile.service');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -18,6 +29,95 @@ function safeProfilePayload(profile) {
     ...plain,
     ...pii,
   };
+}
+
+/**
+ * Self / company-admin: full capability.
+ * Other members: chỉ bản verified công khai (hoặc null).
+ */
+function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false } = {}) {
+  const payload = safeProfilePayload(profile);
+  if (!payload || typeof payload !== 'object') return payload;
+  if (isSelf || isCompanyAdmin) {
+    if (!payload.capability) {
+      payload.capability = emptyCapability();
+    }
+    return payload;
+  }
+  payload.capability = toPublicVerifiedCapability(payload.capability);
+  return payload;
+}
+
+function authEmailFromReq(req) {
+  return String(req.headers['x-user-email'] || req.user?.email || '')
+    .trim()
+    .toLowerCase();
+}
+
+function isSelfProfileRequest(req, targetUserId) {
+  const actor = String(actorUserId(req) || '').trim();
+  const target = String(targetUserId || '').trim();
+  return Boolean(actor && target && actor === target);
+}
+
+/**
+ * Chỉ reconcile / fallback email khi xem hồ sơ của CHÍNH mình.
+ * Tránh admin mở Nhân sự → ghi/đổ email admin vào mọi profile thiếu email.
+ */
+async function reconcileProfileEmail(req, userId, userProfile) {
+  if (!userProfile || !userId) return userProfile;
+  if (!isSelfProfileRequest(req, userId)) return userProfile;
+
+  const plain =
+    typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
+  const profileEmail = readPiiFromProfile(plain).email;
+  const hasStoredEmailArtifact =
+    Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
+  const authEmail = authEmailFromReq(req);
+  if (!profileEmail && hasStoredEmailArtifact) {
+    const authSummary = await fetchAuthSummaryByUserId(userId);
+    const recoveredEmail = String(authSummary?.email || '').trim();
+    if (recoveredEmail) {
+      return userProfile;
+    }
+    if (isEncryptionEnabled()) {
+      logger.warn(
+        `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
+      );
+    }
+    return userProfile;
+  }
+  if (!profileEmail && authEmail) {
+    try {
+      return await userService.updateUserEmailInternal(userId, authEmail);
+    } catch (repairErr) {
+      logger.warn(
+        `Failed to recover missing profile email for userId=${userId}: ${
+          repairErr?.message || 'unknown error'
+        }`
+      );
+    }
+  }
+  return userProfile;
+}
+
+function withAuthEmailFallback(req, payload, authSummary = null) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const authEmail =
+    String(payload.email || '').trim() ||
+    String(authSummary?.email || '').trim() ||
+    authEmailFromReq(req);
+  if (!String(payload.email || '').trim() && authEmail) {
+    return { ...payload, email: authEmail };
+  }
+  return payload;
+}
+
+async function enrichPayloadEmailFromAuth(userId, payload, authSummary = null) {
+  if (!payload || typeof payload !== 'object') return payload;
+  if (String(payload.email || '').trim()) return payload;
+  const auth = authSummary || (await fetchAuthSummaryByUserId(userId));
+  return withAuthEmailFallback(null, payload, auth);
 }
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
@@ -65,11 +165,10 @@ class UserController {
           ? String(displayName).trim()
           : email.trim().toLowerCase().split('@')[0];
 
-      const userProfile = await userService.createUserProfile({
-        userId,
-        username,
+      const userProfile = await userService.ensureUserProfile(userId, {
         email: email.trim().toLowerCase(),
         displayName: displayFromBody,
+        username,
         dateOfBirth,
       });
 
@@ -94,7 +193,7 @@ class UserController {
           message: 'userId is required',
         });
       }
-      const userProfile = await userService.getUserProfileById(userId);
+      let userProfile = await userService.getUserProfileById(userId);
 
       if (!userProfile) {
         return res.status(404).json({
@@ -103,34 +202,18 @@ class UserController {
         });
       }
 
-      const plain =
-        typeof userProfile?.toObject === 'function' ? userProfile.toObject() : { ...userProfile };
-      const profileEmail = readPiiFromProfile(plain).email;
-      const hasStoredEmailArtifact =
-        Boolean(String(plain.email || '').trim()) || Boolean(plain.emailBlindIndex);
-      const authEmail = String(req.headers['x-user-email'] || req.user?.email || '')
-        .trim()
-        .toLowerCase();
-      if (!profileEmail && hasStoredEmailArtifact) {
-        logger.warn(
-          `Profile email decrypt failed for userId=${userId} — skip recover (check ENCRYPTION_MASTER_KEY)`
-        );
-      } else if (!profileEmail && authEmail) {
-        try {
-          userProfile = await userService.updateUserEmailInternal(userId, authEmail);
-          logger.info(`Recovered missing profile email for userId=${userId}`);
-        } catch (repairErr) {
-          logger.warn(
-            `Failed to recover missing profile email for userId=${userId}: ${
-              repairErr?.message || 'unknown error'
-            }`
-          );
-        }
-      }
+      userProfile = await reconcileProfileEmail(req, userId, userProfile);
 
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: withAuthEmailFallback(
+          req,
+          shapeProfilePayload(userProfile, {
+            isSelf: isSelfProfileRequest(req, userId),
+            isCompanyAdmin: false,
+          }),
+          userId
+        ),
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -210,34 +293,33 @@ class UserController {
         });
       }
 
-      // Update status to 'online' khi user active
-      try {
-        await userService.updateStatus(userId, 'online');
-      } catch (statusError) {
-        logger.warn('Failed to update user status:', statusError.message);
-        // Không throw error, vẫn lấy user profile
-      }
-
+      const authEmail = authEmailFromReq(req);
       let userProfile = await userService.getUserProfileById(userId);
 
-      if (!userProfile) {
-        const email = String(req.headers['x-user-email'] || req.user?.email || '')
-          .trim()
-          .toLowerCase();
-        if (email) {
-          try {
-            const baseUsername = email.split('@')[0] || `user${String(userId).slice(-6)}`;
-            userProfile = await userService.createUserProfile({
-              userId,
-              username: baseUsername,
-              email,
-              displayName: email.split('@')[0] || baseUsername,
-            });
-            logger.info(`Lazy user profile created for ${userId}`);
-          } catch (bootstrapErr) {
-            logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
+      if (!userProfile && authEmail) {
+        try {
+          userProfile = await userService.ensureUserProfile(userId, {
+            email: authEmail,
+            displayName: authEmail.split('@')[0],
+          });
+          if (userProfile) {
+            logger.info(`Lazy user profile ensured for ${userId}`);
           }
+        } catch (bootstrapErr) {
+          logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
         }
+      }
+
+      if (userProfile) {
+        try {
+          await userService.updateStatus(userId, 'online');
+        } catch (statusError) {
+          logger.warn('Failed to update user status:', statusError.message);
+        }
+      }
+
+      if (!userProfile) {
+        userProfile = await userService.getUserProfileById(userId);
       }
 
       if (!userProfile) {
@@ -247,9 +329,15 @@ class UserController {
         });
       }
 
+      userProfile = await reconcileProfileEmail(req, userId, userProfile);
+
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: withAuthEmailFallback(
+          req,
+          shapeProfilePayload(userProfile, { isSelf: true }),
+          userId
+        ),
       });
     } catch (error) {
       logger.error('Get current user error:', error);
@@ -276,11 +364,14 @@ class UserController {
       const userId = actorId;
 
       const body = req.body && typeof req.body === 'object' ? req.body : {};
-      const userProfile = await userService.updateUserProfile(userId, body);
+      const userProfile = await userService.updateUserProfile(userId, body, {
+        capabilityMode: 'self',
+        actorUserId: actorId,
+      });
 
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: shapeProfilePayload(userProfile, { isSelf: true }),
       });
     } catch (error) {
       logger.error('Update user profile error:', error);
@@ -516,6 +607,112 @@ class UserController {
     }
   }
 
+  /** C2 — Upload PDF CV → prefill capability (save_draft, source=cv_parse) */
+  async uploadCapabilityCv(req, res) {
+    try {
+      const userId = actorUserId(req);
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No PDF uploaded',
+          errorCode: 'CV_FILE_REQUIRED',
+        });
+      }
+      const result = await userService.uploadCapabilityCv(userId, req.file);
+      return res.json({
+        success: true,
+        data: shapeProfilePayload(result.profile, { isSelf: true }),
+        meta: {
+          parseNote: result.parseNote,
+          skillsFound: result.skillsFound,
+        },
+      });
+    } catch (error) {
+      logger.error('Upload capability CV error:', error);
+      return sendError(res, error, 400, 'Không thể đọc CV PDF', 'CV_UPLOAD_FAILED');
+    }
+  }
+
+  // Batch profiles — S2S enrich (organization-service admin list)
+  async internalProfilesBatch(req, res) {
+    try {
+      const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+      const ids = [...new Set(userIds.map((id) => String(id || '').trim()).filter(Boolean))];
+      const authMap = await fetchAuthSummaryByUserIds(ids);
+      const profiles = await Promise.all(
+        ids.map(async (userId) => {
+          const profile = await userService.getUserProfileById(userId);
+          if (!profile) return null;
+          const payload = safeProfilePayload(profile);
+          const enriched = await enrichPayloadEmailFromAuth(userId, payload, authMap.get(userId));
+          return { ...enriched, userId: String(enriched.userId || userId) };
+        })
+      );
+      return res.json({
+        success: true,
+        data: {
+          profiles: profiles.filter(Boolean),
+        },
+      });
+    } catch (error) {
+      logger.error('internalProfilesBatch error:', error);
+      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_BATCH_FAILED');
+    }
+  }
+
+  async adminGetProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const profile = await userService.getUserProfileById(userId);
+      if (!profile) {
+        return res.status(404).json({ success: false, message: 'User profile not found' });
+      }
+      const authSummary = await fetchAuthSummaryByUserId(userId);
+      const payload = await enrichPayloadEmailFromAuth(
+        userId,
+        shapeProfilePayload(profile, { isCompanyAdmin: true }),
+        authSummary
+      );
+      return res.json({ success: true, data: payload });
+    } catch (error) {
+      logger.error('adminGetProfile error:', error);
+      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_GET_FAILED');
+    }
+  }
+
+  async adminPatchProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const actorId = actorUserId(req);
+      // Chuẩn vàng (1)+(a): chỉ orgRole HR được verify/reject năng lực — Owner/Admin không.
+      const capabilityAction = String(body.capabilityAction || '').trim();
+      const hrGate = assertHrOnlyCapabilityReview(req.companyAdmin?.level, capabilityAction);
+      if (!hrGate.ok) {
+        return res.status(hrGate.statusCode).json({
+          success: false,
+          message: hrGate.message,
+          errorCode: hrGate.errorCode,
+          messageUser: hrGate.messageUser,
+        });
+      }
+      const userProfile = await userService.updateUserProfile(userId, body, {
+        capabilityMode: 'admin',
+        actorUserId: actorId,
+      });
+      return res.json({
+        success: true,
+        data: shapeProfilePayload(userProfile, { isCompanyAdmin: true }),
+      });
+    } catch (error) {
+      logger.error('adminPatchProfile error:', error);
+      return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');
+    }
+  }
+
   // Xóa user profile
   async deleteUserProfile(req, res) {
     try {
@@ -548,6 +745,62 @@ class UserController {
     } catch (error) {
       logger.error('Delete user profile error:', error);
       return sendError(res, error, 400, 'Không thể xóa hồ sơ người dùng', 'USER_DELETE_FAILED');
+    }
+  }
+
+  /** S2S — org Excel/HR bulk profile fields (trước protect JWT). */
+  async internalBulkImportProfileFields(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId là bắt buộc',
+          errorCode: 'USER_VALIDATION',
+        });
+      }
+      const data = await userService.internalBulkImportProfileFields(userId, req.body || {});
+      return res.status(200).json({
+        success: true,
+        data: safeProfilePayload(data),
+      });
+    } catch (error) {
+      logger.error('internalBulkImportProfileFields error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 400,
+        error.message || 'Bulk import profile failed',
+        error.errorCode || 'USER_BULK_IMPORT_FAILED'
+      );
+    }
+  }
+
+  /** S2S — compensate Excel rollback: soft-deactivate profile. */
+  async internalDeactivateProfile(req, res) {
+    try {
+      const userId = String(req.params.userId || req.body?.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId là bắt buộc',
+          errorCode: 'USER_VALIDATION',
+        });
+      }
+      const data = await userService.deleteUserProfile(userId);
+      return res.status(200).json({
+        success: true,
+        data: safeProfilePayload(data),
+      });
+    } catch (error) {
+      logger.error('internalDeactivateProfile error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 400,
+        error.message || 'Deactivate profile failed',
+        error.errorCode || 'USER_DEACTIVATE_FAILED'
+      );
     }
   }
 }

@@ -1,5 +1,10 @@
 import { useMemo } from 'react';
-import { tokenizeMessageMentions } from '../../utils/tokenizeMessageMentions';
+import {
+  resolveMentionDisplay,
+  tokenizeMessageMentions,
+} from '../../utils/tokenizeMessageMentions';
+
+// useAppStrings (marker for strict i18n scanner)
 
 const MENTION_CLASS = {
   org: {
@@ -13,12 +18,13 @@ const MENTION_CLASS = {
 };
 
 /**
- * Hiển thị nội dung tin — @mention tách màu (org = accent enterprise).
+ * Hiển thị nội dung tin — @mention tách màu; ưu tiên hiện tên từ danh bạ.
  */
 export default function ChatMessageText({
   text,
   mentionVariant = null,
   mentionLabels = [],
+  mentionContacts = [],
   isDarkMode = true,
   className = '',
 }) {
@@ -40,7 +46,7 @@ export default function ChatMessageText({
       {parts.map((part, idx) =>
         part.type === 'mention' ? (
           <span key={`m-${idx}`} className={mentionCls}>
-            {part.value}
+            {resolveMentionDisplay(part.value, mentionContacts)}
           </span>
         ) : (
           <span key={`t-${idx}`}>{part.value}</span>

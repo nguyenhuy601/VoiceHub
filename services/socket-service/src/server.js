@@ -1,6 +1,24 @@
+require('dotenv').config();
+
+const crypto = require('crypto');
+
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
-require('dotenv').config();
+
+if (process.env.NODE_ENV === 'production') {
+  const realtimeToken = String(process.env.REALTIME_INTERNAL_TOKEN || '').trim();
+  if (!realtimeToken) {
+    console.error('[socket-service] FATAL: REALTIME_INTERNAL_TOKEN is required in production.');
+    process.exit(1);
+  }
+}
+
+function tokensMatch(got, expected) {
+  const a = Buffer.from(String(got ?? ''), 'utf8');
+  const b = Buffer.from(String(expected ?? ''), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 const http = require('http');
 const express = require('express');
@@ -46,17 +64,24 @@ app.use(
     methods: ['GET', 'POST', 'OPTIONS'],
   })
 );
+let redisAdapterActive = false;
+
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'socket-service' });
+  res.json({
+    status: 'ok',
+    service: 'socket-service',
+    redisAdapter: redisAdapterActive,
+    socketIoRedisAdapterEnv: process.env.SOCKET_IO_REDIS_ADAPTER !== 'false',
+  });
 });
 
 app.post('/internal/realtime/publish', (req, res) => {
-  const token = req.headers['x-realtime-token'];
+  const token = String(req.headers['x-realtime-token'] || '').trim();
   const expected = String(INTERNAL_REALTIME_TOKEN || '').trim();
   if (!expected) {
     return res.status(503).json({ ok: false, message: 'REALTIME_INTERNAL_TOKEN not configured' });
   }
-  if (token !== expected) {
+  if (!tokensMatch(token, expected)) {
     return res.status(401).json({ ok: false, message: 'Unauthorized realtime publish' });
   }
 
@@ -85,21 +110,19 @@ const io = new Server(server, {
 
 async function attachRedisAdapterIfEnabled() {
   if (process.env.SOCKET_IO_REDIS_ADAPTER === 'false') return;
-  const url =
-    process.env.REDIS_URL ||
-    (process.env.REDIS_HOST
-      ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`
-      : null);
-  if (!url) return;
 
   try {
+    const { buildNodeRedisClientOptions, describeRedisConnectionMode } = require('@enterprise/shared/config/redisConnection');
     const { createClient } = require('redis');
     const { createAdapter } = require('@socket.io/redis-adapter');
-    const pubClient = createClient({ url });
+    const mode = describeRedisConnectionMode();
+    const clientOptions = buildNodeRedisClientOptions();
+    const pubClient = createClient(clientOptions);
     const subClient = pubClient.duplicate();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     io.adapter(createAdapter(pubClient, subClient));
-    console.log('[socket-service] Socket.IO Redis adapter enabled');
+    redisAdapterActive = true;
+    console.log(`[socket-service] Socket.IO Redis adapter enabled (${mode})`);
   } catch (err) {
     console.warn('[socket-service] Redis adapter not available:', err.message);
   }

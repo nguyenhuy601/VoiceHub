@@ -1,17 +1,16 @@
 {
   "name": "task-service",
-  "version": "1.0.0",
-  "description": "Task Service - Quản lý nhiệm vụ và đầu việc (MongoDB)",
+  "version": "0.1.0",
+  "description": "Task Service scaffold (ADR-001) — ownership Task/worklog sau strangler cutover",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test src/**/*.test.js",
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {
     "amqplib": "^0.10.4",
-    "firebase-admin": "^12.7.0",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -23,12 +22,5 @@
   "devDependencies": {
     "nodemon": "^3.1.11"
   },
-  "keywords": [
-    "microservice",
-    "task",
-    "mongodb",
-    "enterprise"
-  ],
-  "author": "",
   "license": "ISC"
 }

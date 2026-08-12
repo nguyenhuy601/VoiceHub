@@ -40,11 +40,12 @@ export function organizationsIdsKey(list) {
 
 export function workspacePayloadFromOrg(org) {
   const id = orgRecordId(org);
-  const slug = String(org?.slug || '').trim();
   return {
     _id: id,
     slug: org?.slug,
     name: org?.name,
     myRole: org?.myRole || org?.role || '',
+    myStructureRole: org?.myStructureRole || org?.structureRole || '',
+    myOrganizationRoles: Array.isArray(org?.myOrganizationRoles) ? org.myOrganizationRoles : [],
   };
 }

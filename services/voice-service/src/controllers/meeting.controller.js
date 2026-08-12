@@ -79,7 +79,7 @@ class MeetingController {
       if (!existing) {
         return res.status(404).json({ success: false, message: 'Meeting not found' });
       }
-      meetingService.assertMeetingHost(existing, userId);
+      await meetingService.assertCanManageMeeting(existing, req.user || { id: userId });
       const meeting = await meetingService.endMeeting(meetingId);
 
       res.json({
@@ -88,9 +88,10 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('End meeting error:', error);
-      res.status(400).json({
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
         success: false,
-        message: safeErrorMessage(error, 'Không thể tải danh sách cuộc họp'),
+        message: safeErrorMessage(error, 'Không thể kết thúc cuộc họp'),
       });
     }
   }
@@ -123,30 +124,92 @@ class MeetingController {
     }
   }
 
-  // Xóa participant
+  // Xóa / kick participant — DELETE …/participants/:userId
   async removeParticipant(req, res) {
     try {
-      const { meetingId } = req.params;
-      const userId = req.user?.id || req.userContext?.userId;
+      const { meetingId, userId: targetParam } = req.params;
+      const actorId = req.user?.id || req.userContext?.userId;
 
-      if (!userId) {
+      if (!actorId) {
         return res.status(401).json({
           success: false,
           message: 'Unauthorized',
         });
       }
 
-      const meeting = await meetingService.removeParticipant(meetingId, userId);
+      const { mode, targetUserId } = meetingService.resolveParticipantRemoval({
+        actorId,
+        targetUserId: targetParam,
+      });
+
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+
+      if (mode === 'kick') {
+        await meetingService.assertCanManageMeeting(existing, req.user || { id: actorId });
+      }
+
+      const meeting = await meetingService.removeParticipant(meetingId, targetUserId);
+
+      if (mode === 'kick') {
+        const { notifyParticipantKicked } = require('../services/meetingModerateNotify');
+        await notifyParticipantKicked(meeting, { targetUserId, byUserId: actorId });
+      }
+
+      res.json({
+        success: true,
+        data: meeting,
+        meta: { mode },
+      });
+    } catch (error) {
+      logger.error('Remove participant error:', error);
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
+        success: false,
+        message: safeErrorMessage(error, 'Không thể xóa người tham gia'),
+      });
+    }
+  }
+
+  // Mute / unmute participant
+  async muteParticipant(req, res) {
+    try {
+      const { meetingId, userId: targetParam } = req.params;
+      const actorId = req.user?.id || req.userContext?.userId;
+      const muted = req.body?.muted !== false && req.body?.muted !== 'false';
+
+      if (!actorId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      const targetUserId = String(targetParam || '').trim();
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Meeting not found' });
+      }
+
+      await meetingService.assertCanManageMeeting(existing, req.user || { id: actorId });
+      const meeting = await meetingService.muteParticipant(meetingId, targetUserId, muted);
+
+      const { notifyParticipantMuted } = require('../services/meetingModerateNotify');
+      await notifyParticipantMuted(meeting, { targetUserId, byUserId: actorId, muted });
 
       res.json({
         success: true,
         data: meeting,
       });
     } catch (error) {
-      logger.error('Remove participant error:', error);
-      res.status(400).json({
+      logger.error('Mute participant error:', error);
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
         success: false,
-        message: safeErrorMessage(error, 'Không thể xóa cuộc họp'),
+        message: safeErrorMessage(error, 'Không thể mute người tham gia'),
       });
     }
   }
@@ -172,9 +235,11 @@ class MeetingController {
         });
       }
 
+      const enriched = meetingService.enrichMeetingsWithRecordingFields([meeting])[0];
+
       res.json({
         success: true,
-        data: meeting,
+        data: enriched,
       });
     } catch (error) {
       logger.error('Get meeting error:', error);
@@ -188,7 +253,7 @@ class MeetingController {
   // Lấy danh sách meetings
   async getMeetings(req, res) {
     try {
-      const { serverId, organizationId, status, page, limit, startFrom, startTo } = req.query;
+      const { serverId, organizationId, status, page, limit, startFrom, startTo, mine } = req.query;
       const pageNum = Number.parseInt(page, 10) || 1;
 
       // Dashboard gọi /api/meetings khi load trang. Nếu Mongo chưa ready (Atlas reconnect),
@@ -290,15 +355,64 @@ class MeetingController {
         filter.status = status;
       }
 
+      const mineFlag = String(mine || '').toLowerCase();
+      if (mineFlag === '1' || mineFlag === 'true') {
+        const userId = req.user?.id || req.user?.userId || req.user?._id;
+        if (!userId) {
+          return res.status(401).json({
+            success: false,
+            message: 'Unauthorized',
+          });
+        }
+        const uidStr = String(userId).trim();
+        if (!mongoose.isValidObjectId(uidStr)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid user id',
+          });
+        }
+        const userOid = new mongoose.Types.ObjectId(uidStr);
+        filter.$or = [{ hostId: userOid }, { 'participants.userId': userOid }];
+        if (!status) {
+          filter.status = { $in: ['active', 'ended'] };
+        }
+
+        // Phiên active quá lâu không còn SFU → kết thúc/xóa trước khi trả lobby.
+        try {
+          const voiceRoomSessionService = require('../services/voiceRoomSession.service');
+          const STALE_ACTIVE_MS = 2 * 60 * 60 * 1000;
+          await voiceRoomSessionService.cleanupOrphanActiveMeetings({
+            maxAgeMs: STALE_ACTIVE_MS,
+            hardDelete: true,
+          });
+        } catch (cleanupErr) {
+          logger.warn(`cleanupOrphanActiveMeetings skipped: ${cleanupErr.message}`);
+        }
+
+        try {
+          await meetingService.trimUserMeetingHistory(userOid, 25);
+        } catch (trimErr) {
+          logger.warn(`trimUserMeetingHistory skipped: ${trimErr.message}`);
+        }
+      }
+
+      const lobbyLimit = mineFlag === '1' || mineFlag === 'true' ? 25 : parseInt(limit) || 50;
+
       const result = await meetingService.getMeetings(filter, {
         page: pageNum,
-        limit: parseInt(limit) || 50,
+        limit: lobbyLimit,
         sort,
       });
 
+      const enrichedMeetings = await meetingService.enrichMeetingsWithHostProfiles(result.meetings);
+      const withRecording = await meetingService.enrichMeetingsWithRecordingFieldsAsync(enrichedMeetings);
+
       res.json({
         success: true,
-        data: result,
+        data: {
+          ...result,
+          meetings: withRecording,
+        },
       });
     } catch (error) {
       logger.error('Get meetings error:', error);

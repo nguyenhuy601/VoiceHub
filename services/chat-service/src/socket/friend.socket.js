@@ -1,5 +1,6 @@
 const messageService = require('../services/message.service');
 const messageEvent = require('../events/message.event');
+const { assertDmCanSend } = require('../utils/verifyDmRelationship');
 
 const friendSocket = (io) => {
   io.on('connection', (socket) => {
@@ -9,13 +10,29 @@ const friendSocket = (io) => {
     // Join room với user ID
     socket.join(`user:${userId}`);
 
-    // Gửi tin nhắn
+    // Gửi tin nhắn (legacy path — vẫn bắt assertDmCanSend giống HTTP/RabbitMQ)
     socket.on('send_message', async (data) => {
       try {
         const { receiverId, content, messageType } = data;
 
         if (!receiverId || !content) {
           return socket.emit('error', { message: 'receiverId and content are required' });
+        }
+
+        try {
+          await assertDmCanSend({
+            peerId: receiverId,
+            senderId: userId,
+            authorizationHeader: socket.handshake?.auth?.token
+              ? `Bearer ${socket.handshake.auth.token}`
+              : undefined,
+          });
+        } catch (dmErr) {
+          return socket.emit('error', {
+            message: dmErr.message || 'Forbidden',
+            code: dmErr.code || 'dm_forbidden',
+            statusCode: dmErr.statusCode || 403,
+          });
         }
 
         const message = await messageService.createMessage({
@@ -30,7 +47,7 @@ const friendSocket = (io) => {
 
         // Gửi tin nhắn đến người nhận
         io.to(`user:${receiverId}`).emit('new_message', message);
-        
+
         // Xác nhận cho người gửi
         socket.emit('message_sent', message);
       } catch (error) {
@@ -43,7 +60,7 @@ const friendSocket = (io) => {
       try {
         const { messageId } = data;
         const message = await messageService.markAsRead(messageId, userId);
-        
+
         if (message) {
           socket.emit('message_read', message);
         }
@@ -81,7 +98,3 @@ const friendSocket = (io) => {
 };
 
 module.exports = friendSocket;
-
-
-
-

@@ -10,11 +10,13 @@ const { isDuplicateOrgEvent } = require('@enterprise/shared/messaging/orgEventId
 const { invalidateLocalOrgAcl } = require('../services/orgAccessReadModel');
 const { deleteOrgMessagesByOrganization } = require('../services/messageSearchIndex.service');
 const { isMeilisearchConfigured } = require('../services/meilisearchClient');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
+const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
 let consumerHandle = null;
 
 async function publishDlq(ch, msg, err) {
-  await ch.assertQueue(ORG_EVENTS_CHAT_DLQ, { durable: true });
+  await assertQuorumQueue(ch, ORG_EVENTS_CHAT_DLQ);
   ch.sendToQueue(
     ORG_EVENTS_CHAT_DLQ,
     Buffer.from(
@@ -83,8 +85,8 @@ async function startOrgEventsConsumer() {
   const conn = await amqp.connect(url);
   const ch = await conn.createChannel();
   await ch.assertExchange(ORG_EVENT_EXCHANGE, 'topic', { durable: true });
-  await ch.assertQueue(ORG_EVENTS_CHAT_QUEUE, { durable: true });
-  await ch.assertQueue(ORG_EVENTS_CHAT_DLQ, { durable: true });
+  await assertQuorumQueue(ch, ORG_EVENTS_CHAT_QUEUE);
+  await assertQuorumQueue(ch, ORG_EVENTS_CHAT_DLQ);
 
   for (const key of ORG_EVENT_BINDING_KEYS) {
     await ch.bindQueue(ORG_EVENTS_CHAT_QUEUE, ORG_EVENT_EXCHANGE, key);
@@ -117,7 +119,15 @@ async function startOrgEventsConsumer() {
   );
 
   consumerHandle = { conn, ch, tag };
+  await waitForAmqpClose(conn);
+  await stopOrgEventsConsumer();
   return consumerHandle;
+}
+
+function runOrgEventsConsumerLoop() {
+  return runWithReconnect('orgEventsConsumer', startOrgEventsConsumer, {
+    shouldRun: () => isConsumerEnabled() && Boolean(process.env.RABBITMQ_URL),
+  });
 }
 
 async function stopOrgEventsConsumer() {
@@ -140,4 +150,9 @@ async function stopOrgEventsConsumer() {
   consumerHandle = null;
 }
 
-module.exports = { startOrgEventsConsumer, stopOrgEventsConsumer, processOrgEvent };
+module.exports = {
+  startOrgEventsConsumer,
+  stopOrgEventsConsumer,
+  runOrgEventsConsumerLoop,
+  processOrgEvent,
+};

@@ -104,7 +104,6 @@ export default function OrgWorkspaceSearchSidebar({
     try {
       const data = await fetchOrgMessageSearch(tokens, inputValue, {
         organizationId,
-        page: 1,
         limit: 25,
         signal: ac.signal,
       });

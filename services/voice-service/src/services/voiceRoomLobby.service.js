@@ -49,6 +49,26 @@ async function isHost(roomId, userId) {
   return String(lobby.hostUserId) === String(userId);
 }
 
+/** Chủ phòng: lobby host hoặc hostId của meeting voice đang active. */
+async function canActAsRoomHost(roomId, userId) {
+  const rid = String(roomId || '').trim();
+  const uid = String(userId || '').trim();
+  if (!rid || !uid) return false;
+  if (await isHost(rid, uid)) return true;
+
+  try {
+    const voiceRoomSessionService = require('./voiceRoomSession.service');
+    const Meeting = require('../models/Meeting');
+    const meetingId = voiceRoomSessionService.getActiveMeetingId(rid);
+    if (!meetingId) return false;
+    const meeting = await Meeting.findById(meetingId).select('hostId status').lean();
+    if (!meeting || meeting.status !== 'active') return false;
+    return String(meeting.hostId) === uid;
+  } catch {
+    return false;
+  }
+}
+
 async function requiresApproval(roomId) {
   if (!isFreePublicLobbyRoom(roomId)) return false;
   const lobby = await getLobby(roomId);
@@ -56,10 +76,30 @@ async function requiresApproval(roomId) {
   return lobby.joinPolicy === 'approval';
 }
 
+async function destroyLobby(roomId) {
+  const rid = String(roomId || '').trim();
+  if (!rid || !isFreePublicLobbyRoom(rid)) return false;
+
+  const VoiceRoomJoinRequest = require('../models/VoiceRoomJoinRequest');
+  await VoiceRoomJoinRequest.deleteMany({ roomId: rid });
+  const result = await VoiceRoomLobby.deleteOne({ roomId: rid });
+
+  try {
+    const voiceLobbyRedis = require('../presence/voiceLobbyRedis');
+    await voiceLobbyRedis.clearLobbyBootstrap?.(rid);
+  } catch {
+    /* optional redis */
+  }
+
+  return result.deletedCount > 0;
+}
+
 module.exports = {
   getLobby,
   registerHost,
   isHost,
+  canActAsRoomHost,
   requiresApproval,
   isFreePublicLobbyRoom,
+  destroyLobby,
 };

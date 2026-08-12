@@ -4,7 +4,9 @@ const userController = require('../controllers/user.controller');
 const userContext = require('../middlewares/userContext');
 const internalServiceAuth = require('../middlewares/internalServiceAuth');
 const { protect } = require('../middleware/auth');
+const { companyAdminAuth } = require('../middlewares/companyAdminAuth');
 const upload = require('../middleware/upload');
+const { cvUpload } = require('../middleware/cvUpload');
 
 // Presence từ socket-service (trước userContext — không cần x-user-id)
 router.patch(
@@ -49,9 +51,39 @@ router.post(
   userController.createUserProfile.bind(userController)
 );
 
+router.post(
+  '/internal/profile/:userId/bulk-fields',
+  internalServiceAuth,
+  userController.internalBulkImportProfileFields.bind(userController)
+);
+
+router.post(
+  '/internal/profile/:userId/deactivate',
+  internalServiceAuth,
+  userController.internalDeactivateProfile.bind(userController)
+);
+
+router.post(
+  '/internal/profiles/batch',
+  internalServiceAuth,
+  userController.internalProfilesBatch.bind(userController)
+);
+
 // Các route còn lại: JWT bắt buộc (giống friend-service), rồi enrich profile
 router.use(protect);
 router.use(userContext);
+
+// Company admin profile management
+router.get(
+  '/admin/:userId',
+  companyAdminAuth({ requireFullAccess: false }),
+  userController.adminGetProfile.bind(userController)
+);
+router.patch(
+  '/admin/:userId',
+  companyAdminAuth({ requireFullAccess: false }),
+  userController.adminPatchProfile.bind(userController)
+);
 
 // Lấy thông tin user hiện tại
 router.get('/me', userController.getCurrentUser.bind(userController));
@@ -66,6 +98,23 @@ router.post(
   '/avatar',
   upload.single('avatar'),
   userController.uploadAvatar.bind(userController)
+);
+
+router.post(
+  '/me/capability/cv',
+  (req, res, next) => {
+    cvUpload.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'CV upload failed',
+          errorCode: 'CV_UPLOAD_INVALID',
+        });
+      }
+      return next();
+    });
+  },
+  userController.uploadCapabilityCv.bind(userController)
 );
 
 // Tìm kiếm users

@@ -10,6 +10,9 @@ import { useOrganizationsMy } from '../../hooks/queries';
 
 /**
  * Redirect /w/:slug/:tab → suite route; resolve org và set activeWorkspace.
+ *
+ * SUNSET: 2026-12-12 — sau ngày này gỡ route `/w/*` khỏi router (S4b).
+ * Rollback tạm: giữ component; client mới dùng `/app/collaborate/workspaces`.
  */
 const LegacyWorkspaceRedirect = () => {
   const { setActiveWorkspace } = useWorkspace();

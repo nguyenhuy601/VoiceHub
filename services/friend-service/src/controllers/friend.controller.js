@@ -198,36 +198,6 @@ class FriendController {
     }
   }
 
-  // Xóa bạn bè
-  async removeFriend(req, res) {
-    try {
-      const { friendId } = req.params;
-      const userId = req.user?.id || req.userContext?.userId;
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
-      }
-
-      const result = await friendService.removeFriend(userId, friendId);
-
-      res.json({
-        success: true,
-        message: 'Friend removed successfully',
-        data: {
-          purgeAt: result?.purgeAt,
-          graceHours: result?.graceHours,
-        },
-      });
-    } catch (error) {
-      logger.error('Remove friend error:', error);
-      const { status, message } = errorToStatus(error, error.message);
-      res.status(status).json({ success: false, message });
-    }
-  }
-
   // Chặn user
   async blockUser(req, res) {
     try {

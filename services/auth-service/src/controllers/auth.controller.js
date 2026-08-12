@@ -1,18 +1,18 @@
 const authService = require('../services/auth.service');
+const adminUserService = require('../services/adminUser.service');
 const emailService = require('../utils/email');
 const { resolveFrontendUrl } = require('@enterprise/shared');
 const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
+const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { requireParam } = require('../utils/validateInput');
+const {
+  readRefreshTokenFromReq,
+  setRefreshCookie,
+  clearRefreshCookie,
+} = require('../utils/refreshCookie');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const message = String(err?.message || fallbackMessage);
-  const errorCode = String(err?.errorCode || fallbackCode || '').trim();
-  return res.status(status).json({
-    success: false,
-    message,
-    ...(errorCode ? { errorCode } : {}),
-    ...(message ? { messageUser: message } : {}),
-  });
+  return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'AUTH_INTERNAL_ERROR');
 }
 
 class AuthController {
@@ -45,15 +45,17 @@ class AuthController {
 
       // Validate required fields
       if (!email || !password) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'Email và mật khẩu là bắt buộc.',
           message: 'Email and password are required',
         });
       }
 
       if (!firstName || !lastName) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'Họ và tên là bắt buộc.',
           message: 'First name and last name are required',
         });
       }
@@ -148,6 +150,9 @@ class AuthController {
 
   // Đăng nhập
   async login(req, res) {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const userAgent = String(req.headers['user-agent'] || '').trim();
+    let attemptedUserId = null;
     try {
       const { email, password } = req.body;
 
@@ -159,12 +164,32 @@ class AuthController {
       }
 
       const result = await authService.login(email, password);
+      attemptedUserId = result?.user?.id || result?.user?.userId || result?.userId || null;
 
+      // Refresh token is HttpOnly cookie only (opaque refresh -> stored as hash server-side).
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
+      void adminUserService.recordLoginEvent({
+        userId: attemptedUserId,
+        success: true,
+        ip,
+        userAgent,
+      });
+
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
       res.json({
         success: true,
-        data: result,
+        data: safeData,
       });
     } catch (error) {
+      void adminUserService.recordLoginEvent({
+        userId: attemptedUserId,
+        success: false,
+        ip,
+        userAgent,
+        errorCode: error?.errorCode || 'AUTH_LOGIN_FAILED',
+      });
       return sendError(res, error, 401, 'Đăng nhập thất bại', 'AUTH_LOGIN_FAILED');
     }
   }
@@ -172,20 +197,26 @@ class AuthController {
   // Refresh token
   async refreshToken(req, res) {
     try {
-      const { refreshToken } = req.body;
-
-      if (!refreshToken) {
-        return res.status(400).json({
-          success: false,
-          message: 'Refresh token is required',
+      const refreshTokenRaw = readRefreshTokenFromReq(req);
+      if (!refreshTokenRaw) {
+        return sendServiceError(res, 401, {
+          errorCode: 'AUTH_REFRESH_INVALID',
+          messageUser: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.',
+          message: 'Refresh token is required (HttpOnly cookie missing)',
         });
       }
 
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken(refreshTokenRaw);
+
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
+
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
 
       res.json({
         success: true,
-        data: result,
+        data: safeData,
       });
     } catch (error) {
       return sendError(res, error, 401, 'Làm mới phiên thất bại', 'AUTH_REFRESH_FAILED');
@@ -205,6 +236,7 @@ class AuthController {
       }
 
       await authService.logout(userId);
+      clearRefreshCookie(res, req);
 
       res.json({
         success: true,
@@ -235,11 +267,20 @@ class AuthController {
         });
       }
 
-      await authService.changePassword(userId, oldPassword, newPassword);
+      const result = await authService.changePassword(userId, oldPassword, newPassword);
+
+      // Khi đổi mật khẩu, refresh token được rotate/bump tokenVersion.
+      // Vì refresh token nằm trong HttpOnly cookie nên phải update cookie để silent-refresh tiếp tục hoạt động.
+      if (result?.refreshToken) {
+        setRefreshCookie(res, result.refreshToken, req);
+      }
+
+      const { refreshToken: _refreshToken, ...safeData } = result || {};
 
       res.json({
         success: true,
         message: 'Password changed successfully',
+        data: safeData,
       });
     } catch (error) {
       return sendError(res, error, 400, 'Đổi mật khẩu thất bại', 'AUTH_CHANGE_PASSWORD_FAILED');
@@ -410,6 +451,68 @@ class AuthController {
     }
   }
 
+  /** IT/HR — provision user (S2S only) */
+  async provisionUserInternal(req, res) {
+    try {
+      const {
+        email,
+        firstName,
+        lastName,
+        password,
+        systemRole,
+        resetPassword,
+        readyForLogin,
+      } = req.body || {};
+      const result = await authService.provisionUserByAdmin({
+        email,
+        firstName,
+        lastName,
+        password,
+        systemRole,
+        resetPassword,
+        readyForLogin,
+      });
+      return res.status(result.created ? 201 : 200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return sendError(res, error, error.statusCode || 400, 'Không tạo được tài khoản', 'AUTH_PROVISION_FAILED');
+    }
+  }
+
+  /** Internal — soft rollback: deactivate UserAuth created during import */
+  async deprovisionUserInternal(req, res) {
+    try {
+      const userId = String(req.body?.userId || '').trim();
+      if (!userId) {
+        return sendError(res, new Error('userId là bắt buộc'), 400, 'userId bắt buộc', 'AUTH_DEPROVISION_REQUIRED');
+      }
+      const UserAuth = require('../models/UserAuth');
+      const updated = await UserAuth.findOneAndUpdate(
+        { userId },
+        {
+          $set: {
+            isActive: false,
+            isEmailVerified: false,
+          },
+        },
+        { new: true }
+      );
+
+      if (!updated) {
+        return sendError(res, new Error('UserAuth not found'), 404, 'Không tìm thấy UserAuth', 'AUTH_DEPROVISION_NOT_FOUND');
+      }
+
+      return res.json({
+        success: true,
+        data: { userId: String(updated.userId) },
+      });
+    } catch (error) {
+      return sendError(res, error, 400, 'Không thể deprovision user', 'AUTH_DEPROVISION_FAILED');
+    }
+  }
+
   // Lấy thông tin user hiện tại
   async getMe(req, res) {
     try {
@@ -422,16 +525,126 @@ class AuthController {
         });
       }
 
-      // TODO: Lấy thông tin user từ user-service
+      const UserAuth = require('../models/UserAuth');
+      const userAuth = await UserAuth.findOne({ userId })
+        .select('systemRole mustChangePassword tokenVersion')
+        .lean();
+
+      if (!userAuth) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const got = Number(req.user?.tv ?? 0);
+      const expected = Number(userAuth.tokenVersion || 0);
+      if (got !== expected) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token revoked',
+          errorCode: 'AUTH_TOKEN_INVALID',
+        });
+      }
+
       res.json({
         success: true,
         data: {
           id: userId,
           email: req.user.email,
+          systemRole: userAuth?.systemRole || req.user.systemRole || 'employee',
+          mustChangePassword: Boolean(userAuth?.mustChangePassword),
         },
       });
     } catch (error) {
       return sendError(res, error, 500, 'Không tải được thông tin tài khoản', 'AUTH_ME_FAILED');
+    }
+  }
+
+  /** S2S — gateway đọc tokenVersion khi Redis cache miss */
+  async getTokenVersionInternal(req, res) {
+    try {
+      const userId = String(req.params.userId || '').trim();
+      if (!userId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+      const UserAuth = require('../models/UserAuth');
+      const userAuth = await UserAuth.findOne({ userId }).select('tokenVersion').lean();
+      if (!userAuth) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      return res.json({
+        success: true,
+        data: { tokenVersion: Number(userAuth.tokenVersion || 0) },
+      });
+    } catch (error) {
+      return sendError(res, error, 500, 'Không đọc được token version', 'AUTH_TOKEN_VERSION_FAILED');
+    }
+  }
+
+  /** S2S — org-service gửi email mời nhận tài khoản công ty */
+  async sendCompanyInviteEmail(req, res) {
+    try {
+      const { email, inviteUrl, organizationName, firstName, lastName } = req.body || {};
+      const normalized = String(email || '').trim().toLowerCase();
+      if (!normalized || !normalized.includes('@')) {
+        return res.status(400).json({ success: false, message: 'email is required', errorCode: 'VALIDATION_REQUIRED' });
+      }
+      const url = String(inviteUrl || '').trim();
+      if (!url) {
+        return res.status(400).json({ success: false, message: 'inviteUrl is required', errorCode: 'VALIDATION_REQUIRED' });
+      }
+      if (!emailService.isAvailable()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Email service is not configured',
+          errorCode: 'AUTH_EMAIL_UNAVAILABLE',
+          messageUser: 'Dịch vụ email chưa được cấu hình.',
+        });
+      }
+      const info = await emailService.sendCompanyInviteEmail(normalized, {
+        inviteUrl: url,
+        organizationName: String(organizationName || '').trim(),
+        firstName: String(firstName || '').trim(),
+        lastName: String(lastName || '').trim(),
+      });
+      if (!info) {
+        return res.status(503).json({
+          success: false,
+          message: 'Failed to send invite email',
+          errorCode: 'AUTH_INVITE_EMAIL_FAILED',
+          messageUser:
+            'Không gửi được email mời. Kiểm tra EMAIL_USER / Gmail App Password (lỗi SMTP 535 BadCredentials).',
+        });
+      }
+      return res.json({ success: true, data: { sent: true } });
+    } catch (error) {
+      return sendError(res, error, 500, 'Không gửi được email mời', 'AUTH_INVITE_EMAIL_FAILED');
+    }
+  }
+
+  /** S2S — org-service gửi email đặt mật khẩu sau Excel/HR provision */
+  async sendProvisionSetPasswordEmail(req, res) {
+    try {
+      const { userId, frontendUrl, organizationName, firstName, lastName } = req.body || {};
+      const uid = String(userId || '').trim();
+      if (!uid) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId is required',
+          errorCode: 'VALIDATION_REQUIRED',
+        });
+      }
+      const adminUserService = require('../services/adminUser.service');
+      const data = await adminUserService.sendProvisionSetPasswordEmail(uid, {
+        frontendUrl,
+        organizationName,
+        firstName,
+        lastName,
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return sendError(res, error, error.statusCode || 500, 'Không gửi được email đặt mật khẩu', 'AUTH_SET_PASSWORD_EMAIL_FAILED');
     }
   }
 

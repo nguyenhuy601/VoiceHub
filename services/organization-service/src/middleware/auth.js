@@ -1,3 +1,4 @@
+const { orgUnauthorized, orgAccessDenied, sendServiceError } = require('../utils/orgApiError');
 const axios = require('axios');
 const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 
@@ -23,7 +24,7 @@ exports.protect = async (req, res, next) => {
 
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
-      return res.status(401).json({ status: 'fail', message: 'Not authenticated' });
+      return orgUnauthorized(res);
     }
 
     // Verify token with auth service (timeout tránh treo cả chuỗi search → chat-service 503)
@@ -39,7 +40,11 @@ exports.protect = async (req, res, next) => {
     };
     next();
   } catch (error) {
-    res.status(401).json({ status: 'fail', message: 'Invalid token' });
+    return sendServiceError(res, 401, {
+      errorCode: 'AUTH_TOKEN_INVALID',
+      messageUser: 'Phiên đăng nhập không hợp lệ.',
+      message: 'Invalid token',
+    });
   }
 };
 
@@ -57,7 +62,7 @@ exports.authorize = (roles) => {
 
     const normalizedRole = membership ? Membership.normalizeRole(membership.role) : null;
     if (!membership || !roles.includes(normalizedRole)) {
-      return res.status(403).json({ status: 'fail', message: 'Access denied' });
+      return orgAccessDenied(res);
     }
 
     req.membership = { ...membership.toObject(), normalizedRole };

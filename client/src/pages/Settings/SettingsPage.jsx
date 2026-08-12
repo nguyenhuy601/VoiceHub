@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { ConfirmDialog, GlassCard, GradientButton } from '../../components/Shared';
+import { ConfirmDialog, GradientButton } from '../../components/Shared';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import userService from '../../services/userService';
@@ -9,7 +9,20 @@ import authService from '../../services/authService';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { mergeAuthUserFromProfile, unwrapApiData } from '../../utils/helpers';
+import { getJwtEmail } from '../../utils/tokenStorage';
 import UserAvatar from '../../components/Shared/UserAvatar';
+import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
+import SettingsFigmaLayout from '../../components/Settings/SettingsFigmaLayout';
+import useUiRole from '../../hooks/useUiRole';
+import { settingsTabsForRole } from '../../config/roleMeta';
+import SettingsRbacMatrix from '../../components/Settings/SettingsRbacMatrix';
+import SettingsActiveSessions from '../../components/Settings/SettingsActiveSessions';
+import SettingsApiKeysPanel from '../../components/Settings/SettingsApiKeysPanel';
+import CapabilityProfilePanel from '../../components/Settings/CapabilityProfilePanel';
+import { FIGMA_SETTINGS_CARD, FIGMA_SETTINGS_INPUT } from '../../components/Settings/figmaSettingsClasses';
+import { hasBackendCapability } from '../../config/backendCapabilities';
 
 const isValidMongoObjectId = (s) =>
   typeof s === 'string' && /^[a-fA-F0-9]{24}$/.test(s);
@@ -31,11 +44,51 @@ const NOTIF_LABEL_KEYS = {
   'mobile-push': 'notifPush',
 };
 
-function SettingsPage({ suiteLayout = false } = {}) {
+const SHOW_ROLE_DEBUG_SWITCHER =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_UI_ROLE_DEBUG === 'true';
+
+function SettingsPage() {
   const { t, locale } = useAppStrings();
   const { user, updateUser } = useAuth();
   const { isDarkMode, toggleTheme, fontScale, setFontScale } = useTheme();
   const [activeTab, setActiveTab] = useState('general');
+  const { role: uiRole, meta: uiRoleMeta } = useUiRole();
+  const figmaSettingsTabs = useMemo(
+    () =>
+      settingsTabsForRole(uiRole).map((tab) => ({
+        ...tab,
+        label: t(`settingsPage.figmaTab${tab.id.charAt(0).toUpperCase()}${tab.id.slice(1)}`),
+      })),
+    [uiRole, t]
+  );
+  const [searchParams] = useSearchParams();
+  const [figmaTab, setFigmaTab] = useState('profile');
+  useEffect(() => {
+    const tab = String(searchParams.get('tab') || '').trim();
+    if (tab === 'capability') setFigmaTab('capability');
+  }, [searchParams]);
+  const [sessions, setSessions] = useState([]);
+  useEffect(() => {
+    setSessions([
+      {
+        id: '1',
+        device: 'Chrome · Windows',
+        location: 'TP.HCM, VN',
+        lastSeen: t('settingsPage.sessionActive'),
+        ip: '203.162.xx.xx',
+        current: true,
+      },
+      {
+        id: '2',
+        device: 'Safari · iPhone',
+        location: 'Ha Noi, VN',
+        lastSeen: t('settingsPage.timeHourAgo', { n: 2 }),
+        ip: '113.160.xx.xx',
+        current: false,
+      },
+    ]);
+  }, [t]);
+
   const [apiKeyDeleteConfirm, setApiKeyDeleteConfirm] = useState(null);
   const [roleDeleteConfirm, setRoleDeleteConfirm] = useState(null);
   const [userRole, setUserRole] = useState('admin'); // 'admin', 'manager', 'user'
@@ -46,13 +99,13 @@ function SettingsPage({ suiteLayout = false } = {}) {
     contactEmail: 'contact@voicehub.com',
   });
   const [userProfileForm, setUserProfileForm] = useState({
-    fullName: 'John Doe',
-    phone: '+84 123 456 789',
+    fullName: '',
+    phone: '',
     email: '',
   });
   const [apiKeys, setApiKeys] = useState([
-    { id: 'k1', name: 'Production API Key', created: '15/12/2025', lastUsed: '2 giờ trước', value: 'vh_prod_xxxxxxxxxxxx' },
-    { id: 'k2', name: 'Development API Key', created: '10/01/2026', lastUsed: '1 ngày trước', value: 'vh_dev_xxxxxxxxxxxx' },
+    { id: 'k1', name: 'Production API Key', created: '15/12/2025', lastUsed: '2h ago', value: 'vh_prod_xxxxxxxxxxxx' },
+    { id: 'k2', name: 'Development API Key', created: '10/01/2026', lastUsed: '1d ago', value: 'vh_dev_xxxxxxxxxxxx' },
   ]);
   const [integrations, setIntegrations] = useState([
     { id: 'slack', name: 'Slack', icon: '💬', connected: true, color: 'from-cyan-600 to-teal-600' },
@@ -120,8 +173,18 @@ function SettingsPage({ suiteLayout = false } = {}) {
         const parsed = JSON.parse(userProfileData);
         setUserProfileForm((prev) => ({
           ...prev,
-          ...parsed,
-          email: typeof parsed?.email === 'string' ? parsed.email : prev.email,
+          fullName:
+            typeof parsed?.fullName === 'string' && parsed.fullName.trim()
+              ? parsed.fullName.trim()
+              : prev.fullName,
+          phone:
+            typeof parsed?.phone === 'string' && parsed.phone.trim()
+              ? parsed.phone.trim()
+              : prev.phone,
+          email:
+            typeof parsed?.email === 'string' && parsed.email.trim()
+              ? parsed.email.trim()
+              : prev.email || getJwtEmail(),
         }));
       } catch {
         /* ignore */
@@ -154,9 +217,9 @@ function SettingsPage({ suiteLayout = false } = {}) {
         const p = JSON.parse(privacyData);
         const mapPrivacy = (v, keys) => {
           if (keys.includes(v)) return v;
-          if (v === 'Mọi người' || v === 'everyone') return 'everyone';
-          if (v === 'Chỉ đồng nghiệp' || v === 'colleagues') return 'colleagues';
-          if (v === 'Không ai' || v === 'nobody') return 'nobody';
+          if (v === 'M\u1ecdi ng\u01b0\u1eddi' || v === 'everyone') return 'everyone';
+          if (v === 'Ch\u1ec9 \u0111\u1ed3ng nghi\u1ec7p' || v === 'colleagues') return 'colleagues';
+          if (v === 'Kh\u00f4ng ai' || v === 'nobody') return 'nobody';
           return 'everyone';
         };
         setPrivacySettings({
@@ -197,12 +260,54 @@ function SettingsPage({ suiteLayout = false } = {}) {
 
   useEffect(() => {
     if (!user) return;
-    setUserProfileForm({
-      fullName: user?.displayName || user?.fullName || user?.name || t('settingsPage.userFallback'),
-      phone: user?.phone || user?.phoneNumber || user?.mobile || '',
-      email: user?.email || '',
-    });
+    setUserProfileForm((prev) => ({
+      ...prev,
+      fullName:
+        user?.displayName || user?.fullName || user?.name || prev.fullName || t('settingsPage.userFallback'),
+      phone: user?.phone || user?.phoneNumber || user?.mobile || prev.phone || '',
+      email: user?.email || prev.email || getJwtEmail() || '',
+    }));
   }, [user, t]);
+
+  /** Bootstrap BFF không gửi phone — tải đầy đủ từ GET /users/me */
+  useEffect(() => {
+    const userId = user?.id || user?.userId || user?._id;
+    if (!userId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await userService.getMe();
+        const data = unwrapApiData(res);
+        if (cancelled || !data || typeof data !== 'object') return;
+        const phoneValue = String(data.phone || data.phoneNumber || data.mobile || '').trim();
+        setUserProfileForm((prev) => ({
+          ...prev,
+          fullName: data.displayName || data.fullName || data.name || prev.fullName,
+          phone:
+            phoneValue ||
+            prev.phone ||
+            user?.phone ||
+            user?.phoneNumber ||
+            user?.mobile ||
+            '',
+          email: data.email || prev.email || user?.email || getJwtEmail() || '',
+        }));
+        updateUser(
+          mergeAuthUserFromProfile(user, {
+            ...data,
+            ...(phoneValue ? { phone: phoneValue } : {}),
+          })
+        );
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn('Settings: profile fetch skipped', err?.message);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.userId, user?._id, updateUser]);
 
   useEffect(() => {
     localStorage.setItem('settings:apiKeys', JSON.stringify(apiKeys));
@@ -250,8 +355,14 @@ function SettingsPage({ suiteLayout = false } = {}) {
       if (nextEmail && nextEmail !== currentEmail) {
         await authService.requestEmailChange(nextEmail);
       }
-      await userService.updateProfile(payload);
-      updateUser(payload);
+      const res = await userService.updateProfile(payload);
+      const saved = unwrapApiData(res) || res?.data || res;
+      updateUser(mergeAuthUserFromProfile(user, { ...payload, ...saved }));
+      setUserProfileForm((prev) => ({
+        ...prev,
+        fullName: payload.displayName || prev.fullName,
+        phone: saved?.phone || payload.phone || prev.phone,
+      }));
       localStorage.setItem('settings:userProfile', JSON.stringify(userProfileForm));
       if (nextEmail && nextEmail !== currentEmail) {
         toast.success(t('settingsPage.toastEmailChangeRequested'));
@@ -259,7 +370,7 @@ function SettingsPage({ suiteLayout = false } = {}) {
         toast.success(t('settingsPage.toastSaveProfile'));
       }
     } catch (error) {
-      toast.error(error?.response?.data?.message || t('settingsPage.toastRoleErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('errors.generic') }));
     }
   };
 
@@ -280,6 +391,16 @@ function SettingsPage({ suiteLayout = false } = {}) {
     if (!apiKeyDeleteConfirm) return;
     setApiKeys((prev) => prev.filter((item) => item.id !== apiKeyDeleteConfirm));
     toast.success(t('settingsPage.toastDeleteKey'));
+  };
+
+  const handleRevokeSession = (sessionId) => {
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    toast.success(t('settingsPage.toastRevokeSession'));
+  };
+
+  const handleRevokeAllOtherSessions = () => {
+    setSessions((prev) => prev.filter((s) => s.current));
+    toast.success(t('settingsPage.toastRevokeAllSessions'));
   };
 
   const handleCreateApiKey = () => {
@@ -332,12 +453,12 @@ function SettingsPage({ suiteLayout = false } = {}) {
 
   const handleExportAuditLog = () => {
     const content = [
-      'AUDIT LOG - VoiceHub',
-      `Exported at: ${new Date().toISOString()}`,
+      t('settingsPage.auditExportHeader'),
+      t('settingsPage.auditExportedAt', { iso: new Date().toISOString() }),
       '---',
-      'Admin - Tạo vai trò Trưởng Nhóm Mới',
-      'Sarah Chen - Cập nhật thông tin tổ chức',
-      'Mike Ross - Mời thành viên mới',
+      t('settingsPage.auditLog1'),
+      t('settingsPage.auditLog2'),
+      t('settingsPage.auditLog3'),
     ].join('\n');
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -351,12 +472,12 @@ function SettingsPage({ suiteLayout = false } = {}) {
 
   const handleExportInvoice = () => {
     const content = [
-      'VOICEHUB INVOICE SUMMARY',
-      `Generated at: ${new Date().toISOString()}`,
-      'Plan: Enterprise',
-      'Members: 45',
-      'Storage: 45.8GB / 100GB',
-      'Monthly fee: 12,500,000 VND',
+      t('settingsPage.invoiceExportHeader'),
+      t('settingsPage.invoiceGeneratedAt', { iso: new Date().toISOString() }),
+      t('settingsPage.invoicePlanLine'),
+      t('settingsPage.invoiceMembersLine'),
+      t('settingsPage.invoiceStorageLine'),
+      t('settingsPage.invoiceMonthlyFeeLine'),
     ].join('\n');
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -369,7 +490,7 @@ function SettingsPage({ suiteLayout = false } = {}) {
   };
 
   const handleContactBilling = () => {
-    window.location.href = 'mailto:billing@voicehub.com?subject=Yeu%20cau%20ho%20tro%20thanh%20toan';
+    window.location.href = `mailto:billing@voicehub.com?subject=${encodeURIComponent(t('settingsPage.billingMailSubject'))}`;
   };
 
   const adminTabs = useMemo(
@@ -377,9 +498,9 @@ function SettingsPage({ suiteLayout = false } = {}) {
       { id: 'general', label: t('settingsPage.tabGeneral'), icon: '⚙️' },
       { id: 'roles', label: t('settingsPage.tabRoles'), icon: '🔐' },
       { id: 'security', label: t('settingsPage.tabSecurity'), icon: '🛡️' },
-      { id: 'integrations', label: t('settingsPage.tabIntegrations'), icon: '🔗' },
-      { id: 'billing', label: t('settingsPage.tabBilling'), icon: '💳' },
-      { id: 'audit', label: t('settingsPage.tabAudit'), icon: '📜' },
+      ...(hasBackendCapability('integrations') ? [{ id: 'integrations', label: t('settingsPage.tabIntegrations'), icon: '🔗' }] : []),
+      ...(hasBackendCapability('billingInvoices') ? [{ id: 'billing', label: t('settingsPage.tabBilling'), icon: '💳' }] : []),
+      ...(hasBackendCapability('auditLogs') ? [{ id: 'audit', label: t('settingsPage.tabAudit'), icon: '📜' }] : []),
     ],
     [t]
   );
@@ -453,16 +574,19 @@ function SettingsPage({ suiteLayout = false } = {}) {
           toast.error(t('settingsPage.toastRoleNoOrg'));
           return;
         }
-        const response = await roleAPI.createRole({
-          name: roleDraft.name.trim(),
-          permissions: roleDraft.permissions.trim(),
-          serverId: roleContextOrganizationId,
+        const response = await roleAPI.clonePermissionGroup({
           organizationId: roleContextOrganizationId,
+          serverId: roleContextOrganizationId,
+          templateKey: 'viewer',
+          specialization: 'Other',
+          allowOtherName: true,
+          otherName: roleDraft.name.trim(),
+          createRole: true,
           color: roleDraft.color,
-          icon: roleDraft.icon
         });
         const wrapped = response?.data ?? response;
-        const newRole = wrapped?.data ?? wrapped;
+        const payload = wrapped?.data ?? wrapped;
+        const newRole = payload?.role || payload;
         setRoles((prev) => [
           ...prev,
           {
@@ -479,7 +603,7 @@ function SettingsPage({ suiteLayout = false } = {}) {
       setRoleEditorOpen(false);
     } catch (error) {
       console.error('Error saving role:', error);
-      toast.error(error?.message || t('settingsPage.toastRoleErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('settingsPage.toastRoleErr') }));
     } finally {
       setRoleLoading(false);
     }
@@ -499,779 +623,231 @@ function SettingsPage({ suiteLayout = false } = {}) {
       toast.success(t('settingsPage.toastRoleDeleted'));
     } catch (error) {
       console.error('Error deleting role:', error);
-      toast.error(error?.message || t('settingsPage.toastRoleDeleteErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('settingsPage.toastRoleDeleteErr') }));
     } finally {
       setRoleLoading(false);
     }
   };
 
-  const settingsShell = isDarkMode
-    ? 'bg-[#050810] text-slate-100'
-    : 'bg-gradient-to-b from-sky-100 via-cyan-50/70 to-slate-200 text-slate-900';
-  const gc = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-white shadow-sm';
-  /** Chuỗi class dùng chung — chế độ sáng: chữ slate, nền trắng/slate-50, viền nhạt */
-  const st = {
-    heading: isDarkMode ? 'text-white' : 'text-slate-900',
-    muted: isDarkMode ? 'text-gray-400' : 'text-slate-600',
-    label: isDarkMode ? 'text-gray-300' : 'text-slate-700',
-    onSurface: isDarkMode ? 'text-white' : 'text-slate-800',
-    input:
-      'w-full rounded-xl border px-4 py-3 outline-none transition-colors ' +
-      (isDarkMode
-        ? 'border-slate-800 bg-[#040f2a] text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/25'
-        : 'border-slate-200 bg-white text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20'),
-    inputSm:
-      'w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors ' +
-      (isDarkMode
-        ? 'border-slate-800 bg-slate-900/60 text-white focus:border-cyan-500'
-        : 'border-slate-200 bg-white text-slate-900 shadow-sm focus:border-cyan-500'),
-    inputDisabled:
-      'w-full cursor-not-allowed rounded-xl border px-4 py-3 outline-none ' +
-      (isDarkMode
-        ? 'border-slate-800 bg-slate-900/40 text-slate-400'
-        : 'border-slate-200 bg-slate-100 text-slate-500 shadow-inner'),
-    panel: isDarkMode ? 'rounded-xl border border-slate-800 bg-[#040f2a]' : 'rounded-xl border border-slate-200 bg-slate-50 shadow-sm',
-    panelLoose: isDarkMode ? 'rounded-xl border border-slate-700 bg-[#040f2a]' : 'rounded-xl border border-slate-200 bg-slate-50 shadow-sm',
-    listRow: isDarkMode
-      ? 'flex items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-4'
-      : 'flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm',
-    settingRow: isDarkMode
-      ? 'flex cursor-pointer items-center justify-between rounded-xl border border-slate-800 bg-[#040f2a] p-4 transition-all hover:bg-slate-800/70'
-      : 'flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:bg-slate-50',
-    ghostBtn: isDarkMode
-      ? 'rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/80'
-      : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50',
-    outlineBtn: isDarkMode
-      ? 'rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-2 font-semibold text-slate-100 transition-all hover:bg-slate-800/70'
-      : 'rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-800 shadow-sm transition-all hover:bg-slate-50',
-    select:
-      'w-full rounded-xl border px-4 py-3 outline-none ' +
-      (isDarkMode
-        ? 'border-slate-800 bg-[#040f2a] text-white focus:border-cyan-500'
-        : 'border-slate-200 bg-white text-slate-900 shadow-sm focus:border-cyan-500'),
-    integrationCard: isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-slate-50 shadow-sm',
-    nestedBox: isDarkMode ? 'rounded-lg border border-slate-800 p-3' : 'rounded-lg border border-slate-200 bg-white p-3',
-    accentInline: isDarkMode ? 'text-cyan-400' : 'text-cyan-700',
-    roleTabInactive: isDarkMode
-      ? 'border border-slate-800 bg-[#040f2a] text-gray-400 hover:bg-slate-800/70'
-      : 'border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50',
-  };
+  const auditEntries = useMemo(() => [], []);
 
-  const auditEntries = useMemo(
-    () => [
-      { user: 'Admin', action: t('settingsPage.auditLog1'), time: t('settingsPage.timeMinAgo', { n: 5 }), type: 'create' },
-      { user: 'Sarah Chen', action: t('settingsPage.auditLog2'), time: t('settingsPage.timeHourAgo', { n: 1 }), type: 'update' },
-      { user: 'Mike Ross', action: t('settingsPage.auditLog3'), time: t('settingsPage.timeHourAgo', { n: 3 }), type: 'invite' },
-      { user: 'Admin', action: t('settingsPage.auditLog4'), time: t('settingsPage.timeDayAgo', { n: 1 }), type: 'security' },
-      { user: 'Emma Wilson', action: t('settingsPage.auditLog5'), time: t('settingsPage.timeDayAgo', { n: 2 }), type: 'delete' },
-    ],
-    [t]
+  const suiteSettingsBody = (
+    <SettingsFigmaLayout
+      activeTab={figmaTab}
+      onTabChange={setFigmaTab}
+      userRoleLabel={uiRoleMeta.label}
+      tabs={figmaSettingsTabs}
+    >
+      {figmaTab === 'profile' && (
+        <div className="max-w-xl space-y-6">
+          <div>
+            <h2 className="mb-1 font-display text-xl font-bold text-foreground">{t('settingsPage.profileTitle')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settingsPage.pageSubtitleUser')}</p>
+          </div>
+          <div className={`${FIGMA_SETTINGS_CARD} space-y-4`}>
+            <div className="flex items-center gap-5">
+              <UserAvatar
+                avatar={avatarUrl || null}
+                userId={user?.id || user?._id}
+                name={userProfileForm.fullName || user?.displayName || user?.name}
+                size="2xl"
+              />
+              <label className="inline-flex cursor-pointer">
+                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                <span className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+                  {t('settingsPage.changeAvatar')}
+                </span>
+              </label>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">{t('settingsPage.fullName')}</label>
+              <input
+                type="text"
+                value={userProfileForm.fullName}
+                onChange={(e) => setUserProfileForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                className={FIGMA_SETTINGS_INPUT}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">{t('settingsPage.email')}</label>
+                <input
+                  type="email"
+                  value={userProfileForm.email}
+                  onChange={(e) => setUserProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                  className={FIGMA_SETTINGS_INPUT}
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">{t('settingsPage.phone')}</label>
+                <input
+                  type="tel"
+                  value={userProfileForm.phone}
+                  onChange={(e) => setUserProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  className={FIGMA_SETTINGS_INPUT}
+                />
+              </div>
+            </div>
+            <GradientButton variant="primary" onClick={handleSaveUserProfile}>
+              {t('settingsPage.saveChanges')}
+            </GradientButton>
+          </div>
+        </div>
+      )}
+
+      {figmaTab === 'capability' && <CapabilityProfilePanel />}
+
+      {figmaTab === 'security' && (
+        <div className="max-w-xl space-y-5">
+          <div>
+            <h2 className="mb-1 font-display text-xl font-bold text-foreground">{t('settingsPage.tabSecurity')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settingsPage.securityPolicyTitle')}</p>
+          </div>
+          <div className={`${FIGMA_SETTINGS_CARD} space-y-3`}>
+            {securitySettings.map((setting) => (
+              <label key={setting.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3">
+                <span className="text-sm text-foreground">
+                  {t(`settingsPage.${SECURITY_LABEL_KEYS[setting.id]}`)}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={setting.checked}
+                  onChange={() => handleToggleSecuritySetting(setting.id)}
+                  className="h-5 w-5 rounded"
+                />
+              </label>
+            ))}
+          </div>
+          <SettingsActiveSessions
+            sessions={sessions}
+            onRevokeSession={handleRevokeSession}
+            onRevokeAllOthers={handleRevokeAllOtherSessions}
+          />
+        </div>
+      )}
+
+      {figmaTab === 'notifications' && (
+        <div className="max-w-xl space-y-5">
+          <h2 className="font-display text-xl font-bold text-foreground">{t('settingsPage.notifSettingsTitle')}</h2>
+          <div className={`${FIGMA_SETTINGS_CARD} space-y-3`}>
+            {notificationSettings.map((setting) => (
+              <label key={setting.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3">
+                <span className="text-sm text-foreground">{t(`settingsPage.${NOTIF_LABEL_KEYS[setting.id]}`)}</span>
+                <input
+                  type="checkbox"
+                  checked={setting.checked}
+                  onChange={() => handleToggleNotificationSetting(setting.id)}
+                  className="h-5 w-5 rounded"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {figmaTab === 'api' && (
+        <SettingsApiKeysPanel
+          apiKeys={apiKeys}
+          onCreate={handleCreateApiKey}
+          onCopy={handleCopyApiKey}
+          onDelete={requestDeleteApiKey}
+          title={t('settingsPage.apiKeysTitle')}
+          description={t('settingsPage.apiKeysDesc')}
+          createLabel={t('settingsPage.createApiKey')}
+        />
+      )}
+
+      {figmaTab === 'organization' && (
+        <div className="max-w-xl space-y-5">
+          <div>
+            <h2 className="mb-1 font-display text-xl font-bold text-foreground">{t('settingsPage.orgInfoTitle')}</h2>
+            <p className="text-sm text-muted-foreground">{t('settingsPage.pageSubtitleOrg')}</p>
+          </div>
+          <div className={`${FIGMA_SETTINGS_CARD} space-y-4`}>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">{t('settingsPage.orgName')}</label>
+              <input
+                type="text"
+                value={organizationForm.name}
+                onChange={(e) => setOrganizationForm((prev) => ({ ...prev, name: e.target.value }))}
+                className={FIGMA_SETTINGS_INPUT}
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">{t('settingsPage.orgDesc')}</label>
+              <textarea
+                className={`${FIGMA_SETTINGS_INPUT} h-auto min-h-[80px] py-2`}
+                rows={3}
+                value={organizationForm.description}
+                onChange={(e) => setOrganizationForm((prev) => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <GradientButton variant="primary" onClick={handleSaveOrganization}>
+              {t('settingsPage.saveChanges')}
+            </GradientButton>
+          </div>
+        </div>
+      )}
+
+      {figmaTab === 'rbac' && <SettingsRbacMatrix />}
+
+      {figmaTab === 'appearance' && (
+        <div className="max-w-xl space-y-5">
+          <h2 className="font-display text-xl font-bold text-foreground">{t('settingsPage.appearanceTitle')}</h2>
+          <div className={`${FIGMA_SETTINGS_CARD} space-y-4`}>
+            <label className="block text-sm font-medium text-foreground">{t('settingsPage.themeLabel')}</label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'dark', name: t('settingsPage.themeDark'), icon: '🌙' },
+                { id: 'light', name: t('settingsPage.themeLight'), icon: '☀️' },
+              ].map((theme) => {
+                const selected = theme.id === 'dark' ? isDarkMode : !isDarkMode;
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => {
+                      if (theme.id === 'dark' && !isDarkMode) toggleTheme();
+                      if (theme.id === 'light' && isDarkMode) toggleTheme();
+                      toast.success(t('settingsPage.toastTheme', { name: theme.name }));
+                    }}
+                    className={`rounded-xl border-2 p-4 text-left transition ${
+                      selected ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-muted'
+                    }`}
+                  >
+                    <div className="mb-2 text-3xl">{theme.icon}</div>
+                    <div className="font-semibold text-foreground">{theme.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </SettingsFigmaLayout>
   );
 
   return (
     <>
-      <ThreeFrameLayout
-        left={suiteLayout ? false : undefined}
-        center={
-          <div className={`p-5 lg:p-6 min-h-full ${settingsShell}`}>
-        {/* Role Switcher for demo */}
-        <div className={`mb-6 rounded-xl border p-4 ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white shadow-sm'}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className={`mb-1 text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('settingsPage.demoModeTitle')}</h2>
-              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('settingsPage.demoModeSubtitle')}</p>
-            </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setUserRole('admin')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  userRole === 'admin'
-                    ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white'
-                    : st.roleTabInactive
-                }`}
-              >
-                {t('settingsPage.roleAdmin')}
-              </button>
-              <button 
-                onClick={() => setUserRole('manager')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  userRole === 'manager'
-                    ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white'
-                    : st.roleTabInactive
-                }`}
-              >
-                {t('settingsPage.roleManager')}
-              </button>
-              <button 
-                onClick={() => setUserRole('user')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  userRole === 'user'
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
-                    : st.roleTabInactive
-                }`}
-              >
-                {t('settingsPage.roleUser')}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <h1 className={`mb-1 text-3xl font-extrabold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-          {userRole === 'admin' ? t('settingsPage.pageTitleOrg') : t('settingsPage.pageTitleUser')}
-        </h1>
-        <p className={`mb-8 text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-          {userRole === 'admin' ? t('settingsPage.pageSubtitleOrg') : t('settingsPage.pageSubtitleUser')}
-        </p>
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-gradient">
-          {currentTabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white'
-                  : st.roleTabInactive
-              }`}
-            >
-              <span className="mr-2">{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Admin Tabs Content */}
-        {userRole === 'admin' && (
-        <>
-        {/* General Tab */}
-        {activeTab === 'general' && (
-          <div className="max-w-3xl space-y-6">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.orgInfoTitle')}</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.orgName')}</label>
-                  <input
-                    type="text"
-                    value={organizationForm.name}
-                    onChange={(e) => setOrganizationForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className={st.input}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.orgDesc')}</label>
-                  <textarea
-                    className={st.input}
-                    rows="3"
-                    value={organizationForm.description}
-                    onChange={(e) => setOrganizationForm((prev) => ({ ...prev, description: e.target.value }))}
-                  ></textarea>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.website')}</label>
-                    <input
-                      type="url"
-                      value={organizationForm.website}
-                      onChange={(e) => setOrganizationForm((prev) => ({ ...prev, website: e.target.value }))}
-                      className={st.input}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.contactEmail')}</label>
-                    <input
-                      type="email"
-                      value={organizationForm.contactEmail}
-                      onChange={(e) => setOrganizationForm((prev) => ({ ...prev, contactEmail: e.target.value }))}
-                      className={st.input}
-                    />
-                  </div>
-                </div>
-                <GradientButton 
-                  variant="primary"
-                  onClick={handleSaveOrganization}
-                >
-                  {t('settingsPage.saveChanges')}
-                </GradientButton>
-              </div>
-            </GlassCard>
-
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.quotaTitle')}</h3>
-              <div className="space-y-4">
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className={`text-sm ${st.muted}`}>{t('settingsPage.quotaMembersLabel')}</span>
-                    <span className={`text-sm font-bold ${st.heading}`}>45 / 100</span>
-                  </div>
-                  <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-cyan-600 to-teal-600" style={{width: '45%'}}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className={`text-sm ${st.muted}`}>{t('settingsPage.quotaStorageLabel')}</span>
-                    <span className={`text-sm font-bold ${st.heading}`}>45.8 GB / 100 GB</span>
-                  </div>
-                  <div className="w-full h-2 glass-strong rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-500" style={{width: '45.8%'}}></div>
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Roles Tab */}
-        {activeTab === 'roles' && (
-          <div className="max-w-4xl">
-            <GlassCard className={`mb-6 ${gc}`}>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className={`text-xl font-bold ${st.heading}`}>{t('settingsPage.rbacTitle')}</h3>
-                <GradientButton 
-                  variant="primary"
-                  onClick={openCreateRoleEditor}
-                  disabled={roleLoading}
-                >
-                  {t('settingsPage.createRole')}
-                </GradientButton>
-              </div>
-              {roleEditorOpen && (
-                <div className={`mb-4 p-4 ${st.panelLoose}`}>
-                  <div className={`mb-3 text-sm font-semibold ${st.label}`}>
-                    {editingRoleId ? t('settingsPage.editRolePanel') : t('settingsPage.createRolePanel')}
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <input
-                      value={roleDraft.name}
-                      onChange={(event) => setRoleDraft((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder={t('settingsPage.roleNamePh')}
-                      className={st.inputSm}
-                    />
-                    <input
-                      value={roleDraft.permissions}
-                      onChange={(event) => setRoleDraft((prev) => ({ ...prev, permissions: event.target.value }))}
-                      placeholder={t('settingsPage.rolePermPh')}
-                      className={st.inputSm}
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      value={roleDraft.members}
-                      onChange={(event) => setRoleDraft((prev) => ({ ...prev, members: event.target.value }))}
-                      placeholder={t('settingsPage.roleMembersPh')}
-                      className={st.inputSm}
-                    />
-                    <input
-                      value={roleDraft.icon}
-                      onChange={(event) => setRoleDraft((prev) => ({ ...prev, icon: event.target.value || '🧩' }))}
-                      placeholder={t('settingsPage.roleIconPh')}
-                      className={st.inputSm}
-                    />
-                  </div>
-                  <div className="mt-3 flex justify-end gap-2">
-                    <button type="button" onClick={() => setRoleEditorOpen(false)} className={st.ghostBtn}>
-                      {t('settingsPage.cancel')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveRole}
-                      disabled={roleLoading}
-                      className="rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {roleLoading ? t('settingsPage.savingRole') : t('settingsPage.saveRole')}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="space-y-3">
-                {roles.map((role) => (
-                  <div key={role.id} className={st.listRow}>
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-2xl`}>
-                        {role.icon}
-                      </div>
-                      <div>
-                        <div className={`font-bold ${st.heading}`}>{role.name}</div>
-                        <div className={`text-sm ${st.muted}`}>
-                          {t('settingsPage.roleMeta', { n: role.members, perm: role.permissions })}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => openEditRoleEditor(role)}
-                        disabled={roleLoading}
-                        className={`rounded-lg border px-4 py-2 text-sm transition-all disabled:opacity-50 ${
-                          isDarkMode
-                            ? 'border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800/70'
-                            : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
-                        }`}
-                      >
-                        {t('common.edit')}
-                      </button>
-                      <button
-                        onClick={() => requestDeleteRole(role.id)}
-                        disabled={roleLoading}
-                        className={`rounded-lg border px-4 py-2 text-sm transition-all disabled:opacity-50 ${
-                          isDarkMode
-                            ? 'border-slate-700 bg-slate-900/60 text-red-400 hover:bg-slate-800/70'
-                            : 'border-slate-200 bg-white text-red-600 shadow-sm hover:bg-slate-50'
-                        }`}
-                      >
-                        {t('common.delete')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Security Tab */}
-        {activeTab === 'security' && (
-          <div className="max-w-3xl space-y-6">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.securityPolicyTitle')}</h3>
-              <div className="space-y-4">
-                {[
-                  ...securitySettings
-                ].map((setting) => (
-                  <label key={setting.id} className={st.settingRow}>
-                    <span className={st.onSurface}>
-                      {t(`settingsPage.${SECURITY_LABEL_KEYS[setting.id]}`)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={setting.checked}
-                      onChange={() => handleToggleSecuritySetting(setting.id)}
-                      className="w-5 h-5 rounded"
-                    />
-                  </label>
-                ))}
-              </div>
-            </GlassCard>
-
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.apiKeysTitle')}</h3>
-              <p className={`mb-4 ${st.muted}`}>{t('settingsPage.apiKeysDesc')}</p>
-              <div className="space-y-3 mb-4">
-                {apiKeys.map((key) => (
-                  <div key={key.id} className={st.listRow}>
-                    <div>
-                      <div className={`font-bold ${st.heading}`}>{key.name}</div>
-                      <div className={`text-sm ${st.muted}`}>
-                        {t('settingsPage.apiCreated')}: {key.created} • {t('settingsPage.apiLastUsed')}: {key.lastUsed}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleCopyApiKey(key.value)}
-                        className={`rounded-lg border px-3 py-2 text-sm transition-all ${
-                          isDarkMode
-                            ? 'border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800/70'
-                            : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:bg-slate-50'
-                        }`}
-                      >
-                        {t('settingsPage.copy')}
-                      </button>
-                      <button
-                        onClick={() => requestDeleteApiKey(key.id)}
-                        className={`rounded-lg border px-3 py-2 text-sm transition-all ${
-                          isDarkMode
-                            ? 'border-slate-700 bg-slate-900/60 text-red-400 hover:bg-slate-800/70'
-                            : 'border-slate-200 bg-white text-red-600 shadow-sm hover:bg-slate-50'
-                        }`}
-                      >
-                        {t('settingsPage.delete')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <GradientButton variant="secondary" onClick={handleCreateApiKey}>{t('settingsPage.createApiKey')}</GradientButton>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Integrations Tab */}
-        {activeTab === 'integrations' && (
-          <div className="max-w-4xl">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-6 ${st.heading}`}>{t('settingsPage.integrationsTitle')}</h3>
-              <div className="grid grid-cols-2 gap-4">
-                {integrations.map((integration) => (
-                  <GlassCard key={integration.id} hover className={st.integrationCard}>
-                    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${integration.color} flex items-center justify-center text-3xl mb-3`}>
-                      {integration.icon}
-                    </div>
-                    <h4 className={`mb-1 font-bold ${st.heading}`}>{integration.name}</h4>
-                    <p className={`mb-3 text-sm ${st.muted}`}>
-                      {integration.connected ? t('settingsPage.integConnected') : t('settingsPage.integDisconnected')}
-                    </p>
-                    <button
-                      onClick={() => {
-                        handleToggleIntegration(integration.id);
-                        toast.success(
-                          integration.connected
-                            ? t('settingsPage.integToastOff', { name: integration.name })
-                            : t('settingsPage.integToastOn', { name: integration.name })
-                        );
-                      }}
-                      className={`w-full rounded-lg py-2 text-sm font-semibold transition-all ${
-                        integration.connected
-                          ? isDarkMode
-                            ? 'glass hover:bg-white/10'
-                            : 'border border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200'
-                          : 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white hover:from-cyan-700 hover:to-teal-700'
-                      }`}
-                    >
-                      {integration.connected ? t('settingsPage.integDisconnect') : t('settingsPage.integConnect')}
-                    </button>
-                  </GlassCard>
-                ))}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Billing Tab */}
-        {activeTab === 'billing' && (
-          <div className="max-w-3xl space-y-6">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.billingCurrentPlan')}</h3>
-              <div className={`p-4 ${st.panel}`}>
-                <div className="mb-2 flex items-center justify-between">
-                  <div className={`text-lg font-bold ${st.heading}`}>{t('settingsPage.planEnterprise')}</div>
-                  <span className="rounded-full bg-gradient-to-r from-cyan-600 to-teal-600 px-3 py-1 text-xs font-bold text-white">
-                    {t('settingsPage.planActive')}
-                  </span>
-                </div>
-                <div className={`text-sm ${st.muted}`}>{t('settingsPage.billingPriceLine')}</div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className={st.nestedBox}>
-                    <div className={st.muted}>{t('settingsPage.billingMembers')}</div>
-                    <div className={`font-bold ${st.heading}`}>45 / 100</div>
-                  </div>
-                  <div className={st.nestedBox}>
-                    <div className={st.muted}>{t('settingsPage.billingStorage')}</div>
-                    <div className={`font-bold ${st.heading}`}>45.8 GB / 100 GB</div>
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.billingInvoiceTitle')}</h3>
-              <div className="flex flex-wrap gap-3">
-                <GradientButton variant="primary" onClick={handleExportInvoice}>{t('settingsPage.exportInvoice')}</GradientButton>
-                <button
-                  onClick={handleContactBilling}
-                  className={st.outlineBtn}
-                >
-                  {t('settingsPage.contactBilling')}
-                </button>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Audit Log Tab */}
-        {activeTab === 'audit' && (
-          <div className="max-w-4xl">
-            <GlassCard className={gc}>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className={`text-xl font-bold ${st.heading}`}>{t('settingsPage.auditTitle')}</h3>
-                <button
-                  onClick={handleExportAuditLog}
-                  className={st.outlineBtn}
-                >
-                  {t('settingsPage.exportLog')}
-                </button>
-              </div>
-              <div className="space-y-2">
-                {auditEntries.map((log, idx) => (
-                  <div key={idx} className={`${st.listRow} gap-4`}>
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl ${
-                      log.type === 'create' ? 'bg-green-500/20' :
-                      log.type === 'update' ? 'bg-blue-500/20' :
-                      log.type === 'delete' ? 'bg-red-500/20' :
-                      log.type === 'security' ? 'bg-orange-500/20' :
-                      'bg-cyan-500/15'
-                    }`}>
-                      {log.type === 'create' ? '➕' :
-                       log.type === 'update' ? '✏️' :
-                       log.type === 'delete' ? '🗑️' :
-                       log.type === 'security' ? '🔒' : '📧'}
-                    </div>
-                    <div className="flex-1">
-                      <div className={`font-semibold ${st.onSurface}`}>
-                        <span className={st.accentInline}>{log.user}</span> {log.action}
-                      </div>
-                      <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>🕐 {log.time}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-        </>
-        )}
-
-        {/* User/Manager Tabs Content */}
-        {(userRole === 'user' || userRole === 'manager') && (
-        <>
-        {/* Profile Tab */}
-        {activeTab === 'profile' && (
-          <div className="max-w-3xl space-y-6">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.profileTitle')}</h3>
-              <div className="flex items-center gap-6 mb-6">
-                <UserAvatar
-                  avatar={avatarUrl || null}
-                  userId={user?.id || user?._id}
-                  name={userProfileForm.fullName || user?.displayName || user?.name}
-                  size="2xl"
-                />
-                <label className="inline-flex">
-                  <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-                  <span className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 font-semibold text-white cursor-pointer hover:from-cyan-700 hover:to-teal-700 transition-all">{t('settingsPage.changeAvatar')}</span>
-                </label>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.fullName')}</label>
-                  <input
-                    type="text"
-                    value={userProfileForm.fullName}
-                    onChange={(e) => setUserProfileForm((prev) => ({ ...prev, fullName: e.target.value }))}
-                    className={st.input}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.email')}</label>
-                    <input
-                      type="email"
-                      value={userProfileForm.email}
-                      onChange={(e) => setUserProfileForm((prev) => ({ ...prev, email: e.target.value }))}
-                      className={st.input}
-                    />
-                    <p className={`mt-2 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {t('settingsPage.emailChangeHint')}
-                    </p>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.phone')}</label>
-                    <input
-                      type="tel"
-                      value={userProfileForm.phone}
-                      onChange={(e) => setUserProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
-                      className={st.input}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.jobTitle')}</label>
-                  <input
-                    type="text"
-                    defaultValue={userRole === 'manager' ? t('settingsPage.jobManager') : t('settingsPage.jobStaff')}
-                    className={st.inputDisabled}
-                    disabled
-                  />
-                </div>
-                <GradientButton 
-                  variant="primary"
-                  onClick={handleSaveUserProfile}
-                >
-                  {t('settingsPage.saveChanges')}
-                </GradientButton>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Notifications Tab */}
-        {activeTab === 'notifications' && (
-          <div className="max-w-3xl">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.notifSettingsTitle')}</h3>
-              <div className="space-y-4">
-                {notificationSettings.map((setting) => (
-                  <label key={setting.id} className={st.settingRow}>
-                    <span className={st.onSurface}>{t(`settingsPage.${NOTIF_LABEL_KEYS[setting.id]}`)}</span>
-                    <input
-                      type="checkbox"
-                      checked={setting.checked}
-                      onChange={() => handleToggleNotificationSetting(setting.id)}
-                      className="w-5 h-5 rounded"
-                    />
-                  </label>
-                ))}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Privacy Tab */}
-        {activeTab === 'privacy' && (
-          <div className="max-w-3xl space-y-6">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.privacyTitle')}</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.onlineStatusLabel')}</label>
-                  <select
-                    className={st.select}
-                    value={privacySettings.onlineStatus}
-                    onChange={(event) => setPrivacySettings((prev) => ({ ...prev, onlineStatus: event.target.value }))}
-                  >
-                    <option value="everyone" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
-                      {t('settingsPage.privacyEveryone')}
-                    </option>
-                    <option value="colleagues" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
-                      {t('settingsPage.privacyColleagues')}
-                    </option>
-                    <option value="nobody" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
-                      {t('settingsPage.privacyNobody')}
-                    </option>
-                  </select>
-                </div>
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.dmPermissionLabel')}</label>
-                  <select
-                    className={st.select}
-                    value={privacySettings.directMessagePermission}
-                    onChange={(event) => setPrivacySettings((prev) => ({ ...prev, directMessagePermission: event.target.value }))}
-                  >
-                    <option value="everyone" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
-                      {t('settingsPage.privacyEveryone')}
-                    </option>
-                    <option value="colleagues" className={isDarkMode ? 'bg-[#0b1738] text-white' : 'bg-white text-slate-800'}>
-                      {t('settingsPage.privacyColleagues')}
-                    </option>
-                  </select>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {/* Appearance Tab */}
-        {activeTab === 'appearance' && (
-          <div className="max-w-3xl">
-            <GlassCard className={gc}>
-              <h3 className={`text-xl font-bold mb-4 ${st.heading}`}>{t('settingsPage.appearanceTitle')}</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className={`block text-sm font-semibold mb-2 ${st.label}`}>{t('settingsPage.themeLabel')}</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { id: 'dark', name: t('settingsPage.themeDark'), icon: '🌙' },
-                      { id: 'light', name: t('settingsPage.themeLight'), icon: '☀️' },
-                    ].map((theme) => {
-                      const selected = theme.id === 'dark' ? isDarkMode : !isDarkMode;
-                      return (
-                        <div
-                          key={theme.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => {
-                            if (theme.id === 'dark' && !isDarkMode) toggleTheme();
-                            if (theme.id === 'light' && isDarkMode) toggleTheme();
-                            toast.success(t('settingsPage.toastTheme', { name: theme.name }));
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              if (theme.id === 'dark' && !isDarkMode) toggleTheme();
-                              if (theme.id === 'light' && isDarkMode) toggleTheme();
-                              toast.success(t('settingsPage.toastTheme', { name: theme.name }));
-                            }
-                          }}
-                          className={`cursor-pointer rounded-xl p-6 transition-all ${
-                            selected
-                              ? 'bg-gradient-to-br from-cyan-600 to-teal-600 text-white shadow-lg'
-                              : isDarkMode
-                                ? 'border border-slate-800 bg-[#040f2a] hover:bg-slate-800/70'
-                                : 'border border-slate-200 bg-white hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="mb-2 text-4xl">{theme.icon}</div>
-                          <div className={`font-bold ${selected ? 'text-white' : st.heading}`}>{theme.name}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="mt-8">
-                  <label className={`block text-sm font-semibold mb-3 ${st.label}`}>{t('settingsPage.fontScaleLabel')}</label>
-                  <p className={`mb-3 text-sm ${st.muted}`}>
-                    {t('settingsPage.fontScaleHint')}
-                  </p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {[
-                      { id: 'normal', name: t('settingsPage.fontNormal'), hint: '100%' },
-                      { id: 'comfortable', name: t('settingsPage.fontComfortable'), hint: '112.5%' },
-                      { id: 'large', name: t('settingsPage.fontLarge'), hint: '125%' },
-                    ].map((opt) => {
-                      const selected = fontScale === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setFontScale(opt.id);
-                            toast.success(t('settingsPage.toastFont', { name: opt.name }));
-                          }}
-                          className={`rounded-xl border px-4 py-3 text-left transition ${
-                            selected
-                              ? 'border-cyan-500 bg-cyan-500/15 ring-2 ring-cyan-500/40'
-                              : isDarkMode
-                                ? 'border-slate-700 bg-[#040f2a] hover:bg-slate-800/80'
-                                : 'border-slate-200 bg-white hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className={`font-bold ${st.heading}`}>{opt.name}</div>
-                          <div className={`mt-1 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-                            {opt.hint}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-        </>
-        )}
-      </div>
-        }
+      <div className={`${FIGMA_PAGE_SHELL} h-full overflow-hidden`}>{suiteSettingsBody}</div>
+      <ConfirmDialog
+        isOpen={apiKeyDeleteConfirm != null}
+        onClose={() => setApiKeyDeleteConfirm(null)}
+        onConfirm={confirmDeleteApiKey}
+        title={t('settingsPage.confirmDeleteApiKeyTitle')}
+        message={t('settingsPage.confirmDeleteApiKeyMsg')}
+        confirmText={t('settingsPage.confirmOk')}
+        cancelText={t('settingsPage.cancel')}
       />
-
-    <ConfirmDialog
-      isOpen={apiKeyDeleteConfirm != null}
-      onClose={() => setApiKeyDeleteConfirm(null)}
-      onConfirm={confirmDeleteApiKey}
-      title={t('settingsPage.confirmDeleteApiKeyTitle')}
-      message={t('settingsPage.confirmDeleteApiKeyMsg')}
-      confirmText={t('settingsPage.confirmOk')}
-      cancelText={t('settingsPage.cancel')}
-    />
-    <ConfirmDialog
-      isOpen={roleDeleteConfirm != null}
-      onClose={() => setRoleDeleteConfirm(null)}
-      onConfirm={confirmDeleteRole}
-      title={t('settingsPage.confirmDeleteRoleTitle')}
-      message={t('settingsPage.confirmDeleteRoleMsg')}
-      confirmText={t('settingsPage.confirmOk')}
-      cancelText={t('settingsPage.cancel')}
-    />
+      <ConfirmDialog
+        isOpen={roleDeleteConfirm != null}
+        onClose={() => setRoleDeleteConfirm(null)}
+        onConfirm={confirmDeleteRole}
+        title={t('settingsPage.confirmDeleteRoleTitle')}
+        message={t('settingsPage.confirmDeleteRoleMsg')}
+        confirmText={t('settingsPage.confirmOk')}
+        cancelText={t('settingsPage.cancel')}
+      />
     </>
   );
 }

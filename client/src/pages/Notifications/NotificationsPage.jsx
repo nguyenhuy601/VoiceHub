@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import ThreeFrameLayout from '../../components/Layout/ThreeFrameLayout';
-import { ConfirmDialog, GlassCard, GradientButton, NotificationBellBadge } from '../../components/Shared';
+import { ConfirmDialog } from '../../components/Shared';
 import { useSocket } from '../../context/SocketContext';
-import { useTheme } from '../../context/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
 import friendService from '../../services/friendService';
+import NotificationsFigmaView from '../../components/Notifications/NotificationsFigmaView';
 import {
   NOTIFICATIONS_REFRESH_EVENT,
   markFriendNotificationsResolved,
@@ -17,15 +17,33 @@ import {
 import { useFriendPending, useNotificationsInfinite, useOrganizationsMy } from '../../hooks/queries';
 import { useOrgShell } from '../../hooks/queries/useOrgShell';
 import { queryKeys } from '../../lib/queryKeys';
-import { useAppStrings } from '../../locales/appStrings';
-import { PageSearchToolbar, SearchFilterChips } from '../../features/search';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { findOrgBySlug, orgRecordId } from '../../utils/orgListUtils';
 import {
   buildCollaborateDocumentsPath,
-  buildCollaborateOrgNotificationsPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
 } from '../../utils/suitePathUtils';
+import {
+  isVoiceRoomInviteNotification,
+  resolveVoiceRoomInvitePath,
+} from '../../utils/notificationNavigation';
+import { isP0Notification } from '../../utils/notificationP0Policy';
+
+function getNotificationTimeGroup(createdAt) {
+  if (!createdAt) return 'earlier';
+  const target = new Date(createdAt);
+  if (!Number.isFinite(target.getTime())) return 'earlier';
+  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const t0 = startOf(target);
+  const now = new Date();
+  const today0 = startOf(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (t0 === today0) return 'today';
+  if (t0 === startOf(yesterday)) return 'yesterday';
+  return 'earlier';
+}
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -79,15 +97,15 @@ function resolveNotificationOrgId(notif, { organizations = [], organizationIdFil
 function getNotifActionKind(notif) {
   if (!notif || notif.read || notif.data?.resolved) return 'none';
   if (notif.data?.kind === 'voice_room_join_request') return 'voice_join';
+  if (isVoiceRoomInviteNotification(notif)) return 'voice_invite';
   if (notif.rawType === 'friend_request') return 'friend_request';
   return 'navigate';
 }
 
-function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
+function NotificationsPage({ orgScope = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { activeWorkspace } = useWorkspace();
   const isOrgNotificationsPage =
@@ -260,6 +278,8 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       organizationName: orgLabel,
       organizationSlug: orgSlug,
       organizationId: orgId,
+      createdAt: item?.createdAt || null,
+      timeGroup: getNotificationTimeGroup(item?.createdAt),
       /** Chuông + badge đỏ giống sidebar (chủ yếu lời mời kết bạn) */
       useBellCard: rawType === 'friend_request' || type === 'friend',
     };
@@ -274,7 +294,7 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
   useEffect(() => {
     if (notifInfiniteQuery.isError) {
       const err = notifInfiniteQuery.error;
-      const msg = err?.response?.data?.message || t('notifications.loadFail');
+      const msg = resolveApiErrorMessage(err, { t, fallback: t('notifications.loadFail') });
       toast.error(msg);
     }
   }, [notifInfiniteQuery.isError, notifInfiniteQuery.error, t]);
@@ -435,7 +455,7 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       markNotifResolvedLocal(notif.id);
       toast.success(t('notifications.toastVoiceApproved'));
     } catch (err) {
-      toast.error(err?.response?.data?.message || t('notifications.toastVoiceApproveFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('notifications.toastVoiceApproveFail') }));
     } finally {
       setActingNotifId('');
     }
@@ -453,7 +473,7 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       toast.success(t('notifications.toastFriendAccepted'));
     } catch (err) {
-      toast.error(err?.response?.data?.message || t('notifications.toastFriendActionFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('notifications.toastFriendActionFail') }));
     } finally {
       setActingNotifId('');
     }
@@ -471,7 +491,7 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       toast.success(t('notifications.toastFriendRejected'));
     } catch (err) {
-      toast.error(err?.response?.data?.message || t('notifications.toastFriendActionFail'));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('notifications.toastFriendActionFail') }));
     } finally {
       setActingNotifId('');
     }
@@ -484,7 +504,17 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
       toast.success(t('notifications.markRead'));
     } catch (error) {
-      toast.error(error?.response?.data?.message || t('notifications.markReadErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.patch('/notifications/read-all', {}, { skipGlobalErrorHandling: true });
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      toast.success(t('notifications.markAllRead'));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markAllErr') }));
     }
   };
 
@@ -496,7 +526,7 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       toast.success(t('notifications.deleted'));
     } catch (error) {
-      toast.error(error?.response?.data?.message || t('notifications.deleteErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.deleteErr') }));
     }
   };
 
@@ -544,14 +574,22 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
         break;
       case 'meeting':
         if (
-          notif.data?.kind === 'voice_room_invite' ||
+          isVoiceRoomInviteNotification(notif) ||
           notif.data?.kind === 'voice_room_join_request'
         ) {
+          if (isVoiceRoomInviteNotification(notif)) {
+            const invitePath = resolveVoiceRoomInvitePath(notif);
+            navigate(invitePath || '/app/communicate/voice');
+            toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
+            break;
+          }
           const voiceUrl = String(notif.actionUrl || '').trim();
-          if (voiceUrl.startsWith('/voice') || voiceUrl.startsWith('/app/communicate/voice')) {
+          if (voiceUrl.startsWith('/app/communicate/voice')) {
+            navigate(voiceUrl);
+          } else if (voiceUrl.startsWith('/voice')) {
             navigate(voiceUrl.replace(/^\/voice/, '/app/communicate/voice'));
           } else if (notif.data?.roomId) {
-            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}?join=1`);
+            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}`);
           } else {
             navigate('/app/communicate/voice');
           }
@@ -561,10 +599,16 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
           toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
         }
         break;
-      case 'system':
-        navigate(targetWorkspacePath || '/app/me/settings');
+      case 'system': {
+        const url = String(notif.actionUrl || notif.data?.actionUrl || '').trim();
+        if (url.startsWith('/app/')) {
+          navigate(url);
+        } else {
+          navigate(targetWorkspacePath || '/app/me/settings');
+        }
         toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
         break;
+      }
       case 'task':
       case 'deadline':
         navigate(
@@ -590,9 +634,11 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
         ? notifications
         : filter === 'unread'
           ? notifications.filter((n) => !n.read)
-          : filter === 'friend'
-            ? notifications.filter((n) => n.type === 'friend')
-            : notifications.filter((n) => n.type === filter);
+          : filter === 'priority'
+            ? notifications.filter((n) => isP0Notification(n))
+            : filter === 'friend'
+              ? notifications.filter((n) => n.type === 'friend')
+              : notifications.filter((n) => n.type === filter);
     if (notificationScope === 'organization' && organizationIdFilter) {
       list = list.filter((n) => String(n.organizationId || '').trim() === organizationIdFilter);
     }
@@ -604,332 +650,85 @@ function NotificationsPage({ orgScope = false, suiteLayout = false } = {}) {
     });
   }, [notifications, filter, notifSearch, organizationIdFilter, notificationScope]);
 
-  const newNotifications = useMemo(
-    () => filteredNotifications.filter((n) => !n.read),
-    [filteredNotifications]
-  );
-
-  const historyNotifications = useMemo(
-    () => filteredNotifications.filter((n) => n.read),
-    [filteredNotifications]
-  );
-
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const notifFilterOptions = useMemo(() => {
-    const base = [
-      { id: 'all', label: t('notifications.filterAll'), icon: '📋' },
-      { id: 'unread', label: t('notifications.filterUnread'), icon: '⭐' },
-      { id: 'task', label: t('notifications.filterTasks'), icon: '✅' },
-      { id: 'mention', label: t('common.mentions'), icon: '💬' },
-      { id: 'deadline', label: t('notifications.filterDeadline'), icon: '⏰' },
-      { id: 'meeting', label: t('notifications.filterMeetings'), icon: '📅' },
-    ];
-    if (!isOrgNotificationsPage) {
-      base.push({ id: 'friend', label: t('notifications.filterFriend'), icon: '🔔' });
-    }
-    return base;
-  }, [t, isOrgNotificationsPage]);
+  const figmaFilterOptions = useMemo(
+    () => [
+      { id: 'all', label: t('notifications.filterAll') },
+      { id: 'unread', label: t('notifications.filterUnread') },
+      { id: 'priority', label: t('notifications.filterPriority') },
+      { id: 'friend', label: t('notifications.filterFriend') },
+      { id: 'mention', label: t('common.mentions') },
+      { id: 'meeting', label: t('notifications.filterMeetings') },
+      { id: 'task', label: t('notifications.filterTasks') },
+    ],
+    [t]
+  );
+
+  const groupedNotifications = useMemo(() => {
+    const labels = {
+      today: t('notifications.groupToday'),
+      yesterday: t('notifications.groupYesterday'),
+      earlier: t('notifications.groupEarlier'),
+    };
+    return ['today', 'yesterday', 'earlier']
+      .map((key) => ({
+        key,
+        label: labels[key],
+        items: filteredNotifications.filter((n) => (n.timeGroup || 'earlier') === key),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [filteredNotifications, t]);
 
   if (isOrgNotificationsPage && organizationIdFilter) {
     return null;
   }
 
-  const shell = isDarkMode ? 'text-slate-100' : 'text-slate-900';
-  const gc = isDarkMode ? 'border border-slate-800 bg-slate-900/60' : 'border border-slate-200 bg-white shadow-sm';
-  const columnShell = isDarkMode
-    ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-slate-900/30 backdrop-blur-sm'
-    : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/70 shadow-sm backdrop-blur-sm';
-  const columnHeader = isDarkMode
-    ? 'shrink-0 border-b border-white/[0.06] bg-white/[0.03] px-4 py-3'
-    : 'shrink-0 border-b border-slate-200/90 bg-slate-50/90 px-4 py-3';
-
-  const renderNotificationCard = (notif, idx) => (
-    <GlassCard
-      key={notif.id}
-      hover
-      className={`animate-slideUp ${gc} ${!notif.read ? (isDarkMode ? 'border-l-4 border-cyan-500' : 'border-l-4 border-cyan-600') : ''}`}
-      style={{ animationDelay: `${idx * 0.05}s` }}
-    >
-      <div className="flex items-start gap-4">
-        {notif.useBellCard && notif.type === 'friend' ? (
-          <div className="flex-shrink-0 pt-0.5">
-            <NotificationBellBadge
-              count={notif.read ? 0 : 1}
-              sizeClass="h-12 w-12"
-              isDark={isDarkMode}
-            />
-          </div>
-        ) : (
-          <div
-            className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-2xl ${
-              notif.priority === 'high'
-                ? 'from-red-500 to-orange-500'
-                : notif.priority === 'medium'
-                  ? 'from-blue-500 to-cyan-500'
-                  : 'from-green-500 to-emerald-500'
-            }`}
-          >
-            {notif.icon}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <h3 className={`font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notif.title}</h3>
-            {!notif.read && (
-              <span className="rounded-full bg-cyan-600 px-2 py-0.5 text-xs font-bold text-white">
-                {t('common.newBadge')}
-              </span>
-            )}
-            {notif.priority === 'high' && (
-              <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
-                {t('common.importantBadge')}
-              </span>
-            )}
-          </div>
-          <p className={`mb-2 text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}>{notif.message}</p>
-          <div className={`flex items-center gap-3 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-            <span>🕐 {notif.time}</span>
-            <span>•</span>
-            <span className="capitalize">{notif.type}</span>
-            {notif.organizationName ? (
-              <>
-                <span>•</span>
-                <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-cyan-300">
-                  {notif.organizationName}
-                </span>
-              </>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          {getNotifActionKind(notif) === 'voice_join' ? (
-            <GradientButton
-              variant="primary"
-              className="!rounded-xl !px-5 !py-2.5 text-sm font-bold whitespace-nowrap shadow-lg"
-              disabled={Boolean(actingNotifId)}
-              onClick={() => handleApproveVoiceJoin(notif)}
-            >
-              {actingNotifId === notif.id ? t('notifications.loading') : t('notifications.actionApprove')}
-            </GradientButton>
-          ) : getNotifActionKind(notif) === 'friend_request' ? (
-            <>
-              <GradientButton
-                variant="friend"
-                className="!rounded-xl !px-5 !py-2.5 text-sm font-bold whitespace-nowrap shadow-lg"
-                disabled={Boolean(actingNotifId)}
-                onClick={() => handleAcceptFriendRequest(notif)}
-              >
-                {actingNotifId === notif.id ? t('notifications.loading') : t('notifications.actionAccept')}
-              </GradientButton>
-              <button
-                type="button"
-                disabled={Boolean(actingNotifId)}
-                onClick={() => handleRejectFriendRequest(notif)}
-                className="rounded-lg border border-slate-700 bg-[#040f2a] px-4 py-2 text-sm font-semibold text-gray-300 transition hover:bg-slate-800/70 disabled:opacity-50"
-              >
-                {t('notifications.actionReject')}
-              </button>
-            </>
-          ) : getNotifActionKind(notif) === 'navigate' ? (
-            <button
-              type="button"
-              onClick={() => handleOpenNotification(notif)}
-              className="rounded-lg border border-slate-800 bg-[#040f2a] px-4 py-2 text-sm font-semibold whitespace-nowrap transition hover:bg-slate-800/70"
-            >
-              {notif.action}
-            </button>
-          ) : null}
-          {!notif.read && (
-            <button
-              type="button"
-              onClick={() => handleMarkAsRead(notif.id)}
-              className="rounded-lg border border-slate-800 bg-[#040f2a] px-4 py-2 text-xs text-gray-400 transition-all hover:bg-slate-800/70 hover:text-white"
-            >
-              {t('notifications.markOneRead')}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setDeleteNotifConfirmId(notif.id)}
-            className="rounded-lg border border-slate-800 bg-[#040f2a] px-4 py-2 text-xs text-red-400 transition-all hover:bg-slate-800/70 hover:text-red-300"
-          >
-            {t('notifications.deleteBtn')}
-          </button>
-        </div>
-      </div>
-    </GlassCard>
-  );
-
-  const renderNotificationColumn = (title, count, items, emptyMessage, emptyIcon, showLoadingWhenEmpty = false) => (
-    <section className={columnShell}>
-      <header className={columnHeader}>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className={`text-sm font-bold tracking-wide sm:text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {title}
-          </h2>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ${
-              isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-800'
-            }`}
-          >
-            {count}
-          </span>
-        </div>
-      </header>
-      <div className="scrollbar-notifications min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-        <div className="space-y-3">
-          {notificationsLoading && showLoadingWhenEmpty && items.length === 0 && (
-            <p className={`py-8 text-center text-sm ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-              {t('notifications.loading')}
-            </p>
-          )}
-          {!(notificationsLoading && showLoadingWhenEmpty && items.length === 0) && items.length === 0 && (
-            <div className="py-12 text-center">
-              <div className="mb-2 text-4xl opacity-80">{emptyIcon}</div>
-              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>{emptyMessage}</p>
-            </div>
-          )}
-          {!notificationsLoading && items.map((notif, idx) => renderNotificationCard(notif, idx))}
-        </div>
-      </div>
-    </section>
-  );
-
   return (
     <>
-      <ThreeFrameLayout
-        left={suiteLayout ? false : undefined}
-        centerScrollable={false}
-        center={
-          <div className={`flex h-full min-h-0 flex-col p-5 lg:p-6 ${shell}`}>
-        <PageSearchToolbar
-          className="-mx-5 mb-4 shrink-0 !bg-transparent lg:-mx-6 lg:mb-5"
-          layout="filters-inline"
-          value={notifSearch}
-          onChange={setNotifSearch}
-          placeholder={t('notifications.searchPlaceholder')}
-          isDarkMode={isDarkMode}
-          id="notifications-search"
-          aria-label={t('searchUi.searchAria')}
-        >
-          <SearchFilterChips
-            aria-label={t('notifications.filtersAria')}
-            options={notifFilterOptions}
-            value={filter}
-            onChange={setFilter}
-            isDarkMode={isDarkMode}
-          />
-        </PageSearchToolbar>
-
-        {!isOrgNotificationsPage && friendPendingCount > 0 && (
-          <button
-            type="button"
-            onClick={() => navigate('/app/communicate/chat/friends?tab=requests')}
-            className={`mb-4 w-full shrink-0 rounded-xl px-4 py-3 text-left text-sm font-semibold transition lg:mb-5 ${
-              isDarkMode
-                ? 'border border-cyan-500/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20'
-                : 'border border-cyan-200 bg-cyan-50 text-cyan-900 hover:bg-cyan-100'
-            }`}
-          >
-            {t('dashboard.pendingInvites', { n: friendPendingCount })}
-          </button>
-        )}
-
-        {/* Stats */}
-        <div className="mb-4 grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 lg:mb-5">
-          <GlassCard hover className={gc}>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600 to-teal-600 text-2xl">
-                🔔
-              </div>
-              <div>
-                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.length}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notifications.statTotal')}</div>
-              </div>
-            </div>
-          </GlassCard>
-          <GlassCard hover className={gc}>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-2xl">
-                ⭐
-              </div>
-              <div>
-                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{unreadCount}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notifications.statUnread')}</div>
-              </div>
-            </div>
-          </GlassCard>
-          <GlassCard hover className={gc}>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 text-2xl">
-                ✅
-              </div>
-              <div>
-                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.filter(n => n.type === 'task').length}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('notifications.statTasks')}</div>
-              </div>
-            </div>
-          </GlassCard>
-          <GlassCard hover className={gc}>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 text-2xl">
-                💬
-              </div>
-              <div>
-                <div className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{notifications.filter(n => n.type === 'mention').length}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{t('common.mentions')}</div>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-1">
-          {renderNotificationColumn(
-            t('notifications.columnNew'),
-            newNotifications.length,
-            newNotifications,
-            t('notifications.emptyNew'),
-            '✨',
-            true
-          )}
-          {renderNotificationColumn(
-            t('notifications.columnHistory'),
-            historyNotifications.length,
-            historyNotifications,
-            t('notifications.emptyHistory'),
-            '📭',
-            false
-          )}
-        </div>
-
-        {!notificationsLoading && notifInfiniteQuery.hasNextPage && (
-          <div className="flex shrink-0 justify-center pt-3">
-            <GradientButton
-              type="button"
-              variant="secondary"
-              disabled={notifInfiniteQuery.isFetchingNextPage}
-              onClick={() => notifInfiniteQuery.fetchNextPage()}
-            >
-              {notifInfiniteQuery.isFetchingNextPage
-                ? t('notifications.loading')
-                : t('notifications.loadMore')}
-            </GradientButton>
-          </div>
-        )}
-          </div>
+      <NotificationsFigmaView
+        title={t('notifications.defaultTitle')}
+        unreadCount={unreadCount}
+        search={notifSearch}
+        onSearchChange={setNotifSearch}
+        searchPlaceholder={t('notifications.searchPlaceholder')}
+        filter={filter}
+        onFilterChange={setFilter}
+        filterOptions={figmaFilterOptions}
+        groups={groupedNotifications}
+        loading={notificationsLoading}
+        emptyMessage={t('notifications.emptyNew')}
+        emptyHint={
+          filter !== 'all'
+            ? t('notifications.emptyHintFilter')
+            : t('notifications.emptyHintAllRead')
         }
+        getActionKind={getNotifActionKind}
+        actingNotifId={actingNotifId}
+        onOpenNotification={handleOpenNotification}
+        onDeleteNotification={(notif) => setDeleteNotifConfirmId(notif.id)}
+        onAcceptFriend={handleAcceptFriendRequest}
+        onRejectFriend={handleRejectFriendRequest}
+        onJoinVoice={handleOpenNotification}
+        onMarkAllRead={handleMarkAllRead}
+        markAllReadLabel={t('notifications.markAllReadShort')}
+        actionLabels={{
+          accept: t('notifications.actionAccept'),
+          reject: t('notifications.actionReject'),
+          joinVoice: t('notifications.actionJoin'),
+          delete: t('notifications.deleteBtn'),
+        }}
       />
 
-    <ConfirmDialog
-      isOpen={deleteNotifConfirmId != null}
-      onClose={() => setDeleteNotifConfirmId(null)}
-      onConfirm={confirmDeleteNotification}
-      title={t('notifications.confirmDeleteTitle')}
-      message={t('notifications.confirmDeleteMsg')}
-      confirmText={t('common.delete')}
-      cancelText={t('nav.cancel')}
-    />
+      <ConfirmDialog
+        isOpen={deleteNotifConfirmId != null}
+        onClose={() => setDeleteNotifConfirmId(null)}
+        onConfirm={confirmDeleteNotification}
+        title={t('notifications.confirmDeleteTitle')}
+        message={t('notifications.confirmDeleteMsg')}
+        confirmText={t('common.delete')}
+        cancelText={t('nav.cancel')}
+      />
     </>
   );
 }

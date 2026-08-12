@@ -24,6 +24,8 @@ import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import api from '../../services/api';
 import {
   buildCollaborateDocumentsPath,
@@ -102,7 +104,6 @@ const ORG_NAV_DEF = [
 const COMMUNICATE_NAV_DEF = [
   { key: 'friends', Icon: MessageSquare, path: '/app/communicate/chat/friends' },
   { key: 'voice', Icon: Mic, path: '/app/communicate/voice' },
-  { key: 'channels', Icon: Building2, path: '/app/communicate/channels', isWorkspaceEntry: true },
   { key: 'notifications', path: '/app/communicate/notifications', bellBadge: true },
 ];
 
@@ -155,6 +156,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   ).trim();
   const { locale } = useLocale();
   const { t, dict } = useAppStrings();
+  const singleOrgMode = readSingleOrgModeFlag();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -263,7 +265,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   });
 
   const bellBadgeCount = landingDemo
-    ? 3
+    ? 0
     : onOrgRail
       ? unreadCount
       : unreadCount + pendingCount;
@@ -365,7 +367,9 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
     setActiveWorkspace(workspacePayloadFromOrg(target));
   }, [slugFromPath, orgIdFromUrl, orgListIdsKey, landingDemo, setActiveWorkspace, suiteProp, activeWorkspace]);
 
-  const timeLocale = locale === 'en' ? 'en-US' : 'vi-VN';
+  const LOCALE_TAG_EN = 'en-US';
+  const LOCALE_TAG_VI = 'vi-VN';
+  const timeLocale = locale === 'en' ? LOCALE_TAG_EN : LOCALE_TAG_VI;
   const currentTime = time.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
 
   const hasWorkspaceContext = Boolean(activeWorkspace?.slug || String(lastWorkspaceSlug || '').trim());
@@ -380,7 +384,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
     const base = suiteNav || (inOrganizationContext ? ORG_NAV_DEF : PUBLIC_NAV_DEF);
     return base.map((def) => {
       const copy = dict?.nav?.[def.key] || {};
-      const fallbackLabel = def.key === 'org' ? 'Workspace' : def.key;
+      const fallbackLabel = def.key === 'org' ? t('nav.workspaces') : def.key;
       const label = copy.label || fallbackLabel;
       const tooltip = copy.tooltip || label;
       if (def.bellBadge) {
@@ -395,7 +399,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
         isWorkspaceEntry: Boolean(def.isWorkspaceEntry),
       };
     });
-  }, [dict, inOrganizationContext, locale, suiteProp]);
+  }, [dict, inOrganizationContext, locale, suiteProp, t]);
   const displayName = getUserDisplayName(user);
   const isInvisible = Boolean(user?.isInvisible);
   const isOnline = !isInvisible && String(user?.status || '').toLowerCase() === 'online';
@@ -415,7 +419,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
       setProfileOpen(false);
     } catch (error) {
       console.error('Toggle invisible mode failed:', error);
-      toast.error(error?.response?.data?.message || t('nav.toastInvisibleErr'));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('nav.toastInvisibleErr') }));
     } finally {
       setTogglingInvisible(false);
     }
@@ -491,7 +495,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   const handleJoinByLinkSubmit = () => {
     const { orgId, token } = extractInvitePayloadFromInput(joinLinkInput);
     if (!orgId || !token) {
-      toast.error('Link mời không hợp lệ');
+      toast.error(t('organizations.inviteLinkInvalid'));
       return;
     }
     const params = new URLSearchParams({
@@ -678,7 +682,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
   const divCls = navDivider(isDarkMode);
   const createOrgShortLabelRaw = t('organizations.createOrgShort');
   const createOrgShortLabel = String(createOrgShortLabelRaw || '').includes('.')
-    ? 'Tạo tổ chức'
+    ? t('organizations.createOrg')
     : createOrgShortLabelRaw;
 
   const railNode = (
@@ -772,7 +776,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                 {myOrganizations.map((org) => {
                   const active = isOrganizationActive(org);
                   return (
-                    <Tooltip key={String(org?._id || org?.slug || org?.name)} label={org?.name || 'Workspace'}>
+                    <Tooltip key={String(org?._id || org?.slug || org?.name)} label={org?.name || t('nav.workspaces')}>
                       <button
                         type="button"
                         onClick={() => handleSelectOrganization(org)}
@@ -785,13 +789,13 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                               ? 'border-white/15 bg-white/5 text-slate-200 hover:border-white/30 hover:bg-white/10'
                               : 'border-slate-300 bg-white text-slate-800 hover:border-cyan-300 hover:bg-slate-50'
                         }`}
-                        aria-label={org?.name || 'Workspace'}
+                        aria-label={org?.name || t('nav.workspaces')}
                         aria-current={active ? 'true' : undefined}
                       >
                         {active && (
                           <span className="absolute -left-2 h-5 w-1 rounded-r-full bg-cyan-400" aria-hidden />
                         )}
-                        <span>{(org?.name || 'W').slice(0, 2).toUpperCase()}</span>
+                        <span>{(org?.name || t('nav.workspaces')).slice(0, 2).toUpperCase()}</span>
                         {Number(org?.onlineMembers || 0) > 0 && (
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 ${
@@ -804,7 +808,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                     </Tooltip>
                   );
                 })}
-                {!landingDemo && (
+                {!landingDemo && !singleOrgMode && (
                   <Tooltip label={createOrgShortLabel}>
                     <button
                       type="button"
@@ -864,7 +868,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
 
       <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
       {tooltipPortal}
-      {createOrgMenuOpen &&
+      {createOrgMenuOpen && !singleOrgMode &&
         createPortal(
           <>
             <div
@@ -879,7 +883,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                   : 'border-slate-200 bg-white text-slate-900'
               }`}
             >
-              <div className="mb-3 text-sm font-bold">Thêm tổ chức</div>
+              <div className="mb-3 text-sm font-bold">{t('nav.addOrganization')}</div>
               <div className="space-y-2">
                 <button
                   type="button"
@@ -890,7 +894,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                       : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'
                   }`}
                 >
-                  Tạo tổ chức
+                  {t('workspace.createOrg')}
                 </button>
                 <button
                   type="button"
@@ -901,7 +905,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                       : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
                   }`}
                 >
-                  Tham gia bằng link
+                  {t('nav.joinByInviteLink')}
                 </button>
               </div>
             </div>
@@ -923,14 +927,14 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                   : 'border-slate-200 bg-white text-slate-900'
               }`}
             >
-              <div className="mb-1 text-base font-bold">Tham gia tổ chức</div>
+              <div className="mb-1 text-base font-bold">{t('nav.joinOrganization')}</div>
               <div className={`mb-3 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Dán link mời có `inviteToken` để tham gia nhanh.
+                {t('nav.pasteInviteLinkHint')}
               </div>
               <input
                 value={joinLinkInput}
                 onChange={(event) => setJoinLinkInput(event.target.value)}
-                placeholder="Dán link mời (inviteToken)"
+                placeholder={t('nav.pasteInviteLinkPlaceholder')}
                 className={`w-full rounded-lg border px-3 py-2 text-sm outline-none ${
                   isDarkMode
                     ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-400 focus:border-cyan-400/60'
@@ -956,7 +960,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                       : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'
                   }`}
                 >
-                  Tham gia
+                  {t('workspace.join')}
                 </button>
               </div>
             </div>

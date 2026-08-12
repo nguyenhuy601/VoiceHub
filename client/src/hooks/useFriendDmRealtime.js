@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { mergeDmSnippetMap } from '../utils/dmConversationList';
-import { mergeMessagesById, replaceOptimisticWithServer } from '../utils/dmChatHelpers';
+import { replaceOptimisticWithServer } from '../utils/dmChatHelpers';
 import dmMessageService from '../services/dmMessageService';
+import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 
 const SEND_ACK_MS = 12000;
 
@@ -185,7 +186,7 @@ export function useFriendDmRealtime({
 
     const handleSocketError = (err) => {
       const code = err?.code;
-      let toastMsg = err?.message || t('friendChat.sendFail');
+      let toastMsg = resolveApiErrorMessage(err, { t, fallback: t('friendChat.sendFail') });
       if (code === 'dm_blocked') {
         toastMsg =
           err?.blockerId && String(err.blockerId) !== myIdStr

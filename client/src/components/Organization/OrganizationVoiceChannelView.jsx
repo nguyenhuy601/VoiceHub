@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
-import { MicOff } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Users, Volume2, VolumeX, Wifi } from 'lucide-react';
 import api from '../../services/api';
 import {
   acquireMicStream,
@@ -11,11 +11,30 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useAppStrings } from '../../locales/appStrings';
-import { getToken } from '../../utils/tokenStorage';
+import { getResolvedBearerToken } from '../../utils/tokenStorage';
 import { getUserDisplayName } from '../../utils/helpers';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
 import UserAvatar from '../Shared/UserAvatar';
-import { isAvatarImageUrl, voiceSpeakingRingClass } from '../../utils/avatarDisplay';
+import { voiceSpeakingRingClass } from '../../utils/avatarDisplay';
+import {
+  FIGMA_VOICE_CTRL_BTN,
+  FIGMA_VOICE_CTRL_BTN_ACTIVE,
+  FIGMA_VOICE_CTRL_BTN_DANGER,
+  FIGMA_VOICE_CTRL_BTN_IDLE,
+  FIGMA_VOICE_CTRL_DIVIDER,
+  FIGMA_VOICE_CTRL_END,
+  FIGMA_VOICE_CTRL_PILL,
+  FIGMA_VOICE_ROOM_ROOT,
+  FIGMA_VOICE_STATUS_DOT,
+  FIGMA_VOICE_TILE_BASE,
+  FIGMA_VOICE_TILE_IDLE,
+  FIGMA_VOICE_TILE_SPEAKING,
+  FIGMA_VOICE_TOP_BAR,
+  FIGMA_VOICE_TOP_META,
+  FIGMA_VOICE_WIFI_BADGE,
+  FIGMA_VOICE_WIFI_ICON,
+  FIGMA_VOICE_WIFI_TEXT,
+} from '../Voice/figmaVoiceClasses';
 
 const getSignalBaseUrl = () => resolveAppOrigin() || 'http://127.0.0.1:3000';
 
@@ -105,10 +124,10 @@ async function warnIfNoInboundRtp(consumer, label, { recvState } = {}) {
     );
     if (!inbound) {
       const hints = [
-        'MEDIASOUP_ANNOUNCED_IP = IP WiFi máy dev (không 127.0.0.1 trong Docker)',
+        'MEDIASOUP_ANNOUNCED_IP = dev WiFi IP (not 127.0.0.1 inside Docker)',
         'firewall UDP/TCP 40000-40100',
-        'hosts: chi 1 dong voicehub.local (may dev=127.0.0.1; may LAN=IP WiFi dev)',
-        'hai tab: bật mic từng tài khoản (mute không dùng chung nữa)',
+        'hosts: only 1 entry for voicehub.local (dev may be 127.0.0.1; LAN dev is WiFi IP)',
+        'two tabs: enable mic per account (no shared mute)',
       ];
       if (recvState && recvState !== 'connected') {
         hints.unshift(`recv transport: ${recvState}`);
@@ -355,7 +374,7 @@ export default function OrganizationVoiceChannelView({
     if (!channelId || landingDemo || !canVoice) return undefined;
 
     let cancelled = false;
-    /** Socket của phiên join hiện tại — không đọc ref sau teardown (tránh "No socket"). */
+    /** Current join-session socket — do not read ref after teardown (avoid "No socket"). */
     let voiceSocket = null;
     let recvPipelineReady = false;
     const pendingAudioProducers = [];
@@ -607,7 +626,7 @@ export default function OrganizationVoiceChannelView({
           setLocalVoiceEnergy(speaking);
         });
 
-        const token = normalizeToken(getToken()) || normalizeToken(localStorage.getItem('token'));
+        const token = getResolvedBearerToken();
         const socket = io(`${getSignalBaseUrl()}/voice`, {
           path: getSignalPath(),
           // Qua reverse proxy HTTPS, ưu tiên polling trước để giảm lỗi WS handshake sớm.
@@ -647,6 +666,26 @@ export default function OrganizationVoiceChannelView({
             mediasoupRef.current.remoteStreams.delete(payload.socketId);
           }
           audioElsRef.current.delete(payload.socketId);
+        });
+
+        socket.on('voice:participantKicked', (payload) => {
+          if (cancelled || !voiceSocket?.connected) return;
+          if (String(payload?.userId || '') !== String(voiceUserId)) return;
+          toast.error(t('voiceRoom.kickedFromRoom'));
+          onRoomSessionEnd?.(payload);
+        });
+
+        socket.on('voice:participantMuted', (payload) => {
+          if (cancelled || !voiceSocket?.connected) return;
+          if (String(payload?.userId || '') !== String(voiceUserId)) return;
+          if (!payload?.muted) return;
+          mediasoupRef.current.localStream?.getAudioTracks?.().forEach((track) => {
+            track.enabled = false;
+          });
+          const producer = mediasoupRef.current.audioProducer;
+          if (producer?.pause) producer.pause().catch(() => {});
+          setIsMuted(true);
+          toast(t('voiceRoom.mutedByHost'));
         });
 
         socket.on('voice:roomClosed', (payload) => {
@@ -694,9 +733,7 @@ export default function OrganizationVoiceChannelView({
         await device.load({ routerRtpCapabilities: joinResp.rtpCapabilities });
         mediasoupRef.current.device = device;
         if (!device.canProduce('audio')) {
-          throw new Error(
-            'Trình duyệt không hỗ trợ codec audio của phòng voice (opus). Thử reload hoặc restart voice-service.'
-          );
+          throw new Error(t('orgPanel.voiceCodecUnsupported'));
         }
 
         const sendTransportData = await requestSocket('voice:createTransport', {
@@ -809,7 +846,6 @@ export default function OrganizationVoiceChannelView({
       teardownRef.current = null;
       teardown();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnect khi đổi kênh; tên hiển thị lấy lúc mount
   }, [channelId, landingDemo, canVoice]);
 
   /** Đổi mic trong Cài đặt giọng nói khi đang ở kênh — thay track producer thay vì chờ rời/vào lại. */
@@ -852,8 +888,6 @@ export default function OrganizationVoiceChannelView({
     return () => {
       cancelled = true;
     };
-    // Chỉ khi user đổi mic trong settings — không chạy lúc mount producer null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [micDeviceId]);
 
   const handleLeaveVoice = async () => {
@@ -887,66 +921,23 @@ export default function OrganizationVoiceChannelView({
   };
 
   const sortedRemote = useMemo(() => {
+    const LOCALE_TAG_EN = 'en';
+    const LOCALE_TAG_VI = 'vi';
     return [...participants].sort((a, b) =>
-      String(a.displayName || '').localeCompare(String(b.displayName || ''), locale === 'en' ? 'en' : 'vi')
+      String(a.displayName || '').localeCompare(
+        String(b.displayName || ''),
+        locale === 'en' ? LOCALE_TAG_EN : LOCALE_TAG_VI
+      )
     );
   }, [participants, locale]);
 
-  const shell = isDarkMode
-    ? 'flex min-h-0 flex-1 flex-col rounded-xl border border-white/[0.08] bg-[#12151f]'
-    : 'flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm';
-
-  if (landingDemo) {
-    return (
-      <div className={shell}>
-        <div
-          className={`flex shrink-0 items-center justify-between border-b px-4 py-2.5 ${
-            isDarkMode ? 'border-white/10 bg-[#0f1218]' : 'border-slate-200 bg-slate-50'
-          }`}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="text-emerald-400" aria-hidden>
-              🔊
-            </span>
-            <span
-              className={`min-w-0 truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            >
-              {channelDisplayName || t('organizations.voiceChannelPh')}
-            </span>
-          </div>
-          <span className="shrink-0 font-mono text-xs tabular-nums text-emerald-400">01:14:16</span>
-        </div>
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          <p className={`px-1 pb-2 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-            {t('orgPanel.voiceDemoHint')}
-          </p>
-          {['Neo', 'Minh An', 'Bạn'].map((name, i) => (
-            <div
-              key={name}
-              className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${
-                i === 0 ? (isDarkMode ? 'bg-white/[0.04]' : 'bg-slate-100') : ''
-              }`}
-            >
-              <UserAvatar name={name} size="sm" ringClassName={voiceSpeakingRingClass(i === 0)} />
-              <span className={`min-w-0 truncate text-sm ${isDarkMode ? 'text-[#dcdee1]' : 'text-slate-800'}`}>
-                {name === 'Bạn' ? `${name} (${t('orgPanel.you')})` : name}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!canVoice) {
-    return (
-      <div className={`${shell} items-center justify-center p-8`}>
-        <p className={`text-center text-sm ${isDarkMode ? 'text-[#9aa0ae]' : 'text-slate-600'}`}>
-          {t('orgPanel.voiceNoMicPermission')}
-        </p>
-      </div>
-    );
-  }
+  const toggleSpeaker = () => {
+    setIsSpeakerOff((prev) => {
+      const next = !prev;
+      saveVoiceAudioPrefs({ speakerOff: next }, voiceUserId);
+      return next;
+    });
+  };
 
   const unlockAllRemoteAudio = () => {
     audioElsRef.current.forEach((el) => {
@@ -954,117 +945,260 @@ export default function OrganizationVoiceChannelView({
     });
   };
 
-  return (
-    <div className={shell} onClick={unlockAllRemoteAudio} role="presentation">
-      <div className="sr-only" aria-hidden>
-        {sortedRemote.map((p) => (
-          <audio
-            key={p.socketId}
-            ref={(el) => {
-              if (el) {
-                audioElsRef.current.set(p.socketId, el);
-                if (p.stream) {
-                  void bindAndPlayRemoteAudio(el, p.stream, remoteOutputOpts);
-                } else {
-                  void applyRemoteAudioElement(el, remoteOutputOpts);
-                }
-              } else {
-                audioElsRef.current.delete(p.socketId);
-              }
-            }}
-            autoPlay
-            playsInline
-          />
-        ))}
+  const connected = Boolean(joinedAtMs && !joining && !error);
+  const channelTitle = channelDisplayName || t('organizations.voiceChannelPh');
+  const statusText = landingDemo
+    ? t('orgPanel.voiceDemoHint')
+    : connected
+      ? t('orgPanel.voiceConnectedNow')
+      : joining
+        ? t('orgPanel.voiceConnecting')
+        : t('voiceRoom.connected');
+  const participantRows = landingDemo
+    ? [
+        {
+          id: 'local',
+          name: localDisplayName,
+          avatar: localAvatar,
+          userId: voiceUserId,
+          speaking: false,
+          muted: isMuted,
+          isLocal: true,
+        },
+      ]
+    : [
+        {
+          id: 'local',
+          name: localDisplayName,
+          avatar: localAvatar,
+          userId: voiceUserId,
+          speaking: localVoiceEnergy && !isMuted,
+          muted: isMuted,
+          isLocal: true,
+        },
+        ...sortedRemote.map((p) => ({
+          id: p.socketId,
+          name: p.displayName || p.userId || t('orgPanel.member'),
+          userId: p.userId,
+          speaking: Boolean(remoteSpeakingMap[p.socketId]),
+          muted: false,
+          isLocal: false,
+        })),
+      ];
+
+  const stageTone = isDarkMode
+    ? {
+        root: FIGMA_VOICE_ROOM_ROOT,
+        top: 'relative mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-white/10 bg-surface-raised/95 px-4 py-2 text-sm text-foreground shadow-xl backdrop-blur-md',
+        panel: 'border-white/10 bg-[#111827]',
+        tile: `${FIGMA_VOICE_TILE_BASE} ${FIGMA_VOICE_TILE_IDLE}`,
+        tileActive: FIGMA_VOICE_TILE_SPEAKING,
+        muted: 'text-muted-foreground',
+        sub: 'text-muted-foreground',
+        control: FIGMA_VOICE_CTRL_PILL,
+      }
+    : {
+        root: 'relative flex min-h-0 flex-1 flex-col bg-slate-50 text-slate-950',
+        top: 'mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm shadow-xl backdrop-blur-md',
+        panel: 'border-slate-200 bg-white',
+        tile: 'relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-5',
+        tileActive: 'border-success shadow-[0_0_22px_rgba(16,185,129,0.18)]',
+        muted: 'text-slate-600',
+        sub: 'text-slate-500',
+        control: 'border-slate-200 bg-white/95',
+      };
+
+  if (!canVoice && !landingDemo) {
+    return (
+      <div className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-none ${stageTone.root}`}>
+        <div className={`max-w-md rounded-2xl border p-8 text-center shadow-sm ${stageTone.panel}`}>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+            <MicOff className="h-6 w-6" aria-hidden />
+          </div>
+          <p className={`text-sm ${stageTone.muted}`}>{t('orgPanel.voiceNoMicPermission')}</p>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div
+      className={`relative flex h-full min-h-[520px] flex-1 overflow-hidden rounded-none ${stageTone.root}`}
+      onClick={unlockAllRemoteAudio}
+      role="presentation"
+    >
+      {!landingDemo ? (
+        <div className="sr-only" aria-hidden>
+          {sortedRemote.map((p) => (
+            <audio
+              key={p.socketId}
+              ref={(el) => {
+                if (el) {
+                  audioElsRef.current.set(p.socketId, el);
+                  if (p.stream) {
+                    void bindAndPlayRemoteAudio(el, p.stream, remoteOutputOpts);
+                  } else {
+                    void applyRemoteAudioElement(el, remoteOutputOpts);
+                  }
+                } else {
+                  audioElsRef.current.delete(p.socketId);
+                }
+              }}
+              autoPlay
+            />
+          ))}
+        </div>
+      ) : null}
       <VoiceControlBridge
         onControlActionsReady={onControlActionsReady}
         toggleMute={toggleMute}
         disconnect={handleLeaveVoice}
-        toggleSpeaker={() => {
-          setIsSpeakerOff((prev) => {
-            const next = !prev;
-            saveVoiceAudioPrefs({ speakerOff: next }, voiceUserId);
-            return next;
-          });
-        }}
+        toggleSpeaker={toggleSpeaker}
       />
 
-      <div
-        className={`flex shrink-0 items-center justify-between border-b px-4 py-2.5 ${
-          isDarkMode ? 'border-white/10 bg-[#0f1218]' : 'border-slate-200 bg-slate-50'
-        }`}
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-emerald-400" aria-hidden>
-            🔊
-          </span>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className={`${stageTone.top} shadow-xl backdrop-blur-md`}>
           <span
-            className={`min-w-0 truncate text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-          >
-            {channelDisplayName || t('organizations.voiceChannelPh')}
+            className={connected || landingDemo ? FIGMA_VOICE_STATUS_DOT : 'h-2 w-2 shrink-0 rounded-full bg-warning shadow-[0_0_6px] shadow-warning'}
+            title={statusText}
+          />
+          <span className="min-w-0 max-w-[16rem] truncate font-semibold">{channelTitle}</span>
+          <span className={stageTone.sub}>|</span>
+          <Users className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+          <span className="tabular-nums">{participantRows.length}</span>
+          <span className={stageTone.sub}>|</span>
+          <span className={FIGMA_VOICE_WIFI_BADGE}>
+            <Wifi className={FIGMA_VOICE_WIFI_ICON} aria-hidden />
+            <span className={FIGMA_VOICE_WIFI_TEXT}>{statusText}</span>
+          </span>
+          <span className={`ml-auto font-mono text-xs tabular-nums ${connected ? 'text-success' : stageTone.muted}`}>
+            {landingDemo ? '01:14:16' : joining ? '...' : elapsedLabel}
           </span>
         </div>
-        <span
-          className={`shrink-0 font-mono text-xs tabular-nums ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}
-        >
-          {joining ? '…' : elapsedLabel}
-        </span>
-      </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {joining && (
-          <p className={`px-1 text-sm ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-            {t('orgPanel.voiceConnecting')}
-          </p>
-        )}
-        {error && !joining && (
-          <p className="px-1 text-sm text-red-400">{error}</p>
-        )}
-
-        <div
-          className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${isDarkMode ? 'bg-white/[0.03]' : 'bg-slate-50'}`}
-        >
-          <UserAvatar
-            avatar={localAvatar}
-            userId={voiceUserId}
-            name={localDisplayName}
-            size="sm"
-            ringClassName={voiceSpeakingRingClass(localVoiceEnergy && !isMuted)}
-          />
-          <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${isDarkMode ? 'text-[#dcdee1]' : 'text-slate-800'}`}>
-              {localDisplayName}{' '}
-              <span className={`font-normal ${isDarkMode ? 'text-[#7c8188]' : 'text-slate-500'}`}>
-                ({t('orgPanel.you')})
-              </span>
-            </div>
+        {error && !joining ? (
+          <div className="mx-5 mt-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
           </div>
-          {isMuted ? (
-            <span className="shrink-0 text-red-400" title={t('orgPanel.voiceMicMuted')}>
-              <MicOff className="h-4 w-4" aria-hidden />
-            </span>
-          ) : null}
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-28 pt-5">
+          <div className="grid content-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+            {participantRows.map((p) => (
+              <div
+                key={p.id}
+                className={`relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border p-5 transition ${
+                  p.speaking ? stageTone.tileActive : stageTone.tile
+                }`}
+              >
+                <UserAvatar
+                  avatar={p.avatar}
+                  userId={p.userId}
+                  name={p.name}
+                  size="xl"
+                  ringClassName={voiceSpeakingRingClass(p.speaking)}
+                />
+                <div className="mt-4 max-w-full truncate text-sm font-semibold">
+                  {p.name}
+                  {p.isLocal ? (
+                    <span className={`ml-1 font-normal ${stageTone.sub}`}>({t('orgPanel.you')})</span>
+                  ) : null}
+                </div>
+                <div className={`mt-1 text-xs ${stageTone.muted}`}>
+                  {p.speaking ? t('voiceRoom.connected') : t('voiceRoom.orgVoiceStageHint')}
+                </div>
+                <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+                  {p.muted ? (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-destructive text-white">
+                      <MicOff className="h-3.5 w-3.5" aria-hidden />
+                    </span>
+                  ) : (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-success/15 text-success">
+                      <Mic className="h-3.5 w-3.5" aria-hidden />
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {sortedRemote.map((p) => {
-          const speaking = Boolean(remoteSpeakingMap[p.socketId]);
-          return (
-            <div key={p.socketId} className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-              <UserAvatar
-                userId={p.userId}
-                name={p.displayName}
-                size="sm"
-                ringClassName={voiceSpeakingRingClass(speaking)}
-              />
-              <span className={`min-w-0 truncate text-sm ${isDarkMode ? 'text-[#dcdee1]' : 'text-slate-800'}`}>
-                {p.displayName}
-              </span>
-            </div>
-          );
-        })}
+        <div className="pointer-events-none absolute bottom-5 left-0 right-0 z-20 flex justify-center px-5">
+          <div className={`pointer-events-auto flex max-w-[min(100%,34rem)] items-center justify-center gap-1.5 overflow-x-auto rounded-full border px-3 py-2 shadow-[0_16px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl ${stageTone.control}`}>
+            <button
+              type="button"
+              onClick={toggleMute}
+              title={isMuted ? t('voiceRoom.micOff') : t('voiceRoom.micOn')}
+              className={`${FIGMA_VOICE_CTRL_BTN} ${isMuted ? FIGMA_VOICE_CTRL_BTN_DANGER : FIGMA_VOICE_CTRL_BTN_ACTIVE}`}
+            >
+              {isMuted ? (
+                <MicOff className="h-[17px] w-[17px] text-white" aria-hidden />
+              ) : (
+                <Mic className="h-[17px] w-[17px] text-white" aria-hidden />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={toggleSpeaker}
+              title={isSpeakerOff ? t('orgPanel.voiceSpeakerOff') : t('orgPanel.voiceSpeakerOn')}
+              className={`${FIGMA_VOICE_CTRL_BTN} ${isSpeakerOff ? FIGMA_VOICE_CTRL_BTN_DANGER : FIGMA_VOICE_CTRL_BTN_IDLE}`}
+            >
+              {isSpeakerOff ? (
+                <VolumeX className="h-[17px] w-[17px] text-white" aria-hidden />
+              ) : (
+                <Volume2 className="h-[17px] w-[17px] text-white" aria-hidden />
+              )}
+            </button>
+            <div className={FIGMA_VOICE_CTRL_DIVIDER} aria-hidden />
+            <button
+              type="button"
+              onClick={handleLeaveVoice}
+              className={FIGMA_VOICE_CTRL_END}
+              title={t('voiceRoom.endCall')}
+            >
+              <PhoneOff className="h-4 w-4 text-white" aria-hidden />
+              <span>{t('voiceRoom.endShort')}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
+      <aside className={`hidden h-full w-[280px] shrink-0 flex-col border-l lg:flex ${stageTone.panel}`}>
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+          <div>
+            <div className="text-sm font-bold">{t('voiceRoom.orgVoiceMembers')}</div>
+            <div className={`text-xs ${stageTone.sub}`}>{channelTitle}</div>
+          </div>
+          <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="space-y-1.5">
+            {participantRows.map((p) => (
+              <div key={`member-${p.id}`} className="flex items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-muted">
+                <UserAvatar
+                  avatar={p.avatar}
+                  userId={p.userId}
+                  name={p.name}
+                  size="sm"
+                  ringClassName={voiceSpeakingRingClass(p.speaking)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">
+                    {p.name}
+                    {p.isLocal ? (
+                      <span className={`ml-1 font-normal ${stageTone.sub}`}>({t('orgPanel.you')})</span>
+                    ) : null}
+                  </div>
+                  <div className={`text-xs ${p.speaking ? 'text-success' : stageTone.sub}`}>
+                    {p.speaking ? t('voiceRoom.connected') : t('voiceRoom.orgVoiceStageHint')}
+                  </div>
+                </div>
+                {p.muted ? <MicOff className="h-4 w-4 shrink-0 text-destructive" aria-hidden /> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

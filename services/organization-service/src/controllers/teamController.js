@@ -1,6 +1,8 @@
 const Channel = require('../models/Channel');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
+const { findActiveTeamNameConflict } = require('../utils/orgUnitNameConflict');
+const { orgConflict } = require('../utils/orgApiError');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -30,6 +32,14 @@ exports.getTeams = async (req, res, next) => {
 exports.createTeam = async (req, res, next) => {
   try {
     const { name, description, leader } = req.body;
+    const conflict = await findActiveTeamNameConflict({
+      organizationId: req.params.orgId,
+      departmentId: req.params.deptId,
+      name,
+    });
+    if (conflict) {
+      return orgConflict(res, 'Team cùng tên đã tồn tại trong phòng ban này', 'ORG_TEAM_NAME_EXISTS');
+    }
     const team = await Team.create({
       name,
       description,

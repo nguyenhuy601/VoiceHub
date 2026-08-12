@@ -1,5 +1,15 @@
 # Swarm Env & Secrets Inventory
 
+## Rotate (S0)
+
+```bash
+bash devops/scripts/rotate-staging-secrets.sh --dry-run
+bash devops/scripts/rotate-staging-secrets.sh --apply
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+```
+
+Output overlay: `devops/swarm/.env` (gitignored). Stack vẫn đọc root `.env` + per-service `.env` qua `docker-stack.yml` `env_file`.
+
 ## Core shared
 - `JWT_SECRET`, `JWT_REFRESH_SECRET`
 - `MONGO_URI` or `MONGO_*`

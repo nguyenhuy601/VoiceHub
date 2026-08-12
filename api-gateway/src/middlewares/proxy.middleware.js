@@ -1,5 +1,6 @@
 const httpProxy = require('http-proxy');
 const { getServiceByPath, resolveReqApiPath } = require('../config/services');
+const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { URL } = require('url');
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -7,13 +8,22 @@ const isProd = process.env.NODE_ENV === 'production';
 // Cache proxy instances để tránh tạo lại mỗi request
 const proxyCache = new Map();
 
+const PROXY_ERROR_CODES = {
+  500: 'GATEWAY_INTERNAL_ERROR',
+  503: 'GATEWAY_SERVICE_UNAVAILABLE',
+  504: 'GATEWAY_SERVICE_UNAVAILABLE',
+};
+
 /** Phản hồi lỗi proxy an toàn — không lộ stack cho client (production). */
 function sendProxyError(res, statusCode, message, err = null, meta = {}) {
   if (res.headersSent) return;
-  const body = { success: false, message };
-  if (meta.serviceName) {
-    body.service = meta.serviceName;
-  }
+  const errorCode = PROXY_ERROR_CODES[statusCode] || 'GATEWAY_INTERNAL_ERROR';
+  const body = buildApiErrorBody(statusCode, {
+    errorCode,
+    message,
+    messageUser: message,
+    extra: meta.serviceName ? { service: meta.serviceName } : undefined,
+  });
   if (!isProd && err) {
     body.debug = {
       code: err.code,
@@ -100,8 +110,8 @@ const proxyMiddleware = (req, res, next) => {
         port: proxyPort,
       },
       changeOrigin: true,
-      timeout: 60000, // 60 seconds timeout
-      proxyTimeout: 60000, // 60 seconds proxy timeout
+      timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
+      proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
       ws: false, // Không cần WebSocket
       xfwd: true, // Forward X-Forwarded-* headers
       secure: false, // Tắt SSL verification cho localhost
@@ -165,6 +175,9 @@ const proxyMiddleware = (req, res, next) => {
   
   delete req.headers['x-organization-id'];
   delete req.headers['x-server-id'];
+  delete req.headers['x-gateway-internal-token'];
+  delete req.headers['x-user-id'];
+  delete req.headers['x-user-email'];
 
   const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
   if (gatewayToken) {
@@ -174,8 +187,9 @@ const proxyMiddleware = (req, res, next) => {
     req.headers['x-user-id'] = req.user.id;
     if (req.user.email) {
       req.headers['x-user-email'] = req.user.email;
-    } else {
-      delete req.headers['x-user-email'];
+    }
+    if (req.user.systemRole) {
+      req.headers['x-user-system-role'] = req.user.systemRole;
     }
   }
   

@@ -42,9 +42,6 @@ router.post('/:friendId/block', friendController.blockUser.bind(friendController
 // Bỏ chặn user
 router.post('/:friendId/unblock', friendController.unblockUser.bind(friendController));
 
-// Xóa bạn bè
-router.delete('/:friendId', friendController.removeFriend.bind(friendController));
-
 module.exports = router;
 
 

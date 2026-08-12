@@ -7,18 +7,30 @@ const router = express.Router({ mergeParams: true });
 
 router.use(protect);
 
+/**
+ * Huy P5: Legacy Branch→Division→Department→Team routes — DEPRECATED for new admin UI.
+ * Prefer GET/PUT /:orgId/structure/levels|units|apply-template. Kept for dual-read clients
+ * and workspace until cutover; new writes should go through structureController + OU.
+ */
 router.get('/branches', hierarchyController.listBranches);
 router.post('/branches', authorize(['owner', 'admin']), hierarchyController.createBranch);
+// Huy: PUT chi nhánh — sửa / vô hiệu hóa (domain Cơ cấu tổ chức)
+router.put('/branches/:branchId', authorize(['owner', 'admin']), hierarchyController.updateBranch);
 
 router.get('/branches/:branchId/divisions', hierarchyController.listDivisions);
 router.post('/branches/:branchId/divisions', authorize(['owner', 'admin']), hierarchyController.createDivision);
+router.get('/divisions', hierarchyController.listDivisions);
+router.post('/divisions', authorize(['owner', 'admin']), hierarchyController.createDivision);
 router.put('/divisions/:divisionId', authorize(['owner', 'admin']), hierarchyController.updateDivision);
 
 router.get('/divisions/:divisionId/departments', hierarchyController.listDepartmentsByDivision);
 router.post('/divisions/:divisionId/departments', authorize(['owner', 'admin']), hierarchyController.createDepartmentByDivision);
+router.post('/departments', authorize(['owner', 'admin']), hierarchyController.createDepartmentRoot);
 
 router.get('/departments/:deptId/teams', hierarchyController.listTeamsByDepartment);
 router.post('/departments/:deptId/teams', authorize(['owner', 'admin']), hierarchyController.createTeamByDepartment);
+router.post('/divisions/:divisionId/teams', authorize(['owner', 'admin']), hierarchyController.createTeamByDivision);
+router.post('/teams', authorize(['owner', 'admin']), hierarchyController.createTeamRoot);
 router.put('/teams/:teamId', authorize(['owner', 'admin']), hierarchyController.updateTeamByHierarchy);
 router.get(
   '/teams/:teamId/role-access',
@@ -36,5 +48,6 @@ router.post('/teams/:teamId/channels', authorize(['owner', 'admin']), hierarchyC
 router.put('/teams/:teamId/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByTeam);
 router.post('/channels', authorize(['owner', 'admin']), hierarchyController.createChannelByScope);
 router.put('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByScope);
+router.delete('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.deleteChannelByScope);
 
 module.exports = router;

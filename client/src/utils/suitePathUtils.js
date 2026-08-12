@@ -4,6 +4,7 @@ export const SUITE = {
   COMMUNICATE: 'COMMUNICATE',
   COLLABORATE: 'COLLABORATE',
   ME: 'ME',
+  ADMIN: 'ADMIN',
 };
 
 export const SUITE_STORAGE_KEY = 'voicehub:current-suite';
@@ -13,6 +14,7 @@ const SUITE_SEGMENT = {
   [SUITE.COMMUNICATE]: 'communicate',
   [SUITE.COLLABORATE]: 'collaborate',
   [SUITE.ME]: 'me',
+  [SUITE.ADMIN]: 'admin',
 };
 
 const SEGMENT_TO_SUITE = Object.fromEntries(
@@ -20,9 +22,10 @@ const SEGMENT_TO_SUITE = Object.fromEntries(
 );
 
 export const SUITE_DEFAULT_PATH = {
-  [SUITE.COMMUNICATE]: '/app/communicate/chat/friends',
-  [SUITE.COLLABORATE]: '/app/collaborate/workspaces',
+  [SUITE.COMMUNICATE]: '/app/communicate/overview',
+  [SUITE.COLLABORATE]: '/app/collaborate/overview',
   [SUITE.ME]: '/app/me/dashboard',
+  [SUITE.ADMIN]: '/app/admin',
 };
 
 export function normalizeSuite(value) {
@@ -68,23 +71,50 @@ export function getDefaultPathForSuite(suite) {
 
 export function detectSuiteFromPath(pathname) {
   const path = String(pathname || '');
+  if (path.startsWith('/app/admin')) return SUITE.ADMIN;
   if (path.startsWith('/app/communicate')) return SUITE.COMMUNICATE;
   if (path.startsWith('/app/collaborate')) return SUITE.COLLABORATE;
   if (path.startsWith('/app/me')) return SUITE.ME;
   return null;
 }
 
-/** Org-scoped paths (không dùng slug trên URL). */
-export function buildCommunicateChannelsPath(orgId = '') {
-  const base = '/app/communicate/channels';
-  const id = String(orgId || '').trim();
-  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+import { LEGACY_ADMIN_TAB_TO_PATH } from '../config/adminNavConfig';
+
+/** Map legacy ?tab= trên /app/collaborate/admin sang route admin mới. */
+export function mapLegacyAdminTabToPath(tab) {
+  const raw = String(tab || 'overview').trim().toLowerCase();
+  return LEGACY_ADMIN_TAB_TO_PATH[raw] || LEGACY_ADMIN_TAB_TO_PATH.overview;
 }
 
-export function buildCollaborateTasksPath(orgId = '') {
-  const base = '/app/collaborate/tasks';
+/** Org-scoped paths (không dùng slug trên URL). */
+export function buildCommunicateChannelsPath(orgId = '', query = {}) {
+  const base = '/app/communicate/channels';
+  const params = new URLSearchParams();
   const id = String(orgId || '').trim();
-  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+  if (id) params.set('organizationId', id);
+  const deptId = String(query?.departmentId || '').trim();
+  const channelId = String(query?.channelId || '').trim();
+  if (deptId) params.set('departmentId', deptId);
+  if (channelId) params.set('channelId', channelId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+export function buildCollaborateTasksPath(orgId = '', query = {}) {
+  const base = '/app/collaborate/tasks';
+  const params = new URLSearchParams();
+  const id = String(orgId || '').trim();
+  if (id) params.set('organizationId', id);
+  const deptId = String(query?.departmentId || '').trim();
+  const teamId = String(query?.teamId || '').trim();
+  const boardId = String(query?.boardId || '').trim();
+  const projectId = String(query?.projectId || '').trim();
+  if (deptId) params.set('departmentId', deptId);
+  if (teamId) params.set('teamId', teamId);
+  if (boardId) params.set('boardId', boardId);
+  if (projectId) params.set('projectId', projectId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export function buildCollaborateDocumentsPath(orgId = '') {
@@ -104,9 +134,54 @@ export function buildCollaborateSettingsPath(orgId) {
   return id ? `/app/collaborate/organizations/${encodeURIComponent(id)}/settings` : '/app/collaborate/workspaces';
 }
 
+/** Full-screen Project Setup Wizard (no suite sidebar). */
+export function buildCollaborateProjectsNewPath(orgId = '', query = {}) {
+  const base = '/app/collaborate/projects/new';
+  const params = new URLSearchParams();
+  const id = String(orgId || '').trim();
+  if (id) params.set('organizationId', id);
+  const from = String(query?.from || '').trim();
+  if (from) params.set('from', from);
+  const title = String(query?.title || '').trim();
+  const description = String(query?.description || '').trim();
+  const projectCode = String(query?.projectCode || '').trim();
+  const briefId = String(query?.briefId || '').trim();
+  if (title) params.set('title', title);
+  if (description) params.set('description', description);
+  if (projectCode) params.set('projectCode', projectCode);
+  if (briefId) params.set('briefId', briefId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 export function orgQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('organizationId') || params.get('orgId') || '').trim();
+}
+
+export function departmentQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('departmentId') || '').trim();
+}
+
+export function teamQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('teamId') || '').trim();
+}
+
+export function boardQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('boardId') || '').trim();
+}
+
+export function projectQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('projectId') || '').trim();
+}
+
+export function channelQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('channelId') || '').trim();
 }
 
 /** Legacy /w/:slug/:tab → suite route (tab: chat|tasks|documents|notifications). */

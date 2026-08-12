@@ -1,9 +1,12 @@
 /**
- * Lưu JWT: mặc định localStorage; đặt VITE_TOKEN_STORAGE=sessionStorage để giảm rủi ro persist XSS.
- * getToken() đọc cả hai storage (tránh lệch env / login cũ).
+ * Access token: in-memory only (không lưu vào localStorage/sessionStorage).
+ * Refresh token: không lưu phía client; server lưu trong HttpOnly cookie.
  */
-const KEY = 'token';
+const KEY = 'token'; // legacy cleanup
+const REFRESH_KEY = 'refreshToken'; // legacy cleanup
 const TOKEN_CHANGE_EVENT = 'vh-token-changed';
+
+let accessTokenMemory = null;
 
 function notifyTokenChange() {
   if (typeof window !== 'undefined') {
@@ -17,22 +20,10 @@ export function onTokenChange(listener) {
   return () => window.removeEventListener(TOKEN_CHANGE_EVENT, listener);
 }
 
-export function getTokenStorage() {
-  if (typeof window === 'undefined') return null;
-  return import.meta.env.VITE_TOKEN_STORAGE === 'sessionStorage' ? sessionStorage : localStorage;
-}
-
-/** Đọc JWT — ưu tiên storage cấu hình, fallback storage còn lại. */
+/** Đọc access JWT từ memory. */
 export function getToken() {
   if (typeof window === 'undefined') return null;
-  try {
-    const primary = getTokenStorage();
-    const fromPrimary = primary?.getItem(KEY);
-    if (fromPrimary) return fromPrimary;
-    return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || null;
-  } catch {
-    return null;
-  }
+  return accessTokenMemory;
 }
 
 /** Chuẩn hóa JWT để gắn header Authorization (bỏ prefix Bearer / quote thừa). */
@@ -53,6 +44,29 @@ export function normalizeBearerToken(raw) {
 /** Token đã chuẩn hóa từ storage — dùng cho mọi axios instance. */
 export function getResolvedBearerToken() {
   return normalizeBearerToken(getToken());
+}
+
+/** Decode payload JWT access (không verify — chỉ đọc claim phía client). */
+export function getJwtPayload() {
+  const token = getResolvedBearerToken();
+  if (!token) return null;
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    return JSON.parse(atob(segment.replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+}
+
+/** Đọc claim email từ JWT access token (fallback khi profile/BFF không trả email). */
+export function getJwtEmail() {
+  return String(getJwtPayload()?.email || '').trim().toLowerCase();
+}
+
+/** systemRole từ JWT — nguồn tin cậy khi profile/BFF không trả field này. */
+export function getJwtSystemRole() {
+  return String(getJwtPayload()?.systemRole || '').trim().toLowerCase();
 }
 
 /**
@@ -81,31 +95,31 @@ export function applyAuthHeader(config) {
 export function setToken(token) {
   const value = token != null ? String(token).trim() : '';
   if (!value) return;
-  try {
-    const primary = getTokenStorage();
-    if (primary) {
-      primary.setItem(KEY, value);
-    }
-  } catch {
-    /* ignore */
-  }
+  accessTokenMemory = value;
   notifyTokenChange();
 }
 
+export function getRefreshToken() {
+  // Refresh token is HttpOnly cookie, so JS cannot read it.
+  return null;
+}
+
+export function setRefreshToken(token) {
+  // No-op: refresh token is stored server-side in HttpOnly cookie.
+  void token;
+}
+
 export function removeToken() {
+  accessTokenMemory = null;
+
+  // Cleanup legacy keys (if the app was logged in before switching to HttpOnly refresh cookies).
   try {
     localStorage.removeItem(KEY);
     sessionStorage.removeItem(KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
   } catch {
     /* ignore */
-  }
-  const s = getTokenStorage();
-  if (s) {
-    try {
-      s.removeItem(KEY);
-    } catch {
-      /* ignore */
-    }
   }
   notifyTokenChange();
 }

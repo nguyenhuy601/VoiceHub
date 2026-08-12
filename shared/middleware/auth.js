@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const { isTrustedGatewayForward } = require('./gatewayTrust');
 const { isAccessTokenVersionValid } = require('../utils/tokenVersionAuth');
+const { sendApiError, GENERIC_5XX_MESSAGE } = require('./httpErrorResponse');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 
@@ -42,9 +43,10 @@ const getHeader = (headers, key) =>
 const authenticate = (req, res, next) => {
   Promise.resolve(authenticateAsync(req, res, next)).catch((error) => {
     logger.error('Authentication error:', error);
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
       message: 'Authentication error',
+      messageUser: GENERIC_5XX_MESSAGE,
     });
   });
 };
@@ -57,10 +59,14 @@ async function authenticateAsync(req, res, next) {
 
   const forwardedUserId = getHeader(req.headers, 'x-user-id');
   if (forwardedUserId && isTrustedGatewayForward(req)) {
+    const systemRole = String(getHeader(req.headers, 'x-user-system-role') || '')
+      .trim()
+      .toLowerCase();
     req.user = {
       id: String(forwardedUserId).trim(),
       userId: String(forwardedUserId).trim(),
       email: getHeader(req.headers, 'x-user-email') || null,
+      ...(systemRole ? { systemRole } : {}),
     };
     return next();
   }
@@ -68,27 +74,30 @@ async function authenticateAsync(req, res, next) {
   const jwtSecret = getJwtSecret();
   if (!jwtSecret) {
     logger.error('JWT_SECRET is not configured');
-    return res.status(500).json({
-      success: false,
+    return sendApiError(res, 500, {
+      errorCode: 'GATEWAY_INTERNAL_ERROR',
       message: 'Authentication service misconfigured',
+      messageUser: GENERIC_5XX_MESSAGE,
     });
   }
 
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
-      success: false,
+    return sendApiError(res, 401, {
+      errorCode: 'AUTH_NO_TOKEN',
       message: 'No token provided',
+      messageUser: 'Vui lòng đăng nhập lại.',
     });
   }
 
   const token = normalizeToken(authHeader.split(' ')[1]);
 
   if (!token) {
-    return res.status(401).json({
-      success: false,
+    return sendApiError(res, 401, {
+      errorCode: 'AUTH_NO_TOKEN',
       message: 'No token provided',
+      messageUser: 'Vui lòng đăng nhập lại.',
     });
   }
 
@@ -98,9 +107,10 @@ async function authenticateAsync(req, res, next) {
 
     const versionOk = await isAccessTokenVersionValid(userId, decoded.tv);
     if (!versionOk) {
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_TOKEN_INVALID',
         message: 'Token revoked',
+        messageUser: 'Phiên đăng nhập không hợp lệ.',
       });
     }
 
@@ -115,17 +125,19 @@ async function authenticateAsync(req, res, next) {
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       logger.warn('Token expired');
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_TOKEN_EXPIRED',
         message: 'Token expired',
+        messageUser: 'Phiên đăng nhập đã hết hạn.',
       });
     }
 
     if (error.name === 'JsonWebTokenError') {
       logger.warn('Invalid token');
-      return res.status(401).json({
-        success: false,
+      return sendApiError(res, 401, {
+        errorCode: 'AUTH_TOKEN_INVALID',
         message: 'Invalid token',
+        messageUser: 'Phiên đăng nhập không hợp lệ.',
       });
     }
 
@@ -200,6 +212,10 @@ const socketAuth = (socket, next) => {
  * Nếu có token thì verify, không có thì bỏ qua
  */
 const optionalAuth = (req, res, next) => {
+  Promise.resolve(optionalAuthAsync(req, res, next)).catch(() => next());
+};
+
+async function optionalAuthAsync(req, res, next) {
   try {
     const jwtSecret = getJwtSecret();
     if (!jwtSecret) {
@@ -213,26 +229,29 @@ const optionalAuth = (req, res, next) => {
       if (!token) {
         return next();
       }
-      
+
       try {
         const decoded = jwt.verify(token, jwtSecret);
+        const userId = decoded.id || decoded.userId || decoded._id;
+        const versionOk = await isAccessTokenVersionValid(userId, decoded.tv);
+        if (!versionOk) {
+          return next();
+        }
         req.user = {
           id: decoded.id,
           email: decoded.email,
           ...decoded,
         };
       } catch (error) {
-        // Ignore error, continue without user
         logger.debug('Optional auth failed, continuing without user');
       }
     }
 
     next();
   } catch (error) {
-    // Ignore error, continue without user
     next();
   }
-};
+}
 
 module.exports = {
   authenticate,

@@ -60,9 +60,10 @@ services:
 
     container_name: enterprise-meilisearch
 
-    ports:
-
-      - "7700:7700"
+    # Không publish ra host — Windows Hyper-V thường reserve dải ~7600–7800.
+    # Service trong mạng Docker vẫn gọi meilisearch:7700 bình thường.
+    expose:
+      - "7700"
 
     environment:
 
@@ -160,6 +161,86 @@ services:
 
 
 
+  minio:
+
+    image: minio/minio:latest
+
+    container_name: enterprise-minio
+
+    ports:
+
+      - "9000:9000"
+
+      - "9001:9001"
+
+    environment:
+
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+
+    volumes:
+
+      - minio_data:/data
+
+    command: server /data --console-address ":9001"
+
+    healthcheck:
+
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 12
+
+      start_period: 20s
+
+    networks:
+
+      - enterprise-network
+
+
+
+  minio-init:
+
+    image: minio/mc:latest
+
+    container_name: enterprise-minio-init
+
+    depends_on:
+
+      minio:
+
+        condition: service_healthy
+
+    environment:
+
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+
+      MINIO_BUCKET: ${MINIO_BUCKET:-meeting-recordings}
+
+    entrypoint: >
+
+      /bin/sh -c "
+
+      mc alias set local http://minio:9000 $$MINIO_ACCESS_KEY $$MINIO_SECRET_KEY &&
+
+      mc mb --ignore-existing local/$$MINIO_BUCKET &&
+
+      exit 0
+
+      "
+
+    networks:
+
+      - enterprise-network
+
+
+
 volumes:
 
   mongodb_data:
@@ -171,6 +252,8 @@ volumes:
   meilisearch_data:
 
   ollama_data:
+
+  minio_data:
 
 
 

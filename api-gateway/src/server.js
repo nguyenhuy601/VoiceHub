@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
+
 if (process.env.NODE_ENV === 'production') {
   const jwt = String(process.env.JWT_SECRET || '').trim();
   if (!jwt || jwt === 'your-secret-key' || jwt === 'your-secret-key-change-in-production') {
@@ -20,7 +22,7 @@ const { connectBffRedis } = require('./bff/cache');
 
 connectBffRedis();
 
-/** Production: chạy sau reverse proxy TLS (HTTPS) — bật trust proxy nếu cần req.secure */
+/** Production: chạy sau reverse proxy TLS (HTTPS/Nginx) — đặt TRUST_PROXY=1 trong api-gateway/.env để rate-limit đếm đúng client IP. */
 if (process.env.TRUST_PROXY === '1') {
   app.set('trust proxy', 1);
 }
@@ -29,6 +31,13 @@ const PORT = process.env.PORT || 3000;
 const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
 const server = http.createServer(app);
+server.headersTimeout = Number(process.env.GATEWAY_HEADERS_TIMEOUT_MS || 15000);
+// >= BFF documents-overview (45s) + buffer; tránh đóng client trước khi aggregate xong.
+server.requestTimeout = Number(process.env.GATEWAY_REQUEST_TIMEOUT_MS || 60000);
+server.keepAliveTimeout = Number(process.env.GATEWAY_KEEPALIVE_TIMEOUT_MS || 5000);
+
+/** WS upgrade — không dùng timeout HTTP ngắn của API proxy. 0 = không cắt sớm. */
+const SOCKET_PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_SOCKET_PROXY_TIMEOUT_MS || 0);
 
 const socketProxy = createProxyMiddleware({
   target: services.socket.url,
@@ -36,16 +45,18 @@ const socketProxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: 'warn',
+  timeout: SOCKET_PROXY_TIMEOUT_MS,
+  proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
   onError: (err, req, res) => {
+    console.error('[API-Gateway] Socket proxy error:', err);
     if (res && !res.headersSent) {
+      const body = buildApiErrorBody(503, {
+        errorCode: 'GATEWAY_SERVICE_UNAVAILABLE',
+        message: 'Socket service unavailable',
+        messageUser: 'Dịch vụ tạm thời không khả dụng.',
+      });
       res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          success: false,
-          message: 'Socket service unavailable',
-          error: err.message,
-        })
-      );
+      res.end(JSON.stringify(body));
     }
   },
 });
@@ -56,16 +67,18 @@ const voiceSignalProxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: 'warn',
+  timeout: SOCKET_PROXY_TIMEOUT_MS,
+  proxyTimeout: SOCKET_PROXY_TIMEOUT_MS,
   onError: (err, req, res) => {
+    console.error('[API-Gateway] Voice signal proxy error:', err);
     if (res && !res.headersSent) {
+      const body = buildApiErrorBody(503, {
+        errorCode: 'GATEWAY_SERVICE_UNAVAILABLE',
+        message: 'Voice signaling service unavailable',
+        messageUser: 'Dịch vụ tạm thời không khả dụng.',
+      });
       res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          success: false,
-          message: 'Voice signaling service unavailable',
-          error: err.message,
-        })
-      );
+      res.end(JSON.stringify(body));
     }
   },
 });

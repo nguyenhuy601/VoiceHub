@@ -45,7 +45,12 @@ export const queryKeys = {
   },
   dashboard: {
     all: ['dashboard'],
-    summary: () => [...queryKeys.dashboard.all, 'summary'],
+    summary: (orgId = '', role = '') => [
+      ...queryKeys.dashboard.all,
+      'summary',
+      String(orgId || ''),
+      String(role || ''),
+    ],
   },
   dm: {
     all: ['dm'],

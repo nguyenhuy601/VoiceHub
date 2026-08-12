@@ -1,151 +1,152 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowRight, CheckCircle2, LogIn, Mail } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
-import { useTheme } from '../../context/ThemeContext';
+import { ArrowLeft, CheckCircle2, Mail } from 'lucide-react';
+import AuthFigmaCenteredLayout from '../../components/Auth/AuthFigmaCenteredLayout';
+import {
+  FIGMA_BTN,
+  FIGMA_BTN_PURPLE,
+  FIGMA_BTN_SPINNER,
+  FIGMA_CARD_ICON_HEADER,
+  FIGMA_CARD_ICON_WRAP_PURPLE,
+  FIGMA_CARD_SUBTITLE,
+  FIGMA_CENTERED_CARD,
+  FIGMA_DEV_BOX,
+  FIGMA_FIELD_GROUP,
+  FIGMA_FORGOT_SUCCESS_INNER,
+  FIGMA_FORM_SPACE_5,
+  FIGMA_INPUT_BASE,
+  FIGMA_INPUT_PL9,
+  FIGMA_LABEL,
+  FIGMA_LINK_BACK,
+  FIGMA_SUCCESS_ICON,
+} from '../../components/Auth/figmaAuthClasses';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function ForgotPasswordPage() {
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState('');
+  const [emailScheduled, setEmailScheduled] = useState(false);
 
   useEffect(() => {
     const fromQuery = String(searchParams.get('email') || '').trim();
     if (fromQuery) setEmail(fromQuery);
   }, [searchParams]);
-  const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [devResetUrl, setDevResetUrl] = useState('');
-
-  const inputBase = authInputSurface(isDarkMode);
-  const btnPrimary = authPrimaryButtonClass(isDarkMode);
-  const titleCls = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const mutedCls = isDarkMode ? 'text-slate-400' : 'text-slate-600';
-  const linkCyan = isDarkMode ? 'font-semibold text-cyan-400 hover:underline' : 'font-semibold text-cyan-700 hover:underline';
-  const successBox = isDarkMode
-    ? 'rounded-xl border border-cyan-500/25 bg-cyan-500/[0.08] p-4 text-sm text-cyan-100'
-    : 'rounded-xl border border-cyan-200/80 bg-cyan-50/90 p-4 text-sm text-cyan-950';
-  const devBox = isDarkMode
-    ? 'mt-3 rounded-lg border border-cyan-400/30 bg-slate-900/60 p-3'
-    : 'mt-3 rounded-lg border border-cyan-300/60 bg-white/80 p-3';
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const normalizedEmail = String(email || '').trim();
     if (!normalizedEmail) {
-      toast.error(t('forgotPassword.toastEmailRequired'));
+      toast.error(t('forgotPassword.toastEmailRequired'), { id: 'forgot-password-flash' });
       return;
     }
 
     setLoading(true);
     try {
       const result = await authService.forgotPassword(normalizedEmail);
-      const fallbackUrl = result?.data?.resetUrl || '';
-      if (fallbackUrl) {
-        setDevResetUrl(fallbackUrl);
-      } else {
-        setDevResetUrl('');
-      }
+      const payload = result?.data || result || {};
+      const scheduled = Boolean(payload.emailScheduled);
+      const fallbackUrl = String(payload.resetUrl || '').trim();
+      setEmailScheduled(scheduled);
+      setDevResetUrl(fallbackUrl);
       setSubmitted(true);
-      if (result?.data?.emailScheduled) {
-        toast.success(t('forgotPassword.toastSent'));
+
+      if (scheduled) {
+        toast.success(t('forgotPassword.toastSent'), { id: 'forgot-password-flash' });
+      } else if (fallbackUrl) {
+        toast(t('forgotPassword.toastUseDevLink'), { icon: 'ℹ️', id: 'forgot-password-flash' });
       } else {
-        toast(t('forgotPassword.toastNoSmtp'), { icon: 'ℹ️' });
+        toast(t('forgotPassword.toastCheckEmailOrSpam'), { icon: 'ℹ️', id: 'forgot-password-flash' });
       }
     } catch (error) {
-      const message = error?.message || t('forgotPassword.toastSendErr');
-      toast.error(message);
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('forgotPassword.toastSendErr') }), {
+        id: 'forgot-password-flash',
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthPageLayout aside={<AuthMarketingAside />}>
-      <div className="mb-1 flex justify-end">
-        <Link
-          to="/login"
-          className={`inline-flex items-center gap-2 text-base font-semibold transition ${linkCyan}`}
-        >
-          <LogIn className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          {t('forgotPassword.loginLink')}
+    <AuthFigmaCenteredLayout maxWidthClass="max-w-[400px]" logoMarginClass="mb-10" purpleBrand gradientBackground>
+      <div className={FIGMA_CENTERED_CARD}>
+        {!submitted ? (
+          <>
+            <div className={FIGMA_CARD_ICON_HEADER}>
+              <div className={FIGMA_CARD_ICON_WRAP_PURPLE}>
+                <Mail size={24} className="text-violet-400" aria-hidden />
+              </div>
+              <h1 className="font-display text-foreground mb-2">{t('forgotPassword.title')}</h1>
+              <p className={FIGMA_CARD_SUBTITLE}>{t('forgotPassword.subtitle')}</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className={FIGMA_FORM_SPACE_5}>
+              <div className={FIGMA_FIELD_GROUP}>
+                <label htmlFor="email" className={FIGMA_LABEL}>
+                  {t('common.email')}
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className={`${FIGMA_INPUT_BASE} ${FIGMA_INPUT_PL9}`}
+                  placeholder={t('forgotPassword.placeholderEmail')}
+                  autoComplete="email"
+                />
+              </div>
+
+              <button type="submit" disabled={loading} className={`${FIGMA_BTN} ${FIGMA_BTN_PURPLE}`}>
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span className={FIGMA_BTN_SPINNER} />
+                    {t('forgotPassword.sending')}
+                  </span>
+                ) : (
+                  t('forgotPassword.sendLink')
+                )}
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className={FIGMA_FORGOT_SUCCESS_INNER}>
+            <div className={FIGMA_SUCCESS_ICON}>
+              <CheckCircle2 size={32} className="text-success" aria-hidden />
+            </div>
+            <h2 className="font-display text-foreground mb-3">{t('forgotPassword.title')}</h2>
+            <p className={`${FIGMA_CARD_SUBTITLE} leading-[1.6]`}>
+              {emailScheduled
+                ? t('forgotPassword.successBody')
+                : devResetUrl
+                  ? t('forgotPassword.successBodyDevLink')
+                  : t('forgotPassword.successBodyNoMail')}
+            </p>
+            {email.trim() && (
+              <p className="mt-2 text-[0.9rem] font-semibold text-violet-300">{email.trim()}</p>
+            )}
+            {devResetUrl && (
+              <div className={FIGMA_DEV_BOX}>
+                <p className="text-[0.75rem] text-success mb-1">{t('forgotPassword.devSmtpHint')}</p>
+                <a href={devResetUrl} className="text-[0.7rem] text-success break-all font-mono">
+                  {devResetUrl}
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        <Link to="/login" className={`mt-8 ${FIGMA_LINK_BACK} justify-center`}>
+          <ArrowLeft size={16} aria-hidden />
+          {t('common.backHome')}
         </Link>
       </div>
-
-      <div className="mt-3 flex items-start gap-3">
-        <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
-            isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700'
-          }`}
-        >
-          <Mail className="h-6 w-6" strokeWidth={1.75} aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('forgotPassword.title')}</h1>
-          <p className={`mt-2 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('forgotPassword.subtitle')}</p>
-        </div>
-      </div>
-
-      {!submitted ? (
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          <div>
-            <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
-              {t('common.email')}
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className={inputBase}
-              placeholder={t('forgotPassword.placeholderEmail')}
-              autoComplete="email"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
-          >
-            {loading ? t('forgotPassword.sending') : t('forgotPassword.sendLink')}
-            {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
-          </button>
-        </form>
-      ) : (
-        <div className={`mt-8 ${successBox}`}>
-          <div className="flex gap-3">
-            <CheckCircle2
-              className={`mt-0.5 h-5 w-5 shrink-0 sm:h-6 sm:w-6 ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}
-              strokeWidth={2}
-              aria-hidden
-            />
-            <p className="text-base leading-relaxed">{t('forgotPassword.successBody')}</p>
-          </div>
-          {devResetUrl && (
-            <div className={devBox}>
-              <p className={`mb-2 text-sm ${isDarkMode ? 'text-cyan-200/90' : 'text-slate-700'}`}>{t('forgotPassword.devSmtpHint')}</p>
-              <a href={devResetUrl} className={`break-all text-sm font-semibold ${linkCyan}`}>
-                {devResetUrl}
-              </a>
-            </div>
-          )}
-        </div>
-      )}
-
-      <Link
-        to="/"
-        className={`mt-8 flex items-center justify-center gap-2 text-base font-medium transition ${mutedCls} hover:text-cyan-600 dark:hover:text-cyan-300`}
-      >
-        {t('common.backHome')}
-      </Link>
-    </AuthPageLayout>
+    </AuthFigmaCenteredLayout>
   );
 }
 

@@ -1,7 +1,10 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const messageController = require('../controllers/message.controller');
 const { authenticate } = require('@enterprise/shared/middleware/auth');
+
+const { sendServiceError } = require('../middleware/sendServiceError');
 
 const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
 
@@ -10,20 +13,23 @@ function internalServiceOnly(req, res, next) {
     req.headers['x-internal-token'] || req.headers['x-chat-internal-token'] || ''
   ).trim();
   if (!CHAT_INTERNAL_TOKEN) {
-    return res.status(503).json({
-      success: false,
+    return sendServiceError(res, 503, {
+      errorCode: 'GATEWAY_SERVICE_UNAVAILABLE',
+      messageUser: 'Dịch vụ tạm thời không khả dụng.',
       message: 'CHAT_INTERNAL_TOKEN is not configured on chat-service',
     });
   }
   if (!token) {
-    return res.status(401).json({
-      success: false,
+    return sendServiceError(res, 401, {
+      errorCode: 'AUTH_NO_TOKEN',
+      messageUser: 'Vui lòng đăng nhập lại.',
       message: 'Missing x-internal-token',
     });
   }
   if (token !== CHAT_INTERNAL_TOKEN) {
-    return res.status(403).json({
-      success: false,
+    return sendServiceError(res, 403, {
+      errorCode: 'MESSAGE_FORBIDDEN',
+      messageUser: 'Không đủ quyền thực hiện thao tác này.',
       message: 'Forbidden',
     });
   }
@@ -65,6 +71,18 @@ router.post(
   '/internal/call-log',
   internalServiceOnly,
   messageController.createCallLogInternal.bind(messageController)
+);
+
+router.get(
+  '/internal/threads/org-export',
+  internalServiceOnly,
+  messageController.exportOrgThreadInternal.bind(messageController)
+);
+
+router.post(
+  '/internal/system-channel-message',
+  internalServiceOnly,
+  messageController.createSystemChannelMessageInternal.bind(messageController)
 );
 
 // Tất cả routes đều cần authentication

@@ -10,6 +10,18 @@ const userProfileSchema = new mongoose.Schema(
       unique: true,
       ref: 'UserAuth',
     },
+
+    /**
+     * Mã nhân viên (HR master). Excel import bắt buộc; unique sparse cho hồ sơ chưa có mã.
+     * Chuẩn hóa uppercase khi ghi từ Excel.
+     */
+    employeeCode: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+      // Không default null — unique sparse chỉ đúng khi field vắng (nhiều hồ sơ chưa có mã).
+    },
     username: {
       type: String,
       required: true,
@@ -20,8 +32,13 @@ const userProfileSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      lowercase: true,
       trim: true,
+      // Không dùng lowercase: true — phá hủy ciphertext enc:e1: / enc:v1: (base64 phân biệt hoa thường).
+      set(value) {
+        const raw = String(value ?? '');
+        if (raw.startsWith('enc:e1:') || raw.startsWith('enc:v1:')) return raw;
+        return raw.trim().toLowerCase();
+      },
     },
     emailBlindIndex: {
       type: String,
@@ -46,14 +63,17 @@ const userProfileSchema = new mongoose.Schema(
     phone: {
       type: String,
       trim: true,
-      default: null,
+    },
+    /** Chức danh / vị trí làm việc (onboarding first-login) */
+    jobTitle: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: '',
     },
     /** HMAC blind index cho tra cứu / unique khi phone được mã hóa at-rest */
     phoneBlindIndex: {
       type: String,
-      default: null,
-      sparse: true,
-      unique: true,
     },
     /** Phiên bản mã hóa trường PII (0 = legacy plaintext) */
     encV: {
@@ -101,11 +121,110 @@ const userProfileSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      jobTitle: {
+        type: String,
+        trim: true,
+        maxlength: 120,
+        default: '',
+      },
+      profileCompletedAt: {
+        type: String,
+        default: null,
+      },
     },
     /** Biệt danh hiển thị theo tổ chức — key: organizationId */
     orgNicknames: {
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
+    },
+    /**
+     * Hồ sơ năng lực phục vụ AI gợi ý team (C1).
+     * SoT = form; verificationStatus gate: draft → pending_hr → verified|rejected.
+     * Không tự cấp Project Role / Permission.
+     */
+    capability: {
+      positionCode: { type: String, trim: true, default: '' },
+      primaryDomain: { type: String, trim: true, default: '' },
+      yearsExperience: { type: Number, default: null },
+      skills: [
+        {
+          name: { type: String, trim: true },
+          level: { type: Number, min: 1, max: 5, default: 3 },
+        },
+      ],
+      languages: [{ type: String, trim: true }],
+      tools: [{ type: String, trim: true }],
+      availability: {
+        type: String,
+        enum: ['available', 'busy', 'partial'],
+        default: 'available',
+      },
+      summary: { type: String, maxlength: 1000, default: '' },
+      verificationStatus: {
+        type: String,
+        enum: ['draft', 'pending_hr', 'verified', 'rejected'],
+        default: 'draft',
+      },
+      source: {
+        type: String,
+        enum: ['manual', 'cv_parse', 'excel_import', 'closed_board'],
+        default: 'manual',
+      },
+      projectExperiences: [
+        {
+          name: { type: String, trim: true, default: '' },
+          role: { type: String, trim: true, default: '' },
+          work: { type: String, trim: true, maxlength: 300, default: '' },
+          year: { type: Number, min: 1970, max: 2100, default: undefined },
+          source: {
+            type: String,
+            enum: ['excel_import', 'closed_board', 'cv_parse', 'manual'],
+            default: 'manual',
+          },
+          status: {
+            type: String,
+            enum: ['verified', 'suggested'],
+            default: 'suggested',
+          },
+          evidenceBoardId: { type: mongoose.Schema.Types.ObjectId, default: null },
+        },
+      ],
+      rejectReason: { type: String, maxlength: 500, default: '' },
+      submittedAt: { type: Date, default: null },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      rejectedAt: { type: Date, default: null },
+      updatedAt: { type: Date, default: null },
+      /** C2 — file CV PDF đã upload (relative /uploads/cv/...) */
+      cvFilePath: { type: String, trim: true, default: '' },
+      cvFileName: { type: String, trim: true, default: '' },
+      cvUploadedAt: { type: Date, default: null },
+    },
+
+    /**
+     * ResourceConfig (capacity gate) — quản lý số dự án tối đa nhân viên có thể
+     * tham gia đồng thời. Đây là lớp "Capacity" tách khỏi capability kỹ năng
+     * để tránh sửa capacity làm revert trạng thái skill draft.
+     *
+     * Lưu ý: Hiện chỉ là field additive; endpoint cập nhật sẽ được bổ sung ở wave sau.
+     */
+    resourceConfig: {
+      maxConcurrentProjects: {
+        type: Number,
+        default: 2,
+        min: 1,
+        max: 20,
+      },
+      verificationStatus: {
+        type: String,
+        enum: ['draft', 'pending_hr', 'verified', 'rejected'],
+        default: 'verified',
+      },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      rejectedAt: { type: Date, default: null },
+      rejectReason: { type: String, maxlength: 500, default: '' },
+      updatedAt: { type: Date, default: null },
     },
   },
   {
@@ -113,8 +232,19 @@ const userProfileSchema = new mongoose.Schema(
   }
 );
 
+userProfileSchema.index({ 'capability.verificationStatus': 1 });
+
 // Virtual để lấy thông tin cơ bản
 userProfileSchema.index({ email: 1 });
+userProfileSchema.index(
+  { phoneBlindIndex: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      phoneBlindIndex: { $type: 'string' },
+    },
+  }
+);
 
 userProfileSchema.virtual('publicInfo').get(function () {
   return {

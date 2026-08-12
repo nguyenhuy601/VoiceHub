@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { GradientButton } from '../Shared';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -38,12 +39,7 @@ export default function JoinApplicationForm({
       });
       setAnswers(init);
     } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        e?.message ||
-        t('joinForm.loadError');
-      setError(typeof msg === 'string' ? msg : t('joinForm.loadError'));
+      setError(resolveApiErrorMessage(e, { t, fallback: t('joinForm.loadError') }));
       setFields([]);
     } finally {
       setLoading(false);
@@ -80,12 +76,7 @@ export default function JoinApplicationForm({
       await organizationAPI.submitJoinApplication(orgId, answers);
       onSubmitted?.();
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        t('joinForm.submitFail');
-      setError(typeof msg === 'string' ? msg : t('joinForm.submitFail'));
+      setError(resolveApiErrorMessage(err, { t, fallback: t('joinForm.submitFail') }));
     } finally {
       setSubmitting(false);
     }

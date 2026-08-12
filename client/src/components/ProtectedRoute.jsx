@@ -8,6 +8,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import BrandPageLoader from './Shared/BrandPageLoader';
+import { useAppStrings } from '../locales/appStrings';
 
 /**
  * ProtectedRoute Component
@@ -22,20 +23,21 @@ import BrandPageLoader from './Shared/BrandPageLoader';
  */
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
+  const { t } = useAppStrings();
 
   // Nếu đang loading (check auth) → hiển thị loading
   if (loading) {
     return (
       <BrandPageLoader
-        message="Đang kiểm tra..."
-        subMessage="Đang xác minh phiên đăng nhập"
+        message={t('auth.checkingSession')}
+        subMessage={t('auth.verifyingSession')}
       />
     );
   }
 
   // Nếu chưa đăng nhập → redirect về trang chủ
   if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Đã đăng nhập → render component con

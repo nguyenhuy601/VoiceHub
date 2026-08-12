@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronDown, Plus, X } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
+import { useAppStrings } from '../../locales/appStrings';
 import { normalizeRoleDisplayName } from './roleRbacUtils';
 import ChannelPermissionTriToggle from './ChannelPermissionTriToggle';
 import {
@@ -13,6 +14,7 @@ import {
   emptyChannelRolePermissions,
 } from './channelRolePermissionDefs';
 import { roleAccentColor } from './channelRolePermissionDefs';
+import { isProtectedDefaultChannel } from '../../utils/orgChannelScope';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -24,22 +26,30 @@ export default function OrganizationChannelRoleSettingsModal({
   locale,
   isDarkMode,
   canManageChannelRoles = false,
+  onDeleteChannel,
   onSaved,
 }) {
+  const { t } = useAppStrings();
   const [orgRoles, setOrgRoles] = useState([]);
   const [assigned, setAssigned] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const channelId = channel?._id ? String(channel._id) : '';
   const isVoice = String(channel?.type || 'chat').toLowerCase() === 'voice';
   const channelLabel = channel?.name
     ? channelNameToDisplaySlug(channel.name, locale)
-    : 'Kênh';
+    : t('organizations.memberSidebarFilesUnknownChannel');
+  const channelProtected = isProtectedDefaultChannel(channel);
 
-  const permGroups = useMemo(() => channelPermissionGroups({ isVoiceChannel: isVoice }), [isVoice]);
+  const permGroups = useMemo(
+    () => channelPermissionGroups({ isVoiceChannel: isVoice, t }),
+    [isVoice, t]
+  );
 
   const loadData = useCallback(async () => {
     if (!organizationId || !channelId) return;
@@ -92,7 +102,7 @@ export default function OrganizationChannelRoleSettingsModal({
       setAssigned(assignedRows);
       setSelectedRoleId(assignedRows[0]?.id || '');
     } catch {
-      toast.error('Không tải được quyền kênh theo vai trò');
+      toast.error(t('organizations.channelRolePermLoadFail'));
       setOrgRoles([]);
       setAssigned([]);
       setSelectedRoleId('');
@@ -102,10 +112,29 @@ export default function OrganizationChannelRoleSettingsModal({
   }, [organizationId, channelId]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setDeleteConfirm(false);
+      setDeleting(false);
+      return;
+    }
     setAddOpen(false);
+    setDeleteConfirm(false);
     loadData();
   }, [isOpen, loadData]);
+
+  const handleConfirmDelete = async () => {
+    if (!channelId || channelProtected || !onDeleteChannel) return;
+    setDeleting(true);
+    try {
+      await onDeleteChannel(channel);
+      setDeleteConfirm(false);
+      onClose?.();
+    } catch {
+      toast.error(t('organizations.deleteChannelFail'));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const assignedIds = useMemo(() => new Set(assigned.map((r) => r.id)), [assigned]);
 
@@ -156,11 +185,11 @@ export default function OrganizationChannelRoleSettingsModal({
         permissions: row.permissions,
       }));
       await organizationAPI.saveChannelRoleAccess(organizationId, channelId, { entries });
-      toast.success('Đã lưu quyền kênh');
+      toast.success(t('organizations.channelRolePermSaved'));
       onSaved?.();
       onClose?.();
     } catch {
-      toast.error('Không lưu được quyền kênh');
+      toast.error(t('organizations.channelRolePermSaveFail'));
     } finally {
       setSaving(false);
     }
@@ -179,7 +208,7 @@ export default function OrganizationChannelRoleSettingsModal({
       <button
         type="button"
         className="absolute inset-0 bg-black/55"
-        aria-label="Đóng"
+        aria-label={t('organizations.modalClose')}
         onClick={onClose}
       />
       <div
@@ -193,7 +222,7 @@ export default function OrganizationChannelRoleSettingsModal({
         >
           <div className="flex min-w-0 items-center gap-2">
             <h2 id="channel-advanced-perms-title" className="truncate text-base font-bold">
-              Quyền nâng cao · #{channelLabel}
+              {t('organizations.channelRolePermTitle', { channel: channelLabel })}
             </h2>
             <ChevronDown className={`h-4 w-4 shrink-0 opacity-50 ${textMuted}`} />
           </div>
@@ -201,7 +230,7 @@ export default function OrganizationChannelRoleSettingsModal({
             type="button"
             onClick={onClose}
             className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-            aria-label="Đóng (ESC)"
+            aria-label={t('organizations.modalCloseEsc')}
           >
             <X className="h-5 w-5" />
           </button>
@@ -209,20 +238,21 @@ export default function OrganizationChannelRoleSettingsModal({
 
         {!canManageChannelRoles ? (
           <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
-            Chỉ quản trị viên (owner/admin) mới được thêm vai trò và chỉnh quyền cho kênh này.
+            {t('organizations.channelRolePermManageDenied')}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1">
+          <>
+            <div className="flex min-h-0 flex-1">
             <aside
               className={`flex w-[220px] shrink-0 flex-col border-r ${borderCls} ${sidebarBg}`}
             >
               <div className={`flex items-center justify-between px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide ${textMuted}`}>
-                <span>Vai trò / thành viên</span>
+                <span>{t('organizations.channelRolePermSidebarTitle')}</span>
                 {canManageChannelRoles ? (
                   <div className="relative">
                     <button
                       type="button"
-                      title="Thêm vai trò vào kênh"
+                      title={t('organizations.channelRolePermAddRole')}
                       disabled={!availableToAdd.length}
                       onClick={() => setAddOpen((v) => !v)}
                       className={`rounded p-0.5 ${
@@ -263,10 +293,10 @@ export default function OrganizationChannelRoleSettingsModal({
 
               <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-2 py-1">
                 {loading ? (
-                  <p className={`px-2 py-3 text-xs ${textMuted}`}>Đang tải…</p>
+                  <p className={`px-2 py-3 text-xs ${textMuted}`}>{t('common.loading')}</p>
                 ) : assigned.length === 0 ? (
                   <p className={`px-2 py-3 text-xs leading-relaxed ${textMuted}`}>
-                    Chưa có vai trò nào. Bấm + để gán vai trò được xem và trò chuyện trong kênh này.
+                    {t('organizations.channelRolePermEmpty')}
                   </p>
                 ) : (
                   assigned.map((role, idx) => {
@@ -304,7 +334,7 @@ export default function OrganizationChannelRoleSettingsModal({
                     onClick={handleRemoveSelectedRole}
                     className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-rose-400 hover:bg-rose-500/10"
                   >
-                    Gỡ bỏ {selectedRole.name}
+                    {t('organizations.channelRolePermRemoveRole', { role: selectedRole.name })}
                   </button>
                 </div>
               ) : null}
@@ -313,22 +343,16 @@ export default function OrganizationChannelRoleSettingsModal({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {loading ? (
                 <div className={`flex flex-1 items-center justify-center text-sm ${textMuted}`}>
-                  Đang tải…
+                  {t('common.loading')}
                 </div>
               ) : !selectedRole ? (
                 <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
-                  Thêm vai trò từ danh sách bên trái để cấu hình quyền cho kênh này.
+                  {t('organizations.channelRolePermAddRoleHint')}
                 </div>
               ) : (
                 <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-5 py-4">
                   <p className={`mb-4 text-xs ${textMuted}`}>
-                    Quyền chỉ áp dụng cho kênh <strong className={textMain}>#{channelLabel}</strong>
-                    {' — '}
-                    không đồng bộ sang kênh khác. Thành viên có vai trò được gán sẽ thấy kênh này và mục
-                    phòng/team tương ứng trên sidebar (không cần cấu hình riêng tên mục). Mặc định bật{' '}
-                    <strong className={textMain}>Xem kênh</strong>
-                    {isVoice ? ' và ' : ' và '}
-                    <strong className={textMain}>{isVoice ? 'Kết nối' : 'Xem lịch sử tin nhắn'}</strong>.
+                    {t('organizations.channelRolePermScopeNote', { channel: channelLabel })}
                   </p>
 
                   {permGroups.map((group) => (
@@ -363,10 +387,68 @@ export default function OrganizationChannelRoleSettingsModal({
                   ))}
                 </div>
               )}
+            </div>
+            </div>
 
-              <footer
-                className={`flex shrink-0 justify-end gap-2 border-t px-4 py-3 ${borderCls}`}
+            {deleteConfirm ? (
+              <div
+                className={`shrink-0 border-t px-4 py-2.5 text-xs ${borderCls} ${
+                  isDarkMode ? 'bg-rose-950/30 text-[#fca5a5]' : 'bg-rose-50 text-rose-700'
+                }`}
               >
+                {t('organizations.deleteChannelMsg')}
+              </div>
+            ) : null}
+
+            <footer
+              className={`flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3 ${borderCls}`}
+            >
+              <div className="min-w-0 shrink-0">
+                {canManageChannelRoles ? (
+                  channelProtected ? (
+                    <span
+                      className={`text-xs ${textMuted}`}
+                      title={t('organizations.deleteChannelProtected')}
+                    >
+                      {t('organizations.deleteChannelProtected')}
+                    </span>
+                  ) : deleteConfirm ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={deleting}
+                        onClick={() => setDeleteConfirm(false)}
+                        className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                          isDarkMode
+                            ? 'bg-white/10 text-white hover:bg-white/15'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {t('nav.cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deleting || !onDeleteChannel}
+                        onClick={handleConfirmDelete}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {deleting ? t('organizationSettings.deleting') : t('common.delete')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirm(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-600/40 bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t('organizations.deleteChannelBtn')}
+                    </button>
+                  )
+                ) : null}
+              </div>
+              <div className="flex shrink-0 gap-2">
                 <button
                   type="button"
                   onClick={onClose}
@@ -376,19 +458,19 @@ export default function OrganizationChannelRoleSettingsModal({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  Hủy
+                  {t('nav.cancel')}
                 </button>
                 <button
                   type="button"
-                  disabled={saving || loading}
+                  disabled={saving || loading || deleting}
                   onClick={handleSave}
                   className="rounded-lg bg-[#5865f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
                 >
-                  {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
+                  {saving ? t('organizations.saving') : t('organizations.saveChanges')}
                 </button>
-              </footer>
-            </div>
-          </div>
+              </div>
+            </footer>
+          </>
         )}
       </div>
     </div>

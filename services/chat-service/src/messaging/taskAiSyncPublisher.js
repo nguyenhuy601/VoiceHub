@@ -1,4 +1,5 @@
 const amqp = require('amqplib');
+const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
 
 const QUEUE = process.env.RABBITMQ_TASK_AI_SYNC_QUEUE || 'task-ai.sync';
 
@@ -10,7 +11,7 @@ async function publishTaskAiSyncEvent(payload) {
   const conn = await amqp.connect(url);
   try {
     const ch = await conn.createChannel();
-    await ch.assertQueue(QUEUE, { durable: true });
+    await assertQuorumQueue(ch, QUEUE);
     ch.sendToQueue(QUEUE, Buffer.from(JSON.stringify(payload)), {
       persistent: true,
       contentType: 'application/json',

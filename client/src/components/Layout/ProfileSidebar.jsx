@@ -1,7 +1,7 @@
-import NavigationSidebar from './NavigationSidebar';
+import FigmaNavigationSidebar from './FigmaNavigationSidebar';
 
 const ProfileSidebar = ({ landingDemo = false } = {}) => (
-  <NavigationSidebar suite="me" landingDemo={landingDemo} />
+  <FigmaNavigationSidebar suite="me" landingDemo={landingDemo} />
 );
 
 export default ProfileSidebar;

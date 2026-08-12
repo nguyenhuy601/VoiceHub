@@ -10,7 +10,7 @@ const scopeRoleAccessSchema = new mongoose.Schema(
     },
     scopeType: {
       type: String,
-      enum: ['division', 'department', 'team'],
+      enum: ['division', 'department', 'team', 'ou'],
       required: true,
       index: true,
     },

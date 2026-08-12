@@ -1,17 +1,42 @@
-import { Outlet } from 'react-router-dom';
-import AppSwitcher from './AppSwitcher';
+import { Navigate, Outlet } from 'react-router-dom';
+import { ShellLayoutProvider, useShellLayout } from '../../context/ShellLayoutContext';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import JoinOrganizationModal from './JoinOrganizationModal';
+import ShellRoleBanner from './ShellRoleBanner';
+import TopHeader from './TopHeader';
+import { FIGMA_SHELL_BODY, FIGMA_SHELL_MAIN, FIGMA_SHELL_ROOT } from './figmaShellClasses';
+import { getDefaultPathForSuite, SUITE, writeStoredSuite } from '../../utils/suitePathUtils';
 
-/**
- * Layout shell cho mỗi suite: App Switcher + sidebar + nội dung con qua Outlet.
- */
-const SuiteShellLayout = ({ sidebar, landingDemo = false }) => (
-  <div className="flex h-screen overflow-hidden">
-    {!landingDemo && <AppSwitcher />}
-    {sidebar}
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <Outlet />
+function SuiteShellLayoutInner({ sidebar, landingDemo = false }) {
+  const { immersiveChrome } = useShellLayout();
+  const { isSystemAdmin } = useCompanyAdminAccess();
+  const hideChrome = !landingDemo && immersiveChrome;
+
+  // Tài khoản hệ thống admin không dùng shell nhân viên (communicate/collaborate/me).
+  if (!landingDemo && isSystemAdmin) {
+    writeStoredSuite(SUITE.ADMIN);
+    return <Navigate to={getDefaultPathForSuite(SUITE.ADMIN)} replace />;
+  }
+
+  return (
+    <div className={FIGMA_SHELL_ROOT}>
+      {!landingDemo && !hideChrome && <TopHeader />}
+      {!landingDemo && !hideChrome && <ShellRoleBanner />}
+      {!landingDemo && <JoinOrganizationModal />}
+      <div className={FIGMA_SHELL_BODY}>
+        {!hideChrome ? sidebar : null}
+        <div className={FIGMA_SHELL_MAIN}>
+          <Outlet />
+        </div>
+      </div>
     </div>
-  </div>
+  );
+}
+
+const SuiteShellLayout = ({ sidebar, landingDemo = false }) => (
+  <ShellLayoutProvider>
+    <SuiteShellLayoutInner sidebar={sidebar} landingDemo={landingDemo} />
+  </ShellLayoutProvider>
 );
 
 export default SuiteShellLayout;

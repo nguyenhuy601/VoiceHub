@@ -34,8 +34,8 @@ jobs:
             context: ./services/role-permission-service
           - image: chat-service
             context: ./services/chat-service
-          - image: task-service
-            context: ./services/task-service
+          - image: project-service
+            context: ./services/project-service
           - image: ai-task-service
             context: ./services/ai-task-service
           - image: ai-task-worker

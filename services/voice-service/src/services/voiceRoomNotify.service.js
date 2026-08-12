@@ -29,7 +29,8 @@ function userServiceAxiosOpts() {
 async function notifyVoiceRoomInvite({ userId, roomId, hostName, frontendUrl }) {
   if (!NOTIFICATION_SERVICE_URL || !userId) return;
   const base = frontendUrl || process.env.FRONTEND_URL || 'https://voicehub.local';
-  const actionUrl = `${String(base).replace(/\/+$/, '')}/voice/${encodeURIComponent(roomId)}?join=1`;
+  const baseClean = String(base).replace(/\/+$/, '');
+  const actionUrl = `${baseClean}/app/communicate/voice/${encodeURIComponent(roomId)}?join=1`;
   try {
     await axios.post(
       `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -141,7 +142,8 @@ async function sendVoiceRoomInviteEmail({ email, roomId, hostName, frontendUrl }
     .replace(/\/+$/, '');
   const token = String(process.env.GATEWAY_INTERNAL_TOKEN || process.env.AUTH_INTERNAL_TOKEN || '').trim();
   const base = frontendUrl || process.env.FRONTEND_URL || 'https://voicehub.local';
-  const inviteUrl = `${String(base).replace(/\/+$/, '')}/voice/${encodeURIComponent(roomId)}?join=1`;
+  const baseClean = String(base).replace(/\/+$/, '');
+  const inviteUrl = `${baseClean}/app/communicate/voice/${encodeURIComponent(roomId)}?join=1`;
 
   try {
     const headers = { 'Content-Type': 'application/json' };

@@ -1,0 +1,110 @@
+# P2/P4 alert rules — thresholds cross-reference autoscale-policy.md
+# P4-Obs: restart storm, gateway 5xx — see docs/phase4-oncall-runbook.md
+# Evaluate on Prometheus when observability stack deployed.
+# Without Prometheus: devops/swarm/observability-baseline.md
+
+groups:
+  - name: voicehub_queue_depth
+    rules:
+      - alert: VoiceHubQueueDepthHigh
+        expr: voicehub_rabbit_queue_messages{queue=~"task-ai\\.(extract|sync)"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          worker: ai-task
+        annotations:
+          summary: "AI task queue depth > 100 (scale-out per autoscale-policy)"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages for 5m."
+
+      - alert: VoiceHubNotificationQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.notification.dispatch"} > 200
+        for: 5m
+        labels:
+          severity: warning
+          worker: notification-dispatch
+        annotations:
+          summary: "Notification dispatch queue > 200"
+          description: "Consider scaling notification-dispatch-worker."
+
+      - alert: VoiceHubWebhookQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.webhook.delivery"} > 200
+        for: 5m
+        labels:
+          severity: warning
+          worker: webhook-delivery
+        annotations:
+          summary: "Webhook delivery queue > 200"
+
+      - alert: VoiceHubTaskFromFileQueueHigh
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.task.from_file"} > 50
+        for: 10m
+        labels:
+          severity: warning
+          worker: project-worker
+        annotations:
+          summary: "task.from_file queue elevated — scale project-worker cautiously (+1/10m)"
+
+      - alert: VoiceHubFriendDmQueueBacklog
+        expr: voicehub_rabbit_queue_messages{queue="voicehub.friend.dm"} > 20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DM queue backlog — investigate consumer / chat-service"
+
+      - alert: VoiceHubDlqNotEmpty
+        expr: voicehub_rabbit_queue_messages{queue=~".*\\.dlq"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ has messages — exhausted retries or poison message"
+
+  - name: voicehub_swarm_health
+    rules:
+      - alert: VoiceHubServiceReplicaGap
+        expr: voicehub_swarm_replica_gap > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swarm service {{ $labels.service }} desired > running"
+          description: "Gap {{ $value }} for 10m — check insufficient resources or crashes."
+
+      - alert: VoiceHubGatewayP95High
+        expr: voicehub_gateway_health_p95_ms > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway /health p95 > 500ms (baseline +20% check)"
+
+      - alert: VoiceHubQueueNoConsumers
+        expr: voicehub_rabbit_queue_consumers{queue=~"voicehub\\.(notification|webhook|task).*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Queue {{ $labels.queue }} has zero consumers"
+
+  - name: voicehub_p4_ops
+    rules:
+      # Requires voicehub_container_restarts_total from export-swarm-metrics.sh / metrics-writer
+      - alert: VoiceHubServiceRestartStorm
+        expr: increase(voicehub_container_restarts_total[10m]) > 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.service }} restarted >3 times in 10m"
+          description: "Check OOM and logs — see phase4-oncall-runbook.md"
+
+      # Requires voicehub_gateway_5xx_rate from gateway metrics exporter (optional)
+      - alert: VoiceHubGateway5xxRateHigh
+        expr: voicehub_gateway_5xx_rate > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway 5xx rate > 1% over 5m"
+          description: "Consider docker service rollback voicehub_api-gateway"

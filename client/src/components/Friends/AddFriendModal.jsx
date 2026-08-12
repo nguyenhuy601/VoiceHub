@@ -4,7 +4,25 @@ import { GlassCard, GradientButton } from '../Shared';
 import UserAvatar from '../Shared/UserAvatar';
 import friendService from '../../services/friendService';
 import { markFriendNotificationsResolved } from '../../services/notificationSync';
-import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
+import {
+  FIGMA_CHAT_ADD_FRIEND_BACKDROP,
+  FIGMA_CHAT_ADD_FRIEND_CLOSE,
+  FIGMA_CHAT_ADD_FRIEND_HEADER,
+  FIGMA_CHAT_ADD_FRIEND_OVERLAY,
+  FIGMA_CHAT_ADD_FRIEND_PANEL,
+  FIGMA_CHAT_ADD_FRIEND_SEARCH_INPUT,
+  FIGMA_CHAT_ADD_FRIEND_SECTION,
+  FIGMA_CHAT_ADD_FRIEND_SUBTITLE,
+  FIGMA_CHAT_ADD_FRIEND_TITLE,
+  FIGMA_CHAT_INVITE_ACCEPT_BTN,
+  FIGMA_CHAT_INVITE_ACTIONS,
+  FIGMA_CHAT_INVITE_CARD,
+  FIGMA_CHAT_INVITE_REJECT_BTN,
+  FIGMA_CHAT_INVITES_EMPTY,
+  FIGMA_CHAT_INVITES_SECTION_TITLE,
+} from '../Chat/figmaChatClasses';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function unwrapApiPayload(res) {
   if (res == null) return null;
@@ -15,7 +33,7 @@ function unwrapApiPayload(res) {
  * Modal căn giữa màn hình: tìm bạn theo SĐT, gửi lời mời, lời mời đến.
  */
 export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged }) {
-  const { isDarkMode } = useTheme();
+  const { t } = useAppStrings();
   const [searchPhone, setSearchPhone] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [pending, setPending] = useState([]);
@@ -63,7 +81,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
 
   const handleSearch = async () => {
     if (!searchPhone.trim()) {
-      toast.error('Nhập số điện thoại');
+      toast.error(t('friends.toastPhoneRequired'));
       return;
     }
     setSearching(true);
@@ -74,10 +92,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       if (user && (user._id || user.userId || user.phone)) {
         setSearchResult(user);
       } else {
-        toast('Không tìm thấy người dùng', { icon: 'ℹ️' });
+        toast(t('friends.toastSearchNone'), { icon: 'ℹ️' });
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Lỗi khi tìm kiếm');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastSearchErr') }));
     } finally {
       setSearching(false);
     }
@@ -87,18 +105,18 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
 
   const sendFriendRequest = async (userId) => {
     if (!userId) {
-      toast.error('Không xác định được người dùng');
+      toast.error(t('friends.errUserUnknown'));
       return;
     }
     try {
       await friendService.sendRequest(userId);
-      toast.success('Đã gửi lời mời');
+      toast.success(t('friends.toastRequestSent'));
       setSearchResult(null);
       setSearchPhone('');
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Không gửi được lời mời');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastSendFail') }));
     }
   };
 
@@ -126,11 +144,11 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       if (friendId) await friendService.acceptFriend(friendId);
       else await friendService.acceptRequest(requestId);
       if (friendId) await markFriendNotificationsResolved(friendId);
-      toast.success('Đã chấp nhận');
+      toast.success(t('friendChat.pendingAcceptOk'));
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Lỗi');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastGenericErr') }));
     }
   };
 
@@ -141,37 +159,37 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       if (friendId) await friendService.rejectFriend(friendId);
       else await friendService.rejectRequest(requestId);
       if (friendId) await markFriendNotificationsResolved(friendId);
-      toast.success('Đã từ chối');
+      toast.success(t('friendChat.pendingRejectOk'));
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Lỗi');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastGenericErr') }));
     }
   };
 
   const blockRequestUser = async (row) => {
     const friendId = pendingRequesterId(row);
     if (!friendId) {
-      toast.error('Không xác định được người dùng');
+      toast.error(t('friends.errUserUnknown'));
       return;
     }
     try {
       await friendService.blockFriend(friendId);
-      toast.success('Đã chặn người dùng');
+      toast.success(t('friendChat.blockOk'));
       onFriendlistChanged?.();
       await loadPending();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Không chặn được người dùng');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.blockFail') }));
     }
   };
 
   const relationshipLabel = (rel) => {
     if (!rel?.status) return null;
     const s = String(rel.status).toLowerCase();
-    if (s === 'accepted' || s === 'friends') return 'Đã là bạn';
-    if (s === 'pending') return 'Đang chờ phản hồi';
-    if (s === 'blocked') return 'Đã chặn';
-    if (s === 'dissolving') return 'Đang hủy kết bạn';
+    if (s === 'accepted' || s === 'friends') return t('friends.relFriends');
+    if (s === 'pending') return t('friends.relPending');
+    if (s === 'blocked') return t('friends.relBlocked');
+    if (s === 'dissolving') return t('friends.relDissolving');
     return rel.status;
   };
 
@@ -187,76 +205,51 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
     return true;
   };
 
-  if (!isOpen) return null;
+  const defaultUserName = t('chat.defaultUserName');
 
-  const panel = isDarkMode
-    ? 'relative z-10 flex w-full max-w-2xl max-h-[min(90vh,760px)] flex-col overflow-hidden rounded-2xl border border-slate-700/90 bg-[#0c1428] text-white shadow-2xl'
-    : 'relative z-10 flex w-full max-w-2xl max-h-[min(90vh,760px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl';
-  const headerBar = isDarkMode ? 'border-b border-slate-800' : 'border-b border-slate-200';
-  const titleClass = isDarkMode ? 'text-lg font-bold text-white sm:text-xl' : 'text-lg font-bold text-slate-900 sm:text-xl';
-  const subtitleClass = isDarkMode ? 'text-xs text-gray-400 sm:text-sm' : 'text-xs text-slate-600 sm:text-sm';
-  const closeBtn = isDarkMode
-    ? 'shrink-0 rounded-xl border border-slate-600 bg-slate-900/90 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800'
-    : 'shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100';
-  const sectionHeading = isDarkMode
-    ? 'mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400'
-    : 'mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500';
-  const searchInput = isDarkMode
-    ? 'min-w-0 flex-1 rounded-xl border border-slate-800 bg-[#040f2a] px-4 py-3 text-white placeholder-gray-500 outline-none focus:border-cyan-500'
-    : 'min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm placeholder:text-slate-400 outline-none focus:border-cyan-500';
-  const cardBorder = isDarkMode ? 'border border-slate-800' : 'border border-slate-200 shadow-sm';
-  const nameStrong = isDarkMode ? 'font-bold text-white' : 'font-bold text-slate-900';
-  const muted = isDarkMode ? 'text-sm text-gray-400' : 'text-sm text-slate-600';
-  const relBadge = isDarkMode ? 'mt-1 text-xs text-cyan-300' : 'mt-1 text-xs text-cyan-700';
-  const countBadge = isDarkMode ? 'ml-2 font-normal normal-case text-indigo-400' : 'ml-2 font-normal normal-case text-cyan-700';
-  const emptyBox = isDarkMode
-    ? 'rounded-xl border border-dashed border-slate-700 py-8 text-center text-sm text-gray-500'
-    : 'rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500';
-  const rejectBtn = isDarkMode
-    ? 'rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800'
-    : 'rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50';
+  if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4"
+      className={FIGMA_CHAT_ADD_FRIEND_OVERLAY}
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-friend-title"
     >
       <button
         type="button"
-        className={`absolute inset-0 backdrop-blur-sm ${isDarkMode ? 'bg-black/75' : 'bg-slate-900/45'}`}
-        aria-label="Đóng"
+        className={FIGMA_CHAT_ADD_FRIEND_BACKDROP}
+        aria-label={t('nav.close')}
         onClick={onClose}
       />
 
-      <div className={panel} onClick={(e) => e.stopPropagation()}>
-        <header className={`flex shrink-0 items-center justify-between gap-3 px-4 py-4 sm:px-6 ${headerBar}`}>
+      <div className={FIGMA_CHAT_ADD_FRIEND_PANEL} onClick={(e) => e.stopPropagation()}>
+        <header className={FIGMA_CHAT_ADD_FRIEND_HEADER}>
           <div className="min-w-0">
-            <h1 id="add-friend-title" className={titleClass}>
-              Kết bạn
+            <h1 id="add-friend-title" className={FIGMA_CHAT_ADD_FRIEND_TITLE}>
+              {t('friends.addFriendModalTitle')}
             </h1>
-            <p className={subtitleClass}>Tìm theo số điện thoại · Lời mời đang chờ</p>
+            <p className={FIGMA_CHAT_ADD_FRIEND_SUBTITLE}>{t('friends.addFriendModalSubtitle')}</p>
           </div>
-          <button type="button" onClick={onClose} className={closeBtn}>
-            Đóng
+          <button type="button" onClick={onClose} className={FIGMA_CHAT_ADD_FRIEND_CLOSE}>
+            {t('nav.close')}
           </button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 scrollbar-overlay">
           <div className="space-y-6">
             <section>
-              <h2 className={sectionHeading}>Tìm bạn</h2>
+              <h2 className={FIGMA_CHAT_ADD_FRIEND_SECTION}>{t('friends.searchSection')}</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
                   inputMode="tel"
                   autoComplete="tel"
-                  placeholder="Nhập số điện thoại"
+                  placeholder={t('friends.phonePlaceholder')}
                   value={searchPhone}
                   onChange={(e) => setSearchPhone(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className={searchInput}
+                  className={FIGMA_CHAT_ADD_FRIEND_SEARCH_INPUT}
                 />
                 <GradientButton
                   variant="primary"
@@ -265,12 +258,12 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                   disabled={searching}
                   onClick={handleSearch}
                 >
-                  {searching ? '…' : 'Tìm'}
+                  {searching ? '…' : t('friends.searchBtn')}
                 </GradientButton>
               </div>
 
               {searchResult && (
-                <GlassCard className={`mt-4 ${cardBorder}`}>
+                <GlassCard className={`mt-4 ${FIGMA_CHAT_INVITE_CARD}`}>
                   <div className="flex flex-wrap items-center gap-4">
                     <UserAvatar
                       avatar={searchResult.avatar}
@@ -279,20 +272,22 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                         searchResult.displayName ||
                         searchResult.name ||
                         searchResult.username ||
-                        'Người dùng'
+                        defaultUserName
                       }
                       size="profile"
                     />
                     <div className="min-w-0 flex-1">
-                      <h3 className={`truncate ${nameStrong}`}>
+                      <h3 className="truncate font-bold text-foreground">
                         {searchResult.displayName ||
                           searchResult.name ||
                           searchResult.username ||
-                          'Người dùng'}
+                          defaultUserName}
                       </h3>
-                      {searchResult.phone && <div className={muted}>{searchResult.phone}</div>}
+                      {searchResult.phone && (
+                        <div className="text-sm text-muted-foreground">{searchResult.phone}</div>
+                      )}
                       {searchResult.relationship && (
-                        <div className={relBadge}>{relationshipLabel(searchResult.relationship)}</div>
+                        <div className="mt-1 text-xs text-primary">{relationshipLabel(searchResult.relationship)}</div>
                       )}
                     </div>
                     <div className="flex shrink-0 gap-2">
@@ -302,10 +297,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                           type="button"
                           onClick={() => sendFriendRequest(targetUserId(searchResult))}
                         >
-                          Gửi lời mời
+                          {t('friends.sendInvite')}
                         </GradientButton>
                       ) : (
-                        <span className="px-2 py-2 text-sm text-gray-500">Không thể gửi</span>
+                        <span className="px-2 py-2 text-sm text-gray-500">{t('friends.cannotSendInvite')}</span>
                       )}
                     </div>
                   </div>
@@ -314,18 +309,18 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
             </section>
 
             <section>
-              <h2 className={sectionHeading}>
-                Lời mời đến
+              <h2 className={FIGMA_CHAT_INVITES_SECTION_TITLE}>
+                {t('friends.incomingRequests')}
                 {loadingPending ? (
-                  <span className={isDarkMode ? 'ml-2 font-normal normal-case text-gray-600' : 'ml-2 font-normal normal-case text-slate-500'}>
-                    Đang tải…
+                  <span className="ml-2 font-normal normal-case text-muted-foreground">
+                    {t('friendChat.loadingRail')}
                   </span>
                 ) : (
-                  <span className={countBadge}>({pending.length})</span>
+                  <span className="ml-2 font-normal normal-case text-primary">({pending.length})</span>
                 )}
               </h2>
               {pending.length === 0 && !loadingPending ? (
-                <p className={emptyBox}>Không có lời mời chờ duyệt</p>
+                <p className={FIGMA_CHAT_INVITES_EMPTY}>{t('friends.noPendingRequests')}</p>
               ) : (
                 <div className="space-y-3">
                   {pending.map((row) => {
@@ -334,10 +329,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                       req.displayName ||
                       req.name ||
                       req.username ||
-                      (req.email ? String(req.email).split('@')[0] : 'Người dùng');
+                      (req.email ? String(req.email).split('@')[0] : defaultUserName);
                     const rid = row._id || row.id || pendingRequesterId(row);
                     return (
-                      <GlassCard key={String(rid)} className={cardBorder}>
+                      <GlassCard key={String(rid)} className={FIGMA_CHAT_INVITE_CARD}>
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <UserAvatar
                             avatar={req.avatar}
@@ -346,37 +341,32 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                             size="lg"
                           />
                           <div className="min-w-0 flex-1">
-                            <div className={`truncate font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{name}</div>
-                            <div className={isDarkMode ? 'text-xs text-gray-500' : 'text-xs text-slate-500'}>
-                              Muốn kết bạn với bạn
+                            <div className="truncate font-semibold text-foreground">{name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {t('friendChat.pendingWantsFriend')}
                             </div>
                           </div>
-                          <div className="grid w-full grid-cols-3 gap-2 sm:w-auto">
-                            <GradientButton
-                              variant="primary"
+                          <div className={`grid w-full grid-cols-3 gap-2 sm:w-auto ${FIGMA_CHAT_INVITE_ACTIONS}`}>
+                            <button
                               type="button"
-                              className="justify-center px-3 py-2 text-sm"
+                              className={`${FIGMA_CHAT_INVITE_ACCEPT_BTN} justify-center px-3 py-2 text-sm`}
                               onClick={() => acceptRequest(row)}
                             >
-                              Chấp nhận
-                            </GradientButton>
+                              {t('friends.accept')}
+                            </button>
                             <button
                               type="button"
                               onClick={() => rejectRequest(row)}
-                              className={`${rejectBtn} px-3 py-2 text-sm`}
+                              className={`${FIGMA_CHAT_INVITE_REJECT_BTN} px-3 py-2 text-sm`}
                             >
-                              Từ chối
+                              {t('friends.reject')}
                             </button>
                             <button
                               type="button"
                               onClick={() => blockRequestUser(row)}
-                              className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                                isDarkMode
-                                  ? 'border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20'
-                                  : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
-                              }`}
+                              className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive transition hover:bg-destructive/20"
                             >
-                              Block
+                              {t('friends.block')}
                             </button>
                           </div>
                         </div>

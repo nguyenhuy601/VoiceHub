@@ -1,41 +1,30 @@
 const express = require('express');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
-const gatewayUserMiddleware = require('./middlewares/gatewayUser');
-const { mongoose } = require('@enterprise/shared/config/mongo');
+require('dotenv').config();
 
 const app = express();
-
-// Middleware
 app.use(createCorsMiddleware());
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(gatewayUserMiddleware);
+app.use(express.json({ limit: '2mb' }));
 
-// Routes
+/**
+ * Scaffold only — full Task CRUD vẫn trên project-service cho đến cutover (ADR-001).
+ * Health để Swarm/probe sẵn sàng khi bật image.
+ */
 app.get('/health', (req, res) => {
-  const mongoOk = mongoose.connection.readyState === 1;
-  res.status(mongoOk ? 200 : 503).json({
-    status: mongoOk ? 'ok' : 'degraded',
+  res.json({
+    status: 'ok',
     service: 'task-service',
-    mongo: {
-      readyState: mongoose.connection.readyState,
-      ok: mongoOk,
-    },
+    stranglerMode: process.env.TASK_SERVICE_STRANGLER_MODE || 'off',
+    ownership: 'scaffold',
   });
 });
 
-// Task board routes (mount trước /tasks để tránh xung đột /:taskId)
-const taskBoardRoutes = require('./routes/taskBoard.routes');
-const workspaceTaskBoardRoutes = require('./routes/workspaceTaskBoard.routes');
-app.use('/api/tasks/boards', taskBoardRoutes);
-app.use('/api/work/boards', taskBoardRoutes);
-// REST workspace facade — slug → organizationId, delegate cùng controller board
-app.use('/api/workspaces/:workspaceSlug/task-boards', workspaceTaskBoardRoutes);
-
-// Task routes
-const taskRoutes = require('./routes/task.routes');
-app.use('/api/tasks', taskRoutes);
-app.use('/api/work', taskRoutes); // Alias
+app.get('/api/tasks/internal/strangler-status', (req, res) => {
+  res.json({
+    service: 'task-service',
+    readyForCutover: false,
+    message: 'Scaffold — implement CRUD + migrate trước khi TASK_SERVICE_STRANGLER_MODE=cutover',
+  });
+});
 
 module.exports = app;
-

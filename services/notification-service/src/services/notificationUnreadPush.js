@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+const { mongo } = require('@enterprise/shared');
+const { mongoose } = mongo;
 const Notification = require('../models/Notification');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const {

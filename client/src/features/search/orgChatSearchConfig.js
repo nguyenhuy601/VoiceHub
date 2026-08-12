@@ -63,8 +63,6 @@ export function buildOrgMessageSearchParams(tokens, keyword, ctx) {
   params.set('fields', 'summary');
   if (ctx.pageToken) {
     params.set('pageToken', String(ctx.pageToken));
-  } else if (ctx.page && ctx.page > 1) {
-    params.set('page', String(ctx.page));
   }
 
   return params;
@@ -80,22 +78,33 @@ export async function fetchOrgMessageSearch(tokens, keyword, ctx) {
   return data;
 }
 
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+
 /**
  * Lỗi từ api.js interceptor: { message, status, data, code } — không có .response.
  */
 export function formatOrgMessageSearchError(err) {
-  const code = err?.data?.code;
+  const code = err?.data?.code || err?.data?.errorCode || err?.errorCode;
   if (code === 'CHANNEL_ACCESS_VERIFY_FAILED') {
-    return 'Tạm thời không kiểm tra được quyền kênh. Kiểm tra organization-service và cấu hình gateway, rồi thử lại.';
+    return resolveApiErrorMessage(err, {
+      fallback:
+        'Tạm thời không kiểm tra được quyền kênh. Kiểm tra organization-service và cấu hình gateway, rồi thử lại.',
+    });
   }
   if (code === 'CHANNEL_ACCESS_ORG_ERROR') {
-    return 'Organization-service lỗi khi xác minh kênh. Xem log service và thử lại.';
+    return resolveApiErrorMessage(err, {
+      fallback: 'Organization-service lỗi khi xác minh kênh. Xem log service và thử lại.',
+    });
   }
   if (code === 'ORG_CHANNEL_ACCESS_DENIED') {
-    return err?.data?.message || 'Không có quyền tìm trong tổ chức hoặc kênh này.';
+    return resolveApiErrorMessage(err, {
+      fallback: 'Không có quyền tìm trong tổ chức hoặc kênh này.',
+    });
   }
   if (code === 'ORG_CHANNEL_AUTH_REQUIRED') {
-    return err?.data?.message || 'Phiên đăng nhập không hợp lệ. Đăng nhập lại.';
+    return resolveApiErrorMessage(err, {
+      fallback: 'Phiên đăng nhập không hợp lệ. Đăng nhập lại.',
+    });
   }
-  return err?.data?.message || err?.message || err?.response?.data?.message || '';
+  return resolveApiErrorMessage(err, { fallback: 'Không thể tìm kiếm tin nhắn.' });
 }

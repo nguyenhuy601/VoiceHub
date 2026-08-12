@@ -8,11 +8,8 @@ const { getRedisClient,
   logger } = require('@enterprise/shared');
 const axios = require('axios');
 const {
-  scheduleGrace,
   cancelGraceIfActive,
   findActiveGrace,
-  gracePeriodHoursForClient,
-  getGracePeriodMs,
 } = require('./unfriendGrace.service');
 
 function toObjectId(id) {
@@ -23,48 +20,6 @@ function toObjectId(id) {
     return new mongoose.Types.ObjectId(s);
   }
   return s;
-}
-
-/** Tìm hai chiều quan hệ accepted; hỗ trợ friendId là userId hoặc _id bản ghi Friend. */
-async function resolveAcceptedFriendRows(actorUserId, targetId) {
-  const actor = toObjectId(actorUserId);
-  const target = toObjectId(targetId);
-  if (!actor || !target) {
-    return { rows: [], peerUserId: null };
-  }
-
-  const pairQuery = (uidA, uidB) => ({
-    status: 'accepted',
-    $or: [
-      { userId: uidA, friendId: uidB },
-      { userId: uidB, friendId: uidA },
-    ],
-  });
-
-  let rows = await Friend.find(pairQuery(actor, target)).lean();
-  let peerUserId = target;
-
-  if (!rows.length && mongoose.Types.ObjectId.isValid(String(targetId))) {
-    const byDoc = await Friend.findOne({ _id: targetId, status: 'accepted' }).lean();
-    if (byDoc) {
-      const docUser = toObjectId(byDoc.userId);
-      const docFriend = toObjectId(byDoc.friendId);
-      const actorStr = String(actor);
-      if (String(docUser) === actorStr) {
-        peerUserId = docFriend;
-      } else if (String(docFriend) === actorStr) {
-        peerUserId = docUser;
-      }
-      if (peerUserId) {
-        rows = await Friend.find(pairQuery(actor, peerUserId)).lean();
-      }
-    }
-  }
-
-  return {
-    rows,
-    peerUserId: peerUserId ? String(peerUserId) : String(targetId),
-  };
 }
 
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -625,91 +580,6 @@ class FriendService {
     }
   }
 
-  // Hủy kết bạn — xóa quan hệ ngay; DM xóa vĩnh viễn sau grace (mặc định 12h) nếu không kết bạn lại.
-  async removeFriend(userId, friendId) {
-    try {
-      await ensureMongoReady();
-
-      const actorId = String(userId || '').trim();
-      const { rows: acceptedRows, peerUserId } = await resolveAcceptedFriendRows(actorId, friendId);
-      const peerId = peerUserId || String(friendId || '').trim();
-
-      if (!acceptedRows.length) {
-        const grace = await findActiveGrace(actorId, peerId);
-        if (grace) {
-          return {
-            deletedCount: 0,
-            purgeAt: grace.purgeAt,
-            graceHours: gracePeriodHoursForClient(),
-            alreadyRemoved: true,
-          };
-        }
-        throw new Error('Friend relationship not found');
-      }
-
-      const metaRow =
-        acceptedRows.find((r) => String(r.userId) === actorId) || acceptedRows[0];
-
-      const result = await Friend.deleteMany({
-        _id: { $in: acceptedRows.map((r) => r._id) },
-      });
-
-      let graceDoc;
-      try {
-        graceDoc = await scheduleGrace({
-          userId: actorId,
-          friendId: peerId,
-          dissolvedBy: actorId,
-          meta: {
-            requestedBy: metaRow?.requestedBy,
-            acceptedAt: metaRow?.acceptedAt,
-          },
-        });
-      } catch (graceErr) {
-        logger.error(
-          `Friend rows deleted but grace schedule failed (${actorId} <-> ${peerId}):`,
-          graceErr
-        );
-        graceDoc = { purgeAt: new Date(Date.now() + getGracePeriodMs()) };
-      }
-
-      const redis = getRedisClient();
-      if (redis) {
-        await clearFriendsListCache(actorId, peerId);
-      }
-
-      logger.info(
-        `Friend removed (grace until ${graceDoc.purgeAt.toISOString()}): ${actorId} <-> ${peerId}`
-      );
-
-      await emitRealtimeEvent({
-        event: 'friend:removed',
-        userIds: [actorId, peerId],
-        payload: {
-          userId: actorId,
-          friendId: peerId,
-          purgeAt: graceDoc.purgeAt.toISOString(),
-          graceHours: gracePeriodHoursForClient(),
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-      return {
-        deletedCount: result.deletedCount,
-        purgeAt: graceDoc.purgeAt,
-        graceHours: gracePeriodHoursForClient(),
-      };
-    } catch (error) {
-      normalizeMongoError(error);
-      const msg = String(error?.message || '');
-      if (msg === 'Friend relationship not found' || msg.includes('Invalid user pair')) {
-        throw error;
-      }
-      logger.error('Error removing friend:', error);
-      throw new Error(`Error removing friend: ${error.message}`);
-    }
-  }
-
   // Kiểm tra relationship (userId, friendId có thể là string hoặc ObjectId)
   async getRelationship(userId, friendId) {
     try {
@@ -769,6 +639,123 @@ class FriendService {
       logger.error('Error getting relationship:', error);
       throw new Error(`Error getting relationship: ${error.message}`);
     }
+  }
+
+  /**
+   * Đảm bảo hai user là bạn (accepted, 2 chiều) — bỏ qua lời mời.
+   * Không ghi đè quan hệ blocked. Idempotent nếu đã accepted.
+   */
+  async ensureAcceptedFriendship(userIdA, userIdB, { source = 'system' } = {}) {
+    try {
+      await ensureMongoReady();
+      const a = toObjectId(userIdA);
+      const b = toObjectId(userIdB);
+      if (!a || !b) {
+        return { status: 'skipped', reason: 'invalid_id' };
+      }
+      if (String(a) === String(b)) {
+        return { status: 'skipped', reason: 'self' };
+      }
+
+      const existing = await Friend.find({
+        $or: [
+          { userId: a, friendId: b },
+          { userId: b, friendId: a },
+        ],
+      });
+
+      if (existing.some((row) => row.status === 'blocked')) {
+        return { status: 'blocked' };
+      }
+
+      const alreadyAccepted =
+        existing.length >= 2 && existing.every((row) => row.status === 'accepted');
+      if (alreadyAccepted) {
+        return { status: 'already_friends' };
+      }
+
+      await cancelGraceIfActive(String(userIdA), String(userIdB));
+
+      const now = new Date();
+      const pairs = [
+        [a, b],
+        [b, a],
+      ];
+      for (const [uid, fid] of pairs) {
+        const row = await Friend.findOne({ userId: uid, friendId: fid });
+        if (!row) {
+          await Friend.create({
+            userId: uid,
+            friendId: fid,
+            status: 'accepted',
+            requestedBy: a,
+            acceptedAt: now,
+          });
+        } else if (row.status !== 'accepted') {
+          row.status = 'accepted';
+          row.acceptedAt = now;
+          await row.save();
+        }
+      }
+
+      await clearFriendsListCache(userIdA, userIdB);
+
+      try {
+        await emitRealtimeEvent({
+          event: 'friend:request_accepted',
+          userIds: [String(userIdA), String(userIdB)],
+          payload: {
+            userId: String(userIdA),
+            friendId: String(userIdB),
+            source: String(source || 'system'),
+            acceptedAt: now,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } catch (emitErr) {
+        logger.warn('ensureAcceptedFriendship realtime emit failed:', emitErr.message);
+      }
+
+      logger.info(`Friendship ensured (${source}): ${userIdA} <-> ${userIdB}`);
+      return { status: 'accepted', source };
+    } catch (error) {
+      normalizeMongoError(error);
+      logger.error('Error ensuring accepted friendship:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Kết bạn user với danh sách peers (S2S / department auto-friend).
+   */
+  async ensureAcceptedWithPeers(userId, peerUserIds = [], { source = 'system' } = {}) {
+    const uid = String(userId || '').trim();
+    const peers = [
+      ...new Set(
+        (Array.isArray(peerUserIds) ? peerUserIds : [])
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && id !== uid)
+      ),
+    ];
+    const results = [];
+    for (const peerId of peers) {
+      try {
+        const result = await this.ensureAcceptedFriendship(uid, peerId, { source });
+        results.push({ peerUserId: peerId, ...result });
+      } catch (error) {
+        results.push({
+          peerUserId: peerId,
+          status: 'error',
+          reason: error.message,
+        });
+      }
+    }
+    return {
+      userId: uid,
+      source,
+      ensured: results.filter((r) => r.status === 'accepted' || r.status === 'already_friends').length,
+      results,
+    };
   }
 }
 

@@ -19,6 +19,22 @@ import userService from '../../services/userService';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { TASK_BOARD_LABELS, labelById, parseCardLabelIds } from './taskBoardCardLabels';
 import { uploadTaskBoardAttachment } from './taskBoardAttachmentUpload';
+import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  buildHoursWarnMessage,
+  isHoursSoftWarning,
+  readHoursSoftWarningMeta,
+} from '../../utils/hoursSoftWarning';
+import { canSetCardAssignee } from '../../utils/goldenAssignPolicy';
+import OtOverrideConfirmModal from '../../features/adminTasks/OtOverrideConfirmModal';
+import {
+  FIGMA_ORG_TASK_MODAL_INPUT,
+  FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
+} from './figmaOrganizationClasses';
+import EntityApprovalTimeline from '../../features/approvals/EntityApprovalTimeline';
+import TaskWorklogPanel from './TaskWorklogPanel';
+import { isTimeTrackingV1Enabled } from '../../utils/timeTrackingFlag';
 
 function toDatetimeLocalValue(iso) {
   if (!iso) return '';
@@ -26,6 +42,22 @@ function toDatetimeLocalValue(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toDateInputValue(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function hoursInputValue(raw) {
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : '';
 }
 
 function initialsFromName(name) {
@@ -48,6 +80,9 @@ export default function TaskBoardCardDetailModal({
   listTitle = '',
   lists = [],
   initialPanel = 'detail',
+  taskWorkspaceScope = null,
+  canCreateTask = true,
+  canEstimate = true,
   onClose,
   onUpdateCard,
   onRefresh,
@@ -58,8 +93,16 @@ export default function TaskBoardCardDetailModal({
   const [editingDescription, setEditingDescription] = useState(false);
   const [labelIds, setLabelIds] = useState([]);
   const [dueDateLocal, setDueDateLocal] = useState('');
+  const [startDateLocal, setStartDateLocal] = useState('');
+  const [estimateHours, setEstimateHours] = useState('');
+  const [hoursWarn, setHoursWarn] = useState(null);
+  const [pendingPatch, setPendingPatch] = useState(null);
   const [assigneeId, setAssigneeId] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [checklists, setChecklists] = useState([]);
+  const [checklistDraft, setChecklistDraft] = useState('');
+  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [creatingSubtask, setCreatingSubtask] = useState(false);
   const [panel, setPanel] = useState('detail');
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -73,6 +116,7 @@ export default function TaskBoardCardDetailModal({
   const [commentAuthors, setCommentAuthors] = useState({});
   const fileInputRef = useRef(null);
   const { user } = useAuth();
+  const { t, locale } = useAppStrings();
 
   const cardId = card?._id ? String(card._id) : '';
   const isDone = String(card?.status || '') === 'done';
@@ -84,8 +128,15 @@ export default function TaskBoardCardDetailModal({
     setDescription(String(card.description || ''));
     setLabelIds(parseCardLabelIds(card.tags));
     setDueDateLocal(toDatetimeLocalValue(card.dueDate));
+    setStartDateLocal(toDateInputValue(card.startDate));
+    setEstimateHours(hoursInputValue(card.estimateHours));
+    setHoursWarn(null);
+    setPendingPatch(null);
     setAssigneeId(card.assigneeId ? String(card.assigneeId) : '');
     setAttachments(Array.isArray(card.attachments) ? [...card.attachments] : []);
+    setChecklists(Array.isArray(card.checklists) ? JSON.parse(JSON.stringify(card.checklists)) : []);
+    setChecklistDraft('');
+    setSubtaskDraft('');
     setEditingDescription(false);
     setPanel(initialPanel || 'detail');
     setAttachUrl('');
@@ -148,13 +199,13 @@ export default function TaskBoardCardDetailModal({
     return members
       .map((m) => ({
         id: String(m.userId || ''),
-        name: String(m.displayName || m.username || 'Thành viên'),
+        name: String(m.displayName || m.username || t('common.member')),
         avatar: String(m.displayName || m.username || '??')
           .slice(0, 2)
           .toUpperCase(),
       }))
       .filter((m) => m.id);
-  }, [members]);
+  }, [members, t]);
 
   const selectedAssignees = useMemo(() => {
     const fromCard = Array.isArray(card?.assignees) ? card.assignees : [];
@@ -162,14 +213,14 @@ export default function TaskBoardCardDetailModal({
       return fromCard
         .map((m) => ({
           id: String(m.userId || m.id || ''),
-          name: String(m.displayName || m.username || 'Thành viên'),
+          name: String(m.displayName || m.username || t('common.member')),
         }))
         .filter((m) => m.id);
     }
     if (!assigneeId) return [];
     const selected = boardMembers.find((m) => String(m.id) === String(assigneeId));
     if (selected) return [selected];
-    return [{ id: String(assigneeId), name: String(card?.assigneeName || 'Thành viên') }];
+    return [{ id: String(assigneeId), name: String(card?.assigneeName || t('common.member')) }];
   }, [assigneeId, boardMembers, card?.assignees, card?.assigneeName]);
   const visibleAssignees =
     selectedAssignees.length > 3 ? selectedAssignees.slice(0, 2) : selectedAssignees.slice(0, 3);
@@ -191,26 +242,49 @@ export default function TaskBoardCardDetailModal({
         await onUpdateCard?.(cardId, updated);
       }
       setCommentDraft('');
-      toast.success('Đã thêm bình luận');
+      toast.success(t('taskBoard.commentAdded'));
     } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || 'Không gửi được bình luận');
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.commentFail') }));
     } finally {
       setSubmittingComment(false);
     }
   };
 
   const save = async (patch) => {
-    if (!cardId || saving) return;
+    if (!cardId || saving) return false;
     setSaving(true);
     try {
       await onUpdateCard?.(cardId, patch);
-      toast.success('Đã lưu');
+      toast.success(t('taskBoard.saved'));
+      setHoursWarn(null);
+      setPendingPatch(null);
+      return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || 'Không lưu được');
+      if (isHoursSoftWarning(err)) {
+        setPendingPatch(patch);
+        setHoursWarn(readHoursSoftWarningMeta(err));
+        return false;
+      }
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.saveFail') }));
       throw err;
     } finally {
       setSaving(false);
     }
+  };
+
+  const hoursAssigneeName =
+    selectedAssignees[0]?.name ||
+    boardMembers.find((m) => m.id === String(assigneeId))?.name ||
+    '';
+
+  const confirmHoursOverride = async (rationale) => {
+    if (!pendingPatch) return;
+    const ok = await save({
+      ...pendingPatch,
+      hoursOverride: true,
+      hoursRationale: rationale,
+    });
+    if (ok) setPanel('detail');
   };
 
   if (!isOpen || !cardId) return null;
@@ -239,13 +313,13 @@ export default function TaskBoardCardDetailModal({
     panel === 'attach' ? (
       <div className={`absolute left-4 right-4 top-24 z-20 w-auto rounded-xl border p-3 sm:right-auto sm:w-80 ${popover}`}>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">Đính kèm</span>
+          <span className="text-sm font-semibold">{t('taskBoard.attachments')}</span>
           <button type="button" onClick={() => setPanel('detail')} className="rounded p-1 opacity-70 hover:opacity-100">
             <X className="h-4 w-4" />
           </button>
         </div>
         <p className={`mb-2 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Đính kèm tệp từ máy tính của bạn
+          {t('taskBoard.uploadFromComputer')}
         </p>
         <input
           ref={fileInputRef}
@@ -258,14 +332,14 @@ export default function TaskBoardCardDetailModal({
             setUploadingFile(true);
             setUploadProgress(0);
             try {
-              const item = await uploadTaskBoardAttachment(file, setUploadProgress);
+              const item = await uploadTaskBoardAttachment(file, setUploadProgress, { t, locale });
               const next = [...attachments, item];
               setAttachments(next);
               await save({ attachments: next });
-              toast.success('Đã đính kèm tệp');
+              toast.success(t('taskBoard.fileAttached'));
               setPanel('detail');
             } catch (err) {
-              toast.error(err?.response?.data?.message || err?.message || 'Upload thất bại');
+              toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.uploadFail') }));
             } finally {
               setUploadingFile(false);
               setUploadProgress(0);
@@ -280,7 +354,7 @@ export default function TaskBoardCardDetailModal({
             isDarkMode ? 'border-white/20 hover:bg-white/10' : 'border-slate-300 hover:bg-slate-50'
           }`}
         >
-          {uploadingFile ? `Đang tải lên… ${uploadProgress}%` : 'Chọn tệp'}
+          {uploadingFile ? t('taskBoard.uploading', { pct: uploadProgress }) : t('taskBoard.chooseFile')}
         </button>
         <p className={`mb-2 text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
           Hoặc dán liên kết
@@ -289,18 +363,18 @@ export default function TaskBoardCardDetailModal({
           value={attachUrl}
           onChange={(e) => setAttachUrl(e.target.value)}
           placeholder="https://..."
-          className={`mb-2 w-full rounded-lg border px-2 py-1.5 text-sm outline-none ${inputCls}`}
+          className={`mb-2 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
         />
         <input
           value={attachName}
           onChange={(e) => setAttachName(e.target.value)}
-          placeholder="Văn bản hiển thị (không bắt buộc)"
-          className={`mb-3 w-full rounded-lg border px-2 py-1.5 text-sm outline-none ${inputCls}`}
+          placeholder={t('taskBoard.linkTextPh')}
+          className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
         />
         <button
           type="button"
           disabled={!attachUrl.trim() || saving || uploadingFile}
-          className="w-full rounded-lg bg-[#0c66e4] py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className={FIGMA_ORG_TASK_MODAL_PRIMARY_BTN}
           onClick={async () => {
             const url = attachUrl.trim();
             const name = attachName.trim() || url;
@@ -318,7 +392,7 @@ export default function TaskBoardCardDetailModal({
     ) : panel === 'labels' ? (
       <div className={`absolute left-4 right-4 top-24 z-20 w-auto rounded-xl border p-3 sm:right-auto sm:w-64 ${popover}`}>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">Nhãn</span>
+          <span className="text-sm font-semibold">{t('taskBoard.labels')}</span>
           <button type="button" onClick={() => setPanel('detail')} className="rounded p-1 opacity-70 hover:opacity-100">
             <X className="h-4 w-4" />
           </button>
@@ -344,27 +418,59 @@ export default function TaskBoardCardDetailModal({
     ) : panel === 'dates' ? (
       <div className={`absolute left-4 right-4 top-24 z-20 w-auto rounded-xl border p-3 sm:left-28 sm:right-auto sm:w-72 ${popover}`}>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">Ngày</span>
+          <span className="text-sm font-semibold">{t('taskBoard.dates')}</span>
           <button type="button" onClick={() => setPanel('detail')} className="rounded p-1 opacity-70 hover:opacity-100">
             <X className="h-4 w-4" />
           </button>
         </div>
         <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Ngày hết hạn
+          {t('taskBoard.startDate')}
+        </label>
+        <input
+          type="date"
+          value={startDateLocal}
+          onChange={(e) => setStartDateLocal(e.target.value)}
+          className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
+        />
+        <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          {t('taskBoard.dueDate')}
         </label>
         <input
           type="datetime-local"
           value={dueDateLocal}
           onChange={(e) => setDueDateLocal(e.target.value)}
-          className={`mb-3 w-full rounded-lg border px-2 py-1.5 text-sm outline-none ${inputCls}`}
+          className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
         />
+        {isTimeTrackingV1Enabled() && canEstimate ? (
+          <>
+            <label className={`mb-1 block text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              {t('taskBoard.estimateHours')}
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.25"
+              value={estimateHours}
+              onChange={(e) => setEstimateHours(e.target.value)}
+              className={`mb-3 w-full ${FIGMA_ORG_TASK_MODAL_INPUT}`}
+            />
+          </>
+        ) : null}
         <button
           type="button"
           disabled={saving}
-          className="mb-2 w-full rounded-lg bg-[#0c66e4] py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className={`mb-2 w-full ${FIGMA_ORG_TASK_MODAL_PRIMARY_BTN}`}
           onClick={async () => {
-            await save({ dueDate: dueDateLocal ? new Date(dueDateLocal).toISOString() : null });
-            setPanel('detail');
+            const hoursRaw = String(estimateHours || '').trim();
+            const patch = {
+              startDate: startDateLocal || null,
+              dueDate: dueDateLocal ? new Date(dueDateLocal).toISOString() : null,
+            };
+            if (isTimeTrackingV1Enabled() && canEstimate) {
+              patch.estimateHours = hoursRaw === '' ? null : Number(hoursRaw);
+            }
+            const ok = await save(patch);
+            if (ok) setPanel('detail');
           }}
         >
           Lưu
@@ -375,8 +481,9 @@ export default function TaskBoardCardDetailModal({
           className={`w-full text-sm ${isDarkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
           onClick={async () => {
             setDueDateLocal('');
-            await save({ dueDate: null });
-            setPanel('detail');
+            setStartDateLocal('');
+            const ok = await save({ dueDate: null, startDate: null });
+            if (ok) setPanel('detail');
           }}
         >
           Gỡ bỏ
@@ -385,13 +492,13 @@ export default function TaskBoardCardDetailModal({
     ) : panel === 'members' ? (
       <div className={`absolute left-4 right-4 top-24 z-20 max-h-[55vh] w-auto overflow-y-auto rounded-xl border p-3 sm:left-40 sm:right-auto sm:w-72 ${popover}`}>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">Thành viên</span>
+          <span className="text-sm font-semibold">{t('taskBoard.members')}</span>
           <button type="button" onClick={() => setPanel('detail')} className="rounded p-1 opacity-70 hover:opacity-100">
             <X className="h-4 w-4" />
           </button>
         </div>
         {loadingMembers ? (
-          <p className="text-xs opacity-70">Đang tải thành viên board…</p>
+          <p className="text-xs opacity-70">{t('taskBoard.loadingBoardMembers')}</p>
         ) : boardMembers.length === 0 ? (
           <p className="text-xs opacity-70">
             Không có thành viên khả dụng. Kiểm tra vai trò team (role-access) hoặc thành viên team.
@@ -419,6 +526,11 @@ export default function TaskBoardCardDetailModal({
                   assigneeId === m.id ? 'bg-white/10' : 'hover:bg-white/5'
                 }`}
                 onClick={async () => {
+                  const check = canSetCardAssignee(taskWorkspaceScope, card?.ownerTeamId);
+                  if (!check.ok) {
+                    toast.error(t(check.messageKey));
+                    return;
+                  }
                   setAssigneeId(m.id);
                   await save({
                     assigneeId: m.id,
@@ -431,7 +543,7 @@ export default function TaskBoardCardDetailModal({
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white">
                   {m.avatar}
                 </span>
-                {m.name}
+                <span className="truncate">{m.name}</span>
               </button>
             ))}
           </div>
@@ -454,9 +566,9 @@ export default function TaskBoardCardDetailModal({
                 type="button"
                 className={`rounded-lg px-2 py-1 text-xs font-medium ${isDarkMode ? 'bg-white/10' : 'bg-slate-100'}`}
               >
-                {listTitle || 'Danh sách'}
+                {listTitle || t('taskBoard.listFallback')}
               </button>
-              <button type="button" onClick={onClose} className="rounded p-1 opacity-70 hover:opacity-100" aria-label="Đóng">
+              <button type="button" onClick={onClose} className="rounded p-1 opacity-70 hover:opacity-100" aria-label={t('common.close')}>
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -466,7 +578,7 @@ export default function TaskBoardCardDetailModal({
                 type="button"
                 onClick={toggleComplete}
                 disabled={saving}
-                title={isDone ? 'Đánh dấu chưa hoàn tất' : 'Đánh dấu hoàn tất'}
+                title={isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
                 className="mt-0.5 shrink-0 rounded-full disabled:opacity-50"
               >
                 {isDone ? (
@@ -545,7 +657,7 @@ export default function TaskBoardCardDetailModal({
                 {overflowAssignees > 0 ? (
                   <span
                     className={`text-xs font-semibold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}
-                    title={`${overflowAssignees} thành viên khác`}
+                    title={t('taskBoard.moreAssignees', { n: overflowAssignees })}
                   >
                     +{overflowAssignees}
                   </span>
@@ -558,23 +670,82 @@ export default function TaskBoardCardDetailModal({
                       ? 'border-white/20 text-slate-200 hover:bg-white/10'
                       : 'border-slate-300 text-slate-600 hover:bg-slate-100'
                   }`}
-                  title="Chọn thành viên"
+                  title={t('taskBoard.selectMember')}
                 >
                   <UserPlus className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            {dueDateLocal ? (
-              <div className={`mb-3 flex items-center gap-2 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                <Calendar className="h-4 w-4" />
-                Hạn: {new Date(dueDateLocal).toLocaleString('vi-VN')}
+            {dueDateLocal || startDateLocal ? (
+              <div className={`mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                {startDateLocal ? (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4" />
+                    {t('taskBoard.startDate')}: {startDateLocal}
+                  </span>
+                ) : null}
+                {dueDateLocal ? (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4" />
+                    {t('taskBoard.dueDate')}: {new Date(dueDateLocal).toLocaleString('vi-VN')}
+                  </span>
+                ) : null}
               </div>
+            ) : null}
+
+            {isTimeTrackingV1Enabled() && canEstimate ? (
+              <div className="mb-3">
+                <label
+                  className={`mb-1 block text-xs font-semibold uppercase tracking-wide ${
+                    isDarkMode ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
+                  {t('taskBoard.estimateHours')}
+                </label>
+                <p className={`mb-1 text-[11px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                  {t('taskBoard.estimateHint')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.25}
+                    className={`w-28 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                    value={estimateHours}
+                    disabled={saving}
+                    onChange={(e) => setEstimateHours(e.target.value)}
+                    onBlur={async () => {
+                      const next =
+                        estimateHours === '' || estimateHours == null
+                          ? null
+                          : Number(estimateHours);
+                      const prev =
+                        card.estimateHours == null || card.estimateHours === ''
+                          ? null
+                          : Number(card.estimateHours);
+                      if (next === prev || (Number.isNaN(next) && prev == null)) return;
+                      await save({ estimateHours: next });
+                    }}
+                  />
+                  <Clock className={`h-4 w-4 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
+                </div>
+              </div>
+            ) : null}
+
+            {isTimeTrackingV1Enabled() ? (
+              <TaskWorklogPanel
+                taskId={cardId}
+                organizationId={card?.organizationId || ''}
+                isDarkMode={isDarkMode}
+                t={t}
+                canEdit={!saving}
+              />
             ) : null}
 
             {attachments.length > 0 ? (
               <div className="mb-4">
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide opacity-70">Đính kèm</h4>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide opacity-70">{t('taskBoard.attachments')}</h4>
                 <ul className="space-y-1">
                   {attachments.map((a, i) => (
                     <li key={`${a.url}-${i}`}>
@@ -595,7 +766,7 @@ export default function TaskBoardCardDetailModal({
 
             <div className="mb-2 flex items-center gap-2">
               <AlignLeft className="h-4 w-4 opacity-70" />
-              <h4 className="text-sm font-semibold">Mô tả</h4>
+              <h4 className="text-sm font-semibold">{t('taskBoard.description')}</h4>
               {!editingDescription ? (
                 <button
                   type="button"
@@ -612,15 +783,15 @@ export default function TaskBoardCardDetailModal({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={6}
-                  placeholder="Thêm mô tả chi tiết hơn..."
-                  className={`mb-2 w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none ${inputCls}`}
+                  placeholder={t('taskBoard.descriptionPh')}
+                  className={`mb-2 w-full resize-none ${FIGMA_ORG_TASK_MODAL_INPUT}`}
                   autoFocus
                 />
                 <div className="flex gap-2">
                   <button
                     type="button"
                     disabled={saving}
-                    className="rounded-lg bg-[#0c66e4] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${FIGMA_ORG_TASK_MODAL_PRIMARY_BTN}`}
                     onClick={async () => {
                       await save({ description });
                       setEditingDescription(false);
@@ -655,6 +826,129 @@ export default function TaskBoardCardDetailModal({
                 Thêm mô tả chi tiết hơn...
               </button>
             )}
+
+            <div className="mb-4 mt-4">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+                <CheckCircle2 className="h-4 w-4 opacity-70" />
+                Checklist
+              </h4>
+              {(checklists[0]?.items || []).map((item, idx) => (
+                <label
+                  key={`cl-${idx}`}
+                  className={`mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                    isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(item.done)}
+                    disabled={saving}
+                    onChange={async () => {
+                      const next = checklists.length
+                        ? JSON.parse(JSON.stringify(checklists))
+                        : [{ title: 'Checklist', items: [] }];
+                      if (!next[0].items) next[0].items = [];
+                      next[0].items[idx] = { ...next[0].items[idx], done: !item.done };
+                      setChecklists(next);
+                      await save({ checklists: next });
+                    }}
+                  />
+                  <span className={item.done ? 'line-through opacity-60' : ''}>{item.text}</span>
+                </label>
+              ))}
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={checklistDraft}
+                  onChange={(e) => setChecklistDraft(e.target.value)}
+                  placeholder="Thêm mục checklist…"
+                  className={`min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                  onKeyDown={async (e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    const text = checklistDraft.trim();
+                    if (!text) return;
+                    const next = checklists.length
+                      ? JSON.parse(JSON.stringify(checklists))
+                      : [{ title: 'Checklist', items: [] }];
+                    if (!next[0].items) next[0].items = [];
+                    next[0].items.push({ text, done: false });
+                    setChecklistDraft('');
+                    setChecklists(next);
+                    await save({ checklists: next });
+                  }}
+                />
+                <button
+                  type="button"
+                  className={toolbarBtn}
+                  disabled={saving || !checklistDraft.trim()}
+                  onClick={async () => {
+                    const text = checklistDraft.trim();
+                    if (!text) return;
+                    const next = checklists.length
+                      ? JSON.parse(JSON.stringify(checklists))
+                      : [{ title: 'Checklist', items: [] }];
+                    if (!next[0].items) next[0].items = [];
+                    next[0].items.push({ text, done: false });
+                    setChecklistDraft('');
+                    setChecklists(next);
+                    await save({ checklists: next });
+                  }}
+                >
+                  Thêm
+                </button>
+              </div>
+            </div>
+
+            {!card?.parentTaskId && boardId && card?.listId && canCreateTask ? (
+              <div className="mb-4">
+                <h4 className="mb-2 text-sm font-semibold">Sub-tasks</h4>
+                <div className="flex gap-2">
+                  <input
+                    value={subtaskDraft}
+                    onChange={(e) => setSubtaskDraft(e.target.value)}
+                    placeholder="Tên sub-task…"
+                    className={`min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm ${inputCls}`}
+                  />
+                  <button
+                    type="button"
+                    className={toolbarBtn}
+                    disabled={creatingSubtask || !subtaskDraft.trim()}
+                    onClick={async () => {
+                      const titleText = subtaskDraft.trim();
+                      if (!titleText || !boardId) return;
+                      setCreatingSubtask(true);
+                      try {
+                        await taskAPI.createBoardCard(
+                          boardId,
+                          {
+                            listId: card.listId,
+                            title: titleText,
+                            parentTaskId: cardId,
+                          },
+                          boardApiOpts
+                        );
+                        setSubtaskDraft('');
+                        toast.success(t('taskBoard.saved'));
+                        await onRefresh?.();
+                      } catch (err) {
+                        toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.saveFail') }));
+                      } finally {
+                        setCreatingSubtask(false);
+                      }
+                    }}
+                  >
+                    Tạo
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {cardId ? (
+              <EntityApprovalTimeline
+                entityType="task"
+                entityId={cardId}
+                isDarkMode={isDarkMode}
+              />
+            ) : null}
           </div>
 
           <aside
@@ -664,7 +958,7 @@ export default function TaskBoardCardDetailModal({
           >
             <div className={`flex items-center gap-2 border-b px-4 py-3 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
               <MessageSquare className="h-4 w-4 opacity-70" />
-              <h4 className="text-sm font-semibold">Nhận xét và hoạt động</h4>
+              <h4 className="text-sm font-semibold">{t('taskBoard.commentsActivity')}</h4>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
               <div className="mb-3">
@@ -677,17 +971,17 @@ export default function TaskBoardCardDetailModal({
                       submitComment();
                     }
                   }}
-                  placeholder="Viết bình luận..."
+                  placeholder={t('taskBoard.commentPh')}
                   rows={3}
-                  className={`w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none ${inputCls}`}
+                  className={`w-full resize-y ${FIGMA_ORG_TASK_MODAL_INPUT}`}
                 />
                 <button
                   type="button"
                   disabled={!commentDraft.trim() || submittingComment}
                   onClick={submitComment}
-                  className="mt-2 rounded-lg bg-[#0c66e4] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                  className={`mt-2 ${FIGMA_ORG_TASK_MODAL_PRIMARY_BTN} px-3 py-1.5`}
                 >
-                  {submittingComment ? 'Đang gửi…' : 'Gửi bình luận'}
+                  {submittingComment ? t('taskBoard.sendingComment') : t('taskBoard.sendComment')}
                 </button>
                 <p className={`mt-1 text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                   Ctrl+Enter để gửi nhanh
@@ -705,7 +999,7 @@ export default function TaskBoardCardDetailModal({
                       const uid = String(cm.userId || '');
                       const author =
                         commentAuthors[uid] ||
-                        (uid === String(user?.id || user?._id) ? user?.displayName || 'Bạn' : uid.slice(-6));
+                        (uid === String(user?.id || user?._id) ? user?.displayName || t('common.you') : uid.slice(-6));
                       return (
                         <li key={`${uid}-${cm.createdAt || idx}`} className="text-sm">
                           <div className="mb-0.5 flex items-baseline gap-2">
@@ -728,6 +1022,22 @@ export default function TaskBoardCardDetailModal({
           </aside>
         </div>
       </div>
+      <OtOverrideConfirmModal
+        isOpen={Boolean(hoursWarn)}
+        onClose={() => {
+          setHoursWarn(null);
+          setPendingPatch(null);
+        }}
+        onConfirm={confirmHoursOverride}
+        busy={saving}
+        title={t('taskBoard.hoursOverrideTitle')}
+        confirmText={t('taskBoard.hoursOverrideConfirm')}
+        cancelText={t('taskBoard.cancelAria')}
+        rationaleLabel={t('taskBoard.hoursOverrideRationale')}
+        rationalePlaceholder={t('taskBoard.hoursOverridePlaceholder')}
+        rationaleRequiredText={t('taskBoard.hoursOverrideNeedReason')}
+        message={buildHoursWarnMessage(hoursWarn, t, hoursAssigneeName)}
+      />
     </>,
     document.body
   );

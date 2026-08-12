@@ -1,6 +1,10 @@
+# P1-Cutover — App stack (Mongo Atlas + Redis Sentinel + Rabbit cluster = stacks riêng)
+# HA infra: voicehub-redis (devops/swarm/redis-sentinel/), voicehub-rabbit (devops/swarm/rabbitmq-cluster/)
+# Rollback Plan A: STACK_FILE=docker-stack.plan-a.yml — xem devops/swarm/phase1-rollback.md
+
 services:
   api-gateway:
-    image: ${REGISTRY}/${OWNER}/voicehub/api-gateway:${TAG}
+    image: ${API_GATEWAY_IMAGE}
     ports:
       - target: 3000
         published: 3000
@@ -9,6 +13,15 @@ services:
     env_file:
       - .env
       - ./api-gateway/.env
+    environment:
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_SENTINELS=${REDIS_SENTINELS:-}
+      - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
+      - PROJECT_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -27,7 +40,7 @@ services:
           memory: 80M
 
   auth-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/auth-service:${TAG}
+    image: ${AUTH_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/auth-service/.env
@@ -48,7 +61,7 @@ services:
           memory: 80M
 
   user-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/user-service:${TAG}
+    image: ${USER_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/user-service/.env
@@ -69,12 +82,15 @@ services:
           memory: 80M
 
   organization-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/organization-service:${TAG}
+    image: ${ORGANIZATION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/organization-service/.env
     environment:
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - FRIEND_SERVICE_URL=${FRIEND_SERVICE_URL}
+      - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -90,7 +106,7 @@ services:
           memory: 80M
 
   friend-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/friend-service:${TAG}
+    image: ${FRIEND_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/friend-service/.env
@@ -114,7 +130,7 @@ services:
           memory: 80M
 
   role-permission-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/role-permission-service:${TAG}
+    image: ${ROLE_PERMISSION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/role-permission-service/.env
@@ -133,7 +149,7 @@ services:
           memory: 80M
 
   chat-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/chat-service:${TAG}
+    image: ${CHAT_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/chat-service/.env
@@ -158,11 +174,11 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/task-service:${TAG}
+  project-service:
+    image: ${PROJECT_SERVICE_IMAGE}
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -182,12 +198,12 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  task-worker:
-    image: ${TASK_SERVICE_IMAGE:-voicehub/task-service:latest}
-    command: ["node", "src/workers/taskFromFileWorker.js"]
+  project-worker:
+    image: ${PROJECT_SERVICE_IMAGE}
+    command: ["node", "src/worker.js"]
     env_file:
       - .env
-      - ./services/task-service/.env
+      - ./services/project-service/.env
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
@@ -212,7 +228,7 @@ services:
           memory: 96M
 
   ai-task-service:
-    image: ${AI_TASK_SERVICE_IMAGE:-voicehub/ai-task-service:latest}
+    image: ${AI_TASK_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-service/.env
@@ -220,6 +236,8 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -235,7 +253,7 @@ services:
           memory: 128M
 
   ai-task-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -245,7 +263,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=both
@@ -263,8 +282,58 @@ services:
           cpus: "0.50"
           memory: 320M
 
+  summary-service:
+    image: ${SUMMARY_SERVICE_IMAGE}
+    env_file:
+      - .env
+      - ./services/summary-service/.env
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - ORGANIZATION_SERVICE_URL=${ORGANIZATION_SERVICE_URL}
+      - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${SUMMARY_SERVICE_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  summary-worker:
+    image: ${SUMMARY_WORKER_IMAGE}
+    env_file:
+      - .env
+      - ./services/summary-worker/.env
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
+      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${SUMMARY_WORKER_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 384M
+        reservations:
+          cpus: "0.15"
+          memory: 96M
+
   ai-task-extract-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -274,7 +343,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=extract
@@ -300,7 +370,7 @@ services:
           - node.labels.ai == true
 
   ai-task-sync-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/ai-task-worker:${TAG}
+    image: ${AI_TASK_WORKER_IMAGE}
     env_file:
       - .env
       - ./services/ai-task-worker/.env
@@ -310,7 +380,8 @@ services:
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - TASK_SERVICE_URL=${TASK_SERVICE_URL}
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=sync
@@ -336,7 +407,7 @@ services:
           - node.labels.ai == true
 
   document-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/document-service:${TAG}
+    image: ${DOCUMENT_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/document-service/.env
@@ -355,7 +426,7 @@ services:
           memory: 80M
 
   voice-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/voice-service:${TAG}
+    image: ${VOICE_SERVICE_IMAGE}
     ports:
       - target: 3005
         published: 3005
@@ -405,9 +476,290 @@ services:
         published: 40010
         protocol: udp
         mode: host
+      - target: 40011
+        published: 40011
+        protocol: udp
+        mode: host
+      - target: 40012
+        published: 40012
+        protocol: udp
+        mode: host
+      - target: 40013
+        published: 40013
+        protocol: udp
+        mode: host
+      - target: 40014
+        published: 40014
+        protocol: udp
+        mode: host
+      - target: 40015
+        published: 40015
+        protocol: udp
+        mode: host
+      - target: 40016
+        published: 40016
+        protocol: udp
+        mode: host
+      - target: 40017
+        published: 40017
+        protocol: udp
+        mode: host
+      - target: 40018
+        published: 40018
+        protocol: udp
+        mode: host
+      - target: 40019
+        published: 40019
+        protocol: udp
+        mode: host
+      - target: 40020
+        published: 40020
+        protocol: udp
+        mode: host
+      - target: 40021
+        published: 40021
+        protocol: udp
+        mode: host
+      - target: 40022
+        published: 40022
+        protocol: udp
+        mode: host
+      - target: 40023
+        published: 40023
+        protocol: udp
+        mode: host
+      - target: 40024
+        published: 40024
+        protocol: udp
+        mode: host
+      - target: 40025
+        published: 40025
+        protocol: udp
+        mode: host
+      - target: 40026
+        published: 40026
+        protocol: udp
+        mode: host
+      - target: 40027
+        published: 40027
+        protocol: udp
+        mode: host
+      - target: 40028
+        published: 40028
+        protocol: udp
+        mode: host
+      - target: 40029
+        published: 40029
+        protocol: udp
+        mode: host
+      - target: 40030
+        published: 40030
+        protocol: udp
+        mode: host
+      - target: 40031
+        published: 40031
+        protocol: udp
+        mode: host
+      - target: 40032
+        published: 40032
+        protocol: udp
+        mode: host
+      - target: 40033
+        published: 40033
+        protocol: udp
+        mode: host
+      - target: 40034
+        published: 40034
+        protocol: udp
+        mode: host
+      - target: 40035
+        published: 40035
+        protocol: udp
+        mode: host
+      - target: 40036
+        published: 40036
+        protocol: udp
+        mode: host
+      - target: 40037
+        published: 40037
+        protocol: udp
+        mode: host
+      - target: 40038
+        published: 40038
+        protocol: udp
+        mode: host
+      - target: 40039
+        published: 40039
+        protocol: udp
+        mode: host
+      - target: 40040
+        published: 40040
+        protocol: udp
+        mode: host
+      - target: 40041
+        published: 40041
+        protocol: udp
+        mode: host
+      - target: 40042
+        published: 40042
+        protocol: udp
+        mode: host
+      - target: 40043
+        published: 40043
+        protocol: udp
+        mode: host
+      - target: 40044
+        published: 40044
+        protocol: udp
+        mode: host
+      - target: 40045
+        published: 40045
+        protocol: udp
+        mode: host
+      - target: 40046
+        published: 40046
+        protocol: udp
+        mode: host
+      - target: 40047
+        published: 40047
+        protocol: udp
+        mode: host
+      - target: 40048
+        published: 40048
+        protocol: udp
+        mode: host
+      - target: 40049
+        published: 40049
+        protocol: udp
+        mode: host
+      - target: 40050
+        published: 40050
+        protocol: udp
+        mode: host
+      - target: 40051
+        published: 40051
+        protocol: udp
+        mode: host
+      - target: 40052
+        published: 40052
+        protocol: udp
+        mode: host
+      - target: 40053
+        published: 40053
+        protocol: udp
+        mode: host
+      - target: 40054
+        published: 40054
+        protocol: udp
+        mode: host
+      - target: 40055
+        published: 40055
+        protocol: udp
+        mode: host
+      - target: 40056
+        published: 40056
+        protocol: udp
+        mode: host
+      - target: 40057
+        published: 40057
+        protocol: udp
+        mode: host
+      - target: 40058
+        published: 40058
+        protocol: udp
+        mode: host
+      - target: 40059
+        published: 40059
+        protocol: udp
+        mode: host
+      - target: 40060
+        published: 40060
+        protocol: udp
+        mode: host
+      - target: 40061
+        published: 40061
+        protocol: udp
+        mode: host
+      - target: 40062
+        published: 40062
+        protocol: udp
+        mode: host
+      - target: 40063
+        published: 40063
+        protocol: udp
+        mode: host
+      - target: 40064
+        published: 40064
+        protocol: udp
+        mode: host
+      - target: 40065
+        published: 40065
+        protocol: udp
+        mode: host
     env_file:
       - .env
       - ./services/voice-service/.env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3005}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
+      # Huy: bắt buộc từ services/voice-service/.env (deploy-stack.sh source trước). Rỗng → Mongo fail + CORS block.
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USE_AUTH: ${REDIS_USE_AUTH:-false}
+      ORGANIZATION_SERVICE_URL: ${ORGANIZATION_SERVICE_URL}
+      USER_SERVICE_URL: ${USER_SERVICE_URL}
+      CHAT_SERVICE_URL: ${CHAT_SERVICE_URL}
+      CHAT_SERVICE_DIRECT_URL: ${CHAT_SERVICE_DIRECT_URL}
+      FRIEND_SERVICE_URL: ${FRIEND_SERVICE_URL}
+      SOCKET_SERVICE_URL: ${SOCKET_SERVICE_URL}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://voicehub.local}
+      VOICE_SIGNAL_PATH: /voice-socket
+      MEDIASOUP_LISTEN_IP: ${MEDIASOUP_LISTEN_IP:-0.0.0.0}
+      MEDIASOUP_ANNOUNCED_IP: ${MEDIASOUP_ANNOUNCED_IP}
+      MEDIASOUP_PREFER_TCP: ${MEDIASOUP_PREFER_TCP:-true}
+      MEDIASOUP_LOG_LEVEL: ${MEDIASOUP_LOG_LEVEL:-warn}
+      MEDIASOUP_INITIAL_OUTGOING_BITRATE: ${MEDIASOUP_INITIAL_OUTGOING_BITRATE:-1000000}
+      MEDIASOUP_IN_DOCKER: ${MEDIASOUP_IN_DOCKER:-true}
+      RTC_MIN_PORT: ${RTC_MIN_PORT:-40000}
+      RTC_MAX_PORT: ${RTC_MAX_PORT:-40065}
+      REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN}
+      CHAT_INTERNAL_TOKEN: ${CHAT_INTERNAL_TOKEN}
+      USER_SERVICE_INTERNAL_TOKEN: ${USER_SERVICE_INTERNAL_TOKEN}
+      NOTIFICATION_INTERNAL_TOKEN: ${NOTIFICATION_INTERNAL_TOKEN}
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_QUORUM_QUEUES: ${RABBITMQ_QUORUM_QUEUES:-true}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_REGION: ${MINIO_REGION}
+      MINIO_USE_SSL: ${MINIO_USE_SSL}
+      VOICE_RECORDING_ENABLED: ${VOICE_RECORDING_ENABLED}
+      VOICE_RECORDING_MODE: ${VOICE_RECORDING_MODE:-server}
+      VOICE_RECORDING_LEGACY_AUTO: ${VOICE_RECORDING_LEGACY_AUTO:-false}
+      VOICE_RECORDING_OPUS_BITRATE_KBPS: ${VOICE_RECORDING_OPUS_BITRATE_KBPS:-16}
+      VOICE_RECORDING_MIN_BYTES: ${VOICE_RECORDING_MIN_BYTES:-2048}
+      VOICE_RECORDING_KEEP_PER_USER: ${VOICE_RECORDING_KEEP_PER_USER:-25}
+      VOICE_RECORDING_AUDIO_RETENTION_DAYS: ${VOICE_RECORDING_AUDIO_RETENTION_DAYS:-7}
+      VOICE_RECORDING_GC_INTERVAL_MS: ${VOICE_RECORDING_GC_INTERVAL_MS:-3600000}
+      VOICE_RECORDING_MAX_UPLOAD_MB: ${VOICE_RECORDING_MAX_UPLOAD_MB:-50}
+      RABBITMQ_VOICE_RECORDING_QUEUE: ${RABBITMQ_VOICE_RECORDING_QUEUE:-voice.recording.process}
+      VOICE_STT_ENABLED: ${VOICE_STT_ENABLED:-true}
+      VOICE_STT_CHUNK_SEC: ${VOICE_STT_CHUNK_SEC:-20}
+      VOICE_AI_SUMMARY_ENABLED: ${VOICE_AI_SUMMARY_ENABLED:-true}
+      VOICE_MEETING_MIN_PERSIST_SEC: ${VOICE_MEETING_MIN_PERSIST_SEC:-60}
+      MIN_VOICE_RECORDING_SEC: ${MIN_VOICE_RECORDING_SEC:-1}
+      RABBITMQ_VOICE_STT_QUEUE: ${RABBITMQ_VOICE_STT_QUEUE:-voice.stt.chunk}
+      RABBITMQ_VOICE_SUMMARY_QUEUE: ${RABBITMQ_VOICE_SUMMARY_QUEUE:-voice.summary.process}
+      VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-self_hosted}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
     networks:
       - enterprise-network
     deploy:
@@ -420,13 +772,13 @@ services:
       resources:
         limits:
           cpus: "1.50"
-          memory: 512M
+          memory: 384M
         reservations:
           cpus: "0.50"
-          memory: 192M
+          memory: 128M
 
   notification-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/notification-service:${TAG}
+    image: ${NOTIFICATION_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/notification-service/.env
@@ -449,7 +801,7 @@ services:
           memory: 80M
 
   notification-dispatch-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/notification-service:${TAG}
+    image: ${NOTIFICATION_SERVICE_IMAGE}
     command: ["node", "src/worker.js"]
     env_file:
       - .env
@@ -478,7 +830,7 @@ services:
           memory: 96M
 
   webhook-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/webhook-service:${TAG}
+    image: ${WEBHOOK_SERVICE_IMAGE}
     env_file:
       - .env
       - ./services/webhook-service/.env
@@ -501,7 +853,7 @@ services:
           memory: 64M
 
   webhook-delivery-worker:
-    image: ${REGISTRY}/${OWNER}/voicehub/webhook-service:${TAG}
+    image: ${WEBHOOK_SERVICE_IMAGE}
     command: ["python", "worker.py"]
     env_file:
       - .env
@@ -531,7 +883,10 @@ services:
           memory: 128M
 
   socket-service:
-    image: ${REGISTRY}/${OWNER}/voicehub/socket-service:${TAG}
+    image: ${SOCKET_SERVICE_IMAGE}
+    # Không publish ports — chỉ enterprise-network; client WS qua api-gateway.
+    expose:
+      - "3017"
     env_file:
       - .env
       - ./services/socket-service/.env
@@ -540,6 +895,11 @@ services:
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_SENTINELS=${REDIS_SENTINELS:-}
+      - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
       - RABBITMQ_URL=${RABBITMQ_URL}
       - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE}
       - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN}
@@ -562,76 +922,6 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  mongodb:
-    image: mongo:7
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "1.00"
-          memory: 768M
-        reservations:
-          cpus: "0.25"
-          memory: 192M
-      placement:
-        constraints:
-          - node.role == manager
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 192M
-        reservations:
-          cpus: "0.10"
-          memory: 48M
-      placement:
-        constraints:
-          - node.role == manager
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "1.00"
-          memory: 512M
-        reservations:
-          cpus: "0.20"
-          memory: 128M
-      placement:
-        constraints:
-          - node.role == manager
-
   ollama:
     image: ollama/ollama:latest
     volumes:
@@ -645,10 +935,10 @@ services:
       resources:
         limits:
           cpus: "4.00"
-          memory: 6G
+          memory: 3G
         reservations:
           cpus: "1.00"
-          memory: 1536M
+          memory: 768M
       placement:
         constraints:
           - node.labels.ai == true
@@ -664,20 +954,16 @@ services:
       resources:
         limits:
           cpus: "2.00"
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: "0.50"
-          memory: 320M
+          memory: 192M
       placement:
         constraints:
           - node.labels.ai == true
 
 volumes:
-  mongodb_data:
-  redis_data:
-  rabbitmq_data:
   ollama_data:
-
 networks:
   enterprise-network:
     driver: overlay

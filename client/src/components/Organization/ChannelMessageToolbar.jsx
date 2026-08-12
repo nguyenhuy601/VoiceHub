@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Forward, MoreHorizontal, Pencil, Reply, SmilePlus } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAppStrings } from '../../locales/appStrings';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
 
 const DEFAULT_STORAGE_KEY = 'vh_org_recent_reactions';
@@ -49,6 +50,7 @@ export default function ChannelMessageToolbar({
   /** Tách lịch sử emoji kênh vs DM */
   recentReactionsStorageKey = DEFAULT_STORAGE_KEY,
 }) {
+  const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
   const location = useLocation();
   const [recent, setRecent] = useState(() => loadRecent(recentReactionsStorageKey));
@@ -129,7 +131,7 @@ export default function ChannelMessageToolbar({
       <div className={`relative flex items-center gap-0.5 ${compact ? 'pl-0' : 'pl-0.5'}`}>
         <button
           type="button"
-          title="Thêm biểu cảm"
+          title={t('chat.addReaction')}
           disabled={disabled}
           onClick={() => setEmojiOpen((v) => !v)}
           className={iconBtn}
@@ -140,7 +142,7 @@ export default function ChannelMessageToolbar({
           <>
             <button
               type="button"
-              aria-label="Đóng"
+              aria-label={t('nav.close')}
               className={`${shellNavRailBackdrop} z-[60] cursor-default bg-transparent`}
               onClick={() => setEmojiOpen(false)}
             />
@@ -168,7 +170,7 @@ export default function ChannelMessageToolbar({
 
         <button
           type="button"
-          title={showEdit ? 'Chỉnh sửa' : 'Trả lời'}
+          title={showEdit ? t('chat.editMessage') : t('chat.replyMessage')}
           disabled={disabled}
           onClick={() => onMiddleAction?.()}
           className={iconBtn}
@@ -182,7 +184,7 @@ export default function ChannelMessageToolbar({
 
         <button
           type="button"
-          title="Chuyển tiếp"
+          title={t('chat.forwardMessage')}
           disabled={disabled}
           onClick={() => onForward?.()}
           className={iconBtn}
@@ -192,7 +194,7 @@ export default function ChannelMessageToolbar({
 
         <button
           type="button"
-          title="Những mục khác"
+          title={t('chat.moreItems')}
           disabled={disabled}
           onClick={(e) => onMore?.(e)}
           className={iconBtn}

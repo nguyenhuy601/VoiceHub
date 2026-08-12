@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppStrings } from '../locales/appStrings';
+import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { taskAPI } from '../services/api/taskAPI';
 import { meetingAPI } from '../services/api/meetingAPI';
 import {
@@ -48,6 +50,7 @@ function loadLocalCustomEvents() {
  * Support lọc theo organizationId nếu cần.
  */
 export function useCalendarFeed(selectedDate, organizationId = '') {
+  const { t } = useAppStrings();
   const [apiEvents, setApiEvents] = useState([]);
   const [localEvents, setLocalEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -98,16 +101,12 @@ export function useCalendarFeed(selectedDate, organizationId = '') {
       const merged = await fetchApi();
       setApiEvents(merged);
     } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.message ||
-        'Không tải được lịch';
-      setError(msg);
+      setError(resolveApiErrorMessage(e, { t, fallback: t('errors.generic') }));
       setApiEvents([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchApi]);
+  }, [fetchApi, t]);
 
   useEffect(() => {
     refetch();

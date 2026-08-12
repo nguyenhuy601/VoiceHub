@@ -10,6 +10,25 @@ router.delete(
   meetingController.purgeOrganizationMeetings.bind(meetingController)
 );
 
+const meetingRecordingController = require('../controllers/meetingRecording.controller');
+router.patch(
+  '/internal/:meetingId/recording',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchRecording.bind(meetingRecordingController)
+);
+
+router.patch(
+  '/internal/:meetingId/transcript-chunk',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchTranscriptChunk.bind(meetingRecordingController)
+);
+
+router.patch(
+  '/internal/:meetingId/summary',
+  internalGatewayAuth,
+  meetingRecordingController.internalPatchSummary.bind(meetingRecordingController)
+);
+
 router.use(authenticate);
 
 // Cuộc gọi 1-1 bạn bè — đặt trước route động `/:meetingId`
@@ -28,6 +47,9 @@ router.get('/rooms/:roomId/bootstrap', meetingController.bootstrapRoom.bind(meet
 const voiceRoomRoutes = require('./voiceRoom.routes');
 router.use('/rooms/:roomId', voiceRoomRoutes);
 
+const meetingRecordingRoutes = require('./meetingRecording.routes');
+router.use('/:meetingId/recording', meetingRecordingRoutes);
+
 // Lấy meeting theo ID
 router.get('/:meetingId', meetingController.getMeetingById.bind(meetingController));
 
@@ -43,8 +65,11 @@ router.post('/:meetingId/end', meetingController.endMeeting.bind(meetingControll
 // Thêm participant
 router.post('/:meetingId/participants', meetingController.addParticipant.bind(meetingController));
 
-// Xóa participant
+// Xóa / kick participant
 router.delete('/:meetingId/participants/:userId', meetingController.removeParticipant.bind(meetingController));
+
+// Mute participant (host / org admin)
+router.post('/:meetingId/participants/:userId/mute', meetingController.muteParticipant.bind(meetingController));
 
 module.exports = router;
 

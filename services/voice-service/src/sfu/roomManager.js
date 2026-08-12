@@ -61,6 +61,18 @@ class RoomManager {
     return this.rooms.get(roomId) || null;
   }
 
+  findProducer(roomId, producerId) {
+    const room = this.getRoom(roomId);
+    if (!room) return null;
+    for (const peer of room.peers.values()) {
+      const producer = peer.producers.get(producerId);
+      if (producer) {
+        return { producer, peer };
+      }
+    }
+    return null;
+  }
+
   _ensurePeer(room, socketId, userInfo = {}) {
     if (room.peers.has(socketId)) {
       return room.peers.get(socketId);
@@ -251,6 +263,13 @@ class RoomManager {
     return items;
   }
 
+  _evictPeer(room, peer) {
+    for (const consumer of peer.consumers.values()) consumer.close();
+    for (const producer of peer.producers.values()) producer.close();
+    for (const transport of peer.transports.values()) transport.close();
+    room.peers.delete(peer.socketId);
+  }
+
   leaveRoom({ roomId, socketId }) {
     const room = this.getRoom(roomId);
     if (!room) return { removed: false, roomClosed: false };
@@ -258,10 +277,7 @@ class RoomManager {
     const peer = room.peers.get(socketId);
     if (!peer) return { removed: false, roomClosed: false };
 
-    for (const consumer of peer.consumers.values()) consumer.close();
-    for (const producer of peer.producers.values()) producer.close();
-    for (const transport of peer.transports.values()) transport.close();
-    room.peers.delete(socketId);
+    this._evictPeer(room, peer);
 
     const roomClosed = room.peers.size === 0;
     if (roomClosed) {
@@ -275,7 +291,63 @@ class RoomManager {
       roomClosed,
       userId: peer.userId,
       displayName: peer.displayName,
+      socketId: peer.socketId,
     };
+  }
+
+  /** Evict all SFU peers for a user (admin kick / force leave). */
+  leaveRoomByUserId({ roomId, userId }) {
+    const room = this.getRoom(roomId);
+    if (!room) return { removed: [], roomClosed: false };
+
+    const uid = String(userId || '').trim();
+    const matches = [...room.peers.values()].filter((p) => String(p.userId) === uid);
+    const removed = [];
+    for (const peer of matches) {
+      removed.push(this.leaveRoom({ roomId, socketId: peer.socketId }));
+    }
+    return {
+      removed,
+      roomClosed: !this.getRoom(roomId),
+    };
+  }
+
+  /** Pause audio producers for a user (force mute). */
+  async pauseAudioProducersByUserId({ roomId, userId }) {
+    const room = this.getRoom(roomId);
+    if (!room) return { paused: 0 };
+
+    const uid = String(userId || '').trim();
+    let paused = 0;
+    for (const peer of room.peers.values()) {
+      if (String(peer.userId) !== uid) continue;
+      for (const producer of peer.producers.values()) {
+        if (producer.kind !== 'audio') continue;
+        await producer.pause();
+        paused += 1;
+      }
+    }
+    return { paused };
+  }
+
+  closeRoom(roomId) {
+    const room = this.getRoom(roomId);
+    if (!room) return { closed: false, evicted: [] };
+
+    const evicted = [...room.peers.values()].map((peer) => ({
+      socketId: peer.socketId,
+      userId: peer.userId,
+      displayName: peer.displayName,
+    }));
+
+    for (const peer of room.peers.values()) {
+      this._evictPeer(room, peer);
+    }
+    room.router.close();
+    this.rooms.delete(roomId);
+    logger.info(`Force-closed SFU room ${roomId} (${evicted.length} peers)`);
+
+    return { closed: true, evicted };
   }
 
   _getPeerTransport({ roomId, socketId, transportId }) {

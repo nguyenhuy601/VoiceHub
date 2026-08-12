@@ -1,0 +1,58 @@
+const express = require('express');
+const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const gatewayUserMiddleware = require('./middlewares/gatewayUser');
+const { mongoose } = require('@enterprise/shared/config/mongo');
+
+const app = express();
+
+// Middleware
+app.use(createCorsMiddleware());
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(gatewayUserMiddleware);
+
+// Routes
+app.get('/health', (req, res) => {
+  const mongoOk = mongoose.connection.readyState === 1;
+  res.status(mongoOk ? 200 : 503).json({
+    status: mongoOk ? 'ok' : 'degraded',
+    service: 'project-service',
+    mongo: {
+      readyState: mongoose.connection.readyState,
+      ok: mongoOk,
+    },
+  });
+});
+
+// Project API (canonical) — Project ⊃ Board; projectId ≠ boardId
+const projectRoutes = require('./routes/project.routes');
+app.use('/api/projects', projectRoutes);
+
+// Task board routes (Kanban + legacy list) — không dùng POST / để tạo project
+const taskBoardRoutes = require('./routes/taskBoard.routes');
+const workspaceTaskBoardRoutes = require('./routes/workspaceTaskBoard.routes');
+app.use('/api/tasks/boards', taskBoardRoutes);
+app.use('/api/work/boards', taskBoardRoutes);
+// REST workspace facade — slug → organizationId, delegate cùng controller board
+app.use('/api/workspaces/:workspaceSlug/task-boards', workspaceTaskBoardRoutes);
+
+// Task routes
+const taskRoutes = require('./routes/task.routes');
+app.use('/api/tasks', taskRoutes);
+app.use('/api/work', taskRoutes); // Alias
+
+// 404
+app.use((req, res) => {
+  const { sendServiceError } = require('./middleware/sendServiceError');
+  sendServiceError(res, 404, {
+    errorCode: 'TASK_NOT_FOUND',
+    messageUser: 'Không tìm thấy tài nguyên.',
+    message: 'Not found',
+  });
+});
+
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
+
+module.exports = app;
+

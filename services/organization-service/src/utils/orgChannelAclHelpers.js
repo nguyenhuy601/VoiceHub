@@ -108,7 +108,15 @@ function hasExecutiveRbacRole(roleNames) {
       return true;
     }
     if (n === 'admin' || n.includes('owner') || n.includes('chủ sở')) return true;
-    if (n === 'hr' || n.includes('nhân sự') || n.includes('nhan su')) return true;
+    if (
+      n === 'hr' ||
+      n.includes('nhân sự') ||
+      n.includes('nhan su') ||
+      n.includes('vận hành hr') ||
+      n.includes('van hanh hr')
+    ) {
+      return true;
+    }
     return false;
   });
 }

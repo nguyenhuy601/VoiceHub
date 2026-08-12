@@ -4,16 +4,19 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
+import OneTimeCredentialsModal from '../../components/Auth/OneTimeCredentialsModal';
+import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
+import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -22,6 +25,9 @@ function LoginPage({ landingDemo = false } = {}) {
   const [loading, setLoading] = useState(false);
   /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   const [gatewayTrust, setGatewayTrust] = useState(null);
+  const [oneTimeCreds, setOneTimeCreds] = useState(null);
+  /** Sau invite: không có mk tạm → gợi ý quên mật khẩu */
+  const [inviteForgotHint, setInviteForgotHint] = useState(null);
 
   const inputBase = authInputSurface(isDarkMode);
   const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
@@ -35,10 +41,36 @@ function LoginPage({ landingDemo = false } = {}) {
     ? 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-600 bg-[#0c1018] text-cyan-500'
     : 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-300 text-cyan-600';
   const btnPrimary = authPrimaryButtonClass(isDarkMode);
+  const submitDisabled =
+    loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
 
   useEffect(() => {
+    const creds = consumeOneTimeLoginCredentials();
+    const fromInvite = Boolean(location.state?.fromCompanyInvite);
+    const prefillEmail = String(location.state?.prefillEmail || '').trim().toLowerCase();
+    const hasTempPassword = Boolean(location.state?.hasTempPassword);
+    const alreadyHadAccount = Boolean(location.state?.alreadyHadAccount);
+
+    if (creds) {
+      setOneTimeCreds(creds);
+      setFormData((prev) => ({
+        ...prev,
+        email: creds.email || prev.email,
+        password: creds.password || prev.password,
+      }));
+      setInviteForgotHint(null);
+    } else if (prefillEmail) {
+      setFormData((prev) => ({ ...prev, email: prefillEmail }));
+    }
+
+    if (fromInvite && !creds && (alreadyHadAccount || !hasTempPassword)) {
+      setInviteForgotHint({ email: prefillEmail });
+    }
+
     if (location.state?.message) {
-      toast.success(location.state.message);
+      toast.success(location.state.message, { id: 'company-invite-flash' });
+    }
+    if (location.state?.message || location.state?.prefillEmail || fromInvite) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
@@ -50,11 +82,11 @@ function LoginPage({ landingDemo = false } = {}) {
     }
     let cancelled = false;
     (async () => {
-      const t = await authService.checkGatewayTrust();
+      const trust = await authService.checkGatewayTrust();
       if (!cancelled) {
         setGatewayTrust({
-          ok: t.gatewayTrustConfigured,
-          message: t.message || '',
+          ok: trust.gatewayTrustConfigured,
+          message: trust.message || '',
         });
       }
     })();
@@ -62,6 +94,15 @@ function LoginPage({ landingDemo = false } = {}) {
       cancelled = true;
     };
   }, [landingDemo]);
+
+  useEffect(() => {
+    if (landingDemo || authLoading) return;
+    // Có mk tạm / vừa từ invite → giữ trang login, không đá về session cũ.
+    if (oneTimeCreds || inviteForgotHint) return;
+    if (isAuthenticated) {
+      navigate('/app', { replace: true });
+    }
+  }, [landingDemo, authLoading, isAuthenticated, navigate, oneTimeCreds, inviteForgotHint]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,6 +129,16 @@ function LoginPage({ landingDemo = false } = {}) {
     }
   };
 
+  const forgotHref = inviteForgotHint?.email
+    ? `/forgot-password?email=${encodeURIComponent(inviteForgotHint.email)}`
+    : formData.email
+      ? `/forgot-password?email=${encodeURIComponent(formData.email)}`
+      : '/forgot-password';
+
+  if (!landingDemo && !authLoading && isAuthenticated && !oneTimeCreds && !inviteForgotHint) {
+    return <BrandPageLoader />;
+  }
+
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
       <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
@@ -106,6 +157,21 @@ function LoginPage({ landingDemo = false } = {}) {
           </p>
         </div>
       )}
+
+      {inviteForgotHint ? (
+        <div
+          role="status"
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+            isDarkMode ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-950'
+          }`}
+        >
+          <p className="font-semibold">{t('acceptCompanyInvite.loginNoTempTitle')}</p>
+          <p className="mt-1 opacity-95">{t('acceptCompanyInvite.loginNoTempBody')}</p>
+          <Link to={forgotHref} className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
+            {t('acceptCompanyInvite.loginNoTempCta')}
+          </Link>
+        </div>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         <div>
@@ -128,7 +194,7 @@ function LoginPage({ landingDemo = false } = {}) {
             <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
               {t('login.password')}
             </label>
-            <Link to="/forgot-password" className={`text-base font-semibold transition ${linkCyan}`}>
+            <Link to={forgotHref} className={`text-base font-semibold transition ${linkCyan}`}>
               {t('login.forgot')}
             </Link>
           </div>
@@ -166,13 +232,20 @@ function LoginPage({ landingDemo = false } = {}) {
 
         <button
           type="submit"
-          disabled={loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok)}
+          disabled={submitDisabled}
           className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
         >
           {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}
           {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
         </button>
       </form>
+
+      <OneTimeCredentialsModal
+        open={Boolean(oneTimeCreds)}
+        email={oneTimeCreds?.email}
+        password={oneTimeCreds?.password}
+        onClose={() => setOneTimeCreds(null)}
+      />
     </AuthPageLayout>
   );
 }

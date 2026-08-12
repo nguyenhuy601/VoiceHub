@@ -1,10 +1,20 @@
 const UserAuth = require('../models/UserAuth');
 const axios = require('axios');
 const { validateRegistrationDateOfBirth } = require('../utils/dateOfBirth');
-const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
-const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
+const {
+  hashPassword,
+  comparePassword,
+  validatePasswordStrength,
+  generateTemporaryPassword,
+} = require('../utils/password');
+const { generateAccessToken, generateOpaqueRefreshToken } = require('../config/jwt');
 const { bumpTokenVersion, accessTokenPayload } = require('../utils/tokenVersion');
 const { cacheTokenVersion } = require('@enterprise/shared/utils/tokenVersionAuth');
+const { hashRefreshToken, refreshTokenMatches } = require('../utils/refreshTokenHash');
+const {
+  refreshTokenExpiresAtFromNow,
+  refreshTokenRedisTtlSeconds,
+} = require('../utils/jwtDuration');
 const { getRedisClient } = require('@enterprise/shared');
 const emailService = require('../utils/email');
 const { bootstrapUserProfile } = require('../utils/bootstrapUserProfile');
@@ -54,8 +64,82 @@ async function syncUserProfileEmail(userId, email) {
 }
 
 class AuthService {
+  normalizeSystemRole(role) {
+    const raw = String(role || '').trim().toLowerCase();
+    return raw === 'admin' ? 'admin' : 'employee';
+  }
+
+  /** Cấp access + refresh token mới (login, đổi mật khẩu). Bump tv — vô hiệu session/tab cũ. */
+  async issueSessionTokens(userAuth, plainEmail) {
+    await bumpTokenVersion(userAuth);
+    const payload = accessTokenPayload(userAuth, plainEmail);
+    await cacheTokenVersion(userAuth.userId, payload.tv);
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateOpaqueRefreshToken();
+
+    userAuth.refreshToken = hashRefreshToken(refreshToken);
+    userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
+    await userAuth.save();
+
+    const redis = getRedisClient();
+    if (redis && userAuth.userId) {
+      await redis.setex(
+        `refresh_token:${userAuth.userId}`,
+        refreshTokenRedisTtlSeconds(),
+        hashRefreshToken(refreshToken)
+      );
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: userAuth.userId,
+        email: plainEmail,
+        systemRole: this.normalizeSystemRole(userAuth.systemRole),
+        mustChangePassword: Boolean(userAuth.mustChangePassword),
+      },
+    };
+  }
+
+  /** Rotate refresh token — không bump tv. */
+  async rotateRefreshTokens(userAuth, plainEmail) {
+    const payload = accessTokenPayload(userAuth, plainEmail);
+    await cacheTokenVersion(userAuth.userId, payload.tv);
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateOpaqueRefreshToken();
+
+    userAuth.refreshToken = hashRefreshToken(refreshToken);
+    userAuth.refreshTokenExpiresAt = refreshTokenExpiresAtFromNow();
+    await userAuth.save();
+
+    const redis = getRedisClient();
+    if (redis && userAuth.userId) {
+      await redis.setex(
+        `refresh_token:${userAuth.userId}`,
+        refreshTokenRedisTtlSeconds(),
+        hashRefreshToken(refreshToken)
+      );
+    }
+
+    return { accessToken, refreshToken };
+  }
+
   // Đăng ký user mới
   async register(userData, frontendUrl) {
+    // Policy: tài khoản chỉ được cấp bởi admin hệ thống (internal provision).
+    // Không cho self-register trong mọi môi trường.
+    throw createServiceError(
+      'Đăng ký công khai đã tắt. Liên hệ quản trị hệ thống để cấp tài khoản.',
+      403,
+      'AUTH_REGISTER_DISABLED'
+    );
+    /*
+     * Giữ lại implementation cũ phía dưới để dễ rollback nếu policy thay đổi trong tương lai.
+     * eslint-disable-next-line no-unreachable
+     */
     try {
       const { email, password, firstName, lastName, dateOfBirth } = userData;
       const normalizedEmail = normalizeEmail(email);
@@ -108,7 +192,11 @@ class AuthService {
       // Validate password strength
       const passwordValidation = validatePasswordStrength(password);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash password
@@ -126,6 +214,7 @@ class AuthService {
         password: hashedPassword,
         firstName,
         lastName,
+        systemRole: 'employee',
         emailVerificationToken,
         emailVerificationExpiresAt,
         isEmailVerified: false,
@@ -223,6 +312,15 @@ class AuthService {
 
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
+      // Excel/HR pending: chưa đặt mk qua mail / chưa admin activate
+      if (!userAuth.isEmailVerified && !userAuth.isActive) {
+        throw createServiceError(
+          'Tài khoản đang chờ kích hoạt. Kiểm tra email đặt mật khẩu hoặc liên hệ admin.',
+          401,
+          'AUTH_PENDING_ACTIVATION'
+        );
+      }
+
       // Kiểm tra email đã được verify chưa
       if (!userAuth.isEmailVerified) {
         throw createServiceError('Vui lòng xác thực email trước khi đăng nhập', 401, 'AUTH_EMAIL_NOT_VERIFIED');
@@ -252,67 +350,41 @@ class AuthService {
       userAuth.lastLoginAt = new Date();
       await userAuth.save();
 
-      // Tạo tokens (kèm tokenVersion để revoke sau logout/đổi mật khẩu)
-      const payload = accessTokenPayload(userAuth, plainEmail);
-      await cacheTokenVersion(userAuth.userId, payload.tv);
-
-      const accessToken = generateAccessToken(payload);
-      const refreshToken = generateRefreshToken(payload);
-
-      // Lưu refresh token vào database
-      userAuth.refreshToken = refreshToken;
-      userAuth.refreshTokenExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-      await userAuth.save();
-
-      // Cache refresh token trong Redis
-      const redis = getRedisClient();
-      if (redis) {
-        const cacheKey = `refresh_token:${userAuth.userId}`;
-        await redis.setex(cacheKey, 30 * 24 * 60 * 60, refreshToken); // 30 days
-      }
-
       // Đảm bảo UserProfile tồn tại (phòng bootstrap verify email lỗi trước đó)
       void bootstrapUserProfile(userAuth, userAuth.userId);
 
-      return {
-        accessToken,
-        refreshToken,
-        user: {
-          id: userAuth.userId,
-          email: plainEmail,
-        },
-      };
+      return await this.issueSessionTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
   }
 
-  // Refresh access token
-  async refreshToken(refreshToken) {
+  // Refresh access token (+ rotate refresh token)
+  async refreshToken(refreshTokenRaw) {
     try {
-      // Verify refresh token
-      const decoded = verifyRefreshToken(refreshToken);
+      const raw = String(refreshTokenRaw || '').trim();
+      if (!raw) {
+        throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
+      }
 
-      // Kiểm tra refresh token trong database
-      const userAuth = await UserAuth.findOne({
-        userId: decoded.id,
-        refreshToken,
-      });
+      const hashed = hashRefreshToken(raw);
+      // Ưu tiên lookup theo hash đã lưu, fallback legacy plaintext nếu có dữ liệu cũ.
+      let userAuth = await UserAuth.findOne({ refreshToken: hashed }).maxTimeMS(5000);
+      if (!userAuth) {
+        userAuth = await UserAuth.findOne({ refreshToken: raw }).maxTimeMS(5000);
+      }
 
       if (!userAuth || userAuth.refreshTokenExpiresAt < new Date()) {
         throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
       }
 
+      if (!refreshTokenMatches(userAuth, raw)) {
+        throw createServiceError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401, 'AUTH_REFRESH_INVALID');
+      }
+
       const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
-      const payload = accessTokenPayload(userAuth, plainEmail);
-      await cacheTokenVersion(userAuth.userId, payload.tv);
-
-      const accessToken = generateAccessToken(payload);
-
-      return {
-        accessToken,
-      };
+      return await this.rotateRefreshTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
@@ -362,25 +434,23 @@ class AuthService {
       // Validate new password strength
       const passwordValidation = validatePasswordStrength(newPassword);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
-      // Cập nhật password và vô hiệu token cũ
+      // Cập nhật password, thu hồi session cũ rồi cấp JWT mới (bump tv trong issueSessionTokens)
       userAuth.password = hashedPassword;
-      userAuth.refreshToken = null;
-      userAuth.refreshTokenExpiresAt = null;
-      await bumpTokenVersion(userAuth);
+      userAuth.mustChangePassword = false;
       await userAuth.save();
 
-      const redis = getRedisClient();
-      if (redis && userAuth.userId) {
-        await redis.del(`refresh_token:${userAuth.userId}`);
-      }
-
-      return true;
+      const plainEmail = await hydrateAuthEmailDoc(userAuth);
+      return await this.issueSessionTokens(userAuth, plainEmail);
     } catch (error) {
       throw error;
     }
@@ -428,7 +498,7 @@ class AuthService {
             'http://localhost:5173'
         ).replace(/\/+$/, '');
         response.resetToken = passwordResetToken;
-        response.resetUrl = `${baseNormalized}/reset-password?token=${passwordResetToken}`;
+        response.resetUrl = `${baseNormalized}/reset-password#token=${encodeURIComponent(passwordResetToken)}`;
       }
 
       return response;
@@ -495,7 +565,7 @@ class AuthService {
             'http://localhost:5173'
         ).replace(/\/+$/, '');
         response.verificationToken = emailVerificationToken;
-        response.verificationUrl = `${baseNormalized}/verify-email?token=${emailVerificationToken}`;
+        response.verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(emailVerificationToken)}`;
       }
 
       return response;
@@ -551,7 +621,7 @@ class AuthService {
           'http://localhost:5173'
       ).replace(/\/+$/, '');
       response.verificationToken = token;
-      response.verificationUrl = `${baseNormalized}/verify-email-change?token=${token}`;
+      response.verificationUrl = `${baseNormalized}/verify-email-change#token=${encodeURIComponent(token)}`;
     }
     return response;
   }
@@ -613,18 +683,26 @@ class AuthService {
       // Validate new password strength
       const passwordValidation = validatePasswordStrength(newPassword);
       if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join(', '));
+        throw createServiceError(
+          passwordValidation.errors.join(', '),
+          400,
+          'AUTH_WEAK_PASSWORD'
+        );
       }
 
       // Hash new password
       const hashedPassword = await hashPassword(newPassword);
 
       // Cập nhật password, xóa reset token và vô hiệu session cũ
+      // HR Excel pending: đặt mk qua mail = chứng minh mailbox → kích hoạt tài khoản (hướng A).
       userAuth.password = hashedPassword;
       userAuth.passwordResetToken = null;
       userAuth.passwordResetExpiresAt = null;
       userAuth.refreshToken = null;
       userAuth.refreshTokenExpiresAt = null;
+      userAuth.mustChangePassword = false;
+      userAuth.isActive = true;
+      userAuth.isEmailVerified = true;
       await bumpTokenVersion(userAuth);
       await userAuth.save();
 
@@ -637,6 +715,147 @@ class AuthService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * IT/HR provision.
+   * - readyForLogin=true (seed/invite accept): active + verified ngay.
+   * - readyForLogin=false (Excel HR): pending — chưa login đến khi đặt mk qua mail hoặc admin activate.
+   */
+  async provisionUserByAdmin({
+    email,
+    firstName,
+    lastName,
+    password,
+    systemRole,
+    resetPassword = false,
+    readyForLogin = false,
+  }) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      throw createServiceError('Email là bắt buộc', 400, 'VALIDATION_REQUIRED');
+    }
+    const fn = String(firstName || '').trim() || 'Nhân';
+    const ln = String(lastName || '').trim() || 'Viên';
+
+    const normalizedSystemRole = this.normalizeSystemRole(systemRole);
+
+    await ensureMongoReady('PROVISION');
+
+    const providedPassword = String(password || '').trim();
+    const activateNow = Boolean(readyForLogin);
+
+    const existingUser = await findUserAuthByEmail(normalizedEmail, {
+      maxTimeMS: 15000,
+      lean: false,
+    });
+    if (existingUser?.userId) {
+      let touched = false;
+      if (resetPassword && providedPassword) {
+        const passwordValidation = validatePasswordStrength(providedPassword);
+        if (!passwordValidation.isValid) {
+          throw createServiceError(
+            passwordValidation.errors.join(', '),
+            400,
+            'AUTH_WEAK_PASSWORD'
+          );
+        }
+        existingUser.password = await hashPassword(providedPassword);
+        existingUser.mustChangePassword = false;
+        touched = true;
+      }
+      if (activateNow && normalizedSystemRole) {
+        existingUser.systemRole = normalizedSystemRole;
+        touched = true;
+      }
+      if (activateNow) {
+        existingUser.mustChangePassword = false;
+        existingUser.isActive = true;
+        existingUser.isEmailVerified = true;
+        touched = true;
+      }
+      if (touched) await existingUser.save();
+      // Re-import / compensate: auth còn mà profile mất → bootstrap lại trước khi org ghi fields.
+      await bootstrapUserProfile(existingUser, existingUser.userId);
+      // Luôn sync email profile (kể cả không touched) — sửa data bị ghi nhầm email admin.
+      try {
+        await syncUserProfileEmail(existingUser.userId, normalizedEmail);
+      } catch (syncErr) {
+        console.warn(
+          '[AuthService] syncUserProfileEmail (existing) failed:',
+          syncErr?.message || syncErr
+        );
+      }
+      const pendingActivation = !existingUser.isActive && !existingUser.isEmailVerified;
+      return {
+        userId: String(existingUser.userId),
+        email: normalizedEmail,
+        created: false,
+        systemRole: this.normalizeSystemRole(existingUser.systemRole),
+        mustChangePassword: Boolean(existingUser.mustChangePassword),
+        temporaryPassword: resetPassword && providedPassword ? providedPassword : undefined,
+        isActive: Boolean(existingUser.isActive),
+        isEmailVerified: Boolean(existingUser.isEmailVerified),
+        pendingActivation,
+      };
+    }
+    if (existingUser && !existingUser.userId) {
+      throw createServiceError('Email đang chờ xác thực', 409, 'AUTH_EMAIL_PENDING');
+    }
+
+    const tempPassword = providedPassword || generateTemporaryPassword(12);
+
+    const passwordValidation = validatePasswordStrength(tempPassword);
+    if (!passwordValidation.isValid) {
+      throw createServiceError(
+        passwordValidation.errors.join(', '),
+        400,
+        'AUTH_WEAK_PASSWORD'
+      );
+    }
+
+    const hashedPassword = await hashPassword(tempPassword);
+    const userId = new mongoose.Types.ObjectId();
+    /** Seed/UAT: admin đã đặt mật khẩu + readyForLogin → không bắt đổi MK lần đầu. */
+    const mustChangePassword = !(providedPassword && activateNow);
+
+    const userAuth = new UserAuth({
+      userId,
+      ...writeEmailFields(normalizedEmail),
+      password: hashedPassword,
+      firstName: fn,
+      lastName: ln,
+      systemRole: normalizedSystemRole,
+      isEmailVerified: activateNow,
+      isActive: activateNow,
+      mustChangePassword: activateNow ? mustChangePassword : true,
+      emailVerificationToken: null,
+      emailVerificationExpiresAt: null,
+    });
+
+    await userAuth.save();
+    await bootstrapUserProfile(userAuth, userId);
+    try {
+      await syncUserProfileEmail(userId, normalizedEmail);
+    } catch (syncErr) {
+      console.warn(
+        '[AuthService] syncUserProfileEmail (created) failed:',
+        syncErr?.message || syncErr
+      );
+    }
+
+    return {
+      userId: userId.toString(),
+      email: normalizedEmail,
+      created: true,
+      systemRole: normalizedSystemRole,
+      // Không trả temp password khi pending Excel — NV đặt mk qua mail / admin activate.
+      temporaryPassword: activateNow ? tempPassword : undefined,
+      mustChangePassword: Boolean(userAuth.mustChangePassword),
+      isActive: Boolean(userAuth.isActive),
+      isEmailVerified: Boolean(userAuth.isEmailVerified),
+      pendingActivation: !activateNow,
+    };
   }
 
   // Xác thực email

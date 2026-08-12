@@ -9,7 +9,13 @@ exports.protect = async (req, res, next) => {
     const forwardedId = req.headers['x-user-id'];
     if (forwardedId && isTrustedGatewayForward(req)) {
       const id = String(forwardedId).trim();
-      req.user = { id, _id: id, email: req.headers['x-user-email'] || undefined };
+      const systemRole = String(req.headers['x-user-system-role'] || '').trim() || undefined;
+      req.user = {
+        id,
+        _id: id,
+        email: req.headers['x-user-email'] || undefined,
+        ...(systemRole ? { systemRole } : {}),
+      };
       return next();
     }
 

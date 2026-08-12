@@ -1,23 +1,32 @@
 # VoiceHub Swarm Operations
 
-## Files
-- `stack-audit.md`: checklist audit for swarm readiness.
-- `env-secrets-inventory.md`: env/secrets inventory.
-- `build-and-push.sh`: local build/push helper.
-- `deploy-stack.sh`: deploy stack command wrapper.
-- `node-labels.sh`: apply node labels for placement.
-- `realtime-ha-checklist.md`: sticky + Redis adapter verification.
-- `cutover-runbook.md`: Plan A rollout/rollback.
-- `observability-baseline.md`: monitoring baseline.
-- `domain-worker-candidates.md`: Plan B candidate workers.
-- `autoscale-policy.md`: scaling thresholds.
-- `load-chaos-validation.md`: validation scenarios.
-- `ha-infra-roadmap.md`: infra HA roadmap.
-- `scale-runbook.sh`: scale command templates.
+> **Script còn lại:** [OPERATIONS.md](./OPERATIONS.md) — build, deploy, scale, CF lockdown.  
+> Script verify theo phase (`run-p*.sh`, …) đã gỡ; dùng checklist trong `docs/` + smoke thủ công trong OPERATIONS.
+
+## Files chính
+
+| File | Mô tả |
+|------|-------|
+| [OPERATIONS.md](./OPERATIONS.md) | Danh mục script vận hành + smoke thủ công |
+| [ha-infra-roadmap.md](./ha-infra-roadmap.md) | Roadmap Phase 0–5 |
+| [staging-nginx-edge.md](./staging-nginx-edge.md) | Nginx TLS dev / prod-edge |
+| [voice-staging-smoke.md](./voice-staging-smoke.md) | Voice smoke checklist |
+| [realtime-ha-checklist.md](./realtime-ha-checklist.md) | Socket / DM checklist |
+| [phase2-workers-autoscale-runbook.md](./phase2-workers-autoscale-runbook.md) | Scale workers |
+| [p1-atlas-migration-runbook.md](./p1-atlas-migration-runbook.md) | Atlas cutover |
+| [observability-baseline.md](./observability-baseline.md) | Monitoring baseline |
+| [rollback-runbook.md](./rollback-runbook.md) | `docker service update --rollback` |
+| [stack-audit.md](./stack-audit.md) | Checklist audit Swarm |
 
 ## Quick start
-1. Build/push images.
-2. Label nodes.
-3. Deploy stack.
-4. Run canary.
-5. Scale workers by queue backlog.
+
+1. `bash devops/scripts/rotate-staging-secrets.sh --apply`
+2. `VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh`
+3. `bash devops/swarm/build-local-images.sh`
+4. `bash devops/swarm/node-labels.sh`
+5. `bash devops/swarm/deploy-stack.sh`
+6. Smoke: xem [OPERATIONS.md § Smoke thủ công](./OPERATIONS.md#smoke-thủ-công)
+
+## Production cutover
+
+[production-cutover-voicehub-guide.md](../../.cursor/plans/docs/production-cutover-voicehub-guide.md)

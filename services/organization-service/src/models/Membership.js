@@ -1,5 +1,7 @@
 const { mongoose } = require('@enterprise/shared/config/mongo');
 
+// CẤM populate path `user` — model User không đăng ký trong organization-service.
+
 const membershipSchema = new mongoose.Schema(
   {
     user: {
@@ -16,6 +18,15 @@ const membershipSchema = new mongoose.Schema(
       type: String,
       enum: ['owner', 'admin', 'hr', 'member'],
       default: 'member',
+    },
+    /**
+     * Trace nguồn cấp Membership (manual = mời tay, excel_import = import hàng loạt HR).
+     * Thêm additive để không phá contract hiện tại.
+     */
+    source: {
+      type: String,
+      enum: ['manual', 'excel_import'],
+      default: 'manual',
     },
     joinedAt: {
       type: Date,
@@ -41,6 +52,12 @@ const membershipSchema = new mongoose.Schema(
 membershipSchema.index({ user: 1, organization: 1 }, { unique: true });
 membershipSchema.index({ organization: 1, role: 1, status: 1 });
 
+/**
+ * System/Tenant membership only (owner|admin|hr|member).
+ * P1: `department_head` / `team_leader` KHÔNG elevate System admin —
+ * chúng là Organization Role trên People Graph (xem organizationRoles.service).
+ * @see @enterprise/shared/config/roleTaxonomy LEGACY_MEMBERSHIP_ALIAS_DEBT
+ */
 membershipSchema.statics.normalizeRole = (role) => {
   const roleMap = {
     owner: 'owner',
@@ -50,7 +67,7 @@ membershipSchema.statics.normalizeRole = (role) => {
     nhan_su: 'hr',
     member: 'member',
     org_admin: 'admin',
-    department_head: 'admin',
+    department_head: 'member',
     team_leader: 'member',
     employee: 'member',
   };

@@ -41,7 +41,7 @@ Use your actual dev host LAN IP (DHCP có thể đổi IP — nên đặt IP tĩ
 powershell -ExecutionPolicy Bypass -File .\devops\nginx\print-lan-hosts-hint.ps1
 ```
 
-Chi tiết checklist + xử lý lỗi: [docs/lan-https-voicehub-local.md](../../docs/lan-https-voicehub-local.md).
+Chi tiết checklist + xử lý lỗi: [docs/lan-https-voicehub.local.md](../../docs/lan-https-voicehub.local.md).
 
 ## 4) Run Nginx with HTTPS config
 
@@ -89,7 +89,7 @@ Or run automated checks:
 
 ```powershell
 cd D:\VoiceHub
-powershell -ExecutionPolicy Bypass -File .\devops\nginx\verify-lan-https.ps1 -BaseUrl "https://voicehub.local"
+curl -skf https://voicehub.local/api/health
 ```
 
 ## 8) Voice WebRTC (không nghe được / Console: "Không có RTP")

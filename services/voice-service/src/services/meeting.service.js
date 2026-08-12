@@ -1,4 +1,5 @@
 const Meeting = require('../models/Meeting');
+const mongoose = require('../db');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
@@ -24,6 +25,21 @@ function assertMeetingHost(meeting, userId) {
     throw err;
   }
 }
+
+async function assertCanManageMeeting(meeting, actor) {
+  const uid = String(actor?.id || actor?.userId || actor?._id || '').trim();
+  try {
+    assertMeetingHost(meeting, uid);
+    return;
+  } catch (hostErr) {
+    const { isOrgMeetingAdmin } = require('../clients/orgMembership.client');
+    if (await isOrgMeetingAdmin(actor, meeting)) return;
+    throw hostErr;
+  }
+}
+
+const { resolveParticipantRemoval } = require('./meetingModeratePolicy');
+
 
 class MeetingService {
   // Tạo meeting mới
@@ -162,17 +178,20 @@ class MeetingService {
     }
   }
 
-  // Xóa participant khỏi meeting
+  // Xóa participant khỏi meeting (self-leave hoặc kick — authorize ở controller)
   async removeParticipant(meetingId, userId) {
     try {
       const meeting = await Meeting.findById(meetingId);
 
       if (!meeting) {
-        throw new Error('Meeting not found');
+        const err = new Error('Meeting not found');
+        err.statusCode = 404;
+        throw err;
       }
 
+      const targetId = String(userId || '').trim();
       const participant = meeting.participants.find(
-        (p) => p.userId.toString() === userId.toString() && !p.leftAt
+        (p) => p.userId.toString() === targetId && !p.leftAt
       );
 
       if (participant) {
@@ -180,11 +199,42 @@ class MeetingService {
         await meeting.save();
       }
 
-      logger.info(`Participant removed from meeting: ${meetingId}, user: ${userId}`);
+      logger.info(`Participant removed from meeting: ${meetingId}, user: ${targetId}`);
       return meeting;
     } catch (error) {
       logger.error('Error removing participant:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error removing participant: ${error.message}`);
+    }
+  }
+
+  async muteParticipant(meetingId, userId, muted = true) {
+    try {
+      const meeting = await Meeting.findById(meetingId);
+      if (!meeting) {
+        const err = new Error('Meeting not found');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const targetId = String(userId || '').trim();
+      const participant = meeting.participants.find(
+        (p) => p.userId.toString() === targetId && !p.leftAt
+      );
+      if (!participant) {
+        const err = new Error('Participant not found in meeting');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      participant.isMuted = Boolean(muted);
+      await meeting.save();
+      logger.info(`Participant mute=${participant.isMuted} meeting=${meetingId} user=${targetId}`);
+      return meeting;
+    } catch (error) {
+      logger.error('Error muting participant:', error);
+      if (error.statusCode) throw error;
+      throw new Error(`Error muting participant: ${error.message}`);
     }
   }
 
@@ -261,7 +311,8 @@ class MeetingService {
       const meetings = await Meeting.find(filter)
         .limit(limit * 1)
         .skip((page - 1) * limit)
-        .sort(sort);
+        .sort(sort)
+        .lean();
 
       const total = await Meeting.countDocuments(filter);
 
@@ -276,11 +327,113 @@ class MeetingService {
       throw new Error(`Error getting meetings: ${error.message}`);
     }
   }
+
+  /** Giữ tối đa `keep` cuộc họp mới nhất của user; xóa phần cũ hơn khỏi DB. */
+  async trimUserMeetingHistory(userId, keep = 25) {
+    const uidStr = String(userId || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(uidStr)) return { deleted: 0, deletedIds: [] };
+    const uid = new mongoose.Types.ObjectId(uidStr);
+    const keepN = Math.max(
+      parseInt(process.env.VOICE_RECORDING_KEEP_PER_USER || String(keep), 10) || keep,
+      1
+    );
+    const filter = {
+      $or: [{ hostId: uid }, { 'participants.userId': uid }],
+      status: { $in: ['active', 'ended'] },
+    };
+    const rows = await Meeting.find(filter)
+      .sort({ startTime: -1 })
+      .select('_id audioStoragePath tempStoragePath')
+      .lean();
+    if (rows.length <= keepN) return { deleted: 0, deletedIds: [] };
+    const overflow = rows.slice(keepN);
+    const overflowIds = overflow.map((r) => r._id);
+
+    const meetingRecordingService = require('./meetingRecording.service');
+    for (const row of overflow) {
+      try {
+        await meetingRecordingService.deleteMeetingStorage(row);
+      } catch (storageErr) {
+        logger.warn(`trimUserMeetingHistory storage delete failed meeting=${row._id}: ${storageErr.message}`);
+      }
+    }
+
+    const result = await Meeting.deleteMany({ _id: { $in: overflowIds } });
+    const deletedIds = overflowIds.map((id) => String(id));
+    logger.info(`trimUserMeetingHistory user=${uidStr} deleted=${result.deletedCount || 0}`);
+    return { deleted: result.deletedCount || 0, deletedIds };
+  }
+
+  enrichMeetingsWithRecordingFields(meetings) {
+    const meetingRecordingService = require('./meetingRecording.service');
+    if (!Array.isArray(meetings)) return meetings;
+    return meetings.map((m) => meetingRecordingService.enrichMeetingRecordingFields(m));
+  }
+
+  async enrichMeetingsWithRecordingFieldsAsync(meetings) {
+    const meetingRecordingService = require('./meetingRecording.service');
+    const meetingRecordingSegmentService = require('./meetingRecordingSegment.service');
+    if (!Array.isArray(meetings) || !meetings.length) return meetings;
+
+    const meetingIds = meetings
+      .map((m) => m?._id || m?.id)
+      .filter(Boolean);
+
+    const segmentsByMeeting = new Map();
+    if (meetingIds.length) {
+      const MeetingRecordingSegment = require('../models/MeetingRecordingSegment');
+      const rows = await MeetingRecordingSegment.find({ meetingId: { $in: meetingIds } })
+        .sort({ segmentIndex: 1 })
+        .lean();
+      for (const row of rows) {
+        const mid = String(row.meetingId);
+        if (!segmentsByMeeting.has(mid)) segmentsByMeeting.set(mid, []);
+        segmentsByMeeting.get(mid).push(meetingRecordingSegmentService.mapSegment(row));
+      }
+    }
+
+    return meetings.map((m) => {
+      const mid = String(m?._id || m?.id || '');
+      return meetingRecordingService.enrichMeetingRecordingFields(m, segmentsByMeeting.get(mid) || []);
+    });
+  }
+
+  async enrichMeetingsWithHostProfiles(meetings) {
+    if (!Array.isArray(meetings) || !meetings.length) return meetings;
+    const hostIds = [
+      ...new Set(
+        meetings
+          .map((m) => String(m?.hostId || '').trim())
+          .filter((id) => id && id !== 'undefined')
+      ),
+    ];
+    const profileMap = {};
+    await Promise.all(
+      hostIds.map(async (hostId) => {
+        try {
+          const res = await fetchUserProfileByIdInternal(hostId);
+          const body = res?.data?.data ?? res?.data ?? null;
+          if (body) profileMap[hostId] = body;
+        } catch {
+          /* ignore missing profile */
+        }
+      })
+    );
+    return meetings.map((m) => ({
+      ...m,
+      hostProfile: profileMap[String(m.hostId)] || null,
+    }));
+  }
 }
 
 const meetingServiceInstance = new MeetingService();
 meetingServiceInstance.userCanAccessMeeting = userCanAccessMeeting;
 meetingServiceInstance.assertMeetingHost = assertMeetingHost;
+meetingServiceInstance.assertCanManageMeeting = assertCanManageMeeting;
+meetingServiceInstance.resolveParticipantRemoval = resolveParticipantRemoval;
 
 module.exports = meetingServiceInstance;
+module.exports.resolveParticipantRemoval = resolveParticipantRemoval;
+module.exports.assertCanManageMeeting = assertCanManageMeeting;
+module.exports.assertMeetingHost = assertMeetingHost;
 

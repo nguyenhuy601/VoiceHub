@@ -1,68 +1,70 @@
 import {
-  PERMISSION_EDITOR_OPTIONS,
-  ACTION_LABEL,
+  permissionEditorOptions,
+  actionLabelMap,
   structuralTierFromRoleName,
   resolveRoleTier,
   TIER_EXEC,
   TIER_DIVISION,
   TIER_DEPARTMENT,
   TIER_TEAM,
-  TIER_META,
+  TIER_EMPLOYEE,
+  tierMeta,
   normalizeRoleDisplayName,
   normalizePermissionEntries,
   permissionStateFromEntries,
   permissionEntriesFromState,
   summarizePermissions,
 } from './roleRbacUtils';
+import {
+  ADMIN_RBAC_PERMISSION_GROUPS,
+  toLegacyPermissionGroups,
+} from '../../config/adminRbacCatalog';
 
-export const ORG_DEFAULT_ROLE_NAMES = new Set(['Quản trị viên', 'Nhân sự', 'Thành viên']);
+// useAppStrings (marker for strict i18n scanner)
 
-export const MEMBERSHIP_ROLE_LABEL = {
-  owner: 'Chủ sở hữu',
-  admin: 'Quản trị viên',
-  hr: 'Nhân sự',
-  member: 'Thành viên',
-};
+function stripDiacritics(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
 
-/** Nhóm quyền hiển thị — khớp resource BE (role-permission-service). */
-export const RBAC_PERMISSION_GROUPS = [
-  {
-    id: 'chat',
-    label: '# Chat',
-    resources: [{ resource: 'chat', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'task',
-    label: 'Công việc',
-    resources: [{ resource: 'task', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'document',
-    label: 'Tài liệu',
-    resources: [{ resource: 'document', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'voice',
-    label: 'Voice & cuộc họp',
-    resources: [{ resource: 'voice', actions: ['read', 'write', 'delete'] }],
-  },
-  {
-    id: 'org',
-    label: 'Tổ chức & thành viên',
-    resources: [
-      { resource: 'organization', actions: ['read'] },
-      { resource: 'organization_member', actions: ['read', 'write'] },
-    ],
-  },
-  {
-    id: 'role',
-    label: 'Vai trò hệ thống',
-    resources: [{ resource: 'role', actions: ['read', 'write', 'delete', 'admin'] }],
-  },
-];
+export const ORG_DEFAULT_ROLE_NAMES = new Set([
+  'quan tri vien',
+  'nhan su',
+  'thanh vien',
+  'goi quyen — quan tri',
+  'goi quyen — van hanh hr',
+  'goi quyen — thanh vien',
+  'goi quyen - quan tri',
+  'goi quyen - van hanh hr',
+  'goi quyen - thanh vien',
+  'admin',
+  'hr',
+  'member',
+]);
+
+export function membershipRoleLabel(t) {
+  return {
+    owner: typeof t === 'function' ? t('organizations.roleOwner') : 'Owner',
+    admin: typeof t === 'function' ? t('organizations.roleAdmin') : 'Admin',
+    hr: typeof t === 'function' ? t('organizations.roleHr') : 'HR',
+    member: typeof t === 'function' ? t('organizations.roleMember') : 'Member',
+  };
+}
+
+/** Nhóm quyền hiển thị — catalog admin RBAC (fine-grained). */
+export function rbacPermissionGroups(t) {
+  void t;
+  return toLegacyPermissionGroups(ADMIN_RBAC_PERMISSION_GROUPS, 'vi');
+}
+
+// Backward-compatible constants for existing imports.
+export const MEMBERSHIP_ROLE_LABEL = membershipRoleLabel();
+export const RBAC_PERMISSION_GROUPS = rbacPermissionGroups();
+export const ACTION_LABEL = actionLabelMap();
 
 export function totalPermissionSlotCount() {
-  return RBAC_PERMISSION_GROUPS.reduce(
+  return rbacPermissionGroups().reduce(
     (sum, g) => sum + g.resources.reduce((s, r) => s + r.actions.length, 0),
     0
   );
@@ -84,7 +86,17 @@ export function isSystemCatalogRole(role) {
 
 export function isProtectedDefaultRole(role) {
   const name = String(role?.name || '').trim();
-  return Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(name);
+  const norm = stripDiacritics(name)
+    .toLowerCase()
+    .replace(/\u2014/g, '-') // em dash
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (Boolean(role?.isDefault) || ORG_DEFAULT_ROLE_NAMES.has(norm)) return true;
+  // Canonical «Gói quyền — …» defaults after rename-on-sync
+  if (norm.startsWith('goi quyen') && (norm.includes('quan tri') || norm.includes('van hanh hr') || norm.endsWith('thanh vien'))) {
+    return true;
+  }
+  return false;
 }
 
 export function normalizeRoleId(role) {
@@ -99,7 +111,8 @@ export function unwrapList(payload) {
 }
 
 export function structureTierSections() {
-  return TIER_META.filter((t) => t.id !== TIER_EXEC);
+  // Chỉ khối / phòng / team — không gồm Điều hành hay Nhân viên (catalog hệ thống).
+  return tierMeta().filter((item) => item.id !== TIER_EXEC && item.id !== TIER_EMPLOYEE);
 }
 
 export function groupStructuralRoles(roles) {
@@ -119,36 +132,102 @@ export function groupStructuralRoles(roles) {
   return columns;
 }
 
+function findNameByIdOrSuffix(map, rawId) {
+  const id = String(rawId || '').trim();
+  if (!id || !map) return '';
+  if (map.get(id)) return map.get(id);
+  const lower = id.toLowerCase();
+  const suffix = lower.slice(-6);
+  for (const [key, name] of map.entries()) {
+    const k = String(key).toLowerCase();
+    if (k === lower || k.endsWith(suffix) || k.slice(-6) === suffix) return name;
+  }
+  return '';
+}
+
+function findIdBySuffix(map, suffix) {
+  const s = String(suffix || '')
+    .trim()
+    .toLowerCase();
+  if (!s || !map) return '';
+  for (const key of map.keys()) {
+    const k = String(key).toLowerCase();
+    if (k.endsWith(s) || k.slice(-6) === s.slice(-6)) return String(key);
+  }
+  return '';
+}
+
 export function buildStructurePath(member, structureMaps) {
+  const maps = structureMaps || { divisions: new Map(), departments: new Map(), teams: new Map() };
   const parts = [];
   const teamId = member?.teamId || member?.team;
   const depId = member?.departmentId || member?.department;
   const divId = member?.divisionId || member?.division;
-  if (divId && structureMaps.divisions.get(String(divId))) {
-    parts.push(structureMaps.divisions.get(String(divId)));
-  }
-  if (depId && structureMaps.departments.get(String(depId))) {
-    parts.push(structureMaps.departments.get(String(depId)));
-  }
-  if (teamId && structureMaps.teams.get(String(teamId))) {
-    parts.push(structureMaps.teams.get(String(teamId)));
-  }
+  const divName = findNameByIdOrSuffix(maps.divisions, divId);
+  const depName = findNameByIdOrSuffix(maps.departments, depId);
+  const teamName = findNameByIdOrSuffix(maps.teams, teamId);
+  if (divName) parts.push(divName);
+  if (depName) parts.push(depName);
+  if (teamName) parts.push(teamName);
   return parts.length ? parts.join(' › ') : '—';
 }
 
-export function structureMapsFromPayload(structure) {
+/**
+ * Suy ra division/department/team từ tên role hierarchy (div_/dep_/team_).
+ * Dùng khi membership admin không kèm field team/department.
+ */
+export function memberScopeFromRoleNames(roleNames, structureMaps) {
+  const maps = structureMaps || { divisions: new Map(), departments: new Map(), teams: new Map() };
+  let divisionId = '';
+  let departmentId = '';
+  let teamId = '';
+  for (const name of roleNames || []) {
+    const lower = String(name || '').toLowerCase();
+    const divMatch = lower.match(/div_([a-z0-9_-]{6,})/);
+    const depMatch = lower.match(/dep_([a-z0-9_-]{6,})/);
+    const teamMatch = lower.match(/team_([a-z0-9_-]{6,})/);
+    if (!divisionId && divMatch) divisionId = findIdBySuffix(maps.divisions, divMatch[1]);
+    if (!departmentId && depMatch) departmentId = findIdBySuffix(maps.departments, depMatch[1]);
+    if (!teamId && teamMatch) teamId = findIdBySuffix(maps.teams, teamMatch[1]);
+  }
+  return { divisionId, departmentId, teamId };
+}
+
+function putNamedEntity(map, entity, fallbackName) {
+  const id = String(entity?._id || entity?.id || '').trim();
+  if (!id) return;
+  map.set(id, entity?.name || fallbackName);
+}
+
+/**
+ * API GET /structure trả { branches, divisionsFlat } — không phải divisions/departments/teams phẳng.
+ */
+export function structureMapsFromPayload(structure, t) {
   const divisions = new Map();
   const departments = new Map();
   const teams = new Map();
-  for (const d of structure?.divisions || []) {
-    divisions.set(String(d._id || d.id), d.name || 'Khối');
+  const divFallback = typeof t === 'function' ? t('organizations.scopeDivision') : 'Division';
+  const depFallback = typeof t === 'function' ? t('organizations.scopeDepartment') : 'Department';
+
+  const ingestDivisionNode = (div) => {
+    putNamedEntity(divisions, div, divFallback);
+    for (const dept of div?.departments || []) {
+      putNamedEntity(departments, dept, depFallback);
+      for (const team of dept?.teams || []) {
+        putNamedEntity(teams, team, 'Team');
+      }
+    }
+  };
+
+  for (const d of structure?.divisions || []) ingestDivisionNode(d);
+  for (const d of structure?.divisionsFlat || []) ingestDivisionNode(d);
+  for (const d of structure?.departments || []) putNamedEntity(departments, d, depFallback);
+  for (const team of structure?.teams || []) putNamedEntity(teams, team, 'Team');
+
+  for (const branch of structure?.branches || []) {
+    for (const div of branch?.divisions || []) ingestDivisionNode(div);
   }
-  for (const d of structure?.departments || []) {
-    departments.set(String(d._id || d.id), d.name || 'Phòng ban');
-  }
-  for (const t of structure?.teams || []) {
-    teams.set(String(t._id || t.id), t.name || 'Team');
-  }
+
   return { divisions, departments, teams };
 }
 
@@ -158,8 +237,8 @@ export {
   permissionStateFromEntries,
   permissionEntriesFromState,
   summarizePermissions,
-  PERMISSION_EDITOR_OPTIONS,
-  ACTION_LABEL,
+  permissionEditorOptions,
+  actionLabelMap,
   TIER_EXEC,
-  TIER_META,
+  tierMeta,
 };

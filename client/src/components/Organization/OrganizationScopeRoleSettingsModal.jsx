@@ -4,6 +4,7 @@ import { ChevronDown, Plus, X } from 'lucide-react';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { displayDepartmentName } from '../../utils/orgEntityDisplay';
+import { useAppStrings } from '../../locales/appStrings';
 import { normalizeRoleDisplayName } from './roleRbacUtils';
 import ChannelPermissionTriToggle from './ChannelPermissionTriToggle';
 import {
@@ -27,6 +28,7 @@ export default function OrganizationScopeRoleSettingsModal({
   canManage = false,
   onSaved,
 }) {
+  const { t } = useAppStrings();
   const [orgRoles, setOrgRoles] = useState([]);
   const [assigned, setAssigned] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
@@ -39,12 +41,12 @@ export default function OrganizationScopeRoleSettingsModal({
   const isDepartment = scopeType === 'department';
   const isTeam = scopeType === 'team';
   const scopeLabel = isDivision
-    ? String(scope?.name || 'Khối')
+    ? String(scope?.name || t('organizations.scopeDivision'))
     : isTeam
-      ? String(scope?.name || 'Team')
+      ? String(scope?.name || t('organizations.scopeTeam'))
       : displayDepartmentName(scope?.name, locale);
 
-  const permGroups = useMemo(() => scopePermissionGroups(), []);
+  const permGroups = useMemo(() => scopePermissionGroups(t), [t]);
 
   const loadData = useCallback(async () => {
     if (!organizationId || !scopeId || !scopeType) return;
@@ -100,7 +102,7 @@ export default function OrganizationScopeRoleSettingsModal({
       setAssigned(assignedRows);
       setSelectedRoleId(assignedRows[0]?.id || '');
     } catch {
-      toast.error('Không tải được quyền theo vai trò');
+      toast.error(t('organizations.scopeRolePermLoadFail'));
       setOrgRoles([]);
       setAssigned([]);
       setSelectedRoleId('');
@@ -165,12 +167,16 @@ export default function OrganizationScopeRoleSettingsModal({
           : organizationAPI.saveDepartmentRoleAccess;
       await saveApi(organizationId, scopeId, { entries });
       toast.success(
-        isDivision ? 'Đã lưu quyền khối' : isTeam ? 'Đã lưu quyền team' : 'Đã lưu quyền phòng ban'
+        isDivision
+          ? t('organizations.scopeRolePermSavedDivision')
+          : isTeam
+            ? t('organizations.scopeRolePermSavedTeam')
+            : t('organizations.scopeRolePermSavedDepartment')
       );
       onSaved?.();
       onClose?.();
     } catch {
-      toast.error('Không lưu được quyền');
+      toast.error(t('organizations.scopeRolePermSaveFail'));
     } finally {
       setSaving(false);
     }
@@ -183,11 +189,15 @@ export default function OrganizationScopeRoleSettingsModal({
   const borderCls = isDarkMode ? 'border-[#1e1f22]' : 'border-slate-200';
   const textMuted = isDarkMode ? 'text-[#949ba4]' : 'text-slate-500';
   const textMain = isDarkMode ? 'text-[#f2f3f5]' : 'text-slate-900';
-  const scopeKind = isDivision ? 'Khối' : isTeam ? 'Team' : 'Phòng ban';
+  const scopeKind = isDivision
+    ? t('organizations.scopeDivision')
+    : isTeam
+      ? t('organizations.scopeTeam')
+      : t('organizations.scopeDepartment');
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-black/55" aria-label="Đóng" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-black/55" aria-label={t('organizations.modalClose')} onClick={onClose} />
       <div
         className={`relative flex h-[min(640px,90vh)] w-full max-w-4xl flex-col overflow-hidden rounded-xl shadow-2xl ${panelBg} ${textMain}`}
         role="dialog"
@@ -196,7 +206,7 @@ export default function OrganizationScopeRoleSettingsModal({
         <header className={`flex shrink-0 items-center justify-between border-b px-4 py-3 ${borderCls}`}>
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-base font-bold">
-              Quyền {scopeKind} · {scopeLabel}
+              {t('organizations.scopeRolePermTitle', { scopeKind, scopeLabel })}
             </h2>
             <ChevronDown className={`h-4 w-4 shrink-0 opacity-50 ${textMuted}`} />
           </div>
@@ -211,7 +221,7 @@ export default function OrganizationScopeRoleSettingsModal({
 
         {!canManage ? (
           <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
-            Chỉ quản trị viên (owner/admin) mới được cấu hình quyền.
+            {t('organizations.scopeRolePermManageDenied')}
           </div>
         ) : (
           <div className="flex min-h-0 flex-1">
@@ -219,7 +229,7 @@ export default function OrganizationScopeRoleSettingsModal({
               <div
                 className={`flex items-center justify-between px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide ${textMuted}`}
               >
-                <span>Vai trò</span>
+                <span>{t('organizations.memberMenuRoles')}</span>
                 <div className="relative">
                   <button
                     type="button"
@@ -257,10 +267,10 @@ export default function OrganizationScopeRoleSettingsModal({
               </div>
               <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-2 py-1">
                 {loading ? (
-                  <p className={`px-2 py-3 text-xs ${textMuted}`}>Đang tải…</p>
+                  <p className={`px-2 py-3 text-xs ${textMuted}`}>{t('common.loading')}</p>
                 ) : assigned.length === 0 ? (
                   <p className={`px-2 py-3 text-xs leading-relaxed ${textMuted}`}>
-                    Thêm vai trò để áp dụng quyền cho mọi kênh trong {scopeKind.toLowerCase()} này.
+                    {t('organizations.scopeRolePermAddRoleHint', { scopeKind: scopeKind.toLowerCase() })}
                   </p>
                 ) : (
                   assigned.map((role, idx) => (
@@ -294,7 +304,7 @@ export default function OrganizationScopeRoleSettingsModal({
                     onClick={handleRemoveSelectedRole}
                     className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-rose-400 hover:bg-rose-500/10"
                   >
-                    Gỡ bỏ {selectedRole.name}
+                    {t('organizations.channelRolePermRemoveRole', { role: selectedRole.name })}
                   </button>
                 </div>
               ) : null}
@@ -303,14 +313,15 @@ export default function OrganizationScopeRoleSettingsModal({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {!selectedRole ? (
                 <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
-                  Thêm vai trò để cấu hình quyền kế thừa xuống các kênh con.
+                  {t('organizations.scopeRolePermAddRoleConfigHint')}
                 </div>
               ) : (
                 <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-5 py-4">
                   <p className={`mb-4 text-xs ${textMuted}`}>
-                    Quyền áp dụng cho <strong className={textMain}>mọi kênh</strong> thuộc {scopeKind.toLowerCase()}{' '}
-                    <strong className={textMain}>{scopeLabel}</strong>. Kênh đã có cài đặt riêng sẽ{' '}
-                    <strong className={textMain}>ưu tiên</strong> hơn.
+                    {t('organizations.scopeRolePermScopeNote', {
+                      scopeKind: scopeKind.toLowerCase(),
+                      scopeLabel,
+                    })}
                   </p>
                   {permGroups.map((group) => (
                     <section key={group.id} className="mb-6">
@@ -349,7 +360,7 @@ export default function OrganizationScopeRoleSettingsModal({
                     isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
                   }`}
                 >
-                  Hủy
+                  {t('nav.cancel')}
                 </button>
                 <button
                   type="button"
@@ -357,7 +368,7 @@ export default function OrganizationScopeRoleSettingsModal({
                   onClick={handleSave}
                   className="rounded-lg bg-[#5865f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
                 >
-                  {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
+                  {saving ? t('organizations.saving') : t('organizations.saveChanges')}
                 </button>
               </footer>
             </div>

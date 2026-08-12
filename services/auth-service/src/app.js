@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { shouldSkipAuthRouteRateLimit } = require('./utils/shouldSkipAuthRouteRateLimit');
 require('dotenv').config();
 
 const app = express();
@@ -24,6 +25,7 @@ const authRouteLimiter = rateLimit({
   max: Number(process.env.AUTH_RATE_LIMIT_MAX_PER_MIN || 120),
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldSkipAuthRouteRateLimit,
 });
 app.use('/api/auth', authRouteLimiter);
 
@@ -78,7 +80,12 @@ app.get('/health', (req, res) => {
 // Email service status endpoint (debug only — không expose trên production)
 app.get('/email-status', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ success: false, message: 'Not found' });
+    const { sendServiceError } = require('./middleware/sendServiceError');
+    return sendServiceError(res, 404, {
+      errorCode: 'AUTH_USER_NOT_FOUND',
+      messageUser: 'Không tìm thấy tài nguyên.',
+      message: 'Not found',
+    });
   }
   const emailService = require('./utils/email');
   const hasUser = !!process.env.EMAIL_USER;

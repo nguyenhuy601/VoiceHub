@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Archive,
   Ban,
@@ -10,7 +11,6 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
-  UserMinus,
   Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -25,7 +25,11 @@ import ChatAttachmentContextMenu from './ChatAttachmentContextMenu';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
 import { buildMediaAttachmentMenuItems } from '../../utils/buildAttachmentMenuItems';
 import { fileTypeBadge, formatFileSize } from '../../utils/chatFileDisplay';
-import { entShell } from '../../theme/enterpriseWorkspace';
+import {
+  getFileHotDisplayDays,
+  partitionHotChatFiles,
+} from '../../utils/chatFileHotWindow';
+import { buildCollaborateDocumentsPath } from '../../utils/suitePathUtils';
 import {
   formatDmEventWhen,
   getDmRemindersForFriend,
@@ -65,13 +69,11 @@ export default function FriendChatRightPanel({
   onAttachmentAction,
   onOpenCalendarForFriend,
   onOpenMutualOrganization,
-  onUnfriend,
-  unfriendDisabled = false,
-  unfriendLoading = false,
 }) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const { isDarkMode } = useTheme();
+  const navigate = useNavigate();
   const [openMedia, setOpenMedia] = useState(true);
   const [openFiles, setOpenFiles] = useState(true);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -88,6 +90,11 @@ export default function FriendChatRightPanel({
 
   const { mediaItems = [], files = [] } = attachments || {};
   const gridMedia = mediaItems.slice(0, GRID_PREVIEW);
+  const hotDisplayDays = getFileHotDisplayDays();
+  const { hot: hotFiles, archivedCount: archivedFilesCount } = useMemo(
+    () => partitionHotChatFiles(files, { hotDays: hotDisplayDays }),
+    [files, hotDisplayDays]
+  );
 
   const messageById = useMemo(() => {
     const map = new Map();
@@ -176,25 +183,21 @@ export default function FriendChatRightPanel({
     });
   };
 
-  const sidebarTok = entShell(isDarkMode);
-  const shell = `${sidebarTok.sidebar} hidden h-full min-h-0 w-[min(320px,32vw)] shrink-0 flex-col overflow-hidden lg:flex`;
-  const hairlineB = isDarkMode ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
-  const hairlineT = isDarkMode ? 'border-t border-white/[0.06]' : 'border-t border-slate-200';
-  const titleMain = sidebarTok.textPrimary;
-  const labelMuted = isDarkMode ? 'text-gray-500' : 'text-slate-500';
-  const sectionBtn = isDarkMode
-    ? 'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-white hover:bg-white/[0.03]'
-    : 'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-slate-900 hover:bg-slate-50';
-  const thumbBg = isDarkMode ? 'bg-[#14151c]' : 'bg-slate-100';
-  const quickRow = isDarkMode
-    ? 'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-200 hover:bg-white/[0.04]'
-    : 'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50';
-  const actionCircle = isDarkMode
-    ? 'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-gray-400 transition hover:bg-white/[0.05] hover:text-white'
-    : 'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900';
-  const actionCircleDisabled = isDarkMode
-    ? 'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-gray-400'
-    : 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-slate-500';
+  const shell =
+    'flex h-full min-h-0 w-[min(320px,88vw)] shrink-0 flex-col overflow-hidden border-l border-border bg-surface text-foreground lg:w-[320px] lg:max-w-[32vw]';
+  const hairlineB = 'border-b border-border';
+  const hairlineT = 'border-t border-border';
+  const titleMain = 'text-foreground';
+  const labelMuted = 'text-muted-foreground';
+  const sectionBtn =
+    'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-muted/70';
+  const thumbBg = 'bg-muted';
+  const quickRow =
+    'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-muted/70';
+  const actionCircle =
+    'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground';
+  const actionCircleDisabled =
+    'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground';
 
   const renderFileRow = (f) => {
     const mime = f.fileMeta?.mimeType || '';
@@ -307,6 +310,11 @@ export default function FriendChatRightPanel({
     const cleanup = loadMutualOrgs(false);
     return cleanup;
   }, [loadMutualOrgs]);
+
+  const openDocumentsKho = useCallback(() => {
+    const firstOrgId = String(mutualOrgs.organizations?.[0]?._id || '').trim();
+    navigate(buildCollaborateDocumentsPath(firstOrgId));
+  }, [mutualOrgs.organizations, navigate]);
 
   useEffect(() => {
     if (!friendId || !remindersOpen) return undefined;
@@ -484,35 +492,33 @@ export default function FriendChatRightPanel({
             <div className="pb-3">
               {files.length === 0 ? (
                 <p className={`px-4 py-2 text-xs ${labelMuted}`}>{t('friendChat.filesEmpty')}</p>
+              ) : hotFiles.length === 0 ? (
+                <p className={`px-4 py-2 text-xs ${labelMuted}`}>
+                  {t('friendChat.filesHotEmpty', { days: hotDisplayDays })}
+                </p>
               ) : (
-                files.map((f) => renderFileRow(f))
+                hotFiles.map((f) => renderFileRow(f))
+              )}
+              {(archivedFilesCount > 0 || files.length > 0) && (
+                <button
+                  type="button"
+                  onClick={openDocumentsKho}
+                  className={`mx-3 mt-2 flex w-[calc(100%-1.5rem)] items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition ${
+                    isDarkMode
+                      ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/[0.1]'
+                      : 'bg-slate-100 text-cyan-800 hover:bg-slate-200'
+                  }`}
+                >
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {archivedFilesCount > 0
+                    ? t('friendChat.filesSearchArchive', { count: archivedFilesCount })
+                    : t('friendChat.filesOpenKho')}
+                </button>
               )}
             </div>
           )}
         </section>
       </div>
-
-      {onUnfriend && (
-        <div className={`shrink-0 px-4 py-3 ${hairlineT}`}>
-          <button
-            type="button"
-            onClick={onUnfriend}
-            disabled={unfriendDisabled || unfriendLoading}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              isDarkMode
-                ? 'border-rose-500/35 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20'
-                : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-            }`}
-          >
-            {unfriendLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <UserMinus className="h-4 w-4 shrink-0" aria-hidden />
-            )}
-            <span>{t('friendChat.unfriend')}</span>
-          </button>
-        </div>
-      )}
 
       <ChatAttachmentContextMenu
         open={Boolean(ctxMenu)}

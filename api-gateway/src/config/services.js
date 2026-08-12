@@ -12,10 +12,29 @@ const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().repla
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
 const VOICE_SERVICE_URL = String(process.env.VOICE_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!VOICE_SERVICE_URL) throw new Error('Thiếu biến môi trường: VOICE_SERVICE_URL');
-const TASK_SERVICE_URL = String(process.env.TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: TASK_SERVICE_URL');
+const {
+  resolveTaskProxyUrl,
+  resolveProjectProxyUrl,
+} = require('@enterprise/shared/config/taskServiceStrangler');
+const { isReportServiceEnabled, resolveReportServiceUrl } = require('@enterprise/shared/config/reportServiceFlags');
+
+const PROJECT_SERVICE_URL = resolveProjectProxyUrl({
+  projectServiceUrl: process.env.PROJECT_SERVICE_URL,
+  taskServiceUrl: process.env.TASK_SERVICE_URL,
+});
+const TASK_SERVICE_URL = resolveTaskProxyUrl({
+  projectServiceUrl: process.env.PROJECT_SERVICE_URL,
+  taskServiceUrl: process.env.TASK_SERVICE_URL,
+});
+if (!PROJECT_SERVICE_URL && !TASK_SERVICE_URL) {
+  throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
+}
 const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
+/** Optional — thiếu URL thì không mount route /api/ai/summaries (gateway vẫn boot). */
+const SUMMARY_SERVICE_URL = String(process.env.SUMMARY_SERVICE_URL || '').trim().replace(/\/+$/, '');
+/** Optional — ADR-003 report-service (C2/C4); chỉ mount khi URL + REPORT_AGGREGATOR_MODE. */
+const REPORT_SERVICE_URL = isReportServiceEnabled() ? resolveReportServiceUrl() : '';
 const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -23,6 +42,7 @@ if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: N
 const SOCKET_SERVICE_URL = String(process.env.SOCKET_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!SOCKET_SERVICE_URL) throw new Error('Thiếu biến môi trường: SOCKET_SERVICE_URL');
 // Cấu hình các microservices — URL chỉ từ biến môi trường (không hardcode hostname nội bộ).
+// Strangler A3: project meta vs task có thể trỏ host khác khi TASK_SERVICE_URL ≠ PROJECT_SERVICE_URL.
 const services = {
   auth: {
     url: AUTH_SERVICE_URL,
@@ -52,14 +72,35 @@ const services = {
     url: VOICE_SERVICE_URL,
     routes: ['/api/voice', '/api/meetings'],
   },
+  project: {
+    url: PROJECT_SERVICE_URL || TASK_SERVICE_URL,
+    routes: ['/api/projects'],
+  },
   task: {
-    url: TASK_SERVICE_URL,
-    routes: ['/api/tasks', '/api/work'],
+    url: TASK_SERVICE_URL || PROJECT_SERVICE_URL,
+    // /api/projects giữ để workspace boards (getServiceByPath ưu tiên project trước; boards workspace dùng isWorkspaceTaskBoardPath).
+    routes: ['/api/tasks', '/api/work', '/api/projects'],
   },
   aiTask: {
     url: AI_TASK_SERVICE_URL,
     routes: ['/api/ai/tasks'],
   },
+  ...(SUMMARY_SERVICE_URL
+    ? {
+        summary: {
+          url: SUMMARY_SERVICE_URL,
+          routes: ['/api/ai/summaries'],
+        },
+      }
+    : {}),
+  ...(REPORT_SERVICE_URL
+    ? {
+        report: {
+          url: REPORT_SERVICE_URL,
+          routes: ['/api/reports'],
+        },
+      }
+    : {}),
   document: {
     url: DOCUMENT_SERVICE_URL,
     routes: ['/api/documents'],
@@ -84,7 +125,12 @@ const publicRoutes = [
   '/api/auth/reset-password',
   '/api/auth/verify-email',
   '/api/auth/verify-email-change',
+  '/api/organizations/company-invites/accept',
   '/api/health/gateway-trust',
+  '/api/docs',
+  '/api/docs.json',
+  '/api/docs.yaml',
+  '/api/docs-assets',
   '/health',
   '/metrics',
   '/favicon.ico',
@@ -140,10 +186,21 @@ const isPublicRoute = (path) => {
   });
 };
 
+/** Route S2S bootstrap — không JWT user ở gateway (auth + org internal). */
+function isAuthInternalS2SPath(path) {
+  const normalized = String(path || '').split('?')[0].replace(/\/+/g, '/');
+  return (
+    normalized.startsWith('/api/auth/internal/') ||
+    normalized.startsWith('/api/organizations/internal/') ||
+    normalized.startsWith('/api/friends/internal/')
+  );
+}
+
 module.exports = {
   services,
   getServiceByPath,
   isPublicRoute,
+  isAuthInternalS2SPath,
   normalizePath,
   resolveReqApiPath,
   isWorkspaceTaskBoardPath,

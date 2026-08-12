@@ -60,6 +60,7 @@ module.exports = {
       {
         kind: 'audio',
         mimeType: 'audio/opus',
+        preferredPayloadType: 111,
         clockRate: 48000,
         // Phải khớp Chrome/Firefox produce (stereo) — channels:1 gây "codec not supported".
         channels: 2,

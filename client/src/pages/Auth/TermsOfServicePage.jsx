@@ -1,82 +1,72 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Scale } from 'lucide-react';
-import AuthPageLayout from '../../components/Auth/AuthPageLayout';
-import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { useTheme } from '../../context/ThemeContext';
+import { ArrowLeft, FileText, Zap } from 'lucide-react';
+import {
+  FIGMA_LEGAL_CONTAINER,
+  FIGMA_LEGAL_FOOTER,
+  FIGMA_LEGAL_LINK_PRIMARY,
+  FIGMA_LEGAL_LINK_SECONDARY,
+  FIGMA_LEGAL_LOGO_ICON,
+  FIGMA_LEGAL_LOGO_ROW,
+  FIGMA_LEGAL_LOGO_TEXT,
+  FIGMA_LEGAL_ROOT,
+  FIGMA_LEGAL_SECTION_CARD,
+  FIGMA_LEGAL_SECTION_H,
+  FIGMA_LEGAL_SECTION_P,
+  FIGMA_LEGAL_SECTIONS,
+  FIGMA_LEGAL_TITLE_ROW,
+  FIGMA_LEGAL_UPDATED,
+} from '../../components/Auth/figmaAuthClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
+const SECTION_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6'];
+
 function TermsOfServicePage() {
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
-  const h1 = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const h2 = isDarkMode ? 'text-white' : 'text-slate-900';
-  const body = isDarkMode ? 'text-slate-300' : 'text-slate-600';
-  const linkCyan = isDarkMode ? 'text-cyan-400 hover:underline' : 'text-cyan-700 hover:underline';
-  const callout = isDarkMode
-    ? 'rounded-xl border border-cyan-500/25 bg-cyan-500/[0.08] p-4 text-cyan-100'
-    : 'rounded-xl border border-cyan-200/90 bg-cyan-50 p-4 text-cyan-950';
-  const iconWrap = isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700';
 
   return (
-    <AuthPageLayout aside={<AuthMarketingAside />} contentMaxWidth="max-w-4xl" mainAlign="start">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${iconWrap}`}>
-            <Scale className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+    <div className={FIGMA_LEGAL_ROOT}>
+      <div className={FIGMA_LEGAL_CONTAINER}>
+        <div className={FIGMA_LEGAL_LOGO_ROW}>
+          <div className={FIGMA_LEGAL_LOGO_ICON}>
+            <Zap size={20} className="text-white" aria-hidden />
           </div>
-          <div>
-            <h1 className={`text-2xl font-bold tracking-tight sm:text-3xl ${h1}`}>{t('termsOfService.title')}</h1>
-            <p className={`mt-2 text-base ${body}`}>{t('termsOfService.subtitle')}</p>
-          </div>
+          <span className={FIGMA_LEGAL_LOGO_TEXT}>VoiceHub</span>
         </div>
-        <Link
-          to="/register"
-          className={`inline-flex shrink-0 items-center gap-2 self-start text-base font-semibold ${linkCyan}`}
-        >
-          <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-          {t('termsOfService.backToRegister')}
-        </Link>
+
+        <div className={FIGMA_LEGAL_TITLE_ROW}>
+          <FileText size={28} className="text-violet-400" aria-hidden />
+          <h1 className="font-display text-foreground">{t('termsOfService.title')}</h1>
+        </div>
+
+        <p className={FIGMA_LEGAL_UPDATED}>{t('termsOfService.subtitle')}</p>
+
+        <div className={FIGMA_LEGAL_SECTIONS}>
+          {SECTION_KEYS.map((key) => (
+            <section key={key} className={FIGMA_LEGAL_SECTION_CARD}>
+              <h2 className={FIGMA_LEGAL_SECTION_H}>{t(`termsOfService.${key}h`)}</h2>
+              <p className={FIGMA_LEGAL_SECTION_P}>{t(`termsOfService.${key}p`)}</p>
+            </section>
+          ))}
+
+          <section className={FIGMA_LEGAL_SECTION_CARD}>
+            <p className={FIGMA_LEGAL_SECTION_P}>
+              {t('termsOfService.callout')}
+              <span className="font-semibold text-violet-300">{t('termsOfService.calloutEmail')}</span>.
+            </p>
+          </section>
+        </div>
+
+        <div className={FIGMA_LEGAL_FOOTER}>
+          <Link to="/register" className={FIGMA_LEGAL_LINK_PRIMARY}>
+            <ArrowLeft size={16} aria-hidden />
+            {t('termsOfService.backToRegister')}
+          </Link>
+          <Link to="/login" className={FIGMA_LEGAL_LINK_SECONDARY}>
+            {t('common.backHome')}
+          </Link>
+        </div>
       </div>
-
-      <div className={`space-y-6 text-base leading-relaxed ${body}`}>
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s1h')}</h2>
-          <p>{t('termsOfService.s1p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s2h')}</h2>
-          <p>{t('termsOfService.s2p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s3h')}</h2>
-          <p>{t('termsOfService.s3p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s4h')}</h2>
-          <p>{t('termsOfService.s4p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s5h')}</h2>
-          <p>{t('termsOfService.s5p')}</p>
-        </section>
-
-        <section>
-          <h2 className={`mb-2 text-lg font-semibold ${h2}`}>{t('termsOfService.s6h')}</h2>
-          <p>{t('termsOfService.s6p')}</p>
-        </section>
-
-        <section className={callout}>
-          <p className="text-base">
-            {t('termsOfService.callout')}
-            <span className="font-semibold">{t('termsOfService.calloutEmail')}</span>.
-          </p>
-        </section>
-      </div>
-    </AuthPageLayout>
+    </div>
   );
 }
 

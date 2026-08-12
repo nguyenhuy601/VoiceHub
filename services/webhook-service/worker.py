@@ -3,7 +3,7 @@ import logging
 from dotenv import load_dotenv
 
 from src.dispatcher import dispatch_domain_event
-from src.utils.webhook_queue import consume_webhook_jobs
+from src.utils.webhook_queue import consume_webhook_jobs_with_reconnect
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ async def _handle(payload: dict):
 
 async def main():
     logger.info("[webhook-delivery-worker] consuming queue ...")
-    await consume_webhook_jobs(_handle)
+    await consume_webhook_jobs_with_reconnect(_handle)
 
 
 if __name__ == "__main__":
