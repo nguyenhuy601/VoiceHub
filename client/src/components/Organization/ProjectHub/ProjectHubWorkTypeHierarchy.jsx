@@ -150,8 +150,8 @@ function SortableTypeRow({
 /**
  * Cây loại việc — kéo dọc đổi thứ tự, kéo ngang đổi cấp (cùng thụt = cùng cấp).
  */
-export default function ProjectHubWorkTypeHierarchy({ t, projectId = '' }) {
-  const { config, updateConfig } = useProjectWorkTypes(projectId);
+export default function ProjectHubWorkTypeHierarchy({ t, projectId = '', serverConfig = null }) {
+  const { config, updateConfig } = useProjectWorkTypes(projectId, { serverConfig });
   const [collapsed, setCollapsed] = useState({});
   const [dragPreview, setDragPreview] = useState(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));

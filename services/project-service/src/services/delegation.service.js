@@ -80,9 +80,6 @@ async function applyDelegationTemplate(boardId, templateId) {
   return { templateId: template.id, edgesApplied: created };
 }
 
-/**
- * Có cạnh from→to khớp taskType không?
- */
 function edgeMatchesTaskType(edge, taskType) {
   const types = edge.taskTypes || ['*'];
   if (!types.length || types.includes('*')) return true;
@@ -91,6 +88,13 @@ function edgeMatchesTaskType(edge, taskType) {
   return types.map((t) => String(t).toLowerCase()).includes(tt);
 }
 
+async function countBoardDelegationEdges(boardId) {
+  const bid = String(boardId || '').trim();
+  if (!bid) return 0;
+  return DelegationEdge.countDocuments({ boardId: bid });
+}
+
+/** Có cạnh from→to khớp taskType không? */
 async function hasDelegationEdge({ boardId, fromRoleIds, toRoleIds, taskType }) {
   const from = (fromRoleIds || []).map(String).filter(Boolean);
   const to = (toRoleIds || []).map(String).filter(Boolean);
@@ -111,6 +115,7 @@ module.exports = {
   upsertEdge,
   deleteEdge,
   applyDelegationTemplate,
+  countBoardDelegationEdges,
   hasDelegationEdge,
   edgeMatchesTaskType,
 };

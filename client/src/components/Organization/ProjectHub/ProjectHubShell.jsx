@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
@@ -16,6 +18,7 @@ import {
   countCardsByIssueType,
   formatHubDate,
   projectInitials,
+  resolveActiveSprint,
   unwrapPlanningList,
 } from './projectHubUtils';
 
@@ -271,8 +274,9 @@ export default function ProjectHubShell({
   onBoardChange = null,
 }) {
   const { t } = useAppStrings();
-  const [tab, setTab] = useState('list');
-  const [visitedTabs, setVisitedTabs] = useState(() => ({ list: true }));
+  const [tab, setTab] = useState('overview');
+  const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
+  const prevHubProjectIdRef = useRef('');
   const [membersEpoch, setMembersEpoch] = useState(0);
   const [apiActivity, setApiActivity] = useState(null);
   const [apiFiles, setApiFiles] = useState(null);
@@ -283,6 +287,10 @@ export default function ProjectHubShell({
   const [planningError, setPlanningError] = useState(false);
   const [planningReloadToken, setPlanningReloadToken] = useState(0);
   const loadedPlanningProjectRef = useRef('');
+  const planningFetchKeyRef = useRef('');
+  const sprintsLoadedForRef = useRef('');
+  const activityLoadedForRef = useRef('');
+  const filesLoadedForRef = useRef('');
   const boardReadyAppliedRef = useRef(false);
 
   const hubCaps = useMemo(
@@ -302,6 +310,29 @@ export default function ProjectHubShell({
       boards.find((b) => String(b._id) === String(boardId))?.projectId ||
       ''
   ).trim();
+
+  if (prevHubProjectIdRef.current !== projectId) {
+    prevHubProjectIdRef.current = projectId;
+    setTab('overview');
+    setVisitedTabs({ overview: true });
+    setSprints([]);
+    setPlanningItems([]);
+    setApiActivity(null);
+    setApiFiles(null);
+    setPlanningLoading(false);
+    setPlanningError(false);
+    loadedPlanningProjectRef.current = '';
+    planningFetchKeyRef.current = '';
+    sprintsLoadedForRef.current = '';
+    activityLoadedForRef.current = '';
+    filesLoadedForRef.current = '';
+    boardReadyAppliedRef.current = false;
+  }
+
+  const needsSprints = tab === 'planning' || tab === 'board';
+  const needsPlanningItems = tab === 'list' || tab === 'planning' || tab === 'board';
+  const needsActivity = tab === 'overview' || tab === 'activity';
+  const needsFiles = tab === 'files';
 
   useEffect(() => {
     if (!projectId) {
@@ -324,16 +355,15 @@ export default function ProjectHubShell({
   }, [projectId]);
 
   useEffect(() => {
+    if (!projectId || !needsSprints) return undefined;
+    if (sprintsLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
-    boardReadyAppliedRef.current = false;
     (async () => {
-      if (!projectId) {
-        setSprints([]);
-        return;
-      }
       try {
         const res = await projectAPI.listSprints(projectId);
-        if (!cancelled) setSprints(unwrapPlanningList(res));
+        if (cancelled) return;
+        setSprints(unwrapPlanningList(res));
+        sprintsLoadedForRef.current = projectId;
       } catch {
         if (!cancelled) setSprints([]);
       }
@@ -341,7 +371,7 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, needsSprints]);
 
   const patchPlanningItems = useCallback((updater) => {
     setPlanningItems((prev) => (typeof updater === 'function' ? updater(prev) : prev));
@@ -353,27 +383,25 @@ export default function ProjectHubShell({
     const pid = String(projectId || '').trim();
     if (!pid) {
       setSprints([]);
+      sprintsLoadedForRef.current = '';
       return;
     }
     try {
       const res = await projectAPI.listSprints(pid);
       setSprints(unwrapPlanningList(res));
+      sprintsLoadedForRef.current = pid;
     } catch {
       /* giữ sprint hiện tại */
     }
   }, [projectId]);
 
   useEffect(() => {
+    if (!projectId || !needsPlanningItems) return undefined;
+    const fetchKey = `${projectId}:${planningReloadToken}`;
+    if (planningFetchKeyRef.current === fetchKey) return undefined;
     let cancelled = false;
+    const isFirstForProject = loadedPlanningProjectRef.current !== projectId;
     (async () => {
-      if (!projectId) {
-        loadedPlanningProjectRef.current = '';
-        setPlanningItems([]);
-        setPlanningLoading(false);
-        setPlanningError(false);
-        return;
-      }
-      const isFirstForProject = loadedPlanningProjectRef.current !== projectId;
       if (isFirstForProject) {
         setPlanningLoading(true);
         setPlanningError(false);
@@ -383,6 +411,7 @@ export default function ProjectHubShell({
         if (cancelled) return;
         setPlanningItems(unwrapPlanningList(res));
         loadedPlanningProjectRef.current = projectId;
+        planningFetchKeyRef.current = fetchKey;
         setPlanningError(false);
       } catch {
         if (cancelled) return;
@@ -397,9 +426,56 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId, planningReloadToken]);
+  }, [projectId, planningReloadToken, needsPlanningItems]);
 
   const boardReady = useMemo(() => isBoardSprintReady(sprints), [sprints]);
+  const activeSprint = useMemo(() => resolveActiveSprint(sprints), [sprints]);
+  const sprintFilterId =
+    boardReady && activeSprint?._id ? String(activeSprint._id) : '';
+  const boardEpics = useMemo(
+    () =>
+      (planningItems || []).filter(
+        (item) =>
+          String(item?.type || '').toLowerCase() === 'epic' && item?.isActive !== false
+      ),
+    [planningItems]
+  );
+  const canLinkEpic = Boolean(
+    canManage || hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
+  );
+
+  const handleLinkParent = useCallback(
+    async (taskId, epicId) => {
+      const id = String(taskId || '').trim();
+      if (!projectId || !id) return;
+      try {
+        await projectAPI.linkTaskPlanning(projectId, id, { epicId: epicId || null });
+        onPatchBoardCards?.((cards) =>
+          (Array.isArray(cards) ? cards : []).map((c) =>
+            String(c._id || c.id) === id ? { ...c, epicId: epicId || null } : c
+          )
+        );
+      } catch (err) {
+        toast.error(
+          resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanLinkFail') })
+        );
+      }
+    },
+    [projectId, onPatchBoardCards, t]
+  );
+
+  const boardKanban = isValidElement(boardSlot)
+    ? cloneElement(boardSlot, {
+        sprintFilterId: sprintFilterId || undefined,
+        defaultSprintId: sprintFilterId || undefined,
+        hubSprintCard: {
+          projectCode: resolvedBoard?.projectCode || '',
+          epics: boardEpics,
+          canLinkEpic,
+          onLinkParent: handleLinkParent,
+        },
+      })
+    : boardSlot;
 
   useEffect(() => {
     if (boardReadyAppliedRef.current) return;
@@ -441,7 +517,7 @@ export default function ProjectHubShell({
 
   const showListPanel = Boolean(visitedTabs.list);
   const showPlanningPanel = Boolean(visitedTabs.planning);
-  const needsActivityFiles = tab === 'overview' || tab === 'files' || tab === 'activity';
+  const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
   const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
@@ -455,19 +531,14 @@ export default function ProjectHubShell({
   const activity = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
 
   useEffect(() => {
+    if (!projectId || !needsActivity) return undefined;
+    if (activityLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
     (async () => {
-      if (!projectId || !needsActivityFiles) {
-        return;
-      }
       try {
-        const [actRes, filesRes] = await Promise.all([
-          projectAPI.getActivity(projectId, { limit: 40 }),
-          projectAPI.getFiles(projectId),
-        ]);
+        const actRes = await projectAPI.getActivity(projectId, { limit: 40 });
         if (cancelled) return;
         const act = actRes?.data?.data ?? actRes?.data ?? [];
-        const fl = filesRes?.data?.data ?? filesRes?.data ?? [];
         setApiActivity(
           (Array.isArray(act) ? act : []).map((a) => ({
             id: a._id,
@@ -477,6 +548,25 @@ export default function ProjectHubShell({
             assigneeName: '',
           }))
         );
+        activityLoadedForRef.current = projectId;
+      } catch {
+        if (!cancelled) setApiActivity(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, needsActivity]);
+
+  useEffect(() => {
+    if (!projectId || !needsFiles) return undefined;
+    if (filesLoadedForRef.current === projectId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const filesRes = await projectAPI.getFiles(projectId);
+        if (cancelled) return;
+        const fl = filesRes?.data?.data ?? filesRes?.data ?? [];
         setApiFiles(
           (Array.isArray(fl) ? fl : []).map((f) => ({
             name: f.name,
@@ -484,17 +574,15 @@ export default function ProjectHubShell({
             cardTitle: f.taskTitle,
           }))
         );
+        filesLoadedForRef.current = projectId;
       } catch {
-        if (!cancelled) {
-          setApiActivity(null);
-          setApiFiles(null);
-        }
+        if (!cancelled) setApiFiles(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [projectId, needsActivityFiles]);
+  }, [projectId, needsFiles]);
 
   const hasBoard = Boolean(boardId && resolvedBoard);
   const initials = projectInitials(resolvedBoard?.title);
@@ -706,6 +794,7 @@ export default function ProjectHubShell({
             onOpenSettings={() => setTab('settings')}
             listActive={tab === 'list'}
             membersEpoch={membersEpoch}
+            workTypeConfig={projectPayload?.workTypeConfig}
           />
         </div>
         ) : null}
@@ -742,12 +831,13 @@ export default function ProjectHubShell({
             }}
             onPatchBoardCards={onPatchBoardCards}
             onOpenBoard={() => setTab('board')}
+            workTypeConfig={projectPayload?.workTypeConfig}
           />
         </div>
         ) : null}
         {tab === 'board' ? (
           boardReady ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardSlot}</div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardKanban}</div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-12 text-center">
               <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-foreground'}`}>
@@ -766,15 +856,25 @@ export default function ProjectHubShell({
             </div>
           )
         ) : null}
-        {tab === 'members' && hubCaps.canViewMembers ? (
+        {showMembersPanel ? (
+        <div
+          className={
+            tab === 'members' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'members'}
+          aria-hidden={tab !== 'members'}
+        >
           <ProjectHubMembersPanel
             projectId={projectId}
             boardId={boardId}
             organizationId={organizationId}
+            projectPayload={projectPayload}
+            membersActive={tab === 'members'}
             canManage={hubCaps.canManageMembers || canManage}
             isDarkMode={isDarkMode}
             onMembersChanged={() => setMembersEpoch((n) => n + 1)}
           />
+        </div>
         ) : null}
         {tab === 'files' ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}
         {tab === 'activity' ? (
@@ -790,6 +890,7 @@ export default function ProjectHubShell({
             canManage={hubCaps.canManageSettings || canManage}
             isDarkMode={isDarkMode}
             onSaved={onRefresh}
+            workTypeConfig={projectPayload?.workTypeConfig}
           />
         ) : null}
       </div>

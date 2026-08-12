@@ -17,13 +17,12 @@ import ConfirmDialog from '../../Shared/ConfirmDialog';
 import TaskBoardCardDetailModal from '../TaskBoardCardDetailModal';
 import {
   buildListTree,
-  canListDragOver,
   childTypesForParent,
   comparePlanningOrder,
   computeInsertSortOrder,
-  preferListHorizontalDrag,
-  resolveListDropAction,
-  resolveListHorizontalAction,
+  isLiveListDragValid,
+  isTypePreservingDrop,
+  resolveLiveListDragAction,
 } from './projectHubHierarchy';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubListBulkBar from './ProjectHubListBulkBar';
@@ -118,9 +117,12 @@ export default function ProjectHubListPanel({
   onOpenSettings = null,
   listActive = true,
   membersEpoch = 0,
+  workTypeConfig: serverWorkTypeConfig = null,
 }) {
   const { t } = useAppStrings();
-  const { config: workTypeConfig } = useProjectWorkTypes(projectId);
+  const { config: workTypeConfig } = useProjectWorkTypes(projectId, {
+    serverConfig: serverWorkTypeConfig,
+  });
   const loading = Boolean(planningLoading);
   const loadError = Boolean(planningError);
   const [busy, setBusy] = useState(false);
@@ -129,8 +131,14 @@ export default function ProjectHubListPanel({
   const [rootCreateOpen, setRootCreateOpen] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [activeDragId, setActiveDragId] = useState('');
-  const [dragDeltaX, setDragDeltaX] = useState(0);
+  const [dragSession, setDragSession] = useState(() => ({
+    id: '',
+    overId: '',
+    deltaX: 0,
+    deltaY: 0,
+  }));
+  const activeDragId = dragSession.id;
+  const dragDeltaX = dragSession.deltaX;
   const [assignableMembers, setAssignableMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -224,6 +232,19 @@ export default function ProjectHubListPanel({
   const flatRows = useMemo(() => flattenVisible(tree, collapsed), [tree, collapsed]);
   const rootCount = countRootNodes(tree);
   const activeDragNode = activeDragId ? findNodeById(tree, activeDragId) : null;
+  const dragOverNode = dragSession.overId ? findNodeById(tree, dragSession.overId) : null;
+  const dragValid = Boolean(
+    activeDragNode &&
+      isLiveListDragValid({
+        activeNode: activeDragNode,
+        overNode: dragOverNode,
+        deltaX: dragSession.deltaX,
+        deltaY: dragSession.deltaY,
+        tree,
+        flatRows,
+        config: workTypeConfig,
+      })
+  );
 
   const listMap = useMemo(() => {
     const map = {};
@@ -257,94 +278,75 @@ export default function ProjectHubListPanel({
     [onPatchPlanningItems]
   );
 
-  const applyDrop = async (action) => {
+  const applyDrop = async (action, activeNode = null) => {
     if (!action || action.mode === 'noop' || busy) return;
+    if (activeNode && !isTypePreservingDrop(activeNode, action)) return;
+
+    const activeKey = String(action.activeId);
+    const cardsSnapshot = Array.isArray(boardCards) ? boardCards : [];
+    const planningSnapshot = Array.isArray(planningItems) ? planningItems : [];
+
+    let cardPatch = null;
+    if (action.kind === 'card') {
+      if (action.mode === 'detach-card-epic') {
+        cardPatch = { parentTaskId: null, epicId: null };
+      } else if (action.mode === 'attach-card-epic') {
+        cardPatch = { parentTaskId: null, epicId: action.epicId ?? null };
+      } else if (action.mode === 'attach-card-parent' || action.mode === 'align-card-siblings') {
+        cardPatch = { parentTaskId: action.parentTaskId ?? null };
+        if (action.epicId !== undefined) cardPatch.epicId = action.epicId;
+      }
+    }
+
+    let planningPatch = null;
+    if (action.kind === 'planning' && action.mode === 'reorder-planning') {
+      const activeRow = planningSnapshot.find((i) => entityId(i) === activeKey);
+      const type = String(activeRow?.type || 'epic').toLowerCase();
+      const parentKey = type === 'epic' ? '' : String(activeRow?.parentId || '');
+      const siblings = planningSnapshot
+        .filter((i) => {
+          if (String(i.type || '').toLowerCase() !== type) return false;
+          if (type === 'epic') return true;
+          return String(i.parentId || '') === parentKey;
+        })
+        .sort(comparePlanningOrder);
+      const sortOrder = computeInsertSortOrder(siblings, action.activeId, action.overId);
+      if (sortOrder == null) return;
+      planningPatch = { sortOrder };
+    } else if (
+      action.kind === 'planning' &&
+      (action.mode === 'attach-feature-epic' || action.mode === 'align-feature-siblings')
+    ) {
+      planningPatch = { parentId: action.parentId };
+    }
+
+    if (!cardPatch && !planningPatch) return;
+
+    if (cardPatch) {
+      patchCards((cards) =>
+        (Array.isArray(cards) ? cards : []).map((c) =>
+          entityId(c) === activeKey ? { ...c, ...cardPatch } : c
+        )
+      );
+    }
+    if (planningPatch) {
+      patchPlanning((prev) =>
+        (Array.isArray(prev) ? prev : []).map((item) =>
+          entityId(item) === activeKey ? { ...item, ...planningPatch } : item
+        )
+      );
+    }
+
     setBusy(true);
     try {
-      if (action.kind === 'card') {
-        if (action.mode === 'detach-card-epic') {
-          await taskAPI.updateBoardCard(
-            action.activeId,
-            { parentTaskId: null },
-            apiCtx || {}
-          );
-          if (projectId) {
-            await projectAPI.linkTaskPlanning(projectId, action.activeId, { epicId: null });
-          }
-        } else if (action.mode === 'attach-card-parent' || action.mode === 'align-card-siblings') {
-          await taskAPI.updateBoardCard(
-            action.activeId,
-            {
-              parentTaskId: action.parentTaskId,
-              ...(action.epicId !== undefined ? { epicId: action.epicId } : {}),
-            },
-            apiCtx || {}
-          );
-          if (action.epicId !== undefined && projectId) {
-            await projectAPI.linkTaskPlanning(projectId, action.activeId, { epicId: action.epicId });
-          }
-        } else if (action.mode === 'attach-card-epic') {
-          await taskAPI.updateBoardCard(action.activeId, { parentTaskId: null }, apiCtx || {});
-          if (projectId) {
-            await projectAPI.linkTaskPlanning(projectId, action.activeId, {
-              epicId: action.epicId,
-            });
-          }
-        }
-      } else if (action.kind === 'planning' && action.mode === 'reorder-planning') {
-        const activeRow = planningItems.find((i) => entityId(i) === String(action.activeId));
-        const type = String(activeRow?.type || 'epic').toLowerCase();
-        const parentKey = type === 'epic' ? '' : String(activeRow?.parentId || '');
-        const siblings = planningItems
-          .filter((i) => {
-            if (String(i.type || '').toLowerCase() !== type) return false;
-            if (type === 'epic') return true;
-            return String(i.parentId || '') === parentKey;
-          })
-          .sort(comparePlanningOrder);
-        const sortOrder = computeInsertSortOrder(siblings, action.activeId, action.overId);
-        if (sortOrder == null) return;
-        await projectAPI.patchPlanningItem(projectId, action.activeId, { sortOrder });
-        patchPlanning((prev) =>
-          prev.map((item) =>
-            entityId(item) === String(action.activeId) ? { ...item, sortOrder } : item
-          )
-        );
-      } else if (
-        action.kind === 'planning' &&
-        (action.mode === 'attach-feature-epic' || action.mode === 'align-feature-siblings')
-      ) {
-        await projectAPI.patchPlanningItem(projectId, action.activeId, {
-          parentId: action.parentId,
-        });
-        patchPlanning((prev) =>
-          prev.map((item) =>
-            entityId(item) === String(action.activeId)
-              ? { ...item, parentId: action.parentId }
-              : item
-          )
-        );
+      if (cardPatch) {
+        await taskAPI.updateBoardCard(action.activeId, cardPatch, apiCtx || {});
+      } else if (planningPatch) {
+        await projectAPI.patchPlanningItem(projectId, action.activeId, planningPatch);
       }
-      if (action.kind === 'card') {
-        const cardPatch = {};
-        if (action.parentTaskId !== undefined) cardPatch.parentTaskId = action.parentTaskId;
-        if (action.epicId !== undefined) cardPatch.epicId = action.epicId;
-        if (action.mode === 'detach-card-epic') {
-          cardPatch.parentTaskId = null;
-          cardPatch.epicId = null;
-        }
-        if (action.mode === 'attach-card-epic') {
-          cardPatch.parentTaskId = null;
-          cardPatch.epicId = action.epicId;
-        }
-        patchCards((cards) =>
-          cards.map((c) =>
-            entityId(c) === String(action.activeId) ? { ...c, ...cardPatch } : c
-          )
-        );
-      }
-      toast.success(t('workspace.projectHubListDragMoved'));
     } catch (err) {
+      if (cardPatch) patchCards(() => cardsSnapshot);
+      if (planningPatch) patchPlanning(() => planningSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
@@ -598,16 +600,10 @@ export default function ProjectHubListPanel({
 
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const showPlanningRetry = loadError && flatRows.length === 0 && !loading;
+  const showPlanningWait = loading && flatRows.length === 0;
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-4 py-12">
-        <p className={`text-sm ${muted}`}>{t('common.loading')}</p>
-      </div>
-    );
-  }
-
-  if (loadError) {
+  if (showPlanningRetry) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-12">
         <p className={`text-sm ${muted}`}>{t('workspace.projectHubListLoadFail')}</p>
@@ -623,61 +619,67 @@ export default function ProjectHubListPanel({
   }
 
   const handleDragStart = (event) => {
-    setActiveDragId(String(event.active?.id || ''));
-    setDragDeltaX(0);
+    setDragSession({
+      id: String(event.active?.id || ''),
+      overId: '',
+      deltaX: 0,
+      deltaY: 0,
+    });
   };
 
   const handleDragMove = (event) => {
-    setDragDeltaX(Number(event.delta?.x) || 0);
+    setDragSession((prev) => ({
+      ...prev,
+      deltaX: Number(event.delta?.x) || 0,
+      deltaY: Number(event.delta?.y) || 0,
+    }));
+  };
+
+  const handleDragOver = (event) => {
+    const overIdRaw = String(event.over?.id || '');
+    const overId = overIdRaw.startsWith('drop:') ? overIdRaw.slice(5) : overIdRaw;
+    setDragSession((prev) => (prev.overId === overId ? prev : { ...prev, overId }));
   };
 
   const handleDragEnd = (event) => {
     const activeId = String(event.active?.id || '');
     const overIdRaw = String(event.over?.id || '');
     const deltaX = Number(event.delta?.x) || 0;
-    setActiveDragId('');
-    setDragDeltaX(0);
+    const deltaY = Number(event.delta?.y) || 0;
+    setDragSession({ id: '', overId: '', deltaX: 0, deltaY: 0 });
     if (!activeId) return;
 
     const activeNode = findNodeById(tree, activeId);
-    const deltaY = Number(event.delta?.y) || 0;
-    if (preferListHorizontalDrag(deltaX, deltaY) && activeNode) {
-      const horizontal = resolveListHorizontalAction({
-        activeNode,
-        flatRows,
-        tree,
-        deltaX,
-        config: workTypeConfig,
-      });
-      if (horizontal && horizontal.mode !== 'noop') {
-        void applyDrop(horizontal);
-        return;
-      }
-    }
-
-    if (!overIdRaw) {
-      if (depthDeltaFromPointerX(deltaX)) toast.error(t('workspace.projectHubListDragDenied'));
-      return;
-    }
     const overNodeId = overIdRaw.startsWith('drop:') ? overIdRaw.slice(5) : overIdRaw;
-    const overNode = findNodeById(tree, overNodeId);
-    if (!activeNode || !overNode) return;
-    if (!canListDragOver(activeNode, overNode)) {
-      toast.error(t('workspace.projectHubListDragDenied'));
+    const overNode = overNodeId ? findNodeById(tree, overNodeId) : null;
+    const action = resolveLiveListDragAction({
+      activeNode,
+      overNode,
+      deltaX,
+      deltaY,
+      tree,
+      flatRows,
+      config: workTypeConfig,
+    });
+    if (action?.mode === 'noop') return;
+    if (action) {
+      void applyDrop(action, activeNode);
       return;
     }
-    const action = resolveListDropAction(activeNode, overNode, tree);
-    if (!action || action.mode === 'noop') return;
-    void applyDrop(action);
+    if (overNode || depthDeltaFromPointerX(deltaX)) {
+      toast.error(t('workspace.projectHubListDragDenied'));
+    }
   };
 
   const handleDragCancel = () => {
-    setActiveDragId('');
-    setDragDeltaX(0);
+    setDragSession({ id: '', overId: '', deltaX: 0, deltaY: 0 });
   };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      aria-busy={loading || undefined}
+    >
       <div className="border-b border-border px-4 py-2 sm:px-4">
         <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabList')}</h3>
         <p className={`text-xs ${muted}`}>{t('workspace.projectHubListHint')}</p>
@@ -688,6 +690,7 @@ export default function ProjectHubListPanel({
         collisionDetection={listCollisionDetection}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
@@ -726,7 +729,9 @@ export default function ProjectHubListPanel({
 
             {flatRows.length === 0 ? (
               <div className="px-4 py-12 text-center">
-                <p className={`text-sm ${muted}`}>{t('workspace.projectHubListEmpty')}</p>
+                <p className={`text-sm ${muted}`}>
+                  {showPlanningWait ? t('common.loading') : t('workspace.projectHubListEmpty')}
+                </p>
               </div>
             ) : (
               flatRows.map(({ node, depth }) => (
@@ -748,8 +753,18 @@ export default function ProjectHubListPanel({
                   assignableMembers={assignableMembers}
                   membersLoading={membersLoading}
                   dragDeltaX={activeDragId === node.id ? dragDeltaX : 0}
+                  dragValid={activeDragId === node.id ? dragValid : null}
                   dropAllowed={
-                    Boolean(activeDragNode) && canListDragOver(activeDragNode, node)
+                    Boolean(activeDragId && activeDragNode) &&
+                    isLiveListDragValid({
+                      activeNode: activeDragNode,
+                      overNode: node,
+                      deltaX: 0,
+                      deltaY: 40,
+                      tree,
+                      flatRows,
+                      config: workTypeConfig,
+                    })
                   }
                   creatingUnderId={creatingUnderId}
                   onToggleSelect={(id) => {

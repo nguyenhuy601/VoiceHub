@@ -733,6 +733,9 @@ async function getProject({ userId, projectId }) {
 async function attachProjectCapabilities(payload, userId, projectId) {
   if (payload && typeof payload === 'object') {
     delete payload.technicalSetup;
+    payload.workTypeConfig = require('../utils/workTypeConfig').serializeWorkTypeConfig(
+      payload.workTypeConfig
+    );
   }
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
@@ -842,13 +845,14 @@ async function patchProject({ userId, projectId, patch }) {
   const built = buildBoardIdentityPatch(patch);
   const init = buildProjectInitFields(patch, { partial: true });
   const hasStaffingPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'requiredProjectRoles');
+  const hasWorkTypeConfigPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workTypeConfig');
   const hasVisibilityPatch = [
     'visibilityMode',
     'visibilityPolicy',
     'informationLevelOverrides',
     'relatedDepartmentIds',
   ].some((k) => Object.prototype.hasOwnProperty.call(patch || {}, k));
-  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch) {
+  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch && !hasWorkTypeConfigPatch) {
     const err = new Error(built.message || init.message || 'Không có field hợp lệ');
     err.statusCode = 400;
     throw err;
@@ -886,6 +890,10 @@ async function patchProject({ userId, projectId, patch }) {
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'relatedDepartmentIds')) {
     $set.relatedDepartmentIds = normalizeRelatedDepartmentIds(patch.relatedDepartmentIds);
+  }
+  if (hasWorkTypeConfigPatch) {
+    const { normalizeWorkTypeConfig } = require('../utils/workTypeConfig');
+    $set.workTypeConfig = normalizeWorkTypeConfig(patch.workTypeConfig);
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'informationLevelOverrides')) {
     $set.informationLevelOverrides = normalizeInformationLevelOverrides(
@@ -1306,6 +1314,7 @@ async function attachProjectIdentityToBoard(board) {
     methodology: project.methodology,
     methodologySettings: project.methodologySettings,
     customer: project.customer,
+    workTypeConfig: require('../utils/workTypeConfig').serializeWorkTypeConfig(project.workTypeConfig),
   };
 }
 

@@ -20,8 +20,8 @@ export default function CreateTaskBoardModal({
     const orgId = String(organizationId || '').trim();
     if (!orgId) {
       onClose?.();
-      return;
-    }
+                return;
+              }
     navigate(
       buildCollaborateProjectsNewPath(orgId, {
         from: 'hub',

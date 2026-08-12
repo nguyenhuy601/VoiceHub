@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Modal from '../../Shared/Modal';
-import { addDaysToDateTimeLocal, toDateTimeLocalValue } from './projectHubUtils';
+import { addDaysToDateTimeLocal, isSprintDateRangeInvalid, toDateTimeLocalValue } from './projectHubUtils';
 
 /**
  * Modal sửa sprint: name, duration, start/end, goal.
@@ -33,6 +33,9 @@ export default function ProjectHubEditSprintModal({
     if (nextDuration === '1w') setEndDate(addDaysToDateTimeLocal(nextStart || new Date().toISOString(), 7));
     if (nextDuration === '2w') setEndDate(addDaysToDateTimeLocal(nextStart || new Date().toISOString(), 14));
   };
+
+  const datesInvalid = isSprintDateRangeInvalid(startDate, endDate);
+  const canSave = Boolean(name.trim()) && !datesInvalid;
 
   const inputCls =
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
@@ -91,6 +94,9 @@ export default function ProjectHubEditSprintModal({
           }}
         />
       </label>
+      {datesInvalid ? (
+        <p className="mb-3 text-xs text-destructive">{t('workspace.projectHubSprintDatesInvalid')}</p>
+      ) : null}
       <label className="mb-4 block text-xs font-semibold">
         {t('workspace.projectHubBacklogSprintGoal')}
         <textarea className={`${inputCls} min-h-[80px]`} value={goal} onChange={(e) => setGoal(e.target.value)} />
@@ -101,7 +107,7 @@ export default function ProjectHubEditSprintModal({
         </button>
         <button
           type="button"
-          disabled={busy || !name.trim()}
+          disabled={busy || !canSave}
           onClick={() =>
             onSave?.({
               name: name.trim(),

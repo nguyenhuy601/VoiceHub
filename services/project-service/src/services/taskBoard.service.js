@@ -9,7 +9,7 @@ const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
 const { logger } = require('@enterprise/shared');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
-const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
 const {
   fetchTaskWorkspaceScope,
   canCreateTaskInScope,
@@ -136,33 +136,6 @@ async function fetchTeamRoleAccessIds(actorId, organizationId, teamId) {
   } catch {
     return [];
   }
-}
-
-async function enrichAssignableProfiles(userIds, actorId) {
-  const unique = [...new Set(userIds.map(String).filter(Boolean))];
-  const rows = await Promise.all(
-    unique.map(async (uid) => {
-      let displayName = uid.slice(-6);
-      let avatar = '';
-      let username = '';
-      try {
-        const res = await fetchUserProfileByIdInternal(uid);
-        const profile = res.data?.data ?? res.data;
-        displayName =
-          profile?.displayName ||
-          profile?.fullName ||
-          profile?.username ||
-          profile?.email?.split('@')[0] ||
-          displayName;
-        avatar = profile?.avatar || '';
-        username = profile?.username || '';
-      } catch {
-        /* profile optional */
-      }
-      return { userId: uid, displayName, avatar, username };
-    })
-  );
-  return rows.sort((a, b) => a.displayName.localeCompare(b.displayName, 'vi'));
 }
 
 function toOid(id) {
@@ -1034,6 +1007,13 @@ async function createCard({
     }).lean();
     if (!parent) throw new Error('parentTaskId không hợp lệ');
     parentOid = parent._id;
+    const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
+    const { assertTaskParentNest } = require('./workTypeNest.service');
+    await assertTaskParentNest({
+      projectId: board.projectId,
+      childCard: { issueType: normalizeIssueType(issueType) },
+      parentCard: parent,
+    });
   }
 
   const last = await Task.findOne({ boardId, listId, isActive: true })
@@ -1083,16 +1063,16 @@ async function createCard({
     actorId: userId,
   });
   const created = row.toObject();
-  await notifyListWatchers({
+  void notifyListWatchers({
     listId,
     board,
     actorId: userId,
     title: 'Thẻ mới trong danh sách',
     content: `Thẻ "${created.title}" vừa được thêm`,
-  });
+  }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
   if (board.projectId) {
     const { logActivity } = require('./project.service');
-    await logActivity({
+    void logActivity({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,
@@ -1102,7 +1082,7 @@ async function createCard({
       title: created.title,
     });
     const { appendFieldChanges } = require('./workHistory.service');
-    await appendFieldChanges({
+    void appendFieldChanges({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,
@@ -1455,6 +1435,14 @@ async function updateCard({
       if (!parent) throw new Error('parentTaskId không hợp lệ');
       if (String(parent._id) === String(cardId)) throw new Error('Card không thể là parent của chính nó');
       next.parentTaskId = parent._id;
+      if (board.projectId) {
+        const { assertTaskParentNest } = require('./workTypeNest.service');
+        await assertTaskParentNest({
+          projectId: board.projectId,
+          childCard: { issueType: issueType !== undefined ? issueType : card.issueType },
+          parentCard: parent,
+        });
+      }
     }
   }
   if (epicId !== undefined) {
@@ -1586,11 +1574,16 @@ async function updateCard({
 
   if (next.title != null && !next.title) throw new Error('title không hợp lệ');
 
-  await ensureAssigneeBoardAccess({
-    boardId: board._id,
-    assigneeId: effectiveAssignee || null,
-    actorId: userId,
-  });
+  const assigneeChanged =
+    next.assigneeId !== undefined &&
+    String(next.assigneeId || '') !== String(card.assigneeId || '');
+  if (assigneeChanged) {
+    await ensureAssigneeBoardAccess({
+      boardId: board._id,
+      assigneeId: effectiveAssignee || null,
+      actorId: userId,
+    });
+  }
 
   const updated = await Task.findByIdAndUpdate(
     cardId,
@@ -1599,17 +1592,17 @@ async function updateCard({
   );
   const out = updated?.toObject ? updated.toObject() : updated;
   if (card.listId) {
-    await notifyListWatchers({
+    void notifyListWatchers({
       listId: card.listId,
       board,
       actorId: userId,
       title: 'Thẻ được cập nhật',
       content: `Thẻ "${out?.title || card.title}" vừa được chỉnh sửa`,
-    });
+    }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
   }
   if (board.projectId) {
     const { logActivity } = require('./project.service');
-    await logActivity({
+    void logActivity({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,
@@ -1625,7 +1618,7 @@ async function updateCard({
           ? null
           : Number(card.estimateHours);
       if (beforeEst !== next.estimateHours) {
-        await logActivity({
+        void logActivity({
           organizationId: board.organizationId,
           projectId: board.projectId,
           boardId: board._id,
@@ -1637,27 +1630,24 @@ async function updateCard({
         });
       }
     }
-    try {
-      const auditService = require('./audit.service');
-      const keys = Object.keys(next);
-      await auditService.recordMutationAudit({
+    const keys = Object.keys(next);
+    const beforeDoc = card.toObject ? card.toObject() : card;
+    void require('./audit.service')
+      .recordMutationAudit({
         organizationId: board.organizationId,
         actorUserId: userId,
         action: 'task.updated',
         resourceType: 'task',
         resourceId: String(cardId),
-        beforeDoc: card.toObject ? card.toObject() : card,
+        beforeDoc,
         afterDoc: out,
         keys,
         meta: { projectId: String(board.projectId), boardId: String(board._id) },
-      });
-    } catch {
-      /* best-effort */
-    }
+      })
+      .catch((err) => logger.warn('[task-board] audit failed: %s', err.message));
     const { diffTaskPatch } = require('../utils/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
-    const beforeDoc = card.toObject ? card.toObject() : card;
-    await appendFieldChanges({
+    void appendFieldChanges({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,

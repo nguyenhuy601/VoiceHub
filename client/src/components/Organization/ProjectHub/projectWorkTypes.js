@@ -1,4 +1,4 @@
-/** Cấu hình Work types theo dự án (FE localStorage — BE chưa có field). */
+/** Cấu hình Work types theo dự án — SSOT Project.workTypeConfig, cache localStorage. */
 
 export const WORK_TYPE_CREATE_IDS = ['story', 'task', 'bug'];
 export const WORK_TYPE_ALL_IDS = ['epic', 'feature', 'story', 'task', 'bug', 'subtask'];
@@ -236,6 +236,21 @@ export function peerWorkTypeIds(treeOrder, depthById, typeId) {
   return (Array.isArray(treeOrder) ? treeOrder : []).filter(
     (other) => other !== id && depthById?.[other] === depth
   );
+}
+
+export function configTypeDepth(typeId, config) {
+  const cfg = normalizeWorkTypeConfig(config);
+  const id = String(typeId || '').toLowerCase();
+  const d = Number(cfg.depthById[id]);
+  return Number.isFinite(d) ? d : 0;
+}
+
+/** Nest khi parent đúng 1 cấp trên child (cùng depth = sibling, không nest). */
+export function canNestByDepth(childType, parentType, config) {
+  const child = String(childType || '').toLowerCase();
+  const parent = String(parentType || '').toLowerCase();
+  if (!WORK_TYPE_ALL_IDS.includes(child) || !WORK_TYPE_ALL_IDS.includes(parent)) return false;
+  return configTypeDepth(parent, config) === configTypeDepth(child, config) - 1;
 }
 
 /** Mỗi lần kéo ngang chỉ ±1 bậc (cùng cấp khi cùng depth). */

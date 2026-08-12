@@ -23,11 +23,12 @@ describe('assignmentEngine contract', () => {
         if (!type) return true;
         return types.includes('*') || types.includes(type);
       });
-    assert.equal(has('senior_developer', 'intern'), true);
-    assert.equal(has('architect', 'senior_developer'), true);
-    assert.equal(has('qa', 'developer', 'bug'), true);
-    assert.equal(has('project_manager', 'qa'), true);
-    assert.equal(has('developer', 'project_manager'), false);
+    assert.equal(has('technical_lead', 'backend_developer'), true);
+    assert.equal(has('solution_architect', 'fullstack_developer'), true);
+    assert.equal(has('qa_lead', 'backend_developer', 'bug'), true);
+    assert.equal(has('project_manager', 'qa_lead'), true);
+    assert.equal(has('backend_developer', 'project_manager'), false);
+    assert.equal(has('scrum_master', 'devops_engineer'), false);
   });
 
   it('system admin break-glass without graph lookup', async () => {

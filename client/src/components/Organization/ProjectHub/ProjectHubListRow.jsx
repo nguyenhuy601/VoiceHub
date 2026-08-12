@@ -106,6 +106,7 @@ export default function ProjectHubListRow({
   assignableMembers = [],
   membersLoading = false,
   dragDeltaX = 0,
+  dragValid = null,
   dropAllowed = false,
   creatingUnderId = '',
   onToggleSelect,
@@ -163,8 +164,19 @@ export default function ProjectHubListRow({
 
   const style = {
     transform: CSS.Translate.toString(transform ? { ...transform, x: 0 } : null),
-    opacity: isDragging ? 0.45 : undefined,
+    opacity: isDragging ? 0.9 : undefined,
   };
+
+  const dragRing = isDragging
+    ? dragValid
+      ? 'ring-2 ring-inset ring-success'
+      : 'ring-2 ring-inset ring-destructive'
+    : '';
+  const dragHandleAria = isDragging
+    ? dragValid
+      ? t('workspace.projectHubListDragValidAria')
+      : t('workspace.projectHubListDragInvalidAria')
+    : t('workspace.projectHubListDragAria');
 
   return (
     <>
@@ -172,15 +184,17 @@ export default function ProjectHubListRow({
         ref={setRowRef}
         role="row"
         style={style}
+        aria-grabbed={isDragging}
+        aria-invalid={isDragging && !dragValid ? true : undefined}
         className={`${LIST_TABLE_GRID} items-center border-b border-border px-2 py-1.5 ${
           selected ? 'bg-primary/10' : 'hover:bg-muted/40'
-        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''}`}
+        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}
       >
         <div className="flex items-center justify-center">
           <button
             type="button"
             className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:opacity-40"
-            aria-label={t('workspace.projectHubListDragAria')}
+            aria-label={dragHandleAria}
             disabled={busy || !canDrag}
             {...attributes}
             {...listeners}

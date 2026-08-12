@@ -1,10 +1,11 @@
 const { isAssignmentEngineEnabled } = require('@enterprise/shared/config/assignmentEngine');
 const {
-  listUserProjectRolesOnBoard,
+  resolveProjectContext,
+  listUserProjectRolesOnProject,
   migrateBoardMembersToProjectRoles,
 } = require('./projectTeam.service');
 const { hasDelegationEdge } = require('./delegation.service');
-const ProjectMembership = require('../models/ProjectMembership');
+const { decideAssign } = require('./assignmentDecide');
 
 const ASSIGN_SLOTS_REQUIRING_DELEGATION = new Set([
   'primary',
@@ -19,9 +20,9 @@ const ASSIGN_SLOTS_REQUIRING_DELEGATION = new Set([
  * Assignment Engine — không đọc HR Role / Organization Role / ledTeamIds.
  *
  * Điều kiện:
- * 1. Actor có capability canAssign trên ít nhất một Project Role (hoặc break-glass system admin)
- * 2. Actor & target cùng thuộc Project (ProjectMembership)
- * 3. Tồn tại cạnh Delegation Graph from(actor roles) → to(target roles) khớp taskType
+ * 1. Actor & target cùng thuộc Project (ProjectMembership theo projectId)
+ * 2. Actor có canAssign → allow bất kỳ member trên roster
+ * 3. Không canAssign: chỉ allow nếu có cạnh Delegation Graph (đường bổ sung)
  */
 async function assertCanAssign({
   actorUserId,
@@ -48,57 +49,59 @@ async function assertCanAssign({
     return { ok: true, reason: 'system_break_glass', breakGlass: true };
   }
 
-  let actorRoles = await listUserProjectRolesOnBoard(bid, actor);
-  let targetRoles = await listUserProjectRolesOnBoard(bid, target);
+  let projectId;
+  try {
+    const ctx = await resolveProjectContext(bid);
+    projectId = ctx.projectId;
+  } catch (err) {
+    return { ok: false, message: err.message || 'Board không tồn tại' };
+  }
+
+  let actorRoles = await listUserProjectRolesOnProject(projectId, actor);
+  let targetRoles = await listUserProjectRolesOnProject(projectId, target);
 
   if (!actorRoles.length || !targetRoles.length) {
     await migrateBoardMembersToProjectRoles(bid, actor);
-    actorRoles = await listUserProjectRolesOnBoard(bid, actor);
-    targetRoles = await listUserProjectRolesOnBoard(bid, target);
+    actorRoles = await listUserProjectRolesOnProject(projectId, actor);
+    targetRoles = await listUserProjectRolesOnProject(projectId, target);
   }
 
-  const actorOnProject = await ProjectMembership.exists({ boardId: bid, userId: actor });
-  const targetOnProject = await ProjectMembership.exists({ boardId: bid, userId: target });
-  if (!actorOnProject || !targetOnProject) {
-    return {
-      ok: false,
-      message: 'Người giao và người nhận phải cùng thuộc Project (Project Team)',
-    };
-  }
-
-  if (!actorRoles.some((r) => r.canAssign)) {
-    return {
-      ok: false,
-      message: 'Project Role hiện tại không có quyền Assign trên project này',
-    };
+  const actorCanAssign = actorRoles.some((r) => r.canAssign);
+  if (!actorRoles.length || !targetRoles.length) {
+    return decideAssign({ actorRoles, targetRoles, actorCanAssign, edgeCount: 0, hasEdge: false });
   }
 
   if (!ASSIGN_SLOTS_REQUIRING_DELEGATION.has(slotKey) && slotKey !== 'primary') {
     return { ok: true, reason: 'slot_optional' };
   }
 
-  const fromIds = actorRoles.map((r) => r._id);
-  const toIds = targetRoles.map((r) => r._id);
-  const allowed = await hasDelegationEdge({
+  if (actorCanAssign) {
+    return decideAssign({
+      actorRoles,
+      targetRoles,
+      actorCanAssign: true,
+      edgeCount: 1,
+      hasEdge: false,
+    });
+  }
+
+  const hasEdge = await hasDelegationEdge({
     boardId: bid,
-    fromRoleIds: fromIds,
-    toRoleIds: toIds,
+    fromRoleIds: actorRoles.map((r) => r._id),
+    toRoleIds: targetRoles.map((r) => r._id),
     taskType,
   });
 
-  if (!allowed) {
-    const fromLabels = actorRoles.map((r) => r.label || r.key).join(', ');
-    const toLabels = targetRoles.map((r) => r.label || r.key).join(', ');
-    return {
-      ok: false,
-      message: `Không có CanAssign từ [${fromLabels}] → [${toLabels}] trên Delegation Graph của project`,
-    };
-  }
-
-  return { ok: true, reason: 'delegation_edge' };
+  return decideAssign({
+    actorRoles,
+    targetRoles,
+    actorCanAssign: false,
+    hasEdge,
+  });
 }
 
 module.exports = {
+  decideAssign,
   assertCanAssign,
   isAssignmentEngineEnabled,
   ASSIGN_SLOTS_REQUIRING_DELEGATION,

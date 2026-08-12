@@ -12,6 +12,7 @@ const {
 } = require('@enterprise/shared/config/masterData');
 const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client');
 const { assertResolvedProjectRoleKeys } = require('../utils/assertResolvedProjectRoleKeys');
+const { enrichMembershipUserLabels } = require('../utils/userProfileLabels');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -196,39 +197,6 @@ async function ensureProjectMembership({
     { upsert: true, new: true }
   ).lean();
   return row;
-}
-
-/**
- * Hydrate displayName/avatar cho roster — tránh FE hiện 6 ký tự ObjectId.
- */
-async function enrichMembershipUserLabels(userIds = []) {
-  const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
-  const unique = [...new Set((userIds || []).map(String).filter(Boolean))];
-  const entries = await Promise.all(
-    unique.map(async (uid) => {
-      let displayName = uid.slice(-6);
-      let avatar = null;
-      let email = '';
-      let username = null;
-      try {
-        const res = await fetchUserProfileByIdInternal(uid);
-        const profile = res?.data?.data ?? res?.data ?? null;
-        displayName =
-          profile?.displayName ||
-          profile?.fullName ||
-          profile?.username ||
-          (profile?.email ? String(profile.email).split('@')[0] : '') ||
-          displayName;
-        avatar = profile?.avatar || null;
-        email = String(profile?.email || '').trim();
-        username = profile?.username || null;
-      } catch {
-        /* optional — giữ fallback mã ngắn */
-      }
-      return [uid, { displayName, avatar, email, username }];
-    })
-  );
-  return new Map(entries);
 }
 
 async function listProjectMemberships(projectOrBoardId) {

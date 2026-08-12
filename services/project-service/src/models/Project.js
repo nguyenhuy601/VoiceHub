@@ -234,6 +234,11 @@ const projectSchema = new mongoose.Schema(
       type: methodologySettingsSchema,
       default: () => ({}),
     },
+    /** Hub Work types tree — additive; null = FE/BE default depths. */
+    workTypeConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     /** Phase 4 — org WorkflowTemplate bind (boards clone khi apply). */
     workflowTemplateId: {
       type: mongoose.Schema.Types.ObjectId,

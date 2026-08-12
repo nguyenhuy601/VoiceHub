@@ -1,21 +1,61 @@
 import { useCallback, useEffect, useState } from 'react';
+import { projectAPI } from '../../../services/api/projectAPI';
 import {
   WORK_TYPE_CHANGE_EVENT,
   loadWorkTypeConfig,
+  normalizeWorkTypeConfig,
   saveWorkTypeConfig,
   workTypeStorageKey,
 } from './projectWorkTypes';
 
+function unwrapProject(res) {
+  return res?.data?.data ?? res?.data ?? res ?? null;
+}
+
+function hasServerConfig(raw) {
+  return Boolean(raw && typeof raw === 'object');
+}
+
 /**
- * Cấu hình Work types theo projectId — đồng bộ Settings ↔ thanh tạo (cùng tab + storage).
+ * Work types theo projectId — SSOT Project.workTypeConfig (serverConfig từ Shell), cache localStorage.
  */
-export function useProjectWorkTypes(projectId) {
+export function useProjectWorkTypes(projectId, { serverConfig } = {}) {
   const id = String(projectId || '').trim();
-  const [config, setConfig] = useState(() => loadWorkTypeConfig(id));
+  const [config, setConfig] = useState(() =>
+    hasServerConfig(serverConfig)
+      ? normalizeWorkTypeConfig(serverConfig)
+      : loadWorkTypeConfig(id)
+  );
 
   useEffect(() => {
+    if (!id) {
+      setConfig(loadWorkTypeConfig(''));
+      return undefined;
+    }
+    if (hasServerConfig(serverConfig)) {
+      setConfig(saveWorkTypeConfig(id, serverConfig));
+      return undefined;
+    }
+    let cancelled = false;
     setConfig(loadWorkTypeConfig(id));
-  }, [id]);
+    (async () => {
+      try {
+        const res = await projectAPI.get(id);
+        const raw = unwrapProject(res)?.workTypeConfig;
+        if (cancelled) return;
+        if (raw && typeof raw === 'object') {
+          setConfig(saveWorkTypeConfig(id, raw));
+        } else {
+          setConfig(loadWorkTypeConfig(id));
+        }
+      } catch {
+        if (!cancelled) setConfig(loadWorkTypeConfig(id));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, serverConfig]);
 
   useEffect(() => {
     const onChange = (event) => {
@@ -41,6 +81,11 @@ export function useProjectWorkTypes(projectId) {
       const payload = typeof next === 'function' ? next(base) : next;
       const saved = saveWorkTypeConfig(id, payload);
       setConfig(saved);
+      if (id) {
+        void projectAPI.patch(id, { workTypeConfig: saved }).catch(() => {
+          /* cache local giữ; GET sau có thể ghi đè từ server */
+        });
+      }
       return saved;
     },
     [id]

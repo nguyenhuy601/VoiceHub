@@ -81,6 +81,22 @@ function defaultAllocSegments() {
   ];
 }
 
+function summaryFromProjectData(data, projectIdStr = '') {
+  if (!data || typeof data !== 'object') return null;
+  const nextOrgId = String(data.organizationId || data.orgId || '').trim();
+  if (!nextOrgId) return null;
+  return {
+    projectId: String(data.projectId || data._id || projectIdStr),
+    organizationId: nextOrgId,
+    title: String(data.title || '').trim(),
+    projectCode: String(data.projectCode || '').trim(),
+    requiredProjectRoles: Array.isArray(data.requiredProjectRoles) ? data.requiredProjectRoles : [],
+    relatedDepartmentIds: Array.isArray(data.relatedDepartmentIds)
+      ? data.relatedDepartmentIds.map(String)
+      : [],
+  };
+}
+
 /**
  * Thành viên + project roles + Resource Allocation (dated).
  */
@@ -88,6 +104,8 @@ export default function ProjectHubMembersPanel({
   projectId = '',
   boardId = '',
   organizationId = '',
+  projectPayload = null,
+  membersActive = true,
   canManage = false,
   isDarkMode = false,
   onMembersChanged = null,
@@ -96,7 +114,7 @@ export default function ProjectHubMembersPanel({
   const projectIdStr = String(projectId || '').trim();
 
   const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(String(projectId || boardId || '').trim()));
   const [loadError, setLoadError] = useState(false);
   const [orgMembers, setOrgMembers] = useState([]);
   const [orgLoading, setOrgLoading] = useState(false);
@@ -110,6 +128,13 @@ export default function ProjectHubMembersPanel({
   const [roleCatalog, setRoleCatalog] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [projectSummary, setProjectSummary] = useState(null);
+  const resolvedOrgId = String(
+    organizationId ||
+      projectPayload?.organizationId ||
+      projectPayload?.orgId ||
+      projectSummary?.organizationId ||
+      ''
+  ).trim();
 
   /** Roster Related Departments (capacity/planner). */
   const [deptRosterItems, setDeptRosterItems] = useState([]);
@@ -127,6 +152,9 @@ export default function ProjectHubMembersPanel({
   const [memberTab, setMemberTab] = useState(MEMBER_TAB_ROSTER);
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const tabMenuRef = useRef(null);
+  const roleCatalogLoadedForRef = useRef('');
+  const orgDirectoryLoadedForRef = useRef('');
+  const plannerLoadedForRef = useRef('');
 
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -138,6 +166,7 @@ export default function ProjectHubMembersPanel({
     if (!id) {
       setMembers([]);
       setLoadError(false);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -317,48 +346,87 @@ export default function ProjectHubMembersPanel({
   }, [selectedUserId, organizationId, projectSummary?.organizationId, projectIdStr]);
 
   useEffect(() => {
-    if (!canManage || !projectIdStr) return;
+    roleCatalogLoadedForRef.current = '';
+    orgDirectoryLoadedForRef.current = '';
+    plannerLoadedForRef.current = '';
+  }, [projectIdStr]);
+
+  useEffect(() => {
+    const next = summaryFromProjectData(projectPayload, projectIdStr);
+    if (next) setProjectSummary(next);
+  }, [projectPayload, projectIdStr]);
+
+  useEffect(() => {
+    if (!canManage || !membersActive || !projectIdStr || resolvedOrgId) return undefined;
     let cancelled = false;
     (async () => {
-      setOrgMembers([]);
-      setRoleCatalog([]);
-      setProjectSummary(null);
-      setDeptMemberIds([]);
-      setDeptName('');
-      setDeptNameById(new Map());
-      setBulkDeptId('');
-      setStructureDepts([]);
-      setDeptRosterItems([]);
-      setDeptRosterHint(null);
-      setFormMode('add');
-      setSelectedUserId('');
-      setSelectedRoleKeys([]);
-      setAllocSegments(defaultAllocSegments());
-      setBillable(false);
-
-      setOrgLoading(true);
-      setRolesLoading(true);
       try {
         const res = await projectAPI.get(projectIdStr);
         const data = res?.data?.data ?? res?.data ?? res;
-        const nextOrgId = String(data?.organizationId || data?.orgId || '').trim();
         if (cancelled) return;
-        if (!nextOrgId) throw new Error('organizationId thiếu');
-        setProjectSummary({
-          projectId: String(data?.projectId || data?._id || projectIdStr),
-          organizationId: nextOrgId,
-          title: String(data?.title || '').trim(),
-          projectCode: String(data?.projectCode || '').trim(),
-          requiredProjectRoles: Array.isArray(data?.requiredProjectRoles) ? data.requiredProjectRoles : [],
-          relatedDepartmentIds: Array.isArray(data?.relatedDepartmentIds)
-            ? data.relatedDepartmentIds.map(String)
-            : [],
-        });
+        const next = summaryFromProjectData(data, projectIdStr);
+        if (next) setProjectSummary(next);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t]);
 
-        const [membersRes, rolesRes, structureRes] = await Promise.all([
-          organizationAPI.getMembersWithRoles(nextOrgId),
-          projectAPI.listRoleCatalog(nextOrgId),
-          organizationAPI.getStructure(nextOrgId).catch(() => null),
+  useEffect(() => {
+    if (!canManage || !membersActive || !resolvedOrgId || loading) return undefined;
+    if (roleCatalogLoadedForRef.current === resolvedOrgId) return undefined;
+    let cancelled = false;
+    (async () => {
+      setRolesLoading(true);
+      try {
+        const rolesRes = await projectAPI.listRoleCatalog(resolvedOrgId);
+        const roles = unwrap(rolesRes);
+        if (cancelled) return;
+        const roleList = Array.isArray(roles) ? roles : [];
+        roleCatalogLoadedForRef.current = resolvedOrgId;
+        setRoleCatalog(roleList);
+        setBulkRoleKeys((prev) => {
+          if (prev.length) return prev;
+          const defaultKeys = roleList
+            .filter((r) => r.canAssign && String(r.key) === 'developer')
+            .map((r) => r.key);
+          return defaultKeys.length
+            ? defaultKeys
+            : roleList.filter((r) => r.canAssign).slice(0, 1).map((r) => r.key);
+        });
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
+        }
+      } finally {
+        if (!cancelled) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, membersActive, resolvedOrgId, loading, t]);
+
+  const needsOrgDirectory =
+    canManage &&
+    membersActive &&
+    (activeTab === MEMBER_TAB_BULK || (activeTab === MEMBER_TAB_ADD && formMode === 'add'));
+
+  useEffect(() => {
+    if (!needsOrgDirectory || !resolvedOrgId) return undefined;
+    if (orgDirectoryLoadedForRef.current === resolvedOrgId) return undefined;
+    let cancelled = false;
+    (async () => {
+      setOrgLoading(true);
+      try {
+        const [membersRes, structureRes] = await Promise.all([
+          organizationAPI.getMembersWithRoles(resolvedOrgId),
+          organizationAPI.getStructure(resolvedOrgId).catch(() => null),
         ]);
         const wrapped = unwrap(membersRes);
         const orgRowsRaw = Array.isArray(wrapped?.members)
@@ -369,16 +437,9 @@ export default function ProjectHubMembersPanel({
         const orgRows = await enrichMembershipsWithProfiles(orgRowsRaw, {
           fallback: '—',
         });
-        const roles = unwrap(rolesRes);
         if (cancelled) return;
+        orgDirectoryLoadedForRef.current = resolvedOrgId;
         setOrgMembers(orgRows);
-        const roleList = Array.isArray(roles) ? roles : [];
-        setRoleCatalog(roleList);
-        const defaultKeys = roleList
-          .filter((r) => r.canAssign && String(r.key) === 'developer')
-          .map((r) => r.key);
-        setBulkRoleKeys(defaultKeys.length ? defaultKeys : roleList.filter((r) => r.canAssign).slice(0, 1).map((r) => r.key));
-
         const structure = unwrap(structureRes);
         const depts = flattenOrgStructureDepartments(structure);
         const nameMap = new Map();
@@ -401,19 +462,19 @@ export default function ProjectHubMembersPanel({
           toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
         }
       } finally {
-        if (!cancelled) {
-          setOrgLoading(false);
-          setRolesLoading(false);
-        }
+        if (!cancelled) setOrgLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [canManage, projectIdStr, t]);
+  }, [needsOrgDirectory, resolvedOrgId, t]);
 
   useEffect(() => {
-    if (!canManage || formMode !== 'add' || !projectIdStr) return;
+    if (!canManage || !membersActive || activeTab !== MEMBER_TAB_ADD || formMode !== 'add' || !projectIdStr) {
+      return undefined;
+    }
+    if (plannerLoadedForRef.current === projectIdStr) return undefined;
     let cancelled = false;
     (async () => {
       setRosterLoading(true);
@@ -425,6 +486,7 @@ export default function ProjectHubMembersPanel({
         );
         const data = unwrap(res);
         if (cancelled) return;
+        plannerLoadedForRef.current = projectIdStr;
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setDeptRosterItems(items);
         setDeptRosterHint(data?.hint || null);
@@ -456,7 +518,7 @@ export default function ProjectHubMembersPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, formMode, projectIdStr, t]);
+  }, [canManage, membersActive, activeTab, formMode, projectIdStr, t]);
 
   const rosterByDepartment = useMemo(() => {
     const groups = new Map();
@@ -726,7 +788,9 @@ export default function ProjectHubMembersPanel({
             {t('workspace.projectHubTabMembers')}
           </h3>
           <p className={`mt-0.5 text-xs ${muted}`}>
-            {loading ? '…' : t('workspace.projectHubMembersCount', { n: rows.length })}
+            {loading && !rows.length
+              ? '…'
+              : t('workspace.projectHubMembersCount', { n: rows.length })}
           </p>
         </div>
         {memberTabs.length > 1 ? (
@@ -777,7 +841,11 @@ export default function ProjectHubMembersPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {activeTab === MEMBER_TAB_ROSTER ? (
-          <section className={`${cardCls} flex min-h-0 flex-col p-3 sm:p-4`} aria-label={t('workspace.projectHubMembersRoster')}>
+          <section
+            className={`${cardCls} flex min-h-0 flex-col p-3 sm:p-4`}
+            aria-label={t('workspace.projectHubMembersRoster')}
+            aria-busy={loading || undefined}
+          >
             <div className="mb-3 flex items-center justify-between gap-2">
               <h4 className={`text-sm font-semibold ${titleCls}`}>
                 {t('workspace.projectHubMembersRoster')}
@@ -787,7 +855,7 @@ export default function ProjectHubMembersPanel({
               </span>
             </div>
 
-            {loadError ? (
+            {loadError && !rows.length ? (
               <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
                 <p className={`text-sm ${muted}`}>{t('workspace.projectHubMembersFail')}</p>
                 <button
@@ -798,7 +866,7 @@ export default function ProjectHubMembersPanel({
                   {t('workspace.projectHubMembersRetry')}
                 </button>
               </div>
-            ) : loading ? (
+            ) : loading && !rows.length ? (
               <p className={`py-8 text-center text-sm ${muted}`} role="status">
                 {t('common.loading')}
               </p>
@@ -1088,7 +1156,7 @@ export default function ProjectHubMembersPanel({
                   <p className={`mt-0.5 text-xs ${muted}`}>{t('workspace.projectHubPlannerHint')}</p>
                 </div>
                 <ResourcePlannerPanel
-                  orgId={String(organizationId || projectSummary?.organizationId || '')}
+                  orgId={resolvedOrgId}
                   projectId={projectIdStr}
                   canManage={canManage}
                   embedded

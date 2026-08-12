@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  assertCanStartSprint,
   buildIssueOverlay,
   classifyListStatusBucket,
   countCardsByIssueType,
   countIssuesByStatusBucket,
+  defaultSprintDateRange,
   displayIssueKey,
   dueDateTone,
+  isCardInSprint,
+  isSprintDateRangeInvalid,
   mergeIssueWithOverlay,
   normalizeIssueType,
+  parseHubDate,
+  resolveActiveSprint,
 } from './projectHubUtils.js';
 
 test('countCardsByIssueType nhóm story / task / bug', () => {
@@ -81,4 +87,87 @@ test('classifyListStatusBucket và dueDateTone', () => {
   assert.equal(dueDateTone(past, 'todo'), 'overdue');
   assert.equal(dueDateTone(soon, 'todo'), 'soon');
   assert.equal(dueDateTone(past, 'done'), 'none');
+});
+
+test('parseHubDate: invalid → null', () => {
+  assert.equal(parseHubDate(''), null);
+  assert.equal(parseHubDate('not-a-date'), null);
+  assert.ok(parseHubDate('2026-01-01T00:00:00.000Z') instanceof Date);
+});
+
+test('defaultSprintDateRange: giữ cặp hợp lệ; thiếu → +14d; start>=end error', () => {
+  const kept = defaultSprintDateRange({
+    startDate: '2026-01-01T00:00:00.000Z',
+    endDate: '2026-01-14T00:00:00.000Z',
+  });
+  assert.equal(kept.startDate, '2026-01-01T00:00:00.000Z');
+  assert.equal(kept.endDate, '2026-01-14T00:00:00.000Z');
+
+  const now = Date.parse('2026-08-11T00:00:00.000Z');
+  const filled = defaultSprintDateRange({}, now);
+  assert.equal(filled.startDate, '2026-08-11T00:00:00.000Z');
+  assert.equal(filled.endDate, '2026-08-25T00:00:00.000Z');
+
+  const onlyStart = defaultSprintDateRange({ startDate: '2026-01-01T00:00:00.000Z' }, now);
+  assert.equal(onlyStart.endDate, '2026-01-15T00:00:00.000Z');
+
+  const onlyEnd = defaultSprintDateRange({ endDate: '2026-01-20T00:00:00.000Z' }, now);
+  assert.equal(onlyEnd.startDate, '2026-01-06T00:00:00.000Z');
+
+  const bad = defaultSprintDateRange({
+    startDate: '2026-01-14T00:00:00.000Z',
+    endDate: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(bad.error, 'datesInvalid');
+
+  const equal = defaultSprintDateRange({
+    startDate: '2026-01-01T00:00:00.000Z',
+    endDate: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(equal.error, 'datesInvalid');
+
+  const invalidTreatedMissing = defaultSprintDateRange(
+    { startDate: 'nope', endDate: 'also-nope' },
+    now
+  );
+  assert.equal(invalidTreatedMissing.startDate, '2026-08-11T00:00:00.000Z');
+});
+
+test('isSprintDateRangeInvalid chỉ khi cả hai filled và start >= end', () => {
+  assert.equal(isSprintDateRangeInvalid('2026-01-02', '2026-01-01'), true);
+  assert.equal(isSprintDateRangeInvalid('2026-01-01', '2026-01-02'), false);
+  assert.equal(isSprintDateRangeInvalid('2026-01-01', ''), false);
+});
+
+test('assertCanStartSprint: quyền, planned, issues, một active', () => {
+  const sprint = { _id: 's1', name: 'S1', status: 'planned' };
+  assert.equal(assertCanStartSprint({ sprint, issueCount: 1, canManage: false }).ok, false);
+  assert.equal(assertCanStartSprint({ sprint: { ...sprint, status: 'active' }, issueCount: 1, canManage: true }).ok, false);
+  assert.equal(assertCanStartSprint({ sprint, issueCount: 0, canManage: true }).errorKey, 'workspace.projectHubPlanSprintIssuesEmpty');
+  assert.equal(
+    assertCanStartSprint({
+      sprint,
+      sprints: [sprint, { _id: 's2', status: 'active' }],
+      issueCount: 1,
+      canManage: true,
+    }).errorKey,
+    'workspace.projectHubSprintStartOtherActive'
+  );
+  assert.equal(assertCanStartSprint({ sprint, sprints: [sprint], issueCount: 2, canManage: true }).ok, true);
+});
+
+test('resolveActiveSprint: 0 / 1 / mới nhất khi 2', () => {
+  assert.equal(resolveActiveSprint([]), null);
+  const one = { _id: 'a', status: 'active', createdAt: '2026-01-01' };
+  assert.equal(resolveActiveSprint([one])._id, 'a');
+  const older = { _id: 'old', status: 'active', createdAt: '2026-01-01' };
+  const newer = { _id: 'new', status: 'active', createdAt: '2026-02-01' };
+  assert.equal(resolveActiveSprint([older, newer])._id, 'new');
+});
+
+test('isCardInSprint: match / null / khác id', () => {
+  assert.equal(isCardInSprint({ sprintId: 's1' }, 's1'), true);
+  assert.equal(isCardInSprint({ sprintId: null }, 's1'), false);
+  assert.equal(isCardInSprint({ sprintId: 's2' }, 's1'), false);
+  assert.equal(isCardInSprint({ sprintId: 's1' }, ''), false);
 });

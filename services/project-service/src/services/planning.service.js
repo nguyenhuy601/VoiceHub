@@ -130,6 +130,12 @@ async function createPlanningItem({
       throw err;
     }
     parentOid = parent._id;
+    const { assertPlanningParentNest } = require('./workTypeNest.service');
+    await assertPlanningParentNest({
+      projectId,
+      childType: itemType,
+      parentType: parent.type,
+    });
   }
   const last = await PlanningItem.findOne({ projectId, type: itemType, isActive: true })
     .sort({ sortOrder: -1 })
@@ -215,6 +221,12 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
         isActive: true,
       }).lean();
       if (!parent) throw new Error('parentId không tồn tại trong project');
+      const { assertPlanningParentNest } = require('./workTypeNest.service');
+      await assertPlanningParentNest({
+        projectId,
+        childType: nextType,
+        parentType: parent.type,
+      });
       item.parentId = parent._id;
     }
   }

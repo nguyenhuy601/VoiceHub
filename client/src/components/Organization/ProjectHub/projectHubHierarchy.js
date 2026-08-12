@@ -3,6 +3,8 @@
 import {
   WORK_TYPE_ALL_IDS,
   WORK_TYPE_CREATE_IDS,
+  canNestByDepth,
+  configTypeDepth,
   depthDeltaFromPointerX,
   normalizeWorkTypeConfig,
   visibleCreateMenuTypes,
@@ -75,16 +77,10 @@ export function bandIndexForType(typeId, config) {
 export function resolveItemBand(item, config) {
   const cfg = normalizeWorkTypeConfig(config);
   if (!item || typeof item !== 'object') return -1;
-  if (item.parentTaskId) {
-    const subBand = bandIndexForType('subtask', cfg);
-    if (subBand >= 0) return subBand;
-    const bands = hierarchyBands(cfg);
-    return bands.length ? bands.length - 1 : -1;
-  }
   const raw = String(item.type || item.issueType || item.workType || '').toLowerCase();
+  if (raw === 'subtask') return bandIndexForType('subtask', cfg);
   if (raw === 'feature' || raw === 'epic') return bandIndexForType(raw, cfg);
   if (WORK_TYPE_CREATE_IDS.includes(raw)) return bandIndexForType(raw, cfg);
-  if (raw === 'subtask') return bandIndexForType('subtask', cfg);
   return bandIndexForType('task', cfg);
 }
 
@@ -181,6 +177,22 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     childrenByParent.get(pid).push(card);
   }
 
+  const displayCardWorkType = (card) => {
+    const issue = String(card?.issueType || 'task').toLowerCase();
+    if (!card?.parentTaskId) return issue === 'story' || issue === 'bug' ? issue : 'task';
+    const parent = byId.get(String(card.parentTaskId));
+    const parentIssue = parent ? String(parent.issueType || 'task').toLowerCase() : 'task';
+    if (issue === 'task' && parentIssue === 'task') return 'subtask';
+    if (
+      issue === 'task' &&
+      !canNestByDepth('task', parentIssue, cfg) &&
+      canNestByDepth('subtask', parentIssue, cfg)
+    ) {
+      return 'subtask';
+    }
+    return issue === 'story' || issue === 'bug' ? issue : 'task';
+  };
+
   const makeCardNode = (card, band) => {
     const id = String(card._id || card.id);
     const childCards = childrenByParent.get(id) || [];
@@ -192,9 +204,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
       id: nodeId('card', id),
       kind: 'card',
       band,
-      workType: card.parentTaskId
-        ? 'subtask'
-        : String(card.issueType || 'task').toLowerCase(),
+      workType: displayCardWorkType(card),
       title: String(card.title || ''),
       raw: card,
       children,
@@ -370,11 +380,46 @@ export function findIndentTargetNode(flatRows, activeId, { sameBandOnly = false 
   return null;
 }
 
-function nestActionForTarget(activeNode, target) {
+function isExistingSubtask(node) {
+  return String(node?.workType || '').toLowerCase() === 'subtask';
+}
+
+function nodeWorkType(node) {
+  const wt = String(node?.workType || '').toLowerCase();
+  if (WORK_TYPE_ALL_IDS.includes(wt)) return wt;
+  const raw = String(node?.raw?.issueType || node?.raw?.type || '').toLowerCase();
+  if (WORK_TYPE_ALL_IDS.includes(raw)) return raw;
+  return '';
+}
+
+function nodeTypeDepth(node, config) {
+  const wt = nodeWorkType(node);
+  if (wt) return configTypeDepth(wt, config);
+  const b = Number(node?.band);
+  return Number.isFinite(b) ? b : 0;
+}
+
+/**
+ * Drop không gửi issueType — Task vào Story vẫn là Task.
+ */
+export function isTypePreservingDrop(activeNode, action) {
+  if (!activeNode || !action || action.mode === 'noop') return false;
+  return !Object.prototype.hasOwnProperty.call(action, 'issueType');
+}
+
+function withTypePreserving(activeNode, action) {
+  if (!action) return null;
+  if (action.mode === 'noop') return action;
+  if (!isTypePreservingDrop(activeNode, action)) return null;
+  return action;
+}
+
+function nestActionForTarget(activeNode, target, config) {
   if (!activeNode || !target || activeNode.id === target.id) return null;
   if (collectDescendantIds(activeNode).has(target.id)) return null;
   const activeId = rawEntityId(activeNode);
   if (!activeId) return null;
+  if (!canNestByDepth(nodeWorkType(activeNode), nodeWorkType(target), config)) return null;
 
   if (activeNode.kind === 'card' && target.kind === 'card') {
     return {
@@ -395,6 +440,17 @@ function nestActionForTarget(activeNode, target) {
       kind: 'card',
       activeId,
       epicId: rawEntityId(target),
+      parentTaskId: null,
+    };
+  }
+  if (activeNode.kind === 'card' && target.workType === 'feature') {
+    const epicId = target.raw?.parentId ? String(target.raw.parentId) : '';
+    if (!epicId) return null;
+    return {
+      mode: 'attach-card-epic',
+      kind: 'card',
+      activeId,
+      epicId,
       parentTaskId: null,
     };
   }
@@ -438,7 +494,7 @@ export function resolveListHorizontalAction({
   if (step > 0) {
     if (activeNode.band >= bands.length - 1) return null;
     const target = findIndentTargetNode(flatRows, activeNode.id);
-    return nestActionForTarget(activeNode, target);
+    return withTypePreserving(activeNode, nestActionForTarget(activeNode, target, cfg));
   }
 
   const parent = findParentListNode(tree, activeNode.id);
@@ -462,32 +518,32 @@ export function resolveListHorizontalAction({
         parentTaskId = null;
         epicId = parent.raw?.epicId ? String(parent.raw.epicId) : epicId;
       }
-      return {
+      return withTypePreserving(activeNode, {
         mode: 'align-card-siblings',
         kind: 'card',
         activeId,
         parentTaskId,
         epicId,
-      };
+      });
     }
     if (parent.workType === 'epic') {
-      return {
+      return withTypePreserving(activeNode, {
         mode: 'detach-card-epic',
         kind: 'card',
         activeId,
         parentTaskId: null,
         epicId: null,
-      };
+      });
     }
   }
 
   if (activeNode.workType === 'feature' && parent.workType === 'epic') {
-    return {
+    return withTypePreserving(activeNode, {
       mode: 'align-feature-siblings',
       kind: 'planning',
       activeId,
       parentId: null,
-    };
+    });
   }
 
   return null;
@@ -541,81 +597,52 @@ function joinEpicGroupAction(activeNode, epicId) {
 }
 
 /**
- * Cho phép kéo cùng cấp hoặc thả vào nhóm trên đúng 1 cấp; không thả xuống cấp dưới / nhảy nhiều cấp.
+ * Cho phép kéo cùng cấp hoặc thả vào nhóm trên đúng 1 cấp (depthById, không dùng band).
  */
-export function canListDragOver(activeNode, overNode) {
+export function canListDragOver(activeNode, overNode, config) {
   if (!activeNode || !overNode) return false;
   if (activeNode.id === overNode.id) return false;
   if (collectDescendantIds(activeNode).has(overNode.id)) return false;
-  const ab = Number(activeNode.band);
-  const ob = Number(overNode.band);
-  if (!Number.isFinite(ab) || !Number.isFinite(ob)) return false;
-  if (ab === ob) return true;
-  if (ob === ab - 1) return true;
+  const ad = nodeTypeDepth(activeNode, config);
+  const od = nodeTypeDepth(overNode, config);
+  if (!Number.isFinite(ad) || !Number.isFinite(od)) return false;
+  if (ad === od) return true;
+  if (od === ad - 1) return true;
   return false;
 }
 
 /**
  * Suy ra payload cập nhật parent sau drop (FE dùng API hiện có).
- * Thả dọc vào hàng trong nhóm Epic (Feature/Story) → gia nhập nhóm đó.
+ * Cùng depth = sibling; đúng 1 cấp trên = nest (không đổi issueType).
  * @returns {null|{ mode: string, activeId: string, kind: string, epicId?: string|null, parentTaskId?: string|null, parentId?: string|null }}
  */
-export function resolveListDropAction(activeNode, overNode, tree = []) {
-  if (!canListDragOver(activeNode, overNode)) return null;
+export function resolveListDropAction(activeNode, overNode, tree = [], config) {
+  if (!canListDragOver(activeNode, overNode, config)) return null;
   const activeId = String(activeNode.raw?._id || activeNode.raw?.id || '');
   if (!activeId) return null;
   const overId = String(overNode.raw?._id || overNode.raw?.id || '');
-  const ab = activeNode.band;
-  const ob = overNode.band;
+  const ad = nodeTypeDepth(activeNode, config);
+  const od = nodeTypeDepth(overNode, config);
 
-  // Thả vào cấp trên 1 bậc → gắn làm con của over
-  if (ob === ab - 1) {
-    if (activeNode.kind === 'card' && overNode.kind === 'card') {
-      return {
-        mode: 'attach-card-parent',
-        kind: 'card',
-        activeId,
-        parentTaskId: overId,
-        epicId: overNode.raw?.epicId ? String(overNode.raw.epicId) : null,
-      };
-    }
-    if (activeNode.kind === 'card' && overNode.workType === 'epic') {
-      return {
-        mode: 'attach-card-epic',
-        kind: 'card',
-        activeId,
-        epicId: overId,
-        parentTaskId: null,
-      };
-    }
-    if (activeNode.kind === 'planning' && activeNode.workType === 'feature' && overNode.workType === 'epic') {
-      return {
-        mode: 'attach-feature-epic',
-        kind: 'planning',
-        activeId,
-        parentId: overId,
-      };
-    }
-    return null;
+  if (od === ad - 1) {
+    return withTypePreserving(activeNode, nestActionForTarget(activeNode, overNode, config));
   }
 
-  // Cùng cấp: sub-task đổi parent; Story/Feature gia nhập nhóm Epic của over
-  if (ab === ob) {
-    const overIsSubtask = Boolean(overNode.raw?.parentTaskId) || overNode.workType === 'subtask';
-    const activeIsSubtask = Boolean(activeNode.raw?.parentTaskId) || activeNode.workType === 'subtask';
-    if (activeNode.kind === 'card' && overNode.kind === 'card' && (activeIsSubtask || overIsSubtask)) {
+  if (ad === od) {
+    const activeIsSubtask = isExistingSubtask(activeNode);
+    if (activeNode.kind === 'card' && overNode.kind === 'card' && activeIsSubtask) {
       const parentTaskId = overNode.raw?.parentTaskId ? String(overNode.raw.parentTaskId) : null;
       const epicId = overNode.raw?.epicId ? String(overNode.raw.epicId) : null;
       const curParent = activeNode.raw?.parentTaskId ? String(activeNode.raw.parentTaskId) : null;
       const curEpic = activeNode.raw?.epicId ? String(activeNode.raw.epicId) : null;
       if (curParent === parentTaskId && curEpic === epicId) return { mode: 'noop', kind: 'card', activeId };
-      return {
+      return withTypePreserving(activeNode, {
         mode: 'align-card-siblings',
         kind: 'card',
         activeId,
         parentTaskId,
         epicId,
-      };
+      });
     }
 
     if (
@@ -627,19 +654,27 @@ export function resolveListDropAction(activeNode, overNode, tree = []) {
       const aParent = activeNode.raw?.parentId ? String(activeNode.raw.parentId) : '';
       const oParent = overNode.raw?.parentId ? String(overNode.raw.parentId) : '';
       if (activeNode.workType === 'epic' || aParent === oParent) {
-        return {
+        return withTypePreserving(activeNode, {
           mode: 'reorder-planning',
           kind: 'planning',
           activeId,
           overId,
-        };
+        });
       }
+    }
+
+    if (
+      activeNode.kind === 'card' &&
+      overNode.kind === 'card' &&
+      nodeWorkType(activeNode) !== nodeWorkType(overNode)
+    ) {
+      return null;
     }
 
     const groupEpicId = epicContainerId(overNode, tree);
     if (groupEpicId && !activeIsSubtask) {
       const joined = joinEpicGroupAction(activeNode, groupEpicId);
-      if (joined) return joined;
+      if (joined) return withTypePreserving(activeNode, joined);
     }
 
     if (activeNode.kind === 'card' && overNode.kind === 'card') {
@@ -648,13 +683,13 @@ export function resolveListDropAction(activeNode, overNode, tree = []) {
       const curParent = activeNode.raw?.parentTaskId ? String(activeNode.raw.parentTaskId) : null;
       const curEpic = activeNode.raw?.epicId ? String(activeNode.raw.epicId) : null;
       if (curParent === parentTaskId && curEpic === epicId) return { mode: 'noop', kind: 'card', activeId };
-      return {
+      return withTypePreserving(activeNode, {
         mode: 'align-card-siblings',
         kind: 'card',
         activeId,
         parentTaskId,
         epicId,
-      };
+      });
     }
     if (
       activeNode.kind === 'planning' &&
@@ -662,16 +697,47 @@ export function resolveListDropAction(activeNode, overNode, tree = []) {
       overNode.workType === 'feature'
     ) {
       const parentId = overNode.raw?.parentId ? String(overNode.raw.parentId) : null;
-      return {
+      return withTypePreserving(activeNode, {
         mode: 'align-feature-siblings',
         kind: 'planning',
         activeId,
         parentId,
-      };
+      });
     }
     return { mode: 'noop', kind: activeNode.kind, activeId };
   }
 
   return null;
+}
+
+/**
+ * Action kéo hiện tại (ngang ưu tiên) — cùng rule với onDragEnd.
+ */
+export function resolveLiveListDragAction({
+  activeNode,
+  overNode = null,
+  deltaX = 0,
+  deltaY = 0,
+  tree = [],
+  flatRows = [],
+  config,
+} = {}) {
+  if (!activeNode) return null;
+  if (preferListHorizontalDrag(deltaX, deltaY)) {
+    return resolveListHorizontalAction({
+      activeNode,
+      flatRows,
+      tree,
+      deltaX,
+      config,
+    });
+  }
+  if (!overNode) return null;
+  return resolveListDropAction(activeNode, overNode, tree, config);
+}
+
+export function isLiveListDragValid(args = {}) {
+  const action = resolveLiveListDragAction(args);
+  return Boolean(action && action.mode !== 'noop');
 }
 

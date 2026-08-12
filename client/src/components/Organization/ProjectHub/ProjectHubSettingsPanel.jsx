@@ -132,6 +132,7 @@ export default function ProjectHubSettingsPanel({
   canManage = false,
   isDarkMode = false,
   onSaved,
+  workTypeConfig: serverWorkTypeConfig = null,
 }) {
   const { t } = useAppStrings();
   const [title, setTitle] = useState('');
@@ -651,7 +652,13 @@ export default function ProjectHubSettingsPanel({
     staffing: staffingBody,
     workflow: workflowBody,
     approval: approvalBody,
-    workTypes: <ProjectHubWorkTypeHierarchy t={t} projectId={resolvedProjectId} />,
+    workTypes: (
+      <ProjectHubWorkTypeHierarchy
+        t={t}
+        projectId={resolvedProjectId}
+        serverConfig={serverWorkTypeConfig}
+      />
+    ),
   };
 
   const activeGroup = groups.find((g) => g.id === openSection);

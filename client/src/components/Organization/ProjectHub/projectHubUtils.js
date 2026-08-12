@@ -249,3 +249,100 @@ export function addDaysToDateTimeLocal(startValue, days) {
   d.setDate(d.getDate() + Number(days || 0));
   return toDateTimeLocalValue(d);
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SPRINT_DAYS = 14;
+
+/** Parse ISO / Date; invalid → null. */
+export function parseHubDate(value) {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+/**
+ * Ngày sprint khi Start: giữ cặp hợp lệ; thiếu thì now/+14d.
+ * Cả hai parse được nhưng start >= end → { error: 'datesInvalid' } (không swap).
+ */
+export function defaultSprintDateRange(sprint = {}, now = Date.now()) {
+  const start = parseHubDate(sprint?.startDate);
+  const end = parseHubDate(sprint?.endDate);
+  if (start && end) {
+    if (start.getTime() >= end.getTime()) return { error: 'datesInvalid' };
+    return { startDate: start.toISOString(), endDate: end.toISOString() };
+  }
+  const base = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  if (start && !end) {
+    const nextEnd = new Date(start.getTime() + DEFAULT_SPRINT_DAYS * DAY_MS);
+    return { startDate: start.toISOString(), endDate: nextEnd.toISOString() };
+  }
+  if (!start && end) {
+    const nextStart = new Date(end.getTime() - DEFAULT_SPRINT_DAYS * DAY_MS);
+    if (nextStart.getTime() >= end.getTime()) return { error: 'datesInvalid' };
+    return { startDate: nextStart.toISOString(), endDate: end.toISOString() };
+  }
+  const s = new Date(base);
+  const e = new Date(base + DEFAULT_SPRINT_DAYS * DAY_MS);
+  return { startDate: s.toISOString(), endDate: e.toISOString() };
+}
+
+/** Cả hai ngày filled và start >= end. Cặp thiếu không tính invalid. */
+export function isSprintDateRangeInvalid(startValue, endValue) {
+  const start = parseHubDate(startValue);
+  const end = parseHubDate(endValue);
+  if (!start || !end) return false;
+  return start.getTime() >= end.getTime();
+}
+
+/**
+ * @returns {{ ok: true } | { ok: false, errorKey: string }}
+ */
+export function assertCanStartSprint({
+  sprint,
+  sprints = [],
+  issueCount = 0,
+  canManage = false,
+} = {}) {
+  if (!canManage) {
+    return { ok: false, errorKey: 'workspace.projectHubSprintStartNoPermission' };
+  }
+  const sid = String(sprint?._id || sprint?.id || '').trim();
+  if (!sid) return { ok: false, errorKey: 'workspace.projectHubPlanSprintFail' };
+  if (!String(sprint?.name || '').trim()) {
+    return { ok: false, errorKey: 'workspace.projectHubPlanSprintFail' };
+  }
+  const status = String(sprint?.status || 'planned').toLowerCase();
+  if (status !== 'planned') return { ok: false, errorKey: 'workspace.projectHubPlanSprintFail' };
+  if (!Number.isFinite(Number(issueCount)) || Number(issueCount) <= 0) {
+    return { ok: false, errorKey: 'workspace.projectHubPlanSprintIssuesEmpty' };
+  }
+  const otherActive = (Array.isArray(sprints) ? sprints : []).some((row) => {
+    const id = String(row?._id || row?.id || '');
+    return id && id !== sid && String(row?.status || '').toLowerCase() === 'active';
+  });
+  if (otherActive) {
+    return { ok: false, errorKey: 'workspace.projectHubSprintStartOtherActive' };
+  }
+  return { ok: true };
+}
+
+/** Sprint active; nếu nhiều thì createdAt mới nhất. */
+export function resolveActiveSprint(sprints = []) {
+  const active = (Array.isArray(sprints) ? sprints : []).filter(
+    (s) => String(s?.status || '').toLowerCase() === 'active'
+  );
+  if (!active.length) return null;
+  if (active.length === 1) return active[0];
+  return [...active].sort((a, b) => {
+    const tb = new Date(b?.createdAt || 0).getTime();
+    const ta = new Date(a?.createdAt || 0).getTime();
+    return tb - ta;
+  })[0];
+}
+
+export function isCardInSprint(card, sprintId) {
+  const sid = String(sprintId || '').trim();
+  if (!sid) return false;
+  return String(card?.sprintId || '').trim() === sid;
+}

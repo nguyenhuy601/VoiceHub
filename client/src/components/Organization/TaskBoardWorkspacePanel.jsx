@@ -23,6 +23,8 @@ import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
 import { allowedIssueTypesFromCaps } from '../../features/projectHub/hubCaps';
 import { visibleCreateTypes } from './ProjectHub/projectWorkTypes';
 import { useProjectWorkTypes } from './ProjectHub/useProjectWorkTypes';
+import ProjectHubSprintBoardCard from './ProjectHub/ProjectHubSprintBoardCard';
+import { isCardInSprint } from './ProjectHub/projectHubUtils';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
 import { useAppStrings } from '../../locales/appStrings';
@@ -411,6 +413,10 @@ export default function TaskBoardWorkspacePanel({
   taskWorkspaceScope = null,
   /** Ẩn title/code/summary — Project Hub đã có identity header. */
   hideIdentityHeader = false,
+  /** Lọc card theo sprint active (Hub). Không set → không lọc. */
+  sprintFilterId = '',
+  defaultSprintId = '',
+  hubSprintCard = null,
 }) {
   const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
@@ -491,6 +497,10 @@ export default function TaskBoardWorkspacePanel({
   const filterCardsForView = useCallback(
     (cards) => {
       let next = Array.isArray(cards) ? cards : [];
+      const sprintId = String(sprintFilterId || '').trim();
+      if (sprintId) {
+        next = next.filter((c) => isCardInSprint(c, sprintId));
+      }
       if (showMyTasksOnly && currentUserId) {
         next = next.filter((c) => String(c.assigneeId || '') === String(currentUserId));
       }
@@ -503,8 +513,21 @@ export default function TaskBoardWorkspacePanel({
       }
       return next;
     },
-    [showMyTasksOnly, currentUserId, boardSearchQuery]
+    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId]
   );
+
+  const attachSprintToCreate = (payload) => {
+    const filter = String(sprintFilterId || '').trim();
+    const def = String(defaultSprintId || '').trim();
+    if (filter) {
+      if (!def || def !== filter) {
+        toast.error(t('workspace.projectHubSprintCreateNotActive'));
+        return null;
+      }
+      return { ...payload, sprintId: def };
+    }
+    return payload;
+  };
 
   useEffect(() => {
     if (!detailCard || !boardDetail?.cards) return;
@@ -1124,6 +1147,19 @@ export default function TaskBoardWorkspacePanel({
   };
 
   const renderCardBody = (card, { onOpenMenu, onToggleComplete }) => {
+    if (hubSprintCard) {
+      return (
+        <ProjectHubSprintBoardCard
+          card={card}
+          projectCode={hubSprintCard.projectCode || ''}
+          epics={hubSprintCard.epics || []}
+          canLinkEpic={Boolean(hubSprintCard.canLinkEpic)}
+          onLinkParent={hubSprintCard.onLinkParent}
+          onOpenMenu={onOpenMenu}
+          busy={Boolean(hubSprintCard.busy)}
+        />
+      );
+    }
     const labelIds = parseCardLabelIds(card.tags);
     const isDone = String(card?.status || '') === 'done';
     const awaitingApproval = String(card?.status || '') === 'awaiting_approval';
@@ -1589,7 +1625,7 @@ export default function TaskBoardWorkspacePanel({
                                     onClick={() => {
                                       const title = String(cardDraftByList[cellKey] || '').trim();
                                       if (!title) return;
-                                      onAddCard?.(list._id, {
+                                      const created = attachSprintToCreate({
                                         listId: list._id,
                                         title,
                                         ownerTeamId: lane.teamId || null,
@@ -1598,6 +1634,8 @@ export default function TaskBoardWorkspacePanel({
                                           allowedIssueTypes[0] ||
                                           'task',
                                       });
+                                      if (!created) return;
+                                      onAddCard?.(list._id, created);
                                       setCardDraftByList((prev) => ({ ...prev, [cellKey]: '' }));
                                       setCardComposerOpen((prev) => ({
                                         ...prev,
@@ -1784,12 +1822,14 @@ export default function TaskBoardWorkspacePanel({
                             onClick={() => {
                               const title = String(cardDraftByList[listKey] || '').trim();
                               if (!title) return;
-                              onAddCard?.(list._id, {
+                              const created = attachSprintToCreate({
                                 listId: list._id,
                                 title,
                                 issueType:
                                   cardIssueTypeByList[listKey] || allowedIssueTypes[0] || 'task',
                               });
+                              if (!created) return;
+                              onAddCard?.(list._id, created);
                               setCardDraftByList((prev) => ({ ...prev, [listKey]: '' }));
                               setCardComposerOpen((prev) => ({ ...prev, [listKey]: false }));
                             }}

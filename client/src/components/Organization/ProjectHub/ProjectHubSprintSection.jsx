@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { ChevronDown, ChevronRight, MoreHorizontal, Pencil } from 'lucide-react';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
-import { countIssuesByStatusBucket } from './projectHubUtils';
+import { assertCanStartSprint, countIssuesByStatusBucket, defaultSprintDateRange } from './projectHubUtils';
 
 /**
  * Khối sprint: header Jira + drop-zone + + Create.
@@ -12,6 +12,7 @@ export default function ProjectHubSprintSection({
   issues = [],
   lists = [],
   canManageSprints = false,
+  sprints = [],
   allowedCreateTypes = [],
   depthById = null,
   hasBoardColumn = false,
@@ -49,7 +50,14 @@ export default function ProjectHubSprintSection({
   const status = String(sprint?.status || 'planned').toLowerCase();
   const counts = countIssuesByStatusBucket(issues, lists);
   const n = issues.length;
-  const canStart = canManageSprints && status === 'planned' && n > 0;
+  const startCheck = assertCanStartSprint({
+    sprint,
+    sprints,
+    issueCount: n,
+    canManage: canManageSprints,
+  });
+  const dates = defaultSprintDateRange(sprint);
+  const canStart = startCheck.ok && !dates.error;
 
   const badge = (count, cls) => (
     <span className={`inline-flex min-w-[1.25rem] justify-center rounded px-1 py-0.5 text-[10px] font-bold ${cls}`}>

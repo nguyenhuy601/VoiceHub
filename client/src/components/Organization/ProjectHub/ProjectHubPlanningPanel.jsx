@@ -21,14 +21,16 @@ import ProjectHubEditSprintModal from './ProjectHubEditSprintModal';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubSprintSection from './ProjectHubSprintSection';
 import {
+  assertCanStartSprint,
   countIssuesByStatusBucket,
+  defaultSprintDateRange,
   formatHubDate,
   mergeIssueWithOverlay,
   unwrapPlanningEntity,
 } from './projectHubUtils';
 import { visibleCreateMenuTypes, isBoardCreateType, isPlanningCreateType } from './projectWorkTypes';
 import { useProjectWorkTypes } from './useProjectWorkTypes';
-import { isBacklogLevelTwoIssue, typesInBand } from './projectHubHierarchy';
+import { isBacklogLevelTwoIssue, isBoardSprintReady, typesInBand } from './projectHubHierarchy';
 
 const PLAN_VIEWS = [
   { id: 'backlog', labelKey: 'workspace.projectHubTabPlanning' },
@@ -93,6 +95,7 @@ export default function ProjectHubPlanningPanel({
   planningError = false,
   sprints = [],
   onOpenBoard = null,
+  workTypeConfig: serverWorkTypeConfig = null,
 }) {
   const { t } = useAppStrings();
   const [view, setView] = useState('backlog');
@@ -139,7 +142,9 @@ export default function ProjectHubPlanningPanel({
   );
   const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
   const hasBoardColumn = Boolean(boardId && defaultListId);
-  const { config: workTypeConfig } = useProjectWorkTypes(projectId);
+  const { config: workTypeConfig } = useProjectWorkTypes(projectId, {
+    serverConfig: serverWorkTypeConfig,
+  });
   const allowedCreateTypes = useMemo(() => {
     const menu = visibleCreateMenuTypes(workTypeConfig, {
       epic: canCreateEpic,
@@ -393,6 +398,16 @@ export default function ProjectHubPlanningPanel({
 
   const saveSprint = async (patch) => {
     if (!editSprint || busy) return;
+    if (patch?.startDate && patch?.endDate) {
+      const range = defaultSprintDateRange({
+        startDate: patch.startDate,
+        endDate: patch.endDate,
+      });
+      if (range.error) {
+        toast.error(t('workspace.projectHubSprintDatesInvalid'));
+        return;
+      }
+    }
     setBusy(true);
     try {
       await projectAPI.patchSprint(projectId, editSprint._id, patch);
@@ -409,12 +424,50 @@ export default function ProjectHubPlanningPanel({
   };
 
   const startSprint = async (sprintId) => {
-    if (!canManageSprints || busy) return;
+    if (!canManageSprints || busy || !projectId) return;
+    const sprint = sprints.find((row) => String(row._id || row.id) === String(sprintId));
+    if (!sprint) {
+      toast.error(t('workspace.projectHubPlanSprintFail'));
+      return;
+    }
+    const issueCount = (issuesBySprint.get(String(sprintId)) || []).length;
+    const check = assertCanStartSprint({
+      sprint,
+      sprints,
+      issueCount,
+      canManage: canManageSprints,
+    });
+    if (!check.ok) {
+      if (check.errorKey !== 'workspace.projectHubSprintStartNoPermission') {
+        toast.error(t(check.errorKey));
+      }
+      return;
+    }
+    const dates = defaultSprintDateRange(sprint);
+    if (dates.error) {
+      toast.error(t('workspace.projectHubSprintDatesInvalid'));
+      return;
+    }
     setBusy(true);
     try {
-      await projectAPI.patchSprint(projectId, sprintId, { status: 'active' });
+      await projectAPI.patchSprint(projectId, sprintId, {
+        status: 'active',
+        startDate: dates.startDate,
+        endDate: dates.endDate,
+      });
       toast.success(t('workspace.projectHubPlanSprintStarted'));
-      refreshAll();
+      await onReloadSprints?.();
+      onReloadPlanning?.();
+      onRefresh?.();
+      const ready = isBoardSprintReady([
+        {
+          ...sprint,
+          status: 'active',
+          startDate: dates.startDate,
+          endDate: dates.endDate,
+        },
+      ]);
+      if (ready) onOpenBoard?.();
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanSprintFail') })
@@ -878,6 +931,7 @@ export default function ProjectHubPlanningPanel({
                       issues={sprintIssues}
                       lists={lists}
                       canManageSprints={canManageSprints}
+                      sprints={sprints}
                       allowedCreateTypes={allowedCreateTypes}
                       depthById={workTypeConfig.depthById}
                       hasBoardColumn={hasBoardColumn}
