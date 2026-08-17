@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   BarChart3,
@@ -30,6 +30,7 @@ import {
   getVisibleAdminDomains,
   normalizeAdminPath,
   resolveAdminDomainFromPath,
+  splitNavSectionItems,
 } from '../../config/adminDomainsConfig';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
@@ -197,6 +198,114 @@ function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
   );
 }
 
+function AdminNavActionGroup({ items, labelKey, collapsed, isActivePath, badgeForItem }) {
+  const { t } = useAppStrings();
+  const rootRef = useRef(null);
+  const listId = useId();
+  const hasActive = items.some((item) => isActivePath(item));
+  const [open, setOpen] = useState(hasActive);
+  const label = t(labelKey);
+
+  useEffect(() => {
+    if (hasActive) setOpen(true);
+  }, [hasActive]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      if (!hasActive) setOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return;
+      if (!hasActive) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, hasActive]);
+
+  return (
+    <div ref={rootRef} className="relative mb-px">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((value) => !value)}
+        className={`${figmaNavItemClass(hasActive, ADMIN_COLOR, collapsed)} w-full ${hasActive ? '!text-white' : ''}`}
+        style={figmaNavItemBg(hasActive, ADMIN_COLOR)}
+        title={collapsed ? label : undefined}
+      >
+        <span
+          className={`h-[6px] w-[6px] shrink-0 rounded-full ${hasActive ? 'bg-red-400' : 'bg-white/25'}`}
+          aria-hidden
+        />
+        {!collapsed ? (
+          <>
+            <span className={`flex-1 truncate text-left text-[0.8125rem] ${hasActive ? 'font-medium text-white' : ''}`}>
+              {label}
+            </span>
+            <ChevronDown
+              size={13}
+              className={`shrink-0 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </>
+        ) : null}
+      </button>
+      {open ? (
+        <div
+          id={listId}
+          className={
+            collapsed
+              ? 'absolute left-full top-0 z-40 ml-1 min-w-[11rem] rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)]'
+              : 'mb-1 ml-1.5 mt-0.5 space-y-px border-l border-red-500/20 pl-1'
+          }
+        >
+          {items.map((item) => (
+            <AdminNavItem
+              key={item.id}
+              item={item}
+              collapsed={false}
+              isActive={isActivePath(item)}
+              badge={badgeForItem(item)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function renderNavRows({ items, collapsed, isActivePath, badgeForItem }) {
+  return splitNavSectionItems(items).map((row) => {
+    if (row.type === 'group') {
+      return (
+        <AdminNavActionGroup
+          key={`group-${row.id}`}
+          items={row.items}
+          labelKey={row.labelKey}
+          collapsed={collapsed}
+          isActivePath={isActivePath}
+          badgeForItem={badgeForItem}
+        />
+      );
+    }
+    return (
+      <AdminNavItem
+        key={row.item.id}
+        item={row.item}
+        collapsed={collapsed}
+        isActive={isActivePath(row.item)}
+        badge={badgeForItem(row.item)}
+      />
+    );
+  });
+}
+
 function AdminNavSectionGroup({
   section,
   collapsed,
@@ -215,15 +324,7 @@ function AdminNavSectionGroup({
         {!collapsed && section.labelKey ? (
           <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t(section.labelKey)}</div>
         ) : null}
-        {section.items.map((item) => (
-          <AdminNavItem
-            key={item.id}
-            item={item}
-            collapsed={collapsed}
-            isActive={isActivePath(item)}
-            badge={badgeForItem(item)}
-          />
-        ))}
+        {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem })}
       </div>
     );
   }
@@ -251,15 +352,7 @@ function AdminNavSectionGroup({
       ) : null}
       {isExpanded && !collapsed ? (
         <div className="mb-1 ml-1.5 mt-0.5 space-y-px border-l border-red-500/20 pl-1">
-          {section.items.map((item) => (
-            <AdminNavItem
-              key={item.id}
-              item={item}
-              collapsed={collapsed}
-              isActive={isActivePath(item)}
-              badge={badgeForItem(item)}
-            />
-          ))}
+          {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem })}
         </div>
       ) : null}
     </div>

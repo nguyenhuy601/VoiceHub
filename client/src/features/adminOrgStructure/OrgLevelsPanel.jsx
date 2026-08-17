@@ -6,10 +6,33 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { ORG_STRUCTURE_TEMPLATE_META } from '../../config/orgStructureTemplates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+
+function resolveLevelLabel(level, t) {
+  const key = String(level?.key || '').trim().toLowerCase();
+  if (key) {
+    const path = `adminOrg.levelKeys.${key}`;
+    const translated = t(path);
+    if (translated && translated !== path) return translated;
+  }
+  const fallback = String(level?.label || level?.key || '').trim();
+  return fallback || '—';
+}
+
+function resolveTemplateLabel(templateId, t) {
+  const id = String(templateId || '').trim();
+  if (!id) return '';
+  const meta = ORG_STRUCTURE_TEMPLATE_META[id];
+  if (meta?.labelKey) {
+    const translated = t(meta.labelKey);
+    if (translated && translated !== meta.labelKey) return translated;
+  }
+  return t('adminOrg.templateUnknown');
+}
 
 export default function OrgLevelsPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -43,6 +66,8 @@ export default function OrgLevelsPanel({ orgId }) {
     return <Navigate to="/app/admin/org-structure" replace />;
   }
 
+  const templateLabel = resolveTemplateLabel(templateId, t);
+
   return (
     <AdminUserPanelShell
       title={t('adminOrg.levelsLockedTitle')}
@@ -56,16 +81,21 @@ export default function OrgLevelsPanel({ orgId }) {
           <div className="space-y-2 text-sm">
             {templateId ? (
               <p className="text-muted-foreground">
-                {t('adminOrg.template')}: <span className="text-foreground">{templateId}</span>
+                {t('adminOrg.template')}:{' '}
+                <span className="text-foreground" title={templateId}>
+                  {templateLabel}
+                </span>
               </p>
             ) : null}
             <ul className="list-inside list-disc">
-              {levels.map((level) => (
-                <li key={level.key}>
-                  {level.label || level.key}
-                  <span className="text-muted-foreground"> ({level.key})</span>
-                </li>
-              ))}
+              {levels.map((level) => {
+                const key = String(level.key || '').trim();
+                return (
+                  <li key={key || level.label}>
+                    <span title={key || undefined}>{resolveLevelLabel(level, t)}</span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

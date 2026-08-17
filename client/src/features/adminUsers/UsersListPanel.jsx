@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Search, UserPlus } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConfirmDialog } from '../../components/Shared';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
@@ -12,6 +12,7 @@ import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { useDebouncedValue } from '../search/useDebouncedValue';
 import { normalizeRoleDisplayName, unwrapList } from '../../utils/adminRbacUtils';
 import {
   compareMembersForAdminList,
@@ -81,7 +82,35 @@ function StatusBadge({ member, t }) {
   );
 }
 
-function AccountRoleBadge({ role }) {
+function hasUserCache(map, userId) {
+  return Boolean(userId) && Object.prototype.hasOwnProperty.call(map, userId);
+}
+
+function accountRoleLabel(role, t) {
+  const r = String(role || 'member').toLowerCase();
+  if (r === 'owner') return t('organizations.roleOwner');
+  if (r === 'admin') return t('adminUsers.roleAdmin');
+  if (r === 'hr') return t('adminUsers.roleHr');
+  return t('adminUsers.roleMember');
+}
+
+function CellPlaceholder() {
+  return <span className="inline-block h-4 w-16 animate-pulse rounded bg-muted" aria-hidden />;
+}
+
+function UsersTableSkeletonRows({ rows = USERS_LIST_PAGE_SIZE }) {
+  return Array.from({ length: rows }, (_, rowIdx) => (
+    <tr key={`sk-${rowIdx}`} className="border-b border-border/50">
+      {Array.from({ length: 12 }, (_, colIdx) => (
+        <td key={colIdx} className="px-4 py-3">
+          <span className="inline-block h-4 w-full max-w-[7rem] animate-pulse rounded bg-muted" />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function AccountRoleBadge({ role, t }) {
   const r = String(role || 'member').toLowerCase();
   const color =
     r === 'owner' || r === 'admin'
@@ -90,8 +119,8 @@ function AccountRoleBadge({ role }) {
         ? 'bg-cyan-500/12 text-cyan-800 ring-1 ring-cyan-500/20 dark:text-cyan-200'
         : 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-500/15 dark:text-slate-300';
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${color}`}>
-      {r}
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>
+      {accountRoleLabel(role, t)}
     </span>
   );
 }
@@ -191,9 +220,10 @@ export default function UsersListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
   const navigate = useNavigate();
   const { organization } = useCompanyAdminContext();
-  const { members, loading } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
 
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [capabilityFilter, setCapabilityFilter] = useState('');
@@ -201,6 +231,12 @@ export default function UsersListPanel({ orgId }) {
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef(null);
+  const rbacByUserRef = useRef({});
+  const capabilityByUserRef = useRef({});
+  const pageItemsRef = useRef([]);
+  const membersRef = useRef([]);
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
@@ -209,9 +245,39 @@ export default function UsersListPanel({ orgId }) {
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
 
+  rbacByUserRef.current = rbacByUser;
+  capabilityByUserRef.current = capabilityByUser;
+
+  const activeFilterCount = [roleFilter, statusFilter, capabilityFilter, scopeFilter].filter(Boolean).length;
+
   useEffect(() => {
     setPage(1);
-  }, [orgId, query, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
+  }, [orgId, debouncedQuery, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
+
+  useEffect(() => {
+    setRbacByUser({});
+    setCapabilityByUser({});
+    rbacByUserRef.current = {};
+    capabilityByUserRef.current = {};
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const onDoc = (e) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target)) {
+        setFiltersOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen]);
 
   useEffect(() => {
     if (!orgId) return undefined;
@@ -269,13 +335,19 @@ export default function UsersListPanel({ orgId }) {
     return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [structureMaps]);
 
+  const capabilityHydrationPending = Boolean(capabilityFilter) && members.some((m) => {
+    const id = memberUserId(m);
+    return id && !hasUserCache(capabilityByUser, id);
+  });
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     return members.filter((m) => {
       if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
       if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
-      if (capabilityFilter) {
+      if (capabilityFilter && !capabilityHydrationPending) {
         const id = memberUserId(m);
+        if (!hasUserCache(capabilityByUser, id)) return false;
         const cap = capabilityByUser[id] || 'draft';
         if (capabilityFilter === 'draft') {
           if (cap !== 'draft' && cap !== '') return false;
@@ -297,10 +369,12 @@ export default function UsersListPanel({ orgId }) {
       );
       const jobTitle = memberJobTitle(m).toLowerCase();
       const code = memberEmployeeCode(m).toLowerCase();
+      const roleLabel = accountRoleLabel(memberOrgRole(m), t).toLowerCase();
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
+        roleLabel.includes(q) ||
         jobTitle.includes(q) ||
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
@@ -311,14 +385,16 @@ export default function UsersListPanel({ orgId }) {
     });
   }, [
     members,
-    query,
+    debouncedQuery,
     roleFilter,
     statusFilter,
     capabilityFilter,
+    capabilityHydrationPending,
     scopeFilter,
     structureMaps,
     rbacByUser,
     capabilityByUser,
+    t,
   ]);
 
   const sorted = useMemo(
@@ -335,19 +411,31 @@ export default function UsersListPanel({ orgId }) {
     return sorted.slice(start, start + USERS_LIST_PAGE_SIZE);
   }, [sorted, safePage]);
 
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage);
-  }, [page, safePage]);
+  const pageUserIdsKey = useMemo(
+    () => pageItems.map((m) => memberUserId(m)).filter(Boolean).join('|'),
+    [pageItems]
+  );
+  const memberIdsKey = useMemo(
+    () => members.map((m) => memberUserId(m)).filter(Boolean).join('|'),
+    [members]
+  );
+  pageItemsRef.current = pageItems;
+  membersRef.current = members;
 
   useEffect(() => {
-    if (!orgId || !members.length) {
-      setRbacByUser({});
+    if (!orgId || !pageUserIdsKey) {
       return undefined;
     }
+    const rows = pageItemsRef.current;
     let cancelled = false;
     (async () => {
+      const missing = rows.filter((m) => {
+        const uid = memberUserId(m);
+        return uid && !hasUserCache(rbacByUserRef.current, uid);
+      });
+      if (!missing.length) return;
       const entries = await Promise.all(
-        members.map(async (m) => {
+        missing.map(async (m) => {
           const uid = memberUserId(m);
           if (!uid) return ['', []];
           try {
@@ -359,22 +447,37 @@ export default function UsersListPanel({ orgId }) {
         })
       );
       if (!cancelled) {
-        setRbacByUser(Object.fromEntries(entries.filter(([uid]) => uid)));
+        setRbacByUser((prev) => {
+          const next = { ...prev };
+          for (const [uid, roles] of entries) {
+            if (uid) next[uid] = roles;
+          }
+          rbacByUserRef.current = next;
+          return next;
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [orgId, members]);
+  }, [orgId, pageUserIdsKey]);
 
   useEffect(() => {
-    if (!orgId || !members.length) {
-      setCapabilityByUser({});
+    if (!orgId || !memberIdsKey) {
       return undefined;
     }
+    const allMembers = membersRef.current;
+    const rows = pageItemsRef.current;
+    const source = capabilityFilter ? allMembers : rows;
+    if (!source.length) return undefined;
     let cancelled = false;
     (async () => {
-      const rows = await mapPool(members, 5, async (m) => {
+      const missing = source.filter((m) => {
+        const uid = memberUserId(m);
+        return uid && !hasUserCache(capabilityByUserRef.current, uid);
+      });
+      if (!missing.length) return;
+      const poolRows = await mapPool(missing, 5, async (m) => {
         const uid = memberUserId(m);
         if (!uid) return ['', 'draft'];
         try {
@@ -387,13 +490,20 @@ export default function UsersListPanel({ orgId }) {
         }
       });
       if (!cancelled) {
-        setCapabilityByUser(Object.fromEntries(rows.filter(([uid]) => uid)));
+        setCapabilityByUser((prev) => {
+          const next = { ...prev };
+          for (const [uid, status] of poolRows) {
+            if (uid) next[uid] = status;
+          }
+          capabilityByUserRef.current = next;
+          return next;
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [orgId, members]);
+  }, [orgId, memberIdsKey, pageUserIdsKey, capabilityFilter]);
 
   const handleSortColumn = (columnKey) => {
     if (sortKey === columnKey) {
@@ -403,6 +513,18 @@ export default function UsersListPanel({ orgId }) {
     setSortKey(columnKey);
     setSortDir('asc');
   };
+
+  const clearListFilters = () => {
+    setRoleFilter('');
+    setStatusFilter('');
+    setCapabilityFilter('');
+    setScopeFilter('');
+  };
+
+  const showMembersError = Boolean(membersError) && !members.length && !loading;
+  const showMembersSkeleton = loading && !members.length;
+  const showCapabilityWait = Boolean(capabilityFilter) && capabilityHydrationPending && !showMembersSkeleton && !showMembersError;
+  const showTableBody = !showMembersError && !showMembersSkeleton && !showCapabilityWait;
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -453,75 +575,120 @@ export default function UsersListPanel({ orgId }) {
               className="w-full rounded-xl border border-border bg-background py-2.5 pl-9 pr-3 text-sm outline-none ring-red-500/30 focus:ring-2"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllRoles')}</option>
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
-              <option value="hr">hr</option>
-              <option value="member">member</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllStatus')}</option>
-              <option value="active">{t('adminUsers.statusActive')}</option>
-              <option value="locked">{t('adminUsers.statusLocked')}</option>
-              <option value="inactive">{t('adminUsers.statusInactive')}</option>
-              <option value="mustChangePassword">{t('adminUsers.statusMustChangePassword')}</option>
-            </select>
-            <select
-              value={capabilityFilter}
-              onChange={(e) => setCapabilityFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-              aria-label={t('adminUsers.filterCapability')}
-            >
-              <option value="">{t('adminUsers.filterAllCapability')}</option>
-              <option value="pending_hr">{t('adminUsers.filterCapPending')}</option>
-              <option value="verified">{t('adminUsers.filterCapVerified')}</option>
-              <option value="rejected">{t('adminUsers.filterCapRejected')}</option>
-              <option value="draft">{t('adminUsers.filterCapDraft')}</option>
-            </select>
-            <select
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-              className="min-w-[160px] rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllScopes')}</option>
-              {scopeOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.type === 'team' ? `Team · ${opt.label}` : opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={`${sortKey}:${sortDir}`}
-              onChange={(e) => {
-                const [k, d] = String(e.target.value || 'name:asc').split(':');
-                setSortKey(k === 'employeeCode' || k === 'email' ? k : 'name');
-                setSortDir(d === 'desc' ? 'desc' : 'asc');
-              }}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-              aria-label={t('adminUsers.sortBy')}
-            >
-              <option value="name:asc">{t('adminUsers.sortNameAz')}</option>
-              <option value="name:desc">{t('adminUsers.sortNameZa')}</option>
-              <option value="employeeCode:asc">{t('adminUsers.sortCodeAz')}</option>
-              <option value="employeeCode:desc">{t('adminUsers.sortCodeZa')}</option>
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative" ref={filtersRef}>
+              <button
+                type="button"
+                aria-expanded={filtersOpen}
+                aria-controls="users-list-filters"
+                onClick={() => setFiltersOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/40"
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                {t('adminUsers.filters')}
+                {activeFilterCount ? (
+                  <span
+                    className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                    title={t('adminUsers.filtersActive', { n: activeFilterCount })}
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </button>
+              {filtersOpen ? (
+                <div
+                  id="users-list-filters"
+                  className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),20rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
+                >
+                  <select
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllRoles')}</option>
+                    <option value="owner">{t('organizations.roleOwner')}</option>
+                    <option value="admin">{t('adminUsers.roleAdmin')}</option>
+                    <option value="hr">{t('adminUsers.roleHr')}</option>
+                    <option value="member">{t('adminUsers.roleMember')}</option>
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllStatus')}</option>
+                    <option value="active">{t('adminUsers.statusActive')}</option>
+                    <option value="locked">{t('adminUsers.statusLocked')}</option>
+                    <option value="inactive">{t('adminUsers.statusInactive')}</option>
+                    <option value="mustChangePassword">{t('adminUsers.statusMustChangePassword')}</option>
+                  </select>
+                  <select
+                    value={capabilityFilter}
+                    onChange={(e) => setCapabilityFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                    aria-label={t('adminUsers.filterCapability')}
+                  >
+                    <option value="">{t('adminUsers.filterAllCapability')}</option>
+                    <option value="pending_hr">{t('adminUsers.filterCapPending')}</option>
+                    <option value="verified">{t('adminUsers.filterCapVerified')}</option>
+                    <option value="rejected">{t('adminUsers.filterCapRejected')}</option>
+                    <option value="draft">{t('adminUsers.filterCapDraft')}</option>
+                  </select>
+                  <select
+                    value={scopeFilter}
+                    onChange={(e) => setScopeFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllScopes')}</option>
+                    {scopeOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.type === 'team' ? `${t('adminUsers.colTeam')} · ${opt.label}` : opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={`${sortKey}:${sortDir}`}
+                    onChange={(e) => {
+                      const [k, d] = String(e.target.value || 'name:asc').split(':');
+                      setSortKey(k === 'employeeCode' || k === 'email' ? k : 'name');
+                      setSortDir(d === 'desc' ? 'desc' : 'asc');
+                    }}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                    aria-label={t('adminUsers.sortBy')}
+                  >
+                    <option value="name:asc">{t('adminUsers.sortNameAz')}</option>
+                    <option value="name:desc">{t('adminUsers.sortNameZa')}</option>
+                    <option value="employeeCode:asc">{t('adminUsers.sortCodeAz')}</option>
+                    <option value="employeeCode:desc">{t('adminUsers.sortCodeZa')}</option>
+                  </select>
+                  {activeFilterCount ? (
+                    <button
+                      type="button"
+                      onClick={clearListFilters}
+                      className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                    >
+                      {t('adminUsers.filtersClear')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        {loading ? (
-          <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        {showMembersError ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+            <p className="text-sm text-muted-foreground">{t('companyAdmin.loadMembersFail')}</p>
+            <button
+              type="button"
+              onClick={() => loadMembers()}
+              className="rounded-xl bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-500"
+            >
+              {t('adminUsers.listRetry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -566,7 +733,9 @@ export default function UsersListPanel({ orgId }) {
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map((m) => {
+                {showMembersSkeleton || showCapabilityWait ? <UsersTableSkeletonRows /> : null}
+                {showTableBody
+                  ? pageItems.map((m) => {
                   const id = memberUserId(m);
                   const name = memberDisplayName(m);
                   const code = memberEmployeeCode(m);
@@ -575,6 +744,8 @@ export default function UsersListPanel({ orgId }) {
                   const teamId = memberTeamId(m);
                   const depName = structureMaps.departments.get(depId);
                   const teamName = structureMaps.teams.get(teamId);
+                  const rbacReady = hasUserCache(rbacByUser, id);
+                  const capabilityReady = hasUserCache(capabilityByUser, id);
                   const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
                     normalizeRoleDisplayName(row?.name || row?.role?.name)
                   );
@@ -611,10 +782,14 @@ export default function UsersListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
                       <td className="px-4 py-3">
-                        <AccountRoleBadge role={memberOrgRole(m)} />
+                        <AccountRoleBadge role={memberOrgRole(m)} t={t} />
                       </td>
                       <td className="px-4 py-3">
-                        <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
+                        {rbacReady ? (
+                          <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
+                        ) : (
+                          <CellPlaceholder />
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
@@ -637,7 +812,11 @@ export default function UsersListPanel({ orgId }) {
                         <StatusBadge member={m} t={t} />
                       </td>
                       <td className="px-4 py-3">
-                        <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
+                        {capabilityReady ? (
+                          <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
+                        ) : (
+                          <CellPlaceholder />
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {formatWhen(m.lastLoginAt)}
@@ -652,15 +831,16 @@ export default function UsersListPanel({ orgId }) {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                : null}
               </tbody>
             </table>
-            {!sorted.length ? (
+            {showTableBody && !sorted.length ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">
                 {t('adminUsers.noUsers')}
               </p>
             ) : null}
-            {sorted.length > 0 ? (
+            {showTableBody && sorted.length > 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
                 <button
                   type="button"
@@ -709,7 +889,11 @@ export default function UsersListPanel({ orgId }) {
         }
         formatWhen={formatWhen}
         onCapabilityStatusChange={(userId, status) => {
-          setCapabilityByUser((prev) => ({ ...prev, [userId]: status }));
+          setCapabilityByUser((prev) => {
+            const next = { ...prev, [userId]: status };
+            capabilityByUserRef.current = next;
+            return next;
+          });
         }}
       />
 
