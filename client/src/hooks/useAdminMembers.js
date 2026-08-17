@@ -52,6 +52,7 @@ export function useAdminMembers(orgId) {
     members: snapshot.members,
     roles: snapshot.roles,
     loading: snapshot.loading,
+    error: snapshot.error,
     loadMembers,
     removeMemberLocally,
     membersById,

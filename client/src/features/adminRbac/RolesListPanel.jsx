@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
+import { DEFAULT_ROLE_SCOPE, ROLE_SCOPES } from '../../config/adminRbacCatalog';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import {
@@ -11,12 +12,21 @@ import {
 } from '../../utils/adminRbacUtils';
 import { splitLayerLabel } from '../../utils/roleLayerNaming';
 
+/** Chỉ lối V2 + assign/delete — không dẫn vào grid V1 `/rbac/edit`. */
 const ACTION_LINKS = [
-  { path: '/app/admin/rbac/edit', labelKey: 'adminDomains.rbac.edit' },
   { path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions' },
   { path: '/app/admin/rbac/delete', labelKey: 'adminDomains.rbac.delete' },
   { path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign' },
 ];
+
+function roleScopeLabel(scope, t) {
+  const id = String(scope || DEFAULT_ROLE_SCOPE).trim().toUpperCase() || DEFAULT_ROLE_SCOPE;
+  const found = ROLE_SCOPES.find((item) => item.id === id);
+  if (!found) return id;
+  const translated = t(found.labelKey);
+  if (translated && translated !== found.labelKey) return translated;
+  return found.fallback || id;
+}
 
 export default function RolesListPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -64,10 +74,8 @@ export default function RolesListPanel({ orgId }) {
       </div>
 
       <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
-        <p className="font-medium text-foreground">RBAC V2 Direct Replace</p>
-        <p className="text-muted-foreground">
-          Tạo mới chỉ qua clone template (không blank). Sửa quyền tại Permissions theo cây Category → Module → Action.
-        </p>
+        <p className="font-medium text-foreground">{t('adminRbac.listV2Title')}</p>
+        <p className="text-muted-foreground">{t('adminRbac.listV2Body')}</p>
         <p className="text-muted-foreground">{t('adminRbac.listScopeNote')}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Link
@@ -119,7 +127,7 @@ export default function RolesListPanel({ orgId }) {
                 <tr key={id} className="border-t border-border/60">
                   <td className="px-3 py-2 font-medium">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span>{displaySystemName}</span>
+                      <span title={id || undefined}>{displaySystemName}</span>
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
                         {t('adminRbac.listKindBadge')}
                       </span>
@@ -133,7 +141,9 @@ export default function RolesListPanel({ orgId }) {
                       <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">{role.scope || 'ORGANIZATION'}</td>
+                  <td className="px-3 py-2 text-muted-foreground" title={String(role.scope || DEFAULT_ROLE_SCOPE)}>
+                    {roleScopeLabel(role.scope, t)}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">{role.priority ?? '—'}</td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {granted}/{totalSlots}

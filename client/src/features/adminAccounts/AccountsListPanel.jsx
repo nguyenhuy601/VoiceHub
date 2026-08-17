@@ -1,8 +1,10 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
+import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
 import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { useDebouncedValue } from '../search/useDebouncedValue';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import {
@@ -10,6 +12,18 @@ import {
   memberEmail,
   memberUserId,
 } from '../../utils/adminUserUtils';
+
+const ACCOUNTS_LIST_PAGE_SIZE = 10;
+
+function isAccountInactive(member) {
+  return member?.isActive === false || Boolean(member?.isLocked);
+}
+
+function systemRoleLabel(member, t) {
+  const role = String(member?.systemRole || 'employee').trim().toLowerCase();
+  if (role === 'admin') return t('adminAccounts.systemAdmin');
+  return t('adminAccounts.employee');
+}
 
 function AuthBadge({ ok, yesLabel, noLabel }) {
   return (
@@ -25,30 +39,98 @@ function AuthBadge({ ok, yesLabel, noLabel }) {
   );
 }
 
+function AccountsTableSkeletonRows({ rows = ACCOUNTS_LIST_PAGE_SIZE }) {
+  return Array.from({ length: rows }, (_, rowIdx) => (
+    <tr key={`sk-${rowIdx}`}>
+      {Array.from({ length: 7 }, (_, colIdx) => (
+        <td key={colIdx} className="px-3 py-2.5">
+          <span className="inline-block h-4 w-full max-w-[7rem] animate-pulse rounded bg-muted" />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
 export default function AccountsListPanel({ orgId }) {
-  const { t } = useAppStrings();
-  const navigate = useNavigate();
-  const { members, loading } = useAdminMembers(orgId);
+  const { t, locale } = useAppStrings();
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) => {
-      const name = memberDisplayName(m).toLowerCase();
-      const email = memberEmail(m).toLowerCase();
-      return name.includes(q) || email.includes(q);
+  useEffect(() => {
+    setPage(1);
+  }, [orgId, debouncedQuery, statusFilter]);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const onDoc = (e) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target)) {
+        setFiltersOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen]);
+
+  const formatWhen = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(locale === 'en' ? 'en-US' : 'vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
-  }, [members, query]);
-
-  const openDetail = (userId) => {
-    navigate(`/app/admin/accounts/detail?userId=${encodeURIComponent(userId)}`);
   };
 
+  const filtered = useMemo(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    return members.filter((m) => {
+      if (statusFilter === 'active' && isAccountInactive(m)) return false;
+      if (statusFilter === 'inactive' && !isAccountInactive(m)) return false;
+      if (!q) return true;
+      const name = memberDisplayName(m).toLowerCase();
+      const email = memberEmail(m).toLowerCase();
+      const roleLabel = systemRoleLabel(m, t).toLowerCase();
+      return name.includes(q) || email.includes(q) || roleLabel.includes(q);
+    });
+  }, [members, debouncedQuery, statusFilter, t]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ACCOUNTS_LIST_PAGE_SIZE) || 1);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const pageItems = useMemo(() => {
+    const start = (safePage - 1) * ACCOUNTS_LIST_PAGE_SIZE;
+    return filtered.slice(start, start + ACCOUNTS_LIST_PAGE_SIZE);
+  }, [filtered, safePage]);
+
+  const showMembersError = Boolean(membersError) && !members.length && !loading;
+  const showMembersSkeleton = loading && !members.length;
+  const activeFilterCount = statusFilter ? 1 : 0;
+
   return (
-    <AdminUserPanelShell title={t('adminDomains.accounts.list')} hint={t('adminAccounts.listHint')}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative min-w-[220px] flex-1 max-w-md">
+    <AdminUserPanelShell
+      wide
+      title={t('adminDomains.accounts.list')}
+      hint={`${t('adminAccounts.listHint')} · ${t('adminAccounts.listCount', {
+        n: filtered.length,
+        total: members.length,
+      })} · ${t('adminUsers.listPageSizeHint', { size: ACCOUNTS_LIST_PAGE_SIZE })}`}
+    >
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
@@ -58,9 +140,52 @@ export default function AccountsListPanel({ orgId }) {
             className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t('adminAccounts.listCount', { n: filtered.length, total: members.length })}
-        </p>
+        <div className="relative shrink-0" ref={filtersRef}>
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            aria-controls="accounts-list-filters"
+            onClick={() => setFiltersOpen((open) => !open)}
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40"
+          >
+            <SlidersHorizontal className="h-4 w-4" aria-hidden />
+            {t('adminUsers.filters')}
+            {activeFilterCount ? (
+              <span
+                className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                title={t('adminUsers.filtersActive', { n: activeFilterCount })}
+              >
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </button>
+          {filtersOpen ? (
+            <div
+              id="accounts-list-filters"
+              className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
+            >
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                aria-label={t('adminUsers.filterAllStatus')}
+              >
+                <option value="">{t('adminUsers.filterAllStatus')}</option>
+                <option value="active">{t('adminUsers.statusActive')}</option>
+                <option value="inactive">{t('adminUsers.statusInactive')}</option>
+              </select>
+              {activeFilterCount ? (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('')}
+                  className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                >
+                  {t('adminUsers.filtersClear')}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border/70">
@@ -74,20 +199,31 @@ export default function AccountsListPanel({ orgId }) {
                 <th className="px-3 py-2.5">{t('adminAccounts.colMustChange')}</th>
                 <th className="px-3 py-2.5">{t('adminUsers.colLastLogin')}</th>
                 <th className="px-3 py-2.5">{t('adminAccounts.colSystemRole')}</th>
-                <th className="px-3 py-2.5" />
+                <th className="w-12 px-2 py-2.5 text-center">
+                  <span className="sr-only">{t('adminUsers.colActions')}</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {loading ? (
+              {showMembersError ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
-                    {t('common.loading')}
+                  <td colSpan={7} className="px-3 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">{t('companyAdmin.loadMembersFail')}</p>
+                    <button
+                      type="button"
+                      onClick={() => loadMembers()}
+                      className="mt-3 rounded-xl bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                    >
+                      {t('adminUsers.listRetry')}
+                    </button>
                   </td>
                 </tr>
-              ) : filtered.length ? (
-                filtered.map((member) => {
+              ) : showMembersSkeleton ? (
+                <AccountsTableSkeletonRows />
+              ) : pageItems.length ? (
+                pageItems.map((member) => {
                   const userId = memberUserId(member);
-                  const isLocked = member.isActive === false || Boolean(member.isLocked);
+                  const inactive = isAccountInactive(member);
                   const isVerified = member.isEmailVerified !== false;
                   return (
                     <tr key={userId} className="hover:bg-muted/20">
@@ -111,7 +247,7 @@ export default function AccountsListPanel({ orgId }) {
                       </td>
                       <td className="px-3 py-2.5">
                         <AuthBadge
-                          ok={!isLocked}
+                          ok={!inactive}
                           yesLabel={t('adminUsers.statusActive')}
                           noLabel={t('adminUsers.statusInactive')}
                         />
@@ -126,17 +262,11 @@ export default function AccountsListPanel({ orgId }) {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
-                        {member.lastLoginAt ? new Date(member.lastLoginAt).toLocaleString() : '—'}
+                        {formatWhen(member.lastLoginAt)}
                       </td>
-                      <td className="px-3 py-2.5 capitalize text-xs">{member.systemRole || 'employee'}</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-red-500 hover:underline"
-                          onClick={() => openDetail(userId)}
-                        >
-                          {t('adminAccounts.openDetail')}
-                        </button>
+                      <td className="px-3 py-2.5 text-xs">{systemRoleLabel(member, t)}</td>
+                      <td className="px-2 py-2.5 text-center">
+                        <AdminUserActionsMenu member={member} variant="account" />
                       </td>
                     </tr>
                   );
@@ -151,6 +281,33 @@ export default function AccountsListPanel({ orgId }) {
             </tbody>
           </table>
         </div>
+        {!showMembersError && !showMembersSkeleton && filtered.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-3">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+              aria-label={t('adminUsers.listPrev')}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              {t('adminUsers.listPrev')}
+            </button>
+            <span className="text-xs text-muted-foreground" aria-live="polite">
+              {t('adminUsers.listPage', { page: safePage, total: totalPages })}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+              aria-label={t('adminUsers.listNext')}
+            >
+              {t('adminUsers.listNext')}
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <p className="mt-3 text-xs text-muted-foreground">
