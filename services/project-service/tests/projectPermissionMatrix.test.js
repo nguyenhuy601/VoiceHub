@@ -4,6 +4,8 @@ const {
   PROJECT_PERMISSION_KEYS,
   defaultPermissionsForRoleKey,
   normalizePermissionList,
+  splitPermissionList,
+  assertKnownPermissionList,
   unionPermissionsFromRoles,
   hasPermission,
   permissionsToBoardCapabilities,
@@ -37,6 +39,16 @@ describe('projectPermissionMatrix', () => {
     assert.ok(PROJECT_PERMISSION_KEYS.includes('story:create'));
     assert.ok(PROJECT_PERMISSION_KEYS.includes('task:estimate'));
     assert.ok(PROJECT_PERMISSION_KEYS.includes('sprint:start'));
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('sprint:delete'));
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('change_request:view'));
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('change_request:create'));
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('change_request:update'));
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('change_request:delete'));
+    assert.ok(watcher.includes('change_request:view'));
+    assert.equal(watcher.includes('change_request:create'), false);
+    assert.ok(pm.includes('change_request:delete'));
+    assert.ok(dev.includes('change_request:create'));
+    assert.equal(dev.includes('change_request:delete'), false);
   });
 
   it('T2: developer has update task but not delete sprint', () => {
@@ -44,6 +56,7 @@ describe('projectPermissionMatrix', () => {
     assert.equal(caps.canEditCards, true);
     assert.equal(caps.canCreateCards, true);
     assert.equal(hasPermission(defaultPermissionsForRoleKey('developer'), 'sprint:close'), false);
+    assert.equal(hasPermission(defaultPermissionsForRoleKey('developer'), 'sprint:delete'), false);
   });
 
   it('T3: watcher cannot mutate', () => {
@@ -91,6 +104,7 @@ describe('projectPermissionMatrix', () => {
     assert.ok(sm.includes('sprint:close'));
     assert.ok(sm.includes('sprint:start'));
     assert.ok(sm.includes('sprint:create'));
+    assert.ok(sm.includes('sprint:delete'));
     assert.ok(sm.includes('delivery:view'));
     assert.equal(sm.includes('story:create'), false);
     assert.equal(sm.includes('task:create'), false);
@@ -107,6 +121,9 @@ describe('projectPermissionMatrix', () => {
     assert.ok(po.includes('epic:create'));
     assert.ok(po.includes('story:create'));
     assert.ok(po.includes('approval:request'));
+    assert.ok(po.includes('change_request:create'));
+    assert.ok(po.includes('change_request:update'));
+    assert.equal(po.includes('change_request:delete'), false);
     assert.equal(po.includes('task:create'), false);
     assert.equal(po.includes('bug:create'), false);
     assert.equal(po.includes('sprint:start'), false);
@@ -167,5 +184,21 @@ describe('projectPermissionMatrix', () => {
   it('normalize drops unknown keys', () => {
     const n = normalizePermissionList(['task:view', 'hack:root', 'TASK:CREATE']);
     assert.deepEqual(n, ['task:view', 'task:create']);
+  });
+
+  it('sprint:delete is a known matrix key and survives normalize', () => {
+    assert.ok(PROJECT_PERMISSION_KEYS.includes('sprint:delete'));
+    assert.deepEqual(
+      normalizePermissionList(['sprint:view', 'sprint:delete', 'sprint:close']),
+      ['sprint:view', 'sprint:delete', 'sprint:close']
+    );
+    assert.deepEqual(assertKnownPermissionList(['sprint:delete', 'task:view']).sort(), [
+      'sprint:delete',
+      'task:view',
+    ]);
+    const split = splitPermissionList(['sprint:delete', 'hack:root']);
+    assert.deepEqual(split.valid, ['sprint:delete']);
+    assert.deepEqual(split.unknown, ['hack:root']);
+    assert.throws(() => assertKnownPermissionList(['sprint:delete', 'hack:root']), /hack:root/);
   });
 });

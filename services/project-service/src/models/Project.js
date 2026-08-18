@@ -239,6 +239,11 @@ const projectSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
+    /** Catalog priority (key/label) — null = default low/medium/high/urgent. */
+    priorityConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     /** Phase 4 — org WorkflowTemplate bind (boards clone khi apply). */
     workflowTemplateId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -248,6 +253,13 @@ const projectSchema = new mongoose.Schema(
     },
     /** Phase 5 — default policy khi chuyển task → done (nếu transition không gắn riêng). */
     defaultTaskDoneApprovalPolicyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ApprovalPolicy',
+      default: null,
+      index: true,
+    },
+    /** Phase 6 — ApprovalPolicy cho Change Request (null = Phase 5 free terminal). */
+    changeRequestApprovalPolicyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ApprovalPolicy',
       default: null,
@@ -274,6 +286,21 @@ const projectSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
       index: true,
+    },
+    /** Complete project (100% Done) — not the same as soft-archive. */
+    closedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    /** Snapshot 7 nhóm lúc hoàn thành — Mixed, không index. */
+    closureSnapshot: {
+      type: Object,
+      default: null,
     },
     /** Phase 6 — soft-archive timestamp */
     archivedAt: {

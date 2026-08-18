@@ -7,6 +7,8 @@ const CLIENT_TASK_FIELDS = [
   'departmentName', 'boardId', 'listId', 'position', 'tags', 'attachments', 'comments',
   'completedAt', 'createdAt', 'updatedAt', 'isActive', 'aiGenerated', 'sourceMessageId',
   'assignee', 'createdByUser',
+  'parentTaskId', 'epicId', 'featureId', 'issueType', 'sprintId',
+  'changeRequestIds', 'changeRequests',
 ];
 
 function sanitizeClientTask(task) {
@@ -21,6 +23,11 @@ function sanitizeClientTask(task) {
       content: cm.content,
       createdAt: cm.createdAt,
     }));
+  }
+  for (const key of ['parentTaskId', 'epicId', 'featureId', 'sprintId']) {
+    if (out[key] != null && typeof out[key] === 'object') {
+      out[key] = String(out[key]._id || out[key]);
+    }
   }
   return out;
 }

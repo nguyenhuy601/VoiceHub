@@ -5,6 +5,7 @@ export const PROJECT_HUB_TABS = [
   { id: 'list', labelKey: 'workspace.projectHubTabList' },
   { id: 'planning', labelKey: 'workspace.projectHubTabPlanning' },
   { id: 'board', labelKey: 'workspace.projectHubTabBoard' },
+  { id: 'changeRequests', labelKey: 'workspace.projectHubTabChangeRequests' },
   { id: 'members', labelKey: 'workspace.projectHubTabMembers' },
   { id: 'files', labelKey: 'workspace.projectHubTabFiles' },
   { id: 'activity', labelKey: 'workspace.projectHubTabActivity' },
@@ -118,6 +119,170 @@ export function unwrapPlanningEntity(res) {
   return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
 }
 
+export function unwrapChangeRequestList(res) {
+  const data = res?.data?.data ?? res?.data ?? res;
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, page: 1, size: data.length || 20 };
+  }
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return {
+    items,
+    total: Number(data?.total) || 0,
+    page: Math.max(1, Number(data?.page) || 1),
+    size: Math.max(1, Number(data?.size) || 20),
+  };
+}
+
+export function unwrapChangeRequestEntity(res) {
+  const data = res?.data?.data ?? res?.data ?? res;
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+}
+
+export function unwrapProjectMembers(res) {
+  const data = res?.data?.data ?? res?.data ?? res;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.members)) return data.members;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+}
+
+export function extractHubUserId(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    return String(value._id || value.id || value.userId || '');
+  }
+  return '';
+}
+
+function nestedUser(member) {
+  return member?.user && typeof member.user === 'object' ? member.user : null;
+}
+
+export function memberUserId(member) {
+  const nested = nestedUser(member);
+  return extractHubUserId(
+    member?.userId || member?.id || nested?._id || nested?.id || member?._id
+  );
+}
+
+export function memberDisplayName(member) {
+  if (!member) return '';
+  const nested = nestedUser(member);
+  return String(
+    member.displayName ||
+      nested?.displayName ||
+      member.fullName ||
+      nested?.fullName ||
+      member.name ||
+      nested?.name ||
+      member.username ||
+      nested?.username ||
+      ''
+  ).trim();
+}
+
+export function memberAvatar(member) {
+  if (!member) return '';
+  const nested = nestedUser(member);
+  return member.avatar || member.avatarUrl || nested?.avatar || nested?.avatarUrl || '';
+}
+
+export function findMemberByUserId(members, userId) {
+  const id = extractHubUserId(userId);
+  if (!id) return null;
+  return (members || []).find((m) => memberUserId(m) === id) || null;
+}
+
+/** Tên reporter / createdBy: field API, rồi members, rồi 6 ký tự cuối id. */
+export function resolveHubActor(raw, members = []) {
+  const nameFromDto = String(
+    raw?.reporterName ||
+      raw?.createdByName ||
+      raw?.creatorName ||
+      (typeof raw?.createdBy === 'object' ? raw.createdBy?.displayName || raw.createdBy?.name : '') ||
+      ''
+  ).trim();
+  const userId =
+    extractHubUserId(raw?.reporterId) ||
+    extractHubUserId(raw?.createdById) ||
+    extractHubUserId(raw?.createdBy);
+  const avatarFromDto =
+    raw?.reporterAvatar ||
+    raw?.createdByAvatar ||
+    (typeof raw?.createdBy === 'object' ? raw.createdBy?.avatar : '') ||
+    '';
+  const member = findMemberByUserId(members, userId);
+  const name = nameFromDto || memberDisplayName(member) || (userId ? userId.slice(-6) : '');
+  const avatar = avatarFromDto || memberAvatar(member) || '';
+  if (!name && !userId) return null;
+  return { userId, name, avatar };
+}
+
+export function isLinkableCrWorkType(issueType) {
+  const it = String(issueType || 'task').toLowerCase();
+  return it === 'feature' || it === 'story' || it === 'task' || it === 'bug';
+}
+
+export function collectCrWorkItems(row, boardCards = []) {
+  const cardById = new Map();
+  for (const c of boardCards || []) {
+    const id = String(c?._id || c?.id || '');
+    if (id) cardById.set(id, c);
+  }
+  const dtoById = new Map();
+  for (const w of Array.isArray(row?.workItems) ? row.workItems : []) {
+    const id = String(w?._id || w?.id || '');
+    if (id && w) dtoById.set(id, w);
+  }
+  const ordered = [];
+  const seen = new Set();
+  const pushId = (rawId) => {
+    const id = String(rawId || '');
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ordered.push(id);
+  };
+  for (const w of Array.isArray(row?.workItems) ? row.workItems : []) {
+    pushId(w?._id || w?.id);
+  }
+  for (const id of Array.isArray(row?.workItemIds) ? row.workItemIds : []) {
+    pushId(id);
+  }
+  return ordered.map((id) => cardById.get(id) || dtoById.get(id) || { _id: id, title: '' });
+}
+
+/** Merge PATCH CR: DTO mỏng không được xóa work; link/unlink cập nhật chip từ board cards. */
+export function mergeChangeRequestPatch(prev, saved, patch = {}, workCards = []) {
+  const prior = prev && typeof prev === 'object' ? prev : {};
+  const incoming = saved && typeof saved === 'object' ? saved : {};
+  const next = { ...prior, ...incoming };
+  const idsFromSaved = Array.isArray(incoming.workItemIds) ? incoming.workItemIds : null;
+  const itemsFromSaved = Array.isArray(incoming.workItems) ? incoming.workItems : null;
+  let workItemIds = (idsFromSaved != null ? idsFromSaved : prior.workItemIds || [])
+    .map((id) => String(id || ''))
+    .filter(Boolean);
+  let workItems = itemsFromSaved != null ? itemsFromSaved : prior.workItems || [];
+
+  const linkId = patch.linkWorkItemId ? String(patch.linkWorkItemId) : '';
+  const unlinkId = patch.unlinkWorkItemId ? String(patch.unlinkWorkItemId) : '';
+  if (linkId && !workItemIds.includes(linkId)) {
+    workItemIds = [...workItemIds, linkId];
+  }
+  if (unlinkId) {
+    workItemIds = workItemIds.filter((id) => id !== unlinkId);
+    workItems = (Array.isArray(workItems) ? workItems : []).filter(
+      (w) => String(w?._id || w?.id || '') !== unlinkId
+    );
+  }
+  next.workItemIds = workItemIds;
+  next.workItems = workItems;
+  next.workItems = collectCrWorkItems(next, workCards);
+  return next;
+}
+
+export const HUB_GRID_CELL_BORDER = 'border-r border-border';
+
 /** Feature hiển thị như Story. */
 export function normalizeIssueType(type) {
   const key = String(type || 'task').toLowerCase();
@@ -173,6 +338,113 @@ export function classifyListStatusBucket(listOrStatus) {
   if (s.includes('done') || s.includes('complete')) return 'done';
   if (s.includes('progress') || s.includes('doing') || s.includes('review')) return 'progress';
   return 'todo';
+}
+
+/** Class pill status (board card + drawer children) — token, không hardcode màu. */
+export function statusBucketPillClass(bucket) {
+  if (bucket === 'done') return 'border-transparent bg-success text-primary-foreground';
+  if (bucket === 'progress') return 'border-transparent bg-primary text-primary-foreground';
+  return 'border-border bg-muted text-muted-foreground';
+}
+
+export function childWorkProgressPct(done, total) {
+  const t = Number(total) || 0;
+  if (t <= 0) return 0;
+  const d = Number(done) || 0;
+  return Math.min(100, Math.round((d / t) * 100));
+}
+
+/** Thanh tiến độ con: full Done → success, còn lại primary. */
+export function childWorkProgressBarClass({ done = 0, total = 0 } = {}) {
+  const t = Number(total) || 0;
+  const d = Number(done) || 0;
+  if (t > 0 && d >= t) return 'bg-success';
+  return 'bg-primary';
+}
+
+function normalizeListTitleKey(title) {
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+const LEGACY_VI_STATUS_TITLES = new Set(['chua lam', 'dang lam', 'cho duyet', 'xong']);
+
+const STATUS_SELECT_TITLE_BUCKETS = [
+  { bucket: 'todo', titles: ['todo', 'to do', 'chua lam'] },
+  { bucket: 'doing', titles: ['doing', 'in progress', 'dang lam'] },
+  { bucket: 'review', titles: ['review', 'in review', 'cho duyet'] },
+  { bucket: 'done', titles: ['done', 'xong', 'complete', 'completed'] },
+  { bucket: 'cancelled', titles: ['cancelled', 'canceled', 'huy'] },
+];
+
+export function isLegacyViStatusListTitle(title) {
+  return LEGACY_VI_STATUS_TITLES.has(normalizeListTitleKey(title));
+}
+
+/** Bucket để gộp cột EN/VI trùng nghĩa trên dropdown status. */
+export function statusSelectBucket(list) {
+  const key = String(list?.statusKey || '').trim().toLowerCase();
+  if (key === 'todo' || key === 'open') return 'todo';
+  if (key === 'doing' || key === 'in_progress' || key === 'dev') return 'doing';
+  if (key === 'review' || key === 'code_review' || key === 'in_review') return 'review';
+  if (key === 'done' || key === 'completed') return 'done';
+  if (key === 'cancelled' || key === 'canceled') return 'cancelled';
+  const n = normalizeListTitleKey(list?.title);
+  for (const row of STATUS_SELECT_TITLE_BUCKETS) {
+    if (row.titles.includes(n)) return row.bucket;
+  }
+  return key || `id:${list?._id || list?.id || n || 'list'}`;
+}
+
+function asStatusSelectLists(lists) {
+  if (Array.isArray(lists)) return lists;
+  if (lists && typeof lists === 'object') return Object.values(lists);
+  return [];
+}
+
+function hasListStatusKey(list) {
+  return Boolean(String(list?.statusKey || '').trim());
+}
+
+/**
+ * Dropdown đổi status: ưu tiên cột map workflow (`statusKey`).
+ * Board chưa sync: một list / bucket (ẩn Chưa làm/… khi đã có Todo/…).
+ * Luôn giữ list hiện tại của thẻ.
+ */
+export function listsForStatusSelect(lists = [], currentListId = '') {
+  const arr = asStatusSelectLists(lists);
+  const current = String(currentListId || '');
+  const hasWorkflowKey = arr.some(hasListStatusKey);
+  const source = hasWorkflowKey ? arr.filter(hasListStatusKey) : arr;
+  const byBucket = new Map();
+
+  const score = (list) => {
+    let s = 0;
+    if (hasListStatusKey(list)) s += 2;
+    if (!isLegacyViStatusListTitle(list?.title)) s += 4;
+    s -= (Number(list?.order) || 0) / 1e6;
+    return s;
+  };
+
+  for (const list of source) {
+    if (!list) continue;
+    const bucket = statusSelectBucket(list);
+    const prev = byBucket.get(bucket);
+    if (!prev || score(list) > score(prev)) byBucket.set(bucket, list);
+  }
+
+  if (current) {
+    const cur = arr.find((l) => String(l?._id || l?.id || '') === current);
+    if (cur) byBucket.set(statusSelectBucket(cur), cur);
+  }
+
+  return [...byBucket.values()].sort(
+    (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+  );
 }
 
 export function countIssuesByStatusBucket(issues = [], lists = []) {

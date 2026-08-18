@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { ChevronDown, ChevronRight, GripVertical, MoreHorizontal, PanelRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitFork, GripVertical, Loader2, MoreHorizontal, PanelRight, Plus } from 'lucide-react';
 import UserAvatar from '../../Shared/UserAvatar';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
@@ -11,11 +11,30 @@ import {
   displayIssueKey,
   formatHubDateTime,
   formatHubDueDate,
+  listsForStatusSelect,
+  resolveHubActor,
+  toDateInputValue,
+  HUB_GRID_CELL_BORDER,
 } from './projectHubUtils';
 import { WORK_TYPE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
+import { normalizePriorityConfig } from './projectPriorityConfig';
 
-export const LIST_TABLE_GRID =
-  'grid min-w-[72rem] grid-cols-[1.75rem_2rem_minmax(14rem,2fr)_minmax(7rem,0.9fr)_minmax(7rem,0.9fr)_minmax(4.5rem,0.65fr)_minmax(6rem,0.8fr)_minmax(5rem,0.65fr)_minmax(7.5rem,0.85fr)_minmax(7.5rem,0.85fr)_minmax(5.5rem,0.7fr)_2.25rem] gap-x-2';
+export const LIST_TABLE_COLUMNS = [
+  { id: 'drag', minPx: 28, defaultPx: 28, resizable: false },
+  { id: 'select', minPx: 32, defaultPx: 32, resizable: false },
+  { id: 'work', minPx: 180, defaultPx: 280 },
+  { id: 'assignee', minPx: 88, defaultPx: 112 },
+  { id: 'reporter', minPx: 88, defaultPx: 112 },
+  { id: 'priority', minPx: 72, defaultPx: 96 },
+  { id: 'status', minPx: 88, defaultPx: 120 },
+  { id: 'resolution', minPx: 72, defaultPx: 88 },
+  { id: 'created', minPx: 96, defaultPx: 120 },
+  { id: 'updated', minPx: 96, defaultPx: 120 },
+  { id: 'due', minPx: 80, defaultPx: 96 },
+  { id: 'actions', minPx: 36, defaultPx: 36, resizable: false },
+];
+
+export const PLANNING_STATUSES = ['planned', 'active', 'done', 'cancelled'];
 
 const LABEL_KEYS = {
   epic: 'workspace.projectHubIssueTypeEpic',
@@ -64,25 +83,26 @@ function resolveAssignee(raw) {
   return null;
 }
 
-function resolveReporter(raw) {
-  const name = String(
-    raw?.reporterName || raw?.createdByName || raw?.creatorName || raw?.createdBy?.displayName || ''
-  ).trim();
-  if (!name && !raw?.reporterId && !raw?.createdById) return null;
-  return {
-    name: name || '',
-    avatar: raw?.reporterAvatar || raw?.createdByAvatar || raw?.createdBy?.avatar || '',
-    userId: raw?.reporterId || raw?.createdById || raw?.createdBy?._id || null,
-  };
+function resolveReporter(raw, members = []) {
+  return resolveHubActor(raw, members);
 }
 
-function resolvePriority(raw, t) {
+function priorityLabel(raw, t, items) {
   const p = String(raw?.priority || '').toLowerCase();
   if (!p || p === 'none' || p === 'null') return t('workspace.projectHubListPriorityNone');
+  const hit = (items || []).find((i) => i.key === p);
+  if (hit?.label) return hit.label;
   if (p === 'medium') return t('tasks.priorityMedium');
   if (p === 'high' || p === 'urgent') return t('tasks.priorityHigh');
   if (p === 'low') return t('tasks.priorityLow');
   return String(raw.priority);
+}
+
+function planningStatusLabel(status, t) {
+  const s = String(status || 'planned').toLowerCase();
+  const key = `workspace.projectHubPlanningStatus_${s}`;
+  const label = t(key);
+  return label === key ? s : label;
 }
 
 /**
@@ -94,8 +114,13 @@ export default function ProjectHubListRow({
   depth = 0,
   locale = 'en',
   collapsed = false,
+  expanded = false,
+  canExpand = false,
+  expandLoading = false,
+  expandError = false,
   selected = false,
   childTypes = [],
+  childStats = null,
   lists = [],
   listMap = {},
   hasBoardColumn = false,
@@ -105,22 +130,37 @@ export default function ProjectHubListRow({
   canDrag = true,
   assignableMembers = [],
   membersLoading = false,
+  gridStyle = null,
   dragDeltaX = 0,
   dragValid = null,
   dropAllowed = false,
   creatingUnderId = '',
   onToggleSelect,
   onToggleCollapse,
+  onToggleExpand = null,
+  onRetryExpand = null,
   onStartCreateChild,
   onCancelCreateChild,
   onCreateChild,
   onOpenWorkItem,
   onChangeStatus,
+  onChangePriority = null,
+  onChangePlanningStatus = null,
+  onChangeDueDate = null,
   onAssignMember = null,
+  priorityConfig = null,
   onManageTypes = null,
   t,
 }) {
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const isExpanded = expanded || (!collapsed && hasChildren && !onToggleExpand);
+  const showExpand = Boolean(canExpand || hasChildren || expandLoading);
+  const childTotal = Number(childStats?.total) || 0;
+  const childDone = Number(childStats?.done) || 0;
+  const childLabel =
+    childTotal > 0
+      ? t('workspace.projectHubBacklogChildrenComplete', { done: childDone, total: childTotal })
+      : '';
   const canCreateChild = childTypes.length > 0;
   const isCreating = creatingUnderId === node.id;
   const raw = node.raw || {};
@@ -129,7 +169,7 @@ export default function ProjectHubListRow({
   const typeLabel = t(LABEL_KEYS[node.workType] || LABEL_KEYS.task);
   const openable = node.kind === 'card';
   const assignee = resolveAssignee(raw);
-  const reporter = resolveReporter(raw);
+  const reporter = resolveReporter(raw, assignableMembers);
   const listMeta = listMap[String(raw.listId || '')] || null;
   const bucket = classifyListStatusBucket(raw.status || listMeta);
   const isDone = bucket === 'done';
@@ -139,12 +179,23 @@ export default function ProjectHubListRow({
       : t('workspace.projectHubListResolutionOpen');
   const createdLabel = formatHubDateTime(raw.createdAt, locale) || '—';
   const updatedLabel = formatHubDateTime(raw.updatedAt || raw.createdAt, locale) || '—';
-  const dueLabel = formatHubDueDate(raw.dueDate, locale) || t('workspace.projectHubListPriorityNone');
+  const dueIso = node.kind === 'planning' ? raw.targetDate : raw.dueDate;
+  const dueLabel = formatHubDueDate(dueIso, locale) || t('workspace.projectHubListPriorityNone');
+  const dueInput = toDateInputValue(dueIso);
+  const canEditDue = canChangeStatus && (openable || node.kind === 'planning');
+  const priorityItems = normalizePriorityConfig(priorityConfig).items;
+  const currentPriority = String(raw.priority || 'medium').toLowerCase();
+  const priorityOptions = priorityItems.some((i) => i.key === currentPriority)
+    ? priorityItems
+    : [{ key: currentPriority, label: currentPriority }, ...priorityItems];
 
   const indentStep = depthDeltaFromPointerX(dragDeltaX);
   const previewPad = Math.max(0, depth + indentStep) * WORK_TYPE_INDENT_PX;
 
-  const listOptions = useMemo(() => (Array.isArray(lists) ? lists : []), [lists]);
+  const listOptions = useMemo(
+    () => listsForStatusSelect(lists, raw.listId),
+    [lists, raw.listId]
+  );
 
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: node.id,
@@ -183,14 +234,14 @@ export default function ProjectHubListRow({
       <div
         ref={setRowRef}
         role="row"
-        style={style}
+        style={{ ...style, ...gridStyle }}
         aria-grabbed={isDragging}
         aria-invalid={isDragging && !dragValid ? true : undefined}
-        className={`${LIST_TABLE_GRID} items-center border-b border-border px-2 py-1.5 ${
+        className={`items-center border-b border-border px-2 py-1.5 ${
           selected ? 'bg-primary/10' : 'hover:bg-muted/40'
         } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}
       >
-        <div className="flex items-center justify-center">
+        <div className={`flex items-center justify-center ${HUB_GRID_CELL_BORDER}`}>
           <button
             type="button"
             className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:opacity-40"
@@ -202,7 +253,7 @@ export default function ProjectHubListRow({
             <GripVertical size={14} aria-hidden />
           </button>
         </div>
-        <div className="flex items-center justify-center">
+        <div className={`flex items-center justify-center ${HUB_GRID_CELL_BORDER}`}>
           <input
             type="checkbox"
             checked={selected}
@@ -212,19 +263,41 @@ export default function ProjectHubListRow({
           />
         </div>
 
-        <div className="group flex min-w-0 items-center gap-1.5" style={{ paddingLeft: previewPad }}>
-          {hasChildren ? (
+        <div className={`group flex min-w-0 items-center gap-1.5 ${HUB_GRID_CELL_BORDER}`} style={{ paddingLeft: previewPad }}>
+          {showExpand ? (
             <button
               type="button"
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+              aria-expanded={isExpanded}
               aria-label={
-                collapsed
-                  ? t('workspace.projectHubWorkTypeExpandAria')
-                  : t('workspace.projectHubWorkTypeCollapseAria')
+                expandError
+                  ? t('workspace.projectHubListExpandRetry')
+                  : isExpanded
+                    ? t('workspace.projectHubWorkTypeCollapseAria')
+                    : t('workspace.projectHubWorkTypeExpandAria')
               }
-              onClick={() => onToggleCollapse?.(node.id)}
+              title={
+                expandError
+                  ? t('workspace.projectHubListExpandFail')
+                  : expandLoading
+                    ? t('workspace.projectHubListExpandLoading')
+                    : undefined
+              }
+              aria-busy={expandLoading || undefined}
+              disabled={expandLoading}
+              onClick={() => {
+                if (expandError && onRetryExpand) onRetryExpand(node);
+                else if (onToggleExpand) onToggleExpand(node);
+                else onToggleCollapse?.(node.id);
+              }}
             >
-              {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              {expandLoading ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden />
+              ) : isExpanded ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              )}
             </button>
           ) : (
             <span className="inline-block w-4 shrink-0" aria-hidden />
@@ -246,6 +319,17 @@ export default function ProjectHubListRow({
           >
             {node.title || '—'}
           </span>
+          {childTotal > 0 ? (
+            <button
+              type="button"
+              className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              title={childLabel}
+              aria-label={childLabel}
+              onClick={() => openable && onOpenWorkItem?.(node)}
+            >
+              <GitFork size={14} aria-hidden />
+            </button>
+          ) : null}
           <div className="flex shrink-0 items-center gap-0.5">
             {openable ? (
               <button
@@ -273,6 +357,7 @@ export default function ProjectHubListRow({
           </div>
         </div>
 
+        <div className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}>
         <ProjectHubListAssigneeCell
           assignee={assignee}
           members={assignableMembers}
@@ -282,21 +367,42 @@ export default function ProjectHubListRow({
           t={t}
           onAssign={(member) => onAssignMember?.(node, member)}
         />
+        </div>
 
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {reporter?.name ? (
+        <div className={`flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>
+          {reporter ? (
             <>
               <UserAvatar avatar={reporter.avatar} userId={reporter.userId} name={reporter.name} size="xs" />
-              <span className="truncate">{reporter.name}</span>
+              <span className="truncate">{reporter.name || '—'}</span>
             </>
           ) : (
             <span className="truncate">—</span>
           )}
         </div>
 
-        <div className="truncate text-xs text-muted-foreground">{resolvePriority(raw, t)}</div>
+        <div className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}>
+          {openable && canChangeStatus ? (
+            <select
+              className="w-full max-w-[7.5rem] rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground"
+              value={String(raw.priority || 'medium').toLowerCase()}
+              disabled={busy}
+              aria-label={t('workspace.projectHubListPriorityColumn')}
+              onChange={(e) => onChangePriority?.(node, e.target.value)}
+            >
+              {priorityOptions.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.label || priorityLabel({ priority: item.key }, t, priorityItems)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="truncate text-xs text-muted-foreground">
+              {openable ? priorityLabel(raw, t, priorityItems) : t('workspace.projectHubListPriorityNone')}
+            </span>
+          )}
+        </div>
 
-        <div className="min-w-0">
+        <div className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}>
           {openable && canChangeStatus && listOptions.length > 0 ? (
             <select
               className={`w-full max-w-[9rem] rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(bucket)}`}
@@ -311,21 +417,56 @@ export default function ProjectHubListRow({
                 </option>
               ))}
             </select>
+          ) : node.kind === 'planning' && canChangeStatus ? (
+            <select
+              className={`w-full max-w-[9rem] rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(
+                String(raw.status) === 'done' ? 'done' : String(raw.status) === 'active' ? 'progress' : 'todo'
+              )}`}
+              value={String(raw.status || 'planned')}
+              disabled={busy}
+              aria-label={t('workspace.projectHubListStatusColumn')}
+              onChange={(e) => onChangePlanningStatus?.(node, e.target.value)}
+            >
+              {PLANNING_STATUSES.map((id) => (
+                <option key={id} value={id}>
+                  {planningStatusLabel(id, t)}
+                </option>
+              ))}
+            </select>
           ) : (
             <span
               className={`inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(bucket)}`}
             >
-              {statusBucketLabel(bucket, t)}
+              {node.kind === 'planning'
+                ? planningStatusLabel(raw.status, t)
+                : statusBucketLabel(bucket, t)}
             </span>
           )}
         </div>
 
-        <div className="truncate text-xs text-muted-foreground">{resolution}</div>
-        <div className="truncate text-xs text-muted-foreground">{createdLabel}</div>
-        <div className="truncate text-xs text-muted-foreground">{updatedLabel}</div>
-        <div className="truncate text-xs text-muted-foreground">{dueLabel}</div>
+        <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{resolution}</div>
+        <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{createdLabel}</div>
+        <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{updatedLabel}</div>
+        <div
+          className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {canEditDue ? (
+            <input
+              type="date"
+              className="w-full max-w-[9.5rem] rounded-md border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+              value={dueInput}
+              disabled={busy}
+              aria-label={t('workspace.projectHubListDueColumn')}
+              onChange={(e) => onChangeDueDate?.(node, e.target.value)}
+            />
+          ) : (
+            <span className="truncate text-xs text-muted-foreground">{dueLabel}</span>
+          )}
+        </div>
 
-        <div className="flex justify-end">
+        <div className={`flex justify-end ${HUB_GRID_CELL_BORDER}`}>
           {openable ? (
             <button
               type="button"

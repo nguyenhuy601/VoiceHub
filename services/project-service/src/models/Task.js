@@ -124,10 +124,22 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Feature (PlanningItem type=feature) — parent planning, additive. */
+    featureId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlanningItem',
+      default: null,
+      index: true,
+    },
     issueType: {
       type: String,
       enum: ['task', 'bug', 'story'],
       default: 'task',
+      index: true,
+    },
+    changeRequestIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChangeRequest' }],
+      default: [],
       index: true,
     },
     checklists: {
@@ -179,8 +191,9 @@ const taskSchema = new mongoose.Schema(
     },
     priority: {
       type: String,
-      enum: ['low', 'medium', 'high', 'urgent'],
+      trim: true,
       default: 'medium',
+      maxlength: 32,
     },
     dueDate: {
       type: Date,
@@ -267,6 +280,7 @@ taskSchema.index({ boardId: 1, status: 1, createdAt: -1 });
 taskSchema.index({ projectId: 1, isActive: 1, createdAt: -1 });
 taskSchema.index({ projectId: 1, sprintId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, epicId: 1, isActive: 1 });
+taskSchema.index({ projectId: 1, featureId: 1, isActive: 1 });
 taskSchema.index({ parentTaskId: 1, isActive: 1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });

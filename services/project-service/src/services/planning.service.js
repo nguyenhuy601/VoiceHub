@@ -4,8 +4,11 @@ const { PLANNING_ITEM_TYPES, PLANNING_ITEM_STATUSES } = require('../utils/planni
 const Task = require('../models/Task');
 const projectService = require('./project.service');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
+const { assertProjectWritable } = require('../utils/projectCloseGate');
 const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
 const { planningWritePermission } = require('../utils/projectIssueTypePerms');
+const { buildPlanningListFilter } = require('../utils/listLazyQuery');
+const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -25,6 +28,7 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
       err.statusCode = 403;
       throw err;
     }
+    assertProjectWritable(project);
     return project;
   }
   const permission = planningWritePermission(type, action || 'update');
@@ -34,7 +38,9 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
     permission,
     message: `Không có quyền quản lý planning (${permission})`,
   });
-  return projectService.getProject({ userId, projectId });
+  const project = await projectService.getProject({ userId, projectId });
+  assertProjectWritable(project);
+  return project;
 }
 
 async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
@@ -49,7 +55,9 @@ async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
     permissions: ['backlog:prioritize', writeKey],
     message: `Không có quyền sắp xếp backlog (${writeKey} / backlog:prioritize)`,
   });
-  return projectService.getProject({ userId, projectId });
+  const project = await projectService.getProject({ userId, projectId });
+  assertProjectWritable(project);
+  return project;
 }
 
 /** @deprecated use assertPlanningManage */
@@ -67,7 +75,7 @@ function normalizeStatus(raw, fallback = 'planned') {
   return PLANNING_ITEM_STATUSES.includes(s) ? s : fallback;
 }
 
-async function listPlanningItems({ userId, projectId, type }) {
+async function listPlanningItems({ userId, projectId, type, parentId }) {
   await assertProjectAccess(userId, projectId);
   if (isProjectRbacV2Enabled()) {
     await assertUserProjectPermission({
@@ -77,15 +85,31 @@ async function listPlanningItems({ userId, projectId, type }) {
       message: 'Không có quyền xem planning (backlog:view)',
     });
   }
-  const filter = { projectId, isActive: true };
-  const t = type ? normalizeType(type) : null;
-  if (type && !t) {
-    const err = new Error('type không hợp lệ');
-    err.statusCode = 400;
-    throw err;
+  const filter = buildPlanningListFilter(
+    { projectId, type, parentId },
+    { isValidOid: validOid }
+  );
+  const rows = await PlanningItem.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  const creatorIds = [
+    ...new Set(rows.map((r) => String(r.createdBy || '')).filter(Boolean)),
+  ];
+  let profileMap = new Map();
+  if (creatorIds.length) {
+    try {
+      const profiles = await enrichAssignableProfiles(creatorIds, userId);
+      profileMap = new Map(profiles.map((row) => [String(row.userId), row]));
+    } catch {
+      profileMap = new Map();
+    }
   }
-  if (t) filter.type = t;
-  return PlanningItem.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  return rows.map((row) => {
+    const creator = row.createdBy ? profileMap.get(String(row.createdBy)) : null;
+    return {
+      ...row,
+      createdByName: creator?.displayName || creator?.username || '',
+      createdByAvatar: creator?.avatar || '',
+    };
+  });
 }
 
 async function createPlanningItem({

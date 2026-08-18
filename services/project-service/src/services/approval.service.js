@@ -601,6 +601,33 @@ async function decideRequest({
         },
       });
     }
+  } else if (request.entityType === 'change_request') {
+    if (request.status === 'approved' || request.status === 'rejected') {
+      const changeRequestService = require('./changeRequest.service');
+      await changeRequestService.applyChangeRequestApprovalResult({
+        request,
+        actorId: userId,
+      });
+    } else if (request.status === 'pending' && !result.awaitingQuorum) {
+      const step = (request.stepsSnapshot || [])[request.currentStep];
+      const approverIds = await resolveApproverUserIds(
+        request.projectId,
+        request.organizationId,
+        step
+      );
+      await notifyApprovers({
+        userIds: approverIds,
+        title: 'Bước duyệt Change Request tiếp theo',
+        content: `Approval ${request.policyKey} — bước ${request.currentStep + 1}`,
+        data: {
+          organizationId: String(request.organizationId),
+          projectId: String(request.projectId),
+          requestId: String(request._id),
+          changeRequestId: request.entityId,
+          type: 'project_approval',
+        },
+      });
+    }
   }
 
   return request.toObject();
@@ -786,7 +813,7 @@ async function startStubEntityApproval({
   return request.toObject();
 }
 
-async function bindProjectTaskDonePolicy({ userId, projectId, policyId }) {
+async function bindProjectTaskDonePolicy({ userId, projectId, policyId, changeRequestPolicyId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) {
     const err = new Error('Project không tồn tại');
@@ -815,20 +842,39 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId }) {
       throw err;
     }
   }
-  if (policyId) {
-    await ensureOrgApprovalPolicies(project.organizationId, userId);
-    const p = await ApprovalPolicy.findOne({
-      _id: policyId,
-      organizationId: project.organizationId,
-    }).lean();
-    if (!p) {
-      const err = new Error('Policy không tồn tại');
-      err.statusCode = 404;
-      throw err;
+  if (policyId !== undefined) {
+    if (policyId) {
+      await ensureOrgApprovalPolicies(project.organizationId, userId);
+      const p = await ApprovalPolicy.findOne({
+        _id: policyId,
+        organizationId: project.organizationId,
+      }).lean();
+      if (!p) {
+        const err = new Error('Policy không tồn tại');
+        err.statusCode = 404;
+        throw err;
+      }
+      project.defaultTaskDoneApprovalPolicyId = p._id;
+    } else {
+      project.defaultTaskDoneApprovalPolicyId = null;
     }
-    project.defaultTaskDoneApprovalPolicyId = p._id;
-  } else {
-    project.defaultTaskDoneApprovalPolicyId = null;
+  }
+  if (changeRequestPolicyId !== undefined) {
+    if (changeRequestPolicyId) {
+      await ensureOrgApprovalPolicies(project.organizationId, userId);
+      const p = await ApprovalPolicy.findOne({
+        _id: changeRequestPolicyId,
+        organizationId: project.organizationId,
+      }).lean();
+      if (!p) {
+        const err = new Error('Change Request Policy không tồn tại');
+        err.statusCode = 404;
+        throw err;
+      }
+      project.changeRequestApprovalPolicyId = p._id;
+    } else {
+      project.changeRequestApprovalPolicyId = null;
+    }
   }
   await project.save();
   return project.toObject();

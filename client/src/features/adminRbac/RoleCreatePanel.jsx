@@ -7,6 +7,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { priorityFromTier, TIER_EXEC } from '../../utils/adminRbacUtils';
 import { unwrapRoleApi } from '../../utils/adminRbacUtils';
+import { isProjectPackTemplateKey } from '../../config/adminRbacCatalog';
 
 export default function RoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
@@ -29,8 +30,9 @@ export default function RoleCreatePanel({ orgId }) {
         const data = unwrapRoleApi(res) || res?.data?.data || res?.data;
         if (cancelled) return;
         setCatalog(data);
-        const first = data?.templates?.[0]?.key || '';
-        setTemplateKey((prev) => prev || first);
+        const orgTemplates = (data?.templates || []).filter((tpl) => !isProjectPackTemplateKey(tpl.key));
+        const first = orgTemplates[0]?.key || '';
+        setTemplateKey((prev) => (prev && !isProjectPackTemplateKey(prev) ? prev : first));
       } catch (error) {
         if (!cancelled) {
           setLoadError(resolveApiErrorMessage(error, { t, fallback: 'Không tải được catalog RBAC V2' }));
@@ -42,7 +44,7 @@ export default function RoleCreatePanel({ orgId }) {
     };
   }, [t]);
 
-  const templates = catalog?.templates || [];
+  const templates = (catalog?.templates || []).filter((tpl) => !isProjectPackTemplateKey(tpl.key));
   const specializations = catalog?.specializations || [];
   const selectedTemplate = useMemo(
     () => templates.find((x) => x.key === templateKey) || null,
@@ -94,9 +96,7 @@ export default function RoleCreatePanel({ orgId }) {
     <div className="mx-auto max-w-3xl space-y-4">
       <div>
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.create')}</h2>
-        <p className="text-sm text-muted-foreground">
-          RBAC V2: chỉ clone Permission Group từ template hệ thống (không tạo blank).
-        </p>
+        <p className="text-sm text-muted-foreground">{t('adminRbac.createHint')}</p>
       </div>
 
       <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">

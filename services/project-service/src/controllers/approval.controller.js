@@ -153,7 +153,11 @@ async function bindProjectPolicy(req, res) {
     const data = await approvalService.bindProjectTaskDonePolicy({
       userId,
       projectId: req.params.projectId,
-      policyId: req.body?.policyId || null,
+      policyId: req.body?.policyId !== undefined ? req.body.policyId || null : undefined,
+      changeRequestPolicyId:
+        req.body?.changeRequestPolicyId !== undefined
+          ? req.body.changeRequestPolicyId || null
+          : undefined,
     });
     return res.json({ success: true, data });
   } catch (err) {

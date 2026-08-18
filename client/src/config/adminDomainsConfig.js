@@ -672,6 +672,12 @@ export const ADMIN_DOMAINS = [
             implementation: 'tasks-manage',
           },
           {
+            id: 'change-requests',
+            path: '/app/admin/projects/change-requests',
+            labelKey: 'adminDomains.projects.changeRequests',
+            implementation: 'tasks-change-requests',
+          },
+          {
             id: 'briefs',
             path: '/app/admin/projects/briefs',
             labelKey: 'adminDomains.projects.briefs',

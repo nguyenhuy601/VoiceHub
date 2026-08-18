@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   applyWorkTypeDrag,
+  childWorkTypeIdsForParent,
+  createIssueTypeForChildWorkTypes,
   defaultWorkTypeConfig,
   depthDeltaFromPointerX,
   normalizeWorkTypeConfig,
@@ -11,6 +13,7 @@ import {
   visibleCreateMenuTypes,
   visibleCreateTypes,
   visibleWorkTypeIds,
+  workTypeTitleKey,
 } from './projectWorkTypes.js';
 
 test('normalizeWorkTypeConfig: bổ sung bug + bỏ id lạ + cây mặc định', () => {
@@ -112,4 +115,27 @@ test('visibleWorkTypeIds ẩn con khi collapse Feature', () => {
   const cfg = defaultWorkTypeConfig();
   const visible = visibleWorkTypeIds(cfg.treeOrder, cfg.depthById, { feature: true });
   assert.deepEqual(visible, ['epic', 'feature']);
+});
+
+test('T1 childWorkTypeIdsForParent: default task → subtask', () => {
+  const cfg = defaultWorkTypeConfig();
+  assert.deepEqual(childWorkTypeIdsForParent('task', cfg), ['subtask']);
+  assert.equal(workTypeTitleKey('subtask'), 'workspace.projectHubWorkTypeSubtask');
+  assert.equal(createIssueTypeForChildWorkTypes(['subtask']), 'task');
+});
+
+test('T2 childWorkTypeIdsForParent: screenshot story→task, task→subtask', () => {
+  const cfg = normalizeWorkTypeConfig({
+    treeOrder: ['epic', 'bug', 'feature', 'story', 'task', 'subtask'],
+    depthById: { epic: 0, bug: 1, feature: 1, story: 1, task: 2, subtask: 3 },
+  });
+  assert.deepEqual(childWorkTypeIdsForParent('story', cfg), ['task']);
+  assert.deepEqual(childWorkTypeIdsForParent('task', cfg), ['subtask']);
+  assert.equal(createIssueTypeForChildWorkTypes(['task']), 'task');
+});
+
+test('T3 childWorkTypeIdsForParent: feature default → story/task/bug; subtask → []', () => {
+  const cfg = defaultWorkTypeConfig();
+  assert.deepEqual(childWorkTypeIdsForParent('feature', cfg).slice().sort(), ['bug', 'story', 'task']);
+  assert.deepEqual(childWorkTypeIdsForParent('subtask', cfg), []);
 });

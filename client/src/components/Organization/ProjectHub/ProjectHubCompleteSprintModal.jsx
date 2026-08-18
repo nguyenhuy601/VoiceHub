@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Modal from '../../Shared/Modal';
 import { useAppStrings } from '../../../locales/appStrings';
 import projectAPI from '../../../services/api/projectAPI';
@@ -64,6 +64,8 @@ export default function ProjectHubCompleteSprintModal({
 
   const incompleteCount = Number(preview?.incompleteCount || 0);
   const destinationSprints = Array.isArray(preview?.destinationSprints) ? preview.destinationSprints : [];
+  const isLastSprint = Boolean(preview?.isLastSprint);
+  const lastSprintBlocked = isLastSprint && incompleteCount > 0;
 
   const canMoveToSprint = incompleteAction === 'sprint';
   const canSubmit =
@@ -71,6 +73,7 @@ export default function ProjectHubCompleteSprintModal({
     !loading &&
     !submitting &&
     sprintId &&
+    !lastSprintBlocked &&
     (!incompleteCount || incompleteCount === 0
       ? true
       : incompleteAction === 'backlog'
@@ -107,6 +110,13 @@ export default function ProjectHubCompleteSprintModal({
 
   const previewSummary = (() => {
     if (!preview) return null;
+    if (lastSprintBlocked) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          {t('workspace.projectHubPlanCompleteSprintLastIncomplete', { n: incompleteCount })}
+        </p>
+      );
+    }
     if (incompleteCount > 0) {
       return (
         <p className="text-sm text-muted-foreground">
@@ -145,7 +155,7 @@ export default function ProjectHubCompleteSprintModal({
             {previewSummary}
           </div>
 
-          {incompleteCount > 0 ? (
+          {incompleteCount > 0 && !lastSprintBlocked ? (
             <div className="space-y-3">
               <label className="block text-xs font-semibold text-muted-foreground">
                 {t('workspace.projectHubPlanCompleteSprintActionBacklog')}

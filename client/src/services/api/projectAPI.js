@@ -142,6 +142,11 @@ export const projectAPI = {
       body
     ),
 
+  deleteSprint: (projectId, sprintId) =>
+    apiClient.delete(
+      `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}`
+    ),
+
   completeSprintPreview: (projectId, sprintId) =>
     apiClient.get(
       `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete-preview`
@@ -151,6 +156,65 @@ export const projectAPI = {
     apiClient.post(
       `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete`,
       body
+    ),
+
+  completeProjectPreview: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/complete-preview`),
+
+  completeProject: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/complete`, body),
+
+  listChangeRequests: (projectId, params = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/change-requests`, {
+      params: {
+        q: params.q || undefined,
+        type: params.type || undefined,
+        status: params.status || undefined,
+        priority: params.priority || undefined,
+        sort: params.sort || undefined,
+        page: params.page,
+        size: params.size,
+      },
+    }),
+
+  getChangeRequest: (projectId, crId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`
+    ),
+
+  createChangeRequest: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/change-requests`, {
+      title: body.title,
+      description: body.description,
+      type: body.type,
+      priority: body.priority,
+      reason: body.reason,
+      current: body.current,
+      requestedChange: body.requestedChange,
+    }),
+
+  patchChangeRequest: (projectId, crId, body = {}) => {
+    const payload = {};
+    if (body.title !== undefined) payload.title = body.title;
+    if (body.description !== undefined) payload.description = body.description;
+    if (body.type !== undefined) payload.type = body.type;
+    if (body.priority !== undefined) payload.priority = body.priority;
+    if (body.reason !== undefined) payload.reason = body.reason;
+    if (body.current !== undefined) payload.current = body.current;
+    if (body.requestedChange !== undefined) payload.requestedChange = body.requestedChange;
+    if (body.status !== undefined) payload.status = body.status;
+    if (body.impact !== undefined) payload.impact = body.impact;
+    if (body.linkWorkItemId !== undefined) payload.linkWorkItemId = body.linkWorkItemId;
+    if (body.unlinkWorkItemId !== undefined) payload.unlinkWorkItemId = body.unlinkWorkItemId;
+    return apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`,
+      payload
+    );
+  },
+
+  deleteChangeRequest: (projectId, crId) =>
+    apiClient.delete(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`
     ),
 
   listPlanningItems: (projectId, params = {}) =>
@@ -276,10 +340,17 @@ export const projectAPI = {
   startStubApproval: (organizationId, payload = {}) =>
     apiClient.post('/projects/approvals/stub', { ...payload, organizationId }),
 
-  bindProjectApprovalPolicy: (projectId, policyId) =>
-    apiClient.put(`/projects/${encodeURIComponent(projectId)}/approval-policy`, {
-      policyId: policyId || null,
-    }),
+  bindProjectApprovalPolicy: (projectId, policyId, { changeRequestPolicyId } = {}) => {
+    const body = {};
+    if (policyId !== undefined) body.policyId = policyId || null;
+    if (changeRequestPolicyId !== undefined) body.changeRequestPolicyId = changeRequestPolicyId || null;
+    return apiClient.put(`/projects/${encodeURIComponent(projectId)}/approval-policy`, body);
+  },
+
+  submitChangeRequestApproval: (projectId, crId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}/submit-approval`
+    ),
 
   /** Phase 6 — Governance */
   listAuditEvents: (organizationId, params = {}) =>

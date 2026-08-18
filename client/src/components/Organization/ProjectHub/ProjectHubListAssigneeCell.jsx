@@ -60,10 +60,7 @@ export default function ProjectHubListAssigneeCell({
             <span className="truncate">{assignee.name}</span>
           </>
         ) : (
-          <>
-            <User size={14} className="shrink-0 opacity-60" aria-hidden />
-            <span className="truncate">{t('taskBoard.unassigned')}</span>
-          </>
+          <span className="truncate">—</span>
         )}
       </div>
     );

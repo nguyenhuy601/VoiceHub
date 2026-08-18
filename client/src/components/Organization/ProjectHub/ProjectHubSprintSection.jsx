@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { ChevronDown, ChevronRight, MoreHorizontal, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import { assertCanStartSprint, countIssuesByStatusBucket, defaultSprintDateRange } from './projectHubUtils';
 
@@ -12,6 +12,7 @@ export default function ProjectHubSprintSection({
   issues = [],
   lists = [],
   canManageSprints = false,
+  canDeleteSprint = false,
   sprints = [],
   memberIdsBySprintId = null,
   allowedCreateTypes = [],
@@ -48,7 +49,10 @@ export default function ProjectHubSprintSection({
     return () => document.removeEventListener('mousedown', onDoc);
   }, [menuOpen]);
 
-  const status = String(sprint?.status || 'planned').toLowerCase();
+  const status = String(sprint?.status || sprint?.state || 'planned').toLowerCase();
+  const isClosedSprint = status === 'closed' || status === 'completed' || status === 'done';
+  const isActiveSprint = status === 'active' || status === 'started' || status === 'in_progress';
+  const canRemovePlannedSprint = Boolean(canDeleteSprint) && !isClosedSprint && !isActiveSprint;
   const counts = countIssuesByStatusBucket(issues, lists);
   const n = issues.length;
   const startCheck = assertCanStartSprint({
@@ -100,7 +104,7 @@ export default function ProjectHubSprintSection({
           {badge(counts.todo, 'bg-muted text-muted-foreground')}
           {badge(counts.progress, 'bg-primary/15 text-primary')}
           {badge(counts.done, 'bg-primary/25 text-primary')}
-          {status === 'active' && onOpenBoard ? (
+          {isActiveSprint && onOpenBoard ? (
             <button
               type="button"
               onClick={onOpenBoard}
@@ -109,7 +113,7 @@ export default function ProjectHubSprintSection({
               {t('workspace.projectHubPlanViewBoard')}
             </button>
           ) : null}
-          {canManageSprints && status === 'planned' ? (
+          {canManageSprints && !isActiveSprint && !isClosedSprint ? (
             <button
               type="button"
               disabled={!canStart || busy}
@@ -122,7 +126,7 @@ export default function ProjectHubSprintSection({
               {t('workspace.projectHubPlanStartSprint')}
             </button>
           ) : null}
-          {canManageSprints && status === 'active' ? (
+          {canManageSprints && isActiveSprint ? (
             <button
               type="button"
               disabled={busy}
@@ -132,7 +136,18 @@ export default function ProjectHubSprintSection({
               {t('workspace.projectHubPlanCompleteSprint')}
             </button>
           ) : null}
-          {canManageSprints ? (
+          {canRemovePlannedSprint ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onDeleteSprint}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              <Trash2 size={12} aria-hidden />
+              {t('workspace.projectHubBacklogDeleteSprint')}
+            </button>
+          ) : null}
+          {canManageSprints || canRemovePlannedSprint ? (
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
@@ -144,30 +159,34 @@ export default function ProjectHubSprintSection({
               </button>
               {menuOpen ? (
                 <div
-                  className={`absolute right-0 z-30 mt-1 min-w-[160px] rounded-lg border border-border py-1 shadow-xl ${
+                  className={`absolute right-0 z-[80] mt-1 min-w-[180px] rounded-lg border border-border py-1 shadow-xl ${
                     isDarkMode ? 'bg-background' : 'bg-surface'
                   }`}
                 >
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onEdit?.();
-                    }}
-                  >
-                    {t('workspace.projectHubBacklogEditSprint')}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onDeleteSprint?.();
-                    }}
-                  >
-                    {t('workspace.projectHubBacklogDeleteSprint')}
-                  </button>
+                  {canManageSprints ? (
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onEdit?.();
+                      }}
+                    >
+                      {t('workspace.projectHubBacklogEditSprint')}
+                    </button>
+                  ) : null}
+                  {canRemovePlannedSprint ? (
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onDeleteSprint?.();
+                      }}
+                    >
+                      {t('workspace.projectHubBacklogDeleteSprint')}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

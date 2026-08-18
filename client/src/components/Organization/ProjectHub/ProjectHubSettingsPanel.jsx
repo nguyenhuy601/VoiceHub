@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
-import { taskAPI } from '../../../services/api/taskAPI';
+import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
@@ -10,6 +10,13 @@ import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructur
 import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
+import CatalogKeyLabelEditor from './CatalogKeyLabelEditor';
+import { normalizePriorityConfig } from './projectPriorityConfig';
+import {
+  filterTransitionsByStateKeys,
+  mergeEditorItemsToStates,
+  statesToEditorItems,
+} from './workflowStatusEditor';
 
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -133,6 +140,7 @@ export default function ProjectHubSettingsPanel({
   isDarkMode = false,
   onSaved,
   workTypeConfig: serverWorkTypeConfig = null,
+  priorityConfig: serverPriorityConfig = null,
 }) {
   const { t } = useAppStrings();
   const [title, setTitle] = useState('');
@@ -156,9 +164,13 @@ export default function ProjectHubSettingsPanel({
   const [applyingWorkflow, setApplyingWorkflow] = useState(false);
   const [approvalPolicies, setApprovalPolicies] = useState([]);
   const [taskDonePolicyId, setTaskDonePolicyId] = useState('');
+  const [crApprovalPolicyId, setCrApprovalPolicyId] = useState('');
   const [bindingApproval, setBindingApproval] = useState(false);
   const [openSection, setOpenSection] = useState(null);
   const [catalogToken, setCatalogToken] = useState(0);
+  const [workflowDoc, setWorkflowDoc] = useState(null);
+  const [workflowStates, setWorkflowStates] = useState([]);
+  const [priorityItems, setPriorityItems] = useState(() => normalizePriorityConfig(null).items);
 
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -185,7 +197,9 @@ export default function ProjectHubSettingsPanel({
     setRequiredProjectRoles(Array.isArray(board?.requiredProjectRoles) ? board.requiredProjectRoles : []);
     setWorkflowTemplateId(String(board?.workflowTemplateId || '').trim());
     setTaskDonePolicyId(String(board?.defaultTaskDoneApprovalPolicyId || '').trim());
-  }, [board]);
+    setCrApprovalPolicyId(String(board?.changeRequestApprovalPolicyId || '').trim());
+    setPriorityItems(normalizePriorityConfig(serverPriorityConfig || board?.priorityConfig).items);
+  }, [board, serverPriorityConfig]);
 
   const resolvedOrganizationId = String(organizationId || board?.organizationId || '').trim();
 
@@ -242,6 +256,32 @@ export default function ProjectHubSettingsPanel({
       cancelled = true;
     };
   }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken]);
+
+  useEffect(() => {
+    if (!canManage || !boardId) {
+      setWorkflowDoc(null);
+      setWorkflowStates([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await taskAPI.getBoardWorkflow(boardId, apiCtx || { organizationId: resolvedOrganizationId });
+        const wf = unwrapTaskApiPayload(res) ?? res?.data?.data ?? res?.data ?? res;
+        if (cancelled) return;
+        setWorkflowDoc(wf && typeof wf === 'object' ? wf : null);
+        setWorkflowStates(Array.isArray(wf?.states) ? wf.states.map((s) => ({ ...s })) : []);
+      } catch {
+        if (!cancelled) {
+          setWorkflowDoc(null);
+          setWorkflowStates([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, boardId, apiCtx, resolvedOrganizationId]);
 
   const onVisibilityModeChange = (nextMode) => {
     const mode = nextMode === 'custom' ? 'custom' : 'inherit';
@@ -331,14 +371,32 @@ export default function ProjectHubSettingsPanel({
         body.visibilityPolicy = visibilityPolicy;
       }
       if (resolvedProjectId) {
-        await projectAPI.patch(resolvedProjectId, body);
+        await projectAPI.patch(resolvedProjectId, {
+          ...body,
+          priorityConfig: { items: priorityItems },
+        });
         await projectAPI.bindProjectApprovalPolicy(
           resolvedProjectId,
-          taskDonePolicyId || null
+          taskDonePolicyId || null,
+          { changeRequestPolicyId: crApprovalPolicyId || null }
         );
       } else {
         const opts = apiCtx || { organizationId };
         await taskAPI.patchBoard(boardId, body, opts);
+      }
+      if (boardId && workflowDoc && workflowStates.length) {
+        const transitions = filterTransitionsByStateKeys(workflowDoc.transitions, workflowStates);
+        await taskAPI.putBoardWorkflow(
+          boardId,
+          {
+            name: workflowDoc.name || 'Default',
+            states: workflowStates,
+            transitions,
+            templateKey: workflowDoc.templateKey,
+            templateId: workflowDoc.templateId,
+          },
+          apiCtx || { organizationId: resolvedOrganizationId }
+        );
       }
       toast.success(t('workspace.projectHubSettingsSaved'));
       onSaved?.();
@@ -368,6 +426,7 @@ export default function ProjectHubSettingsPanel({
     { id: 'visibility', title: t('workspace.projectHubSettingsGroupVisibilityTitle'), hint: t('workspace.projectHubSettingsGroupVisibilityHint') },
     { id: 'staffing', title: t('workspace.projectHubSettingsStaffingTitle'), hint: t('workspace.projectHubSettingsGroupStaffingHint') },
     { id: 'workflow', title: t('workspace.projectHubWorkflowTitle'), hint: t('workspace.projectHubSettingsGroupWorkflowHint') },
+    { id: 'statusPriority', title: t('workspace.projectHubSettingsStatusPriorityTitle'), hint: t('workspace.projectHubSettingsStatusPriorityHint') },
     { id: 'approval', title: t('workspace.projectHubApprovalTitle'), hint: t('workspace.projectHubSettingsGroupApprovalHint') },
     { id: 'workTypes', title: t('workspace.projectHubSettingsWorkTypesTitle'), hint: t('workspace.projectHubSettingsWorkTypesIndexHint') },
   ];
@@ -625,41 +684,96 @@ export default function ProjectHubSettingsPanel({
     </div>
   );
 
+  const statusPriorityBody = (
+    <div className="space-y-5">
+      <div>
+        <p className={`text-xs font-semibold ${titleCls}`}>{t('adminTasks.statusList')}</p>
+        <p className={`mb-2 text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsStatusHint')}</p>
+        {workflowDoc ? (
+          <CatalogKeyLabelEditor
+            items={statesToEditorItems(workflowStates)}
+            disabled={saving}
+            addKeyPh="blocked"
+            addLabelPh="Blocked"
+            addText={t('adminTasks.workflowAddState')}
+            deleteAria={t('adminTasks.catalogDelete')}
+            onChange={(items) => setWorkflowStates((prev) => mergeEditorItemsToStates(items, prev))}
+          />
+        ) : (
+          <p className={`text-xs ${muted}`}>{t('workspace.projectHubSettingsStatusNeedWorkflow')}</p>
+        )}
+      </div>
+      <div>
+        <p className={`text-xs font-semibold ${titleCls}`}>{t('adminTasks.priorityList')}</p>
+        <p className={`mb-2 text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsPriorityHint')}</p>
+        <CatalogKeyLabelEditor
+          items={priorityItems}
+          disabled={saving}
+          addKeyPh="blocker"
+          addLabelPh="Blocker"
+          addText={t('adminTasks.catalogAddPriority')}
+          deleteAria={t('adminTasks.catalogDelete')}
+          onChange={setPriorityItems}
+        />
+      </div>
+    </div>
+  );
+
   const approvalBody = (
-    <div>
-      <p className={`text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubApprovalHint')}</p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-        <label className={`min-w-0 flex-1 ${fieldLabelCls}`}>
-          {t('workspace.projectHubApprovalPolicyLabel')}
-          <select className={inputCls} value={taskDonePolicyId} onChange={(e) => setTaskDonePolicyId(e.target.value)} disabled={bindingApproval}>
-            <option value="">{t('workspace.projectHubApprovalNone')}</option>
-            {approvalPolicies
-              .filter((p) => (p.entityTypes || []).includes('task') || p.key === 'task_done')
-              .map((p) => (
-                <option key={String(p._id)} value={String(p._id)}>{p.name}</option>
-              ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          disabled={!resolvedProjectId || bindingApproval}
-          className="h-10 shrink-0 rounded-lg border border-border px-4 text-sm font-semibold disabled:opacity-50"
-          onClick={async () => {
-            if (!resolvedProjectId) return;
-            setBindingApproval(true);
-            try {
-              await projectAPI.bindProjectApprovalPolicy(resolvedProjectId, taskDonePolicyId || null);
-              toast.success(t('adminTasks.workflowTemplateApplied'));
-              onSaved?.();
-            } catch (err) {
-              toast.error(resolveApiErrorMessage(err, { t, fallback: t('adminTasks.approvalPolicyLoadFail') }));
-            } finally {
-              setBindingApproval(false);
-            }
-          }}
-        >
-          {bindingApproval ? '…' : t('common.save')}
-        </button>
+    <div className="space-y-4">
+      <div>
+        <p className={`text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubApprovalHint')}</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className={`min-w-0 flex-1 ${fieldLabelCls}`}>
+            {t('workspace.projectHubApprovalPolicyLabel')}
+            <select className={inputCls} value={taskDonePolicyId} onChange={(e) => setTaskDonePolicyId(e.target.value)} disabled={bindingApproval}>
+              <option value="">{t('workspace.projectHubApprovalNone')}</option>
+              {approvalPolicies
+                .filter((p) => (p.entityTypes || []).includes('task') || String(p.key || '').startsWith('task_done'))
+                .map((p) => (
+                  <option key={String(p._id)} value={String(p._id)}>{p.name}</option>
+                ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      <div>
+        <p className={`text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubCrApprovalPolicyHint')}</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className={`min-w-0 flex-1 ${fieldLabelCls}`}>
+            {t('workspace.projectHubCrApprovalPolicyLabel')}
+            <select className={inputCls} value={crApprovalPolicyId} onChange={(e) => setCrApprovalPolicyId(e.target.value)} disabled={bindingApproval}>
+              <option value="">{t('workspace.projectHubApprovalNone')}</option>
+              {approvalPolicies
+                .filter((p) => (p.entityTypes || []).includes('change_request') || p.key === 'change_request_default')
+                .map((p) => (
+                  <option key={String(p._id)} value={String(p._id)}>{p.name}</option>
+                ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={!resolvedProjectId || bindingApproval}
+            className="h-10 shrink-0 rounded-lg border border-border px-4 text-sm font-semibold disabled:opacity-50"
+            onClick={async () => {
+              if (!resolvedProjectId) return;
+              setBindingApproval(true);
+              try {
+                await projectAPI.bindProjectApprovalPolicy(resolvedProjectId, taskDonePolicyId || null, {
+                  changeRequestPolicyId: crApprovalPolicyId || null,
+                });
+                toast.success(t('adminTasks.workflowTemplateApplied'));
+                onSaved?.();
+              } catch (err) {
+                toast.error(resolveApiErrorMessage(err, { t, fallback: t('adminTasks.approvalPolicyLoadFail') }));
+              } finally {
+                setBindingApproval(false);
+              }
+            }}
+          >
+            {bindingApproval ? '…' : t('common.save')}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -669,6 +783,7 @@ export default function ProjectHubSettingsPanel({
     visibility: visibilityBody,
     staffing: staffingBody,
     workflow: workflowBody,
+    statusPriority: statusPriorityBody,
     approval: approvalBody,
     workTypes: (
       <ProjectHubWorkTypeHierarchy
@@ -680,7 +795,7 @@ export default function ProjectHubSettingsPanel({
   };
 
   const activeGroup = groups.find((g) => g.id === openSection);
-  const showSaveFooter = openSection === 'identity' || openSection === 'visibility' || openSection === 'staffing';
+  const showSaveFooter = openSection === 'identity' || openSection === 'visibility' || openSection === 'staffing' || openSection === 'statusPriority';
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto">

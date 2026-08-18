@@ -245,6 +245,41 @@ export function configTypeDepth(typeId, config) {
   return Number.isFinite(d) ? d : 0;
 }
 
+const WORK_TYPE_TITLE_KEYS = Object.freeze({
+  epic: 'workspace.projectHubWorkTypeEpic',
+  feature: 'workspace.projectHubWorkTypeFeature',
+  story: 'workspace.projectHubWorkTypeStory',
+  task: 'workspace.projectHubWorkTypeTask',
+  bug: 'workspace.projectHubWorkTypeBug',
+  subtask: 'workspace.projectHubWorkTypeSubtask',
+});
+
+export function workTypeTitleKey(typeId) {
+  const id = String(typeId || '').toLowerCase();
+  return WORK_TYPE_TITLE_KEYS[id] || WORK_TYPE_TITLE_KEYS.task;
+}
+
+/**
+ * Work types ở đúng 1 cấp dưới parent (depth + 1), theo treeOrder, bỏ type ẩn.
+ * @returns {string[]}
+ */
+export function childWorkTypeIdsForParent(parentType, config) {
+  const cfg = normalizeWorkTypeConfig(config);
+  const parentId = String(parentType || '').toLowerCase();
+  if (!WORK_TYPE_ALL_IDS.includes(parentId) || cfg.hidden[parentId]) return [];
+  const parentDepth = Number(cfg.depthById[parentId]);
+  if (!Number.isFinite(parentDepth)) return [];
+  const target = parentDepth + 1;
+  return cfg.treeOrder.filter((id) => !cfg.hidden[id] && Number(cfg.depthById[id]) === target);
+}
+
+/** issueType gửi API khi tạo con: story/task/bug nếu có, không thì task (sub-task). */
+export function createIssueTypeForChildWorkTypes(childTypeIds = []) {
+  const ids = Array.isArray(childTypeIds) ? childTypeIds : [];
+  const board = ids.find((id) => WORK_TYPE_CREATE_IDS.includes(String(id || '').toLowerCase()));
+  return board || 'task';
+}
+
 /** Nest khi parent đúng 1 cấp trên child (cùng depth = sibling, không nest). */
 export function canNestByDepth(childType, parentType, config) {
   const child = String(childType || '').toLowerCase();

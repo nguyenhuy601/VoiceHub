@@ -71,6 +71,17 @@ const workflowTemplateSchema = new mongoose.Schema(
       type: [statusSchema],
       default: [],
     },
+    /** Catalog priority khi apply template xuống project. */
+    priorities: {
+      type: [
+        {
+          key: { type: String, required: true, trim: true, maxlength: 32 },
+          label: { type: String, required: true, trim: true, maxlength: 64 },
+          order: { type: Number, default: 0 },
+        },
+      ],
+      default: [],
+    },
     transitions: {
       type: [transitionSchema],
       default: [],

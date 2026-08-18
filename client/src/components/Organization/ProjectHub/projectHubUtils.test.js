@@ -5,7 +5,12 @@ import {
   buildIssueOverlay,
   buildSprintMemberIdsBySprintId,
   classifyListStatusBucket,
+  childWorkProgressBarClass,
+  childWorkProgressPct,
   collectIssueMemberIds,
+  listsForStatusSelect,
+  statusBucketPillClass,
+  statusSelectBucket,
   countCardsByIssueType,
   countIssuesByStatusBucket,
   defaultSprintDateRange,
@@ -17,6 +22,10 @@ import {
   mergeIssueWithOverlay,
   normalizeIssueType,
   parseHubDate,
+  resolveHubActor,
+  collectCrWorkItems,
+  isLinkableCrWorkType,
+  mergeChangeRequestPatch,
   resolveActiveSprint,
   resolveViewerActiveSprint,
 } from './projectHubUtils.js';
@@ -81,6 +90,65 @@ test('countIssuesByStatusBucket todo / progress / done', () => {
   assert.equal(counts.todo, 1);
   assert.equal(counts.progress, 1);
   assert.equal(counts.done, 2);
+});
+
+test('statusBucketPillClass và childWorkProgress*', () => {
+  assert.ok(statusBucketPillClass('done').includes('bg-success'));
+  assert.ok(statusBucketPillClass('progress').includes('bg-primary'));
+  assert.ok(statusBucketPillClass('todo').includes('bg-muted'));
+  assert.equal(childWorkProgressPct(1, 1), 100);
+  assert.equal(childWorkProgressPct(1, 2), 50);
+  assert.equal(childWorkProgressPct(0, 0), 0);
+  assert.ok(childWorkProgressBarClass({ done: 1, total: 1 }).includes('bg-success'));
+  assert.ok(childWorkProgressBarClass({ done: 0, total: 1 }).includes('bg-primary'));
+});
+
+test('listsForStatusSelect: ẩn 4 cột VI khi đã có cột EN cùng bucket', () => {
+  const lists = [
+    { _id: 'en-todo', title: 'Todo', statusKey: 'todo', order: 1 },
+    { _id: 'en-doing', title: 'In progress', statusKey: 'doing', order: 2 },
+    { _id: 'en-review', title: 'Review', statusKey: 'review', order: 3 },
+    { _id: 'en-done', title: 'Done', statusKey: 'done', order: 4 },
+    { _id: 'en-cancel', title: 'Cancelled', statusKey: 'cancelled', order: 5 },
+    { _id: 'vi-todo', title: 'Chưa làm', order: 6 },
+    { _id: 'vi-doing', title: 'Đang làm', order: 7 },
+    { _id: 'vi-review', title: 'Chờ duyệt', order: 8 },
+    { _id: 'vi-done', title: 'Xong', order: 9 },
+  ];
+  assert.equal(statusSelectBucket({ title: 'Chưa làm' }), 'todo');
+  assert.equal(statusSelectBucket({ title: 'Đang làm' }), 'doing');
+  assert.equal(statusSelectBucket({ title: 'Chờ duyệt' }), 'review');
+  assert.equal(statusSelectBucket({ title: 'Xong' }), 'done');
+  const titles = listsForStatusSelect(lists).map((l) => l.title);
+  assert.deepEqual(titles, ['Todo', 'In progress', 'Review', 'Done', 'Cancelled']);
+  const onVi = listsForStatusSelect(lists, 'vi-todo').map((l) => l._id);
+  assert.ok(onVi.includes('vi-todo'));
+  assert.ok(!onVi.includes('en-todo'));
+});
+
+test('listsForStatusSelect: có statusKey thì bỏ cột unmatched kể cả khác bucket', () => {
+  const lists = [
+    { _id: 'en-todo', title: 'Todo', statusKey: 'todo', order: 1 },
+    { _id: 'en-done', title: 'Done', statusKey: 'done', order: 2 },
+    { _id: 'custom', title: 'Khác', order: 3 },
+  ];
+  const ids = listsForStatusSelect(lists).map((l) => l._id);
+  assert.deepEqual(ids, ['en-todo', 'en-done']);
+  const onCustom = listsForStatusSelect(lists, 'custom').map((l) => l._id);
+  assert.ok(onCustom.includes('custom'));
+  assert.ok(onCustom.includes('en-todo'));
+  assert.ok(onCustom.includes('en-done'));
+});
+
+test('listsForStatusSelect: board không statusKey vẫn dedupe bucket EN/VI', () => {
+  const lists = [
+    { _id: 'en-todo', title: 'Todo', order: 1 },
+    { _id: 'en-doing', title: 'In progress', order: 2 },
+    { _id: 'vi-todo', title: 'Chưa làm', order: 3 },
+    { _id: 'vi-doing', title: 'Đang làm', order: 4 },
+  ];
+  const titles = listsForStatusSelect(lists).map((l) => l.title);
+  assert.deepEqual(titles, ['Todo', 'In progress']);
 });
 
 test('classifyListStatusBucket và dueDateTone', () => {
@@ -241,4 +309,73 @@ test('isProjectDateRangeInvalid: thiếu một ngày OK; start > end invalid; c�
   assert.equal(isProjectDateRangeInvalid('2026-02-01', '2026-02-01'), false);
   assert.equal(isProjectDateRangeInvalid('2026-02-10', '2026-02-01'), true);
   assert.equal(isProjectDateRangeInvalid('2026-01-01', '2026-12-31'), false);
+});
+
+test('resolveHubActor: DTO name, members lookup, fallback id', () => {
+  const named = resolveHubActor({ reporterName: 'An', createdBy: 'u1' }, []);
+  assert.equal(named.name, 'An');
+  assert.equal(named.userId, 'u1');
+  const fromMember = resolveHubActor({ createdBy: 'u2' }, [
+    { userId: 'u2', displayName: 'Binh', avatar: 'a.png' },
+  ]);
+  assert.equal(fromMember.name, 'Binh');
+  assert.equal(fromMember.avatar, 'a.png');
+  const fallback = resolveHubActor({ createdBy: 'abc123456789' }, []);
+  assert.equal(fallback.name, '456789');
+  assert.equal(resolveHubActor({}, []), null);
+});
+
+test('collectCrWorkItems: union workItems + workItemIds, join boardCards', () => {
+  const dto = collectCrWorkItems({ workItems: [{ _id: 't1', title: 'A' }] }, []);
+  assert.equal(dto[0].title, 'A');
+  const joined = collectCrWorkItems(
+    { workItemIds: ['t2'] },
+    [{ _id: 't2', title: 'Card' }]
+  );
+  assert.equal(joined[0].title, 'Card');
+  const union = collectCrWorkItems(
+    { workItems: [{ _id: 't1', title: 'A' }], workItemIds: ['t1', 't2'] },
+    [{ _id: 't2', title: 'Card' }]
+  );
+  assert.equal(union.length, 2);
+  assert.equal(union[1].title, 'Card');
+  assert.equal(collectCrWorkItems({}, []).length, 0);
+});
+
+test('mergeChangeRequestPatch: DTO mỏng + linkWorkItemId → chip', () => {
+  const prev = { _id: 'cr1', title: 'CR', workItemIds: [], workItems: [] };
+  const thin = {
+    _id: 'cr1',
+    title: 'CR',
+    createdBy: 'u1',
+  };
+  const cards = [{ _id: 'task1', title: 'Login API', issueType: 'task' }];
+  const merged = mergeChangeRequestPatch(prev, thin, { linkWorkItemId: 'task1' }, cards);
+  assert.deepEqual(merged.workItemIds, ['task1']);
+  assert.equal(merged.workItems.length, 1);
+  assert.equal(merged.workItems[0].title, 'Login API');
+  assert.equal(merged.createdBy, 'u1');
+});
+
+test('mergeChangeRequestPatch: unlink lọc chip; không xóa work khi saved thiếu array', () => {
+  const prev = {
+    _id: 'cr1',
+    workItemIds: ['t1', 't2'],
+    workItems: [
+      { _id: 't1', title: 'A' },
+      { _id: 't2', title: 'B' },
+    ],
+  };
+  const unlinked = mergeChangeRequestPatch(prev, { _id: 'cr1', title: 'x' }, { unlinkWorkItemId: 't1' }, []);
+  assert.deepEqual(unlinked.workItemIds, ['t2']);
+  assert.equal(unlinked.workItems.length, 1);
+  assert.equal(unlinked.workItems[0]._id, 't2');
+  const kept = mergeChangeRequestPatch(prev, { _id: 'cr1', status: 'approved' }, {}, []);
+  assert.deepEqual(kept.workItemIds, ['t1', 't2']);
+});
+
+test('isLinkableCrWorkType: feature/story/task/bug', () => {
+  assert.equal(isLinkableCrWorkType('feature'), true);
+  assert.equal(isLinkableCrWorkType('story'), true);
+  assert.equal(isLinkableCrWorkType('epic'), false);
 });

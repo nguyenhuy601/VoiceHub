@@ -12,17 +12,27 @@ export default function MasterPermissionTreeEditor({
   onToggle,
   onSetMany,
   editable = true,
+  excludeCategoryKeys = [],
   searchPlaceholder = 'Tìm category / module / action…',
 }) {
   const [query, setQuery] = useState('');
-  const [openCategories, setOpenCategories] = useState(() => new Set(['system', 'organization', 'project']));
+  const [openCategories, setOpenCategories] = useState(() => new Set(['system', 'organization']));
   const [openModules, setOpenModules] = useState(() => new Set());
 
   const q = query.trim().toLowerCase();
+  const excluded = useMemo(
+    () => new Set((Array.isArray(excludeCategoryKeys) ? excludeCategoryKeys : []).map((k) => String(k || '').trim()).filter(Boolean)),
+    [excludeCategoryKeys]
+  );
+
+  const visibleTree = useMemo(
+    () => (tree || []).filter((cat) => !excluded.has(String(cat?.key || ''))),
+    [tree, excluded]
+  );
 
   const filtered = useMemo(() => {
-    if (!q) return tree;
-    return (tree || [])
+    if (!q) return visibleTree;
+    return (visibleTree || [])
       .map((cat) => {
         const modules = (cat.modules || [])
           .map((mod) => {
@@ -51,7 +61,7 @@ export default function MasterPermissionTreeEditor({
         return { ...cat, modules };
       })
       .filter(Boolean);
-  }, [tree, q]);
+  }, [visibleTree, q]);
 
   const toggleCategory = (key) => {
     setOpenCategories((prev) => {

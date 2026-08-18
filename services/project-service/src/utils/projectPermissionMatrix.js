@@ -29,6 +29,7 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'sprint:create',
   'sprint:start',
   'sprint:close',
+  'sprint:delete',
   'repository:view',
   'repository:push',
   'repository:merge',
@@ -54,6 +55,10 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'delivery:view',
   'delivery:manage',
   'report:view',
+  'change_request:view',
+  'change_request:create',
+  'change_request:update',
+  'change_request:delete',
 ]);
 
 const PERM_SET = new Set(PROJECT_PERMISSION_KEYS);
@@ -71,6 +76,7 @@ const VIEW_ONLY = Object.freeze([
   'backlog:view',
   'delivery:view',
   'report:view',
+  'change_request:view',
 ]);
 
 const DEV_PERMS = Object.freeze([
@@ -86,6 +92,7 @@ const DEV_PERMS = Object.freeze([
   'repository:view',
   'repository:push',
   'approval:request',
+  'change_request:create',
 ]);
 
 const LEAD_PERMS = Object.freeze([
@@ -93,6 +100,8 @@ const LEAD_PERMS = Object.freeze([
   'task:delete',
   'repository:merge',
   'approval:decide',
+  'change_request:update',
+  'change_request:delete',
 ]);
 
 const PO_PERMS = Object.freeze([
@@ -105,6 +114,8 @@ const PO_PERMS = Object.freeze([
   'backlog:prioritize',
   'meeting:create',
   'approval:request',
+  'change_request:create',
+  'change_request:update',
 ]);
 
 const BA_PERMS = Object.freeze([
@@ -117,6 +128,8 @@ const BA_PERMS = Object.freeze([
   'wiki:edit',
   'meeting:create',
   'approval:request',
+  'change_request:create',
+  'change_request:update',
 ]);
 
 const SM_PERMS = Object.freeze([
@@ -124,6 +137,7 @@ const SM_PERMS = Object.freeze([
   'sprint:create',
   'sprint:start',
   'sprint:close',
+  'sprint:delete',
   'meeting:create',
 ]);
 
@@ -133,6 +147,9 @@ const PM_PERMS = Object.freeze([
   'delivery:manage',
   'release:create',
   'settings:view',
+  'change_request:create',
+  'change_request:update',
+  'change_request:delete',
 ]);
 
 const QA_PERMS = Object.freeze([
@@ -220,19 +237,50 @@ function isProjectRbacV2Enabled() {
 
 /**
  * @param {string[]|unknown} raw
+ * @returns {{ valid: string[], unknown: string[] }}
+ */
+function splitPermissionList(raw = []) {
+  const input = Array.isArray(raw) ? raw : [];
+  const valid = [];
+  const unknown = [];
+  const seenValid = new Set();
+  const seenUnknown = new Set();
+  for (const item of input) {
+    const key = String(item || '').trim().toLowerCase();
+    if (!key) continue;
+    if (PERM_SET.has(key)) {
+      if (!seenValid.has(key)) {
+        seenValid.add(key);
+        valid.push(key);
+      }
+      continue;
+    }
+    if (!seenUnknown.has(key)) {
+      seenUnknown.add(key);
+      unknown.push(key);
+    }
+  }
+  return { valid, unknown };
+}
+
+/**
+ * @param {string[]|unknown} raw
  * @returns {string[]}
  */
 function normalizePermissionList(raw = []) {
-  const input = Array.isArray(raw) ? raw : [];
-  const out = [];
-  const seen = new Set();
-  for (const item of input) {
-    const key = String(item || '').trim().toLowerCase();
-    if (!PERM_SET.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    out.push(key);
+  return splitPermissionList(raw).valid;
+}
+
+function assertKnownPermissionList(raw = []) {
+  const { valid, unknown } = splitPermissionList(raw);
+  if (unknown.length) {
+    const err = new Error(`Permission không hợp lệ: ${unknown.join(', ')}`);
+    err.statusCode = 400;
+    err.errorCode = 'PROJECT_PERMISSION_UNKNOWN';
+    err.details = { unknown, valid };
+    throw err;
   }
-  return out;
+  return valid;
 }
 
 function defaultPermissionsForRoleKey(roleKey) {
@@ -356,6 +404,8 @@ module.exports = {
   QA_PERMS,
   isProjectRbacV2Enabled,
   normalizePermissionList,
+  splitPermissionList,
+  assertKnownPermissionList,
   defaultPermissionsForRoleKey,
   unionPermissionsFromRoles,
   hasPermission,

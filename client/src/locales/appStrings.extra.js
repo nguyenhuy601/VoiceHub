@@ -69,6 +69,15 @@ export const extraStrings = {
         TASK_NOT_FOUND: 'Không tìm thấy task.',
         SPRINT_MEMBER_OVERLAP:
           'Không thể start sprint: có thành viên đang tham gia sprint đang chạy khác.',
+        LAST_SPRINT_HAS_INCOMPLETE:
+          'Sprint cuối còn việc chưa xong. Hãy hoàn thành hết, hoặc tạo sprint mới rồi chuyển việc sang đó.',
+        OPEN_SPRINTS: 'Không thể đóng dự án: còn sprint chưa đóng.',
+        INCOMPLETE_WORK: 'Không thể đóng dự án: còn việc chưa hoàn thành (kể cả backlog).',
+        USE_COMPLETE_SPRINT: 'Sprint đang chạy hãy dùng Hoàn thành Sprint.',
+        USE_COMPLETE_PROJECT: 'Hãy dùng Hoàn thành dự án.',
+        PROJECT_CLOSED: 'Dự án đã hoàn thành — không thể chỉnh sửa.',
+        ALREADY_CLOSED: 'Dự án đã hoàn thành.',
+        MUST_COMPLETE_FIRST: 'Hãy hoàn thành dự án trước khi lưu trữ.',
         TASK_BOARD_NOT_FOUND: 'Không tìm thấy board.',
         TASK_INTERNAL_ERROR: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
         TASK_BOARD_INTERNAL_ERROR: 'Hệ thống tạm thời gặp sự cố. Vui lòng thử lại sau.',
@@ -510,6 +519,15 @@ export const extraStrings = {
         TASK_NOT_FOUND: 'Task not found.',
         SPRINT_MEMBER_OVERLAP:
           'Cannot start sprint: a member is already on another active sprint.',
+        LAST_SPRINT_HAS_INCOMPLETE:
+          'The last sprint still has incomplete work. Finish it, or create another sprint and move the work there.',
+        OPEN_SPRINTS: 'Cannot close the project: there are still open sprints.',
+        INCOMPLETE_WORK: 'Cannot close the project: incomplete work remains (including backlog).',
+        USE_COMPLETE_SPRINT: 'Active sprints must be closed with Complete Sprint.',
+        USE_COMPLETE_PROJECT: 'Use Complete project instead.',
+        PROJECT_CLOSED: 'This project is completed and cannot be edited.',
+        ALREADY_CLOSED: 'This project is already completed.',
+        MUST_COMPLETE_FIRST: 'Complete the project before archiving.',
         TASK_BOARD_NOT_FOUND: 'Board not found.',
         TASK_INTERNAL_ERROR: 'System is temporarily unavailable. Please try again later.',
         TASK_BOARD_INTERNAL_ERROR: 'System is temporarily unavailable. Please try again later.',

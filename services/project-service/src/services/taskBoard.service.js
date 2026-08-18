@@ -17,6 +17,7 @@ const {
 } = require('./taskWorkspaceScope');
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
 const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
+const { assertProjectWritable } = require('../utils/projectCloseGate');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
 const {
   assertCanAssign,
@@ -54,6 +55,7 @@ const {
   hoursFieldsTouched,
   assertHoursCapacityOrThrow,
 } = require('./hoursCapacityGuard.service');
+const { parseIncludeCardsFlag, buildBoardCardMongoFilter } = require('../utils/listLazyQuery');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -62,6 +64,42 @@ if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: N
 
 function escapeRegex(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function oidToStr(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object' && v._id) return String(v._id);
+  return String(v);
+}
+
+/** Gắn subtasks[] trên card cha từ cùng list (không N+1). */
+function attachSubtasksToSanitizedCards(cards = []) {
+  const list = Array.isArray(cards) ? cards : [];
+  const byParent = new Map();
+  for (const c of list) {
+    const pid = oidToStr(c.parentTaskId);
+    if (!pid) continue;
+    if (!byParent.has(pid)) byParent.set(pid, []);
+    byParent.get(pid).push({
+      _id: oidToStr(c._id),
+      title: c.title,
+      status: c.status || null,
+      listId: oidToStr(c.listId),
+      assigneeId: oidToStr(c.assigneeId),
+    });
+  }
+  return list.map((c) => ({
+    ...c,
+    _id: oidToStr(c._id) || c._id,
+    boardId: oidToStr(c.boardId) || c.boardId,
+    listId: oidToStr(c.listId) || c.listId,
+    parentTaskId: oidToStr(c.parentTaskId),
+    epicId: oidToStr(c.epicId),
+    featureId: oidToStr(c.featureId),
+    projectId: oidToStr(c.projectId) || c.projectId,
+    sprintId: oidToStr(c.sprintId),
+    subtasks: byParent.get(String(oidToStr(c._id) || c._id || '')) || [],
+  }));
 }
 
 /**
@@ -553,6 +591,13 @@ async function userMatchesWorkspaceBoardScope(board, userId) {
   return false;
 }
 
+async function assertBoardProjectWritable(board) {
+  if (!board?.projectId) return;
+  const Project = require('../models/Project');
+  const project = await Project.findById(board.projectId).select('status').lean();
+  if (project) assertProjectWritable(project);
+}
+
 async function ensureBoardViewAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
@@ -598,11 +643,13 @@ async function ensureBoardEditAccess(boardId, userId) {
       hasPermission(resolved.permissions, 'backlog:prioritize') ||
       hasPermission(resolved.permissions, 'project:edit');
     if (!ok) return null;
+    await assertBoardProjectWritable(board);
     return board;
   }
   const caps = await resolveBoardCapabilities(userId, board);
   // Edit “nặng” (tạo thẻ/list/sửa) — không còn workspace-scope = full edit
   if (caps.canCreateCards || caps.canManageLists || caps.canEditCards || caps.canManageBoard) {
+    await assertBoardProjectWritable(board);
     return board;
   }
   return null;
@@ -613,6 +660,7 @@ async function ensureBoardManageLists(boardId, userId) {
   if (!board || !board.isActive) return null;
   const caps = await resolveBoardCapabilities(userId, board);
   if (!caps.canManageLists) return null;
+  await assertBoardProjectWritable(board);
   return board;
 }
 
@@ -634,10 +682,12 @@ async function ensureBoardCreateCards(boardId, userId) {
     ) {
       return null;
     }
+    await assertBoardProjectWritable(board);
     return board;
   }
   const caps = await resolveBoardCapabilities(userId, board);
   if (!caps.canCreateCards) return null;
+  await assertBoardProjectWritable(board);
   return board;
 }
 
@@ -745,7 +795,7 @@ async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }
   return boards;
 }
 
-async function getBoardDetail({ userId, boardId }) {
+async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId, parentTaskId }) {
   const board = await ensureBoardViewAccess(boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
   const boardOid = board._id;
@@ -764,9 +814,17 @@ async function getBoardDetail({ userId, boardId }) {
     watcherCountByList.set(lid, (watcherCountByList.get(lid) || 0) + 1);
     if (userOid && String(row.userId) === String(userOid)) watchingSet.add(lid);
   }
-  const cards = await Task.find({ boardId: boardOid, isActive: true })
-    .sort({ listId: 1, position: 1, createdAt: 1 })
-    .lean();
+  const wantCards = parseIncludeCardsFlag(includeCards);
+  const scopedCardQuery = Boolean(epicId || featureId || parentTaskId);
+  const cardFilter = wantCards
+    ? buildBoardCardMongoFilter(
+        { boardId: boardOid, epicId, featureId, parentTaskId },
+        { isValidOid: (id) => mongoose.Types.ObjectId.isValid(String(id)), toOid }
+      )
+    : null;
+  const cards = wantCards
+    ? await Task.find(cardFilter).sort({ listId: 1, position: 1, createdAt: 1 }).lean()
+    : [];
 
   const canAdmin = await userCanAdminBoard(userId, board);
   const capabilities = await resolveBoardCapabilities(userId, board);
@@ -833,6 +891,7 @@ async function getBoardDetail({ userId, boardId }) {
         .flatMap((c) => {
           const ids = [];
           if (c?.assigneeId) ids.push(String(c.assigneeId));
+          if (c?.createdBy) ids.push(String(c.createdBy));
           for (const a of c.assignments || []) {
             if (a?.userId) ids.push(String(a.userId));
           }
@@ -899,11 +958,19 @@ async function getBoardDetail({ userId, boardId }) {
             },
           ]
         : [],
+    createdBy: c.createdBy || null,
+    reporterName: c.createdBy
+      ? assigneeMap.get(String(c.createdBy))?.displayName ||
+        assigneeMap.get(String(c.createdBy))?.username ||
+        ''
+      : '',
+    reporterAvatar: c.createdBy ? assigneeMap.get(String(c.createdBy))?.avatar || '' : '',
     tags: Array.isArray(c.tags) ? c.tags : [],
     attachments: Array.isArray(c.attachments) ? c.attachments : [],
     checklists: Array.isArray(c.checklists) ? c.checklists : [],
     parentTaskId: c.parentTaskId || null,
     epicId: c.epicId || null,
+    featureId: c.featureId || null,
     issueType: normalizeIssueType(c.issueType),
     projectId: c.projectId || board.projectId || null,
     sprintId: c.sprintId || null,
@@ -912,6 +979,9 @@ async function getBoardDetail({ userId, boardId }) {
     position: c.position,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+    changeRequestIds: Array.isArray(c.changeRequestIds)
+      ? c.changeRequestIds.map((id) => String(id))
+      : [],
     comments: Array.isArray(c.comments)
       ? c.comments.map((cm) => ({
           userId: cm.userId,
@@ -921,13 +991,16 @@ async function getBoardDetail({ userId, boardId }) {
       : [],
   }));
 
+  const changeRequestService = require('./changeRequest.service');
+  const cardsWithCr = await changeRequestService.enrichTasksWithChangeRequests(sanitizedCards);
+
   const { attachProjectIdentityToBoard } = require('./project.service');
   const boardWithProject = await attachProjectIdentityToBoard(board);
 
   return {
     board: boardWithProject,
     lists: listsEnriched,
-    cards: sanitizedCards,
+    cards: scopedCardQuery ? cardsWithCr : attachSubtasksToSanitizedCards(cardsWithCr),
     capabilities,
     workflow: workflowPayload,
   };
@@ -968,6 +1041,7 @@ async function createCard({
   parentTaskId,
   checklists,
   epicId,
+  featureId,
   issueType,
   sprintId,
   estimateHours,
@@ -1033,6 +1107,9 @@ async function createCard({
     });
   }
 
+  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
+  const normalizedIssueType = normalizeIssueType(issueType);
+
   let parentOid = null;
   if (parentTaskId) {
     const parent = await Task.findOne({
@@ -1042,20 +1119,31 @@ async function createCard({
     }).lean();
     if (!parent) throw new Error('parentTaskId không hợp lệ');
     parentOid = parent._id;
-    const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
     const { assertTaskParentNest } = require('./workTypeNest.service');
     await assertTaskParentNest({
       projectId: board.projectId,
-      childCard: { issueType: normalizeIssueType(issueType) },
+      childCard: { issueType: normalizedIssueType },
       parentCard: parent,
     });
+  }
+
+  let featureOid = null;
+  let nextEpicId = epicId || null;
+  if (featureId) {
+    const { assertTaskFeatureNest } = require('./workTypeNest.service');
+    const feature = await assertTaskFeatureNest({
+      projectId: board.projectId,
+      childCard: { issueType: normalizedIssueType },
+      featureId,
+    });
+    featureOid = feature._id;
+    if (!nextEpicId && feature.parentId) nextEpicId = feature.parentId;
   }
 
   const last = await Task.findOne({ boardId, listId, isActive: true })
     .sort({ position: -1 })
     .lean();
   const nextPos = (Number(last?.position) || 0) + 1000;
-  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
 
   const nextEstimateHours =
     estimateHours !== undefined ? normalizeHoursEstimate(estimateHours) : null;
@@ -1098,8 +1186,9 @@ async function createCard({
     position: nextPos,
     tags: Array.isArray(tags) ? tags : [],
     checklists: Array.isArray(checklists) ? checklists : [],
-    epicId: epicId || null,
-    issueType: normalizeIssueType(issueType),
+    epicId: nextEpicId || null,
+    featureId: featureOid,
+    issueType: normalizedIssueType,
     sprintId: sprintId || null,
     attachments: Array.isArray(attachments)
       ? attachments
@@ -1172,6 +1261,21 @@ function computeCardInsertPosition(siblings, index) {
   const prev = Number(siblings[idx - 1].position) || 0;
   const next = Number(siblings[idx].position) || prev + GAP * 2;
   return (prev + next) / 2;
+}
+
+function scheduleCrWorkStatusSync(card) {
+  const ids = Array.isArray(card?.changeRequestIds) ? card.changeRequestIds : [];
+  if (!ids.length) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const changeRequestService = require('./changeRequest.service');
+        await changeRequestService.syncChangeRequestWorkStatus(ids);
+      } catch (err) {
+        logger.warn('[task-board] CR workStatus sync failed: %s', err?.message || err);
+      }
+    })();
+  });
 }
 
 async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId }) {
@@ -1379,6 +1483,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
   }
   await card.save();
   const moved = card.toObject();
+  scheduleCrWorkStatusSync(moved);
   await notifyListWatchers({
     listId: toListId,
     board,
@@ -1419,6 +1524,7 @@ async function updateCard({
   checklists,
   parentTaskId,
   epicId,
+  featureId,
   issueType,
   estimateHours,
   startDate,
@@ -1508,6 +1614,24 @@ async function updateCard({
   }
   if (epicId !== undefined) {
     next.epicId = epicId || null;
+  }
+  if (featureId !== undefined) {
+    if (!featureId) {
+      next.featureId = null;
+    } else if (board.projectId) {
+      const { assertTaskFeatureNest } = require('./workTypeNest.service');
+      const feature = await assertTaskFeatureNest({
+        projectId: board.projectId,
+        childCard: { issueType: issueType !== undefined ? issueType : card.issueType },
+        featureId,
+      });
+      next.featureId = feature._id;
+      if (next.epicId === undefined && !card.epicId && feature.parentId) {
+        next.epicId = feature.parentId;
+      }
+    } else {
+      next.featureId = featureId;
+    }
   }
   if (issueType !== undefined) {
     const raw = String(issueType || '').trim().toLowerCase();
@@ -1672,6 +1796,9 @@ async function updateCard({
     { new: true, runValidators: true }
   );
   const out = updated?.toObject ? updated.toObject() : updated;
+  const statusChanged =
+    next.status !== undefined && String(next.status || '') !== String(card.status || '');
+  if (statusChanged) scheduleCrWorkStatusSync(out || card);
   if (card.listId) {
     void notifyListWatchers({
       listId: card.listId,

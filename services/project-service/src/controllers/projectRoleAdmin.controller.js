@@ -99,12 +99,12 @@ async function createProjectRole(req, res) {
     const k = allocateUniqueRoleKey(base, existingKeys);
 
     const {
-      normalizePermissionList,
+      assertKnownPermissionList,
       defaultPermissionsForRoleKey,
     } = require('../utils/projectPermissionMatrix');
     const permList =
       permissions !== undefined
-        ? normalizePermissionList(permissions)
+        ? assertKnownPermissionList(permissions)
         : defaultPermissionsForRoleKey('watcher');
 
     const role = await ProjectRole.create({
@@ -177,8 +177,8 @@ async function updateProjectRole(req, res) {
       if (canAssign !== undefined) patch.canAssign = Boolean(canAssign);
     }
     if (permissions !== undefined) {
-      const { normalizePermissionList } = require('../utils/projectPermissionMatrix');
-      patch.permissions = normalizePermissionList(permissions);
+      const { assertKnownPermissionList } = require('../utils/projectPermissionMatrix');
+      patch.permissions = assertKnownPermissionList(permissions);
     }
 
     if (!Object.keys(patch).length) {

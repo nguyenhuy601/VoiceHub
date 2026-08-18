@@ -26,12 +26,19 @@ class NotificationController {
       }
 
       if (this._asyncDispatchEnabled()) {
-        await publishDispatchJob({
-          kind: 'single',
-          userId,
-          notification: { type, title, content, data, actionUrl },
-        });
-        return res.status(202).json({ success: true, queued: true });
+        try {
+          await publishDispatchJob({
+            kind: 'single',
+            userId,
+            notification: { type, title, content, data, actionUrl },
+          });
+          return res.status(202).json({ success: true, queued: true });
+        } catch (publishErr) {
+          logger.warn(
+            '[notification] async dispatch unavailable, fallback sync: %s',
+            publishErr?.code || publishErr?.message || publishErr
+          );
+        }
       }
       const notification = await notificationService.createNotification({
         userId,
@@ -68,12 +75,19 @@ class NotificationController {
       }
 
       if (this._asyncDispatchEnabled()) {
-        await publishDispatchJob({
-          kind: 'bulk',
-          userIds,
-          notification: { type, title, content, data, actionUrl },
-        });
-        return res.status(202).json({ success: true, queued: true });
+        try {
+          await publishDispatchJob({
+            kind: 'bulk',
+            userIds,
+            notification: { type, title, content, data, actionUrl },
+          });
+          return res.status(202).json({ success: true, queued: true });
+        } catch (publishErr) {
+          logger.warn(
+            '[notification] async bulk dispatch unavailable, fallback sync: %s',
+            publishErr?.code || publishErr?.message || publishErr
+          );
+        }
       }
       const notifications = await notificationService.createBulkNotifications(userIds, {
         type,

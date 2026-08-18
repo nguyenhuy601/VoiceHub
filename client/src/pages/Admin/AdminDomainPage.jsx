@@ -85,6 +85,7 @@ import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPan
 import TasksDelegationPanel from '../../features/adminTasks/TasksDelegationPanel';
 import TasksBriefsPanel from '../../features/adminTasks/TasksBriefsPanel';
 import TasksManagePanel from '../../features/adminTasks/TasksManagePanel';
+import TasksChangeRequestsPanel from '../../features/adminTasks/TasksChangeRequestsPanel';
 import TasksStatusPriorityPanel from '../../features/adminTasks/TasksStatusPriorityPanel';
 import TasksExportPanel from '../../features/adminTasks/TasksExportPanel';
 import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel';
@@ -272,6 +273,7 @@ const TASK_PANELS = {
   'tasks-delegation': TasksDelegationPanel,
   'tasks-briefs': TasksBriefsPanel,
   'tasks-manage': TasksManagePanel,
+  'tasks-change-requests': TasksChangeRequestsPanel,
   'tasks-status-priority': TasksStatusPriorityPanel,
   'tasks-export': TasksExportPanel,
   'tasks-coming-soon': TasksComingSoonPanel,

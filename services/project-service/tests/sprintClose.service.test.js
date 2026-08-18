@@ -29,13 +29,22 @@ function createFakeSprint({ id, projectId, status = 'active', organizationId = '
   };
 }
 
-function createDeps({ sprintDoc, targetSprintDoc, tasks, listsById }) {
+function createDeps({ sprintDoc, targetSprintDoc, tasks, listsById, destinationSprints }) {
   const calls = { updateMany: [] };
+  const dest =
+    destinationSprints !== undefined
+      ? destinationSprints
+      : targetSprintDoc
+        ? [targetSprintDoc]
+        : [];
 
   const Sprint = {
     findOne: (q) => {
       const isSelf = String(q._id) === String(sprintDoc._id);
       const doc = isSelf ? sprintDoc : targetSprintDoc;
+      if (!doc) {
+        return { lean: async () => null };
+      }
       return {
         ...doc,
         lean: async () => doc,
@@ -43,7 +52,7 @@ function createDeps({ sprintDoc, targetSprintDoc, tasks, listsById }) {
     },
     find: (q) => {
       const shouldExcludeSelf = q && q._id && q._id.$ne;
-      const out = shouldExcludeSelf ? [targetSprintDoc] : [];
+      const out = shouldExcludeSelf ? dest.filter(Boolean) : [];
       return {
         select: () => ({
           lean: async () => out,
@@ -87,6 +96,9 @@ function createDeps({ sprintDoc, targetSprintDoc, tasks, listsById }) {
       TaskBoardList,
       recordAudit: async () => null,
       assertUserAnyProjectPermission: async () => true,
+      Project: {
+        findById: async () => ({ status: 'in_development', isActive: true }),
+      },
     },
     calls,
   };
@@ -120,6 +132,22 @@ describe('sprintClose.service: preview + complete', () => {
     assert.equal(res.completedHours, 5);
     assert.equal(res.incompleteHours, 3);
     assert.deepEqual(res.incompleteIssueIds, ['t2']);
+    assert.equal(res.isLastSprint, false);
+    assert.equal(res.destinationSprints.length, 1);
+  });
+
+  it('T7 complete sprint when project closed → PROJECT_CLOSED', async () => {
+    const sprintDoc = createFakeSprint({ id: 's1', projectId: 'p1' });
+    const { deps } = createDeps({
+      sprintDoc,
+      tasks: [{ _id: 't1', status: 'done', listId: 'l1', estimateHours: 1 }],
+      listsById: { l1: { statusKey: 'done', title: 'Done' } },
+    });
+    deps.Project = { findById: async () => ({ status: 'closed' }) };
+    await assert.rejects(
+      () => completeSprint({ userId: 'u1', projectId: 'p1', sprintId: 's1', deps }),
+      (err) => err.errorCode === 'PROJECT_CLOSED'
+    );
   });
 
   it('complete all-done closes sprint and does not updateMany', async () => {
@@ -248,6 +276,66 @@ describe('sprintClose.service: preview + complete', () => {
       }),
       (err) => err.statusCode === 403
     );
+  });
+
+  it('T3 last sprint with incomplete throws 409 and does not updateMany', async () => {
+    const sprintDoc = createFakeSprint({ id: 's1', projectId: 'p1' });
+    const tasks = [{ _id: 't2', status: 'todo', listId: 'l2', estimateHours: 3 }];
+    const listsById = { l2: { statusKey: 'todo', title: 'To Do' } };
+
+    const { deps, calls } = createDeps({
+      sprintDoc,
+      targetSprintDoc: null,
+      destinationSprints: [],
+      tasks,
+      listsById,
+    });
+
+    await assert.rejects(
+      completeSprint({
+        userId: 'u1',
+        projectId: 'p1',
+        sprintId: 's1',
+        incompleteAction: 'backlog',
+        deps,
+      }),
+      (err) =>
+        err.statusCode === 409 &&
+        err.errorCode === 'LAST_SPRINT_HAS_INCOMPLETE' &&
+        sprintDoc.status === 'active' &&
+        calls.updateMany.length === 0
+    );
+  });
+
+  it('T4 last sprint all-done closes without incompleteAction', async () => {
+    const sprintDoc = createFakeSprint({ id: 's1', projectId: 'p1' });
+    const tasks = [{ _id: 't1', status: 'done', listId: 'l1', estimateHours: 2 }];
+    const listsById = { l1: { statusKey: 'done', title: 'Done' } };
+
+    const { deps, calls } = createDeps({
+      sprintDoc,
+      targetSprintDoc: null,
+      destinationSprints: [],
+      tasks,
+      listsById,
+    });
+    const preview = await getCompleteSprintPreview({
+      userId: 'u1',
+      projectId: 'p1',
+      sprintId: 's1',
+      deps,
+    });
+    assert.equal(preview.isLastSprint, true);
+    assert.equal(preview.incompleteCount, 0);
+
+    const res = await completeSprint({
+      userId: 'u1',
+      projectId: 'p1',
+      sprintId: 's1',
+      deps,
+    });
+    assert.equal(res.sprint.status, 'closed');
+    assert.equal(calls.updateMany.length, 0);
   });
 });
 

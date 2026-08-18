@@ -8,6 +8,7 @@ import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { isProjectMasterPermission } from '../../config/adminRbacCatalog';
 import { normalizeRoleDisplayName, unwrapRoleApi } from '../../utils/adminRbacUtils';
 
 export default function RolePermissionsPanel({ orgId }) {
@@ -61,7 +62,9 @@ export default function RolePermissionsPanel({ orgId }) {
         setGroupId(String(gid));
         const grants = first?.grants || [];
         const draft = {};
-        for (const g of grants) draft[g] = true;
+        for (const g of grants) {
+          if (!isProjectMasterPermission(g)) draft[g] = true;
+        }
         setGrantsDraft(draft);
       } catch (error) {
         if (!cancelled) {
@@ -100,7 +103,9 @@ export default function RolePermissionsPanel({ orgId }) {
     const hit = bindings.find((b) => String(b.group?._id || b.permissionGroupId) === String(gid));
     const grants = hit?.group?.grants || [];
     const draft = {};
-    for (const g of grants) draft[g] = true;
+    for (const g of grants) {
+      if (!isProjectMasterPermission(g)) draft[g] = true;
+    }
     setGrantsDraft(draft);
   };
 
@@ -108,7 +113,7 @@ export default function RolePermissionsPanel({ orgId }) {
     if (!orgId || !roleId || !groupId || busy) return;
     setBusy(true);
     try {
-      const grants = Object.keys(grantsDraft).filter((k) => grantsDraft[k]);
+      const grants = Object.keys(grantsDraft).filter((k) => grantsDraft[k] && !isProjectMasterPermission(k));
       await roleAPI.setPermissionGroupGrants(groupId, {
         organizationId: orgId,
         serverId: orgId,
@@ -133,9 +138,7 @@ export default function RolePermissionsPanel({ orgId }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold">{t('adminDomains.rbac.permissions')}</h2>
-            <p className="text-sm text-muted-foreground">
-              Cây Category → Module → Action (Master Permission). Tick/bỏ tick trong phạm vi catalog.
-            </p>
+            <p className="text-sm text-muted-foreground">{t('adminRbac.permissionsHint')}</p>
             {role ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Role: <span className="font-medium text-foreground">{normalizeRoleDisplayName(role.name)}</span>
@@ -189,17 +192,24 @@ export default function RolePermissionsPanel({ orgId }) {
             ) : null}
             <MasterPermissionTreeEditor
               tree={tree}
+              excludeCategoryKeys={['project']}
               grantsDraft={grantsDraft}
               editable
-              onToggle={(key) =>
+              onToggle={(key) => {
+                if (isProjectMasterPermission(key)) return;
                 setGrantsDraft((prev) => {
                   const next = { ...prev };
                   if (next[key]) delete next[key];
                   else next[key] = true;
                   return next;
-                })
+                });
+              }}
+              onSetMany={(keys, value) =>
+                setMany(
+                  (keys || []).filter((k) => !isProjectMasterPermission(k)),
+                  value
+                )
               }
-              onSetMany={setMany}
             />
           </>
         )}

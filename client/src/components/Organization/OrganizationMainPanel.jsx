@@ -650,7 +650,6 @@ const OrganizationMainPanel = ({
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [taskDepartmentFilter, setTaskDepartmentFilter] = useState('all');
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
-  const [archivingTaskBoard, setArchivingTaskBoard] = useState(false);
   const [projectBriefCreateOpen, setProjectBriefCreateOpen] = useState(false);
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
@@ -1158,29 +1157,15 @@ const OrganizationMainPanel = ({
     [selectedTaskBoardId, taskBoardApiCtx]
   );
 
-  const handleArchiveTaskBoard = async () => {
-    if (!selectedTaskBoardId) return;
-    const boardTitle =
-      taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.title ||
-      taskBoardDetail?.board?.title ||
-      '';
-    const ok = window.confirm(
-      t('taskBoard.closeProjectConfirm', { title: boardTitle || t('taskBoard.selectBoard') })
-    );
-    if (!ok) return;
-    setArchivingTaskBoard(true);
-    try {
-      await taskAPI.archiveBoard(selectedTaskBoardId, taskBoardApiCtx);
-      setSelectedTaskBoardId('');
-      setTaskBoardDetail(null);
-      await loadTaskBoards();
-      toast.success(t('taskBoard.closeProjectSuccess'));
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.closeProjectFail')));
-    } finally {
-      setArchivingTaskBoard(false);
-    }
-  };
+  const isSelectedProjectCompleted = ['closed', 'completed'].includes(
+    String(
+      taskBoardDetail?.board?.status ||
+        taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.status ||
+        ''
+    )
+      .trim()
+      .toLowerCase()
+  );
 
   const handleAddBoardList = async (title) => {
     if (!selectedTaskBoardId) return null;
@@ -1425,15 +1410,14 @@ const OrganizationMainPanel = ({
   }, [projectBriefs, currentUserId]);
 
   const boardCapabilities = taskBoardDetail?.capabilities || null;
-  const canManageBoardUi = Boolean(
+  const canManageBoardRaw = Boolean(
     boardCapabilities?.canManageBoard ?? canCreateWorkspaceTask
   );
-  const canManageListsUi = Boolean(
-    boardCapabilities?.canManageLists ?? canCreateWorkspaceTask
-  );
-  const canCreateCardsUi = Boolean(
-    boardCapabilities?.canCreateCards ?? canCreateWorkspaceTask
-  );
+  const canManageBoardUi = canManageBoardRaw && !isSelectedProjectCompleted;
+  const canManageListsUi =
+    Boolean(boardCapabilities?.canManageLists ?? canCreateWorkspaceTask) && !isSelectedProjectCompleted;
+  const canCreateCardsUi =
+    Boolean(boardCapabilities?.canCreateCards ?? canCreateWorkspaceTask) && !isSelectedProjectCompleted;
   const canManageMembersUi = Boolean(
     boardCapabilities?.canManageMembers ?? boardCapabilities?.canManageBoard ?? canManageBoardUi
   );
@@ -2460,28 +2444,6 @@ const OrganizationMainPanel = ({
                       <Plus size={14} className="shrink-0" />
                       <span className="hidden sm:inline">{t('taskBoard.createBoardBtn')}</span>
                     </button>
-                    ) : null}
-                    {selectedTaskBoardId && canManageBoardUi ? (
-                      <button
-                        type="button"
-                        onClick={handleArchiveTaskBoard}
-                        disabled={archivingTaskBoard}
-                        title={t('taskBoard.closeProject')}
-                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                          isDarkMode
-                            ? 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
-                            : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                        }`}
-                      >
-                        <span className="hidden sm:inline">
-                          {archivingTaskBoard
-                            ? t('taskBoard.closingProject')
-                            : t('taskBoard.closeProject')}
-                        </span>
-                        <span className="sm:hidden">
-                          {archivingTaskBoard ? '…' : t('taskBoard.closeProjectShort')}
-                        </span>
-                      </button>
                     ) : null}
                     {loadingTaskBoards ? (
                       <span className={`text-[10px] sm:text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>

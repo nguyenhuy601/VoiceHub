@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MousePointerClick, RefreshCcw, Trash2, X } from 'lucide-react';
-import { classifyListStatusBucket } from './projectHubUtils';
+import { classifyListStatusBucket, listsForStatusSelect } from './projectHubUtils';
 
 function statusOptionClass(bucket) {
   if (bucket === 'done') return 'bg-primary text-primary-foreground';
@@ -49,7 +49,7 @@ export default function ProjectHubListBulkBar({
   if (selectedCount < 1) return null;
 
   const missingStatus = submitted && !listId;
-  const listOptions = Array.isArray(lists) ? lists : [];
+  const listOptions = listsForStatusSelect(lists);
 
   const submitStatus = () => {
     setSubmitted(true);

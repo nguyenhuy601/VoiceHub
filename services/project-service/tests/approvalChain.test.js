@@ -141,6 +141,13 @@ describe('approvalChain (Phase 5)', () => {
     assert.ok(BUILTIN_POLICIES.some((p) => p.key === 'release_deploy'));
     assert.ok(BUILTIN_POLICIES.some((p) => p.key === 'task_done_startup'));
     assert.ok(BUILTIN_POLICIES.some((p) => p.key === 'task_done_enterprise'));
+    assert.ok(BUILTIN_POLICIES.some((p) => p.key === 'change_request_default'));
+    const crPolicy = BUILTIN_POLICIES.find((p) => p.key === 'change_request_default');
+    assert.ok(crPolicy.entityTypes.includes('change_request'));
+    assert.deepEqual(
+      crPolicy.steps.map((s) => s.roleKey),
+      ['business_analyst', 'product_owner', 'project_manager']
+    );
     assert.equal(suggestedTaskDonePolicyKey('startup'), 'task_done_startup');
     assert.equal(suggestedTaskDonePolicyKey('enterprise'), 'task_done_enterprise');
     for (const p of BUILTIN_POLICIES) {

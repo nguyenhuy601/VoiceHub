@@ -11,6 +11,7 @@ const {
 } = require('../utils/timeTracking');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { logActivity } = require('./project.service');
+const { assertProjectWritable } = require('../utils/projectCloseGate');
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -63,6 +64,11 @@ async function createWorklog({
 } = {}) {
   assertTimeTrackingEnabled();
   const task = await loadTaskOrThrow(taskId);
+  if (task.projectId) {
+    const Project = require('../models/Project');
+    const project = await Project.findById(task.projectId).select('status').lean();
+    if (project) assertProjectWritable(project);
+  }
   await assertTaskPermission({
     task,
     actorUserId,

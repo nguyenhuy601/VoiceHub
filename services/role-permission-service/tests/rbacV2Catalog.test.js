@@ -8,6 +8,9 @@ const {
   CATEGORIES,
   MODULES,
   isValidMasterPermission,
+  isProjectMasterPermission,
+  isProjectPackTemplateKey,
+  stripProjectGrantsUnlessProjectPack,
   materializeLegacyPermissions,
   resolveMasterKeysForLegacyAction,
   buildCatalogTree,
@@ -36,6 +39,47 @@ test('T1 catalog integrity — no duplicate keys, templates subset of master', (
   assert.ok(tree.some((c) => c.key === 'system'));
   assert.ok(tree.some((c) => c.key === 'organization'));
   assert.ok(tree.some((c) => c.key === 'project'));
+  assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.position')));
+  assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.organization_role')));
+});
+
+test('T4b org permission pack templates omit project.*; project_admin keeps them', () => {
+  for (const key of ['organization_admin', 'department_manager', 'viewer']) {
+    const tpl = getTemplateDefinition(key);
+    assert.ok(tpl, key);
+    assert.equal(isProjectPackTemplateKey(key), false);
+    assert.equal(
+      tpl.grants.some(isProjectMasterPermission),
+      false,
+      `${key} must not grant project.*`
+    );
+  }
+
+  const projectAdmin = getTemplateDefinition('project_admin');
+  assert.ok(projectAdmin);
+  assert.equal(isProjectPackTemplateKey('project_admin'), true);
+  assert.ok(projectAdmin.grants.some((k) => k === 'project.task.view'));
+  assert.ok(projectAdmin.grants.some((k) => k === 'project.change_request.view'));
+  assert.ok(projectAdmin.grants.some((k) => k.startsWith('project.')));
+
+  const pm = getTemplateDefinition('project_manager');
+  assert.ok(pm.grants.includes('project.task.view'));
+});
+
+test('T5 stripProjectGrantsUnlessProjectPack — org pack drops project.task.view; project_admin keeps it', () => {
+  const mixed = ['organization.employee.view', 'project.task.view', 'communication.chat.send'];
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'organization_admin').sort(), [
+    'communication.chat.send',
+    'organization.employee.view',
+  ]);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'department_manager').sort(), [
+    'communication.chat.send',
+    'organization.employee.view',
+  ]);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'project_admin').sort(), mixed.sort());
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'developer').sort(), mixed.sort());
+  assert.equal(isProjectMasterPermission('project.task.view'), true);
+  assert.equal(isProjectMasterPermission('organization.position.view'), false);
 });
 
 test('T2 clone naming — specialization + template; Other requires custom name', () => {

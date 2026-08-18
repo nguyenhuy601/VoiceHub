@@ -109,6 +109,54 @@ export function childTypesForParent(parentType, config, caps = {}) {
   return candidates.filter((id) => Number(cfg.depthById[id]) === minChildDepth);
 }
 
+/**
+ * Payload parent khi tạo card board theo Work types (đúng 1 cấp).
+ * @returns {{ parentTaskId?: string, featureId?: string, epicId?: string }}
+ */
+export function resolveBoardCreateParent({ type, parentNode, config } = {}) {
+  const childType = String(type || '').toLowerCase();
+  if (!childType) return {};
+  const parentType = String(parentNode?.workType || '').toLowerCase();
+  const parentRaw = parentNode?.raw || {};
+  const parentId = String(parentRaw._id || parentRaw.id || '').trim();
+  if (!parentType || !parentId) return {};
+
+  const inheritEpicId =
+    parentType === 'epic'
+      ? parentId
+      : parentRaw.epicId
+        ? String(parentRaw.epicId)
+        : parentType === 'feature' && parentRaw.parentId
+          ? String(parentRaw.parentId)
+          : '';
+
+  const nestType = childType === 'subtask' ? 'subtask' : childType;
+  const canDirect = canNestByDepth(nestType, parentType, config);
+  const canAsSub =
+    (childType === 'subtask' || childType === 'task') && canNestByDepth('subtask', parentType, config);
+  if (!canDirect && !canAsSub) {
+    if (parentType === 'epic' && inheritEpicId) return { epicId: inheritEpicId };
+    return {};
+  }
+
+  if (parentNode?.kind === 'card' || ['story', 'bug', 'task', 'subtask'].includes(parentType)) {
+    return {
+      parentTaskId: parentId,
+      ...(inheritEpicId ? { epicId: inheritEpicId } : {}),
+    };
+  }
+  if (parentType === 'feature') {
+    return {
+      featureId: parentId,
+      ...(inheritEpicId ? { epicId: inheritEpicId } : {}),
+    };
+  }
+  if (parentType === 'epic') {
+    return { epicId: parentId };
+  }
+  return {};
+}
+
 function nodeId(kind, rawId) {
   return `${kind}:${String(rawId)}`;
 }
@@ -227,12 +275,19 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   }
 
   const cardsByEpic = new Map();
+  const cardsByFeature = new Map();
   const rootsOrphan = [];
   for (const card of cardList) {
     if (card.parentTaskId) continue;
+    const fid = card.featureId ? String(card.featureId) : '';
+    if (fid) {
+      if (!cardsByFeature.has(fid)) cardsByFeature.set(fid, []);
+      cardsByFeature.get(fid).push(card);
+      continue;
+    }
     const eid = card.epicId ? String(card.epicId) : '';
     if (!eid) {
-      rootsOrphan.push(makeCardNode(card, Math.min(1, bands.length - 1)));
+      rootsOrphan.push(makeCardNode(card, Math.max(0, resolveItemBand(card, cfg))));
       continue;
     }
     if (!cardsByEpic.has(eid)) cardsByEpic.set(eid, []);
@@ -247,6 +302,8 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     const children = [];
     for (const f of featuresByEpic.get(eid) || []) {
       const fBand = Math.max(0, bandIndexForType('feature', cfg));
+      const fid = String(f._id || f.id);
+      const featureCards = cardsByFeature.get(fid) || [];
       children.push({
         id: nodeId('planning', f._id || f.id),
         kind: 'planning',
@@ -254,7 +311,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
         workType: 'feature',
         title: String(f.title || ''),
         raw: f,
-        children: [],
+        children: featureCards.map((c) => makeCardNode(c, Math.max(0, resolveItemBand(c, cfg)))),
       });
     }
     for (const card of cardsByEpic.get(eid) || []) {
@@ -273,6 +330,8 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   }
 
   for (const f of orphanFeatures) {
+    const fid = String(f._id || f.id);
+    const featureCards = cardsByFeature.get(fid) || [];
     roots.push({
       id: nodeId('planning', f._id || f.id),
       kind: 'planning',
@@ -280,7 +339,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
       workType: 'feature',
       title: String(f.title || ''),
       raw: f,
-      children: [],
+      children: featureCards.map((c) => makeCardNode(c, Math.max(0, resolveItemBand(c, cfg)))),
     });
   }
 

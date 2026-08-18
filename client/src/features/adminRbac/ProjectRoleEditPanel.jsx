@@ -50,6 +50,7 @@ const PERMISSION_GROUPS = [
       'sprint:create',
       'sprint:start',
       'sprint:close',
+      'sprint:delete',
       'backlog:view',
       'backlog:update',
       'backlog:prioritize',
@@ -181,8 +182,21 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
         body.label = normalizeLayerLabel(suffix, 'project');
         body.canAssign = canAssign;
       }
-      await projectRoleAdminAPI.updateRole(orgId, roleId, body);
-      toast.success(t('common.saveSuccess'));
+      const res = await projectRoleAdminAPI.updateRole(orgId, roleId, body);
+      const saved = res?.data?.data || res?.data || res || {};
+      const savedPerms = Array.isArray(saved.permissions)
+        ? saved.permissions.map(String)
+        : [];
+      const missing = body.permissions.filter((k) => !savedPerms.includes(k));
+      if (missing.length) {
+        toast.error(
+          t('adminRbac.projectRolePermNotSaved', { keys: missing.join(', ') }) ||
+            `Không lưu được quyền: ${missing.join(', ')}. Cần deploy project-service.`
+        );
+      } else {
+        toast.success(t('common.saveSuccess'));
+      }
+      setSelectedPerms(new Set(savedPerms));
       await load();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.saveFail') }));

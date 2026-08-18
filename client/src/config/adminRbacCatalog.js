@@ -14,6 +14,29 @@ export const ROLE_SCOPES = [
 
 export const DEFAULT_ROLE_SCOPE = 'ORGANIZATION';
 
+/** Gói Permission trên `/rbac/roles` — chỉ ORGANIZATION (không GLOBAL / DEPARTMENT / TEAM / PERSONAL). */
+export const PACK_ROLE_SCOPES = ROLE_SCOPES.filter((item) => item.id === 'ORGANIZATION');
+
+/** Template Project Role / delivery — giữ `project.*`. Gói org strip các key này. */
+export const PROJECT_PACK_TEMPLATE_KEYS = new Set([
+  'project_admin',
+  'project_manager',
+  'product_owner',
+  'scrum_master',
+  'developer',
+  'qa',
+]);
+
+export function isProjectMasterPermission(key) {
+  return String(key || '')
+    .trim()
+    .startsWith('project.');
+}
+
+export function isProjectPackTemplateKey(templateKey) {
+  return PROJECT_PACK_TEMPLATE_KEYS.has(String(templateKey || '').trim());
+}
+
 /** @typedef {{ resource: string, action: string, label: string, description: string }} RbacPermDef */
 
 /**
@@ -164,6 +187,17 @@ export const ADMIN_RBAC_PERMISSION_GROUPS = [
           { resource: 'task', action: 'change_status', label: 'Change Status', description: 'Đổi trạng thái' },
           { resource: 'task', action: 'comment', label: 'Comment Task', description: 'Bình luận' },
           { resource: 'task', action: 'attach_file', label: 'Attach File', description: 'Đính kèm file' },
+        ],
+      },
+      {
+        id: 'change_request',
+        label: 'Change Request',
+        labelVi: 'Yêu cầu thay đổi',
+        permissions: [
+          { resource: 'change_request', action: 'view', label: 'View Change Request', description: 'Xem Change Request' },
+          { resource: 'change_request', action: 'create', label: 'Create Change Request', description: 'Tạo Change Request' },
+          { resource: 'change_request', action: 'update', label: 'Update Change Request', description: 'Sửa Change Request' },
+          { resource: 'change_request', action: 'delete', label: 'Delete Change Request', description: 'Xóa Change Request' },
         ],
       },
     ],

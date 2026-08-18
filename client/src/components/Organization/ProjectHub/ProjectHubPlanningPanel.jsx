@@ -11,11 +11,11 @@ import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
-import { taskAPI } from '../../../services/api/taskAPI';
+import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { ConfirmDialog } from '../../Shared';
 import ProjectHubBacklogIssueRow from './ProjectHubBacklogIssueRow';
-import ProjectHubWorkDetailDrawer from './ProjectHubWorkDetailDrawer';
+import WorkItemDetail from './WorkItemDetail';
 import { childWorkStats } from './projectHubBacklogStats';
 import ProjectHubEditSprintModal from './ProjectHubEditSprintModal';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
@@ -97,6 +97,7 @@ export default function ProjectHubPlanningPanel({
   planningError = false,
   sprints = [],
   onOpenBoard = null,
+  onOpenChangeRequest = null,
   workTypeConfig: serverWorkTypeConfig = null,
 }) {
   const { t } = useAppStrings();
@@ -136,6 +137,13 @@ export default function ProjectHubPlanningPanel({
     canManage || hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
   );
   const canManageSprints = Boolean(canManage || hubCaps?.canManageSprints);
+  const hubPerms = Array.isArray(hubCaps?.permissions) ? hubCaps.permissions : [];
+  const canDeleteSprint = Boolean(
+    canManage ||
+      hubCaps?.canDeleteSprint ||
+      hubPerms.includes('sprint:delete') ||
+      canManageSprints
+  );
   const canChangeStatus = Boolean(
     canManage ||
       hubCaps?.canUpdateBacklog ||
@@ -175,6 +183,7 @@ export default function ProjectHubPlanningPanel({
   }, [onReloadPlanning, onReloadSprints]);
 
   const epics = useMemo(() => items.filter((i) => i.type === 'epic'), [items]);
+  const features = useMemo(() => items.filter((i) => i.type === 'feature'), [items]);
   const epicIdSet = useMemo(
     () => new Set(epics.map((e) => String(e._id || e.id || '')).filter(Boolean)),
     [epics]
@@ -492,10 +501,15 @@ export default function ProjectHubPlanningPanel({
   };
 
   const deleteSprint = async (sprintId) => {
-    if (!canManageSprints || !boardId || busy) return;
+    if (!canDeleteSprint || busy) return;
+    if (!projectId && !boardId) return;
     setBusy(true);
     try {
-      await taskAPI.deleteBoardSprint(boardId, sprintId, apiCtx || {});
+      if (projectId) {
+        await projectAPI.deleteSprint(projectId, sprintId);
+      } else {
+        await taskAPI.deleteBoardSprint(boardId, sprintId, apiCtx || {});
+      }
       toast.success(t('workspace.projectHubBacklogSprintDeleted'));
       refreshAll();
     } catch (err) {
@@ -565,7 +579,7 @@ export default function ProjectHubPlanningPanel({
           },
           apiCtx || {}
         );
-        const created = unwrapPlanningEntity(res);
+        const created = unwrapTaskApiPayload(res) || unwrapPlanningEntity(res);
         const newId = String(created?._id || created?.id || '');
         if (newId) {
           setOverlay((prev) => ({
@@ -625,7 +639,7 @@ export default function ProjectHubPlanningPanel({
         },
         apiCtx || {}
       );
-      const created = unwrapPlanningEntity(res);
+      const created = unwrapTaskApiPayload(res) || unwrapPlanningEntity(res);
       const newId = String(created?._id || created?.id || '');
       if (newId) {
         setOverlay((prev) => ({
@@ -927,6 +941,7 @@ export default function ProjectHubPlanningPanel({
                       issues={sprintIssues}
                       lists={lists}
                       canManageSprints={canManageSprints}
+                      canDeleteSprint={canDeleteSprint}
                       sprints={sprints}
                       memberIdsBySprintId={memberIdsBySprintId}
                       allowedCreateTypes={allowedCreateTypes}
@@ -1080,8 +1095,20 @@ export default function ProjectHubPlanningPanel({
         isOpen={Boolean(editSprint)}
         sprint={editSprint}
         busy={busy}
+        canDelete={Boolean(
+          canDeleteSprint &&
+            !['active', 'closed', 'completed', 'done'].includes(
+              String(editSprint?.status || editSprint?.state || 'planned').toLowerCase()
+            )
+        )}
         onClose={() => setEditSprint(null)}
         onSave={saveSprint}
+        onDelete={() => {
+          const s = editSprint;
+          setEditSprint(null);
+          if (!s?._id) return;
+          setConfirm({ kind: 'sprint', id: String(s._id), title: s.name });
+        }}
         t={t}
       />
 
@@ -1120,12 +1147,16 @@ export default function ProjectHubPlanningPanel({
       />
     </div>
     {detailIssue ? (
-      <ProjectHubWorkDetailDrawer
+      <WorkItemDetail
         key={String(detailIssue._id || detailIssue.id)}
-        issue={detailIssue}
+        open
+        chrome="drawer"
+        drawerLayout="embedded"
+        workItem={detailIssue}
         boardCards={mergedBoardCards}
         lists={lists}
         epics={epics}
+        features={features}
         sprints={sprints}
         projectCode={projectCode}
         projectId={projectId}
@@ -1134,11 +1165,36 @@ export default function ProjectHubPlanningPanel({
         apiCtx={apiCtx}
         isDarkMode={isDarkMode}
         locale={locale}
-        t={t}
-        canCreateSubtask={canCreateTask && hasBoardColumn}
+        canCreateTask={canCreateTask && hasBoardColumn}
         canComment={canChangeStatus}
+        canChangeStatus={canChangeStatus}
+        workTypeConfig={workTypeConfig}
         onClose={() => setDetailIssueId('')}
+        onOpenWorkItem={(card) => {
+          const id = String(card?._id || card?.id || '');
+          if (id) setDetailIssueId(id);
+        }}
         onPatchBoardCards={patchCards}
+        onOpenChangeRequest={onOpenChangeRequest}
+        onUpdateCard={async (cardId, patch) => {
+          patchCards((cards) =>
+            (cards || []).map((c) =>
+              String(c._id || c.id) === String(cardId) ? { ...c, ...patch } : c
+            )
+          );
+          const keys = Object.keys(patch || {}).filter((k) => k !== '__localOnly');
+          if (keys.length === 1 && keys[0] === 'comments') return;
+          if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+            try {
+              await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+            } catch (err) {
+              toast.error(
+                resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
+              );
+              throw err;
+            }
+          }
+        }}
       />
     ) : null}
     </div>

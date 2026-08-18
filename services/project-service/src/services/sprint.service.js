@@ -1,6 +1,7 @@
 const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
 const TaskBoard = require('../models/TaskBoard');
+const { assertPatchDoesNotCloseActiveSprint } = require('../utils/projectCloseGate');
 
 async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create' } = {}) {
   const board = await TaskBoard.findById(boardId).lean();
@@ -106,6 +107,7 @@ async function updateSprint({
   if (status !== undefined) {
     const st = String(status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
+    assertPatchDoesNotCloseActiveSprint(sprint.status, st);
     if (st === 'closed') {
       await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
     } else if (st === 'active') {
@@ -127,19 +129,24 @@ async function updateSprint({
   return sprint.toObject();
 }
 
-/** Soft-close nếu không phải planned; planned có thể xóa hẳn. */
+/** Chỉ xóa hẳn sprint planned; active/closed dùng Complete Sprint. */
 async function deleteSprint({ userId, boardId, sprintId }) {
-  await requireBoardAdmin(boardId, userId, { permission: 'sprint:close' });
+  await requireBoardAdmin(boardId, userId, { permission: 'sprint:delete' });
   const sprint = await Sprint.findOne({ _id: sprintId, boardId });
-  if (!sprint) throw new Error('Sprint không tồn tại');
-  if (sprint.status === 'planned') {
-    await Sprint.deleteOne({ _id: sprintId });
-    await Task.updateMany({ boardId, sprintId }, { $set: { sprintId: null } });
-    return { deleted: true };
+  if (!sprint) {
+    const err = new Error('Sprint không tồn tại');
+    err.statusCode = 404;
+    throw err;
   }
-  sprint.status = 'closed';
-  await sprint.save();
-  return sprint.toObject();
+  if (String(sprint.status || '').toLowerCase() !== 'planned') {
+    const err = new Error('Chỉ xóa được sprint planned. Sprint đang chạy hãy Complete Sprint.');
+    err.statusCode = 409;
+    err.errorCode = 'SPRINT_DELETE_NOT_PLANNED';
+    throw err;
+  }
+  await Sprint.deleteOne({ _id: sprintId });
+  await Task.updateMany({ boardId, sprintId }, { $set: { sprintId: null } });
+  return { deleted: true, sprintId: String(sprintId) };
 }
 
 async function assignCardsToSprint({ userId, boardId, sprintId, cardIds }) {
