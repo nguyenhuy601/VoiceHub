@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -11,10 +11,10 @@ import { RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
-import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
+import { taskAPI, unwrapTaskApiPayload, unwrapTaskBoardDetailPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import ConfirmDialog from '../../Shared/ConfirmDialog';
-import TaskBoardCardDetailModal from '../TaskBoardCardDetailModal';
+import WorkItemDetail from './WorkItemDetail';
 import {
   buildListTree,
   childTypesForParent,
@@ -22,12 +22,17 @@ import {
   computeInsertSortOrder,
   isLiveListDragValid,
   isTypePreservingDrop,
+  resolveBoardCreateParent,
   resolveLiveListDragAction,
 } from './projectHubHierarchy';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubListBulkBar from './ProjectHubListBulkBar';
-import ProjectHubListRow, { LIST_TABLE_GRID } from './ProjectHubListRow';
-import { unwrapPlanningEntity } from './projectHubUtils';
+import ProjectHubListRow, { LIST_TABLE_COLUMNS } from './ProjectHubListRow';
+import ResizableTableHeader from './ResizableTableHeader';
+import { useResizableTableColumns } from './useResizableTableColumns';
+import { childWorkStats } from './projectHubBacklogStats';
+import { canExpandListRow, flattenExpandedRows } from './projectHubListLazy';
+import { unwrapPlanningEntity, unwrapPlanningList } from './projectHubUtils';
 import {
   isBoardCreateType,
   isPlanningCreateType,
@@ -40,18 +45,6 @@ function listCollisionDetection(args) {
   const hits = pointerWithin(args);
   if (hits.length > 0) return hits;
   return closestCenter(args);
-}
-
-function flattenVisible(nodes, collapsed) {
-  const out = [];
-  const walk = (list, depth) => {
-    for (const node of list || []) {
-      out.push({ node, depth });
-      if (!collapsed[node.id] && node.children?.length) walk(node.children, depth + 1);
-    }
-  };
-  walk(nodes, 0);
-  return out;
 }
 
 function countRootNodes(nodes) {
@@ -97,7 +90,6 @@ export default function ProjectHubListPanel({
   projectId = '',
   boardId = '',
   defaultListId = '',
-  boardCards = [],
   lists = [],
   projectCode = '',
   hubCaps = null,
@@ -111,22 +103,41 @@ export default function ProjectHubListPanel({
   onPatchBoardCards = null,
   onPatchPlanningItems = null,
   onReloadPlanning = null,
-  planningItems = [],
-  planningLoading = false,
-  planningError = false,
   onOpenSettings = null,
   listActive = true,
   membersEpoch = 0,
   workTypeConfig: serverWorkTypeConfig = null,
+  priorityConfig = null,
 }) {
   const { t } = useAppStrings();
+  const listColumns = useMemo(
+    () =>
+      LIST_TABLE_COLUMNS.map((col) => ({
+        ...col,
+        resizeAria: t('workspace.projectHubTableResizeCol'),
+      })),
+    [t]
+  );
+  const tableScrollRef = useRef(null);
+  const { gridStyle, onResizeStart } = useResizableTableColumns({
+    storageKey: 'vh.hub.list.colWidths',
+    columns: listColumns,
+    containerRef: tableScrollRef,
+  });
   const { config: workTypeConfig } = useProjectWorkTypes(projectId, {
     serverConfig: serverWorkTypeConfig,
   });
-  const loading = Boolean(planningLoading);
-  const loadError = Boolean(planningError);
+  const [listPlanningItems, setListPlanningItems] = useState([]);
+  const [listCards, setListCards] = useState([]);
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [loadedIds, setLoadedIds] = useState(() => new Set());
+  const [loadingIds, setLoadingIds] = useState(() => new Set());
+  const [expandErrorIds, setExpandErrorIds] = useState(() => new Set());
+  const [epicsLoading, setEpicsLoading] = useState(false);
+  const [epicsError, setEpicsError] = useState(false);
+  const loading = epicsLoading;
+  const loadError = epicsError;
   const [busy, setBusy] = useState(false);
-  const [collapsed, setCollapsed] = useState({});
   const [creatingUnderId, setCreatingUnderId] = useState('');
   const [rootCreateOpen, setRootCreateOpen] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
@@ -143,6 +154,16 @@ export default function ProjectHubListPanel({
   const [membersLoading, setMembersLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const epicsLoadedForRef = useRef('');
+  const loadedIdsRef = useRef(loadedIds);
+  const loadingIdsRef = useRef(loadingIds);
+  loadedIdsRef.current = loadedIds;
+  loadingIdsRef.current = loadingIds;
+
+  const nestCreateCaps = useMemo(
+    () => ({ epic: true, feature: true, story: true, task: true, bug: true, subtask: true }),
+    []
+  );
 
   const canCreateEpic = Boolean(canManage || hubCaps?.canCreateEpic);
   const canDeleteEpic = Boolean(canManage || hubCaps?.canDeleteEpic);
@@ -209,13 +230,41 @@ export default function ProjectHubListPanel({
     };
   }, [boardId, workspaceSlug, listActive, membersEpoch]);
 
+  const loadListEpics = useCallback(async (force = false) => {
+    if (!projectId || !listActive) return;
+    if (!force && epicsLoadedForRef.current === projectId) return;
+    setEpicsLoading(true);
+    setEpicsError(false);
+    try {
+      const res = await projectAPI.listPlanningItems(projectId, { type: 'epic' });
+      const rows = unwrapPlanningList(res);
+      setListPlanningItems(Array.isArray(rows) ? rows : []);
+      setListCards([]);
+      setExpandedIds(new Set());
+      setLoadedIds(new Set());
+      setLoadingIds(new Set());
+      setExpandErrorIds(new Set());
+      epicsLoadedForRef.current = projectId;
+    } catch {
+      setListPlanningItems([]);
+      setEpicsError(true);
+      epicsLoadedForRef.current = '';
+    } finally {
+      setEpicsLoading(false);
+    }
+  }, [projectId, listActive]);
+
+  useEffect(() => {
+    void loadListEpics();
+  }, [loadListEpics]);
+
   const epics = useMemo(
-    () => planningItems.filter((i) => String(i.type || '').toLowerCase() === 'epic'),
-    [planningItems]
+    () => listPlanningItems.filter((i) => String(i.type || '').toLowerCase() === 'epic'),
+    [listPlanningItems]
   );
   const features = useMemo(
-    () => planningItems.filter((i) => String(i.type || '').toLowerCase() === 'feature'),
-    [planningItems]
+    () => listPlanningItems.filter((i) => String(i.type || '').toLowerCase() === 'feature'),
+    [listPlanningItems]
   );
 
   const tree = useMemo(
@@ -223,13 +272,13 @@ export default function ProjectHubListPanel({
       buildListTree({
         epics,
         features,
-        cards: boardCards,
+        cards: listCards,
         config: workTypeConfig,
       }),
-    [epics, features, boardCards, workTypeConfig]
+    [epics, features, listCards, workTypeConfig]
   );
 
-  const flatRows = useMemo(() => flattenVisible(tree, collapsed), [tree, collapsed]);
+  const flatRows = useMemo(() => flattenExpandedRows(tree, expandedIds), [tree, expandedIds]);
   const rootCount = countRootNodes(tree);
   const activeDragNode = activeDragId ? findNodeById(tree, activeDragId) : null;
   const dragOverNode = dragSession.overId ? findNodeById(tree, dragSession.overId) : null;
@@ -260,12 +309,109 @@ export default function ProjectHubListPanel({
     allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id));
 
   const refreshAll = () => {
+    void loadListEpics(true);
     onReloadPlanning?.();
     onRefresh?.();
   };
 
+  const loadNodeChildren = useCallback(
+    async (node) => {
+      const id = String(node?.id || '');
+      const rawId = String(node?.raw?._id || node?.raw?.id || '');
+      if (!id || !rawId || loadedIdsRef.current.has(id) || loadingIdsRef.current.has(id)) return;
+      setLoadingIds((prev) => new Set(prev).add(id));
+      setExpandErrorIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      try {
+        if (node.workType === 'epic') {
+          const [featRes, cardRes] = await Promise.all([
+            projectAPI.listPlanningItems(projectId, { type: 'feature', parentId: rawId }),
+            boardId
+              ? taskAPI.getBoardDetail(boardId, { ...(apiCtx || {}), epicId: rawId, skipNotFoundToast: true })
+              : Promise.resolve(null),
+          ]);
+          const feats = unwrapPlanningList(featRes);
+          const detail = unwrapTaskBoardDetailPayload(cardRes);
+          const cards = Array.isArray(detail?.cards) ? detail.cards : [];
+          setListPlanningItems((prev) => {
+            let next = prev;
+            for (const f of feats) next = upsertById(next, { ...f, type: f.type || 'feature' });
+            return next;
+          });
+          setListCards((prev) => {
+            let next = prev;
+            for (const c of cards) next = upsertById(next, c);
+            return next;
+          });
+        } else if (node.workType === 'feature') {
+          if (!boardId) {
+            setLoadedIds((prev) => new Set(prev).add(id));
+            return;
+          }
+          const cardRes = await taskAPI.getBoardDetail(boardId, {
+            ...(apiCtx || {}),
+            featureId: rawId,
+            skipNotFoundToast: true,
+          });
+          const cards = unwrapTaskBoardDetailPayload(cardRes)?.cards || [];
+          setListCards((prev) => {
+            let next = prev;
+            for (const c of cards) next = upsertById(next, c);
+            return next;
+          });
+        } else if (node.kind === 'card' && boardId) {
+          const cardRes = await taskAPI.getBoardDetail(boardId, {
+            ...(apiCtx || {}),
+            parentTaskId: rawId,
+            skipNotFoundToast: true,
+          });
+          const cards = unwrapTaskBoardDetailPayload(cardRes)?.cards || [];
+          setListCards((prev) => {
+            let next = prev;
+            for (const c of cards) next = upsertById(next, c);
+            return next;
+          });
+        }
+        setLoadedIds((prev) => new Set(prev).add(id));
+      } catch {
+        setExpandErrorIds((prev) => new Set(prev).add(id));
+      } finally {
+        setLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    },
+    [apiCtx, boardId, projectId]
+  );
+
+  const toggleExpand = useCallback(
+    (node) => {
+      const id = String(node?.id || '');
+      if (!id) return;
+      if (expandErrorIds.has(id)) {
+        setExpandedIds((prev) => new Set(prev).add(id));
+        void loadNodeChildren(node);
+        return;
+      }
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      if (!expandedIds.has(id)) void loadNodeChildren(node);
+    },
+    [expandErrorIds, expandedIds, loadNodeChildren]
+  );
+
   const patchCards = useCallback(
     (updater) => {
+      setListCards((prev) => updater(Array.isArray(prev) ? prev : []));
       onPatchBoardCards?.(updater);
     },
     [onPatchBoardCards]
@@ -273,6 +419,7 @@ export default function ProjectHubListPanel({
 
   const patchPlanning = useCallback(
     (updater) => {
+      setListPlanningItems((prev) => updater(Array.isArray(prev) ? prev : []));
       onPatchPlanningItems?.(updater);
     },
     [onPatchPlanningItems]
@@ -283,8 +430,8 @@ export default function ProjectHubListPanel({
     if (activeNode && !isTypePreservingDrop(activeNode, action)) return;
 
     const activeKey = String(action.activeId);
-    const cardsSnapshot = Array.isArray(boardCards) ? boardCards : [];
-    const planningSnapshot = Array.isArray(planningItems) ? planningItems : [];
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
 
     let cardPatch = null;
     if (action.kind === 'card') {
@@ -414,6 +561,10 @@ export default function ProjectHubListPanel({
         const created = unwrapPlanningEntity(res);
         if (created) patchPlanning((prev) => upsertById(prev, { ...created, type, title: text }));
         else onReloadPlanning?.();
+        if (parentNode?.id) {
+          setExpandedIds((prev) => new Set(prev).add(parentNode.id));
+          void loadNodeChildren(parentNode);
+        }
         toast.success(t('workspace.projectHubPlanCreated'));
         return;
       }
@@ -423,27 +574,26 @@ export default function ProjectHubListPanel({
         return;
       }
 
-      const parentRaw = parentNode?.raw || {};
-      const parentEpicId =
-        parentNode?.workType === 'epic'
-          ? String(parentRaw._id || parentRaw.id || '')
-          : parentRaw.epicId
-            ? String(parentRaw.epicId)
-            : '';
+      const parentPayload = resolveBoardCreateParent({
+        type,
+        parentNode,
+        config: workTypeConfig,
+      });
 
-      if (type === 'subtask') {
-        if (parentNode?.kind !== 'card') {
+      if (type === 'subtask' || isBoardCreateType(type)) {
+        if (type === 'subtask' && !parentPayload.parentTaskId) {
           toast.error(t('workspace.projectHubBacklogSubtaskNeedParent'));
           return;
         }
+        const boardIssueType =
+          type === 'bug' || type === 'story' || type === 'task' ? type : 'task';
         const res = await taskAPI.createBoardCard(
           boardId,
           {
             listId: defaultListId,
             title: text,
-            issueType: 'task',
-            parentTaskId: String(parentRaw._id || parentRaw.id),
-            ...(parentEpicId ? { epicId: parentEpicId } : {}),
+            issueType: type === 'subtask' ? 'task' : boardIssueType,
+            ...parentPayload,
           },
           apiCtx || {}
         );
@@ -453,40 +603,17 @@ export default function ProjectHubListPanel({
             upsertById(cards, {
               ...created,
               title: text,
-              issueType: created.issueType || 'task',
-              parentTaskId: String(parentRaw._id || parentRaw.id),
+              issueType: created.issueType || (type === 'subtask' ? 'task' : boardIssueType),
               listId: created.listId || defaultListId,
-              ...(parentEpicId ? { epicId: parentEpicId } : {}),
+              ...parentPayload,
             })
           );
         } else {
           onRefresh?.();
         }
-      } else if (isBoardCreateType(type)) {
-        const boardIssueType = type === 'bug' || type === 'story' || type === 'task' ? type : 'task';
-        const res = await taskAPI.createBoardCard(
-          boardId,
-          {
-            listId: defaultListId,
-            title: text,
-            issueType: boardIssueType,
-            ...(parentEpicId ? { epicId: parentEpicId } : {}),
-          },
-          apiCtx || {}
-        );
-        const created = unwrapTaskApiPayload(res) || unwrapPlanningEntity(res);
-        if (created) {
-          patchCards((cards) =>
-            upsertById(cards, {
-              ...created,
-              title: text,
-              issueType: created.issueType || boardIssueType,
-              listId: created.listId || defaultListId,
-              ...(parentEpicId ? { epicId: parentEpicId } : {}),
-            })
-          );
-        } else {
-          onRefresh?.();
+        if (parentNode?.id) {
+          setExpandedIds((prev) => new Set(prev).add(parentNode.id));
+          void loadNodeChildren(parentNode);
         }
       } else {
         return;
@@ -516,6 +643,83 @@ export default function ProjectHubListPanel({
             : c
         )
       );
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changePriority = async (node, priority) => {
+    if (!canChangeStatus || busy || node.kind !== 'card') return;
+    const cardId = String(node.raw?._id || node.raw?.id || '');
+    if (!cardId) return;
+    const next = String(priority || 'medium').toLowerCase();
+    setBusy(true);
+    try {
+      const patch = { priority: next };
+      if (onUpdateCard) {
+        await onUpdateCard(cardId, patch);
+      } else {
+        await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+      }
+      patchCards((cards) =>
+        cards.map((c) => (entityId(c) === cardId ? { ...c, priority: next } : c))
+      );
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changePlanningStatus = async (node, status) => {
+    if (!canChangeStatus || busy || node.kind !== 'planning') return;
+    const itemId = String(node.raw?._id || node.raw?.id || '');
+    if (!itemId || !projectId) return;
+    const next = String(status || '').trim().toLowerCase();
+    setBusy(true);
+    try {
+      await projectAPI.patchPlanningItem(projectId, itemId, { status: next });
+      patchPlanning((items) =>
+        items.map((row) => (entityId(row) === itemId ? { ...row, status: next } : row))
+      );
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeDueDate = async (node, dateValue) => {
+    if (!canChangeStatus || busy) return;
+    const id = entityId(node.raw);
+    if (!id) return;
+    const next = dateValue ? new Date(dateValue).toISOString() : null;
+    setBusy(true);
+    try {
+      if (node.kind === 'card') {
+        const patch = { dueDate: next };
+        if (onUpdateCard) {
+          await onUpdateCard(id, patch);
+        } else {
+          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+        }
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, dueDate: next } : c))
+        );
+      } else if (node.kind === 'planning' && projectId) {
+        await projectAPI.patchPlanningItem(projectId, id, { targetDate: next });
+        patchPlanning((items) =>
+          items.map((row) => (entityId(row) === id ? { ...row, targetDate: next } : row))
+        );
+      }
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
@@ -610,7 +814,7 @@ export default function ProjectHubListPanel({
         <button
           type="button"
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-          onClick={() => onReloadPlanning?.()}
+          onClick={() => void loadListEpics(true)}
         >
           {t('workspace.projectHubListRetry')}
         </button>
@@ -694,14 +898,15 @@ export default function ProjectHubListPanel({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="scrollbar-overlay min-h-0 flex-1 overflow-auto">
+        <div ref={tableScrollRef} className="scrollbar-overlay min-h-0 flex-1 overflow-auto">
           <div role="table" aria-label={t('workspace.projectHubTabList')} className="min-w-0">
             <div
               role="row"
-              className={`${LIST_TABLE_GRID} sticky top-0 z-10 border-b border-border bg-surface px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground`}
+              style={gridStyle}
+              className="sticky top-0 z-10 border-b border-border bg-surface px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              <div aria-hidden />
-              <div className="flex items-center justify-center">
+              <div className="border-r border-border" aria-hidden />
+              <div className="flex items-center justify-center border-r border-border">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -715,16 +920,34 @@ export default function ProjectHubListPanel({
                   className="size-3.5 rounded border-border"
                 />
               </div>
-              <div>{t('workspace.projectHubListWorkColumn')}</div>
-              <div>{t('workspace.projectHubListAssigneeColumn')}</div>
-              <div>{t('workspace.projectHubListReporterColumn')}</div>
-              <div>{t('workspace.projectHubListPriorityColumn')}</div>
-              <div>{t('workspace.projectHubListStatusColumn')}</div>
-              <div>{t('workspace.projectHubListResolutionColumn')}</div>
-              <div>{t('workspace.projectHubListCreatedColumn')}</div>
-              <div>{t('workspace.projectHubListUpdatedColumn')}</div>
-              <div>{t('workspace.projectHubListDueColumn')}</div>
-              <div aria-hidden />
+              <ResizableTableHeader column={listColumns[2]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListWorkColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[3]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListAssigneeColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[4]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListReporterColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[5]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListPriorityColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[6]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListStatusColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[7]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListResolutionColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[8]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListCreatedColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[9]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListUpdatedColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[10]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListDueColumn')}
+              </ResizableTableHeader>
+              <div className="border-r border-border" aria-hidden />
             </div>
 
             {flatRows.length === 0 ? (
@@ -741,15 +964,26 @@ export default function ProjectHubListPanel({
                   projectCode={projectCode}
                   depth={depth}
                   locale={locale}
-                  collapsed={Boolean(collapsed[node.id])}
+                  expanded={expandedIds.has(node.id)}
+                  canExpand={canExpandListRow({
+                    childTypes: childTypesForParent(node.workType, workTypeConfig, nestCreateCaps),
+                    loaded: loadedIds.has(node.id),
+                    loading: loadingIds.has(node.id),
+                    hasChildren: Array.isArray(node.children) && node.children.length > 0,
+                  })}
+                  expandLoading={loadingIds.has(node.id)}
+                  expandError={expandErrorIds.has(node.id)}
                   selected={selectedIds.has(node.id)}
                   childTypes={childTypesForParent(node.workType, workTypeConfig, createCaps)}
+                  childStats={childWorkStats(listCards, node.raw?._id || node.raw?.id, lists)}
                   lists={lists}
                   listMap={listMap}
+                  priorityConfig={priorityConfig}
                   hasBoardColumn={hasBoardColumn}
                   busy={busy}
                   canChangeStatus={canChangeStatus}
                   canAssign={node.kind === 'card' && Boolean(canCreateTask || canManage)}
+                  gridStyle={gridStyle}
                   assignableMembers={assignableMembers}
                   membersLoading={membersLoading}
                   dragDeltaX={activeDragId === node.id ? dragDeltaX : 0}
@@ -775,7 +1009,8 @@ export default function ProjectHubListPanel({
                       return next;
                     });
                   }}
-                  onToggleCollapse={(id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }))}
+                  onToggleExpand={() => toggleExpand(node)}
+                  onRetryExpand={() => void loadNodeChildren(node)}
                   onStartCreateChild={(n) => {
                     setRootCreateOpen(false);
                     setCreatingUnderId(n.id);
@@ -786,6 +1021,9 @@ export default function ProjectHubListPanel({
                     if (n.kind === 'card' && n.raw) setDetailCard(n.raw);
                   }}
                   onChangeStatus={changeStatus}
+                  onChangePriority={changePriority}
+                  onChangePlanningStatus={changePlanningStatus}
+                  onChangeDueDate={changeDueDate}
                   onAssignMember={(n, member) => void assignCard(n, member)}
                   onManageTypes={onOpenSettings}
                   t={t}
@@ -864,11 +1102,13 @@ export default function ProjectHubListPanel({
         cancelText={t('common.cancel')}
       />
 
-      <TaskBoardCardDetailModal
-        isOpen={Boolean(detailCard)}
+      <WorkItemDetail
+        key={String(detailCard?._id || detailCard?.id || 'list-detail')}
+        open={Boolean(detailCard)}
+        chrome="modal"
         isDarkMode={isDarkMode}
         workspaceSlug={workspaceSlug}
-        card={detailCard}
+        workItem={detailCard}
         boardId={boardId}
         listTitle={
           detailCard
@@ -876,13 +1116,35 @@ export default function ProjectHubListPanel({
             : ''
         }
         lists={listMap}
+        boardCards={listCards}
+        workTypeConfig={workTypeConfig}
+        projectCode={projectCode}
+        projectId={projectId}
+        defaultListId={defaultListId}
+        apiCtx={apiCtx}
         initialPanel="detail"
         canCreateTask={canCreateTask}
         canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
+        canComment={
+          Boolean(canManage) ||
+          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+        }
+        canChangeStatus={
+          Boolean(canManage) ||
+          (Array.isArray(hubCaps?.permissions) &&
+            hubCaps.permissions.includes('task:change_status'))
+        }
         onClose={() => setDetailCard(null)}
+        onOpenWorkItem={(card) => {
+          if (card) setDetailCard(card);
+        }}
         onRefresh={refreshAll}
+        onPatchBoardCards={onPatchBoardCards}
         onUpdateCard={async (cardId, patch) => {
-          await onUpdateCard?.(cardId, patch);
+          const keys = Object.keys(patch || {});
+          if (!(keys.length === 1 && keys[0] === 'comments')) {
+            await onUpdateCard?.(cardId, patch);
+          }
           setDetailCard((prev) =>
             prev && String(prev._id) === String(cardId) ? { ...prev, ...patch } : prev
           );

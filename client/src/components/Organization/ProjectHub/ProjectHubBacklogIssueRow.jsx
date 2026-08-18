@@ -10,6 +10,7 @@ import {
   displayIssueKey,
   dueDateTone,
   formatHubDateShort,
+  listsForStatusSelect,
   normalizeIssueType,
 } from './projectHubUtils';
 
@@ -75,6 +76,10 @@ export default function ProjectHubBacklogIssueRow({
 
   const listById = useMemo(() => new Map((lists || []).map((l) => [String(l._id), l])), [lists]);
   const currentList = listById.get(String(issue?.listId || ''));
+  const statusSelectLists = useMemo(
+    () => listsForStatusSelect(lists, issue?.listId),
+    [lists, issue?.listId]
+  );
   const bucket = classifyListStatusBucket(issue?.status || currentList);
   const tone = dueDateTone(issue?.dueDate, issue?.status || currentList);
   const epic = epics.find((e) => String(e._id) === String(issue?.epicId || ''));
@@ -254,7 +259,7 @@ export default function ProjectHubBacklogIssueRow({
       </div>
 
       <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
-        {canChangeStatus && lists.length > 0 ? (
+        {canChangeStatus && statusSelectLists.length > 0 ? (
           <select
             className={`w-[5.75rem] truncate rounded-md border px-1.5 py-0.5 text-[11px] font-semibold sm:w-[6.5rem] ${statusPill}`}
             value={String(issue?.listId || '')}
@@ -262,7 +267,7 @@ export default function ProjectHubBacklogIssueRow({
             disabled={busy}
             aria-label={bucketLabel(bucket, t)}
           >
-            {lists.map((list) => (
+            {statusSelectLists.map((list) => (
               <option key={list._id} value={String(list._id)}>
                 {list.title || bucketLabel(classifyListStatusBucket(list), t)}
               </option>

@@ -3,13 +3,17 @@ import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucid
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
-import { resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
+import { isProjectCompletedStatus, resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
 import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
+import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
+import WorkItemDetail from './WorkItemDetail';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
+import ProjectHubCompleteProjectModal from './ProjectHubCompleteProjectModal';
 import { isBoardSprintReady } from './projectHubHierarchy';
 import {
   PROJECT_HUB_TABS,
@@ -272,7 +276,7 @@ export default function ProjectHubShell({
   boardSlot = null,
   emptySlot = null,
   onBack = null,
-  onBoardChange = null,
+  onBoardChange: _onBoardChange = null,
   currentUserId = '',
 }) {
   const { t } = useAppStrings();
@@ -294,6 +298,9 @@ export default function ProjectHubShell({
   const activityLoadedForRef = useRef('');
   const filesLoadedForRef = useRef('');
   const [completeSprintId, setCompleteSprintId] = useState(null);
+  const [completeProjectOpen, setCompleteProjectOpen] = useState(false);
+  const [boardOpenCrId, setBoardOpenCrId] = useState('');
+  const [crWorkIssue, setCrWorkIssue] = useState(null);
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -328,10 +335,21 @@ export default function ProjectHubShell({
     sprintsLoadedForRef.current = '';
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
+    setCompleteProjectOpen(false);
   }
 
-  const needsSprints = tab === 'planning' || tab === 'board';
-  const needsPlanningItems = tab === 'list' || tab === 'planning' || tab === 'board';
+  const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
+  const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
+  const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
+  const isProjectCompleted = isProjectCompletedStatus(
+    projectPayload?.status || resolvedBoard?.status
+  );
+  const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
+  const needsSprints =
+    tab === 'planning' ||
+    tab === 'board' ||
+    (Boolean(hubCaps.canCompleteProject) && workLooksComplete && !isProjectCompleted);
+  const needsPlanningItems = tab === 'planning' || tab === 'board';
   const needsActivity = tab === 'overview' || tab === 'activity';
   const needsFiles = tab === 'files';
 
@@ -353,7 +371,7 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, boardDetail?.board?.status]);
 
   useEffect(() => {
     if (!projectId || !needsSprints) return undefined;
@@ -445,37 +463,6 @@ export default function ProjectHubShell({
   );
   const sprintFilterId =
     boardReady && activeSprint?._id ? String(activeSprint._id) : '';
-  const boardEpics = useMemo(
-    () =>
-      (planningItems || []).filter(
-        (item) =>
-          String(item?.type || '').toLowerCase() === 'epic' && item?.isActive !== false
-      ),
-    [planningItems]
-  );
-  const canLinkEpic = Boolean(
-    canManage || hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
-  );
-
-  const handleLinkParent = useCallback(
-    async (taskId, epicId) => {
-      const id = String(taskId || '').trim();
-      if (!projectId || !id) return;
-      try {
-        await projectAPI.linkTaskPlanning(projectId, id, { epicId: epicId || null });
-        onPatchBoardCards?.((cards) =>
-          (Array.isArray(cards) ? cards : []).map((c) =>
-            String(c._id || c.id) === id ? { ...c, epicId: epicId || null } : c
-          )
-        );
-      } catch (err) {
-        toast.error(
-          resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanLinkFail') })
-        );
-      }
-    },
-    [projectId, onPatchBoardCards, t]
-  );
 
   const boardKanban = isValidElement(boardSlot)
     ? cloneElement(boardSlot, {
@@ -483,9 +470,13 @@ export default function ProjectHubShell({
         defaultSprintId: sprintFilterId || undefined,
         hubSprintCard: {
           projectCode: resolvedBoard?.projectCode || '',
-          epics: boardEpics,
-          canLinkEpic,
-          onLinkParent: handleLinkParent,
+          onOpenChangeRequest: (crId) => {
+            const id = String(crId || '').trim();
+            if (!id) return;
+            setVisitedTabs((prev) => ({ ...prev, changeRequests: true }));
+            setBoardOpenCrId(id);
+            setTab('changeRequests');
+          },
         },
       })
     : boardSlot;
@@ -505,6 +496,7 @@ export default function ProjectHubShell({
       if (isSummaryOnly && item.id !== 'overview') return false;
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
+      if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
       return true;
     });
   }, [hubCaps, isSummaryOnly]);
@@ -518,17 +510,19 @@ export default function ProjectHubShell({
   }, [tab, hubCaps.canViewMembers]);
 
   useEffect(() => {
+    if (tab === 'changeRequests' && !hubCaps.canViewChangeRequests) setTab('overview');
+  }, [tab, hubCaps.canViewChangeRequests]);
+
+  useEffect(() => {
     setVisitedTabs((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
   }, [tab]);
 
   const showListPanel = Boolean(visitedTabs.list);
   const showPlanningPanel = Boolean(visitedTabs.planning);
+  const showChangeRequestsPanel =
+    Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
-  const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
-  const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
-
-  const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
   const defaultListId = String(lists[0]?._id || '').trim();
   const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
@@ -594,27 +588,36 @@ export default function ProjectHubShell({
   const initials = projectInitials(resolvedBoard?.title);
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const sprintsReadyForCompleteGate = sprintsLoadedForRef.current === projectId;
+  const hasOpenSprints = (sprints || []).some((s) => {
+    const st = String(s?.status || '').toLowerCase();
+    return st === 'planned' || st === 'active';
+  });
+  const showCompleteProjectButton =
+    hasBoard &&
+    Boolean(hubCaps.canCompleteProject) &&
+    !isProjectCompleted &&
+    workLooksComplete &&
+    sprintsReadyForCompleteGate &&
+    !hasOpenSprints;
 
   const toolbar = (
     <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-      {boards.length > 0 && onBoardChange ? (
-        <select
-          value={boardId || ''}
-          onChange={(e) => onBoardChange(e.target.value)}
-          className={`max-w-[200px] rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none focus:border-primary ${
-            isDarkMode
-              ? 'border-white/15 bg-[#1a1d26] text-white'
-              : 'border-border bg-surface text-foreground'
-          }`}
-          aria-label={t('taskBoard.selectBoardAria')}
+      {hasBoard && isProjectCompleted ? (
+        <span className="inline-flex items-center rounded-md border border-success/30 bg-success/10 px-2 py-1 text-[11px] font-semibold text-success">
+          {t('workspace.projectHubCompleteProjectBadge')}
+        </span>
+      ) : null}
+      {showCompleteProjectButton ? (
+        <button
+          type="button"
+          onClick={() => setCompleteProjectOpen(true)}
+          title={t('workspace.projectHubCompleteProject')}
+          className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground"
         >
-          <option value="">{t('taskBoard.selectBoard')}</option>
-          {boards.map((b) => (
-            <option key={b._id} value={String(b._id)}>
-              {b.title}
-            </option>
-          ))}
-        </select>
+          <span className="hidden sm:inline">{t('workspace.projectHubCompleteProject')}</span>
+          <span className="sm:hidden">{t('workspace.projectHubCompleteProjectShort')}</span>
+        </button>
       ) : null}
       {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
         <button
@@ -790,7 +793,6 @@ export default function ProjectHubShell({
             projectId={projectId}
             boardId={boardId}
             defaultListId={defaultListId}
-            boardCards={cards}
             lists={lists}
             projectCode={resolvedBoard?.projectCode || ''}
             hubCaps={hubCaps}
@@ -799,9 +801,6 @@ export default function ProjectHubShell({
             isDarkMode={isDarkMode}
             locale={locale}
             workspaceSlug={workspaceSlug}
-            planningItems={planningItems}
-            planningLoading={planningLoading}
-            planningError={planningError}
             onPatchPlanningItems={patchPlanningItems}
             onReloadPlanning={reloadPlanning}
             onRefresh={onRefresh}
@@ -811,6 +810,7 @@ export default function ProjectHubShell({
             listActive={tab === 'list'}
             membersEpoch={membersEpoch}
             workTypeConfig={projectPayload?.workTypeConfig}
+            priorityConfig={projectPayload?.priorityConfig}
           />
         </div>
         ) : null}
@@ -847,6 +847,13 @@ export default function ProjectHubShell({
             }}
             onPatchBoardCards={onPatchBoardCards}
             onOpenBoard={() => setTab('board')}
+            onOpenChangeRequest={(crId) => {
+              const id = String(crId || '').trim();
+              if (!id) return;
+              setVisitedTabs((prev) => ({ ...prev, changeRequests: true }));
+              setBoardOpenCrId(id);
+              setTab('changeRequests');
+            }}
             workTypeConfig={projectPayload?.workTypeConfig}
           />
         </div>
@@ -871,6 +878,38 @@ export default function ProjectHubShell({
               </button>
             </div>
           )
+        ) : null}
+        {showChangeRequestsPanel ? (
+        <div
+          className={
+            tab === 'changeRequests' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'changeRequests'}
+          aria-hidden={tab !== 'changeRequests'}
+        >
+          <ProjectHubChangeRequestsPanel
+            projectId={projectId}
+            listActive={tab === 'changeRequests'}
+            isDarkMode={isDarkMode}
+            locale={locale}
+            projectCode={resolvedBoard?.projectCode || ''}
+            canCreate={hubCaps.canCreateChangeRequest}
+            canUpdate={hubCaps.canUpdateChangeRequest}
+            canDelete={hubCaps.canDeleteChangeRequest}
+            boardCards={cards}
+            lists={lists}
+            boardId={boardId}
+            apiCtx={apiCtx}
+            externalCrId={boardOpenCrId}
+            onExternalCrConsumed={() => setBoardOpenCrId('')}
+            onRefreshBoard={onRefresh}
+            onOpenWorkItem={(work) => {
+              const id = String(work?._id || work?.id || '');
+              const fromBoard = cards.find((c) => String(c._id || c.id) === id);
+              setCrWorkIssue(fromBoard || work || null);
+            }}
+          />
+        </div>
         ) : null}
         {showMembersPanel ? (
         <div
@@ -907,6 +946,7 @@ export default function ProjectHubShell({
             isDarkMode={isDarkMode}
             onSaved={onRefresh}
             workTypeConfig={projectPayload?.workTypeConfig}
+            priorityConfig={projectPayload?.priorityConfig}
           />
         ) : null}
 
@@ -928,6 +968,93 @@ export default function ProjectHubShell({
             setCompleteSprintId(null);
           }}
         />
+        <ProjectHubCompleteProjectModal
+          isOpen={completeProjectOpen}
+          projectId={projectId}
+          projectTitle={resolvedBoard?.title || ''}
+          canComplete={Boolean(hubCaps.canCompleteProject) && !isProjectCompleted}
+          onClose={() => setCompleteProjectOpen(false)}
+          onCompleted={async (data) => {
+            toast.success(t('workspace.projectHubCompleteProjectSuccess'));
+            const closed = data?.project || data || {};
+            setProjectPayload((prev) => ({
+              ...(prev || {}),
+              ...closed,
+              status: closed.status || 'closed',
+            }));
+            setCompleteProjectOpen(false);
+            onRefresh?.();
+          }}
+        />
+        {crWorkIssue ? (
+          <WorkItemDetail
+            open
+            chrome="drawer"
+            drawerLayout="overlay"
+            workItem={crWorkIssue}
+            boardCards={cards}
+            lists={lists}
+            epics={planningItems.filter((p) => String(p.type || '').toLowerCase() === 'epic')}
+            features={planningItems.filter((p) => String(p.type || '').toLowerCase() === 'feature')}
+            sprints={sprints}
+            projectCode={resolvedBoard?.projectCode || ''}
+            projectId={projectId}
+            boardId={boardId}
+            defaultListId={defaultListId}
+            apiCtx={apiCtx}
+            isDarkMode={isDarkMode}
+            locale={locale}
+            workTypeConfig={projectPayload?.workTypeConfig}
+            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
+            canComment={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+            }
+            canChangeStatus={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) &&
+                hubCaps.permissions.includes('task:change_status'))
+            }
+            onClose={() => setCrWorkIssue(null)}
+            onOpenWorkItem={(card) => {
+              if (card) setCrWorkIssue(card);
+            }}
+            onPatchBoardCards={onPatchBoardCards}
+            onOpenChangeRequest={(crId) => {
+              const id = String(crId || '').trim();
+              if (!id) return;
+              setCrWorkIssue(null);
+              setVisitedTabs((prev) => ({ ...prev, changeRequests: true }));
+              setBoardOpenCrId(id);
+              setTab('changeRequests');
+            }}
+            onUpdateCard={async (cardId, patch) => {
+              onPatchBoardCards?.((prev) =>
+                (prev || []).map((c) =>
+                  String(c._id || c.id) === String(cardId) ? { ...c, ...patch } : c
+                )
+              );
+              setCrWorkIssue((prev) =>
+                prev && String(prev._id || prev.id) === String(cardId) ? { ...prev, ...patch } : prev
+              );
+              const keys = Object.keys(patch || {});
+              if (keys.length === 1 && keys[0] === 'comments') return;
+              if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+                try {
+                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                } catch (err) {
+                  toast.error(
+                    resolveApiErrorMessage(err, {
+                      t,
+                      fallback: t('workspace.projectHubPlanCreateFail'),
+                    })
+                  );
+                  throw err;
+                }
+              }
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

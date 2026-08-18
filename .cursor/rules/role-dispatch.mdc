@@ -1,0 +1,24 @@
+---
+description: Điều phối luật theo vai trò trong prompt/plan — đọc mỗi prompt; chọn đúng role-*.mdc
+alwaysApply: true
+---
+
+# Điều phối vai trò (plan / prompt)
+
+Khi user hoặc plan ghi **Vai trò:** (hoặc “Bạn là Senior …”), **bắt buộc** áp đúng file luật vai trò dưới đây. Không trộn ràng buộc của vai trò khác trừ khi user liệt kê nhiều vai trò.
+
+| Vai trò trong prompt/plan | File luật |
+|---------------------------|-----------|
+| Senior React Native Developer | `.cursor/rules/role-react-native.mdc` |
+| Senior Solution Architect | `.cursor/rules/role-solution-architect.mdc` |
+| Senior Frontend Developer | `.cursor/rules/role-frontend.mdc` |
+| Senior Backend Developer | `.cursor/rules/role-backend.mdc` |
+| Senior API Developer | `.cursor/rules/role-api.mdc` |
+| Senior Database Engineer | `.cursor/rules/role-database.mdc` |
+| Senior Code Reviewer | `.cursor/rules/role-code-reviewer.mdc` |
+| Senior QA Engineer | `.cursor/rules/role-qa.mdc` |
+| Senior RBAC & Permission Architect | `.cursor/rules/role-rbac.mdc` |
+
+Nhiều vai trò (vd. FE + BE): tuân **cả** các file tương ứng; xung đột → ưu tiên ràng buộc chặt hơn (không đụng service/DB/API ngoài scope).
+
+Không ghi vai trò: giữ `senior-dev-engineering.mdc` + `voicehub-constraints.mdc` (không giả định một role chuyên biệt).

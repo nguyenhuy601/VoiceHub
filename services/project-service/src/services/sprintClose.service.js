@@ -5,6 +5,7 @@ const Task = require('../models/Task');
 const TaskBoardList = require('../models/TaskBoardList');
 
 const { classifySprintClosureTasks } = require('../utils/sprintCloseClassify');
+const { isLastOpenSprint, throwCloseGateError, assertProjectWritable } = require('../utils/projectCloseGate');
 
 function asStringOid(v) {
   return String(v || '').trim();
@@ -54,10 +55,18 @@ async function getDeps(overrides = {}) {
     Sprint,
     Task,
     TaskBoardList,
+    Project: require('../models/Project'),
     recordAudit: recordAuditImpl,
     assertUserAnyProjectPermission,
     ...(overrides || {}),
   };
+}
+
+async function assertProjectStillWritable({ deps, projectId }) {
+  if (!deps.Project || typeof deps.Project.findById !== 'function') return;
+  const project = await deps.Project.findById(projectId);
+  const doc = project && typeof project.lean === 'function' ? await project.lean() : project;
+  if (doc) assertProjectWritable(doc);
 }
 
 async function assertCanCloseSprint({ userId, projectId, deps, message }) {
@@ -110,6 +119,17 @@ async function loadSprintTasksAndLists({ deps, projectId, sprintId }) {
   }
 
   return { tasks: tasks || [], listsById };
+}
+
+async function loadDestinationSprints({ deps, projectId, sprintId }) {
+  const destinationSprints = await deps.Sprint.find({
+    projectId,
+    status: { $in: ['planned', 'active'] },
+    _id: { $ne: sprintId },
+  })
+    .select('_id name status')
+    .lean();
+  return destinationSprints || [];
 }
 
 function buildClosureSnapshot({ now, stats, incompleteAction, targetSprintId, issueIds }) {
@@ -167,6 +187,7 @@ async function recordSprintCloseAudit({
 
 async function getCompleteSprintPreview({ userId, projectId, sprintId, deps: depsOverrides }) {
   const deps = await getDeps(depsOverrides);
+  await assertProjectStillWritable({ deps, projectId });
   const sprint = await loadSprintOrThrow({ deps, projectId, sprintId });
 
   await assertCanCloseSprint({
@@ -185,13 +206,7 @@ async function getCompleteSprintPreview({ userId, projectId, sprintId, deps: dep
   const { tasks, listsById } = await loadSprintTasksAndLists({ deps, projectId, sprintId });
   const stats = classifySprintClosureTasks({ tasks, listsById });
 
-  const destinationSprints = await deps.Sprint.find({
-    projectId,
-    status: { $in: ['planned', 'active'] },
-    _id: { $ne: sprintId },
-  })
-    .select('_id name status')
-    .lean();
+  const destinationSprints = await loadDestinationSprints({ deps, projectId, sprintId });
 
   return {
     sprintId: asStringOid(sprint._id),
@@ -202,7 +217,8 @@ async function getCompleteSprintPreview({ userId, projectId, sprintId, deps: dep
     completedHours: stats.completedHours,
     incompleteHours: stats.incompleteHours,
     incompleteIssueIds: stats.incompleteTaskIds,
-    destinationSprints: (destinationSprints || []).map((s) => ({
+    isLastSprint: isLastOpenSprint(destinationSprints),
+    destinationSprints: destinationSprints.map((s) => ({
       sprintId: asStringOid(s._id),
       name: String(s.name || '').trim(),
       status: s.status,
@@ -219,6 +235,7 @@ async function completeSprint({
   deps: depsOverrides,
 }) {
   const deps = await getDeps(depsOverrides);
+  await assertProjectStillWritable({ deps, projectId });
   const sprint = await loadSprintOrThrow({ deps, projectId, sprintId });
 
   await assertCanCloseSprint({
@@ -239,6 +256,17 @@ async function completeSprint({
 
   const now = new Date();
   const incompleteCount = stats.incompleteCount;
+  const destinationSprints = await loadDestinationSprints({ deps, projectId, sprintId });
+  const isLastSprint = isLastOpenSprint(destinationSprints);
+
+  if (incompleteCount > 0 && isLastSprint) {
+    throwCloseGateError({
+      errorCode: 'LAST_SPRINT_HAS_INCOMPLETE',
+      message: `Sprint cuối còn ${incompleteCount} việc chưa xong. Hãy hoàn thành hết, hoặc tạo sprint mới rồi chuyển việc sang đó`,
+      details: { incompleteCount, isLastSprint: true },
+    });
+  }
+
   const normalizedIncompleteAction = normalizeIncompleteAction(incompleteAction);
 
   let finalTargetSprintId = null;

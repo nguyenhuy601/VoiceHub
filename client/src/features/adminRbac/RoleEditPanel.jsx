@@ -1,20 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminRolePicker from '../../components/adminRbac/AdminRolePicker';
-import PermissionEditorGrid from '../../components/adminRbac/PermissionEditorGrid';
 import { GradientButton } from '../../components/Shared';
-import { DEFAULT_ROLE_SCOPE, ROLE_SCOPES } from '../../config/adminRbacCatalog';
+import { DEFAULT_ROLE_SCOPE, PACK_ROLE_SCOPES } from '../../config/adminRbacCatalog';
+import { adminSecondaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import {
-  isProtectedDefaultRole,
-  normalizeRoleDisplayName,
-  permissionDraftForEditor,
-  permissionEntriesForPersist,
-} from '../../utils/adminRbacUtils';
+import { isProtectedDefaultRole, normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import {
   SYSTEM_ROLE_NAME_PREFIX,
   isTitleLikeSystemRoleName,
@@ -31,36 +26,18 @@ export default function RoleEditPanel({ orgId }) {
   const protectedRole = role ? isProtectedDefaultRole(role) : false;
   const [suffix, setSuffix] = useState('');
   const [description, setDescription] = useState('');
-  const [scope, setScope] = useState(DEFAULT_ROLE_SCOPE);
   const [color, setColor] = useState('#6366f1');
   const [priority, setPriority] = useState('');
-  const [permDraft, setPermDraft] = useState({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!role) {
-      setPermDraft({});
-      return;
-    }
+    if (!role) return;
     const display = normalizeRoleDisplayName(role.name);
     setSuffix(splitLayerLabel(display, 'system').suffix || display);
     setDescription(role.description || '');
-    setScope(String(role.scope || DEFAULT_ROLE_SCOPE).toUpperCase());
     setColor(role.color || '#6366f1');
     setPriority(String(role.priority ?? ''));
-    setPermDraft(permissionDraftForEditor(role.permissions));
   }, [role]);
-
-  const setMany = (keys, value) => {
-    setPermDraft((prev) => {
-      const next = { ...prev };
-      for (const key of keys) {
-        if (value) next[key] = true;
-        else delete next[key];
-      }
-      return next;
-    });
-  };
 
   const save = async () => {
     if (!orgId || !roleId || !role || busy) return;
@@ -76,10 +53,9 @@ export default function RoleEditPanel({ orgId }) {
       await roleAPI.updateRole(roleId, {
         name: protectedRole ? role.name : normalizeLayerLabel(suffix, 'system'),
         description: description.trim(),
-        scope,
+        scope: DEFAULT_ROLE_SCOPE,
         color,
         priority: Number(priority) || role.priority,
-        permissions: permissionEntriesForPersist(permDraft),
         serverId: orgId,
         organizationId: orgId,
       });
@@ -91,6 +67,10 @@ export default function RoleEditPanel({ orgId }) {
       setBusy(false);
     }
   };
+
+  const permissionsHref = roleId
+    ? `/app/admin/rbac/permissions?roleId=${encodeURIComponent(roleId)}`
+    : '/app/admin/rbac/permissions';
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
@@ -158,16 +138,17 @@ export default function RoleEditPanel({ orgId }) {
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleScope')}</span>
                 <select
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  value={scope}
-                  onChange={(e) => setScope(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+                  value={DEFAULT_ROLE_SCOPE}
+                  disabled
                 >
-                  {ROLE_SCOPES.map((item) => (
+                  {PACK_ROLE_SCOPES.map((item) => (
                     <option key={item.id} value={item.id}>
                       {t(item.labelKey)}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.packScopeLockedNote')}</p>
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-sm">
@@ -190,21 +171,12 @@ export default function RoleEditPanel({ orgId }) {
                 </label>
               </div>
             </div>
-            <PermissionEditorGrid
-              permDraft={permDraft}
-              editable
-              roleName={protectedRole ? normalizeRoleDisplayName(role.name) : normalizeLayerLabel(suffix, 'system') || suffix}
-              roleScope={scope}
-              onToggle={(key) =>
-                setPermDraft((prev) => {
-                  const next = { ...prev };
-                  if (next[key]) delete next[key];
-                  else next[key] = true;
-                  return next;
-                })
-              }
-              onSetMany={setMany}
-            />
+            <div className="rounded-xl border border-border bg-card/40 p-4">
+              <p className="text-sm text-muted-foreground">{t('adminRbac.editPermissionsV2Hint')}</p>
+              <Link to={permissionsHref} className={`${adminSecondaryBtnClass()} mt-3 inline-flex`}>
+                {t('adminRbac.editPermissionsV2Cta')}
+              </Link>
+            </div>
           </>
         )}
       </div>

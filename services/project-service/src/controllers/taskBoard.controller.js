@@ -82,7 +82,14 @@ class TaskBoardController {
       const { boardId } = req.params;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId)) return boardValidation(res, 'boardId không hợp lệ');
-      const data = await boardService.getBoardDetail({ userId, boardId });
+      const data = await boardService.getBoardDetail({
+        userId,
+        boardId,
+        includeCards: req.query?.includeCards,
+        epicId: req.query?.epicId,
+        featureId: req.query?.featureId,
+        parentTaskId: req.query?.parentTaskId,
+      });
       return res.json({ success: true, data });
     } catch (err) {
       return sendError(res, err, 403, 'Không thể tải chi tiết board', 'TASK_BOARD_DETAIL_FAILED');
@@ -316,7 +323,7 @@ class TaskBoardController {
       const data = await boardService.archiveBoard({ userId, boardId });
       return res.json({ success: true, data });
     } catch (err) {
-      return sendError(res, err, 400, 'Không thể đóng dự án', 'TASK_BOARD_ARCHIVE_FAILED');
+      return sendError(res, err, err.statusCode || 400, 'Không thể đóng dự án', 'TASK_BOARD_ARCHIVE_FAILED');
     }
   }
 
@@ -382,6 +389,7 @@ class TaskBoardController {
         checklists: req.body?.checklists,
         parentTaskId: req.body?.parentTaskId,
         epicId: req.body?.epicId,
+        featureId: req.body?.featureId,
         issueType: req.body?.issueType,
         estimateHours: req.body?.estimateHours,
       });

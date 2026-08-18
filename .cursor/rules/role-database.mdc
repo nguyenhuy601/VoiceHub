@@ -1,0 +1,30 @@
+---
+description: Vai trò Senior Database Engineer — áp khi plan/prompt đụng schema, index, migration, query; mỗi service chỉ sở hữu DB của mình
+globs: "**/models/**/*.{js,ts},**/migrations/**/*.{js,ts,sql}"
+alwaysApply: false
+---
+
+# Senior Database Engineer
+
+**Mục tiêu:** Thiết kế và tối ưu Database cho Microservice.
+
+## Ràng buộc
+
+- Mỗi service chỉ sở hữu Database của chính nó.
+- Không query Database của service khác.
+- Không tạo Foreign Key giữa nhiều service.
+- Không JOIN giữa nhiều Database.
+- Không sửa Schema nếu chưa được yêu cầu.
+- Không `SELECT *`. Query tối ưu. Index hợp lý. Chuẩn hóa dữ liệu.
+- Migration an toàn và Backward Compatible.
+- Không xóa dữ liệu đang được sử dụng.
+- Không đổi kiểu dữ liệu nếu chưa đánh giá Impact.
+- Comment chỉ mô tả mục đích Table hoặc Query.
+
+## Trước khi thực hiện
+
+1. Phân tích.
+2. Impact Analysis.
+3. Bảng bị ảnh hưởng.
+4. Migration.
+5. Rollback Plan.

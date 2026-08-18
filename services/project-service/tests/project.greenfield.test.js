@@ -39,6 +39,7 @@ describe('project.routes greenfield', () => {
     assert.match(src, /createProject/);
     assert.match(src, /:projectId\/boards/);
     assert.match(src, /:projectId\/sprints/);
+    assert.match(src, /router\.delete\('\/:projectId\/sprints\/:sprintId'/);
     assert.doesNotMatch(src, /taskBoardRoutes/);
   });
 });

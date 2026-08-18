@@ -9,8 +9,10 @@ export default function ProjectHubEditSprintModal({
   isOpen,
   sprint = null,
   busy = false,
+  canDelete = false,
   onClose,
   onSave,
+  onDelete,
   t,
 }) {
   const [name, setName] = useState('');
@@ -101,7 +103,17 @@ export default function ProjectHubEditSprintModal({
         {t('workspace.projectHubBacklogSprintGoal')}
         <textarea className={`${inputCls} min-h-[80px]`} value={goal} onChange={(e) => setGoal(e.target.value)} />
       </label>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {canDelete ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDelete}
+            className="mr-auto rounded-lg px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+          >
+            {t('workspace.projectHubBacklogDeleteSprint')}
+          </button>
+        ) : null}
         <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground">
           {t('common.cancel')}
         </button>

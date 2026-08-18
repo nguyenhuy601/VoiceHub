@@ -473,6 +473,12 @@ export default function OrganizationTeamGrid({
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <h3 className="truncate text-base font-bold text-foreground">{card.name}</h3>
+                        {card.isProject &&
+                        ['closed', 'completed'].includes(String(card.raw?.status || '').toLowerCase()) ? (
+                          <span className="shrink-0 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-success">
+                            {t('workspace.projectHubCompleteProjectBadge')}
+                          </span>
+                        ) : null}
                         {String(card.type).toLowerCase() === 'public' ? null : (
                           <Lock size={12} className="shrink-0 text-muted-foreground/50" />
                         )}

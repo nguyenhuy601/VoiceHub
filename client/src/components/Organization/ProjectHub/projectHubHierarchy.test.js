@@ -13,6 +13,7 @@ import {
   isLiveListDragValid,
   isTypePreservingDrop,
   preferListHorizontalDrag,
+  resolveBoardCreateParent,
   resolveListDropAction,
   resolveListHorizontalAction,
   typesInBand,
@@ -66,6 +67,63 @@ test('cây sâu Epic→Bug/Feature→Story→Task→Sub-task: Task vẫn có Cre
   assert.deepEqual(childTypesForParent('story', cfg, capsAll), ['task']);
   assert.deepEqual(childTypesForParent('task', cfg, capsAll), ['subtask']);
   assert.deepEqual(childTypesForParent('subtask', cfg, capsAll), []);
+});
+
+test('resolveBoardCreateParent: Story→Task (screenshot); Feature→Task; Epic→Bug; orphan rỗng', () => {
+  const screenshot = normalizeWorkTypeConfig({
+    treeOrder: ['epic', 'bug', 'feature', 'story', 'task', 'subtask'],
+    depthById: { epic: 0, bug: 1, feature: 1, story: 1, task: 2, subtask: 3 },
+  });
+  assert.deepEqual(
+    resolveBoardCreateParent({
+      type: 'task',
+      parentNode: {
+        kind: 'card',
+        workType: 'story',
+        raw: { _id: 's1', epicId: 'e1', issueType: 'story' },
+      },
+      config: screenshot,
+    }),
+    { parentTaskId: 's1', epicId: 'e1' }
+  );
+  assert.deepEqual(
+    resolveBoardCreateParent({
+      type: 'task',
+      parentNode: {
+        kind: 'planning',
+        workType: 'feature',
+        raw: { _id: 'f1', parentId: 'e1', type: 'feature' },
+      },
+      config: screenshot,
+    }),
+    { featureId: 'f1', epicId: 'e1' }
+  );
+  assert.deepEqual(
+    resolveBoardCreateParent({
+      type: 'bug',
+      parentNode: { kind: 'planning', workType: 'epic', raw: { _id: 'e1', type: 'epic' } },
+      config: screenshot,
+    }),
+    { epicId: 'e1' }
+  );
+  assert.deepEqual(resolveBoardCreateParent({ type: 'task', parentNode: null, config: screenshot }), {});
+});
+
+test('buildListTree: Feature chứa card theo featureId', () => {
+  const cfg = defaultWorkTypeConfig();
+  const tree = buildListTree({
+    epics: [{ _id: 'e1', title: 'Epic 1', type: 'epic' }],
+    features: [{ _id: 'f1', title: 'Feat', type: 'feature', parentId: 'e1' }],
+    cards: [{ _id: 'c1', title: 'Task under feat', issueType: 'task', featureId: 'f1', epicId: 'e1' }],
+    config: cfg,
+  });
+  assert.equal(tree.length, 1);
+  const featureNode = tree[0].children.find((n) => n.workType === 'feature');
+  assert.ok(featureNode);
+  assert.equal(featureNode.children.length, 1);
+  assert.equal(featureNode.children[0].raw._id, 'c1');
+  const epicDirectCards = tree[0].children.filter((n) => n.kind === 'card');
+  assert.equal(epicDirectCards.length, 0);
 });
 
 test('buildListTree: Epic → card → subtask', () => {

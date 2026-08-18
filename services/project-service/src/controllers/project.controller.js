@@ -1,6 +1,7 @@
 const mongoose = require('../db');
 const projectService = require('../services/project.service');
 const sprintCloseService = require('../services/sprintClose.service');
+const projectCloseService = require('../services/projectClose.service');
 const { setUserProjectRoles } = require('../services/projectTeam.service');
 const { listMemberCandidates } = require('../services/projectMemberCandidate.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
@@ -19,6 +20,24 @@ function unauthorized(res) {
     messageUser: 'Vui lòng đăng nhập lại.',
     message: 'Unauthorized',
   });
+}
+
+function sendCloseGateFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
+  if (err?.errorCode && (err?.details || err?.statusCode === 409)) {
+    return sendServiceError(res, err.statusCode || 409, {
+      errorCode: err.errorCode,
+      message: err.message || fallbackMessage,
+      messageUser: err.message || fallbackMessage,
+      extra: err.details ? { data: err.details } : undefined,
+    });
+  }
+  return sendErrorFromCatch(
+    res,
+    err,
+    err.statusCode || fallbackStatus,
+    fallbackMessage,
+    fallbackCode
+  );
 }
 
 async function createProject(req, res) {
@@ -156,7 +175,7 @@ async function patchProject(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể cập nhật dự án', 'PROJECT_PATCH_FAILED');
+    return sendCloseGateFromCatch(res, err, err.statusCode || 400, 'Không thể cập nhật dự án', 'PROJECT_PATCH_FAILED');
   }
 }
 
@@ -171,7 +190,7 @@ async function archiveProject(req, res) {
     const data = await projectService.archiveProject({ userId, projectId });
     return res.json({ success: true, data });
   } catch (err) {
-    return sendErrorFromCatch(res, err, 400, 'Không thể đóng dự án', 'PROJECT_ARCHIVE_FAILED');
+    return sendCloseGateFromCatch(res, err, 400, 'Không thể đóng dự án', 'PROJECT_ARCHIVE_FAILED');
   }
 }
 
@@ -368,7 +387,22 @@ async function patchSprint(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể cập nhật sprint', 'PROJECT_SPRINT_PATCH_FAILED');
+    return sendCloseGateFromCatch(res, err, err.statusCode || 400, 'Không thể cập nhật sprint', 'PROJECT_SPRINT_PATCH_FAILED');
+  }
+}
+
+async function deleteSprint(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId, sprintId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId) || !validOid(sprintId)) {
+      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+    }
+    const data = await projectService.deleteProjectSprint({ userId, projectId, sprintId });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể xóa sprint', 'PROJECT_SPRINT_DELETE_FAILED');
   }
 }
 
@@ -430,12 +464,59 @@ async function completeSprint(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return sendErrorFromCatch(
+    return sendCloseGateFromCatch(
       res,
       err,
       err.statusCode || 400,
       'Không thể hoàn thành sprint',
       'PROJECT_SPRINT_COMPLETE_FAILED'
+    );
+  }
+}
+
+async function completeProjectPreview(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId)) {
+      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+    }
+    const data = await projectCloseService.getCompleteProjectPreview({ userId, projectId });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendCloseGateFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể tải preview hoàn thành dự án',
+      'PROJECT_COMPLETE_PREVIEW_FAILED'
+    );
+  }
+}
+
+async function completeProject(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId)) {
+      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+    }
+    const closeNotes = req.body?.closeNotes;
+    const data = await projectCloseService.completeProject({
+      userId,
+      projectId,
+      closeNotes,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendCloseGateFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể hoàn thành dự án',
+      'PROJECT_COMPLETE_FAILED'
     );
   }
 }
@@ -457,6 +538,9 @@ module.exports = {
   listSprints,
   createSprint,
   patchSprint,
+  deleteSprint,
   completeSprintPreview,
   completeSprint,
+  completeProjectPreview,
+  completeProject,
 };

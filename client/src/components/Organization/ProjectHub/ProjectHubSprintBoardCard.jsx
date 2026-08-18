@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Pencil, User } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, GitFork, GitPullRequest, Pencil, User } from 'lucide-react';
 import UserAvatar from '../../Shared/UserAvatar';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
-import { displayIssueKey, formatHubDueDate, normalizeIssueType } from './projectHubUtils';
+import { cardsUnderParent, childWorkStats, entityRelId } from './projectHubBacklogStats';
+import {
+  childWorkProgressBarClass,
+  childWorkProgressPct,
+  classifyListStatusBucket,
+  displayIssueKey,
+  dueDateTone,
+  formatHubDueDate,
+  normalizeIssueType,
+  statusBucketPillClass,
+} from './projectHubUtils';
+import { childWorkTypeIdsForParent, workTypeTitleKey } from './projectWorkTypes';
 
 function cardAssignee(card) {
   const list = Array.isArray(card?.assignees) ? card.assignees : [];
@@ -28,7 +39,7 @@ function cardAssignee(card) {
 function typeLabel(type, t) {
   const raw = String(type || '').toLowerCase();
   if (raw === 'feature') return t('workspace.projectHubIssueTypeFeature');
-  if (raw === 'subtask') return t('workspace.projectHubIssueTypeTask');
+  if (raw === 'subtask') return t('workspace.projectHubIssueTypeSubtask');
   const key = normalizeIssueType(type);
   if (key === 'story') return t('workspace.projectHubIssueTypeStory');
   if (key === 'bug') return t('workspace.projectHubIssueTypeBug');
@@ -36,56 +47,148 @@ function typeLabel(type, t) {
   return t('workspace.projectHubIssueTypeTask');
 }
 
+function namedWorkType(raw) {
+  const id = String(raw || '').toLowerCase();
+  if (id === 'epic' || id === 'feature' || id === 'story' || id === 'bug' || id === 'subtask') return id;
+  return '';
+}
+
+function resolveBoardWorkType(card, allCards, config, seen = new Set()) {
+  if (!card) return 'task';
+  const id = entityRelId(card._id || card.id);
+  if (id) {
+    if (seen.has(id)) return namedWorkType(card.issueType || card.type) || 'task';
+    seen.add(id);
+  }
+  const named = namedWorkType(card.issueType || card.type);
+  if (named) return named;
+  const parentId = entityRelId(card.parentTaskId);
+  if (!parentId) return 'task';
+  const parent = (Array.isArray(allCards) ? allCards : []).find(
+    (c) => entityRelId(c._id || c.id) === parentId
+  );
+  const parentType = parent ? resolveBoardWorkType(parent, allCards, config, seen) : 'task';
+  const childIds = childWorkTypeIdsForParent(parentType, config);
+  if (childIds.includes('subtask') && !childIds.includes('task')) return 'subtask';
+  if (childIds.includes('task')) return 'task';
+  return childIds[0] || 'task';
+}
+
+function childSectionTitle(childTypeIds, t) {
+  if (!childTypeIds.length || (childTypeIds.length === 1 && childTypeIds[0] === 'subtask')) {
+    return t('workspace.projectHubWorkSubtasks');
+  }
+  return childTypeIds.map((id) => t(workTypeTitleKey(id))).join(', ');
+}
+
+function statusBucketLabel(bucket, t) {
+  if (bucket === 'done') return t('workspace.projectHubBacklogStatusDone');
+  if (bucket === 'progress') return t('workspace.projectHubBacklogStatusProgress');
+  return t('workspace.projectHubBacklogStatusTodo');
+}
+
+function AssigneeMark({ assignee, t, compact = false }) {
+  if (assignee) {
+    return (
+      <UserAvatar
+        avatar={assignee.avatar}
+        userId={assignee.userId}
+        name={assignee.name}
+        size="xs"
+        title={assignee.name}
+      />
+    );
+  }
+  return (
+    <span
+      className={`flex items-center justify-center rounded-full bg-muted text-muted-foreground ${
+        compact ? 'h-6 w-6' : 'h-7 w-7'
+      }`}
+      title={t('taskBoard.unassigned')}
+      aria-label={t('taskBoard.unassigned')}
+    >
+      <User size={compact ? 11 : 12} aria-hidden />
+    </span>
+  );
+}
+
+function ChildPreviewRow({ card, listById, projectCode, onOpenCard, t }) {
+  const issueId = entityRelId(card?._id || card?.id);
+  const listMeta = listById.get(String(card?.listId || ''));
+  const bucket = classifyListStatusBucket(card?.status || listMeta);
+  const assignee = cardAssignee(card);
+  const isDone = bucket === 'done';
+
+  return (
+    <button
+      type="button"
+      className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-left"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpenCard?.(card);
+      }}
+    >
+      <span className="truncate text-xs font-semibold text-foreground">{card?.title || '—'}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <GitFork size={12} className="shrink-0 text-muted-foreground" aria-hidden />
+        <span
+          className={`truncate text-[10px] font-semibold ${
+            isDone ? 'text-muted-foreground line-through' : 'text-muted-foreground'
+          }`}
+        >
+          {displayIssueKey(projectCode, issueId)}
+        </span>
+        <span
+          className={`ml-auto inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBucketPillClass(bucket)}`}
+        >
+          {listMeta?.title || statusBucketLabel(bucket, t)}
+        </span>
+        <AssigneeMark assignee={assignee} t={t} compact />
+      </span>
+    </button>
+  );
+}
+
 /**
- * Thẻ Kanban sprint active: title, due, Parent (Epic), type + key + avatar.
+ * Thẻ Kanban sprint: gọn — title/due/key/assignee + 1 tầng con (status pill).
  */
 export default function ProjectHubSprintBoardCard({
   card,
   projectCode = '',
-  epics = [],
-  canLinkEpic = false,
-  onLinkParent = null,
   onOpenMenu = null,
+  onOpenCard = null,
+  onOpenChangeRequest = null,
   busy = false,
   showDoneCheck = false,
+  allCards = [],
+  lists = [],
+  workTypeConfig = null,
 }) {
   const { t, locale } = useAppStrings();
-  const [epicOpen, setEpicOpen] = useState(false);
-  const epicRef = useRef(null);
+  const [childrenOpen, setChildrenOpen] = useState(true);
   const issueId = String(card?._id || card?.id || '');
   const title = String(card?.title || '').trim();
   const dueLabel = formatHubDueDate(card?.dueDate, locale);
   const assignee = cardAssignee(card);
   const issueType = card?.issueType || card?.type || 'task';
-
-  const epic = useMemo(() => {
-    const epicId = String(card?.epicId || '');
-    if (!epicId) return null;
-    return (epics || []).find((row) => String(row._id || row.id) === epicId) || null;
-  }, [card?.epicId, epics]);
-
-  useEffect(() => {
-    if (!epicOpen) return undefined;
-    const onDoc = (e) => {
-      if (epicRef.current && !epicRef.current.contains(e.target)) setEpicOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [epicOpen]);
-
-  const linkParent = (nextEpicId) => {
-    const next = nextEpicId ? String(nextEpicId) : null;
-    const current = card?.epicId ? String(card.epicId) : null;
-    if (next === current) {
-      setEpicOpen(false);
-      return;
-    }
-    setEpicOpen(false);
-    onLinkParent?.(issueId, next);
-  };
-
-  const chipCls =
-    'block w-full truncate rounded-md border px-1.5 py-0.5 text-left text-[10px] font-semibold';
+  const dueTone = dueDateTone(card?.dueDate, card?.status);
+  const children = useMemo(() => cardsUnderParent(allCards, issueId), [allCards, issueId]);
+  const childStats = useMemo(() => childWorkStats(allCards, issueId, lists), [allCards, issueId, lists]);
+  const viewedType = useMemo(
+    () => resolveBoardWorkType(card, allCards, workTypeConfig),
+    [card, allCards, workTypeConfig]
+  );
+  const childTypeIds = useMemo(
+    () => childWorkTypeIdsForParent(viewedType, workTypeConfig),
+    [viewedType, workTypeConfig]
+  );
+  const sectionTitle = childSectionTitle(childTypeIds, t);
+  const progressPct = childWorkProgressPct(childStats.done, childStats.total);
+  const listById = useMemo(
+    () => new Map((lists || []).map((l) => [String(l._id || l.id || ''), l])),
+    [lists]
+  );
 
   return (
     <>
@@ -94,67 +197,15 @@ export default function ProjectHubSprintBoardCard({
           {title || '—'}
         </div>
         {dueLabel ? (
-          <div className="mt-1 text-[10px] text-muted-foreground">{dueLabel}</div>
+          <div
+            className={`mt-1 flex items-center gap-1 text-[10px] ${
+              dueTone === 'overdue' ? 'font-semibold text-destructive' : 'text-muted-foreground'
+            }`}
+          >
+            {dueTone === 'overdue' ? <AlertTriangle size={12} aria-hidden /> : null}
+            <span>{dueLabel}</span>
+          </div>
         ) : null}
-        <div
-          ref={epicRef}
-          className="relative mt-1.5"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="mb-0.5 text-[10px] font-semibold text-muted-foreground">
-            {t('workspace.projectHubWorkDetailsParent')}
-          </p>
-          {canLinkEpic ? (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setEpicOpen((v) => !v)}
-                title={epic ? epic.title : t('workspace.projectHubBacklogAddEpicAria')}
-                aria-label={epic ? epic.title : t('workspace.projectHubBacklogAddEpicAria')}
-                aria-expanded={epicOpen}
-                className={`${chipCls} ${
-                  epic
-                    ? 'border-primary/40 bg-primary/15 text-primary'
-                    : 'border-dashed border-border text-muted-foreground'
-                } disabled:opacity-50`}
-              >
-                {epic?.title || t('workspace.projectHubBacklogAddEpic')}
-              </button>
-              {epicOpen ? (
-                <div className="absolute left-0 z-30 mt-1 max-h-48 min-w-[180px] overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-xl">
-                  <p className="px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground">
-                    {t('workspace.projectHubBacklogRecentEpics')}
-                  </p>
-                  {(epics || []).map((ep) => (
-                    <button
-                      key={ep._id || ep.id}
-                      type="button"
-                      className="w-full truncate px-2 py-1.5 text-left text-xs hover:bg-muted"
-                      onClick={() => linkParent(ep._id || ep.id)}
-                    >
-                      {ep.title}
-                    </button>
-                  ))}
-                  {card?.epicId ? (
-                    <button
-                      type="button"
-                      className="w-full border-t border-border px-2 py-1.5 text-left text-xs text-destructive hover:bg-muted"
-                      onClick={() => linkParent(null)}
-                    >
-                      {t('workspace.projectHubBacklogRemoveParent')}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : epic ? (
-            <span className={`${chipCls} border-primary/40 bg-primary/15 text-primary`} title={epic.title}>
-              {epic.title}
-            </span>
-          ) : null}
-        </div>
       </div>
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
         <ProjectHubIssueTypeBadge type={issueType} label={typeLabel(issueType, t)} variant="icon" />
@@ -169,25 +220,85 @@ export default function ProjectHubSprintBoardCard({
               aria-label={t('taskBoard.doneColumnCheckAria')}
             />
           ) : null}
-          {assignee ? (
-            <UserAvatar
-              avatar={assignee.avatar}
-              userId={assignee.userId}
-              name={assignee.name}
-              size="xs"
-              title={assignee.name}
-            />
-          ) : (
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground"
-              title={t('taskBoard.unassigned')}
-              aria-label={t('taskBoard.unassigned')}
-            >
-              <User size={12} aria-hidden />
-            </span>
-          )}
+          <AssigneeMark assignee={assignee} t={t} />
         </span>
       </div>
+      {Array.isArray(card?.changeRequests) && card.changeRequests.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          {card.changeRequests.map((cr) => {
+            const crId = String(cr._id || cr.id || '');
+            const code = cr.code || 'CR';
+            return (
+              <button
+                key={crId || code}
+                type="button"
+                title={cr.title || code}
+                className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenChangeRequest?.(crId);
+                }}
+              >
+                <GitPullRequest size={11} aria-hidden className="shrink-0" />
+                <span>{code}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {childStats.total > 0 ? (
+        <div className="mt-2 border-t border-border pt-2" onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="flex w-full items-center gap-1.5 text-[11px] font-semibold text-muted-foreground"
+            aria-expanded={childrenOpen}
+            aria-label={t('workspace.projectHubBacklogChildrenComplete', {
+              done: childStats.done,
+              total: childStats.total,
+            })}
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              setChildrenOpen((v) => !v);
+            }}
+          >
+            <GitFork size={14} aria-hidden />
+            <span className="truncate">{sectionTitle}</span>
+            <span className="tabular-nums">
+              {childStats.done}/{childStats.total}
+            </span>
+            <span className="ml-auto">
+              {childrenOpen ? <ChevronDown size={16} aria-hidden /> : <ChevronRight size={16} aria-hidden />}
+            </span>
+          </button>
+          <div
+            className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPct}
+          >
+            <div
+              className={`h-full ${childWorkProgressBarClass(childStats)}`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          {childrenOpen ? (
+            <div className="mt-1.5 space-y-1.5">
+              {children.map((child) => (
+                <ChildPreviewRow
+                  key={String(child._id || child.id)}
+                  card={child}
+                  listById={listById}
+                  projectCode={projectCode}
+                  onOpenCard={onOpenCard}
+                  t={t}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {typeof onOpenMenu === 'function' ? (
         <button
           type="button"

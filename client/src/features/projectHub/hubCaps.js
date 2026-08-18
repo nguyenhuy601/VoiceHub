@@ -7,7 +7,7 @@ function permSet(caps) {
 }
 
 function flagOrPerm(caps, flag, keys) {
-  if (caps && caps[flag] != null) return Boolean(caps[flag]);
+  if (caps?.[flag]) return true;
   const perms = permSet(caps);
   return keys.some((k) => perms.includes(k));
 }
@@ -24,7 +24,41 @@ export function allowedIssueTypesFromCaps(caps) {
   return types;
 }
 
+export function isProjectCompletedStatus(status) {
+  const st = String(status || '').trim().toLowerCase();
+  return st === 'closed' || st === 'completed';
+}
+
+function applyReadOnly(caps, readOnly) {
+  if (!readOnly) return { ...caps, readOnly: false };
+  return {
+    ...caps,
+    readOnly: true,
+    canManagePlanning: false,
+    canManageMembers: false,
+    canCreateChangeRequest: false,
+    canUpdateChangeRequest: false,
+    canDeleteChangeRequest: false,
+    canManageSettings: false,
+    canManageSprints: false,
+    canDeleteSprint: false,
+    canCreateEpic: false,
+    canUpdateEpic: false,
+    canDeleteEpic: false,
+    canCreateStory: false,
+    canUpdateStory: false,
+    canCreateTask: false,
+    canCreateBug: false,
+    canPrioritizeBacklog: false,
+    canUpdateBacklog: false,
+    canEstimate: false,
+    canCompleteProject: false,
+    allowedIssueTypes: [],
+  };
+}
+
 export function resolveHubCapabilities(projectPayload, { canManageFallback = false } = {}) {
+  const readOnly = isProjectCompletedStatus(projectPayload?.status);
   const caps = projectPayload?.capabilities || null;
   if (caps) {
     const permissions = permSet(caps);
@@ -35,46 +69,71 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         : canManageMembers ||
           permissions.includes('members:view') ||
           permissions.includes('members:manage');
-    return {
-      canManagePlanning: Boolean(caps.canManagePlanning),
-      canManageMembers,
-      canViewMembers,
-      canManageSettings: Boolean(caps.canManageSettings),
-      canManageSprints: Boolean(caps.canManageSprints),
-      canViewBoard: Boolean(caps.canView ?? caps.canEditCards ?? true),
-      canCreateEpic: flagOrPerm(caps, 'canCreateEpic', ['epic:create']),
-      canUpdateEpic: flagOrPerm(caps, 'canUpdateEpic', ['epic:update']),
-      canDeleteEpic: flagOrPerm(caps, 'canDeleteEpic', ['epic:delete']),
-      canCreateStory: flagOrPerm(caps, 'canCreateStory', ['story:create']),
-      canUpdateStory: flagOrPerm(caps, 'canUpdateStory', ['story:update']),
-      canCreateTask: flagOrPerm(caps, 'canCreateTask', ['task:create']),
-      canCreateBug: flagOrPerm(caps, 'canCreateBug', ['bug:create']),
-      canPrioritizeBacklog: flagOrPerm(caps, 'canPrioritizeBacklog', ['backlog:prioritize']),
-      canUpdateBacklog: flagOrPerm(caps, 'canUpdateBacklog', ['backlog:update']),
-      canEstimate: flagOrPerm(caps, 'canEstimate', ['task:estimate']),
-      allowedIssueTypes: allowedIssueTypesFromCaps(caps),
-      permissions,
-    };
+    const canViewChangeRequests =
+      caps.canViewChangeRequests != null
+        ? Boolean(caps.canViewChangeRequests)
+        : permissions.includes('change_request:view');
+    const canCreateChangeRequest = flagOrPerm(caps, 'canCreateChangeRequest', ['change_request:create']);
+    const canUpdateChangeRequest = flagOrPerm(caps, 'canUpdateChangeRequest', ['change_request:update']);
+    const canDeleteChangeRequest = flagOrPerm(caps, 'canDeleteChangeRequest', ['change_request:delete']);
+    return applyReadOnly(
+      {
+        canManagePlanning: Boolean(caps.canManagePlanning),
+        canManageMembers,
+        canViewMembers,
+        canViewChangeRequests,
+        canCreateChangeRequest,
+        canUpdateChangeRequest,
+        canDeleteChangeRequest,
+        canManageSettings: Boolean(caps.canManageSettings),
+        canManageSprints: Boolean(caps.canManageSprints),
+        canDeleteSprint: flagOrPerm(caps, 'canDeleteSprint', ['sprint:delete']),
+        canViewBoard: Boolean(caps.canView ?? caps.canEditCards ?? true),
+        canCreateEpic: flagOrPerm(caps, 'canCreateEpic', ['epic:create']),
+        canUpdateEpic: flagOrPerm(caps, 'canUpdateEpic', ['epic:update']),
+        canDeleteEpic: flagOrPerm(caps, 'canDeleteEpic', ['epic:delete']),
+        canCreateStory: flagOrPerm(caps, 'canCreateStory', ['story:create']),
+        canUpdateStory: flagOrPerm(caps, 'canUpdateStory', ['story:update']),
+        canCreateTask: flagOrPerm(caps, 'canCreateTask', ['task:create']),
+        canCreateBug: flagOrPerm(caps, 'canCreateBug', ['bug:create']),
+        canPrioritizeBacklog: flagOrPerm(caps, 'canPrioritizeBacklog', ['backlog:prioritize']),
+        canUpdateBacklog: flagOrPerm(caps, 'canUpdateBacklog', ['backlog:update']),
+        canEstimate: flagOrPerm(caps, 'canEstimate', ['task:estimate']),
+        canCompleteProject: flagOrPerm(caps, 'canManageBoard', ['project:archive', 'project:edit']),
+        allowedIssueTypes: allowedIssueTypesFromCaps(caps),
+        permissions,
+      },
+      readOnly
+    );
   }
   const fallback = Boolean(canManageFallback);
-  return {
-    canManagePlanning: fallback,
-    canManageMembers: fallback,
-    canViewMembers: true,
-    canManageSettings: fallback,
-    canManageSprints: fallback,
-    canViewBoard: true,
-    canCreateEpic: fallback,
-    canUpdateEpic: fallback,
-    canDeleteEpic: fallback,
-    canCreateStory: fallback,
-    canUpdateStory: fallback,
-    canCreateTask: fallback,
-    canCreateBug: fallback,
-    canPrioritizeBacklog: fallback,
-    canUpdateBacklog: fallback,
-    canEstimate: fallback,
-    allowedIssueTypes: fallback ? ['story', 'task', 'bug'] : [],
-    permissions: [],
-  };
+  return applyReadOnly(
+    {
+      canManagePlanning: fallback,
+      canManageMembers: fallback,
+      canViewMembers: true,
+      canViewChangeRequests: true,
+      canCreateChangeRequest: fallback,
+      canUpdateChangeRequest: fallback,
+      canDeleteChangeRequest: fallback,
+      canManageSettings: fallback,
+      canManageSprints: fallback,
+      canDeleteSprint: fallback,
+      canViewBoard: true,
+      canCreateEpic: fallback,
+      canUpdateEpic: fallback,
+      canDeleteEpic: fallback,
+      canCreateStory: fallback,
+      canUpdateStory: fallback,
+      canCreateTask: fallback,
+      canCreateBug: fallback,
+      canPrioritizeBacklog: fallback,
+      canUpdateBacklog: fallback,
+      canEstimate: fallback,
+      canCompleteProject: fallback,
+      allowedIssueTypes: fallback ? ['story', 'task', 'bug'] : [],
+      permissions: [],
+    },
+    readOnly
+  );
 }

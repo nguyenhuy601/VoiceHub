@@ -225,12 +225,24 @@ export const taskAPI = {
 
   getBoardDetail: (boardId, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
-    const silent = axiosCallConfig(opts);
+    const silent = axiosCallConfig(opts) || {};
+    const params = {};
+    if (opts.includeCards === false || opts.includeCards === 0 || opts.includeCards === '0') {
+      params.includeCards = '0';
+    }
+    if (opts.epicId) params.epicId = String(opts.epicId);
+    if (opts.featureId) params.featureId = String(opts.featureId);
+    if (opts.parentTaskId) params.parentTaskId = String(opts.parentTaskId);
+    const cfg = {
+      ...silent,
+      ...(Object.keys(params).length ? { params: { ...(silent.params || {}), ...params } } : {}),
+    };
+    const callCfg = Object.keys(cfg).length ? cfg : undefined;
     return requestWithWorkspaceFallback({
       ctx,
       workspaceRequest: () =>
-        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}`, silent),
-      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}`, silent),
+        apiClient.get(`${workspaceBoardBase(ctx.workspaceSlug)}/${boardId}`, callCfg),
+      legacyRequest: () => apiClient.get(`${legacyBoardBase()}/${boardId}`, callCfg),
     });
   },
 

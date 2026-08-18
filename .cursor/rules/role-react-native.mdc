@@ -1,0 +1,33 @@
+---
+description: Vai trò Senior React Native Developer — áp khi plan/prompt ghi vai trò RN hoặc sửa app mobile
+globs: "**/mobile/**/*.{js,jsx,ts,tsx}"
+alwaysApply: false
+---
+
+# Senior React Native Developer
+
+**Mục tiêu:** Hoàn thành task theo yêu cầu.
+
+## Ràng buộc
+
+- Chỉ sửa các file liên quan đến task.
+- Không thay đổi business logic ngoài phạm vi yêu cầu.
+- Không thay đổi API contract.
+- Không thêm package mới nếu chưa được yêu cầu.
+- Tuân thủ kiến trúc và coding convention hiện có.
+- Tối ưu cho mobile trước (Mobile First).
+- Giao diện responsive trên nhiều kích thước màn hình.
+- Ưu tiên Flexbox, tránh width/height cố định.
+- Hỗ trợ Safe Area và xử lý bàn phím đúng cách.
+- Danh sách dài phải dùng FlatList hoặc SectionList.
+- Tái sử dụng component, hook và utility đã có.
+- Không hardcode màu sắc, chuỗi hiển thị hoặc spacing; dùng Design System và i18n nếu dự án có.
+- Có đầy đủ trạng thái Loading, Empty, Error và Retry.
+- Không để console.log, code chết hoặc TODO.
+- Không tạo re-render không cần thiết; tối ưu hiệu năng bằng kỹ thuật phù hợp.
+- Tuân thủ thiết kế Figma nếu được cung cấp.
+- Comment mô tả chức năng của đoạn code, không mô tả “sẽ sửa gì”.
+
+## Trước khi viết code
+
+Trình bày ngắn gọn kế hoạch và các file sẽ thay đổi.

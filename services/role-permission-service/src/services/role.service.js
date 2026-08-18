@@ -5,6 +5,7 @@ const { roleWebhook } = require('../clients/webhook.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
+const { isHierarchyRoleName, coercePermissionPackScope } = require('../utils/permissionPackScope');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -15,16 +16,6 @@ function roleServiceError(message, statusCode = 400, errorCode = 'ROLE_OPERATION
   err.statusCode = statusCode;
   err.errorCode = errorCode;
   return err;
-}
-
-/** Role gắn vị trí cây tổ chức (tag div_/dep_/team_ hoặc nhãn Khối/Phòng/Team). */
-function isHierarchyRoleName(name) {
-  const lower = String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  // Hỗ trợ cả id dài (ObjectId 24 chars) và slug scope bất kỳ.
-  if (/(?:^|\s|[•·_-])(div|dep|team)_[a-z0-9_-]{6,}\b/.test(lower)) return true;
-  if (/^(khoi|khối|phong ban|phòng ban|phong|phòng|team|chi nhanh|chi nhánh)\b/.test(lower)) return true;
-  if (/\b(khoi|khối|phong ban|phòng ban|phong|phòng|team)\s*:/.test(lower)) return true;
-  return false;
 }
 
 function internalOrgHeaders() {
@@ -188,11 +179,7 @@ class RoleService {
         throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 400, 'ROLE_NAME_EXISTS');
       }
 
-      const normalizedScope = String(scope || 'ORGANIZATION').toUpperCase();
-      const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
-      if (!allowedScopes.includes(normalizedScope)) {
-        throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
-      }
+      const normalizedScope = coercePermissionPackScope(normalizedName, scope);
 
       const role = new Role({
         name: normalizedName,
@@ -459,20 +446,17 @@ class RoleService {
         }
       }
 
-      if (updateFields.scope !== undefined) {
-        const normalizedScope = String(updateFields.scope || '').toUpperCase();
-        const allowedScopes = ['GLOBAL', 'ORGANIZATION', 'DEPARTMENT', 'TEAM', 'PERSONAL'];
-        if (!allowedScopes.includes(normalizedScope)) {
-          throw roleServiceError('Phạm vi (scope) không hợp lệ', 400, 'ROLE_SCOPE_INVALID');
-        }
-        updateFields.scope = normalizedScope;
-      }
-
       if (updateFields.description !== undefined) {
         updateFields.description = String(updateFields.description || '').trim();
       }
       if (updateFields.name !== undefined) {
         updateFields.name = normalizeSystemRoleNameForPersist(updateFields.name);
+      }
+
+      if (updateFields.scope !== undefined) {
+        const existing = await Role.findById(roleId).select('name').lean();
+        const nameForScope = updateFields.name !== undefined ? updateFields.name : existing?.name;
+        updateFields.scope = coercePermissionPackScope(nameForScope, updateFields.scope);
       }
 
       const role = await Role.findByIdAndUpdate(

@@ -135,12 +135,17 @@ async function upsertWorkflowTemplate({
   description,
   statuses,
   transitions,
+  priorities,
 }) {
   await requireOrgAdmin(organizationId, userId);
   await ensureOrgWorkflowTemplates(organizationId);
 
   const nextStatuses = Array.isArray(statuses) ? statuses : [];
   const nextTransitions = transitionsToBoardShape(Array.isArray(transitions) ? transitions : []);
+  const { normalizePriorityConfig } = require('../utils/priorityConfig');
+  const nextPriorities = Array.isArray(priorities)
+    ? normalizePriorityConfig({ items: priorities }).items
+    : undefined;
   if (!nextStatuses.length) {
     const err = new Error('statuses bắt buộc');
     err.statusCode = 400;
@@ -176,6 +181,7 @@ async function upsertWorkflowTemplate({
       existing.description = String(description ?? existing.description ?? '').trim();
       existing.statuses = nextStatuses;
       existing.transitions = nextTransitions;
+      if (nextPriorities) existing.priorities = nextPriorities;
       await existing.save();
       return existing.toObject();
     }
@@ -184,6 +190,7 @@ async function upsertWorkflowTemplate({
     existing.description = String(description ?? existing.description ?? '').trim();
     existing.statuses = nextStatuses;
     existing.transitions = nextTransitions;
+    if (nextPriorities) existing.priorities = nextPriorities;
     await existing.save();
     return existing.toObject();
   }
@@ -206,6 +213,7 @@ async function upsertWorkflowTemplate({
     isBuiltin: false,
     statuses: nextStatuses,
     transitions: nextTransitions,
+    ...(nextPriorities ? { priorities: nextPriorities } : {}),
   });
   return doc.toObject();
 }
@@ -357,10 +365,12 @@ async function applyTemplateToBoard({ userId, boardId, templateId, templateKey }
   });
 
   if (board.projectId) {
-    await Project.updateOne(
-      { _id: board.projectId },
-      { $set: { workflowTemplateId: template._id } }
-    );
+    const $set = { workflowTemplateId: template._id };
+    if (Array.isArray(template.priorities) && template.priorities.length) {
+      const { normalizePriorityConfig } = require('../utils/priorityConfig');
+      $set.priorityConfig = normalizePriorityConfig({ items: template.priorities });
+    }
+    await Project.updateOne({ _id: board.projectId }, { $set });
   }
 
   return { workflow: wf, template };
@@ -416,7 +426,12 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
     throw err;
   }
 
-  await Project.updateOne({ _id: projectId }, { $set: { workflowTemplateId: template._id } });
+  const projectSet = { workflowTemplateId: template._id };
+  if (Array.isArray(template.priorities) && template.priorities.length) {
+    const { normalizePriorityConfig } = require('../utils/priorityConfig');
+    projectSet.priorityConfig = normalizePriorityConfig({ items: template.priorities });
+  }
+  await Project.updateOne({ _id: projectId }, { $set: projectSet });
 
   const boards = await TaskBoard.find({ projectId, isActive: true }).select('_id').lean();
   const applied = [];

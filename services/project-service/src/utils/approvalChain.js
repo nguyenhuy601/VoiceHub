@@ -299,6 +299,18 @@ const BUILTIN_POLICIES = Object.freeze([
       { order: 3, approverType: 'project_role', roleKey: 'project_manager', quorum: 1 },
     ],
   },
+  {
+    key: 'change_request_default',
+    name: 'Change Request',
+    description: 'Business Analyst → Product Owner → Project Manager',
+    entityTypes: ['change_request'],
+    companySizes: ['startup', 'sme', 'mid', 'enterprise'],
+    steps: [
+      { order: 1, approverType: 'project_role', roleKey: 'business_analyst', quorum: 1 },
+      { order: 2, approverType: 'project_role', roleKey: 'product_owner', quorum: 1 },
+      { order: 3, approverType: 'project_role', roleKey: 'project_manager', quorum: 1 },
+    ],
+  },
 ]);
 
 /** Map company size → preferred task_done policy key for workflow bind */

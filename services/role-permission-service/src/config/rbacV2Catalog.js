@@ -22,6 +22,7 @@ const MODULES = Object.freeze([
   { key: 'project.task', categoryKey: 'project', label: 'Task' },
   { key: 'project.workflow', categoryKey: 'project', label: 'Workflow' },
   { key: 'project.report', categoryKey: 'project', label: 'Report' },
+  { key: 'project.change_request', categoryKey: 'project', label: 'Change Request' },
   { key: 'communication.chat', categoryKey: 'communication', label: 'Chat' },
   { key: 'communication.channel', categoryKey: 'communication', label: 'Channel' },
   { key: 'communication.announcement', categoryKey: 'communication', label: 'Announcement' },
@@ -81,6 +82,10 @@ const MASTER_PERMISSIONS = Object.freeze([
   'project.workflow.view',
   'project.workflow.update',
   'project.report.view',
+  'project.change_request.view',
+  'project.change_request.create',
+  'project.change_request.update',
+  'project.change_request.delete',
 
   'communication.chat.view',
   'communication.chat.send',
@@ -105,11 +110,39 @@ const MASTER_PERMISSIONS = Object.freeze([
   'notification.notification.send',
 ]);
 
+/** Templates used for Project Role / delivery packs — keep `project.*`. Org Permission packs strip those keys. */
+const PROJECT_PACK_TEMPLATE_KEYS = Object.freeze([
+  'project_admin',
+  'project_manager',
+  'product_owner',
+  'scrum_master',
+  'developer',
+  'qa',
+]);
+
+function isProjectMasterPermission(key) {
+  return String(key || '')
+    .trim()
+    .startsWith('project.');
+}
+
+function isProjectPackTemplateKey(templateKey) {
+  return PROJECT_PACK_TEMPLATE_KEYS.includes(String(templateKey || '').trim());
+}
+
+function stripProjectGrantsUnlessProjectPack(grants = [], templateKey = '') {
+  const list = Array.isArray(grants) ? grants : [];
+  if (isProjectPackTemplateKey(templateKey)) return list.filter(Boolean);
+  return list.filter((k) => k && !isProjectMasterPermission(k));
+}
+
 const TEMPLATE_DEFINITIONS = Object.freeze([
   {
     key: 'organization_admin',
     label: 'Organization Admin',
-    grants: MASTER_PERMISSIONS.filter((k) => !k.startsWith('meeting.') || k.endsWith('.view')),
+    grants: MASTER_PERMISSIONS.filter(
+      (k) => !isProjectMasterPermission(k) && (!k.startsWith('meeting.') || k.endsWith('.view'))
+    ),
   },
   {
     key: 'project_admin',
@@ -124,10 +157,6 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'organization.employee.update',
       'organization.department.view',
       'organization.team.view',
-      'project.project.view',
-      'project.task.view',
-      'project.task.assign',
-      'project.report.view',
       // Org channel messages (gateway chat:read) — HR/dept manager cần đọc chat dự án/org
       'communication.chat.view',
       'communication.chat.send',
@@ -144,12 +173,17 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'project.sprint.create',
       'project.sprint.start',
       'project.sprint.close',
+      'project.sprint.delete',
       'project.task.view',
       'project.task.create',
       'project.task.update',
       'project.task.assign',
       'project.task.comment',
       'project.report.view',
+      'project.change_request.view',
+      'project.change_request.create',
+      'project.change_request.update',
+      'project.change_request.delete',
       'communication.chat.view',
       'communication.chat.send',
       'file.file.upload',
@@ -169,6 +203,9 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'project.task.update',
       'project.task.comment',
       'project.report.view',
+      'project.change_request.view',
+      'project.change_request.create',
+      'project.change_request.update',
     ],
   },
   {
@@ -180,11 +217,13 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'project.sprint.create',
       'project.sprint.start',
       'project.sprint.close',
+      'project.sprint.delete',
       'project.task.view',
       'project.task.update',
       'project.task.assign',
       'project.task.comment',
       'project.report.view',
+      'project.change_request.view',
     ],
   },
   {
@@ -198,6 +237,8 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'project.task.comment',
       'project.task.log_work',
       'project.sprint.view',
+      'project.change_request.view',
+      'project.change_request.create',
       'communication.chat.view',
       'communication.chat.send',
       'file.file.upload',
@@ -213,6 +254,7 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
       'project.task.comment',
       'project.sprint.view',
       'project.report.view',
+      'project.change_request.view',
       'communication.chat.view',
       'communication.chat.send',
       'file.file.upload',
@@ -222,7 +264,11 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
   {
     key: 'viewer',
     label: 'Viewer',
-    grants: MASTER_PERMISSIONS.filter((k) => k.endsWith('.view') || k.endsWith('.download') || k.endsWith('.view_recording')),
+    grants: MASTER_PERMISSIONS.filter(
+      (k) =>
+        !isProjectMasterPermission(k) &&
+        (k.endsWith('.view') || k.endsWith('.download') || k.endsWith('.view_recording'))
+    ),
   },
 ]);
 
@@ -373,6 +419,10 @@ const MASTER_TO_LEGACY_ENTRIES = Object.freeze({
   'project.workflow.view': { resource: 'task', actions: ['read'] },
   'project.workflow.update': { resource: 'task', actions: ['write'] },
   'project.report.view': { resource: 'task', actions: ['read'] },
+  'project.change_request.view': { resource: 'change_request', actions: ['view'] },
+  'project.change_request.create': { resource: 'change_request', actions: ['create'] },
+  'project.change_request.update': { resource: 'change_request', actions: ['update'] },
+  'project.change_request.delete': { resource: 'change_request', actions: ['delete'] },
   'communication.chat.view': { resource: 'chat', actions: ['read'] },
   'communication.chat.send': { resource: 'chat', actions: ['write'] },
   'communication.chat.delete': { resource: 'chat', actions: ['delete'] },
@@ -486,10 +536,14 @@ module.exports = {
   MASTER_PERMISSIONS,
   TEMPLATE_DEFINITIONS,
   SYSTEM_TEMPLATE_KEYS,
+  PROJECT_PACK_TEMPLATE_KEYS,
   SPECIALIZATIONS,
   LEGACY_ACTION_TO_MASTER,
   MASTER_TO_LEGACY_ENTRIES,
   isValidMasterPermission,
+  isProjectMasterPermission,
+  isProjectPackTemplateKey,
+  stripProjectGrantsUnlessProjectPack,
   getTemplateDefinition,
   assertCatalogIntegrity,
   materializeLegacyPermissions,

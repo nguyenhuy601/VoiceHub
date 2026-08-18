@@ -8,6 +8,7 @@ const catalog = require('../controllers/projectRoleCatalog.controller');
 const projectRoleAdminRoutes = require('./projectRoleAdmin.routes');
 const controller = require('../controllers/project.controller');
 const planning = require('../controllers/planning.controller');
+const changeRequest = require('../controllers/changeRequest.controller');
 const resource = require('../controllers/resource.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
 const approval = require('../controllers/approval.controller');
@@ -209,12 +210,20 @@ router.post('/:projectId/boards', controller.createBoard);
 router.get('/:projectId/sprints', controller.listSprints);
 router.post('/:projectId/sprints', controller.createSprint);
 router.patch('/:projectId/sprints/:sprintId', controller.patchSprint);
+router.delete('/:projectId/sprints/:sprintId', controller.deleteSprint);
 router.get('/:projectId/sprints/:sprintId/complete-preview', controller.completeSprintPreview);
 router.post('/:projectId/sprints/:sprintId/complete', controller.completeSprint);
 router.get(
   '/:projectId/sprints/:sprintId/time-summary',
   require('../controllers/worklog.controller').getSprintTimeSummaryController
 );
+
+router.get('/:projectId/change-requests', changeRequest.listItems);
+router.post('/:projectId/change-requests', changeRequest.createItem);
+router.get('/:projectId/change-requests/:crId', changeRequest.getItem);
+router.patch('/:projectId/change-requests/:crId', changeRequest.patchItem);
+router.post('/:projectId/change-requests/:crId/submit-approval', changeRequest.submitApproval);
+router.delete('/:projectId/change-requests/:crId', changeRequest.deleteItem);
 
 router.get('/:projectId/planning-items', planning.listItems);
 router.post('/:projectId/planning-items', planning.createItem);
@@ -227,6 +236,8 @@ router.delete('/:projectId/planning-items/:itemId', planning.deleteItem);
 router.get('/:projectId/backlog', planning.listBacklog);
 router.patch('/:projectId/tasks/:taskId/planning', planning.linkTaskEpic);
 
+router.get('/:projectId/complete-preview', controller.completeProjectPreview);
+router.post('/:projectId/complete', controller.completeProject);
 router.post('/:projectId/archive', controller.archiveProject);
 router.patch('/:projectId', controller.patchProject);
 router.get('/:projectId', controller.getProject);

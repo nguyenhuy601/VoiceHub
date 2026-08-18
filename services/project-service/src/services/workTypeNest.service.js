@@ -34,19 +34,28 @@ function resolveCardWorkType(card, parentCard) {
   return issue;
 }
 
+/**
+ * Nest theo Work types config: đúng 1 cấp, hoặc task→subtask dưới Story/Bug/Feature.
+ * @param {string} childType
+ * @param {string} parentType
+ * @param {object} cfg
+ */
+function assertChildUnderParentType(childType, parentType, cfg) {
+  const check = assertNestByDepth(childType, parentType, cfg);
+  if (check.ok) return;
+  if (String(childType || '') === 'task' && String(parentType || '') !== 'task') {
+    const asSub = assertNestByDepth('subtask', parentType, cfg);
+    if (asSub.ok) return;
+  }
+  throw nestDenied(check.message);
+}
+
 async function assertTaskParentNest({ projectId, childCard, parentCard }) {
   if (!parentCard) return;
   const cfg = await loadWorkTypeConfigForProject(projectId);
   const childType = resolveCardWorkType(childCard, parentCard);
   const parentType = resolveCardWorkType(parentCard, null);
-  const check = assertNestByDepth(childType, parentType, cfg);
-  if (check.ok) return;
-  // Default List: Sub-task dưới Story/Bug = issueType task + parentTaskId (không có enum subtask).
-  if (childType === 'task' && parentType !== 'task') {
-    const asSub = assertNestByDepth('subtask', parentType, cfg);
-    if (asSub.ok) return;
-  }
-  throw nestDenied(check.message);
+  assertChildUnderParentType(childType, parentType, cfg);
 }
 
 async function assertTaskEpicNest({ projectId, childCard }) {
@@ -63,10 +72,42 @@ async function assertPlanningParentNest({ projectId, childType, parentType }) {
   if (!check.ok) throw nestDenied(check.message);
 }
 
+/**
+ * Feature = PlanningItem type=feature cùng project. Trả về feature lean nếu hợp lệ.
+ * @returns {Promise<object>}
+ */
+async function assertTaskFeatureNest({ projectId, childCard, featureId }) {
+  const fid = String(featureId || '').trim();
+  if (!fid) {
+    const err = new Error('featureId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_REQUIRED';
+    throw err;
+  }
+  const PlanningItem = require('../models/PlanningItem');
+  const feature = await PlanningItem.findOne({
+    _id: fid,
+    ...(projectId ? { projectId } : {}),
+    type: 'feature',
+  }).lean();
+  if (!feature) {
+    const err = new Error('featureId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_INVALID';
+    throw err;
+  }
+  const cfg = await loadWorkTypeConfigForProject(projectId || feature.projectId);
+  const childType = resolveCardWorkType(childCard, null);
+  assertChildUnderParentType(childType, 'feature', cfg);
+  return feature;
+}
+
 module.exports = {
   loadWorkTypeConfigForProject,
   resolveCardWorkType,
+  assertChildUnderParentType,
   assertTaskParentNest,
   assertTaskEpicNest,
+  assertTaskFeatureNest,
   assertPlanningParentNest,
 };

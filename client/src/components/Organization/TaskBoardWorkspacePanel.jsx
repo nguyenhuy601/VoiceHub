@@ -19,12 +19,13 @@ import { CSS } from '@dnd-kit/utilities';
 import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
-import TaskBoardCardDetailModal from './TaskBoardCardDetailModal';
+import WorkItemDetail from './ProjectHub/WorkItemDetail';
 import { allowedIssueTypesFromCaps } from '../../features/projectHub/hubCaps';
 import { visibleCreateTypes } from './ProjectHub/projectWorkTypes';
 import { useProjectWorkTypes } from './ProjectHub/useProjectWorkTypes';
 import ProjectHubSprintBoardCard from './ProjectHub/ProjectHubSprintBoardCard';
-import { isCardInSprint } from './ProjectHub/projectHubUtils';
+import { entityRelId } from './ProjectHub/projectHubBacklogStats';
+import { isCardInSprint, statusSelectBucket } from './ProjectHub/projectHubUtils';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
 import { useAppStrings } from '../../locales/appStrings';
@@ -530,15 +531,28 @@ export default function TaskBoardWorkspacePanel({
         next = next.filter((c) => String(c.assigneeId || '') === String(currentUserId));
       }
       const q = String(boardSearchQuery || '').trim().toLowerCase();
-      if (q) {
-        next = next.filter((c) => {
-          const hay = `${c.title || ''} ${c.description || ''} ${c.summary || ''} ${c.assigneeName || ''}`.toLowerCase();
-          return hay.includes(q);
-        });
+      const matchesQuery = (c) => {
+        if (!q) return true;
+        const hay = `${c.title || ''} ${c.description || ''} ${c.summary || ''} ${c.assigneeName || ''}`.toLowerCase();
+        return hay.includes(q);
+      };
+      if (q && !hubSprintCard) {
+        next = next.filter(matchesQuery);
+      }
+      if (hubSprintCard) {
+        const pool = next;
+        next = pool.filter((c) => !entityRelId(c.parentTaskId));
+        if (q) {
+          next = next.filter((c) => {
+            if (matchesQuery(c)) return true;
+            const pid = entityRelId(c._id || c.id);
+            return pool.some((child) => entityRelId(child.parentTaskId) === pid && matchesQuery(child));
+          });
+        }
       }
       return next;
     },
-    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId]
+    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId, hubSprintCard]
   );
 
   const attachSprintToCreate = (payload) => {
@@ -563,6 +577,10 @@ export default function TaskBoardWorkspacePanel({
   const listMap = useMemo(
     () => buildListMap(boardDetail, optimisticLists),
     [boardDetail, optimisticLists]
+  );
+  const allBoardCards = useMemo(
+    () => Object.values(cardItemsByList || {}).flat(),
+    [cardItemsByList]
   );
 
   const workflowTransitionsByFrom = boardDetail?.workflow?.transitionsByFrom || null;
@@ -627,11 +645,18 @@ export default function TaskBoardWorkspacePanel({
     [t]
   );
 
+  const existingStatusBuckets = useMemo(
+    () => new Set((listMap || []).map((l) => statusSelectBucket(l))),
+    [listMap]
+  );
+
   const statusColumnSuggestions = useMemo(() => {
-    return statusColumnTitles.filter(
-      (title) => !existingListTitles.has(String(title || '').trim().toLowerCase())
-    );
-  }, [statusColumnTitles, existingListTitles]);
+    return statusColumnTitles.filter((title) => {
+      const bucket = statusSelectBucket({ title });
+      if (existingStatusBuckets.has(bucket)) return false;
+      return !existingListTitles.has(String(title || '').trim().toLowerCase());
+    });
+  }, [statusColumnTitles, existingListTitles, existingStatusBuckets]);
 
   const canCreateStatusColumns = canManageLists && statusColumnSuggestions.length > 0 && !submittingList;
 
@@ -1236,12 +1261,14 @@ export default function TaskBoardWorkspacePanel({
         <ProjectHubSprintBoardCard
           card={card}
           projectCode={hubSprintCard.projectCode || ''}
-          epics={hubSprintCard.epics || []}
-          canLinkEpic={Boolean(hubSprintCard.canLinkEpic)}
-          onLinkParent={hubSprintCard.onLinkParent}
           onOpenMenu={onOpenMenu}
+          onOpenCard={(c) => openCardDetail(c, 'detail')}
+          onOpenChangeRequest={hubSprintCard.onOpenChangeRequest}
           busy={Boolean(hubSprintCard.busy)}
           showDoneCheck={isWorkflowDone}
+          allCards={allBoardCards}
+          lists={listMap}
+          workTypeConfig={workTypeConfig}
         />
       );
     }
@@ -2158,14 +2185,20 @@ export default function TaskBoardWorkspacePanel({
         onRefresh={onRefresh}
       />
 
-      <TaskBoardCardDetailModal
-        isOpen={Boolean(detailCard)}
+      <WorkItemDetail
+        key={String(detailCard?._id || detailCard?.id || 'board-detail')}
+        open={Boolean(detailCard)}
+        chrome="modal"
         isDarkMode={isDarkMode}
         workspaceSlug={workspaceSlug}
-        card={detailCard}
+        workItem={detailCard}
         boardId={selectedBoardId}
         listTitle={detailCard ? listTitleForCard(detailCard) : ''}
         lists={listMap}
+        boardCards={Array.isArray(boardDetail?.cards) ? boardDetail.cards : []}
+        workTypeConfig={workTypeConfig}
+        projectCode={hubSprintCard?.projectCode || ''}
+        projectId={hubSprintCard?.projectId || boardDetail?.board?.projectId || ''}
         initialPanel={detailPanel}
         taskWorkspaceScope={taskWorkspaceScope}
         canCreateTask={
@@ -2180,13 +2213,31 @@ export default function TaskBoardWorkspacePanel({
               Boolean(boardCapabilities?.canManageBoard)
             : true
         }
+        canComment={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:comment') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : true
+        }
+        canChangeStatus={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:change_status') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : true
+        }
         onClose={() => {
           setDetailCard(null);
           setDetailPanel('detail');
         }}
+        onOpenWorkItem={(card) => {
+          if (card) openCardDetail(card, 'detail');
+        }}
         onRefresh={onRefresh}
         onUpdateCard={async (cardId, patch) => {
-          await onUpdateCard?.(cardId, patch);
+          const keys = Object.keys(patch || {});
+          if (!(keys.length === 1 && keys[0] === 'comments')) {
+            await onUpdateCard?.(cardId, patch);
+          }
           setDetailCard((prev) => (prev && String(prev._id) === String(cardId) ? { ...prev, ...patch } : prev));
         }}
       />

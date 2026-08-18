@@ -1775,6 +1775,25 @@ function OrganizationsPage({
     setWorkspaceTabView('announcement');
   }, []);
 
+  const handleBackFromProjectHub = useCallback(() => {
+    if (isProjectsRoute && hasOpenProjectBoard) {
+      navigate(buildCollaborateTasksPath(selectedOrganizationId), { replace: true });
+      return;
+    }
+    if (departmentWorkspaceActive) {
+      handleBackFromDepartmentWorkspace();
+      return;
+    }
+    setSelectedTeamId('');
+  }, [
+    isProjectsRoute,
+    hasOpenProjectBoard,
+    selectedOrganizationId,
+    navigate,
+    departmentWorkspaceActive,
+    handleBackFromDepartmentWorkspace,
+  ]);
+
   const handleDepartmentModuleClick = useCallback(
     async (departmentId, module) => {
       if (!canSelectDepartment(departmentId)) return;
@@ -4322,13 +4341,7 @@ function OrganizationsPage({
       departmentWorkspaceActive={departmentWorkspaceActive}
       preferredTaskBoardId={boardIdFromQuery}
       preferredProjectId={projectIdFromQuery}
-      onBackFromTasks={() => {
-        if (departmentWorkspaceActive) {
-          handleBackFromDepartmentWorkspace();
-        } else {
-          setSelectedTeamId('');
-        }
-      }}
+      onBackFromTasks={handleBackFromProjectHub}
       memberDepartmentIds={memberDepartmentIds}
       memberDepartmentChannelIds={memberDepartmentChannelIds}
       workspaceTabView={workspaceTabView}
@@ -4473,17 +4486,7 @@ function OrganizationsPage({
         hideChrome={shellActiveTab === 'tasks' || isProjectsRoute}
         locale={locale}
         onTabChange={handleShellTabChange}
-        onBackFromSubView={() => {
-          if (isProjectsRoute && hasOpenProjectBoard) {
-            navigate(buildCollaborateTasksPath(selectedOrganizationId), { replace: true });
-            return;
-          }
-          if (departmentWorkspaceActive) {
-            handleBackFromDepartmentWorkspace();
-          } else {
-            setSelectedTeamId('');
-          }
-        }}
+        onBackFromSubView={handleBackFromProjectHub}
         teamGrid={
           showProjectsLanding ? (
             <OrganizationTeamGrid
