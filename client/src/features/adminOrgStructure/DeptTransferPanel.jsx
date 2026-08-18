@@ -18,12 +18,12 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberDepartmentId, memberUserId } from '../../utils/adminUserUtils';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
-export default function DeptTransferPanel({ orgId }) {
+export default function DeptTransferPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { departments, loadStructure } = useAdminOrgStructure(orgId);
-  const { members, loadMembers, membersById } = useAdminMembers(orgId);
+  const { departments, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { members, loadMembers, membersById, error: membersError } = useAdminMembers(orgId);
   const [fromDept, setFromDept] = useState('');
   const [toDept, setToDept] = useState('');
   const [showAssigned, setShowAssigned] = useState(false);
@@ -93,6 +93,73 @@ export default function DeptTransferPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.deptTransfer')}>
+      {structureError || membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : (
+        <form className="space-y-4" onSubmit={transfer}>
+        <label className="block">
+          <span className={adminLabelClass()}>{t('adminOrg.fromDept')}</span>
+          <select
+            className={adminInputClass()}
+            value={fromDept}
+            onChange={(e) => setFromDept(e.target.value)}
+          >
+            <option value="">{t('adminOrg.deptTransferFromNone')}</option>
+            {departments.map((d) => (
+              <option key={unitId(d)} value={unitId(d)}>
+                {unitName(d)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className={adminLabelClass()}>{t('adminOrg.toDept')}</span>
+          <select
+            required
+            className={adminInputClass()}
+            value={toDept}
+            onChange={(e) => setToDept(e.target.value)}
+          >
+            <option value="">{t('adminOrg.selectDepartment')}</option>
+            {departments.map((d) => (
+              <option key={unitId(d)} value={unitId(d)}>
+                {unitName(d)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {validationMessage ? (
+          <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
+        ) : selectedMember ? (
+          <p className="text-xs text-muted-foreground">
+            {t('adminOrg.deptTransferReady', {
+              name: selectedMember.displayName || selectedMember.email || memberUserId(selectedMember),
+            })}
+          </p>
+        ) : null}
+        <button type="submit" disabled={!canSubmit} className={adminPrimaryBtnClass()}>
+          {saving ? t('common.saving') : t('adminOrg.transferAction')}
+        </button>
+        </form>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.deptTransfer')}
@@ -132,53 +199,7 @@ export default function DeptTransferPanel({ orgId }) {
             }}
           />
         </div>
-        <AdminUserFormCard title={t('adminDomains.orgStructure.deptTransfer')}>
-          <form className="space-y-4" onSubmit={transfer}>
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminOrg.fromDept')}</span>
-              <select
-                className={adminInputClass()}
-                value={fromDept}
-                onChange={(e) => setFromDept(e.target.value)}
-              >
-                <option value="">{t('adminOrg.deptTransferFromNone')}</option>
-                {departments.map((d) => (
-                  <option key={unitId(d)} value={unitId(d)}>
-                    {unitName(d)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminOrg.toDept')}</span>
-              <select
-                required
-                className={adminInputClass()}
-                value={toDept}
-                onChange={(e) => setToDept(e.target.value)}
-              >
-                <option value="">{t('adminOrg.selectDepartment')}</option>
-                {departments.map((d) => (
-                  <option key={unitId(d)} value={unitId(d)}>
-                    {unitName(d)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {validationMessage ? (
-              <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
-            ) : selectedMember ? (
-              <p className="text-xs text-muted-foreground">
-                {t('adminOrg.deptTransferReady', {
-                  name: selectedMember.displayName || selectedMember.email || memberUserId(selectedMember),
-                })}
-              </p>
-            ) : null}
-            <button type="submit" disabled={!canSubmit} className={adminPrimaryBtnClass()}>
-              {saving ? t('common.saving') : t('adminOrg.transferAction')}
-            </button>
-          </form>
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

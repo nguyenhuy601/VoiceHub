@@ -13,13 +13,15 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const DEPT_MANAGE_HUB = '/app/admin/org-structure/departments/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/departments/members', labelKey: 'adminDomains.orgStructure.deptMembers' },
-  { path: '/app/admin/org-structure/departments/edit', labelKey: 'adminDomains.orgStructure.deptEdit' },
-  { path: '/app/admin/org-structure/departments/head', labelKey: 'adminDomains.orgStructure.deptHead' },
-  { path: '/app/admin/org-structure/departments/org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles' },
-  { path: '/app/admin/org-structure/departments/disable', labelKey: 'adminDomains.orgStructure.deptDisable' },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.deptMembers' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.deptEdit' },
+  { tab: 'head', labelKey: 'adminDomains.orgStructure.deptHead' },
+  { tab: 'org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles' },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.deptDisable' },
 ];
 
 export default function DeptListPanel({ orgId }) {
@@ -69,10 +71,10 @@ export default function DeptListPanel({ orgId }) {
             <Plus className="h-4 w-4" />
             {t('adminDomains.orgStructure.deptCreate')}
           </Link>
-          <Link to="/app/admin/org-structure/departments/members" className={adminSecondaryBtnClass()}>
+          <Link to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, null, 'members')} className={adminSecondaryBtnClass()}>
             {t('adminDomains.orgStructure.deptMembers')}
           </Link>
-          <Link to="/app/admin/org-structure/departments/transfer" className={adminSecondaryBtnClass()}>
+          <Link to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, null, 'transfer')} className={adminSecondaryBtnClass()}>
             {t('adminDomains.orgStructure.deptTransfer')}
           </Link>
         </>
@@ -125,8 +127,8 @@ export default function DeptListPanel({ orgId }) {
                         <div className="flex flex-wrap gap-1">
                           {ACTION_LINKS.map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

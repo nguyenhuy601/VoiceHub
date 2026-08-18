@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
+import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { flattenPermissionSlots } from '../../config/adminRbacCatalog';
 import {
@@ -19,7 +20,7 @@ function hasPermission(role, resource, action) {
 export default function RolesMatrixPanel({ orgId }) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
-  const { systemRoles, loading } = useAdminRoles(orgId);
+  const { systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
 
   const slots = useMemo(() => flattenPermissionSlots(), []);
 
@@ -33,6 +34,15 @@ export default function RolesMatrixPanel({ orgId }) {
         </div>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : error ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRoles()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
       ) : !systemRoles.length ? (
         <p className="text-sm text-muted-foreground">{t('adminRbac.noRoles')}</p>
       ) : (

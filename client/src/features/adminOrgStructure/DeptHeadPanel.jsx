@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/Shared';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -26,13 +27,13 @@ import {
   memberUserId,
 } from '../../utils/adminUserUtils';
 
-export default function DeptHeadPanel({ orgId }) {
+export default function DeptHeadPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { members, membersByIdAll } = useAdminMembers(orgId);
+  const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { members, membersByIdAll, error: membersError, loadMembers } = useAdminMembers(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -131,12 +132,66 @@ export default function DeptHeadPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.deptHead')}>
+      {structureError || membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected || !userId ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.deptHeadSelectBoth')}</p>
+      ) : (
+        <p className="text-sm text-foreground">
+          {t('adminOrg.deptHeadReady', {
+            userName: selectedUserName,
+            deptName: selectedDeptName,
+          })}
+        </p>
+      )}
+    </AdminUserFormCard>
+  );
+
+  const confirmDialog = (
+    <ConfirmDialog
+      isOpen={confirmOpen}
+      onClose={closeConfirm}
+      onConfirm={save}
+      title={t('adminDomains.orgStructure.deptHead')}
+      message={t('adminOrg.deptHeadConfirm', {
+        userName: selectedUserName,
+        deptName: selectedDeptName,
+      })}
+      confirmText={t('common.save')}
+      cancelText={t('common.cancel')}
+    />
+  );
+
+  if (embedded) {
+    return (
+      <>
+        {body}
+        {confirmDialog}
+      </>
+    );
+  }
+
   return (
     <AdminUserPanelShell title={t('adminDomains.orgStructure.deptHead')} hint={t('adminOrg.deptHeadHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminOrgUnitPicker
           items={departments}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.deptHeadPickerHint')}
@@ -156,33 +211,10 @@ export default function DeptHeadPanel({ orgId }) {
                 : t('adminOrg.deptHeadNoEligible')
             }
           />
-          <AdminUserFormCard title={t('adminDomains.orgStructure.deptHead')}>
-            {!selected || !userId ? (
-              <p className="text-sm text-muted-foreground">{t('adminOrg.deptHeadSelectBoth')}</p>
-            ) : (
-              <p className="text-sm text-foreground">
-                {t('adminOrg.deptHeadReady', {
-                  userName: selectedUserName,
-                  deptName: selectedDeptName,
-                })}
-              </p>
-            )}
-          </AdminUserFormCard>
+          {body}
         </div>
       </div>
-
-      <ConfirmDialog
-        isOpen={confirmOpen}
-        onClose={closeConfirm}
-        onConfirm={save}
-        title={t('adminDomains.orgStructure.deptHead')}
-        message={t('adminOrg.deptHeadConfirm', {
-          userName: selectedUserName,
-          deptName: selectedDeptName,
-        })}
-        confirmText={t('common.save')}
-        cancelText={t('common.cancel')}
-      />
+      {confirmDialog}
     </AdminUserPanelShell>
   );
 }

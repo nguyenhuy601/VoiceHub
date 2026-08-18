@@ -16,6 +16,7 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberOrgRole, memberUserId, unwrapApi } from '../../utils/adminUserUtils';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS } from '../../utils/roleTaxonomy';
 import { unwrapOrgList } from '../../utils/userTaxonomyUtils';
+import useAdminMembers from '../../hooks/useAdminMembers';
 
 const MEMBERSHIP_ROLE_OPTIONS = ['member', 'hr', 'admin', 'owner'];
 
@@ -46,11 +47,13 @@ function buildPositionOptionsFromHr(positions) {
     .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
 }
 
-export default function UserEditPanel({ orgId }) {
+export default function UserEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [loadTick, setLoadTick] = useState(0);
   const [saving, setSaving] = useState(false);
   const [initialRole, setInitialRole] = useState('member');
   const [positionOptions, setPositionOptions] = useState(() =>
@@ -64,6 +67,7 @@ export default function UserEditPanel({ orgId }) {
     jobTitle: '',
     role: 'member',
   });
+  const { loadMembers } = useAdminMembers(orgId);
 
   useEffect(() => {
     if (!orgId) return;
@@ -88,6 +92,7 @@ export default function UserEditPanel({ orgId }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const [profileRes, membersRes] = await Promise.all([
           adminUserAPI.getProfile(orgId, userId),
@@ -106,7 +111,9 @@ export default function UserEditPanel({ orgId }) {
         });
       } catch (error) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.loadProfileFail') }));
+          const msg = resolveApiErrorMessage(error, { t, fallback: t('adminUsers.loadProfileFail') });
+          setLoadError(msg);
+          toast.error(msg);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -115,7 +122,7 @@ export default function UserEditPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, userId, t]);
+  }, [orgId, userId, t, loadTick]);
 
   const selectOptions = useMemo(() => {
     const current = String(form.jobTitle || '').trim();
@@ -142,6 +149,7 @@ export default function UserEditPanel({ orgId }) {
         setInitialRole(nextRole);
       }
       toast.success(t('adminUsers.profileSaved'));
+      await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.profileSaveFail') }));
     } finally {
@@ -149,62 +157,82 @@ export default function UserEditPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminUsers.editInfo')}>
+      {!userId ? (
+        <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+      ) : loading ? (
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : loadError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {loadError}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            disabled={saving}
+            onClick={() => setLoadTick((n) => n + 1)}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : (
+        <form className="space-y-4" onSubmit={save}>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminUsers.displayName')}</span>
+            <input
+              className={adminInputClass()}
+              placeholder={t('adminUsers.displayName')}
+              value={form.displayName}
+              onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
+            <select
+              className={adminInputClass()}
+              value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+            >
+              {MEMBERSHIP_ROLE_OPTIONS.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminUsers.jobTitle')}</span>
+            <select
+              className={adminInputClass()}
+              value={form.jobTitle}
+              onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
+            >
+              <option value="">{t('adminUsers.jobTitleSelectPlaceholder')}</option>
+              {selectOptions.map((opt) => (
+                <option key={opt.key} value={opt.label}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.jobTitleSelectHint')}</p>
+          </label>
+          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </form>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell title={t('adminDomains.users.edit')} hint={t('adminUsers.editPickerHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.editPickerHint')} />
-        <AdminUserFormCard title={t('adminUsers.editInfo')}>
-          {!userId ? (
-            <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-          ) : loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : (
-            <form className="space-y-4" onSubmit={save}>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminUsers.displayName')}</span>
-                <input
-                  className={adminInputClass()}
-                  placeholder={t('adminUsers.displayName')}
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                />
-              </label>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
-                <select
-                  className={adminInputClass()}
-                  value={form.role}
-                  onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                >
-                  {MEMBERSHIP_ROLE_OPTIONS.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminUsers.jobTitle')}</span>
-                <select
-                  className={adminInputClass()}
-                  value={form.jobTitle}
-                  onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
-                >
-                  <option value="">{t('adminUsers.jobTitleSelectPlaceholder')}</option>
-                  {selectOptions.map((opt) => (
-                    <option key={opt.key} value={opt.label}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.jobTitleSelectHint')}</p>
-              </label>
-              <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            </form>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

@@ -16,12 +16,17 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 import { memberDisplayName, memberEmail, memberUserId } from '../../utils/adminUserUtils';
 
-export default function TeamMembersPanel({ orgId }) {
+export default function TeamMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { teams, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { members, loading: membersLoading } = useAdminMembers(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const {
+    members,
+    loading: membersLoading,
+    error: membersError,
+    loadMembers,
+  } = useAdminMembers(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -53,13 +58,73 @@ export default function TeamMembersPanel({ orgId }) {
         members: selectedMembers,
       });
       toast.success(t('adminOrg.saved'));
-      await loadStructure();
+      await Promise.allSettled([loadStructure(), loadMembers()]);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.saveFail') }));
     } finally {
       setSaving(false);
     }
   };
+
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.teamMembers')}>
+      {structureError || membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError ||
+              resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : membersLoading ? (
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
+            <ul className="divide-y divide-border/50">
+              {members.map((m) => {
+                const id = memberUserId(m);
+                const checked = selectedMembers.includes(id);
+                return (
+                  <li key={id}>
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border"
+                        checked={checked}
+                        onChange={() => toggle(id)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {memberDisplayName(m)}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {memberEmail(m)}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
 
   return (
     <AdminUserPanelShell
@@ -71,52 +136,14 @@ export default function TeamMembersPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={teams}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.teamMembersPickerHint')}
           subtitleFn={(row) => row.departmentName || ''}
         />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.teamMembers')}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : membersLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : (
-            <div className="space-y-4">
-              <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
-                <ul className="divide-y divide-border/50">
-                  {members.map((m) => {
-                    const id = memberUserId(m);
-                    const checked = selectedMembers.includes(id);
-                    return (
-                      <li key={id}>
-                        <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
-                          <input
-                            type="checkbox"
-                            className="rounded border-border"
-                            checked={checked}
-                            onChange={() => toggle(id)}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-foreground">
-                              {memberDisplayName(m)}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {memberEmail(m)}
-                            </span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-              <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            </div>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

@@ -12,17 +12,19 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const TEAM_MANAGE_HUB = '/app/admin/org-structure/teams/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
-  { path: '/app/admin/org-structure/teams/members', labelKey: 'adminDomains.orgStructure.teamMembers' },
-  { path: '/app/admin/org-structure/teams/leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers' },
+  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
+  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { teams, loading } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
   const [query, setQuery] = useState('');
 
@@ -70,6 +72,13 @@ export default function TeamListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : structureError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{structureError}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -112,8 +121,8 @@ export default function TeamListPanel({ orgId }) {
                         <div className="flex flex-wrap gap-1">
                           {ACTION_LINKS.map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(TEAM_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

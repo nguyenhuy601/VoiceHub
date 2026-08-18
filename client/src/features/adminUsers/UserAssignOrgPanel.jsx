@@ -24,11 +24,11 @@ import {
 } from '../../utils/adminUserUtils';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
-export default function UserAssignOrgPanel({ orgId }) {
+export default function UserAssignOrgPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { departments, teams, loadStructure } = useAdminOrgStructure(orgId);
+  const { departments, teams, loadStructure, loading: structureLoading, error: structureError } = useAdminOrgStructure(orgId);
   const { loadMembers, membersById } = useAdminMembers(orgId);
   const [departmentId, setDepartmentId] = useState('');
   const [teamId, setTeamId] = useState('');
@@ -91,10 +91,82 @@ export default function UserAssignOrgPanel({ orgId }) {
       await Promise.all([loadStructure(), loadMembers()]);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.assignOrgFail') }));
+      // Tối thiểu vẫn refresh lại danh sách để picker bên trái không bị "stale".
+      await Promise.allSettled([loadStructure(), loadMembers()]);
     } finally {
       setBusy(false);
     }
   };
+
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignOrgHint')}>
+      {!userId ? (
+        <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+      ) : null}
+      {structureLoading ? (
+        <p className="mb-2 text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : structureError ? (
+        <div className="mb-2 space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">{structureError}</p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => loadStructure()}
+            disabled={busy}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : null}
+      <div className="space-y-4">
+        <label className="block">
+          <span className={adminLabelClass()}>{t('adminOrg.toDept')}</span>
+          <select
+            className={adminInputClass()}
+            value={departmentId}
+            onChange={(e) => setDepartmentId(e.target.value)}
+          >
+            <option value="">{t('adminOrg.selectDepartment')}</option>
+            {departments.map((d) => (
+              <option key={unitId(d)} value={unitId(d)}>
+                {unitName(d)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className={adminLabelClass()}>{t('adminUsers.assignOrgTeamOptional')}</span>
+          <select
+            className={adminInputClass()}
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
+            disabled={!departmentId}
+          >
+            <option value="">{t('adminUsers.assignOrgTeamNone')}</option>
+            {teamsInDept.map((row) => (
+              <option key={unitId(row)} value={unitId(row)}>
+                {unitName(row)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {validationMessage ? (
+          <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
+        ) : selectedMember ? (
+          <p className="text-xs text-muted-foreground">
+            {t('adminUsers.assignOrgReady', {
+              name: memberDisplayName(selectedMember) || memberUserId(selectedMember),
+            })}
+          </p>
+        ) : null}
+        <button type="button" disabled={!canSubmit} className={adminPrimaryBtnClass()} onClick={assign}>
+          {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
+        </button>
+      </div>
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
 
   return (
     <AdminUserPanelShell title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignOrgHint')} wide>
@@ -107,56 +179,7 @@ export default function UserAssignOrgPanel({ orgId }) {
           emptyLabel={t('adminUsers.assignOrgNoUnplaced')}
           subtitleFn={(m) => `${memberEmail(m)} · ${t('adminOrg.deptTransferUnassignedBadge')}`}
         />
-        <AdminUserFormCard title={t('adminDomains.users.assignOrg')} hint={t('adminUsers.assignOrgHint')}>
-          {!userId ? (
-            <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-          ) : null}
-          <div className="space-y-4">
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminOrg.toDept')}</span>
-              <select
-                className={adminInputClass()}
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-              >
-                <option value="">{t('adminOrg.selectDepartment')}</option>
-                {departments.map((d) => (
-                  <option key={unitId(d)} value={unitId(d)}>
-                    {unitName(d)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminUsers.assignOrgTeamOptional')}</span>
-              <select
-                className={adminInputClass()}
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-                disabled={!departmentId}
-              >
-                <option value="">{t('adminUsers.assignOrgTeamNone')}</option>
-                {teamsInDept.map((row) => (
-                  <option key={unitId(row)} value={unitId(row)}>
-                    {unitName(row)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {validationMessage ? (
-              <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
-            ) : selectedMember ? (
-              <p className="text-xs text-muted-foreground">
-                {t('adminUsers.assignOrgReady', {
-                  name: memberDisplayName(selectedMember) || memberUserId(selectedMember),
-                })}
-              </p>
-            ) : null}
-            <button type="button" disabled={!canSubmit} className={adminPrimaryBtnClass()} onClick={assign}>
-              {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
-            </button>
-          </div>
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

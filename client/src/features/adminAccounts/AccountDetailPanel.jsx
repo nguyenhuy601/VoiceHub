@@ -23,6 +23,7 @@ import {
   memberUserId,
   unwrapApi,
 } from '../../utils/adminUserUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 
 function ActionLink({ to, icon: Icon, children }) {
   return (
@@ -125,28 +126,28 @@ export default function AccountDetailPanel({ orgId }) {
                   {t('adminAccounts.quickActions')}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <ActionLink to={`/app/admin/accounts/lock${q}`} icon={Lock}>
+                  <ActionLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'lock')} icon={Lock}>
                     {t('adminDomains.accounts.lock')}
                   </ActionLink>
-                  <ActionLink to={`/app/admin/accounts/reset-password${q}`} icon={Mail}>
+                  <ActionLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'reset')} icon={Mail}>
                     {t('adminDomains.accounts.resetPassword')}
                   </ActionLink>
-                  <ActionLink to={`/app/admin/accounts/force-password${q}`} icon={KeyRound}>
+                  <ActionLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'force')} icon={KeyRound}>
                     {t('adminDomains.accounts.forcePassword')}
                   </ActionLink>
-                  <ActionLink to={`/app/admin/accounts/set-password${q}`} icon={KeyRound}>
+                  <ActionLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'set')} icon={KeyRound}>
                     {t('adminDomains.accounts.setPassword')}
                   </ActionLink>
                   {summary?.pendingActivation ? (
-                    <ActionLink to={`/app/admin/accounts/activate${q}`} icon={ShieldCheck}>
+                    <ActionLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'activate')} icon={ShieldCheck}>
                       {t('adminDomains.accounts.activate')}
                     </ActionLink>
                   ) : null}
-                  <ActionLink to={`/app/admin/accounts/revoke-sessions${q}`} icon={LogOut}>
+                  <ActionLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'revoke')} icon={LogOut}>
                     {t('adminDomains.accounts.revokeSessions')}
                   </ActionLink>
                   <ActionLink
-                    to={`/app/admin/accounts/resend-verification${q}`}
+                    to={adminUserHubLink('/app/admin/accounts/verification', userId, 'resend')}
                     icon={MailCheck}
                   >
                     {t('adminDomains.accounts.resendVerification')}
@@ -159,7 +160,10 @@ export default function AccountDetailPanel({ orgId }) {
 
               <p className="text-xs text-muted-foreground">
                 {t('adminAccounts.profileLinkHint')}{' '}
-                <Link to={`/app/admin/users/edit${q}`} className="font-medium text-red-500 hover:underline">
+                <Link
+                  to={adminUserHubLink('/app/admin/users/people-ops', userId, 'edit')}
+                  className="font-medium text-red-500 hover:underline"
+                >
                   {t('adminDomains.users.edit')}
                 </Link>
               </p>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
+import { adminPrimaryBtnClass } from '../adminUsers/adminUserPanelUi';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import {
   grantedPermissionCount,
@@ -13,7 +14,7 @@ export default function AdminRolePicker({ orgId, selectedRoleId, onSelect, hint,
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
-  const { roles, systemRoles, loading } = useAdminRoles(orgId);
+  const { roles, systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
 
   const activeId = String(selectedRoleId || searchParams.get('roleId') || '').trim();
   const source = systemOnly ? systemRoles : roles;
@@ -52,6 +53,15 @@ export default function AdminRolePicker({ orgId, selectedRoleId, onSelect, hint,
       />
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : error ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{error}</p>
+          <div className="mt-3">
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRoles()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="max-h-64 overflow-auto rounded-lg border border-border/70">
           <table className="min-w-full text-sm">

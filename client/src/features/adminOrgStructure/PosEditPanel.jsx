@@ -19,11 +19,11 @@ function memberJobTitle(member) {
   return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
 }
 
-export default function PosEditPanel({ orgId }) {
+export default function PosEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const titleParam = String(searchParams.get('title') || '').trim();
-  const { members, loading, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, loadMembers, error: membersError } = useAdminMembers(orgId);
   const [oldTitle, setOldTitle] = useState(titleParam);
   const [newTitle, setNewTitle] = useState('');
   const [saving, setSaving] = useState(false);
@@ -70,45 +70,60 @@ export default function PosEditPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard>
+      {membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {resolveApiErrorMessage(membersError, { t, fallback: t('companyAdmin.loadMembersFail') })}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} disabled={saving} onClick={() => loadMembers()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : loading ? (
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : (
+        <form className="mx-auto max-w-lg space-y-4" onSubmit={save}>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminOrg.posTitle')}</span>
+            <select
+              required
+              className={adminInputClass()}
+              value={oldTitle}
+              onChange={(e) => setOldTitle(e.target.value)}
+            >
+              <option value="">{t('adminOrg.selectTitle')}</option>
+              {titles.map((title) => (
+                <option key={title} value={title}>
+                  {title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminOrg.posNewTitle')}</span>
+            <input
+              required
+              className={adminInputClass()}
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder={t('adminOrg.posNewTitle')}
+            />
+          </label>
+          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </form>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell title={t('adminDomains.rbac.posEdit')} hint={t('adminOrg.posEditHint')}>
-      <AdminUserFormCard>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : (
-          <form className="mx-auto max-w-lg space-y-4" onSubmit={save}>
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminOrg.posTitle')}</span>
-              <select
-                required
-                className={adminInputClass()}
-                value={oldTitle}
-                onChange={(e) => setOldTitle(e.target.value)}
-              >
-                <option value="">{t('adminOrg.selectTitle')}</option>
-                {titles.map((title) => (
-                  <option key={title} value={title}>
-                    {title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className={adminLabelClass()}>{t('adminOrg.posNewTitle')}</span>
-              <input
-                required
-                className={adminInputClass()}
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder={t('adminOrg.posNewTitle')}
-              />
-            </label>
-            <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-              {saving ? t('common.saving') : t('common.save')}
-            </button>
-          </form>
-        )}
-      </AdminUserFormCard>
+      {body}
     </AdminUserPanelShell>
   );
 }

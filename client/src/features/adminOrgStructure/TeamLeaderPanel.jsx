@@ -15,12 +15,12 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
-export default function TeamLeaderPanel({ orgId }) {
+export default function TeamLeaderPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { teams, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
 
@@ -47,6 +47,29 @@ export default function TeamLeaderPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.teamLeader')}>
+      {structureError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected || !userId ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.teamLeaderSelectBoth')}</p>
+      ) : (
+        <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
+          {saving ? t('common.saving') : t('common.save')}
+        </button>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.teamLeader')}
@@ -57,6 +80,8 @@ export default function TeamLeaderPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={teams}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.teamLeaderPickerHint')}
@@ -64,15 +89,7 @@ export default function TeamLeaderPanel({ orgId }) {
         />
         <div className="space-y-4">
           <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminOrg.teamLeaderUserHint')} />
-          <AdminUserFormCard title={t('adminDomains.orgStructure.teamLeader')}>
-            {!selected || !userId ? (
-              <p className="text-sm text-muted-foreground">{t('adminOrg.teamLeaderSelectBoth')}</p>
-            ) : (
-              <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            )}
-          </AdminUserFormCard>
+          {body}
         </div>
       </div>
     </AdminUserPanelShell>

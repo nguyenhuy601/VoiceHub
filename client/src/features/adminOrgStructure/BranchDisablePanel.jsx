@@ -15,11 +15,11 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
-export default function BranchDisablePanel({ orgId }) {
+export default function BranchDisablePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { branches, loading, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { branches, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 
@@ -48,6 +48,47 @@ export default function BranchDisablePanel({ orgId }) {
 
   const active = selected?.isActive !== false;
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.branchDisable')} danger={!active}>
+      {structureError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {active ? (
+            <button
+              type="button"
+              disabled={busy}
+              className={adminDangerBtnClass()}
+              onClick={() => toggle(false)}
+            >
+              {t('adminOrg.branchDisable')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              className={adminPrimaryBtnClass()}
+              onClick={() => toggle(true)}
+            >
+              {t('adminOrg.branchEnable')}
+            </button>
+          )}
+        </div>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.branchDisable')}
@@ -58,39 +99,15 @@ export default function BranchDisablePanel({ orgId }) {
         <AdminOrgUnitPicker
           items={branches}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.branchDisablePickerHint')}
           subtitleFn={(row) => row.location || ''}
           badgeFn={(row) => (row.isActive === false ? t('adminOrg.inactive') : t('adminOrg.active'))}
         />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.branchDisable')} danger={!active}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {active ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  className={adminDangerBtnClass()}
-                  onClick={() => toggle(false)}
-                >
-                  {t('adminOrg.branchDisable')}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  className={adminPrimaryBtnClass()}
-                  onClick={() => toggle(true)}
-                >
-                  {t('adminOrg.branchEnable')}
-                </button>
-              )}
-            </div>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

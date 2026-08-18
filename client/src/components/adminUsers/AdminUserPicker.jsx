@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { getInitials } from '../../utils/helpers';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
   memberDisplayName,
   memberEmail,
@@ -54,9 +55,12 @@ export default function AdminUserPicker({
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
-  const { members, loading } = useAdminMembers(orgId);
+  const { members, loading, error, loadMembers } = useAdminMembers(orgId);
 
   const activeId = String(selectedUserId || searchParams.get('userId') || '').trim();
+  const errorMessage = error
+    ? resolveApiErrorMessage(error, { t, fallback: t('companyAdmin.loadMembersFail') })
+    : '';
 
   const filtered = useMemo(() => {
     const base = typeof filterFn === 'function' ? members.filter(filterFn) : members;
@@ -90,6 +94,19 @@ export default function AdminUserPicker({
       </div>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : errorMessage ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <div className="mt-3">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => loadMembers()}
+            >
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/70">
           <ul className="divide-y divide-border/50">

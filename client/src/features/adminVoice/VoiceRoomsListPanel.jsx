@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
+import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminVoiceRooms from '../../hooks/useAdminVoiceRooms';
 
 export default function VoiceRoomsListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { voiceRooms, loading } = useAdminVoiceRooms(orgId);
+  const { voiceRooms, loading, error, loadRooms } = useAdminVoiceRooms(orgId);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -41,31 +42,43 @@ export default function VoiceRoomsListPanel({ orgId }) {
         className="w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
       />
       <div className="overflow-auto rounded-xl border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">{t('adminVoice.colRoom')}</th>
-              <th className="px-3 py-2">{t('adminVoice.colScope')}</th>
-              <th className="px-3 py-2">{t('adminVoice.colId')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((ch) => {
-              const id = String(ch._id || ch.id);
-              return (
-                <tr key={id} className="border-t border-border/60">
-                  <td className="px-3 py-2 font-medium">{ch.name || '—'}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{ch._scopeName || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{id}</td>
+        {loading ? (
+          <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : error ? (
+          <div className="space-y-3 px-3 py-4">
+            <p className="text-sm text-destructive">{error}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRooms()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        ) : (
+          <>
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">{t('adminVoice.colRoom')}</th>
+                  <th className="px-3 py-2">{t('adminVoice.colScope')}</th>
+                  <th className="px-3 py-2">{t('adminVoice.colId')}</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {loading ? <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p> : null}
-        {!loading && !filtered.length ? (
-          <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminVoice.noRooms')}</p>
-        ) : null}
+              </thead>
+              <tbody>
+                {filtered.map((ch) => {
+                  const id = String(ch._id || ch.id);
+                  return (
+                    <tr key={id} className="border-t border-border/60">
+                      <td className="px-3 py-2 font-medium">{ch.name || '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{ch._scopeName || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{id}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {!filtered.length ? (
+              <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminVoice.noRooms')}</p>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

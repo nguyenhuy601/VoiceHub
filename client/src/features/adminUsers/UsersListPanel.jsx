@@ -29,6 +29,7 @@ import {
   unwrapApi,
 } from '../../utils/adminUserUtils';
 import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 /** Số dòng mỗi trang trên danh sách admin users. */
@@ -535,7 +536,7 @@ export default function UsersListPanel({ orgId }) {
       return;
     }
     setDeleteMember(null);
-    navigate(`/app/admin/users/delete?userId=${encodeURIComponent(id)}`);
+    navigate(adminUserHubLink('/app/admin/users/people-ops', id, 'delete'));
   };
 
   return (

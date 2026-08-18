@@ -11,12 +11,17 @@ import {
   totalPermissionSlotCount,
 } from '../../utils/adminRbacUtils';
 import { splitLayerLabel } from '../../utils/roleLayerNaming';
+import { adminRoleHubLink } from '../../utils/adminHubLinks';
+import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+
+const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
+const PERM_PACK_MANAGE_HUB = '/app/admin/rbac/roles/manage';
 
 /** Chỉ lối V2 + assign/delete — không dẫn vào grid V1 `/rbac/edit`. */
 const ACTION_LINKS = [
-  { path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions' },
-  { path: '/app/admin/rbac/delete', labelKey: 'adminDomains.rbac.delete' },
-  { path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign' },
+  { path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions', useRoleId: true },
+  { tab: 'delete', labelKey: 'adminDomains.rbac.delete', hub: PERM_PACK_MANAGE_HUB },
+  { tab: 'assign', labelKey: 'adminDomains.rbac.assign', hub: PERM_PACK_MANAGE_HUB },
 ];
 
 function roleScopeLabel(scope, t) {
@@ -30,7 +35,7 @@ function roleScopeLabel(scope, t) {
 
 export default function RolesListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { systemRoles, loading } = useAdminRoles(orgId);
+  const { systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
   const [query, setQuery] = useState('');
   const totalSlots = useMemo(() => totalPermissionSlotCount(), []);
 
@@ -107,71 +112,85 @@ export default function RolesListPanel({ orgId }) {
         className="w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
       />
       <div className="overflow-auto rounded-xl border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">{t('adminRbac.colName')}</th>
-              <th className="px-3 py-2">{t('adminRbac.roleScope')}</th>
-              <th className="px-3 py-2">{t('adminRbac.colPriority')}</th>
-              <th className="px-3 py-2">{t('adminRbac.colPermissions')}</th>
-              <th className="px-3 py-2">{t('adminRbac.colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((role) => {
-              const id = normalizeRoleId(role);
-              const granted = grantedPermissionCount(role.permissions);
-              const displayName = normalizeRoleDisplayName(role.name);
-              const displaySystemName = splitLayerLabel(displayName, 'system').suffix || displayName;
-              return (
-                <tr key={id} className="border-t border-border/60">
-                  <td className="px-3 py-2 font-medium">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span title={id || undefined}>{displaySystemName}</span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
-                        {t('adminRbac.listKindBadge')}
-                      </span>
-                    </div>
-                    {role.description ? (
-                      <div className="mt-0.5 text-xs font-normal text-muted-foreground line-clamp-1">
-                        {role.description}
-                      </div>
-                    ) : null}
-                    {isProtectedDefaultRole(role) ? (
-                      <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground" title={String(role.scope || DEFAULT_ROLE_SCOPE)}>
-                    {roleScopeLabel(role.scope, t)}
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">{role.priority ?? '—'}</td>
-                  <td className="px-3 py-2 text-muted-foreground">
-                    {granted}/{totalSlots}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      {ACTION_LINKS.map((link) => (
-                        <Link
-                          key={link.path}
-                          to={`${link.path}?roleId=${encodeURIComponent(id)}`}
-                          className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                        >
-                          {t(link.labelKey)}
-                        </Link>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {!loading && !filtered.length ? (
-          <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminRbac.noRoles')}</p>
-        ) : null}
         {loading ? (
           <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
-        ) : null}
+        ) : error ? (
+          <div className="space-y-3 px-3 py-4">
+            <p className="text-sm text-destructive">{error}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRoles()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        ) : (
+          <>
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">{t('adminRbac.colName')}</th>
+                  <th className="px-3 py-2">{t('adminRbac.roleScope')}</th>
+                  <th className="px-3 py-2">{t('adminRbac.colPriority')}</th>
+                  <th className="px-3 py-2">{t('adminRbac.colPermissions')}</th>
+                  <th className="px-3 py-2">{t('adminRbac.colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((role) => {
+                  const id = normalizeRoleId(role);
+                  const granted = grantedPermissionCount(role.permissions);
+                  const displayName = normalizeRoleDisplayName(role.name);
+                  const displaySystemName = splitLayerLabel(displayName, 'system').suffix || displayName;
+                  return (
+                    <tr key={id} className="border-t border-border/60">
+                      <td className="px-3 py-2 font-medium">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span title={id || undefined}>{displaySystemName}</span>
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal uppercase text-muted-foreground">
+                            {t('adminRbac.listKindBadge')}
+                          </span>
+                        </div>
+                        {role.description ? (
+                          <div className="mt-0.5 text-xs font-normal text-muted-foreground line-clamp-1">
+                            {role.description}
+                          </div>
+                        ) : null}
+                        {isProtectedDefaultRole(role) ? (
+                          <span className="text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground" title={String(role.scope || DEFAULT_ROLE_SCOPE)}>
+                        {roleScopeLabel(role.scope, t)}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{role.priority ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {granted}/{totalSlots}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {ACTION_LINKS.map((link) => (
+                            <Link
+                              key={link.path || link.tab}
+                              to={
+                                link.useRoleId
+                                  ? `${link.path}?roleId=${encodeURIComponent(id)}`
+                                  : adminRoleHubLink(link.hub, id, link.tab)
+                              }
+                              className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
+                            >
+                              {t(link.labelKey)}
+                            </Link>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {!filtered.length ? (
+              <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminRbac.noRoles')}</p>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

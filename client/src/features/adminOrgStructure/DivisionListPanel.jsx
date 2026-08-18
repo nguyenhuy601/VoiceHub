@@ -10,16 +10,18 @@ import {
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const DIVISION_MANAGE_HUB = '/app/admin/org-structure/divisions/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/divisions/edit', labelKey: 'adminDomains.orgStructure.divisionEdit' },
-  { path: '/app/admin/org-structure/divisions/disable', labelKey: 'adminDomains.orgStructure.divisionDisable' },
-  { path: '/app/admin/org-structure/divisions/departments', labelKey: 'adminDomains.orgStructure.divisionDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.divisionEdit' },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.divisionDisable' },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.divisionDept' },
 ];
 
 export default function DivisionListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { divisions, loading } = useAdminOrgStructure(orgId);
+  const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -63,6 +65,13 @@ export default function DivisionListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : structureError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{structureError}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -97,8 +106,8 @@ export default function DivisionListPanel({ orgId }) {
                         <div className="flex flex-wrap gap-1">
                           {ACTION_LINKS.map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(DIVISION_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

@@ -150,7 +150,7 @@ function App() {
             <Route path="people" element={<Navigate to="/app/admin/users" replace />} />
             <Route path="approvals" element={<Navigate to="/app/admin/users" replace />} />
             <Route path="general" element={<Navigate to="/app/admin/system-config" replace />} />
-            <Route path="structure" element={<Navigate to="/app/admin/system-config/structure" replace />} />
+            <Route path="structure" element={<Navigate to="/app/admin/system-config?tab=structure" replace />} />
             <Route path="roles" element={<Navigate to="/app/admin/rbac/roles" replace />} />
             <Route path="policy" element={<Navigate to="/app/admin/system-config/policy" replace />} />
             <Route path=":domain/*" element={<AdminDomainPage />} />

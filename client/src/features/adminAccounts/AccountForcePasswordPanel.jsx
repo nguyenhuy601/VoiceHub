@@ -10,14 +10,16 @@ import {
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
+import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
-export default function AccountForcePasswordPanel({ orgId }) {
+export default function AccountForcePasswordPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [busy, setBusy] = useState(false);
+  const { loadMembers } = useAdminMembers(orgId);
 
   const apply = async (mustChangePassword) => {
     if (!orgId || !userId || busy) return;
@@ -27,6 +29,7 @@ export default function AccountForcePasswordPanel({ orgId }) {
       toast.success(
         mustChangePassword ? t('adminUsers.forceEnabled') : t('adminUsers.forceDisabled')
       );
+      await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.forceFail') }));
     } finally {
@@ -34,34 +37,40 @@ export default function AccountForcePasswordPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.accounts.forcePassword')} hint={t('adminUsers.forceHint')}>
+      {!userId ? (
+        <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={!userId || busy}
+          className={adminPrimaryBtnClass()}
+          onClick={() => apply(true)}
+        >
+          <KeyRound className="h-3.5 w-3.5" />
+          {t('adminUsers.requireChangeOnLogin')}
+        </button>
+        <button
+          type="button"
+          disabled={!userId || busy}
+          className={adminSecondaryBtnClass()}
+          onClick={() => apply(false)}
+        >
+          {t('adminUsers.clearRequireChange')}
+        </button>
+      </div>
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell title={t('adminDomains.accounts.forcePassword')} hint={t('adminUsers.forceHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminAccounts.forcePickerHint')} />
-        <AdminUserFormCard title={t('adminDomains.accounts.forcePassword')} hint={t('adminUsers.forceHint')}>
-          {!userId ? (
-            <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!userId || busy}
-              className={adminPrimaryBtnClass()}
-              onClick={() => apply(true)}
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              {t('adminUsers.requireChangeOnLogin')}
-            </button>
-            <button
-              type="button"
-              disabled={!userId || busy}
-              className={adminSecondaryBtnClass()}
-              onClick={() => apply(false)}
-            >
-              {t('adminUsers.clearRequireChange')}
-            </button>
-          </div>
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

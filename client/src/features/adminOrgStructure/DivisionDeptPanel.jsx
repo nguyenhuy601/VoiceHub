@@ -5,16 +5,17 @@ import AdminOrgUnitPicker from '../../components/adminOrgStructure/AdminOrgUnitP
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
-export default function DivisionDeptPanel({ orgId }) {
+export default function DivisionDeptPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { divisions, departments, loading } = useAdminOrgStructure(orgId);
+  const { divisions, departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
 
   useEffect(() => {
@@ -31,6 +32,49 @@ export default function DivisionDeptPanel({ orgId }) {
     return departments.filter((d) => String(d.divisionId || '') === selectedId);
   }, [departments, selectedId]);
 
+  const body = (
+    <AdminUserFormCard title={t('adminOrg.divisionDeptTableTitle')}>
+      {structureError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3">{t('adminOrg.colName')}</th>
+                <th className="px-4 py-3">{t('adminOrg.colTeams')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deptRows.map((row) => (
+                <tr key={unitId(row)} className="border-b border-border/50">
+                  <td className="px-4 py-3 font-medium text-foreground">{unitName(row)}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{row.teamCount ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!deptRows.length ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t('adminOrg.divisionDeptEmpty')}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.divisionDept')}
@@ -41,40 +85,14 @@ export default function DivisionDeptPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={divisions}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.divisionDeptPickerHint')}
           subtitleFn={(row) => row.branchName || ''}
         />
-        <AdminUserFormCard title={t('adminOrg.divisionDeptTableTitle')}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-border">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-3">{t('adminOrg.colName')}</th>
-                    <th className="px-4 py-3">{t('adminOrg.colTeams')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deptRows.map((row) => (
-                    <tr key={unitId(row)} className="border-b border-border/50">
-                      <td className="px-4 py-3 font-medium text-foreground">{unitName(row)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{row.teamCount ?? 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!deptRows.length ? (
-                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  {t('adminOrg.divisionDeptEmpty')}
-                </p>
-              ) : null}
-            </div>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

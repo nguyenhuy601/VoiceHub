@@ -22,12 +22,17 @@ import {
   memberUserId,
 } from '../../utils/adminUserUtils';
 
-export default function DeptMembersPanel({ orgId }) {
+export default function DeptMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { members, loading: membersLoading } = useAdminMembers(orgId);
+  const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const {
+    members,
+    loading: membersLoading,
+    error: membersError,
+    loadMembers,
+  } = useAdminMembers(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -83,6 +88,102 @@ export default function DeptMembersPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={unitName(selected) || t('adminDomains.orgStructure.deptMembers')}>
+      {structureError || membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : membersLoading ? (
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : (
+        <div className="space-y-4">
+          {headId ? (
+            <p className="text-xs text-muted-foreground">
+              {t('adminOrg.deptMembersHeadNote')}{' '}
+              <Link
+                className="underline"
+                to={`/app/admin/org-structure/departments/head?unitId=${encodeURIComponent(selectedId)}`}
+              >
+                {t('adminDomains.orgStructure.deptHead')}
+              </Link>
+            </p>
+          ) : (
+            <p className="text-xs text-amber-700">{t('adminOrg.deptMembersNoHead')}</p>
+          )}
+          <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
+            <ul className="divide-y divide-border/50">
+              {members.map((m) => {
+                const id = memberUserId(m);
+                const checked = selectedMembers.includes(id);
+                const otherDept = memberDepartmentId(m);
+                const inOther =
+                  otherDept && otherDept !== selectedId && !checked;
+                return (
+                  <li key={id}>
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border"
+                        checked={checked}
+                        onChange={() => toggle(id)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {memberDisplayName(m)}
+                          {headId === id ? (
+                            <span className="ml-1.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                              Head
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {memberEmail(m)}
+                          {inOther
+                            ? ` · ${t('adminOrg.deptMembersWillMove')}`
+                            : ''}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={adminPrimaryBtnClass()}
+              disabled={saving}
+              onClick={save}
+            >
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+            <Link
+              to={`/app/admin/org-structure/departments/org-roles?unitId=${encodeURIComponent(selectedId)}`}
+              className={adminSecondaryBtnClass()}
+            >
+              {t('adminDomains.orgStructure.deptOrgRoles')}
+            </Link>
+          </div>
+        </div>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.deptMembers')}
@@ -93,6 +194,8 @@ export default function DeptMembersPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={departments}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.deptMembersPickerHint')}
@@ -103,84 +206,7 @@ export default function DeptMembersPanel({ orgId }) {
             })
           }
         />
-        <AdminUserFormCard title={unitName(selected) || t('adminDomains.orgStructure.deptMembers')}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : membersLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : (
-            <div className="space-y-4">
-              {headId ? (
-                <p className="text-xs text-muted-foreground">
-                  {t('adminOrg.deptMembersHeadNote')}{' '}
-                  <Link
-                    className="underline"
-                    to={`/app/admin/org-structure/departments/head?unitId=${encodeURIComponent(selectedId)}`}
-                  >
-                    {t('adminDomains.orgStructure.deptHead')}
-                  </Link>
-                </p>
-              ) : (
-                <p className="text-xs text-amber-700">{t('adminOrg.deptMembersNoHead')}</p>
-              )}
-              <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
-                <ul className="divide-y divide-border/50">
-                  {members.map((m) => {
-                    const id = memberUserId(m);
-                    const checked = selectedMembers.includes(id);
-                    const otherDept = memberDepartmentId(m);
-                    const inOther =
-                      otherDept && otherDept !== selectedId && !checked;
-                    return (
-                      <li key={id}>
-                        <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
-                          <input
-                            type="checkbox"
-                            className="rounded border-border"
-                            checked={checked}
-                            onChange={() => toggle(id)}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-foreground">
-                              {memberDisplayName(m)}
-                              {headId === id ? (
-                                <span className="ml-1.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700">
-                                  Head
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {memberEmail(m)}
-                              {inOther
-                                ? ` · ${t('adminOrg.deptMembersWillMove')}`
-                                : ''}
-                            </span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={adminPrimaryBtnClass()}
-                  disabled={saving}
-                  onClick={save}
-                >
-                  {saving ? t('common.saving') : t('common.save')}
-                </button>
-                <Link
-                  to={`/app/admin/org-structure/departments/org-roles?unitId=${encodeURIComponent(selectedId)}`}
-                  className={adminSecondaryBtnClass()}
-                >
-                  {t('adminDomains.orgStructure.deptOrgRoles')}
-                </Link>
-              </div>
-            </div>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );
