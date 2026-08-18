@@ -8,19 +8,14 @@ import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
+  assignedRoleIdFromRow,
   isStructuralRole,
   normalizeRoleDisplayName,
-  normalizeRoleId,
-  unwrapList,
+  unwrapUserRoleList,
 } from '../../utils/adminRbacUtils';
 
-function coerceRoleId(value) {
-  if (value && typeof value === 'object') return normalizeRoleId(value);
-  return String(value || '').trim();
-}
-
 function resolveAssignedRole(row, rolesById) {
-  const rid = coerceRoleId(row?.roleId) || coerceRoleId(row?.role) || coerceRoleId(row);
+  const rid = assignedRoleIdFromRow(row);
   const role =
     rolesById.get(rid) ||
     (row?.role && typeof row.role === 'object' ? row.role : null) ||
@@ -33,10 +28,10 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { rolesById } = useAdminRoles(orgId);
+  const { rolesById, loadRoles } = useAdminRoles(orgId);
   const [assigned, setAssigned] = useState([]);
   const [busyId, setBusyId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(orgId && userId));
   const [loadError, setLoadError] = useState('');
   const loadGenRef = useRef(0);
 
@@ -53,7 +48,7 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
     try {
       const res = await roleAPI.getUserRoles(userId, orgId);
       if (gen !== loadGenRef.current) return;
-      setAssigned(unwrapList(res));
+      setAssigned(unwrapUserRoleList(res));
     } catch (error) {
       if (gen !== loadGenRef.current) return;
       setAssigned([]);
@@ -64,7 +59,14 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
   }, [orgId, userId, t]);
 
   useEffect(() => {
+    loadRoles();
     loadAssigned();
+  }, [loadRoles, loadAssigned]);
+
+  useEffect(() => {
+    const onPageShow = () => loadAssigned();
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
   }, [loadAssigned]);
 
   const { packRoles, hierarchyRoles } = useMemo(() => {

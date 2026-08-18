@@ -20,6 +20,7 @@ export default function PermPackManageHubPanel({ orgId }) {
   const [searchParams] = useSearchParams();
   const tabFromUrl = String(searchParams.get('tab') || '').trim();
   const activeTab = TAB_IDS.includes(tabFromUrl) ? tabFromUrl : TAB_ASSIGN;
+  const userId = String(searchParams.get('userId') || '').trim();
   const { rolelessFilter, reloadAssignments } = useRbacRolelessAssignments(orgId, {
     enabled: activeTab === TAB_ASSIGN,
   });
@@ -59,6 +60,8 @@ export default function PermPackManageHubPanel({ orgId }) {
     [orgId, t, rolelessFilter]
   );
 
+  const panelKey = `${orgId || ''}:${userId || 'none'}`;
+
   return (
     <AdminRbacOpsHubShell
       title={t('adminDomains.rbac.permPackManageHub')}
@@ -70,9 +73,9 @@ export default function PermPackManageHubPanel({ orgId }) {
       {({ activeTab: tab }) => (
         <>
           {tab === TAB_ASSIGN ? (
-            <RoleAssignPanel orgId={orgId} embedded onAssigned={reloadAssignments} />
+            <RoleAssignPanel key={`assign-${panelKey}`} orgId={orgId} embedded onAssigned={reloadAssignments} />
           ) : null}
-          {tab === TAB_REVOKE ? <RoleRevokePanel orgId={orgId} embedded /> : null}
+          {tab === TAB_REVOKE ? <RoleRevokePanel key={`revoke-${panelKey}`} orgId={orgId} embedded /> : null}
           {tab === TAB_DELETE ? <RoleDeletePanel orgId={orgId} embedded /> : null}
         </>
       )}
