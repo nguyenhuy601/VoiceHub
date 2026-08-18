@@ -9,13 +9,17 @@ import useAdminRoles from '../../hooks/useAdminRoles';
 import useRbacRolelessAssignments from '../../hooks/useRbacRolelessAssignments';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { clearAdminUserSelection } from '../../utils/adminSelectionParams';
 import { memberDisplayName, memberEmail } from '../../utils/adminUserUtils';
-import { normalizeRoleDisplayName, normalizeRoleId, unwrapList } from '../../utils/adminRbacUtils';
+import {
+  assignedRoleIdFromRow,
+  normalizeRoleDisplayName,
+  normalizeRoleId,
+  unwrapUserRoleList,
+} from '../../utils/adminRbacUtils';
 
 export default function RoleAssignPanel({ orgId, embedded = false, onAssigned }) {
   const { t } = useAppStrings();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { membersById } = useAdminMembers(orgId);
   const { systemRoles } = useAdminRoles(orgId);
@@ -23,7 +27,7 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
   const [assignedIds, setAssignedIds] = useState(new Set());
   const [effectivePerms, setEffectivePerms] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(() => Boolean(orgId && userId));
   const [detailError, setDetailError] = useState('');
   const [detailTick, setDetailTick] = useState(0);
   const { rolelessFilter, reloadAssignments } = useRbacRolelessAssignments(orgId, {
@@ -48,13 +52,11 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
       try {
         const [rolesRes, permsRes] = await Promise.all([
           roleAPI.getUserRoles(userId, orgId),
-          roleAPI.getUserPermissions(userId, orgId),
+          roleAPI.getUserPermissions(userId, orgId).catch(() => null),
         ]);
         if (cancelled) return;
-        const list = unwrapList(rolesRes);
-        const ids = new Set(
-          list.map((row) => String(row?.roleId || row?._id || row?.id || row?.role?._id || '').trim()).filter(Boolean)
-        );
+        const list = unwrapUserRoleList(rolesRes);
+        const ids = new Set(list.map((row) => assignedRoleIdFromRow(row)).filter(Boolean));
         setAssignedIds(ids);
         const perms = permsRes?.data?.data ?? permsRes?.data ?? permsRes ?? [];
         setEffectivePerms(Array.isArray(perms) ? perms : []);
@@ -91,9 +93,7 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
       setSelectedRoleId('');
       if (embedded) await onAssigned?.();
       else await reloadAssignments();
-      clearAdminUserSelection(searchParams, setSearchParams);
-      setAssignedIds(new Set());
-      setEffectivePerms([]);
+      setDetailTick((n) => n + 1);
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.assignFail') }));
     } finally {

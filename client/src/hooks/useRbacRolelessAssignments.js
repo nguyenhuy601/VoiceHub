@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import roleAPI from '../services/api/roleAPI';
 import { memberIsWithoutRbacRole, memberUserId } from '../utils/adminUserUtils';
-import { unwrapList } from '../utils/adminRbacUtils';
+import { unwrapUserRoleList } from '../utils/adminRbacUtils';
 import { useAdminMembers } from './useAdminMembers';
 
 export default function useRbacRolelessAssignments(orgId, { enabled = true } = {}) {
@@ -28,7 +28,7 @@ export default function useRbacRolelessAssignments(orgId, { enabled = true } = {
         if (!uid) return null;
         try {
           const res = await roleAPI.getUserRoles(uid, orgId);
-          return [uid, unwrapList(res)];
+          return [uid, unwrapUserRoleList(res)];
         } catch {
           return null;
         }
