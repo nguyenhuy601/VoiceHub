@@ -12,7 +12,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
 
-export default function ProjectRoleDeletePanel({ orgId }) {
+export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -55,37 +55,57 @@ export default function ProjectRoleDeletePanel({ orgId }) {
     }
   };
 
+  const formCard = (
+    <AdminUserFormCard title={t('adminDomains.rbac.projectRoleDelete')}>
+      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+        <div className="font-medium">Key: {role.key}</div>
+        <div className="mt-1">{role.label}</div>
+        {role.isSystem ? <div className="mt-2 text-xs text-emerald-700">System role</div> : null}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" disabled={!role || role.isSystem || busy} className={adminDangerBtnClass()} onClick={del}>
+          {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
+        </button>
+        <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
+          {t('common.cancel') || 'Cancel'}
+        </button>
+      </div>
+    </AdminUserFormCard>
+  );
+
+  if (loading) {
+    const loadingBody = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    if (embedded) return loadingBody;
+    return (
+      <AdminUserPanelShell title={t('adminDomains.rbac.projectRoleDelete')} hint={t('adminRbac.projectRoleDeleteHint')}>
+        {loadingBody}
+      </AdminUserPanelShell>
+    );
+  }
+
+  if (!role) {
+    const notFoundBody = <p className="text-sm text-muted-foreground">{t('adminRbac.notFound') || 'Not found'}</p>;
+    if (embedded) return notFoundBody;
+    return (
+      <AdminUserPanelShell title={t('adminDomains.rbac.projectRoleDelete')} hint={t('adminRbac.projectRoleDeleteHint')}>
+        {notFoundBody}
+      </AdminUserPanelShell>
+    );
+  }
+
+  if (embedded) return formCard;
+
   return (
     <AdminUserPanelShell title={t('adminDomains.rbac.projectRoleDelete')} hint={t('adminRbac.projectRoleDeleteHint')}>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-      ) : !role ? (
-        <p className="text-sm text-muted-foreground">{t('adminRbac.notFound') || 'Not found'}</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <AdminUserFormCard title={t('adminDomains.rbac.projectRoleDelete')}>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-              <div className="font-medium">Key: {role.key}</div>
-              <div className="mt-1">{role.label}</div>
-              {role.isSystem ? <div className="mt-2 text-xs text-emerald-700">System role</div> : null}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" disabled={!role || role.isSystem || busy} className={adminDangerBtnClass()} onClick={del}>
-                {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
-              </button>
-              <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
-                {t('common.cancel') || 'Cancel'}
-              </button>
-            </div>
-          </AdminUserFormCard>
-          <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">{t('adminRbac.projectRoleDeleteWarning') || 'Warning'}</p>
-            <p className="mt-1">
-              {t('adminRbac.projectRoleDeleteWarningBody') || 'System roles or roles in use cannot be deleted.'}
-            </p>
-          </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        {formCard}
+        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">{t('adminRbac.projectRoleDeleteWarning') || 'Warning'}</p>
+          <p className="mt-1">
+            {t('adminRbac.projectRoleDeleteWarningBody') || 'System roles or roles in use cannot be deleted.'}
+          </p>
         </div>
-      )}
+      </div>
     </AdminUserPanelShell>
   );
 }

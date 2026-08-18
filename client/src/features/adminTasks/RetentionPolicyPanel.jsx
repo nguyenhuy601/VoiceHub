@@ -17,7 +17,7 @@ function unwrap(res) {
 /**
  * Retention policy + stub job (Phase 6 Wave B).
  */
-export default function RetentionPolicyPanel({ orgId }) {
+export default function RetentionPolicyPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [settings, setSettings] = useState(null);
   const [archivedCount, setArchivedCount] = useState(0);
@@ -84,16 +84,11 @@ export default function RetentionPolicyPanel({ orgId }) {
     }
   };
 
-  return (
-    <AdminUserPanelShell
-      title={t('adminDomains.systemConfig.retention')}
-      hint={t('adminTasks.retentionHint')}
-      wide
-    >
-      {loading && !settings ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+  const body =
+    loading && !settings ? (
+      <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+    ) : (
+      <div className="grid gap-4 lg:grid-cols-2">
           <AdminUserFormCard title={t('adminTasks.retentionPolicyTitle')}>
             <label className="mb-3 block text-xs font-semibold">
               archiveInactiveAfterDays
@@ -145,7 +140,17 @@ export default function RetentionPolicyPanel({ orgId }) {
             ) : null}
           </AdminUserFormCard>
         </div>
-      )}
+      );
+
+  if (embedded) return body;
+
+  return (
+    <AdminUserPanelShell
+      title={t('adminDomains.systemConfig.retention')}
+      hint={t('adminTasks.retentionHint')}
+      wide
+    >
+      {body}
     </AdminUserPanelShell>
   );
 }

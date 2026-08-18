@@ -2,7 +2,7 @@
  * Gán Org Role catalog cho members trong phòng.
  * Trưởng phòng (head) vẫn có thể đặt qua checkbox «Trưởng phòng» (setHead).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminOrgUnitPicker from '../../components/adminOrgStructure/AdminOrgUnitPicker';
@@ -25,12 +25,12 @@ function unique(arr) {
   return [...new Set((arr || []).map((x) => String(x).trim()).filter(Boolean))];
 }
 
-export default function DeptOrgRolesPanel({ orgId }) {
+export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { membersByIdAll } = useAdminMembers(orgId);
+  const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { membersByIdAll, error: membersError, loadMembers } = useAdminMembers(orgId);
 
   const [selectedId, setSelectedId] = useState(unitParam);
   const [catalog, setCatalog] = useState([]);
@@ -39,6 +39,9 @@ export default function DeptOrgRolesPanel({ orgId }) {
   const [makeHead, setMakeHead] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingAssign, setLoadingAssign] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [assignError, setAssignError] = useState('');
+  const assignLoadGenRef = useRef(0);
 
   const selected = useMemo(
     () => departments.find((row) => unitId(row) === selectedId) || null,
@@ -46,6 +49,54 @@ export default function DeptOrgRolesPanel({ orgId }) {
   );
   const memberIds = selected?.memberIds || [];
   const headId = selected ? departmentHeadId(selected) : '';
+
+  const customRoles = useMemo(() => (catalog || []).filter((r) => !r.isSystem), [catalog]);
+
+  const loadCatalog = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const res = await orgRoleCatalogAPI.listCatalog(orgId);
+      setCatalog(res?.data?.roles || res?.data?.data?.roles || []);
+      setCatalogError('');
+    } catch (error) {
+      const msg = resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') });
+      toast.error(msg);
+      setCatalogError(msg);
+      setCatalog([]);
+    }
+  }, [orgId, t]);
+
+  const loadAssignmentsForUser = useCallback(
+    async (uid) => {
+      const id = String(uid || '').trim();
+      const reqGen = assignLoadGenRef.current + 1;
+      assignLoadGenRef.current = reqGen;
+      if (!orgId || !id) {
+        if (reqGen === assignLoadGenRef.current) {
+          setAssignedKeys([]);
+          setAssignError('');
+        }
+        return;
+      }
+      setLoadingAssign(true);
+      setAssignError('');
+      try {
+        const res = await orgRoleCatalogAPI.listAssignments(orgId, { userId: id });
+        const items = res?.data?.assignments || res?.data?.data?.assignments || [];
+        if (reqGen !== assignLoadGenRef.current) return;
+        setAssignedKeys(unique(items.map((x) => x.roleKey).filter((k) => k !== 'department_manager')));
+      } catch (error) {
+        if (reqGen !== assignLoadGenRef.current) return;
+        const msg = resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') });
+        toast.error(msg);
+        setAssignError(msg);
+        setAssignedKeys([]);
+      } finally {
+        if (reqGen === assignLoadGenRef.current) setLoadingAssign(false);
+      }
+    },
+    [orgId, t]
+  );
 
   useEffect(() => {
     if (unitParam) setSelectedId(unitParam);
@@ -62,45 +113,21 @@ export default function DeptOrgRolesPanel({ orgId }) {
   }, [selectedUserId, headId]);
 
   useEffect(() => {
-    if (!orgId) return;
-    (async () => {
-      try {
-        const res = await orgRoleCatalogAPI.listCatalog(orgId);
-        setCatalog(res?.data?.roles || res?.data?.data?.roles || []);
-      } catch (error) {
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
-        setCatalog([]);
-      }
-    })();
-  }, [orgId, t]);
+    loadCatalog();
+  }, [loadCatalog]);
 
   useEffect(() => {
     if (!orgId || !selectedUserId) {
+      assignLoadGenRef.current += 1;
       setAssignedKeys([]);
+      setAssignError('');
+      setLoadingAssign(false);
       return;
     }
-    let cancelled = false;
     (async () => {
-      setLoadingAssign(true);
-      try {
-        const res = await orgRoleCatalogAPI.listAssignments(orgId, { userId: selectedUserId });
-        const items = res?.data?.assignments || res?.data?.data?.assignments || [];
-        if (!cancelled) {
-          setAssignedKeys(unique(items.map((x) => x.roleKey).filter((k) => k !== 'department_manager')));
-        }
-      } catch (error) {
-        if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
-          setAssignedKeys([]);
-        }
-      } finally {
-        if (!cancelled) setLoadingAssign(false);
-      }
+      await loadAssignmentsForUser(selectedUserId);
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, selectedUserId, t]);
+  }, [orgId, selectedUserId, loadAssignmentsForUser]);
 
   const toggleKey = (key) => {
     setAssignedKeys((prev) =>
@@ -130,6 +157,130 @@ export default function DeptOrgRolesPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={unitName(selected) || t('adminDomains.orgStructure.deptOrgRoles')}>
+      {structureError || membersError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : catalogError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {catalogError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadCatalog()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : !memberIds.length ? (
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>{t('adminOrg.deptOrgRolesNeedMembers')}</p>
+          <Link
+            to={`/app/admin/org-structure/departments/members?unitId=${encodeURIComponent(selectedId)}`}
+            className={adminSecondaryBtnClass()}
+          >
+            {t('adminDomains.orgStructure.deptMembers')}
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <label className="block text-sm">
+            <span className="mb-1 block text-muted-foreground">{t('adminOrg.deptOrgRolesPickMember')}</span>
+            <select
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+            >
+              {memberIds.map((id) => {
+                const m = membersByIdAll.get(id);
+                const label = m ? memberDisplayName(m) : id;
+                return (
+                  <option key={id} value={id}>
+                    {label}
+                    {headId === id ? ' (Head)' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+
+          <label className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-border"
+              checked={makeHead}
+              onChange={(e) => setMakeHead(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">{t('adminOrg.deptOrgRolesMakeHead')}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {t('adminOrg.deptOrgRolesManagerMapsHead')}
+              </span>
+            </span>
+          </label>
+
+          {loadingAssign ? (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : assignError ? (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {assignError}
+              </p>
+              <button
+                type="button"
+                className={adminPrimaryBtnClass()}
+                onClick={() => loadAssignmentsForUser(selectedUserId)}
+              >
+                {t('adminRbac.retry')}
+              </button>
+            </div>
+          ) : customRoles.length ? (
+            <ul className="max-h-64 space-y-1 overflow-auto rounded-xl border border-border/70 p-2">
+              {customRoles.map((role) => {
+                const checked = assignedKeys.includes(role.key);
+                return (
+                  <li key={role.key}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border"
+                        checked={checked}
+                        onChange={() => toggleKey(role.key)}
+                      />
+                      <span>
+                        <span className="font-medium">{role.label || role.key}</span>
+                        <span className="ml-1 text-xs text-muted-foreground">({role.key})</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('adminOrg.deptOrgRolesNoCustom')}</p>
+          )}
+
+          <button type="button" disabled={busy || !selectedUserId} className={adminPrimaryBtnClass()} onClick={save}>
+            {busy ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.deptOrgRoles')}
@@ -140,95 +291,14 @@ export default function DeptOrgRolesPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={departments}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.deptOrgRolesPickerHint')}
           subtitleFn={(row) => `${(row.memberIds || []).length} members`}
         />
-        <AdminUserFormCard title={unitName(selected) || t('adminDomains.orgStructure.deptOrgRoles')}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : !memberIds.length ? (
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p>{t('adminOrg.deptOrgRolesNeedMembers')}</p>
-              <Link
-                to={`/app/admin/org-structure/departments/members?unitId=${encodeURIComponent(selectedId)}`}
-                className={adminSecondaryBtnClass()}
-              >
-                {t('adminDomains.orgStructure.deptMembers')}
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <label className="block text-sm">
-                <span className="mb-1 block text-muted-foreground">{t('adminOrg.deptOrgRolesPickMember')}</span>
-                <select
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                >
-                  {memberIds.map((id) => {
-                    const m = membersByIdAll.get(id);
-                    const label = m ? memberDisplayName(m) : id;
-                    return (
-                      <option key={id} value={id}>
-                        {label}
-                        {headId === id ? ' (Head)' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-
-              <label className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1 rounded border-border"
-                  checked={makeHead}
-                  onChange={(e) => setMakeHead(e.target.checked)}
-                />
-                <span>
-                  <span className="font-medium">{t('adminOrg.deptOrgRolesMakeHead')}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {t('adminOrg.deptOrgRolesManagerMapsHead')}
-                  </span>
-                </span>
-              </label>
-
-              {loadingAssign ? (
-                <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-              ) : catalog.length ? (
-                <ul className="max-h-64 space-y-1 overflow-auto rounded-xl border border-border/70 p-2">
-                  {catalog.map((role) => {
-                    const checked = assignedKeys.includes(role.key);
-                    return (
-                      <li key={role.key}>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/40">
-                          <input
-                            type="checkbox"
-                            className="rounded border-border"
-                            checked={checked}
-                            onChange={() => toggleKey(role.key)}
-                          />
-                          <span>
-                            <span className="font-medium">{role.label || role.key}</span>
-                            <span className="ml-1 text-xs text-muted-foreground">({role.key})</span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty')}</p>
-              )}
-
-              <button type="button" disabled={busy || !selectedUserId} className={adminPrimaryBtnClass()} onClick={save}>
-                {busy ? t('common.saving') : t('common.save')}
-              </button>
-            </div>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

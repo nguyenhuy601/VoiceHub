@@ -15,15 +15,19 @@ export function useAdminOrgStructure(orgId, options = {}) {
   const { t } = useAppStrings();
   const [structure, setStructure] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const loadStructure = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setError('');
     try {
       const res = await organizationAPI.getStructure(orgId, { includeInactive });
       setStructure(unwrapOrgApi(res) || null);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+      const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
+      setError(msg);
+      toast.error(msg);
       setStructure(null);
     } finally {
       setLoading(false);
@@ -38,6 +42,7 @@ export function useAdminOrgStructure(orgId, options = {}) {
 
   return {
     structure,
+    error,
     loading,
     loadStructure,
     branches: flat.branches,

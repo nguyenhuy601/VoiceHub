@@ -16,11 +16,11 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
-export default function DivisionEditPanel({ orgId }) {
+export default function DivisionEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { divisions, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '' });
@@ -59,6 +59,40 @@ export default function DivisionEditPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.divisionEdit')}>
+      {structureError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : (
+        <form className="space-y-4" onSubmit={save}>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
+            <input
+              required
+              className={adminInputClass()}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </label>
+          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </form>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.divisionEdit')}
@@ -69,31 +103,14 @@ export default function DivisionEditPanel({ orgId }) {
         <AdminOrgUnitPicker
           items={divisions}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.divisionEditPickerHint')}
           subtitleFn={(row) => row.branchName || ''}
         />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.divisionEdit')}>
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : (
-            <form className="space-y-4" onSubmit={save}>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
-                <input
-                  required
-                  className={adminInputClass()}
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                />
-              </label>
-              <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            </form>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

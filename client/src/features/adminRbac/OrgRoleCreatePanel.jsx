@@ -30,6 +30,8 @@ export default function OrgRoleCreatePanel({ orgId }) {
   const [busy, setBusy] = useState(false);
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [insertPlace, setInsertPlace] = useState({ place: 'end' });
 
   const keyPreview = useMemo(
@@ -42,6 +44,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
+      setRolesError('');
       try {
         const res = await orgRoleCatalogAPI.listCatalog(orgId);
         const list = res?.data?.roles || res?.data?.data?.roles || [];
@@ -52,7 +55,9 @@ export default function OrgRoleCreatePanel({ orgId }) {
         }
       } catch (error) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
+          const msg = resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') });
+          toast.error(msg);
+          setRolesError(msg);
           setRoles([]);
         }
       } finally {
@@ -62,7 +67,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t]);
+  }, [orgId, t, reloadTick]);
 
   const submit = async () => {
     if (!orgId || busy) return;
@@ -127,22 +132,38 @@ export default function OrgRoleCreatePanel({ orgId }) {
             />
           </label>
 
-          <AdminRoleInsertPositionPicker
-            roles={roles}
-            value={insertPlace}
-            onChange={setInsertPlace}
-            loading={rolesLoading}
-            title={t('adminRbac.roleInsertPlaceTitle')}
-            hint={t('adminRbac.roleInsertPlaceHint')}
-            startLabel={t('adminRbac.roleInsertStart')}
-            endLabel={t('adminRbac.roleInsertEnd')}
-            afterPrefix={t('adminRbac.roleInsertAfter')}
-            emptyLabel={t('adminRbac.roleInsertEmpty')}
-            previewLabel={suffix.trim() || keyPreview || ''}
-          />
+          {rolesError ? (
+            <div className="mb-4 space-y-3">
+              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {rolesError}
+              </p>
+              <button
+                type="button"
+                className={adminPrimaryBtnClass()}
+                disabled={busy}
+                onClick={() => setReloadTick((n) => n + 1)}
+              >
+                {t('adminRbac.retry')}
+              </button>
+            </div>
+          ) : (
+            <AdminRoleInsertPositionPicker
+              roles={roles}
+              value={insertPlace}
+              onChange={setInsertPlace}
+              loading={rolesLoading}
+              title={t('adminRbac.roleInsertPlaceTitle')}
+              hint={t('adminRbac.roleInsertPlaceHint')}
+              startLabel={t('adminRbac.roleInsertStart')}
+              endLabel={t('adminRbac.roleInsertEnd')}
+              afterPrefix={t('adminRbac.roleInsertAfter')}
+              emptyLabel={t('adminRbac.roleInsertEmpty')}
+              previewLabel={suffix.trim() || keyPreview || ''}
+            />
+          )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" disabled={!suffix.trim() || busy} className={adminPrimaryBtnClass()} onClick={submit}>
+            <button type="button" disabled={!suffix.trim() || busy || Boolean(rolesError)} className={adminPrimaryBtnClass()} onClick={submit}>
               {busy ? t('common.saving') : t('common.save')}
             </button>
             <button

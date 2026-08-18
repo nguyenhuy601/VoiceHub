@@ -19,14 +19,11 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
-export default function TeamEditPanel({ orgId }) {
+export default function TeamEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { teams, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canUpdateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_UPDATE);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
@@ -73,49 +70,64 @@ export default function TeamEditPanel({ orgId }) {
     }
   };
 
+  const body = (
+    <AdminUserFormCard title={t('adminDomains.orgStructure.teamEdit')}>
+      {structureError ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {structureError}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : !selected ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+      ) : (
+        <form className="space-y-4" onSubmit={save}>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
+            <input
+              required
+              className={adminInputClass()}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className={adminLabelClass()}>{t('adminOrg.description')}</span>
+            <textarea
+              rows={3}
+              className={adminInputClass()}
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
+          </label>
+          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </form>
+      )}
+    </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
   return (
     <AdminUserPanelShell title={t('adminDomains.orgStructure.teamEdit')} hint={t('adminOrg.teamEditHint')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminOrgUnitPicker
           items={teams}
           loading={loading}
+          error={structureError}
+          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.teamEditPickerHint')}
           subtitleFn={(row) => row.departmentName || ''}
           badgeFn={(row) => (row.isActive === false ? t('adminOrg.inactive') : t('adminOrg.active'))}
         />
-        <AdminUserFormCard title={t('adminDomains.orgStructure.teamEdit')}>
-          {!canUpdateTeam ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
-          ) : !selected ? (
-            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-          ) : (
-            <form className="space-y-4" onSubmit={save}>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
-                <input
-                  required
-                  className={adminInputClass()}
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                />
-              </label>
-              <label className="block">
-                <span className={adminLabelClass()}>{t('adminOrg.description')}</span>
-                <textarea
-                  rows={3}
-                  className={adminInputClass()}
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                />
-              </label>
-              <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-            </form>
-          )}
-        </AdminUserFormCard>
+        {body}
       </div>
     </AdminUserPanelShell>
   );

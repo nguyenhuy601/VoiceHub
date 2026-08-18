@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MoreHorizontal } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { memberUserId } from '../../utils/adminUserUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 
 const MENU_WIDTH = 220;
 const GAP = 4;
@@ -215,27 +216,27 @@ export default function AdminUserActionsMenu({
                     </ItemLink>
                   </Group>
                   <Group label={t('adminUsers.menuGroupAccount')}>
-                    <ItemLink to={`/app/admin/accounts/resend-verification${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/verification', userId, 'resend')}>
                       {t('adminDomains.accounts.resendVerification')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/activate${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'activate')}>
                       {t('adminDomains.accounts.activate')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/reset-password${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'reset')}>
                       {t('adminDomains.accounts.resetPassword')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/force-password${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'force')}>
                       {t('adminDomains.accounts.forcePassword')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/set-password${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'set')}>
                       {t('adminDomains.accounts.setPassword')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/revoke-sessions${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'revoke')}>
                       {t('adminDomains.accounts.revokeSessions')}
                     </ItemLink>
                   </Group>
                   <Group label={t('adminUsers.menuGroupDanger')}>
-                    <ItemLink danger to={`/app/admin/accounts/lock${q}`}>
+                    <ItemLink danger to={adminUserHubLink('/app/admin/accounts/access', userId, 'lock')}>
                       {t('adminDomains.accounts.lock')}
                     </ItemLink>
                   </Group>
@@ -244,21 +245,23 @@ export default function AdminUserActionsMenu({
                 <>
                   <Group label={t('adminUsers.menuGroupInfo')}>
                     <ItemButton onClick={() => onViewDetail?.(member)}>{t('adminUsers.viewDetail')}</ItemButton>
-                    <ItemLink to={`/app/admin/users/edit${q}`}>{t('adminUsers.editInfo')}</ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'edit')}>{t('adminUsers.editInfo')}</ItemLink>
                   </Group>
                   <Group label={t('adminUsers.menuGroupAccount')}>
                     <ItemLink to={`/app/admin/accounts/detail${q}`}>{t('adminDomains.accounts.detail')}</ItemLink>
-                    <ItemLink to={`/app/admin/accounts/lock${q}`}>{t('adminDomains.accounts.lock')}</ItemLink>
-                    <ItemLink to={`/app/admin/accounts/reset-password${q}`}>
+                    <ItemLink danger to={adminUserHubLink('/app/admin/accounts/access', userId, 'lock')}>
+                      {t('adminDomains.accounts.lock')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'reset')}>
                       {t('adminDomains.accounts.resetPassword')}
                     </ItemLink>
-                    <ItemLink to={`/app/admin/accounts/force-password${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'force')}>
                       {t('adminDomains.accounts.forcePassword')}
                     </ItemLink>
                   </Group>
                   <Group label={t('adminUsers.menuGroupAccess')}>
                     <ItemLink to={`/app/admin/rbac/assign${q}`}>{t('adminUsers.assignRole')}</ItemLink>
-                    <ItemLink to={`/app/admin/users/assign-org${q}`}>
+                    <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}>
                       {t('adminDomains.users.assignOrg')}
                     </ItemLink>
                   </Group>

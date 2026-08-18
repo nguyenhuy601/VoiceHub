@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { GradientButton } from '../../components/Shared';
+import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminVoiceRooms from '../../hooks/useAdminVoiceRooms';
 import { useAppStrings } from '../../locales/appStrings';
@@ -8,7 +9,7 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 export default function VoiceManageRoomsPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { voiceRooms, loading, loadRooms, structure } = useAdminVoiceRooms(orgId);
+  const { voiceRooms, loading, error, loadRooms, structure } = useAdminVoiceRooms(orgId);
   const [selectedId, setSelectedId] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -113,6 +114,14 @@ export default function VoiceManageRoomsPanel({ orgId }) {
         <p className="text-sm text-muted-foreground">{t('adminVoice.manageRoomsHint')}</p>
       </div>
 
+      {error ? (
+        <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-4">
+          <p className="text-sm text-destructive">{error}</p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRooms()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card/40 p-4">
           <p className="mb-2 text-sm font-medium">{t('adminVoice.createRoom')}</p>
@@ -192,6 +201,7 @@ export default function VoiceManageRoomsPanel({ orgId }) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

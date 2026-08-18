@@ -18,6 +18,7 @@ import {
 } from '../../utils/adminUserUtils';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import { memberJobTitle } from '../../utils/userTaxonomyUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import CapabilityReviewPanel from './CapabilityReviewPanel';
 
@@ -312,7 +313,7 @@ export default function AdminUserDetailDrawer({
                   {t('adminUsers.assignRole')}
                 </Link>
                 <Link
-                  to={`/app/admin/users/assign-org${q}`}
+                  to={adminUserHubLink('/app/admin/users/people-ops', memberUserId(member), 'assign-org')}
                   className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
                 >
                   {t('adminDomains.users.assignOrg')}
@@ -393,7 +394,7 @@ export default function AdminUserDetailDrawer({
 
         <div className="flex flex-wrap gap-2 border-t border-border px-5 py-3">
           <Link
-            to={`/app/admin/users/edit${q}`}
+            to={adminUserHubLink('/app/admin/users/people-ops', memberUserId(member), 'edit')}
             className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500"
           >
             {t('adminUsers.editInfo')}

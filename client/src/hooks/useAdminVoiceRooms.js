@@ -9,16 +9,20 @@ export function useAdminVoiceRooms(orgId) {
   const { t } = useAppStrings();
   const [structure, setStructure] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const loadRooms = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setError('');
     try {
       const res = await organizationAPI.getStructure(orgId);
       const body = res?.data?.data ?? res?.data ?? res;
       setStructure(body);
-    } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminVoice.loadRoomsFail') }));
+    } catch (err) {
+      const msg = resolveApiErrorMessage(err, { t, fallback: t('adminVoice.loadRoomsFail') });
+      setError(msg);
+      toast.error(msg);
       setStructure(null);
     } finally {
       setLoading(false);
@@ -34,7 +38,7 @@ export function useAdminVoiceRooms(orgId) {
     [structure]
   );
 
-  return { structure, voiceRooms, loading, loadRooms };
+  return { structure, voiceRooms, loading, error, loadRooms };
 }
 
 export default useAdminVoiceRooms;

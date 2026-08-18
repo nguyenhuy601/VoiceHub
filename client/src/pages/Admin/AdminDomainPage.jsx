@@ -27,6 +27,10 @@ import AccountActivatePanel from '../../features/adminAccounts/AccountActivatePa
 import AccountRevokeSessionsPanel from '../../features/adminAccounts/AccountRevokeSessionsPanel';
 import AccountResendVerificationPanel from '../../features/adminAccounts/AccountResendVerificationPanel';
 import AccountLoginHistoryPanel from '../../features/adminAccounts/AccountLoginHistoryPanel';
+import AccountPasswordHubPanel from '../../features/adminAccounts/AccountPasswordHubPanel';
+import AccountAccessHubPanel from '../../features/adminAccounts/AccountAccessHubPanel';
+import AccountVerificationHubPanel from '../../features/adminAccounts/AccountVerificationHubPanel';
+import PeopleOpsHubPanel from '../../features/adminUsers/PeopleOpsHubPanel';
 import RolesListPanel from '../../features/adminRbac/RolesListPanel';
 import RolesHierarchyPanel from '../../features/adminRbac/RolesHierarchyPanel';
 import RoleCreatePanel from '../../features/adminRbac/RoleCreatePanel';
@@ -53,6 +57,7 @@ import ProjectRoleDeletePanel from '../../features/adminRbac/ProjectRoleDeletePa
 import VoiceRoomsListPanel from '../../features/adminVoice/VoiceRoomsListPanel';
 import VoiceManageRoomsPanel from '../../features/adminVoice/VoiceManageRoomsPanel';
 import MeetingsListPanel from '../../features/adminVoice/MeetingsListPanel';
+import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
 import MeetingEndPanel from '../../features/adminVoice/MeetingEndPanel';
 import MeetingModeratePanel from '../../features/adminVoice/MeetingModeratePanel';
 import {
@@ -60,7 +65,20 @@ import {
   MeetingTranscriptPanel,
   MeetingAiSummaryPanel,
 } from '../../features/adminVoice/MeetingArtifactPanels';
-import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
+import PosManageHubPanel from '../../features/adminRbac/PosManageHubPanel';
+import OrgRoleManageHubPanel from '../../features/adminRbac/OrgRoleManageHubPanel';
+import ProjectRoleManageHubPanel from '../../features/adminRbac/ProjectRoleManageHubPanel';
+import PermPackManageHubPanel from '../../features/adminRbac/PermPackManageHubPanel';
+import MeetingOpsHubPanel from '../../features/adminVoice/MeetingOpsHubPanel';
+import ChannelsListPanel from '../../features/adminChannels/ChannelsListPanel';
+import ChannelManageHubPanel from '../../features/adminChannels/ChannelManageHubPanel';
+import FilesListPanel from '../../features/adminFiles/FilesListPanel';
+import FileOpsHubPanel from '../../features/adminFiles/FileOpsHubPanel';
+import NotificationConfigHubPanel from '../../features/adminNotifications/NotificationConfigHubPanel';
+import ChatConfigHubPanel from '../../features/adminChat/ChatConfigHubPanel';
+import SystemConfigHubPanel from '../../features/adminSystemConfig/SystemConfigHubPanel';
+import SecuritySettingsHubPanel from '../../features/adminSecurity/SecuritySettingsHubPanel';
+import SecuritySessionsHubPanel from '../../features/adminSecurity/SecuritySessionsHubPanel';
 import TasksProjectsBoardsPanel from '../../features/adminTasks/TasksProjectsBoardsPanel';
 import TasksProjectSettingsPanel from '../../features/adminTasks/TasksProjectSettingsPanel';
 import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPanel';
@@ -118,6 +136,10 @@ import {
   PosAssignPanel,
   OrgLevelsPanel,
   OrgUnitTreePanel,
+  DeptManageHubPanel,
+  TeamManageHubPanel,
+  DivisionManageHubPanel,
+  BranchManageHubPanel,
 } from '../../features/adminOrgStructure';
 
 const USER_PANELS = {
@@ -128,11 +150,15 @@ const USER_PANELS = {
   'users-import': UserImportPanel,
   'users-import-excel': UserExcelImportPanel,
   'users-import-hub': UserImportHubPanel,
+  'users-people-ops': PeopleOpsHubPanel,
   'users-assign-org': UserAssignOrgPanel,
 };
 
 const ACCOUNT_PANELS = {
   'accounts-list': AccountsListPanel,
+  'accounts-password-hub': AccountPasswordHubPanel,
+  'accounts-access-hub': AccountAccessHubPanel,
+  'accounts-verification-hub': AccountVerificationHubPanel,
   'accounts-detail': AccountDetailPanel,
   'accounts-lock': AccountLockPanel,
   'accounts-reset-password': AccountResetPasswordPanel,
@@ -173,6 +199,10 @@ const RBAC_PANELS = {
   'rbac-assign': RoleAssignPanel,
   'rbac-revoke': RoleRevokePanel,
   'rbac-matrix': RolesMatrixPanel,
+  'rbac-pos-manage': PosManageHubPanel,
+  'rbac-org-role-manage': OrgRoleManageHubPanel,
+  'rbac-project-role-manage': ProjectRoleManageHubPanel,
+  'rbac-perm-pack-manage': PermPackManageHubPanel,
 };
 
 const VOICE_PANELS = {
@@ -185,6 +215,19 @@ const VOICE_PANELS = {
   'voice-transcript': MeetingTranscriptPanel,
   'voice-ai-summary': MeetingAiSummaryPanel,
   'voice-history': MeetingHistoryPanel,
+  'voice-meeting-ops': MeetingOpsHubPanel,
+};
+
+const CLUSTER3_PANELS = {
+  'channels-list': ChannelsListPanel,
+  'channels-manage': ChannelManageHubPanel,
+  'files-list': FilesListPanel,
+  'files-ops': FileOpsHubPanel,
+  'notifications-config': NotificationConfigHubPanel,
+  'chat-config': ChatConfigHubPanel,
+  'system-config-hub': SystemConfigHubPanel,
+  'security-settings-hub': SecuritySettingsHubPanel,
+  'security-sessions-hub': SecuritySessionsHubPanel,
 };
 
 const ORG_PANELS = {
@@ -217,6 +260,10 @@ const ORG_PANELS = {
   'org-division-edit': DivisionEditPanel,
   'org-division-disable': DivisionDisablePanel,
   'org-division-dept': DivisionDeptPanel,
+  'org-dept-manage': DeptManageHubPanel,
+  'org-team-manage': TeamManageHubPanel,
+  'org-division-manage': DivisionManageHubPanel,
+  'org-branch-manage': BranchManageHubPanel,
 };
 
 const TASK_PANELS = {
@@ -251,7 +298,7 @@ export default function AdminDomainPage() {
   const { orgId } = useCompanyAdminContext();
   const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
 
-  const legacy = resolveAdminLegacyRedirect(location.pathname);
+  const legacy = resolveAdminLegacyRedirect(location.pathname, location.search);
   if (legacy) {
     const search = legacy.search || location.search || '';
     return <Navigate to={`${legacy.pathname}${search}${location.hash || ''}`} replace />;
@@ -291,6 +338,11 @@ export default function AdminDomainPage() {
   const VoicePanel = VOICE_PANELS[impl];
   if (VoicePanel) {
     return <VoicePanel orgId={orgId} />;
+  }
+
+  const Cluster3Panel = CLUSTER3_PANELS[impl];
+  if (Cluster3Panel) {
+    return <Cluster3Panel orgId={orgId} />;
   }
 
   const RbacPanel = RBAC_PANELS[impl];

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useAppStrings } from '../locales/appStrings';
+import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import {
   isSystemCatalogRole,
   normalizeRoleId,
@@ -52,6 +53,11 @@ export function useAdminRoles(orgId) {
     return map;
   }, [snapshot.roles]);
 
+  const error = useMemo(() => {
+    if (!snapshot.error) return '';
+    return resolveApiErrorMessage(snapshot.error, { t, fallback: t('adminRbac.loadFail') });
+  }, [snapshot.error, t]);
+
   const removeRoleLocally = useCallback(
     (roleId) => {
       removeAdminRole(orgId, roleId);
@@ -63,6 +69,7 @@ export function useAdminRoles(orgId) {
     roles: snapshot.roles,
     systemRoles,
     loading: snapshot.loading,
+    error,
     loadRoles,
     removeRoleLocally,
     rolesById,

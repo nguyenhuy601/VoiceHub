@@ -29,6 +29,7 @@ export default function OrgUnitTreePanel({ orgId }) {
   const [levels, setLevels] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -47,6 +48,7 @@ export default function OrgUnitTreePanel({ orgId }) {
   const load = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const [unitsRes, lvlRes] = await Promise.all([
         organizationAPI.listStructureUnits(orgId),
@@ -58,7 +60,11 @@ export default function OrgUnitTreePanel({ orgId }) {
       const lvls = Array.isArray(schema?.levels) ? schema.levels.filter((l) => l.enabled !== false) : [];
       setLevels(lvls);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+      const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
+      toast.error(msg);
+      setLoadError(msg);
+      setTree([]);
+      setLevels([]);
     } finally {
       setLoading(false);
     }
@@ -148,6 +154,14 @@ export default function OrgUnitTreePanel({ orgId }) {
 
   return (
     <AdminUserPanelShell title={t('adminDomains.orgStructure.unitTree')} hint={t('adminOrg.unitTreeHint')} wide>
+      {loadError ? (
+        <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-4">
+          <p className="text-sm text-destructive">{loadError}</p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => load()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
         <AdminUserFormCard title={t('adminOrg.unitTreeTitle')}>
           {loading ? (
@@ -252,6 +266,7 @@ export default function OrgUnitTreePanel({ orgId }) {
           </AdminUserFormCard>
         </div>
       </div>
+      )}
     </AdminUserPanelShell>
   );
 }

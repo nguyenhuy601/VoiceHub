@@ -42,3 +42,8 @@ export { default as PosAssignPanel } from './PosAssignPanel';
 export { default as OrgLevelsPanel } from './OrgLevelsPanel';
 export { default as OrgUnitTreePanel } from './OrgUnitTreePanel';
 export { default as OrgStructureSetupModal } from './OrgStructureSetupModal';
+
+export { default as DeptManageHubPanel } from './DeptManageHubPanel';
+export { default as TeamManageHubPanel } from './TeamManageHubPanel';
+export { default as DivisionManageHubPanel } from './DivisionManageHubPanel';
+export { default as BranchManageHubPanel } from './BranchManageHubPanel';

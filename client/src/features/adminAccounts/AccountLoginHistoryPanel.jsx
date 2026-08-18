@@ -5,34 +5,41 @@ import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapApi } from '../../utils/adminUserUtils';
 
-export default function AccountLoginHistoryPanel({ orgId }) {
+export default function AccountLoginHistoryPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     if (!orgId || !userId) {
       setItems([]);
+      setLoadError('');
       return;
     }
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const res = await adminUserAPI.getLoginEvents(orgId, userId, { limit: 100 });
         const data = unwrapApi(res)?.data ?? unwrapApi(res);
         if (!cancelled) setItems(Array.isArray(data?.items) ? data.items : []);
       } catch (error) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.historyFail') }));
+          const msg = resolveApiErrorMessage(error, { t, fallback: t('adminUsers.historyFail') });
+          toast.error(msg);
+          setLoadError(msg);
           setItems([]);
         }
       } finally {
@@ -42,17 +49,23 @@ export default function AccountLoginHistoryPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, userId, t]);
+  }, [orgId, userId, t, reloadTick]);
 
-  return (
-    <AdminUserPanelShell title={t('adminDomains.accounts.loginHistory')} hint={t('adminAccounts.historyPickerHint')} wide>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
-        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminAccounts.historyPickerHint')} />
+  const historyCard = (
         <AdminUserFormCard title={t('adminDomains.accounts.loginHistory')}>
           {loading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : !userId ? (
             <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+          ) : loadError ? (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {loadError}
+              </p>
+              <button type="button" className={adminPrimaryBtnClass()} onClick={() => setReloadTick((n) => n + 1)}>
+                {t('adminRbac.retry')}
+              </button>
+            </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border/70">
               <div className="max-h-[420px] overflow-auto">
@@ -93,6 +106,15 @@ export default function AccountLoginHistoryPanel({ orgId }) {
             </div>
           )}
         </AdminUserFormCard>
+  );
+
+  if (embedded) return historyCard;
+
+  return (
+    <AdminUserPanelShell title={t('adminDomains.accounts.loginHistory')} hint={t('adminAccounts.historyPickerHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminAccounts.historyPickerHint')} />
+        {historyCard}
       </div>
     </AdminUserPanelShell>
   );

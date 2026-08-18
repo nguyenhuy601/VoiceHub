@@ -16,6 +16,9 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
 import { hasLayerPrefix } from '../../utils/roleLayerNaming';
+import { adminRoleHubLink } from '../../utils/adminHubLinks';
+
+const PROJECT_ROLE_MANAGE_HUB = '/app/admin/rbac/project-roles/manage';
 
 const PROJECT_ROLE_LIST_GRID =
   'grid-cols-[2rem_minmax(6.5rem,1.2fr)_minmax(5.5rem,1fr)_minmax(4rem,5.5rem)_minmax(10rem,13rem)]';
@@ -142,7 +145,7 @@ export default function ProjectRoleListPanel({ orgId }) {
                 </div>
                 <div className="flex flex-wrap justify-end gap-1.5 self-center">
                   <Link
-                    to={`/app/admin/rbac/project-roles/edit?roleId=${encodeURIComponent(role._id || role.id)}`}
+                    to={adminRoleHubLink(PROJECT_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
                     className={adminSecondaryBtnClass(actionBtn)}
                     aria-label={`${t('adminRbac.projectRolePermAction')}: ${role.label || role.key}`}
                   >
@@ -151,13 +154,13 @@ export default function ProjectRoleListPanel({ orgId }) {
                   {!role.isSystem ? (
                     <>
                       <Link
-                        to={`/app/admin/rbac/project-roles/edit?roleId=${encodeURIComponent(role._id || role.id)}`}
+                        to={adminRoleHubLink(PROJECT_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
                         className={adminSecondaryBtnClass(actionBtn)}
                       >
                         {t('adminRbac.edit')}
                       </Link>
                       <Link
-                        to={`/app/admin/rbac/project-roles/delete?roleId=${encodeURIComponent(role._id || role.id)}`}
+                        to={adminRoleHubLink(PROJECT_ROLE_MANAGE_HUB, role._id || role.id, 'delete')}
                         className={adminDangerBtnClass(actionBtn)}
                       >
                         {t('adminRbac.delete')}

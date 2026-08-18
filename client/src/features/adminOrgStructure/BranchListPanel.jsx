@@ -13,18 +13,23 @@ import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const BRANCH_MANAGE_HUB = '/app/admin/org-structure/branches/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/branches/edit', labelKey: 'adminDomains.orgStructure.branchEdit' },
-  { path: '/app/admin/org-structure/branches/disable', labelKey: 'adminDomains.orgStructure.branchDisable' },
-  { path: '/app/admin/org-structure/branches/departments', labelKey: 'adminDomains.orgStructure.branchDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.branchEdit' },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.branchDisable' },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.branchDept' },
 ];
 
 export default function BranchListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { branches: structureBranches, loading: structureLoading } = useAdminOrgStructure(orgId);
+  const { branches: structureBranches, loading: structureLoading, loadStructure } =
+    useAdminOrgStructure(orgId);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -32,6 +37,7 @@ export default function BranchListPanel({ orgId }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const res = await organizationAPI.getBranches(orgId, { includeInactive: true });
         const data = unwrapOrgApi(res);
@@ -40,7 +46,9 @@ export default function BranchListPanel({ orgId }) {
       } catch (error) {
         if (!cancelled) {
           setBranches([]);
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+          const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
+          setLoadError(msg);
+          toast.error(msg);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -49,9 +57,9 @@ export default function BranchListPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t]);
+  }, [orgId, t, reloadTick]);
 
-  const rows = branches.length ? branches : structureBranches;
+  const rows = loadError ? [] : branches.length ? branches : structureBranches;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -66,7 +74,8 @@ export default function BranchListPanel({ orgId }) {
     });
   }, [rows, query]);
 
-  const busy = loading || structureLoading;
+  const busy = loading || (!loadError && !branches.length && structureLoading);
+  const listError = loadError;
 
   return (
     <AdminUserPanelShell
@@ -96,6 +105,20 @@ export default function BranchListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {busy ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : listError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{listError}</p>
+            <button
+              type="button"
+              className={adminPrimaryBtnClass()}
+              onClick={() => {
+                setReloadTick((n) => n + 1);
+                loadStructure();
+              }}
+            >
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -130,8 +153,8 @@ export default function BranchListPanel({ orgId }) {
                         <div className="flex flex-wrap gap-1">
                           {ACTION_LINKS.map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(BRANCH_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}
