@@ -2,7 +2,7 @@ import { AlignLeft, CheckCircle2 } from 'lucide-react';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
-} from '../../figmaOrganizationClasses';
+} from '../../../../components/Organization/figmaOrganizationClasses';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 
 export default function DescriptionTab() {

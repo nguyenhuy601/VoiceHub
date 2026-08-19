@@ -1,6 +1,9 @@
 const { orgUnauthorized, orgAccessDenied, sendServiceError } = require('../utils/orgApiError');
 const axios = require('axios');
 const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
+const { checkMasterGrant } = require('../clients/rbacPermission.client');
+const { resolveAuthorizeOrGrant } = require('../utils/authorizeOrGrantDecision');
+const { resolveOrgAccess } = require('../utils/orgAccess');
 
 const AUTH_SERVICE_URL = String(process.env.AUTH_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AUTH_SERVICE_URL) throw new Error('Thiếu biến môi trường: AUTH_SERVICE_URL');
@@ -16,6 +19,9 @@ exports.protect = async (req, res, next) => {
         id: forwardedUserId,
         userId: forwardedUserId,
         email: getHeader(req.headers, 'x-user-email') || null,
+        systemRole: String(getHeader(req.headers, 'x-user-system-role') || '')
+          .trim()
+          .toLowerCase(),
       };
       return next();
     }
@@ -48,24 +54,62 @@ exports.protect = async (req, res, next) => {
   }
 };
 
+async function loadActiveMembership(req) {
+  const Membership = require('../models/Membership');
+  const orgId = req.params.orgId || req.params.id;
+  const userId = req.user?.id || req.user?._id || req.user?.userId;
+  const access = await resolveOrgAccess(userId, orgId);
+  const membership = access.membership || null;
+  const normalizedRole = membership ? Membership.normalizeRole(membership.role) : null;
+  return { membership, normalizedRole, orgId, userId, orgAccessOk: access.ok };
+}
+
+function membershipPlain(membership) {
+  if (!membership) return null;
+  return typeof membership.toObject === 'function' ? membership.toObject() : { ...membership };
+}
+
 exports.authorize = (roles) => {
   return async (req, res, next) => {
-    const Membership = require('../models/Membership');
-    const orgId = req.params.orgId || req.params.id;
-    const userId = req.user?.id || req.user?._id || req.user?.userId;
-
-    const membership = await Membership.findOne({
-      user: userId,
-      organization: orgId,
-      status: 'active',
-    });
-
-    const normalizedRole = membership ? Membership.normalizeRole(membership.role) : null;
+    const { membership, normalizedRole } = await loadActiveMembership(req);
     if (!membership || !roles.includes(normalizedRole)) {
       return orgAccessDenied(res);
     }
 
-    req.membership = { ...membership.toObject(), normalizedRole };
+    req.membership = { ...membershipPlain(membership), normalizedRole };
+    next();
+  };
+};
+
+/** owner/admin (roles) hoặc đã vào org và có master grant V2 — không bypass systemRole. */
+exports.authorizeOrGrant = (roles, masterKey) => {
+  return async (req, res, next) => {
+    const { membership, normalizedRole, orgId, userId, orgAccessOk } = await loadActiveMembership(req);
+    const membershipPass = resolveAuthorizeOrGrant({
+      membership,
+      normalizedRole,
+      roles,
+      grantAllowed: false,
+    });
+    if (membershipPass.allow) {
+      req.membership = { ...membershipPlain(membership), normalizedRole };
+      return next();
+    }
+    const grantAllowed =
+      orgAccessOk && masterKey ? await checkMasterGrant(userId, orgId, masterKey) : false;
+    const decision = resolveAuthorizeOrGrant({
+      membership,
+      normalizedRole,
+      roles,
+      grantAllowed,
+      orgAccessOk,
+    });
+    if (!decision.allow) {
+      return orgAccessDenied(res);
+    }
+    req.membership = membership
+      ? { ...membershipPlain(membership), normalizedRole }
+      : { role: 'member', normalizedRole: 'member' };
     next();
   };
 };

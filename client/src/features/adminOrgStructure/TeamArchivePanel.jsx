@@ -11,15 +11,21 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
-export default function TeamArchivePanel({ orgId, embedded = false }) {
+export default function TeamArchivePanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { teams, loading, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canDeleteTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_DELETE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +40,10 @@ export default function TeamArchivePanel({ orgId, embedded = false }) {
 
   const toggle = async (isActive) => {
     if (!orgId || !selectedId || busy) return;
+    if (!canDeleteTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     setBusy(true);
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, selectedId, { isActive });
@@ -48,47 +58,6 @@ export default function TeamArchivePanel({ orgId, embedded = false }) {
 
   const active = selected?.isActive !== false;
 
-  const body = (
-    <AdminUserFormCard title={t('adminDomains.orgStructure.teamArchive')} danger={!active}>
-      {structureError ? (
-        <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {structureError}
-          </p>
-          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
-            {t('adminRbac.retry')}
-          </button>
-        </div>
-      ) : !selected ? (
-        <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {active ? (
-            <button
-              type="button"
-              disabled={busy}
-              className={adminDangerBtnClass()}
-              onClick={() => toggle(false)}
-            >
-              {t('adminOrg.teamDisable')}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              className={adminPrimaryBtnClass()}
-              onClick={() => toggle(true)}
-            >
-              {t('adminOrg.teamEnable')}
-            </button>
-          )}
-        </div>
-      )}
-    </AdminUserFormCard>
-  );
-
-  if (embedded) return body;
-
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.teamArchive')}
@@ -99,15 +68,41 @@ export default function TeamArchivePanel({ orgId, embedded = false }) {
         <AdminOrgUnitPicker
           items={teams}
           loading={loading}
-          error={structureError}
-          onRetry={() => loadStructure()}
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.teamArchivePickerHint')}
           subtitleFn={(row) => row.departmentName || ''}
           badgeFn={(row) => (row.isActive === false ? t('adminOrg.inactive') : t('adminOrg.active'))}
         />
-        {body}
+        <AdminUserFormCard title={t('adminDomains.orgStructure.teamArchive')} danger={!active}>
+          {!canDeleteTeam ? (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          ) : !selected ? (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {active ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={adminDangerBtnClass()}
+                  onClick={() => toggle(false)}
+                >
+                  {t('adminOrg.teamDisable')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={adminPrimaryBtnClass()}
+                  onClick={() => toggle(true)}
+                >
+                  {t('adminOrg.teamEnable')}
+                </button>
+              )}
+            </div>
+          )}
+        </AdminUserFormCard>
       </div>
     </AdminUserPanelShell>
   );

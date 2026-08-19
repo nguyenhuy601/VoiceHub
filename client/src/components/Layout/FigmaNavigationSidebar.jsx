@@ -452,7 +452,11 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       }
       if (item.key === 'tasks') {
         return (
-          path === '/app/collaborate/tasks' || path.startsWith('/app/collaborate/tasks')
+          path === '/app/collaborate/projects' ||
+          (path.startsWith('/app/collaborate/projects/') &&
+            !path.startsWith('/app/collaborate/projects/new')) ||
+          path === '/app/collaborate/tasks' ||
+          path.startsWith('/app/collaborate/tasks')
         );
       }
       if (item.key === 'documents') return path === '/app/collaborate/documents';

@@ -133,6 +133,18 @@ async function upsertProjectMemberAllocation({
     saved.allocationStatus = status;
   }
 
+  try {
+    const { emitProjectMemberChangedBestEffort } = require('../clients/projectChatPublisher.client');
+    emitProjectMemberChangedBestEffort({
+      organizationId: orgId,
+      projectId: pid,
+      userId: uid,
+      status: saved.status || nextDoc.status || 'active',
+    });
+  } catch {
+    /* best-effort */
+  }
+
   return saved;
 }
 

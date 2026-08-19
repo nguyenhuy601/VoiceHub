@@ -12,13 +12,13 @@ import {
   memberUserId,
 } from '../../../utils/adminUserUtils';
 import { enrichMembershipsWithProfiles } from '../../../features/search/enrichOrgMembers';
-import UserAvatar from '../../Shared/UserAvatar';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 import AllocationSegmentsEditor, {
   segmentsFromApi,
   segmentsToPayload,
   toDateInput,
 } from './AllocationSegmentsEditor';
-import ResourcePlannerPanel from '../../../features/adminTasks/ResourcePlannerPanel';
+import ResourcePlannerPanel from '../../adminTasks/ResourcePlannerPanel';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;

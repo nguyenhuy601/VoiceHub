@@ -7,13 +7,13 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import CatalogKeyLabelEditor from '../../components/Organization/ProjectHub/CatalogKeyLabelEditor';
-import { normalizePriorityConfig } from '../../components/Organization/ProjectHub/projectPriorityConfig';
+import CatalogKeyLabelEditor from '../projects/hub/CatalogKeyLabelEditor';
+import { normalizePriorityConfig } from '../projects/hub/projectPriorityConfig';
 import {
   filterTransitionsByStateKeys,
   mergeEditorItemsToStates,
   statesToEditorItems,
-} from '../../components/Organization/ProjectHub/workflowStatusEditor';
+} from '../projects/hub/workflowStatusEditor';
 import projectAPI from '../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';

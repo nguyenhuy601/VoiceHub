@@ -5,6 +5,8 @@ export const PROJECT_HUB_TABS = [
   { id: 'list', labelKey: 'workspace.projectHubTabList' },
   { id: 'planning', labelKey: 'workspace.projectHubTabPlanning' },
   { id: 'board', labelKey: 'workspace.projectHubTabBoard' },
+  { id: 'chat', labelKey: 'workspace.projectHubTabChat' },
+  { id: 'timeline', labelKey: 'workspace.projectHubTabTimeline' },
   { id: 'changeRequests', labelKey: 'workspace.projectHubTabChangeRequests' },
   { id: 'members', labelKey: 'workspace.projectHubTabMembers' },
   { id: 'files', labelKey: 'workspace.projectHubTabFiles' },

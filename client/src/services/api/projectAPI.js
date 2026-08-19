@@ -84,6 +84,14 @@ export const projectAPI = {
   getFiles: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/files`),
 
+  getWorkPreview: (projectId, params = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/work-preview`, {
+      params: {
+        kind: params.kind || undefined,
+        id: params.id || undefined,
+      },
+    }),
+
   listMembers: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`),
 

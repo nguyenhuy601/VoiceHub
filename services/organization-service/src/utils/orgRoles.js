@@ -31,11 +31,16 @@ async function fetchUserRolesInOrg(userId, orgId) {
     );
     if (res.status !== 200 || !Array.isArray(res.data?.data)) return [];
     return res.data.data
-      .map((r) => ({
-        id: String(r?._id || r?.id || '').trim(),
-        name: String(r?.name || '').trim(),
-      }))
-      .filter((r) => r.id);
+      .map((r) => {
+        if (!r) return null;
+        return {
+          id: String(r._id || r.id || '').trim(),
+          name: String(r.name || '').trim(),
+          scope: String(r.scope || '').trim().toUpperCase(),
+          permissions: Array.isArray(r.permissions) ? r.permissions : [],
+        };
+      })
+      .filter((r) => r && r.id);
   } catch {
     return [];
   }

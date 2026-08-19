@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { User } from 'lucide-react';
-import UserAvatar from '../../Shared/UserAvatar';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 
 /**
  * Ô Assignee trên List: click → gõ tìm → gợi ý thành viên dự án / board.

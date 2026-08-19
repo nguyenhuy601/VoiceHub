@@ -35,6 +35,8 @@ import {
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { filterAdminDomainByGrant } from '../../config/rbacUiGrantMap';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
@@ -365,6 +367,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   const navigate = useNavigate();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const { isSystemAdmin, orgId } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -404,11 +407,22 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
 
   const selectedDomain = useMemo(() => {
     const raw = visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null;
-    if (!raw || raw.id !== 'org-structure') return raw;
-    return applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
-      setupCompleted: orgStructureSetupCompleted === true,
-    });
-  }, [visibleDomains, selectedDomainId, orgStructureLevels, orgStructureSetupCompleted]);
+    if (!raw) return raw;
+    const leveled =
+      raw.id === 'org-structure'
+        ? applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
+            setupCompleted: orgStructureSetupCompleted === true,
+          })
+        : raw;
+    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant });
+  }, [
+    visibleDomains,
+    selectedDomainId,
+    orgStructureLevels,
+    orgStructureSetupCompleted,
+    isFullAccess,
+    hasGrant,
+  ]);
 
   const reloadOrgStructureLevels = async () => {
     if (!orgId) return;

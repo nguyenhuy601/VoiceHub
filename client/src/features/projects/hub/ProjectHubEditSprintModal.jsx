@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import Modal from '../../Shared/Modal';
+import Modal from '../../../components/Shared/Modal';
 import { addDaysToDateTimeLocal, isSprintDateRangeInvalid, toDateTimeLocalValue } from './projectHubUtils';
 
 /**

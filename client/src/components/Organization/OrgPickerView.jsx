@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Building2, CheckCircle2, Link2, Plus, Search, ShieldCheck, Users, Zap } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
-import WorkspaceOrgCard from './WorkspaceOrgCard';
-import { FIGMA_WS_GRID, FIGMA_WS_INNER, FIGMA_WS_PAGE, FIGMA_WS_TITLE } from './figmaWorkspaceClasses';
+import OrgPickerCard from './OrgPickerCard';
+import { FIGMA_WS_GRID, FIGMA_WS_INNER, FIGMA_WS_PAGE, FIGMA_WS_TITLE } from './figmaOrganizationClasses';
 
 const PRIMARY_ROLE_KEYS = {
   owner: 'workspace.roleOwner',
@@ -11,7 +11,7 @@ const PRIMARY_ROLE_KEYS = {
   member: 'workspace.roleMember',
 };
 
-export default function WorkspacesOrgPickerView({
+export default function OrgPickerView({
   organizations = [],
   onEnterOrg,
   onCreateOrg,
@@ -179,7 +179,7 @@ export default function WorkspacesOrgPickerView({
         ) : (
           <div className={FIGMA_WS_GRID}>
             {filtered.map((org) => (
-              <WorkspaceOrgCard
+              <OrgPickerCard
                 key={org._id || org.id}
                 org={{
                   ...org,

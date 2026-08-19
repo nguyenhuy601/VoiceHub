@@ -4,7 +4,7 @@ import OrgChatCatchUpCard from '../Chat/OrgChatCatchUpCard';
 /**
  * Bọc vùng chat org + slot OrgChatCatchUpCard phía trên danh sách tin.
  */
-export default function WorkspaceOrgChatFigmaView({
+export default function OrganizationChatView({
   children,
   scrollRef,
   onScroll,

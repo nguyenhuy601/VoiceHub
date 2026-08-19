@@ -11,6 +11,9 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -19,6 +22,9 @@ export default function TeamCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, divisions, loadStructure } = useAdminOrgStructure(orgId);
   const { ready, createParents } = useOrgStructureLevels(orgId);
+  const { isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const teamParent = createParents.teamParent;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', parentId: '' });
@@ -26,6 +32,10 @@ export default function TeamCreatePanel({ orgId }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!orgId || saving || !ready) return;
+    if (!canCreateTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const name = String(form.name || '').trim();
     const parentId = String(form.parentId || '').trim();
     if (!name || (teamParent && !parentId)) {
@@ -65,6 +75,9 @@ export default function TeamCreatePanel({ orgId }) {
 
   return (
     <AdminUserPanelShell title={t('adminDomains.orgStructure.teamCreate')} hint={hint}>
+      {!canCreateTeam ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+      ) : (
       <AdminUserFormCard>
         <form className="mx-auto max-w-lg space-y-4" onSubmit={submit}>
           <label className="block">
@@ -130,6 +143,7 @@ export default function TeamCreatePanel({ orgId }) {
           </button>
         </form>
       </AdminUserFormCard>
+      )}
     </AdminUserPanelShell>
   );
 }

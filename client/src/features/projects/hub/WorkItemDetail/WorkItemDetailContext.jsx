@@ -10,7 +10,8 @@ import {
   readHoursSoftWarningMeta,
 } from '../../../../utils/hoursSoftWarning';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
-import { parseCardLabelIds } from '../../taskBoardCardLabels';
+import { parseCardLabelIds } from '../../board/taskBoardCardLabels';
+import { unwrapPlanningEntity } from '../projectHubUtils';
 import {
   buildTabVisibilityContext,
   listVisibleTabs,
@@ -23,7 +24,6 @@ import {
   mapInitialPanelToTab,
   relId,
   toDateInputValue,
-  toDatetimeLocalValue,
   unwrapList,
 } from './workItemDetailUtils';
 
@@ -64,8 +64,10 @@ export function WorkItemDetailProvider({
   onUpdateCard = null,
   onRefresh = null,
   onPatchBoardCards = null,
+  onPatchPlanningItems = null,
   onOpenChangeRequest = null,
   onOpenWorkItem = null,
+  priorityConfig = null,
 }) {
   const { t } = useAppStrings();
   const boardApiOpts = useMemo(() => {
@@ -124,7 +126,7 @@ export function WorkItemDetailProvider({
     setTitle(String(workItem.title || ''));
     setDescription(String(workItem.description || ''));
     setLabelIds(parseCardLabelIds(workItem.tags || workItem.labels));
-    setDueDateLocal(toDatetimeLocalValue(workItem.dueDate));
+    setDueDateLocal(toDateInputValue(workItem.dueDate));
     setStartDateLocal(toDateInputValue(workItem.startDate));
     setEstimateHours(hoursInputValue(workItem.estimateHours));
     setAssigneeId(workItem.assigneeId ? String(workItem.assigneeId) : '');
@@ -140,7 +142,37 @@ export function WorkItemDetailProvider({
 
   const save = useCallback(
     async (patch) => {
-      if (!issueId || saving || isPlanning) return false;
+      if (!issueId || saving) return false;
+      if (isPlanning) {
+        if (!projectId) return false;
+        setSaving(true);
+        try {
+          const body = {};
+          if (patch.assigneeId !== undefined) body.assigneeId = patch.assigneeId;
+          if (patch.status !== undefined) body.status = patch.status;
+          if (patch.priority !== undefined) body.priority = patch.priority;
+          if (patch.title !== undefined) body.title = patch.title;
+          if (patch.description !== undefined) body.description = patch.description;
+          if (patch.targetDate !== undefined) body.targetDate = patch.targetDate;
+          else if (patch.dueDate !== undefined) body.dueDate = patch.dueDate;
+          if (patch.startDate !== undefined) body.startDate = patch.startDate;
+          const res = await projectAPI.patchPlanningItem(projectId, issueId, body);
+          const saved = unwrapPlanningEntity(res) || body;
+          const local = { ...patch, ...body, ...saved };
+          onPatchPlanningItems?.((items) =>
+            (items || []).map((row) =>
+              String(row._id || row.id) === String(issueId) ? { ...row, ...local } : row
+            )
+          );
+          toast.success(t('taskBoard.saved'));
+          return true;
+        } catch (err) {
+          toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.saveFail') }));
+          throw err;
+        } finally {
+          setSaving(false);
+        }
+      }
       setSaving(true);
       try {
         if (onUpdateCard) {
@@ -162,7 +194,7 @@ export function WorkItemDetailProvider({
         setSaving(false);
       }
     },
-    [issueId, saving, isPlanning, onUpdateCard, t]
+    [issueId, saving, isPlanning, projectId, onPatchPlanningItems, onUpdateCard, t]
   );
 
   const confirmHoursOverride = useCallback(
@@ -178,7 +210,7 @@ export function WorkItemDetailProvider({
   );
 
   const loadAssignableMembers = useCallback(async () => {
-    if (!boardId || isPlanning) return;
+    if (!boardId) return;
     setLoadingMembers(true);
     try {
       const res = await taskAPI.getBoardAssignableMembers(String(boardId), boardApiOpts);
@@ -189,14 +221,14 @@ export function WorkItemDetailProvider({
     } finally {
       setLoadingMembers(false);
     }
-  }, [boardId, isPlanning, boardApiOpts]);
+  }, [boardId, boardApiOpts]);
 
   useEffect(() => {
-    if (!open || !boardId || isPlanning) return undefined;
+    if (!open || !boardId) return undefined;
     if (activeTab !== 'overview') return undefined;
     void loadAssignableMembers();
     return undefined;
-  }, [open, boardId, isPlanning, activeTab, loadAssignableMembers]);
+  }, [open, boardId, activeTab, loadAssignableMembers]);
 
   useEffect(() => {
     if (!open || !projectId) return undefined;
@@ -216,6 +248,14 @@ export function WorkItemDetailProvider({
 
   const patchLocalWorkItem = useCallback(
     (patch) => {
+      if (isPlanning) {
+        onPatchPlanningItems?.((items) =>
+          (items || []).map((row) =>
+            String(row._id || row.id) === String(issueId) ? { ...row, ...patch } : row
+          )
+        );
+        return;
+      }
       if (onPatchBoardCards) {
         onPatchBoardCards((cards) =>
           (cards || []).map((c) =>
@@ -224,7 +264,7 @@ export function WorkItemDetailProvider({
         );
       }
     },
-    [onPatchBoardCards, issueId]
+    [onPatchBoardCards, onPatchPlanningItems, issueId, isPlanning]
   );
 
   const value = useMemo(
@@ -261,9 +301,11 @@ export function WorkItemDetailProvider({
       onClose,
       onRefresh,
       onPatchBoardCards,
+      onPatchPlanningItems,
       onOpenChangeRequest,
       onOpenWorkItem,
       onUpdateCard,
+      priorityConfig,
       title,
       setTitle,
       description,
@@ -331,9 +373,11 @@ export function WorkItemDetailProvider({
       onClose,
       onRefresh,
       onPatchBoardCards,
+      onPatchPlanningItems,
       onOpenChangeRequest,
       onOpenWorkItem,
       onUpdateCard,
+      priorityConfig,
       title,
       description,
       editingDescription,

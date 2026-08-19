@@ -2,11 +2,11 @@ import { useRef, useState } from 'react';
 import { Link2, Paperclip } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
-import { uploadTaskBoardAttachment } from '../../taskBoardAttachmentUpload';
+import { uploadTaskBoardAttachment } from '../../board/taskBoardAttachmentUpload';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
-} from '../../figmaOrganizationClasses';
+} from '../../../../components/Organization/figmaOrganizationClasses';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 
 export default function AttachmentsTab() {

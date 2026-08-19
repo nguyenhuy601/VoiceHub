@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, ChevronRight, GitFork, GripVertical, Loader2, MoreHorizontal, PanelRight, Plus } from 'lucide-react';
-import UserAvatar from '../../Shared/UserAvatar';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubListAssigneeCell from './ProjectHubListAssigneeCell';
@@ -18,6 +18,7 @@ import {
 } from './projectHubUtils';
 import { WORK_TYPE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
 import { normalizePriorityConfig } from './projectPriorityConfig';
+import { planningStatusToListId } from './planningBoardStatus';
 
 export const LIST_TABLE_COLUMNS = [
   { id: 'drag', minPx: 28, defaultPx: 28, resizable: false },
@@ -167,11 +168,15 @@ export default function ProjectHubListRow({
   const rawId = String(raw._id || raw.id || '');
   const keyLabel = displayIssueKey(projectCode, rawId);
   const typeLabel = t(LABEL_KEYS[node.workType] || LABEL_KEYS.task);
-  const openable = node.kind === 'card';
+  const isPlanning = node.kind === 'planning';
+  const openable = node.kind === 'card' || isPlanning;
   const assignee = resolveAssignee(raw);
   const reporter = resolveReporter(raw, assignableMembers);
-  const listMeta = listMap[String(raw.listId || '')] || null;
-  const bucket = classifyListStatusBucket(raw.status || listMeta);
+  const planningSelectListId = isPlanning ? planningStatusToListId(raw.status, lists) : '';
+  const listMeta = listMap[String(raw.listId || '')] || listMap[planningSelectListId] || null;
+  const bucket = classifyListStatusBucket(
+    String(raw.status || '').toLowerCase() === 'active' ? 'doing' : raw.status || listMeta
+  );
   const isDone = bucket === 'done';
   const resolution =
     isDone || String(raw.resolution || '').toLowerCase() === 'done'
@@ -193,8 +198,8 @@ export default function ProjectHubListRow({
   const previewPad = Math.max(0, depth + indentStep) * WORK_TYPE_INDENT_PX;
 
   const listOptions = useMemo(
-    () => listsForStatusSelect(lists, raw.listId),
-    [lists, raw.listId]
+    () => listsForStatusSelect(lists, isPlanning ? planningSelectListId : raw.listId),
+    [lists, raw.listId, isPlanning, planningSelectListId]
   );
 
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
@@ -397,7 +402,7 @@ export default function ProjectHubListRow({
             </select>
           ) : (
             <span className="truncate text-xs text-muted-foreground">
-              {openable ? priorityLabel(raw, t, priorityItems) : t('workspace.projectHubListPriorityNone')}
+              {priorityLabel(raw, t, priorityItems)}
             </span>
           )}
         </div>
@@ -406,10 +411,14 @@ export default function ProjectHubListRow({
           {openable && canChangeStatus && listOptions.length > 0 ? (
             <select
               className={`w-full max-w-[9rem] rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(bucket)}`}
-              value={String(raw.listId || '')}
+              value={isPlanning ? planningSelectListId : String(raw.listId || '')}
               disabled={busy}
               aria-label={statusBucketLabel(bucket, t)}
-              onChange={(e) => onChangeStatus?.(node, e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (isPlanning) onChangePlanningStatus?.(node, next);
+                else onChangeStatus?.(node, next);
+              }}
             >
               {listOptions.map((list) => (
                 <option key={list._id || list.id} value={String(list._id || list.id)}>
@@ -417,28 +426,12 @@ export default function ProjectHubListRow({
                 </option>
               ))}
             </select>
-          ) : node.kind === 'planning' && canChangeStatus ? (
-            <select
-              className={`w-full max-w-[9rem] rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(
-                String(raw.status) === 'done' ? 'done' : String(raw.status) === 'active' ? 'progress' : 'todo'
-              )}`}
-              value={String(raw.status || 'planned')}
-              disabled={busy}
-              aria-label={t('workspace.projectHubListStatusColumn')}
-              onChange={(e) => onChangePlanningStatus?.(node, e.target.value)}
-            >
-              {PLANNING_STATUSES.map((id) => (
-                <option key={id} value={id}>
-                  {planningStatusLabel(id, t)}
-                </option>
-              ))}
-            </select>
           ) : (
             <span
               className={`inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(bucket)}`}
             >
-              {node.kind === 'planning'
-                ? planningStatusLabel(raw.status, t)
+              {isPlanning
+                ? listMeta?.title || planningStatusLabel(raw.status, t)
                 : statusBucketLabel(bucket, t)}
             </span>
           )}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, GitFork, GitPullRequest, Pencil, User } from 'lucide-react';
-import UserAvatar from '../../Shared/UserAvatar';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
 import { cardsUnderParent, childWorkStats, entityRelId } from './projectHubBacklogStats';
@@ -174,10 +174,13 @@ export default function ProjectHubSprintBoardCard({
   const issueType = card?.issueType || card?.type || 'task';
   const dueTone = dueDateTone(card?.dueDate, card?.status);
   const children = useMemo(() => cardsUnderParent(allCards, issueId), [allCards, issueId]);
-  const childStats = useMemo(() => childWorkStats(allCards, issueId, lists), [allCards, issueId, lists]);
   const viewedType = useMemo(
     () => resolveBoardWorkType(card, allCards, workTypeConfig),
     [card, allCards, workTypeConfig]
+  );
+  const childStats = useMemo(
+    () => childWorkStats(allCards, issueId, lists, viewedType),
+    [allCards, issueId, lists, viewedType]
   );
   const childTypeIds = useMemo(
     () => childWorkTypeIdsForParent(viewedType, workTypeConfig),

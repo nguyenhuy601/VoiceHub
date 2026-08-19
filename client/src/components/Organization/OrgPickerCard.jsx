@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronRight, Clock, Crown, Globe, Hash, Lock, Users } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { orgRecordId } from '../../utils/orgListUtils';
-import { FIGMA_WS_CARD, FIGMA_WS_CARD_AVATAR } from './figmaWorkspaceClasses';
+import { FIGMA_WS_CARD, FIGMA_WS_CARD_AVATAR } from './figmaOrganizationClasses';
 
 const ROLE_STYLE = {
   owner: { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', labelKey: 'workspace.roleOwnerVi' },
@@ -87,7 +87,7 @@ function titleCasePlan(value) {
   return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 }
 
-export default function WorkspaceOrgCard({ org, onEnter }) {
+export default function OrgPickerCard({ org, onEnter }) {
   const { t, locale } = useAppStrings();
   const [hovered, setHovered] = useState(false);
   const id = orgRecordId(org);

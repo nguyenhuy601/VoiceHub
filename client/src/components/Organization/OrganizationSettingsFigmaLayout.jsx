@@ -9,7 +9,7 @@ import {
   FIGMA_ORG_SETTINGS_TAB,
   FIGMA_ORG_SETTINGS_TAB_ACTIVE,
   FIGMA_ORG_SETTINGS_TAB_INACTIVE,
-} from './figmaOrgSettingsClasses';
+} from './figmaOrganizationClasses';
 import { FIGMA_PAGE_HEADER, FIGMA_PAGE_SUBTITLE, FIGMA_PAGE_TITLE } from '../Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 

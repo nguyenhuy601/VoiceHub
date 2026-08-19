@@ -17,6 +17,12 @@ const Branch = require('../models/Branch');
 const Division = require('../models/Division');
 const { resolveEffectiveScopesFromAssignments } = require('../services/memberScopePolicy.service');
 const { resolveOrgAccess, toObjectId } = require('../utils/orgAccess');
+const { fetchUserRolesInOrg } = require('../utils/orgRoles');
+const {
+  resolveMemberDirectoryAccess,
+  directoryAllowsDepartmentQuery,
+  memberInDirectoryUnits,
+} = require('../utils/memberDirectoryAccess');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
@@ -90,8 +96,6 @@ async function getActiveOrgUserIds(orgId) {
   return [...new Set((userIds || []).map((id) => String(id)).filter(Boolean))];
 }
 
-const MEMBER_LIST_FULL_ACCESS_ROLES = ['owner', 'admin', 'hr'];
-
 const ROLE_PERMISSION_BASE = String(
   process.env.ROLE_PERMISSION_SERVICE_URL
 ).replace(/\/$/, '');
@@ -133,50 +137,77 @@ async function fetchOrgRolesList(orgId, userId) {
   }
 }
 
-async function listMembersForOrg(req) {
-  const orgIdRaw = String(req.params.orgId || '').trim();
-  if (!toObjectId(orgIdRaw)) {
-    const err = new Error('orgId không hợp lệ');
-    err.statusCode = 400;
-    err.errorCode = 'VALIDATION_INVALID_ID';
-    throw err;
-  }
-  const orgId = orgIdRaw;
-  const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
-  if (!userId) {
-    const err = new Error('Not authenticated');
-    err.statusCode = 401;
-    throw err;
-  }
+async function loadHierarchyEntities(orgId) {
+  const Department = require('../models/Department');
+  const Team = require('../models/Team');
+  const [departments, teams, divisions] = await Promise.all([
+    Department.find({ organization: orgId, isActive: { $ne: false } })
+      .select('_id name division')
+      .lean(),
+    Team.find({ organization: orgId, isActive: { $ne: false } })
+      .select('_id name department division')
+      .lean(),
+    Division.find({ organization: orgId, isActive: { $ne: false } }).select('_id name').lean(),
+  ]);
+  return { departments, teams, divisions };
+}
 
-  const access = await resolveOrgAccess(userId, orgId);
-  if (!access.ok) {
-    const err = new Error('Access denied');
-    err.statusCode = 403;
-    err.code = 'ORG_ACCESS_DENIED';
-    throw err;
-  }
-  const viewerMembership = access.membership;
-  if (!viewerMembership) {
-    return [];
-  }
+async function resolveDepartmentRosterLookup(orgId, rawDeptId) {
+  const Department = require('../models/Department');
+  const OrganizationalUnit = require('../models/OrganizationalUnit');
 
-  const departmentIdQuery = String(req.query?.departmentId || '').trim();
-  if (departmentIdQuery) {
-    return listMembersForDepartmentRoster(orgId, departmentIdQuery);
-  }
-
-  const members = await Membership.find({ organization: orgId, status: 'active' })
-    .select('user organization role joinedAt status invitedBy createdAt updatedAt')
+  const requested = String(rawDeptId || '').trim();
+  let legacyDeptId = requested;
+  const asDept = await Department.findOne({ _id: legacyDeptId, organization: orgId })
+    .select('_id')
     .lean();
-
-  const viewerRole = Membership.normalizeRole(viewerMembership.role);
-  if (MEMBER_LIST_FULL_ACCESS_ROLES.includes(viewerRole)) {
-    return members;
+  const ouIds = [];
+  if (!asDept) {
+    const ou = await OrganizationalUnit.findOne({ _id: legacyDeptId, organization: orgId })
+      .select('_id legacyRef')
+      .lean();
+    if (ou?._id) ouIds.push(String(ou._id));
+    if (ou?.legacyRef?.id) legacyDeptId = String(ou.legacyRef.id);
+  } else {
+    const ouByLegacy = await OrganizationalUnit.findOne({
+      organization: orgId,
+      'legacyRef.id': asDept._id,
+    })
+      .select('_id')
+      .lean();
+    if (ouByLegacy?._id) ouIds.push(String(ouByLegacy._id));
   }
 
-  const viewerEffectiveScopes = await resolveEffectiveScopesFromAssignments(orgId, userId);
+  const lookupIds = [...new Set([requested, legacyDeptId, ...ouIds].filter(Boolean))];
+  return { legacyDeptId, ouIds, lookupIds };
+}
 
+async function resolveViewerDirectoryAccess(userId, orgId) {
+  const viewerRoles = await fetchUserRolesInOrg(userId, orgId);
+  let directoryAccess = resolveMemberDirectoryAccess(viewerRoles);
+  if (directoryAccess.mode === 'units') {
+    const structure = await loadHierarchyEntities(orgId);
+    directoryAccess = resolveMemberDirectoryAccess(viewerRoles, structure);
+  }
+  return directoryAccess;
+}
+
+async function assignmentScopeIds(orgId, userId) {
+  const scopes = await resolveEffectiveScopesFromAssignments(orgId, userId);
+  return [
+    ...new Set(
+      [
+        ...(scopes.departmentIds || []),
+        ...(scopes.teamIds || []),
+        ...(scopes.divisionIds || []),
+        ...(scopes.ouIds || []),
+      ].map((id) => String(id))
+    ),
+  ];
+}
+
+async function filterMembersByAssignmentOverlap(orgId, userId, members) {
+  const viewerEffectiveScopes = await resolveEffectiveScopesFromAssignments(orgId, userId);
   const memberUserIds = [
     ...new Set(members.map((row) => String(row.user?._id || row.user || '')).filter(Boolean)),
   ];
@@ -222,36 +253,73 @@ async function listMembersForOrg(req) {
   });
 }
 
+async function listMembersForOrg(req) {
+  const orgIdRaw = String(req.params.orgId || '').trim();
+  if (!toObjectId(orgIdRaw)) {
+    const err = new Error('orgId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_INVALID_ID';
+    throw err;
+  }
+  const orgId = orgIdRaw;
+  const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
+  if (!userId) {
+    const err = new Error('Not authenticated');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const access = await resolveOrgAccess(userId, orgId);
+  if (!access.ok) {
+    const err = new Error('Access denied');
+    err.statusCode = 403;
+    err.code = 'ORG_ACCESS_DENIED';
+    throw err;
+  }
+  const viewerMembership = access.membership;
+  if (!viewerMembership) {
+    return [];
+  }
+
+  const directoryAccess = await resolveViewerDirectoryAccess(userId, orgId);
+  const departmentIdQuery = String(req.query?.departmentId || '').trim();
+  if (departmentIdQuery) {
+    const lookup = await resolveDepartmentRosterLookup(orgId, departmentIdQuery);
+    const extraAllowed =
+      directoryAccess.mode === 'assignment' ? await assignmentScopeIds(orgId, userId) : [];
+    if (!directoryAllowsDepartmentQuery(directoryAccess, lookup.lookupIds, extraAllowed)) {
+      return [];
+    }
+    return listMembersForDepartmentRoster(orgId, lookup);
+  }
+
+  const members = await Membership.find({ organization: orgId, status: 'active' })
+    .select('user organization role joinedAt status invitedBy createdAt updatedAt')
+    .lean();
+
+  if (directoryAccess.mode === 'all') {
+    return members;
+  }
+  if (directoryAccess.mode === 'units') {
+    const placed = await attachPlacementFromStructure(orgId, members);
+    return placed.filter((row) => memberInDirectoryUnits(row, directoryAccess, userId));
+  }
+
+  return filterMembersByAssignmentOverlap(orgId, userId, members);
+}
+
 /**
  * Roster 1 phòng cho wizard tạo project — People Graph + OU matrix.
  * Query param trên GET /members (không thêm route).
  */
-async function listMembersForDepartmentRoster(orgId, rawDeptId) {
-  const Department = require('../models/Department');
-  const OrganizationalUnit = require('../models/OrganizationalUnit');
+async function listMembersForDepartmentRoster(orgId, lookupOrRaw) {
   const OrgUnitMembership = require('../models/OrgUnitMembership');
+  const lookup =
+    lookupOrRaw && typeof lookupOrRaw === 'object' && lookupOrRaw.legacyDeptId
+      ? lookupOrRaw
+      : await resolveDepartmentRosterLookup(orgId, lookupOrRaw);
 
-  let legacyDeptId = String(rawDeptId || '').trim();
-  const asDept = await Department.findOne({ _id: legacyDeptId, organization: orgId })
-    .select('_id')
-    .lean();
-  const ouIds = [];
-  if (!asDept) {
-    const ou = await OrganizationalUnit.findOne({ _id: legacyDeptId, organization: orgId })
-      .select('_id legacyRef')
-      .lean();
-    if (ou?._id) ouIds.push(String(ou._id));
-    if (ou?.legacyRef?.id) legacyDeptId = String(ou.legacyRef.id);
-  } else {
-    const ouByLegacy = await OrganizationalUnit.findOne({
-      organization: orgId,
-      'legacyRef.id': asDept._id,
-    })
-      .select('_id')
-      .lean();
-    if (ouByLegacy?._id) ouIds.push(String(ouByLegacy._id));
-  }
-
+  const { legacyDeptId, ouIds } = lookup;
   const roster = await buildDepartmentRoster(orgId, { departmentIds: [legacyDeptId] });
   const ids = new Set((roster[0]?.memberIds || []).map((id) => String(id)));
 

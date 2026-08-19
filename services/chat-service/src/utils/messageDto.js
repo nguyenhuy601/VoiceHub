@@ -14,7 +14,7 @@ const CLIENT_MESSAGE_FULL_FIELDS = [
   '_id', 'senderId', 'senderDisplayName', 'content', 'originalContent', 'messageType',
   'roomId', 'organizationId', 'receiverId', 'conversationId', 'createdAt', 'updatedAt',
   'isRead', 'readAt', 'replyToMessageId', 'isDeleted', 'isRecalled', 'editedAt',
-  'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links',
+  'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links', 'visibility', 'refs',
 ];
 
 function pickClientFullMessage(o, senderId) {
@@ -71,6 +71,21 @@ function toClientMessage(doc, opts = {}) {
         }))
       : [],
   };
+  if (o.visibility && o.visibility.mode) {
+    summary.visibility = {
+      mode: o.visibility.mode,
+      projectId: o.visibility.projectId,
+      ...(o.visibility.projectName ? { projectName: o.visibility.projectName } : {}),
+    };
+  }
+  if (Array.isArray(o.refs) && o.refs.length) {
+    summary.refs = o.refs.map((r) => ({
+      kind: r.kind,
+      id: r.id,
+      projectId: r.projectId,
+      ...(r.label ? { label: r.label } : {}),
+    }));
+  }
   const fm = slimFileMeta(o.fileMeta);
   if (fm) summary.fileMeta = fm;
   if (o.signedReadUrl) summary.signedReadUrl = o.signedReadUrl;

@@ -441,6 +441,17 @@ export const taskAPI = {
     });
   },
 
+  createWorkGroup: (featureId, opts = {}) => {
+    const ctx = extractWorkspaceApiContext(opts);
+    return requestWithWorkspaceFallback({
+      ctx,
+      workspaceRequest: () =>
+        apiClient.post(`${workspaceBoardBase(ctx.workspaceSlug)}/features/${featureId}/workgroup`),
+      legacyRequest: () =>
+        apiClient.post(`${legacyBoardBase()}/features/${featureId}/workgroup`),
+    });
+  },
+
   addBoardCardComment: (cardId, content, opts = {}) => {
     const ctx = extractWorkspaceApiContext(opts);
     return requestWithWorkspaceFallback({

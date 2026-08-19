@@ -12,9 +12,13 @@ import {
 import roleAPI from '../../services/api/roleAPI';
 import userService from '../../services/userService';
 import friendService from '../../services/friendService';
-import { ConfirmDialog } from '../Shared';
+import { ConfirmDialog, Modal } from '../Shared';
+import { Plus } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { collectTeamMemberIds, filterAddTeamMemberCandidates, filterMembersForTeam } from '../../utils/filterTeamMembers';
+import { RBAC_GRANT, parseUserPermissionsPayload } from '../../config/rbacUiGrantMap';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useTheme } from '../../context/ThemeContext';
 import { shellNavRailBackdrop, shellNavRailMenuBackdropZ } from '../../theme/shellTheme';
 import OrgWorkspaceSearchSidebar from '../../features/search/components/OrgWorkspaceSearchSidebar';
@@ -166,6 +170,8 @@ function OrganizationMemberSidebar({
   organizationName = '',
   selectedTeamId = '',
   teams = [],
+  canAddTeamMembers = false,
+  onTeamMembersSaved,
   onlineUsers = [],
   socketConnected = false,
   refreshKey = 0,
@@ -191,6 +197,7 @@ function OrganizationMemberSidebar({
   serverId,
   onWorkspaceSearchJump,
 }) {
+  const { isFullAccess } = useCompanyAdminAccess();
   const { t } = useAppStrings();
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
@@ -236,8 +243,12 @@ function OrganizationMemberSidebar({
   const [memberConfirm, setMemberConfirm] = useState(null);
   /** Tab panel phải — mặc định danh sách thành viên */
   const [sidebarTab, setSidebarTab] = useState('people');
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [addMemberIds, setAddMemberIds] = useState([]);
+  const [savingTeamMembers, setSavingTeamMembers] = useState(false);
   const [orgPermissions, setOrgPermissions] = useState([]);
   const [orgPermissionsLoaded, setOrgPermissionsLoaded] = useState(false);
+  const [orgMasterGrants, setOrgMasterGrants] = useState([]);
   const [teamTaskSections, setTeamTaskSections] = useState([]);
   const [loadingSidebarTasks, setLoadingSidebarTasks] = useState(false);
   const [sidebarTasksError, setSidebarTasksError] = useState('');
@@ -256,6 +267,7 @@ function OrganizationMemberSidebar({
   useEffect(() => {
     if (!organizationId || !currentUserId) {
       setOrgPermissions([]);
+      setOrgMasterGrants([]);
       setOrgPermissionsLoaded(false);
       return undefined;
     }
@@ -266,15 +278,24 @@ function OrganizationMemberSidebar({
         const payload = await api.get(
           `/permissions/user/${encodeURIComponent(String(currentUserId))}/server/${encodeURIComponent(String(organizationId))}`
         );
+        const parsed = parseUserPermissionsPayload(payload);
         const body = unwrapBody(payload);
-        const list = Array.isArray(body?.data)
-          ? body.data
-          : Array.isArray(body)
-            ? body
-            : [];
-        if (!cancelled) setOrgPermissions(list);
+        const list = parsed.permissions.length
+          ? parsed.permissions
+          : Array.isArray(body?.data)
+            ? body.data
+            : Array.isArray(body)
+              ? body
+              : [];
+        if (!cancelled) {
+          setOrgPermissions(list);
+          setOrgMasterGrants(parsed.masterGrants);
+        }
       } catch {
-        if (!cancelled) setOrgPermissions([]);
+        if (!cancelled) {
+          setOrgPermissions([]);
+          setOrgMasterGrants([]);
+        }
       } finally {
         if (!cancelled) setOrgPermissionsLoaded(true);
       }
@@ -314,6 +335,35 @@ function OrganizationMemberSidebar({
     }
     return map;
   }, [teams]);
+
+  const selectedTeam = useMemo(
+    () =>
+      safeArray(teams).find(
+        (row) => String(row?._id || row?.id || '') === String(selectedTeamId || '')
+      ) || null,
+    [teams, selectedTeamId]
+  );
+
+  const visibleRows = useMemo(
+    () => filterMembersForTeam(rows, selectedTeamId, selectedTeam),
+    [rows, selectedTeamId, selectedTeam]
+  );
+
+  const showAddTeamMember = Boolean(selectedTeamId) && (
+    Boolean(canAddTeamMembers) ||
+    Boolean(isFullAccess) ||
+    orgMasterGrants.some((k) => String(k || '').trim().toLowerCase() === RBAC_GRANT.TEAM_UPDATE)
+  );
+
+  const teamMemberIdSet = useMemo(
+    () => collectTeamMemberIds(selectedTeam),
+    [selectedTeam]
+  );
+
+  const addMemberCandidates = useMemo(
+    () => filterAddTeamMemberCandidates(rows, selectedTeamId, selectedTeam),
+    [rows, selectedTeamId, selectedTeam]
+  );
 
   const currentUserIdStr = String(currentUserId || '').trim();
 
@@ -483,9 +533,11 @@ function OrganizationMemberSidebar({
   }, [joinApplicationsToReview, selectedJoinApplication]);
 
   useEffect(() => {
+    setAddMemberOpen(false);
+    setAddMemberIds([]);
     setMemberCard((prev) => ({ ...prev, open: false, member: null }));
     setRolesSubmenu((prev) => ({ ...prev, open: false, member: null }));
-  }, [organizationId]);
+  }, [organizationId, selectedTeamId]);
 
   const onlineSet = useMemo(
     () => new Set((onlineUsers || []).map((id) => String(id))),
@@ -497,7 +549,7 @@ function OrganizationMemberSidebar({
   const groupedByPresence = useMemo(() => {
     const on = [];
     const off = [];
-    for (const r of rows) {
+    for (const r of visibleRows) {
       const online = socketConnected && onlineSet.has(String(r.userId));
       if (online) on.push(r);
       else off.push(r);
@@ -506,7 +558,7 @@ function OrganizationMemberSidebar({
       { key: 'on', title: t('organizations.presenceOnline'), items: on },
       { key: 'off', title: t('organizations.presenceOffline'), items: off },
     ];
-  }, [rows, onlineSet, socketConnected, t]);
+  }, [visibleRows, onlineSet, socketConnected, t]);
 
   const groupedByMembershipRole = useMemo(() => {
     const roleLabel = {
@@ -515,7 +567,7 @@ function OrganizationMemberSidebar({
       member: t('organizations.memberGroupMembers'),
     };
     const buckets = { owner: [], admin: [], member: [] };
-    for (const r of rows) {
+    for (const r of visibleRows) {
       const k = MEMBERSHIP_ROLE_ORDER.includes(r.role) ? r.role : 'member';
       buckets[k].push(r);
     }
@@ -524,7 +576,7 @@ function OrganizationMemberSidebar({
       title: roleLabel[k] || k,
       items: buckets[k],
     }));
-  }, [rows, t]);
+  }, [visibleRows, t]);
 
   const roleLabelMap = useMemo(
     () => ({
@@ -549,6 +601,50 @@ function OrganizationMemberSidebar({
       selectedRoleIds: {},
     }));
   }, []);
+
+  const openAddMemberModal = useCallback(() => {
+    if (!showAddTeamMember) return;
+    setAddMemberIds([]);
+    setAddMemberOpen(true);
+  }, [showAddTeamMember]);
+
+  const toggleAddMemberId = useCallback((userId) => {
+    const id = String(userId || '').trim();
+    if (!id) return;
+    setAddMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }, []);
+
+  const saveTeamMembers = useCallback(async () => {
+    if (!showAddTeamMember || !organizationId || !selectedTeamId || savingTeamMembers) return;
+    const nextIds = [
+      ...new Set([...teamMemberIdSet, ...addMemberIds.map((id) => String(id).trim()).filter(Boolean)]),
+    ];
+    setSavingTeamMembers(true);
+    try {
+      await organizationAPI.updateTeamByHierarchy(organizationId, selectedTeamId, {
+        members: nextIds,
+      });
+      toast.success(t('organizations.addTeamMemberSaved'));
+      setAddMemberOpen(false);
+      setAddMemberIds([]);
+      await onTeamMembersSaved?.();
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('organizations.addTeamMemberFail') }));
+    } finally {
+      setSavingTeamMembers(false);
+    }
+  }, [
+    showAddTeamMember,
+    organizationId,
+    selectedTeamId,
+    savingTeamMembers,
+    teamMemberIdSet,
+    addMemberIds,
+    onTeamMembersSaved,
+    t,
+  ]);
 
   useEffect(() => {
     closeMenu();
@@ -1432,6 +1528,8 @@ function OrganizationMemberSidebar({
           serverId={serverId}
           channels={searchChannels}
           isDarkMode={isDarkMode}
+          selectedTeamId={selectedTeamId}
+          teams={teams}
           onClose={() => onWorkspaceSearchOpenChange?.(false)}
           onJumpToResult={(payload) => {
             onWorkspaceSearchJump?.(payload);
@@ -1573,6 +1671,16 @@ function OrganizationMemberSidebar({
             }}
           />
         )}
+        {sidebarTab === 'people' && showAddTeamMember && !loading ? (
+          <button
+            type="button"
+            onClick={openAddMemberModal}
+            className="mb-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-semibold text-foreground transition hover:bg-muted"
+          >
+            <Plus size={16} />
+            {t('organizations.addTeamMember')}
+          </button>
+        ) : null}
         {sidebarTab === 'people' && loading && (
           <div className="space-y-2">
             <div
@@ -1589,12 +1697,17 @@ function OrganizationMemberSidebar({
         {sidebarTab === 'people' && !loading && error && (
           <p className="px-1 text-xs text-rose-300">{error}</p>
         )}
-        {sidebarTab === 'people' && !loading && !error && rows.length === 0 && (
-          <p className="px-1 text-xs text-gray-500">{t('organizations.membersEmpty')}</p>
+        {sidebarTab === 'people' && !loading && !error && visibleRows.length === 0 && (
+          <div className="px-1 py-4 text-center">
+            <p className="text-xs text-gray-500">
+              {selectedTeamId ? t('organizations.teamMembersEmpty') : t('organizations.membersEmpty')}
+            </p>
+          </div>
         )}
         {!loading &&
           !error &&
           sidebarTab === 'people' &&
+          visibleRows.length > 0 &&
           sections.map((section) => (
             <div key={section.key} className="mb-4">
               <div
@@ -1721,6 +1834,69 @@ function OrganizationMemberSidebar({
       {menuPortal}
       {memberCardPortal}
       {joinApplicationDetailPortal}
+      <Modal
+        isOpen={addMemberOpen}
+        onClose={() => {
+          if (savingTeamMembers) return;
+          setAddMemberOpen(false);
+        }}
+        title={t('organizations.addTeamMemberTitle')}
+        size="md"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">{t('organizations.addTeamMemberHint')}</p>
+          {addMemberCandidates.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              {t('organizations.addTeamMemberNoCandidates')}
+            </p>
+          ) : (
+            <ul className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-border/70">
+              {addMemberCandidates.map((row) => {
+                const uid = String(row.userId || '');
+                const checked = addMemberIds.includes(uid);
+                return (
+                  <li key={uid || row.membershipId}>
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border"
+                        checked={checked}
+                        onChange={() => toggleAddMemberId(uid)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {row.displayName || t('organizations.memberFallbackShort')}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {row.email || row.username || ''}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="flex justify-end gap-2 border-t border-border pt-3">
+            <button
+              type="button"
+              disabled={savingTeamMembers}
+              onClick={() => setAddMemberOpen(false)}
+              className="rounded-xl border border-border bg-surface px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {t('nav.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={savingTeamMembers || addMemberIds.length === 0}
+              onClick={saveTeamMembers}
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {savingTeamMembers ? t('common.saving') : t('common.save')}
+            </button>
+          </div>
+        </div>
+      </Modal>
       <ConfirmDialog
         isOpen={memberConfirm != null}
         onClose={() => setMemberConfirm(null)}

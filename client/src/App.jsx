@@ -9,6 +9,7 @@ import AdminShellLayout from './components/Layout/AdminShellLayout';
 import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
+import LegacyTasksRedirect from './components/Layout/LegacyTasksRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
 import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
@@ -31,7 +32,11 @@ const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
 const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
 const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
-const CreateProjectWizardPage = lazy(() => import('./pages/Workspace/CreateProjectWizardPage'));
+const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjectWizardPage'));
+const ProjectsLandingPage = lazy(() => import('./pages/Projects/ProjectsLandingPage'));
+const ProjectChatPage = lazy(() => import('./pages/Projects/ProjectChatPage'));
+const ProjectsShellLayout = lazy(() => import('./pages/Projects/ProjectsShellLayout'));
+const ProjectHubPage = lazy(() => import('./pages/Projects/ProjectHubPage'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
@@ -121,9 +126,14 @@ function App() {
             element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
           />
           <Route
-            path="tasks"
-            element={<OrganizationsPage suiteMode="collaborate" workspaceTab="tasks" suiteLayout />}
-          />
+            path="projects"
+            element={<ProjectsShellLayout />}
+          >
+            <Route index element={<ProjectsLandingPage />} />
+            <Route path="chat" element={<ProjectChatPage />} />
+          </Route>
+          <Route path="projects/:projectId" element={<ProjectHubPage />} />
+          <Route path="tasks" element={<LegacyTasksRedirect />} />
           <Route path="documents" element={<DocumentsPage suiteLayout />} />
           <Route
             path="notifications"

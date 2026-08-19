@@ -21,7 +21,11 @@ const PLANNING_HISTORY_FIELDS = [
   'parentId',
   'sortOrder',
   'targetDate',
+  'startDate',
+  'dueDate',
   'description',
+  'assigneeId',
+  'priority',
 ];
 
 function serializeHistoryValue(value) {

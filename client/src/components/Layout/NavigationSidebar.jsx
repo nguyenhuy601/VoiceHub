@@ -109,7 +109,7 @@ const COMMUNICATE_NAV_DEF = [
 
 const COLLABORATE_NAV_DEF = [
   { key: 'org', Icon: Building2, path: '/app/collaborate/workspaces', isWorkspaceEntry: true },
-  { key: 'tasks', Icon: ListTodo, path: '/app/collaborate/tasks' },
+  { key: 'tasks', Icon: ListTodo, path: '/app/collaborate/projects' },
   { key: 'documents', Icon: FileText, path: '/app/collaborate/documents' },
   { key: 'notifications', path: '/app/collaborate/notifications', bellBadge: true },
 ];
@@ -211,6 +211,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
     }
     if (suiteProp === 'collaborate') {
       return (
+        location.pathname.startsWith('/app/collaborate/projects') ||
         location.pathname.startsWith('/app/collaborate/tasks') ||
         location.pathname.startsWith('/app/collaborate/documents') ||
         location.pathname.startsWith('/app/collaborate/notifications')
@@ -611,7 +612,11 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
       return location.pathname.startsWith('/app/communicate/channels');
     }
     if (suiteProp === 'collaborate' && item.key === 'tasks') {
-      return location.pathname.startsWith('/app/collaborate/tasks');
+      const path = location.pathname;
+      return (
+        path.startsWith('/app/collaborate/projects') ||
+        path.startsWith('/app/collaborate/tasks')
+      );
     }
     if (suiteProp === 'collaborate' && item.key === 'documents') {
       return location.pathname.startsWith('/app/collaborate/documents');

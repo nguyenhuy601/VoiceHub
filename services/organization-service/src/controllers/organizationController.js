@@ -849,6 +849,7 @@ exports.getOrgShell = async (req, res, next) => {
         access: {
           channelIds: memberReady ? accessData.channelIds : [],
           permissionsByChannelId: memberReady ? accessData.permissionsByChannelId : {},
+          projectChannels: memberReady ? accessData.projectChannels || [] : [],
           scope,
           memberReady,
           memberReadyCode: memberReady ? null : 'ORG_MEMBER_NOT_READY',

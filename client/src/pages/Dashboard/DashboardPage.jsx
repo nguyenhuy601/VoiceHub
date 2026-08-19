@@ -687,7 +687,7 @@ function DashboardPage({
               ? buildCollaborateTasksPath(orgId)
               : `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`;
           }
-          return kind === 'task' ? '/app/collaborate/tasks' : '/app/communicate/chat/friends';
+          return kind === 'task' ? '/app/collaborate/projects' : '/app/communicate/chat/friends';
         };
         const weekDayLabels = [
           t('dashboard.weekDaySun'),
@@ -1532,7 +1532,7 @@ function DashboardPage({
       case 'overdue':
       case 'dueWeek':
       case 'open':
-        return { path: '/app/collaborate/tasks', cta: t('dashboard.statOpenTasks') };
+        return { path: '/app/collaborate/projects', cta: t('dashboard.statOpenTasks') };
       case 'friends':
         return { path: '/app/communicate/chat/friends', cta: t('dashboard.statOpenFriends') };
       case 'notify':
@@ -1543,7 +1543,7 @@ function DashboardPage({
   };
 
   const navigateFromActivityType = (type) => {
-    if (type === 'task') navigate('/app/collaborate/tasks');
+    if (type === 'task') navigate('/app/collaborate/projects');
     else if (type === 'file') navigate('/app/collaborate/documents');
     else if (type === 'message') navigate('/app/communicate/chat/friends');
     else navigate('/app/communicate/notifications');
@@ -1597,7 +1597,7 @@ function DashboardPage({
         navigate(
           oid
             ? buildCollaborateTasksPath(oid, { boardId: board?.id })
-            : '/app/collaborate/tasks'
+            : '/app/collaborate/projects'
         );
       }}
       onOverdueClick={(item) => {
@@ -1605,7 +1605,7 @@ function DashboardPage({
         navigate(
           oid
             ? buildCollaborateTasksPath(oid, { boardId: item?.boardId })
-            : '/app/collaborate/tasks'
+            : '/app/collaborate/projects'
         );
       }}
       insightPreview={false}

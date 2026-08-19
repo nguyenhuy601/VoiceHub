@@ -12,20 +12,24 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
-import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
-const TEAM_MANAGE_HUB = '/app/admin/org-structure/teams/manage';
 const ACTION_LINKS = [
-  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
-  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers' },
-  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
+  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
+  { path: '/app/admin/org-structure/teams/members', labelKey: 'adminDomains.orgStructure.teamMembers' },
+  { path: '/app/admin/org-structure/teams/leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
+  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_DELETE },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { teams, loading } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
+  const { isFullAccess, isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -50,10 +54,12 @@ export default function TeamListPanel({ orgId }) {
       hint={t('adminOrg.teamListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.teamCreate')}
-        </Link>
+        canCreateTeam ? (
+          <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.teamCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -72,13 +78,6 @@ export default function TeamListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : structureError ? (
-          <div className="space-y-3 px-4 py-6">
-            <p className="text-sm text-destructive">{structureError}</p>
-            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
-              {t('adminRbac.retry')}
-            </button>
-          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -119,10 +118,12 @@ export default function TeamListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
-                              key={link.tab}
-                              to={adminOrgUnitHubLink(TEAM_MANAGE_HUB, id, link.tab)}
+                              key={link.path}
+                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

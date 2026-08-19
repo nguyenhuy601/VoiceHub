@@ -100,7 +100,8 @@ const permissionMiddleware = async (req, res, next) => {
 
     // Organization permissions được kiểm tra tại organization-service theo membership thực tế.
     // Bỏ qua check role-service ở gateway để tránh false deny do khác ngữ cảnh serverId.
-    if (action.startsWith('organization:')) {
+    // Cả organization:write (legacy) lẫn organization.team.create (master V2).
+    if (action.startsWith('organization:') || action.startsWith('organization.')) {
       return next();
     }
 

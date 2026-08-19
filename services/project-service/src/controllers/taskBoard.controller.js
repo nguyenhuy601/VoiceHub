@@ -400,6 +400,19 @@ class TaskBoardController {
     }
   }
 
+  async createWorkGroup(req, res) {
+    try {
+      const userId = asUserId(req);
+      const { featureId } = req.params;
+      if (!userId) return boardUnauthorized(res);
+      if (!validOid(featureId)) return res.status(400).json({ success: false, message: 'featureId không hợp lệ' });
+      const data = await boardService.createWorkGroup({ userId, featureId });
+      return res.status(201).json({ success: true, data });
+    } catch (err) {
+      return sendError(res, err, 400, 'Không thể tạo nhóm làm việc', 'WORKGROUP_CREATE_FAILED');
+    }
+  }
+
   async addCardComment(req, res) {
     try {
       const userId = asUserId(req);

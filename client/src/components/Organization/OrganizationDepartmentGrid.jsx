@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Plus, Search, Users } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { buildDepartmentHubCards } from '../../utils/buildDepartmentHubCard';
-import { FIGMA_WS_GRID } from './figmaWorkspaceClasses';
+import { FIGMA_WS_GRID } from './figmaOrganizationClasses';
 import OrganizationDepartmentCard from './OrganizationDepartmentCard';
 
 const FAVORITES_KEY = 'voicehub:dept-favorites';

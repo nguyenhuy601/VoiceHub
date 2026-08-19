@@ -27,7 +27,19 @@ const {
 } = require('../utils/orgChannelPermissions');
 const { resolveOrgChannelAccess } = require('../services/orgAccessReadModel');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
+const { maybeNotifyCrossTeamContext } = require('../utils/crossTeamContextNotify');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const {
+  isContextCallEnabled,
+  isContextVisibleToRoom,
+  parseVisibility,
+  isProjectIntersectionVisibility,
+} = require('../utils/contextCallVisibility');
+const {
+  hasActiveProjectMembership,
+  listContextCallAudienceUserIds,
+} = require('../services/projectMembershipReadModel');
+const { parseMessageRefs } = require('../utils/messageRefs');
 const { requireObjectId, requireUserId } = require('../utils/validateInput');
 
 function chatUnauthorized(res) {
@@ -78,6 +90,23 @@ async function assertCanAccessMessage(message, userId, req) {
   const senderId = resolveParticipantId(message.senderId);
   const receiverId = resolveParticipantId(message.receiverId);
   if (senderId === uid || receiverId === uid) {
+    if (
+      message.roomId &&
+      isContextCallEnabled() &&
+      !isContextVisibleToRoom() &&
+      isProjectIntersectionVisibility(message.visibility)
+    ) {
+      const ok = await hasActiveProjectMembership(
+        uid,
+        String(message.organizationId || ''),
+        message.visibility.projectId
+      );
+      if (!ok) {
+        const hide = new Error('Forbidden');
+        hide.statusCode = 403;
+        throw hide;
+      }
+    }
     return true;
   }
   if (message.organizationId && message.roomId) {
@@ -85,6 +114,22 @@ async function assertCanAccessMessage(message, userId, req) {
     const { matrix } = await fetchAccessibleChannelPermissionMatrix(orgId, req);
     const perms = matrix[String(message.roomId)] || {};
     if (Boolean(perms.canRead)) {
+      if (
+        isContextCallEnabled() &&
+        !isContextVisibleToRoom() &&
+        isProjectIntersectionVisibility(message.visibility)
+      ) {
+        const ok = await hasActiveProjectMembership(
+          uid,
+          String(message.organizationId),
+          message.visibility.projectId
+        );
+        if (!ok) {
+          const hide = new Error('Forbidden');
+          hide.statusCode = 403;
+          throw hide;
+        }
+      }
       return true;
     }
   }
@@ -408,23 +453,60 @@ class MessageController {
   // Tạo tin nhắn mới
   async createMessage(req, res) {
     try {
-      const { content, receiverId, roomId, messageType, organizationId, fileMeta, replyToMessageId } =
-        req.body;
+      const {
+        content,
+        receiverId,
+        roomId,
+        messageType,
+        organizationId,
+        fileMeta,
+        replyToMessageId,
+        visibility,
+        refs,
+      } = req.body;
       const senderId = req.user?.id || req.user?._id;
+      const parsedVisibility = isContextCallEnabled() ? parseVisibility(visibility) : null;
+      const parsedRefs = parseMessageRefs(refs);
+      if (parsedRefs.error) {
+        return res.status(400).json({
+          success: false,
+          message: parsedRefs.error,
+          code: 'CONTEXT_REF_INVALID',
+        });
+      }
+      const firstRef = parsedRefs.refs[0] || null;
+      const resolvedContent =
+        String(content || '').trim() ||
+        (firstRef ? String(firstRef.label || 'Context').trim() : '') ||
+        (parsedVisibility ? String(parsedVisibility.projectName || 'Context').trim() : '');
 
-      if (!content || (!receiverId && !roomId)) {
+      if (!resolvedContent || (!receiverId && !roomId)) {
         return res.status(400).json({
           success: false,
           message: 'Content and receiverId or roomId are required',
         });
       }
 
+      if ((parsedVisibility || firstRef) && receiverId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Context call is only supported on organization channels',
+          code: 'CONTEXT_CALL_ROOM_ONLY',
+        });
+      }
+
       const messageData = {
         senderId,
-        content,
+        content: resolvedContent,
         messageType: messageType || 'text',
         organizationId,
       };
+      if (parsedVisibility) {
+        messageData.visibility = parsedVisibility;
+      }
+      if (parsedRefs.refs.length) {
+        messageData.refs = parsedRefs.refs;
+      }
 
       if (receiverId) {
         messageData.receiverId = receiverId;
@@ -460,6 +542,34 @@ class MessageController {
             message: permErr.message || 'Bạn không có quyền chat trong kênh này',
             code: 'ORG_CHANNEL_FORBIDDEN',
           });
+        }
+        if (parsedVisibility) {
+          const memberOk = await hasActiveProjectMembership(
+            senderId,
+            organizationId,
+            parsedVisibility.projectId
+          );
+          if (!memberOk) {
+            return res.status(403).json({
+              success: false,
+              message: 'Bạn không phải thành viên dự án này',
+              code: 'CONTEXT_CALL_NOT_PROJECT_MEMBER',
+            });
+          }
+        }
+        if (firstRef) {
+          const memberOk = await hasActiveProjectMembership(
+            senderId,
+            organizationId,
+            firstRef.projectId
+          );
+          if (!memberOk) {
+            return res.status(403).json({
+              success: false,
+              message: 'Bạn không phải thành viên dự án này',
+              code: 'CONTEXT_REF_NOT_PROJECT_MEMBER',
+            });
+          }
         }
       }
 
@@ -565,11 +675,28 @@ class MessageController {
       }
 
       if (roomId) {
-        await emitRealtimeEvent({
-          event: 'room:new_message',
-          roomId: String(roomId),
-          payload: payloadMessage,
-        });
+        const hideFromNonMembers =
+          isProjectIntersectionVisibility(payloadMessage.visibility) && !isContextVisibleToRoom();
+        if (hideFromNonMembers) {
+          const audience = await listContextCallAudienceUserIds({
+            organizationId,
+            roomId,
+            projectId: payloadMessage.visibility.projectId,
+          });
+          const userIds = [...new Set([...audience, String(senderId)])];
+          await emitRealtimeEvent({
+            event: 'room:new_message',
+            userIds,
+            payload: payloadMessage,
+          });
+        } else {
+          await emitRealtimeEvent({
+            event: 'room:new_message',
+            roomId: String(roomId),
+            payload: payloadMessage,
+          });
+        }
+        maybeNotifyCrossTeamContext({ message: payloadMessage }).catch(() => null);
       }
 
       res.status(201).json({
@@ -839,6 +966,7 @@ class MessageController {
         limit: parseInt(q.limit, 10) || 20,
         pageToken: q.pageToken || null,
         fields: q.fields || 'summary',
+        viewerUserId: req.user?.id || req.user?._id || null,
       });
       const messages = await attachSignedReadUrlsToMessages(result.messages || []);
       res.json({
@@ -999,6 +1127,8 @@ class MessageController {
         limit: parseInt(limit, 10) || 50,
         pageToken: pageToken ? String(pageToken).trim() : null,
         fields: fields === 'full' ? 'full' : 'summary',
+        viewerUserId: userId,
+        viewerOrganizationId: organizationId || null,
       };
 
       if (receiverId && userId) {

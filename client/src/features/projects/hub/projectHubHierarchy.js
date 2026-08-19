@@ -287,7 +287,8 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     }
     const eid = card.epicId ? String(card.epicId) : '';
     if (!eid) {
-      rootsOrphan.push(makeCardNode(card, Math.max(0, resolveItemBand(card, cfg))));
+      const featureBand = Math.max(0, bandIndexForType('feature', cfg));
+      rootsOrphan.push(makeCardNode(card, featureBand >= 0 ? featureBand : 1));
       continue;
     }
     if (!cardsByEpic.has(eid)) cardsByEpic.set(eid, []);
@@ -393,6 +394,170 @@ export function isBacklogLevelTwoIssue(issue, config, epicIds = null) {
   return WORK_TYPE_CREATE_IDS.includes(it);
 }
 
+/**
+ * Work types UI band for backlog 2-tier view.
+ * - bandIndex 1 => "cấp 2"
+ * - bandIndex 2 => "cấp 3"
+ *
+ * Note: hierarchyBands() có thể "nén" độ sâu về 3 band UI; backlog vì vậy cũng bám theo bandIndex.
+ */
+export function backlogBands(config) {
+  const cfg = normalizeWorkTypeConfig(config);
+  const bands = hierarchyBands(cfg);
+  if (!bands.length) return { rootBandIndex: -1, childBandIndex: -1 };
+  const rootBandIndex = bands.length >= 2 ? 1 : 0;
+  const childBandIndex = bands.length >= 3 ? 2 : -1;
+  return { rootBandIndex, childBandIndex };
+}
+
+/**
+ * isBacklogRootIssue/ChildIssue chỉ đúng khi `issue.issueType` phản ánh runtime workType
+ * (ví dụ sub-task cần issueType='subtask').
+ */
+export function isBacklogRootIssue(issue, config) {
+  const { rootBandIndex } = backlogBands(config);
+  if (rootBandIndex < 0) return false;
+  return resolveItemBand(issue, config) === rootBandIndex;
+}
+
+/** @see isBacklogRootIssue */
+export function isBacklogChildIssue(issue, config) {
+  const { childBandIndex } = backlogBands(config);
+  if (childBandIndex < 0) return false;
+  return resolveItemBand(issue, config) === childBandIndex;
+}
+
+function enrichIssueForBacklogRow(node) {
+  const raw = node?.raw || {};
+  const wt = String(node?.workType || raw?.workType || raw?.issueType || raw?.type || '').toLowerCase();
+  const issueType = WORK_TYPE_ALL_IDS.includes(wt) ? wt : '';
+
+  // Row backlog dựa vào issue.issueType / issue.type và issue.epicId cho các thao tác.
+  const next = {
+    ...raw,
+    issueType: issueType || raw.issueType || raw.type,
+  };
+
+  if (next.issueType === 'feature' && !next.epicId) {
+    // PlanningItem feature lưu epic ở parentId.
+    if (raw?.epicId) next.epicId = raw.epicId;
+    else if (raw?.parentId) next.epicId = raw.parentId;
+  }
+
+  return next;
+}
+
+function sprintIdMatchesContainer(issue, sprintId) {
+  const sid = issue?.sprintId ? String(issue.sprintId) : '';
+  const want = sprintId == null ? '' : String(sprintId);
+  return sid === want;
+}
+
+/**
+ * Backlog 2-tier tree:
+ * - Roots: direct rows for "cấp 2" (work type band index 1) + promotion từ "cấp 3" khi parent không visible
+ * - Children: direct "cấp 3" (band index 2) của mỗi root, chỉ 1 cấp.
+ *
+ * @param {object} params
+ * @param {Array} params.epics
+ * @param {Array} params.features
+ * @param {Array} params.cards
+ * @param {object} params.config
+ * @param {(issue:object)=>boolean} [params.matchesFilters]
+ * @param {Set<string>|null} [params.epicIds] kept for compatibility (future)
+ * @param {string|null} [params.sprintId] null => Product backlog container, otherwise a sprint id.
+ * @returns {{ roots: Array<{ issue: object, children: Array<object> }> }}
+ */
+export function buildBacklogTree({
+  epics = [],
+  features = [],
+  cards = [],
+  config,
+  matchesFilters = null,
+  sprintId = null,
+} = {}) {
+  const cfg = normalizeWorkTypeConfig(config);
+  const { rootBandIndex } = backlogBands(cfg);
+  if (rootBandIndex < 0) return { roots: [] };
+
+  const tree = buildListTree({ epics, features, cards, config: cfg });
+  if (!Array.isArray(tree) || tree.length === 0) return { roots: [] };
+
+  const roots = [];
+  const pushedRootIds = new Set();
+
+  const addRoot = (issue, children = []) => {
+    const id = String(issue?._id || issue?.id || '');
+    if (!id) return;
+    if (pushedRootIds.has(id)) return;
+    pushedRootIds.add(id);
+    roots.push({ issue, children });
+  };
+
+  const addRootForChildrenPromotion = (childIssue) => {
+    const id = String(childIssue?._id || childIssue?.id || '');
+    if (!id || pushedRootIds.has(id)) return;
+    pushedRootIds.add(id);
+    roots.push({ issue: childIssue, children: [] });
+  };
+
+  // Root-band nodes that are not nested under another root-band ancestor
+  // (Task cùng compressed band với Feature vẫn là child trên list tree).
+  const stack = tree.map((node) => ({ node, ancestorIsRootBand: false })).reverse();
+  const bandRoots = [];
+  const seenBandRootIds = new Set();
+  while (stack.length) {
+    const { node, ancestorIsRootBand } = stack.pop();
+    if (!node) continue;
+    const isRootBand = node.band === rootBandIndex;
+    if (isRootBand && !ancestorIsRootBand) {
+      const id = String(node.id || '');
+      if (id && !seenBandRootIds.has(id)) {
+        seenBandRootIds.add(id);
+        bandRoots.push(node);
+      }
+    }
+    const kids = Array.isArray(node.children) ? node.children : [];
+    const nextAncestor = ancestorIsRootBand || isRootBand;
+    for (let i = kids.length - 1; i >= 0; i -= 1) {
+      stack.push({ node: kids[i], ancestorIsRootBand: nextAncestor });
+    }
+  }
+
+  for (const rootNode of bandRoots) {
+    const rootIssue = enrichIssueForBacklogRow(rootNode);
+    const rootInContainer = sprintIdMatchesContainer(rootIssue, sprintId);
+    const rootMatches = matchesFilters ? matchesFilters(rootIssue) : true;
+    const rootIsFeature = String(rootNode.workType || '').toLowerCase() === 'feature';
+
+    const childIssues = [];
+    for (const childNode of rootNode.children || []) {
+      const childIssue = enrichIssueForBacklogRow(childNode);
+      const childInContainer = sprintIdMatchesContainer(childIssue, sprintId);
+      if (!childInContainer && !(rootIsFeature && rootInContainer)) continue;
+      const childMatches = matchesFilters ? matchesFilters(childIssue) : true;
+      if (!childMatches) continue;
+      childIssues.push(childIssue);
+    }
+
+    const rootVisible = rootInContainer && (rootMatches || childIssues.length > 0);
+    if (rootVisible) {
+      addRoot(rootIssue, childIssues);
+      continue;
+    }
+
+    // Feature đã gán sprint khác → children thuộc Feature đó, không promote ra backlog.
+    if (rootIsFeature && !rootInContainer && rootIssue.sprintId) continue;
+
+    // Promotion: parent root không visible nhưng child visible => hiển thị child như một root.
+    for (const childIssue of childIssues) {
+      addRootForChildrenPromotion(childIssue);
+    }
+  }
+
+  return { roots };
+}
+
 function collectDescendantIds(node, out = new Set()) {
   for (const child of node?.children || []) {
     out.add(child.id);
@@ -478,8 +643,6 @@ function nestActionForTarget(activeNode, target, config) {
   if (collectDescendantIds(activeNode).has(target.id)) return null;
   const activeId = rawEntityId(activeNode);
   if (!activeId) return null;
-  if (!canNestByDepth(nodeWorkType(activeNode), nodeWorkType(target), config)) return null;
-
   if (activeNode.kind === 'card' && target.kind === 'card') {
     return {
       mode: 'attach-card-parent',
@@ -504,12 +667,12 @@ function nestActionForTarget(activeNode, target, config) {
   }
   if (activeNode.kind === 'card' && target.workType === 'feature') {
     const epicId = target.raw?.parentId ? String(target.raw.parentId) : '';
-    if (!epicId) return null;
     return {
-      mode: 'attach-card-epic',
+      mode: 'attach-card-feature',
       kind: 'card',
       activeId,
-      epicId,
+      featureId: rawEntityId(target),
+      epicId: epicId || null,
       parentTaskId: null,
     };
   }
@@ -666,7 +829,7 @@ export function canListDragOver(activeNode, overNode, config) {
   const od = nodeTypeDepth(overNode, config);
   if (!Number.isFinite(ad) || !Number.isFinite(od)) return false;
   if (ad === od) return true;
-  if (od === ad - 1) return true;
+  if (od < ad) return true;
   return false;
 }
 
@@ -683,7 +846,7 @@ export function resolveListDropAction(activeNode, overNode, tree = [], config) {
   const ad = nodeTypeDepth(activeNode, config);
   const od = nodeTypeDepth(overNode, config);
 
-  if (od === ad - 1) {
+  if (od < ad) {
     return withTypePreserving(activeNode, nestActionForTarget(activeNode, overNode, config));
   }
 

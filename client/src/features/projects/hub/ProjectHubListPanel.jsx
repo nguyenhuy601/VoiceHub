@@ -13,7 +13,7 @@ import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload, unwrapTaskBoardDetailPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
-import ConfirmDialog from '../../Shared/ConfirmDialog';
+import ConfirmDialog from '../../../components/Shared/ConfirmDialog';
 import WorkItemDetail from './WorkItemDetail';
 import {
   buildListTree,
@@ -33,6 +33,7 @@ import { useResizableTableColumns } from './useResizableTableColumns';
 import { childWorkStats } from './projectHubBacklogStats';
 import { canExpandListRow, flattenExpandedRows } from './projectHubListLazy';
 import { unwrapPlanningEntity, unwrapPlanningList } from './projectHubUtils';
+import { listIdToPlanningStatus, planningStatusToListId } from './planningBoardStatus';
 import {
   isBoardCreateType,
   isPlanningCreateType,
@@ -142,6 +143,7 @@ export default function ProjectHubListPanel({
   const [rootCreateOpen, setRootCreateOpen] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [confirmWg, setConfirmWg] = useState(null);
   const [dragSession, setDragSession] = useState(() => ({
     id: '',
     overId: '',
@@ -425,9 +427,35 @@ export default function ProjectHubListPanel({
     [onPatchPlanningItems]
   );
 
-  const applyDrop = async (action, activeNode = null) => {
+  const applyDrop = async (action, activeNode = null, skipWgCheck = false) => {
     if (!action || action.mode === 'noop' || busy) return;
     if (activeNode && !isTypePreservingDrop(activeNode, action)) return;
+
+    if (
+      !skipWgCheck &&
+      action.kind === 'card' &&
+      (action.mode === 'attach-card-parent' || action.mode === 'align-card-siblings') &&
+      action.parentTaskId
+    ) {
+      const parentCard = (Array.isArray(listCards) ? listCards : []).find(
+        (c) => String(c._id || c.id) === String(action.parentTaskId)
+      );
+      const featureId = parentCard?.featureId ? String(parentCard.featureId) : '';
+      if (featureId) {
+        const featureItem = (Array.isArray(features) ? features : []).find(
+          (f) => String(f._id || f.id) === featureId
+        );
+        if (!featureItem?.workGroupChannelId) {
+          const existingCount = listCards.filter(
+            (c) => String(c.featureId || '') === featureId && c.isActive !== false
+          ).length;
+          if (existingCount + 1 >= 3) {
+            setConfirmWg({ featureId, dropAction: action, activeNode });
+            return;
+          }
+        }
+      }
+    }
 
     const activeKey = String(action.activeId);
     const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
@@ -439,6 +467,8 @@ export default function ProjectHubListPanel({
         cardPatch = { parentTaskId: null, epicId: null };
       } else if (action.mode === 'attach-card-epic') {
         cardPatch = { parentTaskId: null, epicId: action.epicId ?? null };
+      } else if (action.mode === 'attach-card-feature') {
+        cardPatch = { parentTaskId: null, featureId: action.featureId ?? null, epicId: action.epicId ?? null };
       } else if (action.mode === 'attach-card-parent' || action.mode === 'align-card-siblings') {
         cardPatch = { parentTaskId: action.parentTaskId ?? null };
         if (action.epicId !== undefined) cardPatch.epicId = action.epicId;
@@ -502,31 +532,38 @@ export default function ProjectHubListPanel({
     }
   };
 
-  const assignCard = async (node, member) => {
-    if (!node || node.kind !== 'card' || busy) return;
-    const cardId = String(node.raw?._id || node.raw?.id || '');
-    if (!cardId) return;
+  const assignMember = async (node, member) => {
+    if (!node || busy) return;
+    const id = String(node.raw?._id || node.raw?.id || '');
+    if (!id) return;
+    const patch = member
+      ? {
+          assigneeId: member.id,
+          assigneeName: member.name,
+          assigneeAvatar: member.avatarUrl || '',
+          assignees: [
+            {
+              userId: member.id,
+              displayName: member.name,
+              avatar: member.avatarUrl || '',
+            },
+          ],
+        }
+      : { assigneeId: null, assigneeName: '', assigneeAvatar: '', assignees: [] };
     setBusy(true);
     try {
-      const patch = member
-        ? {
-            assigneeId: member.id,
-            assigneeName: member.name,
-            assignees: [
-              {
-                userId: member.id,
-                displayName: member.name,
-                avatar: member.avatarUrl || '',
-              },
-            ],
-          }
-        : { assigneeId: null, assigneeName: '', assignees: [] };
-      if (onUpdateCard) {
-        await onUpdateCard(cardId, patch);
-      } else {
-        await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+      if (node.kind === 'planning') {
+        if (!projectId) return;
+        await projectAPI.patchPlanningItem(projectId, id, { assigneeId: member?.id || null });
+        patchPlanning((items) => items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row)));
+      } else if (node.kind === 'card') {
+        if (onUpdateCard) {
+          await onUpdateCard(id, patch);
+        } else {
+          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+        }
         patchCards((cards) =>
-          cards.map((c) => (entityId(c) === cardId ? { ...c, ...patch } : c))
+          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
         );
       }
     } catch (err) {
@@ -541,6 +578,67 @@ export default function ProjectHubListPanel({
   const createRoot = async (typeId, text) => {
     await createChild(null, typeId, text);
     setRootCreateOpen(false);
+  };
+
+  const doCreateBoardCard = async (parentNode, type, text, parentPayload) => {
+    const boardIssueType =
+      type === 'bug' || type === 'story' || type === 'task' ? type : 'task';
+    const res = await taskAPI.createBoardCard(
+      boardId,
+      {
+        listId: defaultListId,
+        title: text,
+        issueType: type === 'subtask' ? 'task' : boardIssueType,
+        ...parentPayload,
+      },
+      apiCtx || {}
+    );
+    const created = unwrapTaskApiPayload(res) || unwrapPlanningEntity(res);
+    if (created) {
+      patchCards((cards) =>
+        upsertById(cards, {
+          ...created,
+          title: text,
+          issueType: created.issueType || (type === 'subtask' ? 'task' : boardIssueType),
+          listId: created.listId || defaultListId,
+          ...parentPayload,
+        })
+      );
+    } else {
+      onRefresh?.();
+    }
+    if (parentNode?.id) {
+      setExpandedIds((prev) => new Set(prev).add(parentNode.id));
+      void loadNodeChildren(parentNode);
+    }
+  };
+
+  const handleConfirmWorkGroup = async () => {
+    if (!confirmWg) return;
+    const { featureId } = confirmWg;
+    setConfirmWg(null);
+    setBusy(true);
+    try {
+      const wgRes = await taskAPI.createWorkGroup(featureId, apiCtx || {});
+      const wgData = wgRes?.data?.data || wgRes?.data || {};
+      if (wgData.workGroupChannelId) {
+        patchPlanning((prev) =>
+          prev.map((p) =>
+            String(p._id || p.id) === featureId
+              ? { ...p, workGroupChannelId: wgData.workGroupChannelId }
+              : p
+          )
+        );
+      }
+    } catch (err) {
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeclineWorkGroup = () => {
+    setConfirmWg(null);
   };
 
   const createChild = async (parentNode, typeId, text) => {
@@ -585,35 +683,22 @@ export default function ProjectHubListPanel({
           toast.error(t('workspace.projectHubBacklogSubtaskNeedParent'));
           return;
         }
-        const boardIssueType =
-          type === 'bug' || type === 'story' || type === 'task' ? type : 'task';
-        const res = await taskAPI.createBoardCard(
-          boardId,
-          {
-            listId: defaultListId,
-            title: text,
-            issueType: type === 'subtask' ? 'task' : boardIssueType,
-            ...parentPayload,
-          },
-          apiCtx || {}
-        );
-        const created = unwrapTaskApiPayload(res) || unwrapPlanningEntity(res);
-        if (created) {
-          patchCards((cards) =>
-            upsertById(cards, {
-              ...created,
-              title: text,
-              issueType: created.issueType || (type === 'subtask' ? 'task' : boardIssueType),
-              listId: created.listId || defaultListId,
-              ...parentPayload,
-            })
+
+        await doCreateBoardCard(parentNode, type, text, parentPayload);
+
+        const featureId = parentPayload.featureId;
+        if (featureId) {
+          const featureItem = (Array.isArray(features) ? features : []).find(
+            (f) => String(f._id || f.id) === featureId
           );
-        } else {
-          onRefresh?.();
-        }
-        if (parentNode?.id) {
-          setExpandedIds((prev) => new Set(prev).add(parentNode.id));
-          void loadNodeChildren(parentNode);
+          if (!featureItem?.workGroupChannelId) {
+            const newCount = listCards.filter(
+              (c) => String(c.featureId || '') === featureId && c.isActive !== false
+            ).length + 1;
+            if (newCount >= 3) {
+              setConfirmWg({ featureId });
+            }
+          }
         }
       } else {
         return;
@@ -653,21 +738,27 @@ export default function ProjectHubListPanel({
   };
 
   const changePriority = async (node, priority) => {
-    if (!canChangeStatus || busy || node.kind !== 'card') return;
-    const cardId = String(node.raw?._id || node.raw?.id || '');
-    if (!cardId) return;
+    if (!canChangeStatus || busy) return;
+    const id = String(node.raw?._id || node.raw?.id || '');
+    if (!id) return;
     const next = String(priority || 'medium').toLowerCase();
+    const patch = { priority: next };
     setBusy(true);
     try {
-      const patch = { priority: next };
-      if (onUpdateCard) {
-        await onUpdateCard(cardId, patch);
-      } else {
-        await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+      if (node.kind === 'planning') {
+        if (!projectId) return;
+        await projectAPI.patchPlanningItem(projectId, id, patch);
+        patchPlanning((items) => items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row)));
+      } else if (node.kind === 'card') {
+        if (onUpdateCard) {
+          await onUpdateCard(id, patch);
+        } else {
+          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+        }
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, priority: next } : c))
+        );
       }
-      patchCards((cards) =>
-        cards.map((c) => (entityId(c) === cardId ? { ...c, priority: next } : c))
-      );
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
@@ -677,11 +768,12 @@ export default function ProjectHubListPanel({
     }
   };
 
-  const changePlanningStatus = async (node, status) => {
+  const changePlanningStatus = async (node, listId) => {
     if (!canChangeStatus || busy || node.kind !== 'planning') return;
     const itemId = String(node.raw?._id || node.raw?.id || '');
     if (!itemId || !projectId) return;
-    const next = String(status || '').trim().toLowerCase();
+    const next = listIdToPlanningStatus(listId, lists) || String(listId || '').trim().toLowerCase();
+    if (!next) return;
     setBusy(true);
     try {
       await projectAPI.patchPlanningItem(projectId, itemId, { status: next });
@@ -975,14 +1067,19 @@ export default function ProjectHubListPanel({
                   expandError={expandErrorIds.has(node.id)}
                   selected={selectedIds.has(node.id)}
                   childTypes={childTypesForParent(node.workType, workTypeConfig, createCaps)}
-                  childStats={childWorkStats(listCards, node.raw?._id || node.raw?.id, lists)}
+                  childStats={childWorkStats(
+                    listCards,
+                    node.raw?._id || node.raw?.id,
+                    lists,
+                    node.workType
+                  )}
                   lists={lists}
                   listMap={listMap}
                   priorityConfig={priorityConfig}
                   hasBoardColumn={hasBoardColumn}
                   busy={busy}
                   canChangeStatus={canChangeStatus}
-                  canAssign={node.kind === 'card' && Boolean(canCreateTask || canManage)}
+                  canAssign={Boolean(canCreateTask || canManage)}
                   gridStyle={gridStyle}
                   assignableMembers={assignableMembers}
                   membersLoading={membersLoading}
@@ -1018,13 +1115,23 @@ export default function ProjectHubListPanel({
                   onCancelCreateChild={() => setCreatingUnderId('')}
                   onCreateChild={createChild}
                   onOpenWorkItem={(n) => {
-                    if (n.kind === 'card' && n.raw) setDetailCard(n.raw);
+                    if (!n?.raw) return;
+                    if (n.kind === 'planning') {
+                      setDetailCard({
+                        ...n.raw,
+                        kind: 'planning',
+                        issueType: n.workType || n.raw.type,
+                        type: n.raw.type || n.workType,
+                      });
+                      return;
+                    }
+                    if (n.kind === 'card') setDetailCard(n.raw);
                   }}
                   onChangeStatus={changeStatus}
                   onChangePriority={changePriority}
                   onChangePlanningStatus={changePlanningStatus}
                   onChangeDueDate={changeDueDate}
-                  onAssignMember={(n, member) => void assignCard(n, member)}
+                  onAssignMember={(n, member) => void assignMember(n, member)}
                   onManageTypes={onOpenSettings}
                   t={t}
                 />
@@ -1102,6 +1209,16 @@ export default function ProjectHubListPanel({
         cancelText={t('common.cancel')}
       />
 
+      <ConfirmDialog
+        isOpen={Boolean(confirmWg)}
+        onClose={handleDeclineWorkGroup}
+        onConfirm={handleConfirmWorkGroup}
+        title={t('workspace.projectHubWorkGroupTitle', { fallback: 'Tạo nhóm làm việc' })}
+        message={t('workspace.projectHubWorkGroupMsg', { fallback: 'Tạo nhóm làm việc (work group) cho feature này? Các thành viên được giao task sẽ tự động được thêm vào nhóm chat.' })}
+        confirmText={t('workspace.projectHubWorkGroupConfirm', { fallback: 'Tạo nhóm' })}
+        cancelText={t('common.cancel')}
+      />
+
       <WorkItemDetail
         key={String(detailCard?._id || detailCard?.id || 'list-detail')}
         open={Boolean(detailCard)}
@@ -1112,12 +1229,20 @@ export default function ProjectHubListPanel({
         boardId={boardId}
         listTitle={
           detailCard
-            ? String(listMap[String(detailCard.listId || '')]?.title || detailCard.status || '')
+            ? String(
+                listMap[String(detailCard.listId || '')]?.title ||
+                  listMap[planningStatusToListId(detailCard.status, lists)]?.title ||
+                  detailCard.status ||
+                  ''
+              )
             : ''
         }
         lists={listMap}
         boardCards={listCards}
+        epics={epics}
+        features={features}
         workTypeConfig={workTypeConfig}
+        priorityConfig={priorityConfig}
         projectCode={projectCode}
         projectId={projectId}
         defaultListId={defaultListId}
@@ -1129,17 +1254,24 @@ export default function ProjectHubListPanel({
           Boolean(canManage) ||
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
         }
-        canChangeStatus={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) &&
-            hubCaps.permissions.includes('task:change_status'))
-        }
+        canChangeStatus={canChangeStatus}
         onClose={() => setDetailCard(null)}
         onOpenWorkItem={(card) => {
           if (card) setDetailCard(card);
         }}
         onRefresh={refreshAll}
         onPatchBoardCards={onPatchBoardCards}
+        onPatchPlanningItems={(updater) => {
+          patchPlanning(updater);
+          setDetailCard((prev) => {
+            if (!prev) return prev;
+            const nextList = updater([prev]);
+            const hit = (Array.isArray(nextList) ? nextList : []).find(
+              (row) => String(row._id || row.id) === String(prev._id || prev.id)
+            );
+            return hit ? { ...prev, ...hit } : prev;
+          });
+        }}
         onUpdateCard={async (cardId, patch) => {
           const keys = Object.keys(patch || {});
           if (!(keys.length === 1 && keys[0] === 'comments')) {

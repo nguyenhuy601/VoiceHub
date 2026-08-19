@@ -4,6 +4,7 @@ import {
   setToken,
 } from './tokenStorage';
 import { resolveApiBaseUrl } from './browserOrigin';
+import { clearSessionMarkerCookie } from './sessionMarkerCookie';
 
 let refreshPromise = null;
 
@@ -20,29 +21,36 @@ export function isAuthRefreshDisabled() {
 
 async function callRefreshEndpoint() {
   const API_URL = resolveApiBaseUrl();
-  const res = await axios.post(
-    `${API_URL}/auth/refresh-token`,
-    {},
-    {
-      withCredentials: true,
-      headers: {
-        'Content-Type': 'application/json',
-        // Header required by CSRF guard in refresh/logout flows.
-        'X-VoiceHub-Client': '1',
-      },
-      timeout: 30000,
+  try {
+    const res = await axios.post(
+      `${API_URL}/auth/refresh-token`,
+      {},
+      {
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json',
+          // Header required by CSRF guard in refresh/logout flows.
+          'X-VoiceHub-Client': '1',
+        },
+        timeout: 30000,
+      }
+    );
+
+    const envelope = res.data;
+    const body = envelope?.data !== undefined ? envelope.data : envelope;
+    const accessToken = body?.accessToken || body?.token;
+    if (!accessToken) {
+      throw new Error('INVALID_REFRESH_RESPONSE');
     }
-  );
 
-  const envelope = res.data;
-  const body = envelope?.data !== undefined ? envelope.data : envelope;
-  const accessToken = body?.accessToken || body?.token;
-  if (!accessToken) {
-    throw new Error('INVALID_REFRESH_RESPONSE');
+    setToken(accessToken);
+    return accessToken;
+  } catch (error) {
+    if (Number(error?.response?.status) === 401) {
+      clearSessionMarkerCookie();
+    }
+    throw error;
   }
-
-  setToken(accessToken);
-  return accessToken;
 }
 
 /** Single-flight refresh — tránh storm khi nhiều request 401 cùng lúc. */

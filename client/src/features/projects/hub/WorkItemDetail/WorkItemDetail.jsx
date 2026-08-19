@@ -5,7 +5,7 @@ import OtOverrideConfirmModal from '../../../../features/adminTasks/OtOverrideCo
 import {
   FIGMA_ORG_MEMBER_PANEL_HEAD,
   FIGMA_ORG_MEMBER_PANEL_TITLE,
-} from '../../figmaOrganizationClasses';
+} from '../../../../components/Organization/figmaOrganizationClasses';
 import ProjectHubIssueTypeBadge from '../ProjectHubIssueTypeBadge';
 import { displayIssueKey } from '../projectHubUtils';
 import { WorkItemDetailProvider, useWorkItemDetail } from './WorkItemDetailContext';

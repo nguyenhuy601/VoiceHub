@@ -37,6 +37,28 @@ const messageSchema = new mongoose.Schema(
     organizationId: {
       type: mongoose.Schema.Types.ObjectId,
     },
+    /**
+     * Org Context Call — gắn dự án vào tin.
+     * mode=project_intersection + projectId. Tin hiện cả kênh khi ORG_CONTEXT_VISIBLE_TO_ROOM
+     * (mặc định on). Chi tiết context gated ở work-preview, không filter list/socket.
+     */
+    visibility: {
+      mode: { type: String, trim: true },
+      projectId: { type: String, trim: true },
+      projectName: { type: String, trim: true, maxlength: 180 },
+    },
+    /** Context Reference — chip Work/CR. Không dùng để ẩn tin. */
+    refs: {
+      type: [
+        {
+          kind: { type: String, trim: true, enum: ['task', 'change_request'] },
+          id: { type: String, trim: true },
+          projectId: { type: String, trim: true },
+          label: { type: String, trim: true, maxlength: 120 },
+        },
+      ],
+      default: undefined,
+    },
     /** Tin nhắn kênh trả lời một tin khác (cùng roomId). */
     replyToMessageId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -113,6 +135,7 @@ messageSchema.index({ roomId: 1, createdAt: -1 });
 messageSchema.index({ roomId: 1, createdAt: -1, _id: -1 });
 messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1 });
+messageSchema.index({ roomId: 1, 'visibility.projectId': 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1, _id: -1 });
 messageSchema.index(
   { organizationId: 1, createdAt: -1 },

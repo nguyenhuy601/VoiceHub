@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
-import ProjectHubChangeRequestsPanel from '../../components/Organization/ProjectHub/ProjectHubChangeRequestsPanel';
+import ProjectHubChangeRequestsPanel from '../projects/hub/ProjectHubChangeRequestsPanel';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import projectAPI from '../../services/api/projectAPI';

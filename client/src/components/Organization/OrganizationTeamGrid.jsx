@@ -18,7 +18,8 @@ import { useAppStrings } from '../../locales/appStrings';
 import { displayDepartmentName } from '../../utils/orgEntityDisplay';
 import { uniqueTeamsForHub } from '../../utils/orgDepartmentHubUtils';
 import { channelsForTeam } from '../../utils/orgChannelScope';
-import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from './figmaWorkspaceClasses';
+import { collectTeamMemberIds } from '../../utils/filterTeamMembers';
+import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from './figmaOrganizationClasses';
 
 const GRAD_PAIRS = [
   ['#1D4ED8', '#3B82F6'],
@@ -33,6 +34,12 @@ function pickGrad(seed) {
     .split('')
     .reduce((a, c) => a + c.charCodeAt(0), 0);
   return GRAD_PAIRS[n % GRAD_PAIRS.length];
+}
+
+function shouldShowCardLock(card, canSelectTeam) {
+  if (card.isProject) return String(card.type || '').toLowerCase() !== 'public';
+  if (String(card.type || '') !== 'private') return false;
+  return typeof canSelectTeam === 'function' && !canSelectTeam(card.id);
 }
 
 function memberInitials(member) {
@@ -74,27 +81,6 @@ function buildFallbackDepartmentCards({ departments = [], channels = [] }) {
     departmentName: department.name,
     channels: channels.filter((ch) => String(ch.department || '') === String(department._id || department.id)),
   }));
-}
-
-function collectTeamMemberIds(team) {
-  const ids = new Set();
-  (team?.members || []).forEach((member) => {
-    const id =
-      member == null || member === ''
-        ? ''
-        : typeof member === 'object'
-          ? String(member._id || member.id || member.userId || '')
-          : String(member);
-    if (id) ids.add(id);
-  });
-  const leader =
-    team?.leader == null || team?.leader === ''
-      ? ''
-      : typeof team.leader === 'object'
-        ? String(team.leader._id || team.leader.id || team.leader.userId || '')
-        : String(team.leader);
-  if (leader) ids.add(leader);
-  return ids;
 }
 
 function dedupeChannelTags(textChannels) {
@@ -217,7 +203,7 @@ function buildTeamCards({
       gradStart,
       gradEnd,
       role,
-      type: item.type || item.visibility || 'private',
+      type: String(item.type || item.visibility || '').trim().toLowerCase(),
       members: Number(memberCount) || 0,
       avatars,
       online: Number(item.onlineCount ?? item.onlineNow ?? 0) || 0,
@@ -250,8 +236,11 @@ export default function OrganizationTeamGrid({
   activeProjectsCount = null,
   onBack,
   onCreateTeam,
+  onCreateProject,
   onSelectTeam,
   onSelectProject,
+  /** false = team hiển thị nhưng user không vào được — mới hiện khóa */
+  canSelectTeam,
   onModuleClick,
 }) {
   const { t, locale } = useAppStrings();
@@ -353,6 +342,11 @@ export default function OrganizationTeamGrid({
   const createFirstLabel = useProjects
     ? t('workspace.createFirstProject')
     : t('workspace.createFirstTeam');
+  const createAction = useProjects ? onCreateProject : onCreateTeam;
+  const createCardLabel = useProjects ? t('workspace.addTeamProject') : t('workspace.createTeam');
+  const createCardDesc = useProjects
+    ? t('workspace.addTeamProjectDesc')
+    : t('workspace.createFirstTeam');
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65">
@@ -427,10 +421,10 @@ export default function OrganizationTeamGrid({
           <div className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center">
             <Users size={40} className="mb-4 text-muted-foreground/50" />
             <p className="text-sm font-semibold text-foreground">{emptyLabel}</p>
-            {onCreateTeam ? (
+            {createAction ? (
               <button
                 type="button"
-                onClick={onCreateTeam}
+                onClick={createAction}
                 className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover"
               >
                 <Plus size={16} />
@@ -479,9 +473,9 @@ export default function OrganizationTeamGrid({
                             {t('workspace.projectHubCompleteProjectBadge')}
                           </span>
                         ) : null}
-                        {String(card.type).toLowerCase() === 'public' ? null : (
+                        {shouldShowCardLock(card, canSelectTeam) ? (
                           <Lock size={12} className="shrink-0 text-muted-foreground/50" />
-                        )}
+                        ) : null}
                       </div>
                       {card.role ? (
                         <span className="mt-1 inline-flex rounded-md bg-primary/10 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-primary">
@@ -596,17 +590,17 @@ export default function OrganizationTeamGrid({
               ) : null}
             </div>
           ))}
-          {onCreateTeam ? (
+          {createAction ? (
             <button
               type="button"
-              onClick={onCreateTeam}
+              onClick={createAction}
               className="flex min-h-[240px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface/60 p-4 text-center text-muted-foreground transition duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-surface hover:text-primary hover:shadow-md"
             >
               <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-current">
                 <Plus size={22} />
               </span>
-              <span className="text-base font-bold text-foreground">{t('workspace.addTeamProject')}</span>
-              <span className="mt-1 text-xs leading-relaxed">{t('workspace.addTeamProjectDesc')}</span>
+              <span className="text-base font-bold text-foreground">{createCardLabel}</span>
+              <span className="mt-1 text-xs leading-relaxed">{createCardDesc}</span>
             </button>
           ) : null}
         </div>

@@ -33,8 +33,9 @@ export function useCompanyAdminAccess() {
   // systemRole=admin: vào app quản trị hệ thống ngay cả khi org chưa hydrate.
   // owner|admin|hr org: hub công ty khi đã có orgId.
   const isSystemAdmin = systemRole === 'admin';
+  const isOrgOwnerOrAdmin = FULL_ACCESS_ROLES.has(myOrgRole);
   const canAccessHub = isSystemAdmin || (Boolean(orgId) && HUB_ROLES.has(myOrgRole));
-  const isFullAccess = isSystemAdmin || FULL_ACCESS_ROLES.has(myOrgRole);
+  const isFullAccess = isSystemAdmin || isOrgOwnerOrAdmin;
   /** HR / owner / admin: xếp phòng-team (People Ops). */
   const canManagePlacement = isSystemAdmin || isFullAccess || myOrgRole === 'hr';
   /** Chỉ owner/admin/system: tạo-xóa cấu trúc org. */
@@ -48,6 +49,7 @@ export function useCompanyAdminAccess() {
     systemRole,
     canAccessHub,
     isFullAccess,
+    isOrgOwnerOrAdmin,
     canManagePlacement,
     canManageStructure,
     canVerifyCapability,

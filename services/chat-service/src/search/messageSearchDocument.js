@@ -41,6 +41,8 @@ function buildMessageSearchDocument(doc) {
     messageType: String(o.messageType || 'text'),
     hasAttachment: hasMessageAttachment(o),
     attachmentNames: attachmentNamesFromDoc(o),
+    visibilityMode: String(o.visibility?.mode || ''),
+    visibilityProjectId: String(o.visibility?.projectId || ''),
     createdAt,
     isDeleted: Boolean(o.isDeleted),
     isRecalled: Boolean(o.isRecalled),

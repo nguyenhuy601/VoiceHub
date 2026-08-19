@@ -13,6 +13,7 @@ router.delete('/cards/:cardId', controller.archiveCard.bind(controller));
 router.post('/cards/:cardId/archive', controller.archiveCard.bind(controller));
 router.post('/cards/:cardId/comments', controller.addCardComment.bind(controller));
 router.patch('/cards/:cardId', controller.updateCard.bind(controller));
+router.post('/features/:featureId/workgroup', controller.createWorkGroup.bind(controller));
 
 // List actions (có boardId — khớp mount gateway)
 router.patch('/:boardId/lists/:listId', controller.reorderList.bind(controller));

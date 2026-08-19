@@ -5,11 +5,11 @@ import { projectAPI } from '../../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../../services/api/taskAPI';
 import { formatRelativeTime } from '../../../../utils/localeFormat';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
-import UserAvatar from '../../../Shared/UserAvatar';
+import UserAvatar from '../../../../components/Shared/UserAvatar';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
-} from '../../figmaOrganizationClasses';
+} from '../../../../components/Organization/figmaOrganizationClasses';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 import { HISTORY_FIELD_I18N, unwrapList } from './workItemDetailUtils';
 

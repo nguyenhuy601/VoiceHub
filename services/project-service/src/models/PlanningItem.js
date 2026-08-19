@@ -45,11 +45,32 @@ const planningItemSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    startDate: {
+      type: Date,
+      default: null,
+    },
+    dueDate: {
+      type: Date,
+      default: null,
+    },
+    /** Legacy planned/active/done/cancelled hoặc statusKey cột board. */
     status: {
       type: String,
-      enum: PLANNING_ITEM_STATUSES,
+      trim: true,
       default: 'planned',
+      maxlength: 32,
       index: true,
+    },
+    assigneeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    priority: {
+      type: String,
+      trim: true,
+      default: 'medium',
+      maxlength: 32,
     },
     sortOrder: {
       type: Number,
@@ -59,6 +80,17 @@ const planningItemSchema = new mongoose.Schema(
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
+    },
+    /** Work-group chat channel (kind 'workgroup'). Set on Feature only. */
+    workGroupChannelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    sprintId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Sprint',
+      default: null,
+      index: true,
     },
     isActive: {
       type: Boolean,

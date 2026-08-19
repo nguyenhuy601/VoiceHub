@@ -1,6 +1,10 @@
 const mongoose = require('../db');
 const PlanningItem = require('../models/PlanningItem');
-const { PLANNING_ITEM_TYPES, PLANNING_ITEM_STATUSES } = require('../utils/planningItemTypes');
+const {
+  PLANNING_ITEM_TYPES,
+  normalizePlanningStatus,
+  normalizePlanningPriority,
+} = require('../utils/planningItemTypes');
 const Task = require('../models/Task');
 const projectService = require('./project.service');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
@@ -70,9 +74,53 @@ function normalizeType(raw) {
   return PLANNING_ITEM_TYPES.includes(t) ? t : null;
 }
 
-function normalizeStatus(raw, fallback = 'planned') {
-  const s = String(raw || '').trim().toLowerCase();
-  return PLANNING_ITEM_STATUSES.includes(s) ? s : fallback;
+function profileLabel(profile) {
+  if (!profile) return { name: '', avatar: '' };
+  return {
+    name: profile.displayName || profile.username || '',
+    avatar: profile.avatar || '',
+  };
+}
+
+async function profileMapForRows(rows, userId) {
+  const ids = [
+    ...new Set(
+      (rows || [])
+        .flatMap((r) => [r?.createdBy, r?.assigneeId])
+        .map((id) => String(id || ''))
+        .filter(Boolean)
+    ),
+  ];
+  if (!ids.length) return new Map();
+  try {
+    const profiles = await enrichAssignableProfiles(ids, userId);
+    return new Map((profiles || []).map((row) => [String(row.userId), row]));
+  } catch {
+    return new Map();
+  }
+}
+
+function withActorLabels(row, profileMap) {
+  const creator = row.createdBy ? profileMap.get(String(row.createdBy)) : null;
+  const assignee = row.assigneeId ? profileMap.get(String(row.assigneeId)) : null;
+  const assigneeMeta = profileLabel(assignee);
+  return {
+    ...row,
+    createdByName: profileLabel(creator).name,
+    createdByAvatar: profileLabel(creator).avatar,
+    assigneeName: assigneeMeta.name,
+    assigneeAvatar: assigneeMeta.avatar,
+  };
+}
+
+function parseAssigneeId(raw) {
+  if (raw === null || raw === '') return null;
+  if (!validOid(raw)) {
+    const err = new Error('assigneeId không hợp lệ');
+    err.statusCode = 400;
+    throw err;
+  }
+  return raw;
 }
 
 async function listPlanningItems({ userId, projectId, type, parentId }) {
@@ -90,26 +138,8 @@ async function listPlanningItems({ userId, projectId, type, parentId }) {
     { isValidOid: validOid }
   );
   const rows = await PlanningItem.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
-  const creatorIds = [
-    ...new Set(rows.map((r) => String(r.createdBy || '')).filter(Boolean)),
-  ];
-  let profileMap = new Map();
-  if (creatorIds.length) {
-    try {
-      const profiles = await enrichAssignableProfiles(creatorIds, userId);
-      profileMap = new Map(profiles.map((row) => [String(row.userId), row]));
-    } catch {
-      profileMap = new Map();
-    }
-  }
-  return rows.map((row) => {
-    const creator = row.createdBy ? profileMap.get(String(row.createdBy)) : null;
-    return {
-      ...row,
-      createdByName: creator?.displayName || creator?.username || '',
-      createdByAvatar: creator?.avatar || '',
-    };
-  });
+  const profileMap = await profileMapForRows(rows, userId);
+  return rows.map((row) => withActorLabels(row, profileMap));
 }
 
 async function createPlanningItem({
@@ -122,6 +152,10 @@ async function createPlanningItem({
   targetDate,
   status,
   sortOrder,
+  assigneeId,
+  priority,
+  startDate,
+  dueDate,
 }) {
   const itemType = normalizeType(type);
   if (!itemType) {
@@ -177,7 +211,11 @@ async function createPlanningItem({
     description: String(description || '').trim().slice(0, 4000),
     parentId: parentOid,
     targetDate: targetDate ? new Date(targetDate) : null,
-    status: normalizeStatus(status),
+    startDate: startDate ? new Date(startDate) : null,
+    dueDate: dueDate ? new Date(dueDate) : null,
+    status: normalizePlanningStatus(status),
+    assigneeId: assigneeId !== undefined ? parseAssigneeId(assigneeId) : null,
+    priority: normalizePlanningPriority(priority),
     sortOrder: nextOrder,
     createdBy: userId,
   });
@@ -223,10 +261,22 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     item.type = t;
   }
   if (patch.status !== undefined) {
-    item.status = normalizeStatus(patch.status, item.status);
+    item.status = normalizePlanningStatus(patch.status, item.status);
+  }
+  if (patch.priority !== undefined) {
+    item.priority = normalizePlanningPriority(patch.priority, item.priority);
+  }
+  if (patch.assigneeId !== undefined) {
+    item.assigneeId = parseAssigneeId(patch.assigneeId);
   }
   if (patch.targetDate !== undefined) {
     item.targetDate = patch.targetDate ? new Date(patch.targetDate) : null;
+  }
+  if (patch.startDate !== undefined) {
+    item.startDate = patch.startDate ? new Date(patch.startDate) : null;
+  }
+  if (patch.dueDate !== undefined) {
+    item.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
   }
   if (patch.sortOrder !== undefined && Number.isFinite(Number(patch.sortOrder))) {
     item.sortOrder = Number(patch.sortOrder);
@@ -265,7 +315,8 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     actorId: userId,
     changes: diffPlanningFields(beforeDoc, afterDoc),
   });
-  return afterDoc;
+  const profileMap = await profileMapForRows([afterDoc], userId);
+  return withActorLabels(afterDoc, profileMap);
 }
 
 async function deletePlanningItem({ userId, projectId, itemId }) {

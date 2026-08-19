@@ -1,5 +1,5 @@
-import apiClient from '../../services/api/apiClient';
-import { createTranslator } from '../../locales/buildStrings';
+import apiClient from '../../../services/api/apiClient';
+import { createTranslator } from '../../../locales/buildStrings';
 
 function guessMimeFromFileName(name) {
   const n = String(name || '').toLowerCase();

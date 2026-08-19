@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, User } from 'lucide-react';
 import toast from 'react-hot-toast';
-import UserAvatar from '../../Shared/UserAvatar';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
+import { cardsUnderParent, directChildCards } from './projectHubBacklogStats';
 import {
   childWorkProgressBarClass,
   childWorkProgressPct,
@@ -29,12 +30,6 @@ function asListArray(lists) {
   if (Array.isArray(lists)) return lists;
   if (lists && typeof lists === 'object') return Object.values(lists);
   return [];
-}
-
-function cardsUnder(cards, parentId) {
-  const pid = relId(parentId);
-  if (!pid) return [];
-  return (Array.isArray(cards) ? cards : []).filter((c) => relId(c.parentTaskId) === pid);
 }
 
 function namedWorkType(raw) {
@@ -282,7 +277,6 @@ export default function ProjectHubChildWorkSection({
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const [movingId, setMovingId] = useState('');
-
   const parentId = relId(issue?._id || issue?.id);
   const viewedType = useMemo(
     () => resolveViewedWorkType(issue, boardCards, workTypeConfig),
@@ -298,10 +292,10 @@ export default function ProjectHubChildWorkSection({
     [listArr]
   );
   const l3Children = useMemo(() => {
-    const fromCards = cardsUnder(boardCards, parentId);
+    const fromCards = directChildCards(boardCards, parentId, viewedType);
     if (fromCards.length) return fromCards;
     return Array.isArray(issue?.subtasks) ? issue.subtasks : [];
-  }, [boardCards, issue?.subtasks, parentId]);
+  }, [boardCards, issue?.subtasks, parentId, viewedType]);
   const stats = useMemo(() => {
     let done = 0;
     for (const card of l3Children) {
@@ -319,9 +313,7 @@ export default function ProjectHubChildWorkSection({
   const createType = createIssueTypeForChildWorkTypes(childTypeIds);
   const showSection = childTypeIds.length > 0 || l3Children.length > 0;
 
-  const createChild = async () => {
-    const title = draft.trim();
-    if (!title || !boardId || !canCreate || creating || !parentId) return;
+  const doCreateCard = useCallback(async (title) => {
     setCreating(true);
     try {
       const res = await taskAPI.createBoardCard(
@@ -363,6 +355,12 @@ export default function ProjectHubChildWorkSection({
     } finally {
       setCreating(false);
     }
+  }, [boardId, issue, defaultListId, createType, parentId, apiCtx, onPatchBoardCards, onRefresh, t]);
+
+  const createChild = async () => {
+    const title = draft.trim();
+    if (!title || !boardId || !canCreate || creating || !parentId) return;
+    await doCreateCard(title);
   };
 
   const changeChildStatus = async (card, toListId) => {
@@ -423,7 +421,7 @@ export default function ProjectHubChildWorkSection({
             card={child}
             childTypeIds={childTypeIds}
             workTypeConfig={workTypeConfig}
-            grandchildren={cardsUnder(boardCards, child._id || child.id)}
+            grandchildren={cardsUnderParent(boardCards, child._id || child.id)}
             projectCode={projectCode}
             listById={listById}
             lists={listArr}

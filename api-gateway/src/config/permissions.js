@@ -214,6 +214,109 @@ const ORG_SCOPED_ACTION_BY_METHOD = {
   DELETE: 'organization:delete',
 };
 
+/** Route org cụ thể → master key V2 (trước fallback organization:write). */
+const ORG_MASTER_ROUTE_ACTIONS = [
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/departments\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/divisions\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/?$/,
+    action: 'organization.team.update',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/[^/]+\/?$/,
+    action: 'organization.team.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/[^/]+\/?$/,
+    action: 'organization.team.delete',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/divisions\/[^/]+\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/?$/,
+    action: 'organization.department.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/?$/,
+    action: 'organization.department.delete',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/channels\/?$/,
+    action: 'communication.channel.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/?$/,
+    action: 'communication.channel.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.update',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.delete',
+  },
+];
+
+function matchOrgMasterAction(method, apiPath) {
+  const m = String(method || '').toUpperCase();
+  const path = String(apiPath || '');
+  for (const row of ORG_MASTER_ROUTE_ACTIONS) {
+    if (row.method === m && row.regex.test(path)) return row.action;
+  }
+  return null;
+}
+
 const normalizeToApiPath = (path = '') => {
   const sanitized = String(path || '').split('?')[0] || '/';
   return sanitized.startsWith('/api') ? sanitized : `/api${sanitized}`;
@@ -284,6 +387,10 @@ const getAction = (method, path) => {
   ) {
     return null;
   }
+
+  // Org fine-grained (team/dept/channel) trước fallback organization:write
+  const orgMaster = matchOrgMasterAction(method, apiPath);
+  if (orgMaster) return orgMaster;
 
   // Mọi route /api/organizations/:orgId/... (trừ /my) — organization-service tự kiểm tra membership/RBAC
   const orgScoped = apiPath.match(/^\/api\/organizations\/([^/]+)(?:\/|$)/);

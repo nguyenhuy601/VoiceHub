@@ -90,6 +90,11 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Work-group chat channel (kind 'workgroup'). Set on level-2 parent only. */
+    workGroupChannelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
     boardId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'TaskBoard',

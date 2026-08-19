@@ -9,6 +9,7 @@ const {
   readRefreshTokenFromReq,
   setRefreshCookie,
   clearRefreshCookie,
+  shouldClearCookiesOnRefreshFailure,
 } = require('../utils/refreshCookie');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
@@ -199,6 +200,8 @@ class AuthController {
     try {
       const refreshTokenRaw = readRefreshTokenFromReq(req);
       if (!refreshTokenRaw) {
+        // Marker vh_has_session có thể còn sau phiên chết — xóa để FE không spam refresh mỗi reload.
+        clearRefreshCookie(res, req);
         return sendServiceError(res, 401, {
           errorCode: 'AUTH_REFRESH_INVALID',
           messageUser: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.',
@@ -219,6 +222,9 @@ class AuthController {
         data: safeData,
       });
     } catch (error) {
+      if (shouldClearCookiesOnRefreshFailure(error)) {
+        clearRefreshCookie(res, req);
+      }
       return sendError(res, error, 401, 'Làm mới phiên thất bại', 'AUTH_REFRESH_FAILED');
     }
   }

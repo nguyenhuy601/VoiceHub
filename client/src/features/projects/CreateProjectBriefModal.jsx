@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal } from '../Shared';
+import { Modal } from '../../components/Shared';
 import { useAppStrings } from '../../locales/appStrings';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';

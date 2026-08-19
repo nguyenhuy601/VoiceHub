@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { defaultWorkTypeConfig, normalizeWorkTypeConfig } from './projectWorkTypes.js';
 import {
   buildListTree,
+  buildBacklogTree,
   canListDragOver,
   childTypesForParent,
   comparePlanningOrder,
@@ -162,6 +163,49 @@ test('isBacklogLevelTwoIssue: story/task/bug/feature kể cả trong Epic; ẩn 
   assert.equal(isBacklogLevelTwoIssue({ type: 'epic' }, cfg), false);
 });
 
+test('buildBacklogTree: default config => task featureId là child của feature; subtask là child của task', () => {
+  const cfg = defaultWorkTypeConfig();
+  const { roots } = buildBacklogTree({
+    epics: [{ _id: 'e1', title: 'Epic 1', type: 'epic' }],
+    features: [{ _id: 'f1', title: 'Feature 1', type: 'feature', parentId: 'e1' }],
+    cards: [
+      { _id: 'c1', title: 'Task under feature', issueType: 'task', featureId: 'f1', epicId: 'e1', sprintId: null },
+      { _id: 's1', title: 'Sub-task', issueType: 'task', parentTaskId: 'c1', epicId: 'e1', sprintId: null },
+    ],
+    config: cfg,
+    sprintId: null,
+  });
+
+  const byId = new Map(roots.map((r) => [String(r.issue?._id || r.issue?.id), r]));
+  const rootFeature = byId.get('f1');
+  assert.ok(rootFeature);
+  assert.equal(byId.has('c1'), false);
+  assert.equal(rootFeature.children.length, 1);
+  assert.equal(rootFeature.children[0]._id, 'c1');
+  assert.equal(rootFeature.children[0].issueType, 'task');
+});
+
+test('buildBacklogTree: screenshot config (ẩn subtask) => task là cấp 3 child của feature', () => {
+  const cfg = normalizeWorkTypeConfig({
+    ...defaultWorkTypeConfig(),
+    hidden: { ...defaultWorkTypeConfig().hidden, subtask: true },
+  });
+
+  const { roots } = buildBacklogTree({
+    epics: [{ _id: 'e1', title: 'Epic 1', type: 'epic' }],
+    features: [{ _id: 'f1', title: 'Feature 1', type: 'feature', parentId: 'e1' }],
+    cards: [{ _id: 'c1', title: 'Task under feature', issueType: 'task', featureId: 'f1', epicId: 'e1', sprintId: null }],
+    config: cfg,
+    sprintId: null,
+  });
+
+  assert.equal(roots.length, 1);
+  assert.equal(roots[0].issue._id, 'f1');
+  assert.equal(roots[0].children.length, 1);
+  assert.equal(roots[0].children[0]._id, 'c1');
+  assert.equal(roots[0].children[0].issueType, 'task');
+});
+
 test('isBoardSprintReady: active + name + dates', () => {
   assert.equal(isBoardSprintReady([]), false);
   assert.equal(
@@ -187,7 +231,29 @@ const screenshotTree = normalizeWorkTypeConfig({
   depthById: { epic: 0, bug: 1, feature: 1, story: 1, task: 2, subtask: 3 },
 });
 
-test('canListDragOver: cùng cấp hoặc lên 1 cấp theo depthById, không xuống cấp', () => {
+test('buildBacklogTree: screenshot depth (subtask hiện) => task vẫn child của feature, không thành root', () => {
+  const { roots } = buildBacklogTree({
+    epics: [{ _id: 'e1', title: 'Epic 1', type: 'epic' }],
+    features: [{ _id: 'f1', title: 'CRUD sách', type: 'feature', parentId: 'e1' }],
+    cards: [
+      { _id: 'c1', title: 'API: tạo', issueType: 'task', featureId: 'f1', epicId: 'e1', sprintId: null },
+      { _id: 's1', title: 'Sub', issueType: 'task', parentTaskId: 'c1', featureId: 'f1', epicId: 'e1', sprintId: null },
+    ],
+    config: screenshotTree,
+    sprintId: null,
+  });
+
+  assert.equal(roots.length, 1);
+  assert.equal(roots[0].issue._id, 'f1');
+  assert.equal(roots[0].children.length, 1);
+  assert.equal(roots[0].children[0]._id, 'c1');
+  assert.equal(
+    (roots[0].children[0].children || []).some((c) => c._id === 's1'),
+    false
+  );
+});
+
+test('canListDragOver: cùng cấp hoặc lên bất kỳ cấp cao hơn, không xuống cấp', () => {
   const cfg = defaultWorkTypeConfig();
   const epic = {
     id: 'planning:e1',
@@ -205,15 +271,15 @@ test('canListDragOver: cùng cấp hoặc lên 1 cấp theo depthById, không xu
   const task2 = { id: 'card:c2', band: 1, workType: 'task', children: [] };
   assert.equal(canListDragOver(sub, task, cfg), true);
   assert.equal(canListDragOver(sub, task2, cfg), true);
-  assert.equal(canListDragOver(sub, epic, cfg), false);
-  assert.equal(canListDragOver(task, epic, cfg), false);
+  assert.equal(canListDragOver(sub, epic, cfg), true);
+  assert.equal(canListDragOver(task, epic, cfg), true);
   assert.equal(canListDragOver(task, task2, cfg), true);
   assert.equal(canListDragOver(epic, task, cfg), false);
   assert.equal(canListDragOver(task, sub, cfg), false);
   assert.equal(canListDragOver(task, { id: 'card:c1', band: 1, workType: 'task', children: [] }, cfg), false);
 });
 
-test('resolveListDropAction: subtask → task parent; default Task → Epic deny', () => {
+test('resolveListDropAction: subtask → task parent; Task → Epic allowed', () => {
   const cfg = defaultWorkTypeConfig();
   const epic = {
     id: 'planning:e1',
@@ -246,10 +312,16 @@ test('resolveListDropAction: subtask → task parent; default Task → Epic deny
     parentTaskId: 'c1',
     epicId: 'e1',
   });
-  assert.equal(resolveListDropAction(task, epic, [], cfg), null);
+  assert.deepEqual(resolveListDropAction(task, epic, [], cfg), {
+    mode: 'attach-card-epic',
+    kind: 'card',
+    activeId: 'c1',
+    epicId: 'e1',
+    parentTaskId: null,
+  });
 });
 
-test('resolveListHorizontalAction: Task indent Task → deny; outdent sub → sibling', () => {
+test('resolveListHorizontalAction: Task indent Task → allowed; outdent sub → sibling', () => {
   const cfg = defaultWorkTypeConfig();
   const task1 = {
     id: 'card:c1',
@@ -292,7 +364,7 @@ test('resolveListHorizontalAction: Task indent Task → deny; outdent sub → si
     { node: task2, depth: 1 },
   ];
 
-  assert.equal(
+  assert.deepEqual(
     resolveListHorizontalAction({
       activeNode: task2,
       flatRows,
@@ -300,17 +372,13 @@ test('resolveListHorizontalAction: Task indent Task → deny; outdent sub → si
       deltaX: 48,
       config: cfg,
     }),
-    null
-  );
-  assert.equal(
-    isTypePreservingDrop(task2, {
+    {
       mode: 'attach-card-parent',
       kind: 'card',
       activeId: 'c2',
       parentTaskId: 'c1',
       epicId: 'e1',
-    }),
-    true
+    }
   );
 
   assert.deepEqual(
@@ -437,9 +505,10 @@ test('resolveListDropAction: Story thả dọc vào Feature trong Epic → gắn
 
   assert.equal(canListDragOver(orphanStory, feature, cfg), true);
   assert.deepEqual(resolveListDropAction(orphanStory, feature, tree, cfg), {
-    mode: 'attach-card-epic',
+    mode: 'attach-card-feature',
     kind: 'card',
     activeId: 'c2',
+    featureId: 'f1',
     epicId: 'e1',
     parentTaskId: null,
   });
@@ -450,8 +519,14 @@ test('resolveListDropAction: Story thả dọc vào Feature trong Epic → gắn
     epicId: 'e1',
     parentTaskId: null,
   });
-  assert.equal(resolveListDropAction(orphanStory, epic, tree, cfg), null);
-  assert.equal(resolveListDropAction(nestedStory, feature, tree, cfg)?.mode, 'attach-card-epic');
+  assert.deepEqual(resolveListDropAction(orphanStory, epic, tree, cfg), {
+    mode: 'attach-card-epic',
+    kind: 'card',
+    activeId: 'c2',
+    epicId: 'e1',
+    parentTaskId: null,
+  });
+  assert.equal(resolveListDropAction(nestedStory, feature, tree, cfg)?.mode, 'attach-card-feature');
 });
 
 test('computeInsertSortOrder: chèn trước over, midpoint sortOrder', () => {
@@ -491,7 +566,7 @@ test('resolveListDropAction: Epic kéo dọc lên Epic khác → reorder-plannin
   });
 });
 
-test('isTypePreservingDrop / isLiveListDragValid: sub-task đổi parent; Task không thành subtask', () => {
+test('isTypePreservingDrop / isLiveListDragValid: sub-task đổi parent; Task nest vào Task cho phép', () => {
   const cfg = defaultWorkTypeConfig();
   const epic = {
     id: 'planning:e1',
@@ -559,7 +634,7 @@ test('isTypePreservingDrop / isLiveListDragValid: sub-task đổi parent; Task k
       flatRows,
       config: cfg,
     }),
-    false
+    true
   );
   assert.equal(
     isLiveListDragValid({
@@ -583,7 +658,7 @@ test('isTypePreservingDrop / isLiveListDragValid: sub-task đổi parent; Task k
       flatRows,
       config: cfg,
     }),
-    false
+    true
   );
 });
 
@@ -679,8 +754,14 @@ test('cây hình: Task→Story/Bug nest; Bug→Story deny; Bug→Epic ok; Task�
     parentTaskId: null,
   });
 
-  assert.equal(canListDragOver(task, epic, cfg), false);
-  assert.equal(resolveListDropAction(task, epic, [epic], cfg), null);
+  assert.equal(canListDragOver(task, epic, cfg), true);
+  assert.deepEqual(resolveListDropAction(task, epic, [epic], cfg), {
+    mode: 'attach-card-epic',
+    kind: 'card',
+    activeId: 't1',
+    epicId: 'e1',
+    parentTaskId: null,
+  });
 
   assert.equal(
     isLiveListDragValid({
