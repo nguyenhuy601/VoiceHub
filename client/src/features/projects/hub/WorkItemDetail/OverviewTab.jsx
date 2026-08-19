@@ -1,11 +1,13 @@
 import { CheckCircle2, Circle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import UserAvatar from '../../../Shared/UserAvatar';
+import UserAvatar from '../../../../components/Shared/UserAvatar';
 import { canSetCardAssignee } from '../../../../utils/goldenAssignPolicy';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
-import { TASK_BOARD_LABELS, labelById } from '../../taskBoardCardLabels';
-import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../figmaOrganizationClasses';
-import { dueDateTone, formatHubDateShort } from '../projectHubUtils';
+import { TASK_BOARD_LABELS, labelById } from '../../board/taskBoardCardLabels';
+import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../../../components/Organization/figmaOrganizationClasses';
+import { dueDateTone, formatHubDateShort, listsForStatusSelect } from '../projectHubUtils';
+import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
+import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 import { relId } from './workItemDetailUtils';
 
@@ -70,6 +72,7 @@ export default function OverviewTab() {
     projectMembers,
     taskWorkspaceScope,
     onOpenChangeRequest,
+    priorityConfig,
   } = ctx;
 
   const listArr = Array.isArray(lists) ? lists : Object.values(lists || {});
@@ -84,7 +87,12 @@ export default function OverviewTab() {
   const parentFeature = (features || []).find(
     (f) => String(f._id || f.id) === relId(workItem?.featureId)
   );
-  const parentTitle = parentCard?.title || parentFeature?.title || '';
+  const parentPlanning = isPlanning
+    ? [...(epics || []), ...(features || [])].find(
+        (p) => String(p._id || p.id) === relId(workItem?.parentId)
+      )
+    : null;
+  const parentTitle = parentPlanning?.title || parentCard?.title || parentFeature?.title || '';
   const sprint = (sprints || []).find((s) => String(s._id) === String(workItem?.sprintId || ''));
   const dueTone = dueDateTone(workItem?.dueDate, workItem?.status || currentList);
   const reporterId = workItem?.createdBy || workItem?.reporterId || '';
@@ -101,15 +109,13 @@ export default function OverviewTab() {
     }))
     .filter((m) => m.id);
 
-  const assignee =
-    workItem?.assignees?.[0] ||
-    (workItem?.assigneeName || workItem?.assigneeId
-      ? {
-          displayName: workItem.assigneeName || '',
-          avatar: workItem.assigneeAvatar || '',
-          userId: workItem.assigneeId,
-        }
-      : null);
+  const priorityItems = normalizePriorityConfig(priorityConfig).items;
+  const currentPriority = String(workItem?.priority || 'medium').toLowerCase();
+  const priorityOptions = priorityItems.some((i) => i.key === currentPriority)
+    ? priorityItems
+    : [{ key: currentPriority, label: currentPriority }, ...priorityItems];
+  const planningListId = isPlanning ? planningStatusToListId(workItem?.status, listArr) : '';
+  const statusOptions = listsForStatusSelect(listArr, isPlanning ? planningListId : workItem?.listId);
 
   const toggleComplete = async () => {
     if (isPlanning || !canChangeStatus) return;
@@ -171,61 +177,103 @@ export default function OverviewTab() {
       ) : null}
 
       <DetailRow label={t('workspace.projectHubWorkDetailsAssignee')}>
-        {isPlanning ? (
-          assignee ? (
-            <span className="inline-flex items-center gap-1">
-              <UserAvatar
-                avatar={assignee.avatar}
-                userId={assignee.userId}
-                name={assignee.displayName || assignee.name || ''}
-                size="sm"
-              />
-              <span>{assignee.displayName || assignee.name || ''}</span>
-            </span>
+        <div className="space-y-1">
+          {loadingMembers ? (
+            <p className="text-muted-foreground">{t('taskBoard.loadingBoardMembers')}</p>
           ) : (
-            t('workspace.projectHubWorkNone')
-          )
-        ) : (
-          <div className="space-y-1">
-            {loadingMembers ? (
-              <p className="text-muted-foreground">{t('taskBoard.loadingBoardMembers')}</p>
-            ) : (
-              <select
-                className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1.5 text-xs`}
-                value={assigneeId}
-                disabled={saving}
-                onChange={async (e) => {
-                  const next = e.target.value;
-                  if (!next) {
-                    setAssigneeId('');
+            <select
+              className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1.5 text-xs`}
+              value={assigneeId}
+              disabled={saving}
+              onChange={async (e) => {
+                const next = e.target.value;
+                const prev = assigneeId;
+                if (!next) {
+                  setAssigneeId('');
+                  try {
                     await save({ assigneeId: null, assigneeName: '', assignees: [] });
-                    return;
+                  } catch {
+                    setAssigneeId(prev);
                   }
+                  return;
+                }
+                if (!isPlanning) {
                   const check = canSetCardAssignee(taskWorkspaceScope, workItem?.ownerTeamId);
                   if (!check.ok) {
                     toast.error(t(check.messageKey));
                     return;
                   }
-                  const m = boardMembers.find((x) => x.id === next);
-                  setAssigneeId(next);
+                }
+                const m = boardMembers.find((x) => x.id === next);
+                setAssigneeId(next);
+                try {
                   await save({
                     assigneeId: next,
                     assigneeName: m?.name || '',
                     assignees: [{ userId: next, displayName: m?.name || '', avatar: m?.avatar || '' }],
                   });
+                } catch {
+                  setAssigneeId(prev);
+                }
+              }}
+            >
+              <option value="">{t('workspace.projectHubWorkNone')}</option>
+              {boardMembers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </DetailRow>
+
+      {isPlanning ? (
+        <>
+          <DetailRow label={t('workspace.projectHubWorkFieldStatus')}>
+            {canChangeStatus && statusOptions.length > 0 ? (
+              <select
+                className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1.5 text-xs`}
+                value={planningListId}
+                disabled={saving}
+                onChange={async (e) => {
+                  const next = listIdToPlanningStatus(e.target.value, listArr);
+                  if (!next) return;
+                  await save({ status: next });
                 }}
               >
-                <option value="">{t('workspace.projectHubWorkNone')}</option>
-                {boardMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
+                {statusOptions.map((list) => (
+                  <option key={list._id || list.id} value={String(list._id || list.id)}>
+                    {list.title || String(list.statusKey || '')}
                   </option>
                 ))}
               </select>
+            ) : (
+              t('workspace.projectHubWorkNone')
             )}
-          </div>
-        )}
-      </DetailRow>
+          </DetailRow>
+          <DetailRow label={t('workspace.projectHubWorkFieldPriority')}>
+            {canChangeStatus ? (
+              <select
+                className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1.5 text-xs`}
+                value={currentPriority}
+                disabled={saving}
+                onChange={async (e) => {
+                  await save({ priority: e.target.value });
+                }}
+              >
+                {priorityOptions.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label || item.key}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              t('workspace.projectHubWorkNone')
+            )}
+          </DetailRow>
+        </>
+      ) : null}
 
       <DetailRow label={t('workspace.projectHubWorkDetailsParent')}>
         {parentTitle || t('workspace.projectHubWorkNone')}
@@ -274,50 +322,33 @@ export default function OverviewTab() {
       </DetailRow>
 
       <DetailRow label={t('workspace.projectHubWorkDetailsStart')}>
-        {isPlanning ? (
-          workItem?.startDate ? formatHubDateShort(workItem.startDate, locale) : t('workspace.projectHubWorkNone')
-        ) : (
-          <input
-            type="date"
-            value={startDateLocal}
-            disabled={saving}
-            className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
-            onChange={(e) => setStartDateLocal(e.target.value)}
-            onBlur={async () => {
-              const prev = toDateInputComparable(workItem?.startDate);
-              if (startDateLocal === prev) return;
-              await save({ startDate: startDateLocal || null });
-            }}
-          />
-        )}
+        <input
+          type="date"
+          value={startDateLocal}
+          disabled={saving}
+          className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
+          onChange={(e) => setStartDateLocal(e.target.value)}
+          onBlur={async () => {
+            const prev = toDateInputComparable(workItem?.startDate);
+            if (startDateLocal === prev) return;
+            await save({ startDate: startDateLocal || null });
+          }}
+        />
       </DetailRow>
 
       <DetailRow label={t('workspace.projectHubWorkDetailsDue')}>
-        {isPlanning ? (
-          workItem?.dueDate ? (
-            <span className={dueTone === 'overdue' ? 'font-semibold text-destructive' : ''}>
-              {formatHubDateShort(workItem.dueDate, locale)}
-            </span>
-          ) : (
-            t('workspace.projectHubWorkNone')
-          )
-        ) : (
-          <input
-            type="datetime-local"
-            value={dueDateLocal}
-            disabled={saving}
-            className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
-            onChange={(e) => setDueDateLocal(e.target.value)}
-            onBlur={async () => {
-              const nextIso = dueDateLocal ? new Date(dueDateLocal).toISOString() : null;
-              const prevIso = workItem?.dueDate
-                ? new Date(workItem.dueDate).toISOString()
-                : null;
-              if (nextIso === prevIso) return;
-              await save({ dueDate: nextIso });
-            }}
-          />
-        )}
+        <input
+          type="date"
+          value={dueDateLocal}
+          disabled={saving}
+          className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
+          onChange={(e) => setDueDateLocal(e.target.value)}
+          onBlur={async () => {
+            const prev = toDateInputComparable(workItem?.dueDate);
+            if (dueDateLocal === prev) return;
+            await save({ dueDate: dueDateLocal || null });
+          }}
+        />
       </DetailRow>
 
       {isTimeTrackingV1Enabled() && canEstimate && !isPlanning ? (

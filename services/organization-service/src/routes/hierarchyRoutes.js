@@ -1,9 +1,10 @@
 const express = require('express');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
 const hierarchyController = require('../controllers/hierarchyController');
 const organizationController = require('../controllers/organizationController');
 
 const router = express.Router({ mergeParams: true });
+const STRUCTURE_ADMIN = ['owner', 'admin'];
 
 router.use(protect);
 
@@ -24,14 +25,14 @@ router.post('/divisions', authorize(['owner', 'admin']), hierarchyController.cre
 router.put('/divisions/:divisionId', authorize(['owner', 'admin']), hierarchyController.updateDivision);
 
 router.get('/divisions/:divisionId/departments', hierarchyController.listDepartmentsByDivision);
-router.post('/divisions/:divisionId/departments', authorize(['owner', 'admin']), hierarchyController.createDepartmentByDivision);
-router.post('/departments', authorize(['owner', 'admin']), hierarchyController.createDepartmentRoot);
+router.post('/divisions/:divisionId/departments', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.department.create'), hierarchyController.createDepartmentByDivision);
+router.post('/departments', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.department.create'), hierarchyController.createDepartmentRoot);
 
 router.get('/departments/:deptId/teams', hierarchyController.listTeamsByDepartment);
-router.post('/departments/:deptId/teams', authorize(['owner', 'admin']), hierarchyController.createTeamByDepartment);
-router.post('/divisions/:divisionId/teams', authorize(['owner', 'admin']), hierarchyController.createTeamByDivision);
-router.post('/teams', authorize(['owner', 'admin']), hierarchyController.createTeamRoot);
-router.put('/teams/:teamId', authorize(['owner', 'admin']), hierarchyController.updateTeamByHierarchy);
+router.post('/departments/:deptId/teams', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.create'), hierarchyController.createTeamByDepartment);
+router.post('/divisions/:divisionId/teams', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.create'), hierarchyController.createTeamByDivision);
+router.post('/teams', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.create'), hierarchyController.createTeamRoot);
+router.put('/teams/:teamId', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.update'), hierarchyController.updateTeamByHierarchy);
 router.get(
   '/teams/:teamId/role-access',
   authorize(['owner', 'admin']),
@@ -44,10 +45,10 @@ router.put(
 );
 
 router.get('/teams/:teamId/channels', hierarchyController.listChannelsByTeam);
-router.post('/teams/:teamId/channels', authorize(['owner', 'admin']), hierarchyController.createChannelByTeam);
-router.put('/teams/:teamId/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByTeam);
-router.post('/channels', authorize(['owner', 'admin']), hierarchyController.createChannelByScope);
-router.put('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.updateChannelByScope);
-router.delete('/channels/:channelId', authorize(['owner', 'admin']), hierarchyController.deleteChannelByScope);
+router.post('/teams/:teamId/channels', authorizeOrGrant(STRUCTURE_ADMIN, 'communication.channel.create'), hierarchyController.createChannelByTeam);
+router.put('/teams/:teamId/channels/:channelId', authorizeOrGrant(STRUCTURE_ADMIN, 'communication.channel.update'), hierarchyController.updateChannelByTeam);
+router.post('/channels', authorizeOrGrant(STRUCTURE_ADMIN, 'communication.channel.create'), hierarchyController.createChannelByScope);
+router.put('/channels/:channelId', authorizeOrGrant(STRUCTURE_ADMIN, 'communication.channel.update'), hierarchyController.updateChannelByScope);
+router.delete('/channels/:channelId', authorizeOrGrant(STRUCTURE_ADMIN, 'communication.channel.delete'), hierarchyController.deleteChannelByScope);
 
 module.exports = router;

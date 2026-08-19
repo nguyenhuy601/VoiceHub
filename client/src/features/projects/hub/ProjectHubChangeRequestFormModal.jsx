@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Flag, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Modal from '../../Shared/Modal';
+import Modal from '../../../components/Shared/Modal';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';

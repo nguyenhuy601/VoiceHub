@@ -6,7 +6,7 @@ import {
   resolveWorkflowCard,
 } from './projectWizardConstants';
 import { wizardUi } from './projectWizardUi';
-import { isProjectDateRangeInvalid } from '../../../components/Organization/ProjectHub/projectHubUtils';
+import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 
 function SetupRow({ title, subtitle, onClick }) {
   return (

@@ -16,6 +16,7 @@ const {
   canAssignUser,
 } = require('./taskWorkspaceScope');
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
+const { emitTeamChannelProvisionIfNeeded } = require('../utils/projectTeamChannelProvision');
 const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
 const { assertProjectWritable } = require('../utils/projectCloseGate');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
@@ -910,6 +911,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     boardId: c.boardId,
     listId: c.listId,
     ownerTeamId: c.ownerTeamId || null,
+    workGroupChannelId: c.workGroupChannelId || null,
     title: c.title,
     description: c.description,
     summary: c.summary,
@@ -1209,6 +1211,14 @@ async function createCard({
     actorId: userId,
   });
   const created = row.toObject();
+  if (board.projectId && nextOwnerTeamId) {
+    void emitTeamChannelProvisionIfNeeded({
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      teamId: nextOwnerTeamId,
+      actorUserId: userId,
+    });
+  }
   void notifyListWatchers({
     listId,
     board,
@@ -1286,6 +1296,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
   const beforeMove = {
     listId: card.listId,
     status: card.status,
+    ownerTeamId: card.ownerTeamId,
   };
 
   const caps = await resolveBoardCapabilities(userId, board);
@@ -1483,6 +1494,18 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
   }
   await card.save();
   const moved = card.toObject();
+  if (board.projectId && ownerTeamId !== undefined) {
+    const prevTeam = normalizeOwnerTeamId(beforeMove.ownerTeamId);
+    const nextTeam = normalizeOwnerTeamId(moved.ownerTeamId);
+    if (nextTeam && nextTeam !== prevTeam) {
+      void emitTeamChannelProvisionIfNeeded({
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        teamId: nextTeam,
+        actorUserId: userId,
+      });
+    }
+  }
   scheduleCrWorkStatusSync(moved);
   await notifyListWatchers({
     listId: toListId,
@@ -1796,6 +1819,30 @@ async function updateCard({
     { new: true, runValidators: true }
   );
   const out = updated?.toObject ? updated.toObject() : updated;
+
+  if (assigneeChanged && board.projectId) {
+    try {
+      await syncWorkGroupMembers({ card: out || card, board, userId });
+    } catch (syncErr) {
+      await Task.findByIdAndUpdate(cardId, { $set: { assigneeId: card.assigneeId, assignments: card.assignments || [] } });
+      const err = new Error('Đồng bộ nhóm làm việc thất bại — đã khôi phục assignee');
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  if (board.projectId && next.ownerTeamId !== undefined) {
+    const prevTeam = normalizeOwnerTeamId(card.ownerTeamId);
+    const nextTeam = normalizeOwnerTeamId(next.ownerTeamId);
+    if (nextTeam && nextTeam !== prevTeam) {
+      void emitTeamChannelProvisionIfNeeded({
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        teamId: nextTeam,
+        actorUserId: userId,
+      });
+    }
+  }
   const statusChanged =
     next.status !== undefined && String(next.status || '') !== String(card.status || '');
   if (statusChanged) scheduleCrWorkStatusSync(out || card);
@@ -1865,6 +1912,99 @@ async function updateCard({
     });
   }
   return out;
+}
+
+/**
+ * Create a workgroup channel for a Feature (PlanningItem) and set workGroupChannelId.
+ * S2S call to organization-service provision endpoint.
+ */
+async function createWorkGroup({ userId, featureId }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const feature = await PlanningItem.findById(featureId);
+  if (!feature || !feature.isActive) throw new Error('Feature không tồn tại');
+  if (!feature.projectId) throw new Error('Feature không thuộc project');
+  if (feature.workGroupChannelId) {
+    return { workGroupChannelId: String(feature.workGroupChannelId), alreadyExists: true };
+  }
+
+  const Board = require('../models/TaskBoard');
+  const board = await Board.findOne({ projectId: feature.projectId, isActive: true }).lean();
+  if (!board) throw new Error('Không tìm thấy board');
+  await ensureBoardEditAccess(board._id, userId);
+
+  const orgId = String(feature.organizationId);
+  const projectId = String(feature.projectId);
+  const parentTaskId = String(feature._id);
+  const channelName = String(feature.title || '').trim() || 'workgroup';
+
+  try {
+    const res = await axios.post(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/project-workgroup-channel`,
+      { organizationId: orgId, projectId, parentTaskId, channelName },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if (res.status >= 400) {
+      throw new Error(res.data?.message || `Org-service returned ${res.status}`);
+    }
+    const channel = res.data?.data;
+    const channelId = channel?._id || channel?.id;
+    if (!channelId) throw new Error('Không nhận được channelId từ org-service');
+
+    await PlanningItem.findByIdAndUpdate(featureId, { $set: { workGroupChannelId: channelId } });
+    return { workGroupChannelId: String(channelId), alreadyExists: false };
+  } catch (err) {
+    logger.error('[task-board] createWorkGroup S2S failed: %s', err?.message || err);
+    throw new Error('Không thể tạo nhóm làm việc: ' + (err?.message || 'unknown'));
+  }
+}
+
+/**
+ * Sync Channel.members = union of assigneeIds for all active cards under a feature with workGroupChannelId.
+ */
+async function syncWorkGroupMembers({ card, board, userId }) {
+  const fId = card.featureId;
+  if (!fId) return;
+  const PlanningItem = require('../models/PlanningItem');
+  const feature = await PlanningItem.findById(fId).select('workGroupChannelId').lean();
+  if (!feature?.workGroupChannelId) return;
+
+  const channelId = String(feature.workGroupChannelId);
+  const orgId = String(board.organizationId);
+
+  const siblings = await Task.find({
+    featureId: fId,
+    boardId: board._id,
+    isActive: true,
+  })
+    .select('assigneeId')
+    .lean();
+
+  const memberIds = [...new Set(
+    siblings.map((s) => String(s.assigneeId || '')).filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+  )];
+
+  try {
+    const res = await axios.put(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/project-workgroup-channel/${encodeURIComponent(channelId)}/members`,
+      { members: memberIds },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if (res.status >= 400) {
+      logger.warn('[task-board] syncWorkGroupMembers failed: status=%d', res.status);
+      throw new Error('Sync work group members failed');
+    }
+  } catch (err) {
+    logger.warn('[task-board] syncWorkGroupMembers S2S error: %s', err?.message || err);
+    throw err;
+  }
 }
 
 async function addCardComment({ userId, cardId, content }) {
@@ -2352,4 +2492,5 @@ module.exports = {
   ensureBoardViewAccess,
   ensureBoardEditAccess,
   ensureAssigneeBoardAccess,
+  createWorkGroup,
 };

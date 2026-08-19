@@ -612,7 +612,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       case 'task':
       case 'deadline':
         navigate(
-          orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/tasks'
+          orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/projects'
         );
         toast(t('notifications.toastOpenTasks'), { icon: '✅' });
         break;

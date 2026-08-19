@@ -11,6 +11,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -20,6 +23,9 @@ export default function DeptDisablePanel({ orgId }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, loading, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canDeleteDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_DELETE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +40,10 @@ export default function DeptDisablePanel({ orgId }) {
 
   const toggle = async (isActive) => {
     if (!orgId || !selectedId || busy) return;
+    if (!canDeleteDept) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     setBusy(true);
     try {
       await organizationAPI.updateDepartment(orgId, selectedId, { isActive });
@@ -65,7 +75,9 @@ export default function DeptDisablePanel({ orgId }) {
           badgeFn={(row) => (row.isActive === false ? t('adminOrg.inactive') : t('adminOrg.active'))}
         />
         <AdminUserFormCard title={t('adminDomains.orgStructure.deptDisable')} danger={!active}>
-          {!selected ? (
+          {!canDeleteDept ? (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          ) : !selected ? (
             <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
           ) : (
             <div className="flex flex-wrap gap-2">

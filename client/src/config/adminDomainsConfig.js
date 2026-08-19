@@ -18,6 +18,7 @@ export const ADMIN_DOMAIN_STORAGE_KEY = 'vh_admin_active_domain';
  *   settingsTab?: string,
  *   nav?: 'link' | 'action' | 'hidden',
  *   actionGroup?: string,
+ *   requiredGrant?: string,
  * }} AdminNavItem
  */
 /** @typedef {{ id: string, labelKey?: string, items: AdminNavItem[] }} AdminNavSection */
@@ -231,7 +232,7 @@ export const ADMIN_DOMAINS = [
         labelKey: 'adminDomains.orgStructure.sectionDepartments',
         items: [
           { id: 'dept-list', path: '/app/admin/org-structure/departments', labelKey: 'adminDomains.orgStructure.deptList', end: true, implementation: 'org-dept-list' },
-          { id: 'dept-create', path: '/app/admin/org-structure/departments/create', labelKey: 'adminDomains.orgStructure.deptCreate', implementation: 'org-dept-create' },
+          { id: 'dept-create', path: '/app/admin/org-structure/departments/create', labelKey: 'adminDomains.orgStructure.deptCreate', implementation: 'org-dept-create', requiredGrant: 'organization.department.create' },
           {
             id: 'dept-edit',
             path: '/app/admin/org-structure/departments/edit',
@@ -239,6 +240,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-dept-edit',
             nav: 'action',
             actionGroup: 'deptOps',
+            requiredGrant: 'organization.department.update',
           },
           {
             id: 'dept-disable',
@@ -247,6 +249,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-dept-disable',
             nav: 'action',
             actionGroup: 'deptOps',
+            requiredGrant: 'organization.department.delete',
           },
           {
             id: 'dept-parent',
@@ -255,6 +258,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-dept-parent',
             nav: 'action',
             actionGroup: 'deptOps',
+            requiredGrant: 'organization.department.update',
           },
           {
             id: 'dept-head',
@@ -295,7 +299,7 @@ export const ADMIN_DOMAINS = [
         labelKey: 'adminDomains.orgStructure.sectionTeams',
         items: [
           { id: 'team-list', path: '/app/admin/org-structure/teams', labelKey: 'adminDomains.orgStructure.teamList', end: true, implementation: 'org-team-list' },
-          { id: 'team-create', path: '/app/admin/org-structure/teams/create', labelKey: 'adminDomains.orgStructure.teamCreate', implementation: 'org-team-create' },
+          { id: 'team-create', path: '/app/admin/org-structure/teams/create', labelKey: 'adminDomains.orgStructure.teamCreate', implementation: 'org-team-create', requiredGrant: 'organization.team.create' },
           {
             id: 'team-edit',
             path: '/app/admin/org-structure/teams/edit',
@@ -303,6 +307,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-team-edit',
             nav: 'action',
             actionGroup: 'teamOps',
+            requiredGrant: 'organization.team.update',
           },
           {
             id: 'team-archive',
@@ -311,6 +316,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-team-archive',
             nav: 'action',
             actionGroup: 'teamOps',
+            requiredGrant: 'organization.team.delete',
           },
           {
             id: 'team-members',
@@ -335,6 +341,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'org-team-dept',
             nav: 'action',
             actionGroup: 'teamOps',
+            requiredGrant: 'organization.team.update',
           },
         ],
       },

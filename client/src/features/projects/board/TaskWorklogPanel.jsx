@@ -5,9 +5,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Clock } from 'lucide-react';
-import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
-import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { isTimeTrackingV1Enabled } from '../../utils/timeTrackingFlag';
+import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { isTimeTrackingV1Enabled } from '../../../utils/timeTrackingFlag';
 
 export default function TaskWorklogPanel({
   taskId,

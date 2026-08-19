@@ -1,4 +1,4 @@
-import TaskWorklogPanel from '../../TaskWorklogPanel';
+import TaskWorklogPanel from '../../board/TaskWorklogPanel';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 
 export default function WorklogTab() {

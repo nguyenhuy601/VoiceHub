@@ -36,8 +36,9 @@ export default function RoleRevokePanel({ orgId }) {
     try {
       const res = await roleAPI.getUserRoles(userId, orgId);
       setAssigned(unwrapList(res));
-    } catch {
+    } catch (error) {
       setAssigned([]);
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.revokeFail') }));
     }
   };
 

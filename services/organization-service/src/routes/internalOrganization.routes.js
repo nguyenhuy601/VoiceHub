@@ -5,6 +5,7 @@ const Membership = require('../models/Membership');
 const { resolveOrgAccess } = require('../utils/orgAccess');
 const { buildAccessibleChannelData } = require('../services/orgShellData.service');
 const { getCachedAccessibleChannelData } = require('../services/orgReadCache.service');
+const Channel = require('../models/Channel');
 const { buildAiTaskExtractContext } = require('../services/memberContext.service');
 const { syncMembershipPlacementFromRoles } = require('../services/membershipPlacementSync');
 const { backfillRoleScopeAssignmentsForOrg } = require('../services/roleScopeAssignmentBackfill.service');
@@ -32,6 +33,9 @@ router.get('/voice-channel-access/:organizationId/:userId/:channelId', async (re
     );
     const perms = accessData?.permissionsByChannelId?.[channelId] || null;
     const allowed = Boolean(perms?.canVoice);
+    const channelRow = await Channel.findOne({ _id: channelId, organization: organizationId })
+      .select('projectId projectChannelKind name type')
+      .lean();
     return res.json({
       success: true,
       data: {
@@ -39,6 +43,12 @@ router.get('/voice-channel-access/:organizationId/:userId/:channelId', async (re
         canVoice: Boolean(perms?.canVoice),
         canRead: Boolean(perms?.canRead),
         reason: allowed ? null : 'voice_denied',
+        projectId: channelRow?.projectId ? String(channelRow.projectId) : null,
+        projectChannelKind: channelRow?.projectChannelKind
+          ? String(channelRow.projectChannelKind)
+          : null,
+        channelType: channelRow?.type ? String(channelRow.type) : null,
+        channelName: channelRow?.name ? String(channelRow.name) : null,
       },
     });
   } catch (err) {
@@ -499,6 +509,62 @@ router.get('/organizations/:orgId/departments/roster', async (req, res) => {
     const { buildDepartmentRoster } = require('../services/structurePlacement.service');
     const departments = await buildDepartmentRoster(organizationId, { departmentIds });
     return res.json({ success: true, data: { departments } });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/** project-service S2S: create workgroup channel for a level-2 parent task */
+router.post('/project-workgroup-channel', async (req, res) => {
+  try {
+    const { organizationId, projectId, parentTaskId, channelName } = req.body || {};
+    if (!organizationId || !projectId || !parentTaskId) {
+      return orgValidation(res, 'organizationId, projectId, parentTaskId are required');
+    }
+    const { ensureProjectWorkGroupChannel } = require('../services/projectChannelProvision.service');
+    const actorId = req.headers['x-user-id'] || null;
+    const result = await ensureProjectWorkGroupChannel({
+      organizationId,
+      projectId,
+      parentTaskId,
+      channelName: channelName || '',
+      createdBy: actorId,
+    });
+    if (!result.channel) {
+      return res.status(500).json({ success: false, message: 'Failed to create workgroup channel' });
+    }
+    return res.status(result.created ? 201 : 200).json({ success: true, data: result.channel });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
+/** project-service S2S: update workgroup channel members */
+router.put('/project-workgroup-channel/:channelId/members', async (req, res) => {
+  try {
+    const channelId = String(req.params.channelId || '').trim();
+    const members = Array.isArray(req.body?.members) ? req.body.members : [];
+    if (!channelId) {
+      return orgValidation(res, 'channelId is required');
+    }
+    const { mongoose } = require('@enterprise/shared/config/mongo');
+    const validMembers = members
+      .map((m) => String(m || '').trim())
+      .filter((m) => mongoose.Types.ObjectId.isValid(m))
+      .map((m) => new mongoose.Types.ObjectId(m));
+    const uniqueIds = [...new Map(validMembers.map((o) => [String(o), o])).values()];
+
+    const updated = await Channel.findByIdAndUpdate(
+      channelId,
+      { $set: { members: uniqueIds } },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Channel not found' });
+    }
+    const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
+    await invalidateOrgReadCache(String(updated.organization)).catch(() => null);
+    return res.json({ success: true, data: { members: uniqueIds.map(String) } });
   } catch (err) {
     return orgCatch(res, err);
   }

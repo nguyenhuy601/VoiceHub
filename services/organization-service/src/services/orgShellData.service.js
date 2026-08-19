@@ -41,6 +41,12 @@ const {
   hasAnyRoleChannelPermission,
   hasExecutiveRbacRole,
 } = require('../utils/orgChannelAclHelpers');
+const { listProjectIdsForUser } = require('./projectMembershipReadModel');
+const {
+  isProjectScopedChannel,
+  resolveProjectChannelPermissions,
+  serializeProjectChannel,
+} = require('../utils/projectChannelAcl');
 
 const STRUCTURE_PROVISION = {
   PENDING: 'pending',
@@ -231,6 +237,7 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
   const channelsByDepartment = new Map();
   const channelsByDivision = new Map();
   for (const channel of channels) {
+    if (channel.projectId) continue;
     const teamKey = String(channel.team || '');
     const departmentKey = String(channel.department || '');
     const divisionKey = String(channel.division || '');
@@ -297,16 +304,20 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     ({
       role: 'member',
     });
-  const [channels, divisions, departments, teams] = await Promise.all([
+  const [channels, divisions, departments, teams, userProjectIds] = await Promise.all([
     Channel.find({ organization: orgId, isActive: true })
-      .select('_id members team division department type')
+      .select(
+        '_id members team division department type leader projectId projectChannelKind projectName projectTeamName name'
+      )
       .lean(),
     Division.find({ organization: orgId, isActive: true }).select('_id name branch').lean(),
     Department.find({ organization: orgId }).select('_id name branch division head').lean(),
     Team.find({ organization: orgId, isActive: true })
       .select('_id name branch division department')
       .lean(),
+    listProjectIdsForUser(userId, orgId),
   ]);
+  const userProjectIdSet = new Set(userProjectIds.map(String));
   const aclRows = await ChannelAccess.find({
     organization: orgId,
     user: toObjectId(userId) || userId,
@@ -355,6 +366,7 @@ async function buildAccessibleChannelData(userId, orgId, access) {
   const uid = String(userId);
   const permissionsByChannelId = {};
   const channelIds = [];
+  const projectChannels = [];
   const scopedFromVisibleChannels = {
     divisionIds: new Set(),
     departmentIds: new Set(),
@@ -406,6 +418,25 @@ async function buildAccessibleChannelData(userId, orgId, access) {
 
   for (const ch of channels) {
     const channelId = String(ch._id);
+
+    if (isProjectScopedChannel(ch)) {
+      const projectId = String(ch.projectId || '');
+      const teamId = ch.team ? String(ch.team) : '';
+      const projectPerms = resolveProjectChannelPermissions({
+        channel: ch,
+        userId: uid,
+        isProjectMember: userProjectIdSet.has(projectId),
+        isInOrgTeam: teamId ? structureVisibility.teamIds?.has(teamId) : true,
+      });
+      permissionsByChannelId[channelId] = projectPerms;
+      if (projectPerms.canRead) {
+        channelIds.push(channelId);
+        const serialized = serializeProjectChannel(ch);
+        if (serialized) projectChannels.push(serialized);
+      }
+      continue;
+    }
+
     const channelType = String(ch.type || 'chat').toLowerCase();
     const isDeptGeneralChat =
       isDeptOnlyChannel(ch) &&
@@ -613,9 +644,20 @@ async function buildAccessibleChannelData(userId, orgId, access) {
   const scopeDepartmentId = rolePlacement.departmentId || null;
   const scopeTeamId = rolePlacement.teamId || null;
 
+  projectChannels.sort((a, b) => {
+    const pa = String(a.projectName || a.projectId || '');
+    const pb = String(b.projectName || b.projectId || '');
+    if (pa !== pb) return pa.localeCompare(pb);
+    const ka = String(a.projectChannelKind || '');
+    const kb = String(b.projectChannelKind || '');
+    if (ka !== kb) return ka.localeCompare(kb);
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+
   return {
     channelIds,
     permissionsByChannelId,
+    projectChannels,
     scope: {
       branchId: scopeBranchId,
       divisionId: scopeDivisionId,

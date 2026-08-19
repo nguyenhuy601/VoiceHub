@@ -1,20 +1,23 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
-import { isProjectCompletedStatus, resolveHubCapabilities } from '../../../features/projectHub/hubCaps';
+import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
 import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
+import ProjectHubTimelinePanel from './ProjectHubTimelinePanel';
 import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
 import WorkItemDetail from './WorkItemDetail';
+import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import ProjectHubCompleteProjectModal from './ProjectHubCompleteProjectModal';
 import { isBoardSprintReady } from './projectHubHierarchy';
+import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
 import {
   PROJECT_HUB_TABS,
   collectCardActivity,
@@ -225,9 +228,24 @@ function FilesPanel({ files, isDarkMode, t }) {
   );
 }
 
+const ACTIVITY_PAGE_SIZE = 10;
+
 function ActivityPanel({ activity, locale, isDarkMode, t }) {
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil((activity.length || 0) / ACTIVITY_PAGE_SIZE) || 1);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const paged = activity.slice((safePage - 1) * ACTIVITY_PAGE_SIZE, safePage * ACTIVITY_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activity.length]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <h3 className={`mb-1 text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabActivity')}</h3>
@@ -237,18 +255,47 @@ function ActivityPanel({ activity, locale, isDarkMode, t }) {
           {t('workspace.projectHubActivityEmpty')}
         </p>
       ) : (
-        <ul className="space-y-2">
-          {activity.map((a) => (
-            <li key={a.id} className="rounded-xl border border-border bg-surface px-3 py-2.5">
-              <div className={`text-sm font-semibold ${titleCls}`}>{a.title}</div>
-              <div className={`mt-0.5 text-xs ${muted}`}>
-                {formatHubDate(a.at, locale)}
-                {a.assigneeName ? ` · ${a.assigneeName}` : ''}
-                {a.status ? ` · ${a.status}` : ''}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {paged.map((a) => (
+              <li key={a.id} className="rounded-xl border border-border bg-surface px-3 py-2.5">
+                <div className={`text-sm font-semibold ${titleCls}`}>{a.title}</div>
+                <div className={`mt-0.5 text-xs ${muted}`}>
+                  {formatHubDate(a.at, locale)}
+                  {a.assigneeName ? ` · ${a.assigneeName}` : ''}
+                  {a.status ? ` · ${a.status}` : ''}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {activity.length > ACTIVITY_PAGE_SIZE ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                aria-label={t('workspace.projectHubActivityPrev')}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+                {t('workspace.projectHubActivityPrev')}
+              </button>
+              <span className="text-xs text-muted-foreground" aria-live="polite">
+                {t('workspace.projectHubActivityPage', { page: safePage, total: totalPages })}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                aria-label={t('workspace.projectHubActivityNext')}
+              >
+                {t('workspace.projectHubActivityNext')}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -301,6 +348,7 @@ export default function ProjectHubShell({
   const [completeProjectOpen, setCompleteProjectOpen] = useState(false);
   const [boardOpenCrId, setBoardOpenCrId] = useState('');
   const [crWorkIssue, setCrWorkIssue] = useState(null);
+  const [hubChatChannelId, setHubChatChannelId] = useState('');
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -336,6 +384,7 @@ export default function ProjectHubShell({
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
     setCompleteProjectOpen(false);
+    setHubChatChannelId('');
   }
 
   const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
@@ -347,9 +396,10 @@ export default function ProjectHubShell({
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
   const needsSprints =
     tab === 'planning' ||
+    tab === 'timeline' ||
     tab === 'board' ||
     (Boolean(hubCaps.canCompleteProject) && workLooksComplete && !isProjectCompleted);
-  const needsPlanningItems = tab === 'planning' || tab === 'board';
+  const needsPlanningItems = tab === 'planning' || tab === 'timeline' || tab === 'board';
   const needsActivity = tab === 'overview' || tab === 'activity';
   const needsFiles = tab === 'files';
 
@@ -497,6 +547,7 @@ export default function ProjectHubShell({
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
+      if (item.id === 'chat' && !isProjectChatTabEnabled()) return false;
       return true;
     });
   }, [hubCaps, isSummaryOnly]);
@@ -519,6 +570,7 @@ export default function ProjectHubShell({
 
   const showListPanel = Boolean(visitedTabs.list);
   const showPlanningPanel = Boolean(visitedTabs.planning);
+  const showTimelinePanel = Boolean(visitedTabs.timeline);
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
@@ -544,7 +596,7 @@ export default function ProjectHubShell({
             id: a._id,
             title: a.title || a.type,
             status: a.type,
-            createdAt: a.createdAt,
+            at: a.createdAt,
             assigneeName: '',
           }))
         );
@@ -855,6 +907,44 @@ export default function ProjectHubShell({
               setTab('changeRequests');
             }}
             workTypeConfig={projectPayload?.workTypeConfig}
+            priorityConfig={projectPayload?.priorityConfig}
+          />
+        </div>
+        ) : null}
+        {showTimelinePanel ? (
+        <div
+          className={
+            tab === 'timeline' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'timeline'}
+          aria-hidden={tab !== 'timeline'}
+        >
+          <ProjectHubTimelinePanel
+            projectId={projectId}
+            boardId={boardId}
+            defaultListId={defaultListId}
+            lists={lists}
+            projectCode={resolvedBoard?.projectCode || ''}
+            hubCaps={hubCaps}
+            canManage={canManage}
+            apiCtx={apiCtx}
+            isDarkMode={isDarkMode}
+            locale={locale}
+            workspaceSlug={workspaceSlug}
+            board={resolvedBoard}
+            projectPayload={projectPayload}
+            cards={cards}
+            planningItems={planningItems}
+            planningLoading={planningLoading}
+            planningError={planningError}
+            sprints={sprints}
+            onPatchPlanningItems={patchPlanningItems}
+            onReloadPlanning={reloadPlanning}
+            onRefresh={onRefresh}
+            onUpdateCard={onUpdateCard}
+            onPatchBoardCards={onPatchBoardCards}
+            timelineActive={tab === 'timeline'}
+            workTypeConfig={projectPayload?.workTypeConfig}
           />
         </div>
         ) : null}
@@ -878,6 +968,16 @@ export default function ProjectHubShell({
               </button>
             </div>
           )
+        ) : null}
+        {tab === 'chat' && isProjectChatTabEnabled() ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ProjectChatWorkspace
+              organizationId={organizationId}
+              projectIdFilter={projectId}
+              channelId={hubChatChannelId}
+              onSelectChannel={setHubChatChannelId}
+            />
+          </div>
         ) : null}
         {showChangeRequestsPanel ? (
         <div

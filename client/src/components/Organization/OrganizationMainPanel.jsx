@@ -14,7 +14,6 @@ import OrganizationNotificationsWorkspacePanel from '../../features/orgNotificat
 import DepartmentMembersPanel from './DepartmentMembersPanel';
 import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
-
 import {
   Bell,
   ChevronsDown,
@@ -49,10 +48,14 @@ import UserAvatar from '../Shared/UserAvatar';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
 import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
+import ChatContextPicker from '../Chat/ChatContextPicker';
+import ChatContextPreview from '../Chat/ChatContextPreview';
+import { normalizeMessageRefs, contextCallTargetFromMessage } from '../Chat/chatContextRefs';
+import WorkItemDetail from '../../features/projects/hub/WorkItemDetail/WorkItemDetail';
+import ProjectHubChangeRequestDetailDrawer from '../../features/projects/hub/ProjectHubChangeRequestDetailDrawer';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
 import OrgMessageInlineEditor from './OrgMessageInlineEditor';
 import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
-import TasksKanbanDnd, { COL_DONE, COL_PROGRESS, COL_TODO } from '../Tasks/TasksKanbanDnd';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
 import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
@@ -72,7 +75,7 @@ import {
   FIGMA_ORG_CHANNEL_HEADER_DESC,
   FIGMA_ORG_CHANNEL_HEADER_TITLE,
   FIGMA_ORG_CHANNEL_ICON_BTN,
-} from '../Workspace/figmaOrgSettingsClasses';
+} from './figmaOrganizationClasses';
 import { parseMessageMentions } from '../../utils/parseMessageMentions';
 import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
 import {
@@ -82,14 +85,59 @@ import {
   unwrapTaskBoardListPayload,
 } from '../../services/api/taskAPI';
 import { projectAPI, mapProjectsToBoardPickerRows } from '../../services/api/projectAPI';
-import CreateProjectBriefModal from './CreateProjectBriefModal';
 import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
-import TaskBoardWorkspacePanel from './TaskBoardWorkspacePanel';
-import ProjectHubShell from './ProjectHub/ProjectHubShell';
-import WorkspaceOrgChatFigmaView from '../Workspace/WorkspaceOrgChatFigmaView';
-import { kanbanCardSyncedExtra } from '../Workspace/WorkspaceKanbanFigmaView';
+import OrganizationChatView from './OrganizationChatView';
 import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
 import { channelUnreadCount } from './organizationStructureTheme';
+
+function isContextCallMessage(message) {
+  return String(message?.visibility?.mode || '') === 'project_intersection';
+}
+
+function contextCallProjectId(row) {
+  return String(row?.projectId || row?._id || '').trim();
+}
+
+function MessageContextChips({ message, isDarkMode, t, onOpen }) {
+  const refs = normalizeMessageRefs(message);
+  const call = contextCallTargetFromMessage(message);
+  if (!call && !refs.length) return null;
+  const chipCls = `mb-2 w-full rounded-xl border px-3 py-2 text-left ${
+    isDarkMode ? 'border-indigo-400/25 bg-indigo-500/10' : 'border-indigo-200 bg-indigo-50'
+  }`;
+  return (
+    <>
+      {call ? (
+        <button
+          type="button"
+          className={chipCls}
+          onClick={() => onOpen(call)}
+          aria-label={t('orgPanel.contextRefChipAria', { label: call.label || t('orgPanel.contextCallFallback') })}
+        >
+          <div
+            className={`text-[10px] font-semibold uppercase tracking-wide ${
+              isDarkMode ? 'text-indigo-200' : 'text-indigo-700'
+            }`}
+          >
+            {t('orgPanel.contextCallBadge')}
+          </div>
+          <div className="text-sm font-semibold">{call.label || t('orgPanel.contextCallFallback')}</div>
+        </button>
+      ) : null}
+      {refs.map((ref) => (
+        <button
+          key={`${ref.kind}-${ref.id}`}
+          type="button"
+          className={chipCls}
+          onClick={() => onOpen(ref)}
+          aria-label={t('orgPanel.contextRefChipAria', { label: ref.label || ref.id })}
+        >
+          <span className="font-mono text-sm font-semibold">{ref.label || ref.id}</span>
+        </button>
+      ))}
+    </>
+  );
+}
 
 function messageDayKey(iso) {
   if (!iso) return '';
@@ -173,8 +221,10 @@ function FigmaOrgChatComposer({
   onClearReply,
   onCreateContactCard,
   onCreatePoll,
+  onOpenContextPicker,
   onOpenEmoji,
   onSendMessage,
+  hasContextCall = false,
   replyingToMessage,
   replyToLabel,
   selectedChannelId,
@@ -183,7 +233,7 @@ function FigmaOrgChatComposer({
 }) {
   const MAX_TEXTAREA_HEIGHT = 240;
   const disabled = !selectedChannelId || sendingMessage || channelReadOnly;
-  const sendDisabled = disabled || !String(messageInput || '').trim();
+  const sendDisabled = disabled || (!String(messageInput || '').trim() && !hasContextCall);
   const placeholder = channelReadOnly
     ? t('orgPanel.composerReadOnlyHint')
     : selectedChannelId
@@ -402,6 +452,16 @@ function FigmaOrgChatComposer({
             </button>
             <button
               type="button"
+              title={t('orgPanel.menuContextCall')}
+              aria-label={t('orgPanel.menuContextCall')}
+              disabled={!canWriteInChannel}
+              onClick={() => onOpenContextPicker?.()}
+              className={iconButton}
+            >
+              <ClipboardList size={17} aria-hidden />
+            </button>
+            <button
+              type="button"
               title={t('orgPanel.menuPoll')}
               aria-label={t('orgPanel.menuPoll')}
               disabled={!canWriteInChannel}
@@ -493,6 +553,7 @@ const OrganizationMainPanel = ({
   onSelectBranch,
   onSelectDivision,
   channels = [],
+  projectChannels = [],
   channelPermissionMatrix = {},
   membershipScope = null,
   teams = [],
@@ -567,12 +628,6 @@ const OrganizationMainPanel = ({
   suiteLayout = false,
   suiteMode = null,
   departmentWorkspaceActive = false,
-  /** Deep-link / sau tạo project: ưu tiên chọn board này khi list load. */
-  preferredTaskBoardId = '',
-  /** Deep-link project-first: resolve board thuộc project khi thiếu boardId. */
-  preferredProjectId = '',
-  /** Suite tasks: quay về hub khi đã ẩn chrome shell. */
-  onBackFromTasks = null,
   /** Docs: phòng + kênh user thuộc (lọc chat phòng ban + project files). */
   memberDepartmentIds = null,
   memberDepartmentChannelIds = null,
@@ -627,6 +682,21 @@ const OrganizationMainPanel = ({
   const [manualContactPhone, setManualContactPhone] = useState('');
   const [manualContactEmail, setManualContactEmail] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [contextProject, setContextProject] = useState(null);
+  const [contextRef, setContextRef] = useState(null);
+  const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const [contextProjects, setContextProjects] = useState([]);
+  const [contextProjectsLoading, setContextProjectsLoading] = useState(false);
+  const [contextPreviewTarget, setContextPreviewTarget] = useState(null);
+  const [chatWorkDetail, setChatWorkDetail] = useState(null);
+  const [chatCrDetail, setChatCrDetail] = useState(null);
+
+  useEffect(() => {
+    setContextProject(null);
+    setContextRef(null);
+    setContextPickerOpen(false);
+    setContextPreviewTarget(null);
+  }, [selectedChannelId]);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
   const fileInputRef = useRef(null);
@@ -773,13 +843,39 @@ const OrganizationMainPanel = ({
     };
   };
   const selectedChannel =
-    channels.find((channel) => String(channel._id) === String(selectedChannelId)) || null;
+    [...channels, ...projectChannels].find(
+      (channel) => String(channel._id) === String(selectedChannelId)
+    ) || null;
   const selectedChannelPerm = getChannelPerm(selectedChannelId);
   const canWriteInChannel = Boolean(selectedChannelPerm.canWrite);
   const channelReadOnly =
     Boolean(selectedChannelId) &&
     Boolean(selectedChannelPerm.canSee || selectedChannelPerm.canRead) &&
     !canWriteInChannel;
+  const openContextPicker = () => {
+    setContextPickerOpen((open) => !open);
+    void loadContextCallProjects();
+  };
+  const handleComposerSend = () => {
+    const ref = contextRef
+      ? {
+          kind: contextRef.kind,
+          id: contextRef.id,
+          projectId: contextRef.projectId,
+          label: contextRef.label || contextRef.title || '',
+        }
+      : null;
+    onSendMessage?.({
+      contextProjectId: contextCallProjectId(contextProject),
+      contextProjectName: String(contextProject?.name || contextProject?.title || '').trim(),
+      contextRefs: ref ? [ref] : undefined,
+      onSent: () => {
+        setContextProject(null);
+        setContextRef(null);
+        setContextPickerOpen(false);
+      },
+    });
+  };
   const isVoiceChannel = selectedChannel?.type === 'voice';
   const isVoiceWorkspace =
     !deptWorkspaceContext && (workspaceTab === 'voice' || isVoiceChannel);
@@ -993,17 +1089,7 @@ const OrganizationMainPanel = ({
       const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
       const list = mapProjectsToBoardPickerRows(raw);
       setTaskBoards(list);
-      const preferred = String(preferredTaskBoardId || '').trim();
-      const preferredProject = String(preferredProjectId || '').trim();
-      if (preferred && list.some((b) => String(b._id) === preferred)) {
-        setSelectedTaskBoardId(preferred);
-      } else if (
-        preferredProject &&
-        list.some((b) => String(b.projectId || '') === preferredProject)
-      ) {
-        const hit = list.find((b) => String(b.projectId || '') === preferredProject);
-        setSelectedTaskBoardId(hit?._id ? String(hit._id) : '');
-      } else if (!list.some((b) => String(b._id) === String(selectedTaskBoardId))) {
+      if (!list.some((b) => String(b._id) === String(selectedTaskBoardId))) {
         setSelectedTaskBoardId(list[0]?._id ? String(list[0]._id) : '');
       }
     } catch (err) {
@@ -1017,10 +1103,81 @@ const OrganizationMainPanel = ({
     selectedTeamId,
     organizationId,
     selectedTaskBoardId,
-    preferredTaskBoardId,
-    preferredProjectId,
     t,
   ]);
+
+  const loadContextCallProjects = useCallback(async () => {
+    if (!orgIdForTask) {
+      setContextProjects([]);
+      return;
+    }
+    setContextProjectsLoading(true);
+    try {
+      const res = await projectAPI.list({ ...taskBoardApiCtx });
+      const payload = unwrapTaskApiPayload(res);
+      const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+      setContextProjects(
+        raw
+          .map((p) => {
+            const projectId = String(p?.projectId || p?._id || '').trim();
+            if (!projectId) return null;
+            return {
+              projectId,
+              name: String(p.title || p.name || p.projectCode || projectId).trim(),
+              projectCode: String(p.projectCode || '').trim(),
+              defaultBoardId: String(p.defaultBoardId || p.boards?.[0]?._id || '').trim(),
+            };
+          })
+          .filter(Boolean)
+      );
+    } catch {
+      setContextProjects([]);
+    } finally {
+      setContextProjectsLoading(false);
+    }
+  }, [orgIdForTask, taskBoardApiCtx]);
+
+  const openChatContextDetail = useCallback(
+    async (payload, target, panel = 'detail') => {
+      setContextPreviewTarget(null);
+      const kind = String(payload?.kind || target?.kind || '');
+      const projectId = String(payload?.projectId || target?.projectId || '').trim();
+      const entityId = String(payload?.id || target?.id || '').trim();
+      if (kind === 'change_request') {
+        if (!projectId || !entityId) return;
+        setChatCrDetail({
+          projectId,
+          crId: entityId,
+          initialTab: panel === 'activity' ? 'activity' : 'overview',
+        });
+        return;
+      }
+      if (kind !== 'task' || !entityId) return;
+      let workItem = {
+        _id: entityId,
+        title: payload?.title || target?.title || target?.label || '',
+        issueType: payload?.issueType || 'task',
+        status: payload?.status || '',
+        priority: payload?.priority || '',
+        projectId,
+      };
+      try {
+        const res = await taskAPI.getTask(entityId, taskBoardApiCtx);
+        const data = unwrapTaskApiPayload(res);
+        if (data && typeof data === 'object') workItem = data;
+      } catch {
+        /* stub from preview */
+      }
+      setChatWorkDetail({
+        workItem,
+        projectId,
+        projectCode: payload?.project?.projectCode || '',
+        boardId: String(workItem.boardId || '').trim(),
+        initialPanel: panel,
+      });
+    },
+    [taskBoardApiCtx]
+  );
 
   const loadProjectBriefs = useCallback(async () => {
     if (!orgIdForTask) {
@@ -2079,77 +2236,6 @@ const OrganizationMainPanel = ({
       </div>
     </aside>
   ) : null;
-  const mapDropColumnToStatus = (colId) => {
-    if (colId === COL_DONE) return 'done';
-    if (colId === COL_PROGRESS) return 'in_progress';
-    return 'todo';
-  };
-
-  const renderTaskBoardPanel = (hideIdentityHeader = false) => (
-    <TaskBoardWorkspacePanel
-      isDarkMode={isDarkMode}
-      workspaceSlug={workspaceSlugForTask}
-      boards={taskBoards}
-      accessibleBoards={accessibleTaskBoards}
-      selectedBoardId={selectedTaskBoardId}
-      boardDetail={taskBoardDetail}
-      boardBackground={
-        taskBoardDetail?.board?.background ||
-        taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.background ||
-        ''
-      }
-      loadingBoards={loadingTaskBoards}
-      loadingBoardDetail={loadingTaskBoardDetail}
-      currentUserId={currentUserId}
-      teamsInScope={teamsInScope}
-      onAddList={handleAddBoardList}
-      onAddCard={handleAddBoardCard}
-      onMoveCard={handleMoveBoardCard}
-      onUpdateCard={handleUpdateBoardCard}
-      onReorderList={handleReorderBoardList}
-      onRefresh={refreshTaskBoardView}
-      onCreateBoard={canCreateWorkspaceTask ? openCreateTaskBoardModal : undefined}
-      canCreateBoard={canCreateWorkspaceTask}
-      boardCapabilities={boardCapabilities}
-      canManageLists={canManageListsUi}
-      canCreateCards={canCreateCardsUi}
-      organizationId={orgIdForTask || organizationId || ''}
-      canUseAiAssign={canUseAiWorkspaceTask && canCreateCardsUi}
-      onAiAssignComplete={refreshTaskBoardView}
-      renderCardExtra={(card) => kanbanCardSyncedExtra(card, channels)}
-      boardSearchFocusToken={taskBoardSearchFocusToken}
-      taskWorkspaceScope={taskWorkspaceScope}
-      hideIdentityHeader={hideIdentityHeader}
-    />
-  );
-
-  const renderProjectHub = () => (
-    <ProjectHubShell
-      boardId={selectedTaskBoardId}
-      projectId={
-        String(preferredProjectId || '').trim() ||
-        String(
-          taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.projectId || ''
-        ).trim()
-      }
-      boardDetail={taskBoardDetail}
-      boards={taskBoards}
-      isDarkMode={isDarkMode}
-      locale={locale}
-      canManage={canManageMembersUi || canUpdateSettingsUi}
-      organizationId={orgIdForTask || organizationId || ''}
-      apiCtx={taskBoardApiCtx}
-      onRefresh={refreshTaskBoardView}
-      onUpdateCard={handleUpdateBoardCard}
-      onPatchBoardCards={applyBoardCardsPatch}
-      workspaceSlug={workspaceSlugForTask}
-      boardSlot={renderTaskBoardPanel(true)}
-      emptySlot={renderTaskBoardPanel(false)}
-      onBack={onBackFromTasks}
-      onBoardChange={setSelectedTaskBoardId}
-      currentUserId={currentUserId ? String(currentUserId) : ''}
-    />
-  );
 
   return (
     <>
@@ -2162,8 +2248,8 @@ const OrganizationMainPanel = ({
         }
       >
         {suiteLayout ? (
-          workspaceTab === 'tasks' ? null : suiteOrgModuleRail
-        ) : workspaceTab === 'tasks' ? null : (
+          suiteOrgModuleRail
+        ) : (
         <aside
           className={`${workspace.aside} relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden`}
           style={{ width: leftAsideW, minWidth: LEFT_ASIDE_MIN_W, maxWidth: LEFT_ASIDE_MAX_W }}
@@ -2301,7 +2387,7 @@ const OrganizationMainPanel = ({
             suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background/75 backdrop-blur-sm dark:bg-background/65' : workspace.main
           } h-full min-h-0 overflow-hidden ${isDarkMode && !suiteLayout && !useFigmaChannelHeader ? '!bg-transparent' : ''}`}
         >
-          {suiteLayout && workspaceTab === 'tasks' ? null : (
+          {(
           <header
             className={
               suiteLayout
@@ -2396,85 +2482,16 @@ const OrganizationMainPanel = ({
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {workspaceTab === 'tasks' ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedTaskBoardId}
-                      onChange={(e) => setSelectedTaskBoardId(e.target.value)}
-                      className={`max-w-[200px] rounded-lg border px-2.5 py-1.5 text-xs font-medium outline-none sm:max-w-[240px] sm:text-sm ${
-                        isDarkMode
-                          ? 'border-white/15 bg-[#1a1d26] text-white'
-                          : 'border-slate-200 bg-white text-slate-900'
-                      }`}
-                      aria-label={t('taskBoard.selectBoardAria')}
-                    >
-                      <option value="">{t('taskBoard.selectBoard')}</option>
-                      {taskBoards.map((b) => (
-                        <option key={b._id} value={String(b._id)}>
-                          {b.title}
-                        </option>
-                      ))}
-                    </select>
-                    {canCreateProjectBrief ? (
-                      <button
-                        type="button"
-                        onClick={() => setProjectBriefCreateOpen(true)}
-                        title={t('taskBoard.briefCreateTitle')}
-                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
-                          isDarkMode
-                            ? 'border-amber-400/50 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25'
-                            : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                        }`}
-                      >
-                        <ClipboardList size={14} className="shrink-0" />
-                        <span className="inline">{t('taskBoard.briefCreateBtn')}</span>
-                      </button>
-                    ) : null}
-                    {canCreateWorkspaceTask ? (
-                    <button
-                      type="button"
-                      onClick={openCreateTaskBoardModal}
-                      title={t('organization.createTaskBoardTitle')}
-                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                        isDarkMode
-                          ? 'border-indigo-400/50 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'
-                          : 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                      }`}
-                    >
-                      <Plus size={14} className="shrink-0" />
-                      <span className="hidden sm:inline">{t('taskBoard.createBoardBtn')}</span>
-                    </button>
-                    ) : null}
-                    {loadingTaskBoards ? (
-                      <span className={`text-[10px] sm:text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
-                        Đang tải...
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div className="flex items-center gap-0.5">
                 <button
                   type="button"
-                  title={
-                    workspaceTab === 'tasks'
-                      ? t('taskBoard.searchCardsAria')
-                      : t('orgPanel.workspaceSearchAria')
-                  }
-                  aria-label={
-                    workspaceTab === 'tasks'
-                      ? t('taskBoard.searchCardsAria')
-                      : t('orgPanel.workspaceSearchAria')
-                  }
+                  title={t('orgPanel.workspaceSearchAria')}
+                  aria-label={t('orgPanel.workspaceSearchAria')}
                   onClick={() => {
-                    if (workspaceTab === 'tasks') {
-                      onWorkspaceSearchOpenChange?.(false);
-                      setTaskBoardSearchFocusToken((n) => n + 1);
-                      return;
-                    }
                     onWorkspaceSearchOpenChange?.(true);
                   }}
                   className={`rounded-lg p-2 transition ${
-                    workspaceSearchOpen && workspaceTab !== 'tasks'
+                    workspaceSearchOpen
                       ? isDarkMode
                         ? 'bg-[#5865F2]/25 text-white'
                         : 'bg-indigo-100 text-indigo-700'
@@ -2565,134 +2582,6 @@ const OrganizationMainPanel = ({
                 isDarkMode={isDarkMode}
                 fetchEnabled={notificationsFetchEnabled}
               />
-            ) : workspaceTab === 'tasks' ? (
-              suiteLayout ? (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                  {myAssignedProjectBriefs.length > 0 ? (
-                    <div className="mb-3 shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2">
-                      <div className="mb-1 text-xs font-semibold text-amber-100">
-                        {t('taskBoard.briefBannerTitle')}
-                        {loadingProjectBriefs ? '…' : ''}
-                      </div>
-                      <ul className="space-y-1.5">
-                        {myAssignedProjectBriefs.map((brief) => (
-                          <li
-                            key={String(brief._id)}
-                            className="flex flex-wrap items-center justify-between gap-2 text-xs text-amber-50/90"
-                          >
-                            <span className="min-w-0 truncate font-medium">{brief.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => openCreateBoardFromBrief(brief)}
-                              className="shrink-0 rounded-md border border-amber-300/40 bg-amber-400/15 px-2 py-1 font-semibold text-amber-50 hover:bg-amber-400/25"
-                            >
-                              {t('taskBoard.briefOpenBoard')}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {oversightProjectBriefs.length > 0 ? (
-                    <div className="mb-3 shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2">
-                      <div className="mb-1 text-xs font-semibold text-amber-100">
-                        {t('taskBoard.briefBannerTitleOversight')}
-                        {loadingProjectBriefs ? '…' : ''}
-                      </div>
-                      <ul className="space-y-1.5">
-                        {oversightProjectBriefs.map((brief) => (
-                          <li
-                            key={String(brief._id)}
-                            className="flex flex-wrap items-center justify-between gap-2 text-xs text-amber-50/90"
-                          >
-                            <span className="min-w-0 truncate font-medium">{brief.title}</span>
-                            <span className="shrink-0 text-[11px] text-amber-200/80">
-                              {t('taskBoard.briefWaitingPm')}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {renderProjectHub()}
-                </div>
-              ) : (
-              <>
-              {myAssignedProjectBriefs.length > 0 ? (
-                <div
-                  className={`mb-3 shrink-0 rounded-lg border px-3 py-2 ${
-                    isDarkMode
-                      ? 'border-amber-400/30 bg-amber-500/10'
-                      : 'border-amber-200 bg-amber-50'
-                  }`}
-                >
-                  <div
-                    className={`mb-1 text-xs font-semibold ${
-                      isDarkMode ? 'text-amber-100' : 'text-amber-900'
-                    }`}
-                  >
-                    {t('taskBoard.briefBannerTitle')}
-                  </div>
-                  <ul className="space-y-1.5">
-                    {myAssignedProjectBriefs.map((brief) => (
-                      <li
-                        key={String(brief._id)}
-                        className={`flex flex-wrap items-center justify-between gap-2 text-xs ${
-                          isDarkMode ? 'text-amber-50/90' : 'text-amber-900'
-                        }`}
-                      >
-                        <span className="min-w-0 truncate font-medium">{brief.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => openCreateBoardFromBrief(brief)}
-                          className={`shrink-0 rounded-md border px-2 py-1 font-semibold ${
-                            isDarkMode
-                              ? 'border-amber-300/40 bg-amber-400/15 text-amber-50 hover:bg-amber-400/25'
-                              : 'border-amber-300 bg-white text-amber-800 hover:bg-amber-100'
-                          }`}
-                        >
-                          {t('taskBoard.briefOpenBoard')}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {oversightProjectBriefs.length > 0 ? (
-                <div
-                  className={`mb-3 shrink-0 rounded-lg border px-3 py-2 ${
-                    isDarkMode
-                      ? 'border-amber-400/30 bg-amber-500/10'
-                      : 'border-amber-200 bg-amber-50'
-                  }`}
-                >
-                  <div
-                    className={`mb-1 text-xs font-semibold ${
-                      isDarkMode ? 'text-amber-100' : 'text-amber-900'
-                    }`}
-                  >
-                    {t('taskBoard.briefBannerTitleOversight')}
-                  </div>
-                  <ul className="space-y-1.5">
-                    {oversightProjectBriefs.map((brief) => (
-                      <li
-                        key={String(brief._id)}
-                        className={`flex flex-wrap items-center justify-between gap-2 text-xs ${
-                          isDarkMode ? 'text-amber-50/90' : 'text-amber-900'
-                        }`}
-                      >
-                        <span className="min-w-0 truncate font-medium">{brief.title}</span>
-                        <span className="shrink-0 text-[11px] opacity-80">
-                          {t('taskBoard.briefWaitingPm')}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {renderProjectHub()}
-              </>
-              )
             ) : isVoiceChannel ? (
                 selectedChannelId && (
                   <OrganizationVoiceChannelView
@@ -2724,7 +2613,7 @@ const OrganizationMainPanel = ({
                   />
                 )
               ) : (
-              <WorkspaceOrgChatFigmaView
+              <OrganizationChatView
                 scrollRef={chatScrollRef}
                 onScroll={handleChatScroll}
                 unreadCount={channelUnreadForCatchUp}
@@ -3010,12 +2899,26 @@ const OrganizationMainPanel = ({
                                 saveLabel={t('orgPanel.editSaveShort')}
                               />
                             ) : (
-                              <ChatMessageAttachmentBody
-                                message={message}
-                                mentionVariant="org"
-                                mentionLabels={mentionLabelsForChat}
-                                mentionContacts={normalizedContacts}
-                              />
+                              <>
+                                {isContextCallMessage(message) || normalizeMessageRefs(message).length ? (
+                                  <MessageContextChips
+                                    message={message}
+                                    isDarkMode={isDarkMode}
+                                    t={t}
+                                    onOpen={setContextPreviewTarget}
+                                  />
+                                ) : null}
+                                {!isContextCallMessage(message) ||
+                                String(message.content || '').trim() !==
+                                  String(message.visibility?.projectName || '').trim() ? (
+                                  <ChatMessageAttachmentBody
+                                    message={message}
+                                    mentionVariant="org"
+                                    mentionLabels={mentionLabelsForChat}
+                                    mentionContacts={normalizedContacts}
+                                  />
+                                ) : null}
+                              </>
                             )}
                           </div>
                         </div>
@@ -3028,7 +2931,7 @@ const OrganizationMainPanel = ({
               <div ref={messagesEndRef} className="h-px w-full shrink-0" aria-hidden />
               </div>
               </div>
-              </WorkspaceOrgChatFigmaView>
+              </OrganizationChatView>
               )}
 
           </div>
@@ -3089,6 +2992,59 @@ const OrganizationMainPanel = ({
                   {t('orgPanel.composerReadOnly')}
                 </p>
               ) : null}
+              {canWriteInChannel && selectedChannelId ? (
+                <div className="relative mb-2">
+                  {contextProject || contextRef ? (
+                    <div
+                      className={`mb-2 flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs ${
+                        isDarkMode
+                          ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-100'
+                          : 'border-indigo-200 bg-indigo-50 text-indigo-900'
+                      }`}
+                    >
+                      <span className="min-w-0 truncate font-medium">
+                        {t('orgPanel.contextCallAttached', {
+                          name:
+                            contextRef?.label ||
+                            contextRef?.title ||
+                            contextProject?.name ||
+                            contextProject?.title ||
+                            '',
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-0.5 hover:bg-black/10"
+                        aria-label={t('orgPanel.contextCallClear')}
+                        onClick={() => {
+                          setContextProject(null);
+                          setContextRef(null);
+                        }}
+                      >
+                        <X size={14} aria-hidden />
+                      </button>
+                    </div>
+                  ) : null}
+                  <ChatContextPicker
+                    open={contextPickerOpen}
+                    isDarkMode={isDarkMode}
+                    t={t}
+                    projects={contextProjects}
+                    loadingProjects={contextProjectsLoading}
+                    apiCtx={taskBoardApiCtx}
+                    onSelectProject={(row) => {
+                      setContextProject(row);
+                      setContextRef(null);
+                      setContextPickerOpen(false);
+                    }}
+                    onSelectRef={(item) => {
+                      setContextRef(item);
+                      setContextProject(null);
+                      setContextPickerOpen(false);
+                    }}
+                  />
+                </div>
+              ) : null}
               <ChatUploadProgressBar
                 percent={channelUploadProgress}
                 label={t('orgPanel.uploadChannel')}
@@ -3124,11 +3080,13 @@ const OrganizationMainPanel = ({
                   onClearReply={onClearReply}
                   onCreateContactCard={handleCreateContactCard}
                   onCreatePoll={handleCreatePoll}
+                  onOpenContextPicker={openContextPicker}
                   onOpenEmoji={() => {
                     setEmojiPickerTab('emoji');
                     setShowEmojiPicker((prev) => !prev);
                   }}
-                  onSendMessage={onSendMessage}
+                  onSendMessage={handleComposerSend}
+                  hasContextCall={Boolean(contextCallProjectId(contextProject) || contextRef?.id)}
                   replyingToMessage={replyingToMessage}
                   replyToLabel={replyToLabel}
                   selectedChannelId={selectedChannelId}
@@ -3183,7 +3141,7 @@ const OrganizationMainPanel = ({
                 }
                 value={messageInput}
                 onChange={onChangeMessageInput}
-                onSend={onSendMessage}
+                onSend={handleComposerSend}
                 placeholder={
                   channelReadOnly
                     ? t('orgPanel.composerReadOnlyHint')
@@ -3194,10 +3152,21 @@ const OrganizationMainPanel = ({
                       : t('orgPanel.composerPlaceholder')
                 }
                 disabled={!selectedChannelId || sendingMessage || channelReadOnly}
-                sendDisabled={!messageInput.trim() || channelReadOnly}
+                sendDisabled={
+                  (!messageInput.trim() &&
+                    !contextCallProjectId(contextProject) &&
+                    !contextRef?.id) ||
+                  channelReadOnly
+                }
                 plusItems={
                   canWriteInChannel
                     ? [
+                        {
+                          key: 'context-call',
+                          icon: '📋',
+                          label: t('orgPanel.menuContextCall'),
+                          onClick: openContextPicker,
+                        },
                         {
                           key: 'upload-file',
                           icon: '📁',
@@ -3391,19 +3360,6 @@ const OrganizationMainPanel = ({
         onConfirmed={() => {
           toast.success(t('orgPanel.taskFromAiOk'));
           onWorkspaceTasksRefresh?.();
-          if (selectedTaskBoardId) loadTaskBoardDetail(selectedTaskBoardId);
-        }}
-      />
-
-      <CreateProjectBriefModal
-        isOpen={projectBriefCreateOpen}
-        onClose={() => setProjectBriefCreateOpen(false)}
-        organizationId={orgIdForTask || organizationId || ''}
-        departmentId={resolvedDepartmentId || ''}
-        departmentHeadUserId={briefDepartmentHeadUserId}
-        teamLeaderUserIds={briefTeamLeaderUserIds}
-        onCreated={() => {
-          loadProjectBriefs();
         }}
       />
 
@@ -3784,6 +3740,40 @@ const OrganizationMainPanel = ({
           </div>
         </div>
       </Modal>
+      <ChatContextPreview
+        target={contextPreviewTarget}
+        t={t}
+        onClose={() => setContextPreviewTarget(null)}
+        onOpenWork={(payload, target) => {
+          void openChatContextDetail(payload, target, 'detail');
+        }}
+        onOpenDiscussion={(payload, target) => {
+          void openChatContextDetail(payload, target, 'activity');
+        }}
+      />
+      {chatWorkDetail?.workItem ? (
+        <WorkItemDetail
+          open
+          chrome="modal"
+          workItem={chatWorkDetail.workItem}
+          projectId={chatWorkDetail.projectId}
+          projectCode={chatWorkDetail.projectCode}
+          boardId={chatWorkDetail.boardId}
+          apiCtx={taskBoardApiCtx}
+          isDarkMode={isDarkMode}
+          locale={locale}
+          initialPanel={chatWorkDetail.initialPanel || 'detail'}
+          onClose={() => setChatWorkDetail(null)}
+        />
+      ) : null}
+      <ProjectHubChangeRequestDetailDrawer
+        open={Boolean(chatCrDetail?.crId)}
+        projectId={chatCrDetail?.projectId || ''}
+        crId={chatCrDetail?.crId || ''}
+        locale={locale}
+        initialTab={chatCrDetail?.initialTab || 'overview'}
+        onClose={() => setChatCrDetail(null)}
+      />
     </>
   );
 };

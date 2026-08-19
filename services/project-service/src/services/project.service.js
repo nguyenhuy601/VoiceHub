@@ -435,6 +435,26 @@ async function createProject({
     /* best-effort */
   }
 
+  try {
+    const { emitProjectCoreChannelsProvisionBestEffort } = require('../clients/projectChatPublisher.client');
+    const writerUserIds = [
+      ownerUserId,
+      userId,
+      toValidUserId(productOwnerId),
+      toValidUserId(scrumMasterId),
+      toValidUserId(techLeadId),
+    ].filter(Boolean);
+    emitProjectCoreChannelsProvisionBestEffort({
+      organizationId,
+      projectId: String(project._id),
+      projectTitle: titleTrim,
+      createdBy: userId,
+      writerUserIds,
+    });
+  } catch {
+    /* best-effort */
+  }
+
   const projectObj = project.toObject();
   const boardObj = board.toObject();
   return {

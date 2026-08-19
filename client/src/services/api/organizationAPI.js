@@ -121,7 +121,11 @@ export const organizationAPI = {
   },
 
   createTeamByDepartment: async (orgId, deptId, data) => {
-    const response = await apiClient.post(`/organizations/${orgId}/hierarchy/departments/${deptId}/teams`, data);
+    const response = await apiClient.post(
+      `/organizations/${orgId}/hierarchy/departments/${deptId}/teams`,
+      data,
+      { skipPermissionDeniedToast: true }
+    );
     return response;
   },
   createTeamByDivision: async (orgId, divisionId, data) =>

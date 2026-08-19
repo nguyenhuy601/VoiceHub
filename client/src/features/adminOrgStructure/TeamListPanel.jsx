@@ -12,18 +12,24 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
+  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
   { path: '/app/admin/org-structure/teams/members', labelKey: 'adminDomains.orgStructure.teamMembers' },
   { path: '/app/admin/org-structure/teams/leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
+  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_DELETE },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { teams, loading } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
+  const { isFullAccess, isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -48,10 +54,12 @@ export default function TeamListPanel({ orgId }) {
       hint={t('adminOrg.teamListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.teamCreate')}
-        </Link>
+        canCreateTeam ? (
+          <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.teamCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -110,7 +118,9 @@ export default function TeamListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
                               key={link.path}
                               to={`${link.path}?unitId=${encodeURIComponent(id)}`}

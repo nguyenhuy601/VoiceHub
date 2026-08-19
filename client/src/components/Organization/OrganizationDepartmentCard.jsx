@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { formatDeptRelativeTime } from '../../utils/buildDepartmentHubCard';
-import { FIGMA_WS_TEAM_CARD } from './figmaWorkspaceClasses';
+import { FIGMA_WS_TEAM_CARD } from './figmaOrganizationClasses';
 
 const GRAD_PAIRS = [
   ['#475569', '#64748B'],

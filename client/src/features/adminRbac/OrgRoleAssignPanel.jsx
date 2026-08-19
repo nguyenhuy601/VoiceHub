@@ -34,8 +34,6 @@ export default function OrgRoleAssignPanel({ orgId }) {
 
   const [assignedRoleKeys, setAssignedRoleKeys] = useState([]);
 
-  const nonSystemRoles = useMemo(() => roles.filter((r) => !r.isSystem), [roles]);
-
   const loadCatalog = async () => {
     if (!orgId) return;
     setLoading(true);
@@ -120,7 +118,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
         <AdminUserFormCard title={t('adminDomains.rbac.orgRoleAssign')}>
           {loading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : !nonSystemRoles.length ? (
+          ) : !roles.length ? (
             <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty')}</p>
           ) : (
             <>
@@ -132,7 +130,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
                   onChange={(e) => setSelectedRoleKey(e.target.value)}
                 >
                   <option value="">-- {t('adminRbac.selectRole')} --</option>
-                  {nonSystemRoles.map((r) => (
+                  {roles.map((r) => (
                     <option key={r._id || r.id} value={r.key}>
                       {r.label || r.key}
                     </option>

@@ -1,6 +1,6 @@
 /**
- * Gán Org Role (custom) cho members trong phòng.
- * Trưởng phòng (department_manager / head) chỉnh riêng qua setHead — không qua setAssignments (system blocked).
+ * Gán Org Role catalog cho members trong phòng.
+ * Trưởng phòng (head) vẫn có thể đặt qua checkbox «Trưởng phòng» (setHead).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -46,8 +46,6 @@ export default function DeptOrgRolesPanel({ orgId }) {
   );
   const memberIds = selected?.memberIds || [];
   const headId = selected ? departmentHeadId(selected) : '';
-
-  const customRoles = useMemo(() => (catalog || []).filter((r) => !r.isSystem), [catalog]);
 
   useEffect(() => {
     if (unitParam) setSelectedId(unitParam);
@@ -199,9 +197,9 @@ export default function DeptOrgRolesPanel({ orgId }) {
 
               {loadingAssign ? (
                 <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-              ) : customRoles.length ? (
+              ) : catalog.length ? (
                 <ul className="max-h-64 space-y-1 overflow-auto rounded-xl border border-border/70 p-2">
-                  {customRoles.map((role) => {
+                  {catalog.map((role) => {
                     const checked = assignedKeys.includes(role.key);
                     return (
                       <li key={role.key}>
@@ -222,7 +220,7 @@ export default function DeptOrgRolesPanel({ orgId }) {
                   })}
                 </ul>
               ) : (
-                <p className="text-xs text-muted-foreground">{t('adminOrg.deptOrgRolesNoCustom')}</p>
+                <p className="text-xs text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty')}</p>
               )}
 
               <button type="button" disabled={busy || !selectedUserId} className={adminPrimaryBtnClass()} onClick={save}>

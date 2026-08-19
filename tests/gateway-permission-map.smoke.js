@@ -22,7 +22,10 @@ function run() {
   assert.strictEqual(classifyPermissionRoute('PATCH', '/api/documents/doc-1'), 'action');
   assert.strictEqual(classifyPermissionRoute('GET', '/api/voice/calls/foo'), 'action');
   assert.strictEqual(getAction('GET', '/api/voice/calls/foo'), 'voice:read');
-  assert.strictEqual(classifyPermissionRoute('GET', '/api/organizations/org-1/shell'), 'action');
+  assert.strictEqual(getAction('POST', '/api/organizations/org1/hierarchy/departments/dep1/teams'), 'organization.team.create');
+  assert.strictEqual(getAction('POST', '/api/organizations/org1/hierarchy/divisions/div1/departments'), 'organization.department.create');
+  assert.strictEqual(getAction('POST', '/api/organizations/org1/hierarchy/channels'), 'communication.channel.create');
+  assert.strictEqual(getAction('GET', '/api/organizations/org-1/shell'), 'organization:read');
 
   assert.strictEqual(classifyPermissionRoute('GET', '/api/evil/unknown'), 'unmapped');
   assert.strictEqual(classifyPermissionRoute('POST', '/api/internal-backdoor'), 'unmapped');

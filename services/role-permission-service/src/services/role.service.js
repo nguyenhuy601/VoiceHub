@@ -6,6 +6,7 @@ const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
 const { isHierarchyRoleName, coercePermissionPackScope } = require('../utils/permissionPackScope');
+const { activeUserRoleQuery, mapPopulatedUserRoles } = require('../utils/assignedUserRoles');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -417,17 +418,8 @@ class RoleService {
   // Lấy roles của user trong server
   async getUserRoles(userId, serverId) {
     try {
-      const userRoles = await UserRole.find({
-        userId,
-        serverId,
-        isActive: true,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $gt: new Date() } },
-        ],
-      }).populate('roleId');
-
-      return userRoles.map((ur) => ur.roleId);
+      const userRoles = await UserRole.find(activeUserRoleQuery(userId, serverId)).populate('roleId');
+      return mapPopulatedUserRoles(userRoles);
     } catch (error) {
       logger.error('Error getting user roles:', error);
       throw error;

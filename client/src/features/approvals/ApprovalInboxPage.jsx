@@ -174,7 +174,7 @@ export default function ApprovalInboxPage() {
             </div>
             <p className="text-sm text-muted-foreground">{t('approvals.aiDraftsHint')}</p>
             <Link
-              to="/app/collaborate/tasks"
+              to="/app/collaborate/projects"
               className="mt-3 inline-block text-sm text-primary hover:underline"
             >
               {t('approvals.openProjects')}

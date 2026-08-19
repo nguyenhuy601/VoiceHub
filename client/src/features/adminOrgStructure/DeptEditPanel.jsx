@@ -12,6 +12,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -21,6 +24,9 @@ export default function DeptEditPanel({ orgId }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
@@ -48,6 +54,10 @@ export default function DeptEditPanel({ orgId }) {
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !selectedId || saving) return;
+    if (!canUpdateDept) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     setSaving(true);
     try {
       await organizationAPI.updateDepartment(orgId, selectedId, {
@@ -75,7 +85,9 @@ export default function DeptEditPanel({ orgId }) {
           subtitleFn={(row) => row.divisionName || row.branchName || ''}
         />
         <AdminUserFormCard title={t('adminDomains.orgStructure.deptEdit')}>
-          {!selectedId || !selected ? (
+          {!canUpdateDept ? (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          ) : !selectedId || !selected ? (
             <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
           ) : (
             <form className="space-y-4" onSubmit={save}>

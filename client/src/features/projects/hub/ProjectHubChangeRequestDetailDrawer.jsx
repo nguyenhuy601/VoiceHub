@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pencil, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ConfirmDialog } from '../../Shared';
+import { ConfirmDialog } from '../../../components/Shared';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
@@ -80,6 +80,7 @@ export default function ProjectHubChangeRequestDetailDrawer({
   onOpenWorkItem = null,
   onWorkItemsChanged = null,
   onClose = null,
+  initialTab = 'overview',
 }) {
   const { t } = useAppStrings();
   const [row, setRow] = useState(null);
@@ -118,8 +119,9 @@ export default function ProjectHubChangeRequestDetailDrawer({
   }, [open]);
 
   useEffect(() => {
-    setTab('overview');
-  }, [crId]);
+    const next = String(initialTab || 'overview') === 'activity' ? 'activity' : 'overview';
+    setTab(next);
+  }, [crId, initialTab]);
 
   useEffect(() => {
     if (!open || !projectId || !crId) {

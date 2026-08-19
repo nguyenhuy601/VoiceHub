@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, Clock, GitFork } from 'lucide-react';
-import UserAvatar from '../../Shared/UserAvatar';
+import { AlertTriangle, ChevronDown, ChevronRight, Clock, GitFork } from 'lucide-react';
+import UserAvatar from '../../../components/Shared/UserAvatar';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
 import ProjectHubIssueMoreMenu from './ProjectHubIssueMoreMenu';
 import {
@@ -13,6 +13,7 @@ import {
   listsForStatusSelect,
   normalizeIssueType,
 } from './projectHubUtils';
+import { WORK_TYPE_INDENT_PX } from './projectWorkTypes';
 
 function typeLabel(type, t) {
   const raw = String(type || '').toLowerCase();
@@ -39,6 +40,7 @@ export default function ProjectHubBacklogIssueRow({
   epics = [],
   projectCode = '',
   containerId = 'backlog',
+  depth = 0,
   selected = false,
   onToggleSelect,
   canDelete = false,
@@ -53,6 +55,9 @@ export default function ProjectHubBacklogIssueRow({
   busy = false,
   childStats = null,
   onOpen = null,
+  hasChildren = false,
+  expanded = false,
+  onToggleExpand = null,
 }) {
   const issueId = String(issue?._id || issue?.id || '');
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -61,6 +66,8 @@ export default function ProjectHubBacklogIssueRow({
     disabled: busy || !issueId,
   });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  const paddingLeft = 8 + Number(depth || 0) * WORK_TYPE_INDENT_PX;
+  const rowStyle = style ? { ...style, paddingLeft } : { paddingLeft };
 
   const [epicOpen, setEpicOpen] = useState(false);
   const epicRef = useRef(null);
@@ -130,7 +137,7 @@ export default function ProjectHubBacklogIssueRow({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={rowStyle}
       className={`group relative grid w-full min-w-0 max-w-full items-center gap-x-2 border-b border-border bg-surface px-2 py-1.5 last:border-b-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(6.5rem,9rem)_auto] lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(8rem,11rem)_auto] ${
         isDragging ? 'opacity-60' : ''
       } ${selected ? 'bg-primary/10' : 'hover:bg-muted/60'} ${
@@ -169,20 +176,37 @@ export default function ProjectHubBacklogIssueRow({
         {issue?.title || ''}
       </span>
       <span className="hidden w-4 justify-center sm:inline-flex">
-        {childTotal > 0 ? (
-          <button
-            type="button"
-            className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
-            title={childLabel}
-            aria-label={childLabel}
-            onClick={(e) => {
-              e.stopPropagation();
-              openDetails();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <GitFork size={14} aria-hidden />
-          </button>
+        {depth === 0 && (hasChildren && onToggleExpand ? childTotal > 0 : true) ? (
+          hasChildren && onToggleExpand ? (
+            <button
+              type="button"
+              className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+              title={childLabel || undefined}
+              aria-label={childLabel || undefined}
+              aria-expanded={Boolean(expanded)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpand?.(issueId);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {expanded ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+            </button>
+          ) : childTotal > 0 ? (
+            <button
+              type="button"
+              className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+              title={childLabel}
+              aria-label={childLabel}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDetails();
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <GitFork size={14} aria-hidden />
+            </button>
+          ) : null
         ) : null}
       </span>
 

@@ -10,6 +10,7 @@ const controller = require('../controllers/project.controller');
 const planning = require('../controllers/planning.controller');
 const changeRequest = require('../controllers/changeRequest.controller');
 const resource = require('../controllers/resource.controller');
+const workPreview = require('../controllers/workPreview.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
 const approval = require('../controllers/approval.controller');
 const governance = require('../controllers/governance.controller');
@@ -115,6 +116,7 @@ router.get('/', controller.listProjects);
 router.get('/:projectId/overview', controller.getOverview);
 router.get('/:projectId/activity', controller.getActivity);
 router.get('/:projectId/files', controller.getFiles);
+router.get('/:projectId/work-preview', workPreview.getWorkPreview);
 
 /**
  * @openapi

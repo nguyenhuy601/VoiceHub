@@ -100,21 +100,69 @@ export function buildCommunicateChannelsPath(orgId = '', query = {}) {
   return qs ? `${base}?${qs}` : base;
 }
 
-export function buildCollaborateTasksPath(orgId = '', query = {}) {
-  const base = '/app/collaborate/tasks';
+export function isProjectChatTabEnabled() {
+  const raw = String(import.meta.env.VITE_PROJECT_CHAT_TAB ?? 'true').toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no';
+}
+
+export function buildCollaborateProjectsChatPath(orgId = '', query = {}) {
+  const base = '/app/collaborate/projects/chat';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
-  const deptId = String(query?.departmentId || '').trim();
-  const teamId = String(query?.teamId || '').trim();
-  const boardId = String(query?.boardId || '').trim();
+  const id = String(orgId || query?.organizationId || '').trim();
+  const channelId = String(query?.channelId || '').trim();
   const projectId = String(query?.projectId || '').trim();
-  if (deptId) params.set('departmentId', deptId);
-  if (teamId) params.set('teamId', teamId);
-  if (boardId) params.set('boardId', boardId);
+  if (id) params.set('organizationId', id);
+  if (channelId) params.set('channelId', channelId);
   if (projectId) params.set('projectId', projectId);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
+}
+
+export function buildCollaborateProjectsPath(orgId = '', query = {}) {
+  const projectId = String(query?.projectId || '').trim();
+  if (projectId) {
+    return buildCollaborateProjectHubPath(projectId, {
+      organizationId: orgId || query?.organizationId,
+      boardId: query?.boardId,
+      departmentId: query?.departmentId,
+      teamId: query?.teamId,
+    });
+  }
+  const base = '/app/collaborate/projects';
+  const params = new URLSearchParams();
+  const id = String(orgId || query?.organizationId || '').trim();
+  const deptId = String(query?.departmentId || '').trim();
+  const teamId = String(query?.teamId || '').trim();
+  const boardId = String(query?.boardId || '').trim();
+  if (id) params.set('organizationId', id);
+  if (deptId) params.set('departmentId', deptId);
+  if (teamId) params.set('teamId', teamId);
+  if (boardId) params.set('boardId', boardId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+export function buildCollaborateProjectHubPath(projectId, query = {}) {
+  const pid = String(projectId || '').trim();
+  const base = pid
+    ? `/app/collaborate/projects/${encodeURIComponent(pid)}`
+    : '/app/collaborate/projects';
+  const params = new URLSearchParams();
+  const orgId = String(query?.organizationId || query?.orgId || '').trim();
+  const boardId = String(query?.boardId || '').trim();
+  const deptId = String(query?.departmentId || '').trim();
+  const teamId = String(query?.teamId || '').trim();
+  if (orgId) params.set('organizationId', orgId);
+  if (boardId) params.set('boardId', boardId);
+  if (deptId) params.set('departmentId', deptId);
+  if (teamId) params.set('teamId', teamId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+/** Alias — URL chính là /projects; giữ tên cũ cho caller. */
+export function buildCollaborateTasksPath(orgId = '', query = {}) {
+  return buildCollaborateProjectsPath(orgId, query);
 }
 
 export function buildCollaborateDocumentsPath(orgId = '') {

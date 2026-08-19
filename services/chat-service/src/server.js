@@ -22,6 +22,10 @@ const {
   runMessageSearchIndexerLoop,
   stopMessageSearchIndexer,
 } = require('./workers/messageSearchIndexer');
+const {
+  runProjectChatEventsConsumerLoop,
+  stopProjectChatEventsConsumer,
+} = require('./workers/projectChatEventsConsumer');
 const { startStorageGcScheduler } = require('./jobs/storageGc');
 
 const PORT = process.env.PORT || 3006;
@@ -59,6 +63,8 @@ connectDB(mongoUri)
 
     runOrgEventsConsumerLoop();
 
+    runProjectChatEventsConsumerLoop();
+
     runMessageSearchIndexerLoop();
 
     startStorageGcScheduler();
@@ -79,6 +85,7 @@ process.on('SIGTERM', async () => {
   try {
     await stopFriendDmConsumer();
     await stopOrgEventsConsumer();
+    await stopProjectChatEventsConsumer();
     await stopMessageSearchIndexer();
   } catch (e) {
     console.error('[chat-service] stop consumers', e.message);

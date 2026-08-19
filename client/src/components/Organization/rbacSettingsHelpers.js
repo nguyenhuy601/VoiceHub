@@ -100,7 +100,20 @@ export function isProtectedDefaultRole(role) {
 }
 
 export function normalizeRoleId(role) {
-  return String(role?.id || role?._id || '').trim();
+  if (role == null || role === '') return '';
+  if (typeof role === 'string' || typeof role === 'number') {
+    const id = String(role).trim();
+    if (!id || id === 'null' || id === 'undefined') return '';
+    return id;
+  }
+  if (typeof role === 'object') {
+    const nested = role.id || role._id || role.roleId;
+    if (nested && nested !== role) return normalizeRoleId(nested);
+    if (typeof role.toHexString === 'function') return role.toHexString();
+    const asString = String(role).trim();
+    if (asString && asString !== '[object Object]') return asString;
+  }
+  return '';
 }
 
 export function unwrapList(payload) {

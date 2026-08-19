@@ -23,6 +23,8 @@ const {
   syncAfterUpdate,
   syncAfterDelete,
 } = require('../search/messageSearchSync');
+const { mergeMongoFilter } = require('../utils/contextCallVisibility');
+const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
@@ -271,14 +273,18 @@ class MessageService {
         roomFilter.$in = ids.map((id) => new mongoose.Types.ObjectId(id));
       }
 
-      const messages = await Message.find({
+      const unreadFilter = {
         roomId: roomFilter,
         organizationId: { $exists: true, $ne: null },
         senderId: { $ne: uid },
         isRead: false,
         isDeleted: { $ne: true },
         isRecalled: { $ne: true },
-      })
+      };
+      const visClause = await visibilityMongoClauseForViewer(userId, null);
+      const queryFilter = visClause ? mergeMongoFilter(unreadFilter, visClause) : unreadFilter;
+
+      const messages = await Message.find(queryFilter)
         .sort({ createdAt: -1 })
         .limit(cap)
         .exec();
@@ -304,16 +310,27 @@ class MessageService {
         dmCacheKey,
         pageToken,
         fields = 'summary',
+        viewerUserId = null,
+        viewerOrganizationId = null,
       } = options;
       const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
       const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+
+      let queryFilter = filter;
+      if (viewerUserId) {
+        const visClause = await visibilityMongoClauseForViewer(
+          viewerUserId,
+          viewerOrganizationId || filter.organizationId
+        );
+        if (visClause) queryFilter = mergeMongoFilter(filter, visClause);
+      }
 
       if (pageToken) {
         const tokPart = pageTokenFilter(pageToken);
         if (!tokPart) {
           return { messages: [], nextPageToken: null, hasMore: false };
         }
-        const combined = { $and: [filter, tokPart] };
+        const combined = { $and: [queryFilter, tokPart] };
         const batch = await Message.find(combined)
           .sort(sort)
           .limit(lim + 1)
@@ -348,7 +365,7 @@ class MessageService {
         }
       }
 
-      const messages = await Message.find(filter)
+      const messages = await Message.find(queryFilter)
         .sort(sort)
         .limit(lim)
         .skip((pageNum - 1) * lim);
@@ -357,7 +374,7 @@ class MessageService {
         await maybeMigrateMessageContent(m);
       }
 
-      const total = await Message.countDocuments(filter);
+      const total = await Message.countDocuments(queryFilter);
 
       const mapped = messages.map((m) => toClientMessage(m, dtoOpts));
       const hasMore = pageNum * lim < total;
@@ -798,6 +815,7 @@ class MessageService {
         limit = 20,
         pageToken,
         fields = 'summary',
+        viewerUserId = null,
       } = params;
       const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
 
@@ -834,6 +852,11 @@ class MessageService {
         parts.push({ createdAt: r });
       }
       if (messageType) parts.push({ messageType });
+
+      if (viewerUserId) {
+        const visClause = await visibilityMongoClauseForViewer(viewerUserId, organizationId);
+        if (visClause) parts.push(visClause);
+      }
 
       const wantAttach =
         hasAttachment === true || hasAttachment === 'true' || hasAttachment === '1';

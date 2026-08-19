@@ -313,15 +313,13 @@ class UserService {
           typeof updateData.orgNicknames === 'object' ? updateData.orgNicknames : {};
         updateFields.orgNicknames = { ...prev, ...patch };
       }
-      Object.assign(
-        updateFields,
-        writePiiPatch({
-          bio: updateData.bio,
-          phone: updateData.phone,
-          location: updateData.location,
-          dateOfBirth: updateData.dateOfBirth,
-        })
-      );
+      const pii = writePiiPatch({
+        bio: updateData.bio,
+        phone: updateData.phone,
+        location: updateData.location,
+        dateOfBirth: updateData.dateOfBirth,
+      });
+      Object.assign(updateFields, pii.patch || {});
 
       const capabilityIntent = resolveCapabilityIntent(updateData, capabilityMode);
       if (capabilityIntent) {
@@ -346,11 +344,19 @@ class UserService {
         updateFields.capability = applied.capability;
       }
 
-      if (Object.keys(updateFields).length === 0) {
+      if (Object.keys(updateFields).length === 0 && !(pii.unset || []).length) {
         if (!existingProfile) {
           throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
         }
         return existingProfile;
+      }
+
+      const updateOp = {};
+      if (Object.keys(updateFields).length > 0) {
+        updateOp.$set = updateFields;
+      }
+      if ((pii.unset || []).length) {
+        updateOp.$unset = Object.fromEntries(pii.unset.map((k) => [k, 1]));
       }
 
       const userProfile = await UserProfile.findOneAndUpdate(

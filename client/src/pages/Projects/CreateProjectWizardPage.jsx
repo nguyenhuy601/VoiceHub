@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import toast from 'react-hot-toast';
 import CreateProjectWizard from '../../features/projects/CreateProjectWizard';
 import { taskAPI } from '../../services/api/taskAPI';
-import { buildCollaborateTasksPath } from '../../utils/suitePathUtils';
+import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { wizardUi } from '../../features/projects/wizard/projectWizardUi';
 
@@ -61,7 +61,7 @@ export default function CreateProjectWizardPage() {
       return;
     }
     if (organizationId) {
-      navigate(buildCollaborateTasksPath(organizationId, { boardId, projectId }));
+      navigate(buildCollaborateProjectHubPath(projectId, { organizationId, boardId }));
       return;
     }
     navigate('/app/collaborate/workspaces');

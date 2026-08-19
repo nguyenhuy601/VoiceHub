@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { taskAPI } from '../../services/api/taskAPI';
-import { useAppStrings } from '../../locales/appStrings';
-import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { taskAPI } from '../../../services/api/taskAPI';
+import { useAppStrings } from '../../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 
 export default function TaskBoardCardActionsMenu({
   isOpen,

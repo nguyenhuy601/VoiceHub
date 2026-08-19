@@ -4,6 +4,7 @@ const userService = require('../services/user.service');
 const { logger, getRedisClient } = require('@enterprise/shared');
 const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
+const { authEmailFromReq, withAuthEmailFallback } = require('../utils/withAuthEmailFallback');
 const { uploadsDir } = require('../config/uploadsPath');
 const {
   fetchAuthSummaryByUserId,
@@ -46,12 +47,6 @@ function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false }
   }
   payload.capability = toPublicVerifiedCapability(payload.capability);
   return payload;
-}
-
-function authEmailFromReq(req) {
-  return String(req.headers['x-user-email'] || req.user?.email || '')
-    .trim()
-    .toLowerCase();
 }
 
 function isSelfProfileRequest(req, targetUserId) {
@@ -99,18 +94,6 @@ async function reconcileProfileEmail(req, userId, userProfile) {
     }
   }
   return userProfile;
-}
-
-function withAuthEmailFallback(req, payload, authSummary = null) {
-  if (!payload || typeof payload !== 'object') return payload;
-  const authEmail =
-    String(payload.email || '').trim() ||
-    String(authSummary?.email || '').trim() ||
-    authEmailFromReq(req);
-  if (!String(payload.email || '').trim() && authEmail) {
-    return { ...payload, email: authEmail };
-  }
-  return payload;
 }
 
 async function enrichPayloadEmailFromAuth(userId, payload, authSummary = null) {
@@ -204,16 +187,18 @@ class UserController {
 
       userProfile = await reconcileProfileEmail(req, userId, userProfile);
 
+      const isSelf = isSelfProfileRequest(req, userId);
+      const payload = shapeProfilePayload(userProfile, {
+        isSelf,
+        isCompanyAdmin: false,
+      });
+      const data = isSelf
+        ? withAuthEmailFallback(req, payload, null, { allowCallerEmail: true })
+        : await enrichPayloadEmailFromAuth(userId, payload);
+
       res.json({
         success: true,
-        data: withAuthEmailFallback(
-          req,
-          shapeProfilePayload(userProfile, {
-            isSelf: isSelfProfileRequest(req, userId),
-            isCompanyAdmin: false,
-          }),
-          userId
-        ),
+        data,
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -336,7 +321,8 @@ class UserController {
         data: withAuthEmailFallback(
           req,
           shapeProfilePayload(userProfile, { isSelf: true }),
-          userId
+          null,
+          { allowCallerEmail: true }
         ),
       });
     } catch (error) {

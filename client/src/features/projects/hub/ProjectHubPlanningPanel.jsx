@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -13,7 +13,7 @@ import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
-import { ConfirmDialog } from '../../Shared';
+import { ConfirmDialog } from '../../../components/Shared';
 import ProjectHubBacklogIssueRow from './ProjectHubBacklogIssueRow';
 import WorkItemDetail from './WorkItemDetail';
 import { childWorkStats } from './projectHubBacklogStats';
@@ -32,7 +32,7 @@ import {
 } from './projectHubUtils';
 import { visibleCreateMenuTypes, isBoardCreateType, isPlanningCreateType } from './projectWorkTypes';
 import { useProjectWorkTypes } from './useProjectWorkTypes';
-import { isBacklogLevelTwoIssue, isBoardSprintReady, typesInBand } from './projectHubHierarchy';
+import { buildBacklogTree, isBoardSprintReady, typesInBand } from './projectHubHierarchy';
 
 const PLAN_VIEWS = [
   { id: 'backlog', labelKey: 'workspace.projectHubTabPlanning' },
@@ -99,6 +99,7 @@ export default function ProjectHubPlanningPanel({
   onOpenBoard = null,
   onOpenChangeRequest = null,
   workTypeConfig: serverWorkTypeConfig = null,
+  priorityConfig = null,
 }) {
   const { t } = useAppStrings();
   const [view, setView] = useState('backlog');
@@ -166,7 +167,8 @@ export default function ProjectHubPlanningPanel({
       subtask: canCreateTask,
     });
     const band2 = new Set(typesInBand(workTypeConfig, 1));
-    return menu.filter((id) => band2.has(id) || id === 'feature');
+    const band3 = new Set(typesInBand(workTypeConfig, 2));
+    return menu.filter((id) => band2.has(id) || band3.has(id) || id === 'feature');
   }, [
     workTypeConfig,
     canCreateEpic,
@@ -184,10 +186,6 @@ export default function ProjectHubPlanningPanel({
 
   const epics = useMemo(() => items.filter((i) => i.type === 'epic'), [items]);
   const features = useMemo(() => items.filter((i) => i.type === 'feature'), [items]);
-  const epicIdSet = useMemo(
-    () => new Set(epics.map((e) => String(e._id || e.id || '')).filter(Boolean)),
-    [epics]
-  );
   const roadmapItems = useMemo(
     () => items.filter((i) => ['roadmap', 'release', 'milestone', 'feature'].includes(i.type)),
     [items]
@@ -232,7 +230,7 @@ export default function ProjectHubPlanningPanel({
         issueType: 'feature',
         kind: 'planning',
         epicId: item.parentId || null,
-        sprintId: null,
+        sprintId: effectiveSprintId(item),
       });
     }
     return [...map.values()];
@@ -250,38 +248,79 @@ export default function ProjectHubPlanningPanel({
     [epicFilter, search]
   );
 
-  const issuesBySprint = useMemo(() => {
+  const cardsForTree = useMemo(
+    () => (Array.isArray(mergedBoardCards) ? mergedBoardCards : []).map((c) => ({ ...c, sprintId: effectiveSprintId(c) })),
+    [mergedBoardCards, effectiveSprintId]
+  );
+
+  const featuresForTree = useMemo(
+    () =>
+      (Array.isArray(features) ? features : []).map((f) => ({
+        ...f,
+        issueType: 'feature',
+        kind: 'planning',
+        epicId: f?.epicId ?? f?.parentId ?? null,
+        sprintId: effectiveSprintId(f),
+      })),
+    [features, effectiveSprintId]
+  );
+
+  const productBacklogTree = useMemo(
+    () =>
+      buildBacklogTree({
+        epics,
+        features: featuresForTree,
+        cards: cardsForTree,
+        config: workTypeConfig,
+        matchesFilters,
+        sprintId: null,
+      }),
+    [epics, featuresForTree, cardsForTree, workTypeConfig, matchesFilters]
+  );
+
+  const productBacklogRoots = productBacklogTree.roots || [];
+
+  const productBacklog = useMemo(
+    () => productBacklogRoots.map((r) => r.issue).filter(Boolean),
+    [productBacklogRoots]
+  );
+
+  const sprintBacklogTrees = useMemo(() => {
     const map = new Map();
-    for (const issue of allIssues) {
-      if (!isBacklogLevelTwoIssue(issue, workTypeConfig, epicIdSet)) continue;
-      const sid = String(issue.sprintId || '');
-      if (!sid || !matchesFilters(issue)) continue;
-      if (!map.has(sid)) map.set(sid, []);
-      map.get(sid).push(issue);
+    for (const sprint of sortedSprints) {
+      const sid = String(sprint?._id || sprint?.id || '');
+      if (!sid) continue;
+      const tree = buildBacklogTree({
+        epics,
+        features: featuresForTree,
+        cards: cardsForTree,
+        config: workTypeConfig,
+        matchesFilters,
+        sprintId: sid,
+      });
+      map.set(sid, tree.roots || []);
     }
     return map;
-  }, [allIssues, matchesFilters, workTypeConfig, epicIdSet]);
+  }, [sortedSprints, epics, featuresForTree, cardsForTree, workTypeConfig, matchesFilters]);
+
+  const issuesBySprint = useMemo(() => {
+    const map = new Map();
+    for (const [sid, roots] of sprintBacklogTrees.entries()) {
+      map.set(sid, (roots || []).map((r) => r.issue).filter(Boolean));
+    }
+    return map;
+  }, [sprintBacklogTrees]);
 
   const memberIdsBySprintId = useMemo(
     () => buildSprintMemberIdsBySprintId(allIssues),
     [allIssues]
   );
 
-  const productBacklog = useMemo(
-    () =>
-      allIssues.filter(
-        (issue) =>
-          !issue.sprintId &&
-          matchesFilters(issue) &&
-          isBacklogLevelTwoIssue(issue, workTypeConfig, epicIdSet)
-      ),
-    [allIssues, matchesFilters, workTypeConfig, epicIdSet]
-  );
-
   const backlogCounts = useMemo(
     () => countIssuesByStatusBucket(productBacklog, lists),
     [productBacklog, lists]
   );
+
 
   const detailIssue = useMemo(
     () => allIssues.find((row) => String(row._id || row.id) === String(detailIssueId)) || null,
@@ -332,6 +371,11 @@ export default function ProjectHubPlanningPanel({
           cardIds.includes(String(c._id || c.id)) ? { ...c, sprintId } : c
         )
       );
+      patchPlanning((prev) =>
+        prev.map((p) =>
+          cardIds.includes(String(p._id || p.id)) ? { ...p, sprintId } : p
+        )
+      );
     } catch (err) {
       setSprintOverride(prev);
       toast.error(
@@ -361,6 +405,11 @@ export default function ProjectHubPlanningPanel({
           cardIds.includes(String(c._id || c.id)) ? { ...c, sprintId: null } : c
         )
       );
+      patchPlanning((prev) =>
+        prev.map((p) =>
+          cardIds.includes(String(p._id || p.id)) ? { ...p, sprintId: null } : p
+        )
+      );
     } catch (err) {
       setSprintOverride(prev);
       toast.error(
@@ -378,10 +427,7 @@ export default function ProjectHubPlanningPanel({
     const fromContainer = String(active.data?.current?.containerId || '');
     const dest = resolveDropContainer(over);
     if (!issueId || !dest || dest === fromContainer) return;
-    const cardIds = idsForDrag(issueId).filter((id) => {
-      const issue = allIssues.find((row) => String(row._id || row.id) === String(id));
-      return issue && !isPlanningFeature(issue);
-    });
+    const cardIds = idsForDrag(issueId);
     if (!cardIds.length) return;
     if (dest.startsWith('sprint:')) {
       await moveToSprint(cardIds, dest.slice('sprint:'.length));
@@ -560,7 +606,8 @@ export default function ProjectHubPlanningPanel({
 
     if (!hasBoardColumn) return;
 
-    if (typeId === 'subtask') {
+    const band3Types = new Set(typesInBand(workTypeConfig, 2));
+    if (typeId === 'subtask' || band3Types.has(typeId)) {
       const parentId = [...selectedIds][0];
       if (!parentId) {
         toast.error(t('workspace.projectHubBacklogSubtaskNeedParent'));
@@ -808,15 +855,17 @@ export default function ProjectHubPlanningPanel({
     }
   };
 
-  const renderIssueRow = (issue, containerId) => (
+
+  const renderIssueRow = (issue, containerId, { depth = 0, hasChildren = false } = {}) => (
     <ProjectHubBacklogIssueRow
-      key={issue._id}
+      key={issue?._id || issue?.id}
       issue={issue}
       lists={lists}
       epics={epics}
       projectCode={projectCode}
       containerId={containerId}
-      selected={selectedIds.has(String(issue._id))}
+      depth={depth}
+      selected={selectedIds.has(String(issue?._id || issue?.id))}
       onToggleSelect={toggleSelect}
       canDelete={canDeleteIssue}
       canLinkEpic={canLinkEpic}
@@ -828,8 +877,16 @@ export default function ProjectHubPlanningPanel({
       isDarkMode={isDarkMode}
       t={t}
       busy={busy}
-      childStats={childWorkStats(mergedBoardCards, issue._id || issue.id, lists)}
+      childStats={childWorkStats(
+        mergedBoardCards,
+        issue?._id || issue?.id,
+        lists,
+        issue?.issueType || issue?.type || null
+      )}
       onOpen={setDetailIssueId}
+      expanded={hasChildren}
+      onToggleExpand={null}
+      hasChildren={hasChildren}
     />
   );
 
@@ -934,6 +991,7 @@ export default function ProjectHubPlanningPanel({
                 sortedSprints.map((sprint) => {
                   const sid = String(sprint._id);
                   const sprintIssues = issuesBySprint.get(sid) || [];
+                  const sprintRoots = sprintBacklogTrees.get(sid) || [];
                   return (
                     <ProjectHubSprintSection
                       key={sprint._id}
@@ -961,7 +1019,14 @@ export default function ProjectHubPlanningPanel({
                       t={t}
                       isDarkMode={isDarkMode}
                     >
-                      {sprintIssues.map((issue) => renderIssueRow(issue, `sprint:${sid}`))}
+                      {sprintRoots.map((root) => {
+                        const rootId = String(root?.issue?._id || root?.issue?.id || '');
+                        const children = Array.isArray(root?.children) ? root.children : [];
+                        return renderIssueRow(root.issue, `sprint:${sid}`, {
+                          depth: 0,
+                          hasChildren: children.length > 0,
+                        });
+                      })}
                     </ProjectHubSprintSection>
                   );
                 })
@@ -1005,7 +1070,13 @@ export default function ProjectHubPlanningPanel({
                           {t('workspace.projectHubPlanBacklogEmpty')}
                         </p>
                       ) : (
-                        productBacklog.map((issue) => renderIssueRow(issue, 'backlog'))
+                        productBacklogRoots.map((root) => {
+                          const children = Array.isArray(root?.children) ? root.children : [];
+                          return renderIssueRow(root.issue, 'backlog', {
+                            depth: 0,
+                            hasChildren: children.length > 0,
+                          });
+                        })
                       )}
                     </BacklogDropZone>
                     <ProjectHubInlineCreateBar
@@ -1169,12 +1240,14 @@ export default function ProjectHubPlanningPanel({
         canComment={canChangeStatus}
         canChangeStatus={canChangeStatus}
         workTypeConfig={workTypeConfig}
+        priorityConfig={priorityConfig}
         onClose={() => setDetailIssueId('')}
         onOpenWorkItem={(card) => {
           const id = String(card?._id || card?.id || '');
           if (id) setDetailIssueId(id);
         }}
         onPatchBoardCards={patchCards}
+        onPatchPlanningItems={onPatchPlanningItems}
         onOpenChangeRequest={onOpenChangeRequest}
         onUpdateCard={async (cardId, patch) => {
           patchCards((cards) =>

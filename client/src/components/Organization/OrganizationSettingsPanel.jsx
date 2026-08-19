@@ -22,11 +22,13 @@ import {
   FIGMA_TAB_ACTIVE,
   FIGMA_TAB_INACTIVE,
 } from '../Layout/figmaPageClasses';
-import OrganizationSettingsFigmaLayout from '../Workspace/OrganizationSettingsFigmaLayout';
+import OrganizationSettingsFigmaLayout from './OrganizationSettingsFigmaLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import OrganizationRbacSettings from './OrganizationRbacSettings';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 import {
@@ -164,10 +166,13 @@ function OrganizationSettingsPanel({
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
 
-  const isFullAccess = useMemo(
+  const isOrgOwnerOrAdmin = useMemo(
     () => myRole === 'owner' || myRole === 'admin',
     [myRole]
   );
+  const isFullAccess = isOrgOwnerOrAdmin;
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('general');
@@ -603,6 +608,10 @@ function OrganizationSettingsPanel({
   };
 
   const openCreateTeamModal = () => {
+    if (!canCreateTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const fallbackBranchId =
       manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
     const branch = resolveBranchById(fallbackBranchId);
@@ -624,6 +633,10 @@ function OrganizationSettingsPanel({
   };
 
   const handleCreateTeam = async () => {
+    if (!canCreateTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     if (!orgId || !createTeamDepartmentId || !createTeamName.trim()) return;
     try {
       await organizationAPI.createTeamByDepartment(orgId, createTeamDepartmentId, {
@@ -1053,6 +1066,7 @@ function OrganizationSettingsPanel({
                           {t('organizationSettings.createDepartmentBtn')}
                         </button>
                       </div>
+                      {canCreateTeam ? (
                       <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
@@ -1062,6 +1076,7 @@ function OrganizationSettingsPanel({
                           {t('organizationSettings.openCreateTeamForm')}
                         </button>
                       </div>
+                      ) : null}
                       <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"

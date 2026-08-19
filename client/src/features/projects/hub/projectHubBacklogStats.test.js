@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cardsUnderParent, childWorkStats } from './projectHubBacklogStats.js';
+import { cardsUnderParent, childWorkStats, directChildCards } from './projectHubBacklogStats.js';
 
 const lists = [
   { _id: 'l-todo', title: 'To Do', statusKey: 'todo' },
@@ -55,4 +55,18 @@ test('cardsUnderParent: chỉ con trực tiếp', () => {
     cardsUnderParent(cards, 'p1').map((c) => c._id),
     ['c1', 'c2']
   );
+});
+
+test('directChildCards / childWorkStats: Feature theo featureId, bỏ subtask', () => {
+  const cards = [
+    { _id: 't1', featureId: 'f1', listId: 'l-todo' },
+    { _id: 't2', featureId: 'f1', listId: 'l-done' },
+    { _id: 's1', featureId: 'f1', parentTaskId: 't1', listId: 'l-todo' },
+    { _id: 't3', featureId: 'f2', listId: 'l-todo' },
+  ];
+  assert.deepEqual(
+    directChildCards(cards, 'f1', 'feature').map((c) => c._id),
+    ['t1', 't2']
+  );
+  assert.deepEqual(childWorkStats(cards, 'f1', lists, 'feature'), { total: 2, done: 1 });
 });

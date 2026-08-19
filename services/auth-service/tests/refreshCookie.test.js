@@ -113,6 +113,15 @@ describe('refreshCookie helpers', () => {
     );
   });
 
+  it('shouldClearCookiesOnRefreshFailure only for AUTH_REFRESH_INVALID', () => {
+    const { shouldClearCookiesOnRefreshFailure } = require('../src/utils/refreshCookie');
+    assert.equal(shouldClearCookiesOnRefreshFailure({ errorCode: 'AUTH_REFRESH_INVALID' }), true);
+    assert.equal(shouldClearCookiesOnRefreshFailure({ errorCode: 'AUTH_REFRESH_FAILED' }), false);
+    assert.equal(shouldClearCookiesOnRefreshFailure({ errorCode: 'AUTH_DB_UNAVAILABLE', statusCode: 503 }), false);
+    assert.equal(shouldClearCookiesOnRefreshFailure(new Error('mongo timeout')), false);
+    assert.equal(shouldClearCookiesOnRefreshFailure(null), false);
+  });
+
   it('readRefreshTokenFromReq reads cookie-parser or Cookie header', () => {
     const { readRefreshTokenFromReq, getRefreshCookieName } = require('../src/utils/refreshCookie');
     const name = getRefreshCookieName();
