@@ -1,5 +1,8 @@
 /** Helpers cho Project Hub (Collaborate Tasks). */
 
+import { HISTORY_FIELD_I18N } from './WorkItemDetail/workItemDetailUtils.js';
+import { normalizePriorityConfig, slugPriorityKey } from './projectPriorityConfig.js';
+
 export const PROJECT_HUB_TABS = [
   { id: 'overview', labelKey: 'workspace.projectHubTabOverview' },
   { id: 'list', labelKey: 'workspace.projectHubTabList' },
@@ -36,6 +39,25 @@ export function countCardsByIssueType(cards = []) {
   return out;
 }
 
+/** Đếm epic / feature trên planning backlog (Overview). */
+export function countPlanningByType(planningItems = []) {
+  let epic = 0;
+  let feature = 0;
+  for (const item of planningItems || []) {
+    const type = String(item?.type || '').toLowerCase();
+    if (type === 'epic') epic += 1;
+    else if (type === 'feature') feature += 1;
+  }
+  return { epic, feature };
+}
+
+/** Số thẻ board gắn sprintId. */
+export function countCardsInSprint(cards = [], sprintId) {
+  const sid = String(sprintId || '').trim();
+  if (!sid) return 0;
+  return (cards || []).filter((c) => String(c?.sprintId || '').trim() === sid).length;
+}
+
 export function computeHubBoardSummary(cards = [], lists = []) {
   const listById = new Map((lists || []).map((l) => [String(l._id), l]));
   const total = (cards || []).length;
@@ -55,6 +77,47 @@ export function computeHubBoardSummary(cards = [], lists = []) {
   }
   const donePercent = total ? Math.round((done / total) * 100) : 0;
   return { total, done, donePercent, overdue, inReview };
+}
+
+function hubCardStatusText(card, listById) {
+  const list = listById.get(String(card?.listId || card?.list || ''));
+  return String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+}
+
+function isHubCardDoneStatus(status) {
+  const s = String(status || '').toLowerCase();
+  return s.includes('done') || s.includes('complete') || s === 'done';
+}
+
+/**
+ * Hạng mục mở quá hạn / đang duyệt — tooltip KPI & banner Attention.
+ * @param {'overdue'|'inReview'} kind
+ * @returns {{ id: string, title: string }[]}
+ */
+export function listHubHealthCards(cards = [], lists = [], kind = 'overdue', { limit = 12 } = {}) {
+  const listById = hubListById(lists);
+  const now = Date.now();
+  const want = String(kind || '').toLowerCase();
+  const out = [];
+  for (const card of cards || []) {
+    const status = hubCardStatusText(card, listById);
+    if (want === 'overdue') {
+      if (isHubCardDoneStatus(status)) continue;
+      const due = card?.dueDate ? new Date(card.dueDate).getTime() : NaN;
+      if (!(Number.isFinite(due) && due < now)) continue;
+    } else if (want === 'inreview' || want === 'in_review') {
+      if (!status.includes('review')) continue;
+    } else {
+      continue;
+    }
+    out.push({
+      id: String(card._id || card.id || ''),
+      title: String(card.title || '').trim() || '—',
+    });
+  }
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  const cap = Math.max(1, Number(limit) || 12);
+  return out.slice(0, cap);
 }
 
 export function collectCardAttachments(cards = []) {
@@ -91,6 +154,303 @@ export function collectCardActivity(cards = [], limit = 20) {
     .filter((e) => e.at)
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
     .slice(0, limit);
+}
+
+function hubListById(lists = []) {
+  return new Map((lists || []).map((l) => [String(l._id), l]));
+}
+
+export function isHubCardOpen(card, listById) {
+  const list = listById.get(String(card?.listId || card?.list || ''));
+  const status = String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+  return !(status.includes('done') || status.includes('complete') || status === 'done');
+}
+
+/** Số thẻ đang mở chưa có assignee (Overview KPI optional). */
+export function countUnassignedOpenCards(cards = [], lists = []) {
+  const listById = hubListById(lists);
+  return (cards || []).filter(
+    (card) =>
+      isHubCardOpen(card, listById) &&
+      !String(card.assigneeId || '').trim() &&
+      !String(card.assigneeName || '').trim()
+  ).length;
+}
+
+/** Tổng estimateHours trên thẻ đang mở (Overview KPI optional). */
+export function sumOpenCardEstimateHours(cards = [], lists = []) {
+  const listById = hubListById(lists);
+  return (cards || []).reduce((sum, card) => {
+    if (!isHubCardOpen(card, listById)) return sum;
+    const h = Number(card.estimateHours);
+    if (!Number.isFinite(h) || h <= 0) return sum;
+    return sum + h;
+  }, 0);
+}
+
+/** i18n nhãn status project (planning, ready_for_planning, …). */
+export function formatHubProjectStatus(status, t) {
+  const raw = String(status || '').trim();
+  if (!raw) return '';
+  const norm = raw.toLowerCase().replace(/[\s-]+/g, '_');
+  const key = `workspace.projectHubProjectStatus_${norm}`;
+  const label = t(key);
+  return label === key ? raw : label;
+}
+
+/** i18n methodology (kanban / scrum / waterfall). */
+export function formatHubMethodology(methodology, t) {
+  const raw = String(methodology || '').trim();
+  if (!raw) return '';
+  const key = `workspace.projectHubMethodology_${raw.toLowerCase()}`;
+  const label = t(key);
+  return label === key ? raw : label;
+}
+
+/**
+ * Tín hiệu Attention cho Overview (không health score tổng hợp).
+ * overdue >= 1 → attention; ngược lại on_track.
+ */
+export function hubAttentionState({ overdue } = {}) {
+  const n = Number(overdue);
+  if (!Number.isFinite(n) || n < 0) return 'on_track';
+  return n >= 1 ? 'attention' : 'on_track';
+}
+
+/**
+ * Ranking Action Center: Overdue → Due soon → In Review → Unassigned → other.
+ */
+export function hubActionAttentionRank({ dueTone, isInReview, hasAssignee } = {}) {
+  if (dueTone === 'overdue') return 0;
+  if (dueTone === 'soon') return 1;
+  if (isInReview) return 2;
+  if (!hasAssignee) return 3;
+  return 4;
+}
+
+function hubCardAssigneeName(card) {
+  const named = String(card?.assigneeName || '').trim();
+  if (named) return named;
+  const first = Array.isArray(card?.assignees) ? card.assignees[0] : null;
+  return String(first?.displayName || first?.name || first?.username || '').trim();
+}
+
+function hubCardHasAssignee(card) {
+  return Boolean(String(card?.assigneeId || '').trim() || hubCardAssigneeName(card));
+}
+
+function hubCardIsInReview(card, list) {
+  const status = String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+  return status.includes('review');
+}
+
+/**
+ * Việc cần chú ý trên Overview: thẻ chưa done, ranking Action Center.
+ */
+export function pickNextHubActions(cards = [], lists = [], { limit = 5, projectCode = '' } = {}) {
+  const listById = hubListById(lists);
+  const ranked = (cards || [])
+    .filter((card) => isHubCardOpen(card, listById))
+    .map((card) => {
+      const list = listById.get(String(card?.listId || card?.list || ''));
+      const dueRaw = card.dueDate || card.targetDate || null;
+      const dueTs = dueRaw ? new Date(dueRaw).getTime() : NaN;
+      const hasDue = Number.isFinite(dueTs);
+      const dueTone = dueDateTone(dueRaw, card.status || list);
+      const isInReview = hubCardIsInReview(card, list);
+      const hasAssignee = hubCardHasAssignee(card);
+      return {
+        card,
+        list,
+        dueRaw,
+        dueTs: hasDue ? dueTs : Number.POSITIVE_INFINITY,
+        dueTone,
+        attentionRank: hubActionAttentionRank({ dueTone, isInReview, hasAssignee }),
+      };
+    });
+
+  ranked.sort((a, b) => {
+    if (a.attentionRank !== b.attentionRank) return a.attentionRank - b.attentionRank;
+    if (a.dueTs !== b.dueTs) return a.dueTs - b.dueTs;
+    return String(a.card.title || '').localeCompare(String(b.card.title || ''));
+  });
+
+  return ranked.slice(0, limit).map(({ card, list, dueRaw, dueTone, attentionRank }) => {
+    const id = String(card._id || card.id);
+    return {
+      id,
+      title: String(card.title || ''),
+      issueKey: displayIssueKey(projectCode, id),
+      issueType: card.issueType || card.type || 'task',
+      statusLabel: String(list?.title || card.status || list?.statusKey || '').trim(),
+      statusKey: String(card.status || list?.statusKey || '').trim(),
+      assigneeName: hubCardAssigneeName(card),
+      dueDate: dueRaw,
+      dueTone,
+      attentionRank,
+    };
+  });
+}
+
+function hubActivityPayload(raw) {
+  return raw?.payload && typeof raw.payload === 'object' ? raw.payload : {};
+}
+
+/** Chuẩn hoá TaskActivityLog (BE) → field/from/to giống workHistoryDiff.mapLogRow. */
+export function normalizeHubActivityRow(raw) {
+  const type = String(raw?.type || '');
+  const payload = hubActivityPayload(raw);
+  const workTitle = String(raw?.title || payload.title || '').trim();
+  const base = {
+    id: String(raw?._id || raw?.id || ''),
+    at: raw?.createdAt || raw?.at || null,
+    workTitle,
+    type,
+    field: '',
+    from: null,
+    to: null,
+  };
+
+  if (type === 'work.field_changed') {
+    return {
+      ...base,
+      field: String(payload.field || ''),
+      from: payload.from === undefined ? null : payload.from,
+      to: payload.to === undefined ? null : payload.to,
+    };
+  }
+  if (type === 'estimate_updated') {
+    return {
+      ...base,
+      field: 'estimateHours',
+      from: payload.before === undefined ? null : payload.before,
+      to: payload.after === undefined ? null : payload.after,
+    };
+  }
+  if (type === 'task.created' || type === 'task.subtask_created') {
+    return { ...base, field: 'issue', from: null, to: workTitle || null };
+  }
+  if (type === 'worklog_added') {
+    return {
+      ...base,
+      field: 'worklog',
+      from: null,
+      to: payload.hours != null ? payload.hours : workTitle || null,
+    };
+  }
+  if (type === 'task.updated') {
+    const fields = Array.isArray(payload.fields) ? payload.fields : [];
+    if (fields.length === 1) {
+      return { ...base, field: String(fields[0]), from: null, to: null };
+    }
+    if (fields.length > 1) {
+      return { ...base, field: fields.map(String).join(','), from: null, to: null };
+    }
+    return { ...base, field: 'issue', from: null, to: null };
+  }
+  return { ...base, field: type || 'issue', from: null, to: null };
+}
+
+function hubActivityFieldLabel(field, t) {
+  const key = String(field || '').trim();
+  if (!key) return t('workspace.projectHubWorkFieldIssue');
+  if (key.includes(',')) {
+    return key
+      .split(',')
+      .map((part) => hubActivityFieldLabel(part.trim(), t))
+      .filter(Boolean)
+      .join(', ');
+  }
+  const i18nKey = HISTORY_FIELD_I18N[key];
+  return i18nKey ? t(i18nKey) : key;
+}
+
+function formatHubActivityValue(value, t, locale = 'vi') {
+  if (value === null || value === undefined || value === '') {
+    return t('workspace.projectHubWorkNone');
+  }
+  if (Array.isArray(value)) {
+    return value.length ? value.join(', ') : t('workspace.projectHubWorkNone');
+  }
+  if (typeof value === 'object') {
+    const nested = value?.title || value?.name || value?.label;
+    if (nested) return String(nested);
+    if (value._id || value.id) return String(value._id || value.id);
+  }
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return formatHubDate(text, locale);
+  }
+  return text;
+}
+
+/** Một dòng mô tả activity (i18n), không trả raw type/field key. */
+export function formatHubActivityLine(row, t, { locale = 'vi' } = {}) {
+  const norm =
+    row && Object.prototype.hasOwnProperty.call(row, 'field') && !row?.payload
+      ? row
+      : normalizeHubActivityRow(row);
+  const field = String(norm.field || '');
+  const fieldLabel = hubActivityFieldLabel(field, t);
+
+  if (field === 'issue') {
+    return t('workspace.projectHubActivityCreated');
+  }
+  if (field.includes(',')) {
+    return t('workspace.projectHubActivityUpdatedMultiple', { fields: fieldLabel });
+  }
+
+  const verbKey =
+    field === 'parentId' || field === 'parentTaskId' || field === 'epicId'
+      ? 'workspace.projectHubActivityChanged'
+      : 'workspace.projectHubActivityUpdated';
+
+  let line = t(verbKey, { field: fieldLabel });
+
+  if (
+    field !== 'comment' &&
+    field !== 'issue' &&
+    ((norm.from !== null && norm.from !== undefined && norm.from !== '') ||
+      (norm.to !== null && norm.to !== undefined && norm.to !== ''))
+  ) {
+    const from = formatHubActivityValue(norm.from, t, locale);
+    const to = formatHubActivityValue(norm.to, t, locale);
+    line = `${line}: ${from} → ${to}`;
+  }
+
+  return line;
+}
+
+/** Map activity API / fallback card → item hiển thị Overview & Activity tab. */
+export function mapHubActivityItem(raw, t, { locale = 'vi', members = [] } = {}) {
+  if (raw?.kind === 'card') {
+    return {
+      id: raw.id,
+      at: raw.at,
+      title: raw.title,
+      detail: t('workspace.projectHubActivityCardUpdated'),
+      assigneeName: raw.assigneeName || '',
+      actorName: '',
+    };
+  }
+
+  const norm = normalizeHubActivityRow(raw);
+  const actor = resolveHubActor(
+    {
+      createdBy: raw?.actorId,
+      createdByName: raw?.actorName,
+      reporterName: raw?.actorName,
+    },
+    members
+  );
+  return {
+    id: norm.id || `${norm.type}-${norm.at}`,
+    at: norm.at,
+    title: norm.workTitle || t('workspace.projectHubActivityUntitledWork'),
+    detail: formatHubActivityLine(norm, t, { locale }),
+    assigneeName: '',
+    actorName: actor?.name || '',
+  };
 }
 
 export function formatHubDate(value, locale = 'vi') {
@@ -349,6 +709,24 @@ export function statusBucketPillClass(bucket) {
   return 'border-border bg-muted text-muted-foreground';
 }
 
+/**
+ * Màu bar Timeline theo status bucket; overdue ưu tiên destructive.
+ * Token design system — không hex.
+ */
+export function timelineBarToneClass({ bucket, dueTone } = {}) {
+  if (dueTone === 'overdue') return 'bg-destructive';
+  if (bucket === 'done') return 'bg-success';
+  if (bucket === 'progress') return 'bg-primary';
+  return 'bg-primary/40 ring-1 ring-inset ring-primary/25';
+}
+
+export function timelineBarForegroundClass({ bucket, dueTone } = {}) {
+  if (dueTone === 'overdue' || bucket === 'done' || bucket === 'progress') {
+    return 'text-primary-foreground';
+  }
+  return 'text-foreground';
+}
+
 export function childWorkProgressPct(done, total) {
   const t = Number(total) || 0;
   if (t <= 0) return 0;
@@ -458,6 +836,524 @@ export function countIssuesByStatusBucket(issues = [], lists = []) {
     out[bucket] += 1;
   }
   return out;
+}
+
+const OVERVIEW_STATUS_SEGMENTS = [
+  {
+    key: 'todo',
+    labelKey: 'workspace.projectHubBacklogStatusTodo',
+    /* Xám rõ trên dark/light — không primary (trùng In Progress). */
+    barClass: 'bg-muted-foreground',
+    fillClass: 'fill-muted-foreground',
+  },
+  {
+    key: 'progress',
+    labelKey: 'workspace.projectHubBacklogStatusProgress',
+    barClass: 'bg-primary',
+    fillClass: 'fill-primary',
+  },
+  {
+    key: 'done',
+    labelKey: 'workspace.projectHubBacklogStatusDone',
+    barClass: 'bg-success',
+    fillClass: 'fill-success',
+  },
+];
+
+const OVERVIEW_TYPE_SEGMENTS = [
+  {
+    key: 'story',
+    labelKey: 'workspace.projectHubStatStories',
+    barClass: 'bg-primary',
+  },
+  {
+    key: 'task',
+    labelKey: 'workspace.projectHubStatTasks',
+    barClass: 'bg-muted-foreground/45',
+  },
+  {
+    key: 'bug',
+    labelKey: 'workspace.projectHubStatBugs',
+    barClass: 'bg-destructive',
+  },
+];
+
+const OVERVIEW_PRIORITY_BAR_CLASS = {
+  urgent: 'bg-destructive',
+  high: 'bg-warning',
+  medium: 'bg-primary',
+  low: 'bg-muted-foreground/35',
+  none: 'bg-muted-foreground/25',
+};
+
+const OVERVIEW_PRIORITY_FILL_CLASS = {
+  urgent: 'fill-destructive',
+  high: 'fill-warning',
+  medium: 'fill-primary',
+  low: 'fill-muted-foreground/40',
+  none: 'fill-muted-foreground/30',
+};
+
+const OVERVIEW_PRIORITY_LABEL_KEY = {
+  urgent: 'workspace.projectHubPriorityUrgent',
+  high: 'workspace.projectHubPriorityHigh',
+  medium: 'workspace.projectHubPriorityMedium',
+  low: 'workspace.projectHubPriorityLow',
+  none: 'workspace.projectHubOverviewPriorityNone',
+};
+
+function overviewPct(count, total) {
+  const t = Number(total) || 0;
+  if (t <= 0) return 0;
+  return Math.round(((Number(count) || 0) / t) * 100);
+}
+
+function overviewPolar(cx, cy, r, angleDeg) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+}
+
+/** Path annulus (donut slice) — góc 0 = đỉnh, chiều kim đồng hồ. */
+export function overviewDonutAnnulusPath(cx, cy, outerR, innerR, startAngle, sweep) {
+  const s = Number(sweep) || 0;
+  if (s <= 0.001) return '';
+  if (s >= 359.999) {
+    const [ot, oy] = overviewPolar(cx, cy, outerR, 0);
+    const [obx, oby] = overviewPolar(cx, cy, outerR, 180);
+    const [it, iy] = overviewPolar(cx, cy, innerR, 0);
+    const [ibx, iby] = overviewPolar(cx, cy, innerR, 180);
+    return [
+      `M ${ot} ${oy}`,
+      `A ${outerR} ${outerR} 0 1 1 ${obx} ${oby}`,
+      `A ${outerR} ${outerR} 0 1 1 ${ot} ${oy}`,
+      `M ${it} ${iy}`,
+      `A ${innerR} ${innerR} 0 1 0 ${ibx} ${iby}`,
+      `A ${innerR} ${innerR} 0 1 0 ${it} ${iy}`,
+      'Z',
+    ].join(' ');
+  }
+  const end = Number(startAngle) + s;
+  const [ox1, oy1] = overviewPolar(cx, cy, outerR, startAngle);
+  const [ox2, oy2] = overviewPolar(cx, cy, outerR, end);
+  const [ix1, iy1] = overviewPolar(cx, cy, innerR, end);
+  const [ix2, iy2] = overviewPolar(cx, cy, innerR, startAngle);
+  const large = s > 180 ? 1 : 0;
+  return [
+    `M ${ox1} ${oy1}`,
+    `A ${outerR} ${outerR} 0 ${large} 1 ${ox2} ${oy2}`,
+    `L ${ix1} ${iy1}`,
+    `A ${innerR} ${innerR} 0 ${large} 0 ${ix2} ${iy2}`,
+    'Z',
+  ].join(' ');
+}
+
+/**
+ * Leader-line kiểu ClickUp: rim → radial elbow → ngang tới neo chữ.
+ * Góc 0 = đỉnh; chỉ segment có sweep > 0.
+ */
+export function overviewDonutCalloutPoints(
+  segments = [],
+  { cx = 100, cy = 80, rimR = 40, elbowR = 52, labelPad = 14, labelX = null } = {}
+) {
+  const rightX = Number.isFinite(labelX) ? labelX : cx + elbowR + labelPad + 8;
+  const leftX = Number.isFinite(labelX) ? 2 * cx - labelX : cx - elbowR - labelPad - 8;
+  return (segments || [])
+    .filter((seg) => Number(seg.sweepAngle) > 0.5)
+    .map((seg) => {
+      const mid = Number.isFinite(seg.midAngle)
+        ? seg.midAngle
+        : Number(seg.startAngle) + Number(seg.sweepAngle) / 2;
+      const norm = ((mid % 360) + 360) % 360;
+      // Nửa phải vòng (0–180 theo polar từ đỉnh) → chữ bên phải.
+      const onRight = norm >= 0 && norm < 180;
+      const [x1, y1] = overviewPolar(cx, cy, rimR, mid);
+      const [x2, y2] = overviewPolar(cx, cy, elbowR, mid);
+      const x3 = onRight ? rightX : leftX;
+      const y3 = y2;
+      return {
+        key: seg.key,
+        midAngle: mid,
+        x1,
+        y1,
+        x2,
+        y2,
+        x3,
+        y3,
+        textAnchor: onRight ? 'start' : 'end',
+        dx: onRight ? 5 : -5,
+        count: Number(seg.count) || 0,
+        pct: Number(seg.pct) || 0,
+        labelKey: seg.labelKey || '',
+        label: seg.label || '',
+        fillClass: seg.fillClass || '',
+        barClass: seg.barClass || '',
+      };
+    });
+}
+
+/** Card có field priority khác rỗng → đủ dữ liệu vẽ Priority chart. */
+export function cardsHavePriorityField(cards = []) {
+  return (cards || []).some((card) => {
+    if (!card || typeof card !== 'object') return false;
+    if (!Object.prototype.hasOwnProperty.call(card, 'priority')) return false;
+    const raw = card.priority;
+    return raw != null && String(raw).trim() !== '';
+  });
+}
+
+function countCardsByPriority(cards = [], priorityConfig) {
+  const { items } = normalizePriorityConfig(priorityConfig);
+  const counts = new Map(items.map((i) => [i.key, 0]));
+  let none = 0;
+  for (const card of cards || []) {
+    if (!Object.prototype.hasOwnProperty.call(card || {}, 'priority')) {
+      none += 1;
+      continue;
+    }
+    const raw = card.priority;
+    if (raw == null || String(raw).trim() === '') {
+      none += 1;
+      continue;
+    }
+    const key = slugPriorityKey(raw);
+    if (!key) {
+      none += 1;
+      continue;
+    }
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const rows = items.map((item) => ({
+    key: item.key,
+    label: item.label,
+    labelKey: OVERVIEW_PRIORITY_LABEL_KEY[item.key] || '',
+    barClass: OVERVIEW_PRIORITY_BAR_CLASS[item.key] || 'bg-muted-foreground/30',
+    fillClass: OVERVIEW_PRIORITY_FILL_CLASS[item.key] || 'fill-muted-foreground/30',
+    count: counts.get(item.key) || 0,
+  }));
+  const knownKeys = new Set(items.map((i) => i.key));
+  for (const [key, count] of counts.entries()) {
+    if (knownKeys.has(key) || !count) continue;
+    rows.push({
+      key,
+      label: key,
+      labelKey: '',
+      barClass: 'bg-muted-foreground/30',
+      fillClass: 'fill-muted-foreground/30',
+      count,
+    });
+  }
+  if (none > 0) {
+    rows.push({
+      key: 'none',
+      label: 'None',
+      labelKey: OVERVIEW_PRIORITY_LABEL_KEY.none,
+      barClass: OVERVIEW_PRIORITY_BAR_CLASS.none,
+      fillClass: OVERVIEW_PRIORITY_FILL_CLASS.none,
+      count: none,
+    });
+  }
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  // Catalog (Low/Medium/High/Urgent) luôn giữ đủ cột; "none" chỉ khi có count.
+  const catalogKeys = new Set(items.map((i) => i.key));
+  const segments = rows
+    .filter((row) => catalogKeys.has(row.key) || row.count > 0)
+    .map((row) => ({ ...row, pct: overviewPct(row.count, total) }));
+  return { total, segments };
+}
+
+/** Palette người gán — không dùng muted (dành Unassigned). */
+const OVERVIEW_ASSIGNEE_FILL = [
+  'fill-primary',
+  'fill-success',
+  'fill-warning',
+  'fill-destructive',
+  'fill-primary/60',
+  'fill-success/70',
+];
+
+const OVERVIEW_ASSIGNEE_BAR = [
+  'bg-primary',
+  'bg-success',
+  'bg-warning',
+  'bg-destructive',
+  'bg-primary/60',
+  'bg-success/70',
+];
+
+const OVERVIEW_ASSIGNEE_UNASSIGNED_FILL = 'fill-muted-foreground/45';
+const OVERVIEW_ASSIGNEE_UNASSIGNED_BAR = 'bg-muted-foreground/45';
+const OVERVIEW_ASSIGNEE_OTHER_FILL = 'fill-muted-foreground/30';
+const OVERVIEW_ASSIGNEE_OTHER_BAR = 'bg-muted-foreground/30';
+
+const OVERVIEW_ASSIGNEE_TOP_N = 5;
+
+function attachDonutAngles(segments = []) {
+  const total = segments.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+  let angle = 0;
+  return segments.map((row) => {
+    const count = Number(row.count) || 0;
+    const pct = overviewPct(count, total);
+    const sweepAngle = total > 0 ? (count / total) * 360 : 0;
+    const startAngle = angle;
+    angle += sweepAngle;
+    return {
+      ...row,
+      pct,
+      startAngle,
+      sweepAngle,
+      midAngle: startAngle + sweepAngle / 2,
+    };
+  });
+}
+
+/**
+ * Open work theo assignee (+ Unassigned). Top N; phần còn lại gộp "other".
+ * Tên từ card; members chỉ bổ sung khi card thiếu tên.
+ */
+export function countOpenCardsByAssignee(cards = [], lists = [], members = [], { topN = OVERVIEW_ASSIGNEE_TOP_N } = {}) {
+  const listById = hubListById(lists);
+  const byKey = new Map();
+  let unassigned = 0;
+
+  for (const card of cards || []) {
+    if (!isHubCardOpen(card, listById)) continue;
+    const id = String(card?.assigneeId || '').trim();
+    let name = hubCardAssigneeName(card);
+    if (!name && id) {
+      name = memberDisplayName(findMemberByUserId(members, id)) || '';
+    }
+    if (!id && !name) {
+      unassigned += 1;
+      continue;
+    }
+    const key = id || `name:${name.toLowerCase()}`;
+    const prev = byKey.get(key);
+    if (prev) {
+      prev.count += 1;
+      if (!prev.label && name) prev.label = name;
+    } else {
+      byKey.set(key, {
+        key,
+        label: name || (id ? id.slice(-6) : ''),
+        labelKey: '',
+        count: 1,
+      });
+    }
+  }
+
+  const ranked = [...byKey.values()].sort(
+    (a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label))
+  );
+  const limit = Math.max(1, Number(topN) || OVERVIEW_ASSIGNEE_TOP_N);
+  const head = ranked.slice(0, limit);
+  const rest = ranked.slice(limit);
+  const otherCount = rest.reduce((sum, row) => sum + row.count, 0);
+
+  const rows = [];
+  head.forEach((row, index) => {
+    rows.push({
+      ...row,
+      fillClass: OVERVIEW_ASSIGNEE_FILL[index % OVERVIEW_ASSIGNEE_FILL.length],
+      barClass: OVERVIEW_ASSIGNEE_BAR[index % OVERVIEW_ASSIGNEE_BAR.length],
+    });
+  });
+  if (otherCount > 0) {
+    rows.push({
+      key: 'other',
+      label: 'Other',
+      labelKey: 'workspace.projectHubOverviewAssigneeOther',
+      count: otherCount,
+      fillClass: OVERVIEW_ASSIGNEE_OTHER_FILL,
+      barClass: OVERVIEW_ASSIGNEE_OTHER_BAR,
+    });
+  }
+  if (unassigned > 0) {
+    rows.push({
+      key: 'unassigned',
+      label: 'Unassigned',
+      labelKey: 'workspace.projectHubStatUnassigned',
+      count: unassigned,
+      fillClass: OVERVIEW_ASSIGNEE_UNASSIGNED_FILL,
+      barClass: OVERVIEW_ASSIGNEE_UNASSIGNED_BAR,
+    });
+  }
+
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  return {
+    total,
+    segments: attachDonutAngles(rows),
+  };
+}
+
+/**
+ * Model chart Overview Summary (FE-only): donut status + priority bars + assignee donut.
+ * Không gọi API; không clone Edit/Add card ClickUp.
+ */
+export function buildOverviewDashboardCharts({
+  cards = [],
+  lists = [],
+  issueCounts,
+  priorityConfig,
+  members = [],
+} = {}) {
+  const status = countIssuesByStatusBucket(cards, lists);
+  const statusTotal =
+    (Number(status.todo) || 0) + (Number(status.progress) || 0) + (Number(status.done) || 0);
+  const statusSegments = attachDonutAngles(
+    OVERVIEW_STATUS_SEGMENTS.map((meta) => ({
+      key: meta.key,
+      labelKey: meta.labelKey,
+      barClass: meta.barClass,
+      fillClass: meta.fillClass,
+      count: Number(status[meta.key]) || 0,
+    }))
+  );
+
+  const types = issueCounts || countCardsByIssueType(cards);
+  const typeRows = OVERVIEW_TYPE_SEGMENTS.map((meta) => ({
+    key: meta.key,
+    labelKey: meta.labelKey,
+    barClass: meta.barClass,
+    count: Number(types[meta.key]) || 0,
+  }));
+  const otherCount = Number(types.other) || 0;
+  if (otherCount > 0) {
+    typeRows.push({
+      key: 'other',
+      labelKey: 'workspace.projectHubOverviewTypeOther',
+      barClass: 'bg-muted-foreground/30',
+      count: otherCount,
+    });
+  }
+  const typeTotal = typeRows.reduce((sum, row) => sum + row.count, 0);
+  const typeSegments = typeRows.map((row) => ({
+    ...row,
+    pct: overviewPct(row.count, typeTotal),
+  }));
+
+  const hasPriorityData = cardsHavePriorityField(cards);
+  const priority = hasPriorityData
+    ? countCardsByPriority(cards, priorityConfig)
+    : { total: 0, segments: [] };
+
+  const assignee = countOpenCardsByAssignee(cards, lists, members);
+  const donePct = overviewPct(status.done, statusTotal);
+
+  return {
+    statusTotal,
+    donePct,
+    statusSegments,
+    typeTotal,
+    typeSegments,
+    hasPriorityData,
+    showPriorityChart: true,
+    prioritySkippedReason: hasPriorityData ? '' : 'no_card_priority_field',
+    priorityTotal: priority.total,
+    prioritySegments: priority.segments,
+    assigneeTotal: assignee.total,
+    assigneeSegments: assignee.segments,
+  };
+}
+
+/**
+ * Hạng mục thuộc 1 lát/cột Overview chart (status | priority | assignee).
+ * @returns {{ id: string, title: string, priority?: string, assigneeName?: string }[]}
+ */
+export function listOverviewChartSegmentCards({
+  cards = [],
+  lists = [],
+  members = [],
+  chart = 'status',
+  segmentKey = '',
+  topN = OVERVIEW_ASSIGNEE_TOP_N,
+  limit = 40,
+} = {}) {
+  const key = String(segmentKey || '').trim();
+  if (!key) return [];
+  const listById = hubListById(lists);
+  const kind = String(chart || '').toLowerCase();
+  const out = [];
+
+  if (kind === 'status') {
+    for (const card of cards || []) {
+      const list = listById.get(String(card?.listId || card?.list || ''));
+      const bucket = classifyListStatusBucket(card?.status || list);
+      if (bucket !== key) continue;
+      out.push(overviewChartCardRow(card));
+    }
+  } else if (kind === 'priority') {
+    for (const card of cards || []) {
+      if (!Object.prototype.hasOwnProperty.call(card || {}, 'priority')) {
+        if (key === 'none') out.push(overviewChartCardRow(card));
+        continue;
+      }
+      const raw = card.priority;
+      if (raw == null || String(raw).trim() === '') {
+        if (key === 'none') out.push(overviewChartCardRow(card));
+        continue;
+      }
+      const pKey = slugPriorityKey(raw);
+      if (!pKey) {
+        if (key === 'none') out.push(overviewChartCardRow(card));
+        continue;
+      }
+      if (pKey === key) out.push(overviewChartCardRow(card));
+    }
+  } else if (kind === 'assignee') {
+    const openCards = (cards || []).filter((c) => isHubCardOpen(c, listById));
+    const rankedKeys = [];
+    const byKey = new Map();
+    for (const card of openCards) {
+      const id = String(card?.assigneeId || '').trim();
+      let name = hubCardAssigneeName(card);
+      if (!name && id) {
+        name = memberDisplayName(findMemberByUserId(members, id)) || '';
+      }
+      if (!id && !name) {
+        const prev = byKey.get('unassigned') || [];
+        prev.push(card);
+        byKey.set('unassigned', prev);
+        continue;
+      }
+      const aKey = id || `name:${name.toLowerCase()}`;
+      if (!byKey.has(aKey)) rankedKeys.push(aKey);
+      const prev = byKey.get(aKey) || [];
+      prev.push(card);
+      byKey.set(aKey, prev);
+    }
+    rankedKeys.sort((a, b) => {
+      const ca = (byKey.get(a) || []).length;
+      const cb = (byKey.get(b) || []).length;
+      if (cb !== ca) return cb - ca;
+      return a.localeCompare(b);
+    });
+    const limitN = Math.max(1, Number(topN) || OVERVIEW_ASSIGNEE_TOP_N);
+    const headKeys = new Set(rankedKeys.slice(0, limitN));
+    const restKeys = rankedKeys.slice(limitN);
+
+    let match = [];
+    if (key === 'unassigned') {
+      match = byKey.get('unassigned') || [];
+    } else if (key === 'other') {
+      for (const rk of restKeys) match.push(...(byKey.get(rk) || []));
+    } else if (headKeys.has(key)) {
+      match = byKey.get(key) || [];
+    }
+    for (const card of match) out.push(overviewChartCardRow(card));
+  }
+
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  const cap = Math.max(1, Number(limit) || 40);
+  return out.slice(0, cap);
+}
+
+function overviewChartCardRow(card) {
+  return {
+    id: String(card?._id || card?.id || ''),
+    title: String(card?.title || '').trim() || '—',
+    priority: card?.priority != null ? String(card.priority) : '',
+    assigneeName: hubCardAssigneeName(card) || '',
+  };
 }
 
 export function dueDateTone(dueDate, statusOrList) {
