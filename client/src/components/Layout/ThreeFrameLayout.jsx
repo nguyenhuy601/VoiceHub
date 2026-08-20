@@ -18,7 +18,7 @@ function parseRightWidthToPx(rightWidth) {
 }
 
 /** Sidebar phải tổ chức: thu tối đa 100px, rộng tối đa = mặc định + 100px */
-const RIGHT_SIDEBAR_MIN_W = 100;
+const RIGHT_SIDEBAR_MIN_W = 200;
 const RIGHT_SIDEBAR_EXTRA_MAX_W = 100;
 
 /**
@@ -101,7 +101,7 @@ const ThreeFrameLayout = ({
       {!embeddedSuiteLayout && <ShellWaveBackdrop />}
       {navLeft ? <div className="relative h-full shrink-0 pointer-events-none">{navLeft}</div> : null}
 
-      <div className={centerFrameClass}>
+      <div className={centerFrameClass} style={{ minWidth: 360 }}>
         <div className={centerInnerClass}>{center}</div>
       </div>
 

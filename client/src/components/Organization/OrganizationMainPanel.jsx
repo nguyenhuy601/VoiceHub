@@ -231,7 +231,7 @@ function FigmaOrgChatComposer({
   sendingMessage,
   t,
 }) {
-  const MAX_TEXTAREA_HEIGHT = 240;
+  const MAX_TEXTAREA_HEIGHT = 120;
   const disabled = !selectedChannelId || sendingMessage || channelReadOnly;
   const sendDisabled = disabled || (!String(messageInput || '').trim() && !hasContextCall);
   const placeholder = channelReadOnly
@@ -360,7 +360,7 @@ function FigmaOrgChatComposer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-[920px]">
+    <div className="mr-auto w-full max-w-[920px]">
       {replyingToMessage ? (
         <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/60 px-3 py-2 text-sm text-foreground shadow-xs">
           <div className="min-w-0">
@@ -497,14 +497,6 @@ function FigmaOrgChatComposer({
             </button>
           </div>
 
-          <button
-            type="button"
-            disabled={!canWriteInChannel}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-ai/30 bg-ai-subtle px-3 text-[0.8125rem] font-semibold text-ai transition-[background-color,border-color,color,transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-ai/50 hover:bg-ai-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ai/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-          >
-            <Sparkles size={14} aria-hidden />
-            <span>{t('orgPanel.aiDraft')}</span>
-          </button>
         </div>
 
         <div className="flex items-end gap-3 px-4 py-3">
@@ -516,7 +508,7 @@ function FigmaOrgChatComposer({
             disabled={disabled}
             rows={1}
             placeholder={placeholder}
-            className="max-h-[240px] min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
+            className="max-h-[120px] min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
           />
           <button
             type="button"
@@ -1620,7 +1612,7 @@ const OrganizationMainPanel = ({
           ? 'relative mt-auto shrink-0 rounded-b-xl border-t border-white/[0.06] bg-transparent px-4 pb-3 pt-2.5'
           : 'relative mt-auto shrink-0 rounded-b-xl border-t border-slate-200/80 bg-white px-4 pb-3 pt-2.5',
       composerWrap: suiteLayout
-        ? 'mx-auto w-full max-w-[920px] shrink-0 bg-transparent p-0'
+        ? 'mr-auto w-full max-w-[920px] shrink-0 bg-transparent p-0'
         : 'shrink-0 bg-transparent p-0',
     };
   }, [isDarkMode, suiteLayout]);
@@ -2247,9 +2239,7 @@ const OrganizationMainPanel = ({
             : workspace.shellInner || 'flex h-full min-h-0 flex-1 gap-2 overflow-hidden'
         }
       >
-        {suiteLayout ? (
-          suiteOrgModuleRail
-        ) : (
+        {suiteLayout ? suiteOrgModuleRail : workspaceTab === 'tasks' ? null : (
         <aside
           className={`${workspace.aside} relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden`}
           style={{ width: leftAsideW, minWidth: LEFT_ASIDE_MIN_W, maxWidth: LEFT_ASIDE_MAX_W }}
@@ -2417,15 +2407,6 @@ const OrganizationMainPanel = ({
                   >
                     <Search size={14} />
                   </button>
-                  <button
-                    type="button"
-                    title={t('orgPanel.notifTitle')}
-                    aria-label={t('orgPanel.notifTitle')}
-                    onClick={() => onOpenNotificationsPage?.()}
-                    className={FIGMA_ORG_CHANNEL_ICON_BTN}
-                  >
-                    <Bell size={14} />
-                  </button>
                 </div>
               </>
             ) : (
@@ -2501,19 +2482,6 @@ const OrganizationMainPanel = ({
                   }`}
                 >
                   <Search className="h-5 w-5" strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  title={t('orgPanel.notifTitle')}
-                  aria-label={t('orgPanel.notifTitle')}
-                  onClick={() => onOpenNotificationsPage?.()}
-                  className={`rounded-lg p-2 transition ${
-                    isDarkMode
-                      ? 'text-[#b4b8c4] hover:bg-white/[0.06] hover:text-white'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <Bell className="h-5 w-5" strokeWidth={2} />
                 </button>
                 </div>
               </div>
@@ -2628,7 +2596,7 @@ const OrganizationMainPanel = ({
               <div
                 className={
                   useFigmaOrgChatChrome
-                    ? 'mx-auto flex w-full max-w-[920px] flex-col gap-3 px-5 py-5'
+                    ? 'mr-auto flex w-full max-w-[920px] flex-col gap-3 px-5 py-5'
                     : 'flex min-h-full flex-col px-4 py-3'
                 }
               >
