@@ -1,5 +1,5 @@
-import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
@@ -16,166 +16,634 @@ import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import ProjectHubCompleteProjectModal from './ProjectHubCompleteProjectModal';
+import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
 import { isBoardSprintReady } from './projectHubHierarchy';
 import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
 import {
   PROJECT_HUB_TABS,
+  buildOverviewDashboardCharts,
   collectCardActivity,
   collectCardAttachments,
   computeHubBoardSummary,
   countCardsByIssueType,
+  countCardsInSprint,
+  countPlanningByType,
+  countUnassignedOpenCards,
   formatHubDate,
+  formatHubMethodology,
+  formatHubProjectStatus,
+  hubAttentionState,
+  listHubHealthCards,
+  normalizeIssueType,
+  mapHubActivityItem,
+  pickNextHubActions,
   projectInitials,
   resolveViewerActiveSprint,
+  sumOpenCardEstimateHours,
   unwrapPlanningList,
 } from './projectHubUtils';
 
+function OverviewMetricSkeleton({ count = 4, isDarkMode }) {
+  const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
+  return (
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className={`h-[4.25rem] animate-pulse rounded-lg motion-reduce:animate-none ${pulse}`}
+          aria-hidden
+        />
+      ))}
+    </div>
+  );
+}
+
+function OverviewContextSkeleton({ isDarkMode }) {
+  const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className={`h-56 animate-pulse rounded-xl motion-reduce:animate-none ${
+              i === 2 ? 'sm:col-span-2 lg:col-span-1' : ''
+            } ${pulse}`}
+            aria-hidden
+          />
+        ))}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        {[0, 1].map((i) => (
+          <div key={i} className={`h-40 animate-pulse rounded-xl motion-reduce:animate-none ${pulse}`} aria-hidden />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function overviewIssueTypeLabel(type, t) {
+  const raw = String(type || '').toLowerCase();
+  if (raw === 'feature') return t('workspace.projectHubIssueTypeFeature');
+  if (raw === 'subtask') return t('workspace.projectHubIssueTypeSubtask');
+  const key = normalizeIssueType(type);
+  if (key === 'story') return t('workspace.projectHubIssueTypeStory');
+  if (key === 'bug') return t('workspace.projectHubIssueTypeBug');
+  if (key === 'epic') return t('workspace.projectHubIssueTypeEpic');
+  return t('workspace.projectHubIssueTypeTask');
+}
+
+function overviewActionStatusLabel(action, t) {
+  if (action?.statusLabel) return action.statusLabel;
+  const raw = String(action?.statusKey || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!raw) return '';
+  const key = `workspace.projectHubWorkStatus_${raw}`;
+  const label = t(key);
+  return label === key ? action.statusKey : label;
+}
+
+function overviewSprintStatusLabel(sprint, t) {
+  const s = String(sprint?.status || 'planned').toLowerCase();
+  const key = `workspace.projectHubPlanningStatus_${s}`;
+  const label = t(key);
+  return label === key ? s : label;
+}
+
+/** Tooltip tên hạng mục khi hover/focus KPI hoặc banner Attention. */
+function OverviewHealthTip({ items = [], totalCount = 0, heading, moreLabel, children, className = '' }) {
+  const tipId = useId();
+  const [open, setOpen] = useState(false);
+  const hasItems = items.length > 0;
+  const hiddenMore = Math.max(0, Number(totalCount) - items.length);
+
+  return (
+    <div
+      className={`relative ${className}`}
+      onMouseEnter={() => hasItems && setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => hasItems && setOpen(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
+      {typeof children === 'function' ? children({ tipId, open, hasItems }) : children}
+      {open && hasItems ? (
+        <div
+          id={tipId}
+          role="tooltip"
+          className="absolute left-1/2 top-full z-20 mt-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md border border-border bg-surface px-2.5 py-2 text-left shadow-md"
+        >
+          {heading ? (
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {heading}
+            </p>
+          ) : null}
+          <ul className="space-y-0.5">
+            {items.map((row) => (
+              <li key={row.id || row.title} className="truncate text-xs font-medium text-foreground">
+                {row.title}
+              </li>
+            ))}
+          </ul>
+          {hiddenMore > 0 && moreLabel ? (
+            <p className="mt-1 text-[10px] text-muted-foreground">{moreLabel}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function OverviewPanel({
   board,
+  projectStatus = '',
   summary,
-  issueCounts = { story: 0, task: 0, bug: 0 },
+  deliveryExtras = { unassigned: 0, estimateHours: 0 },
+  dashboardCharts = null,
+  nextActions = [],
+  overdueCards = [],
+  inReviewCards = [],
+  overviewCards = [],
+  overviewLists = [],
+  overviewMembers = [],
   activity,
+  activityLoading = false,
+  activityError = false,
+  onRetryActivity,
+  activeSprint = null,
+  sprintIssueCount = 0,
+  planningPulse = { epic: 0, feature: 0 },
+  boardLoading = false,
+  sprintContextLoading = false,
+  planningContextLoading = false,
   locale,
   isDarkMode,
   onOpenBoard,
   onOpenBacklog,
+  onOpenNextAction,
+  onViewAllActivity,
   t,
 }) {
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const cardCls = 'rounded-xl border border-border bg-surface p-4';
-
-  const nextActions = useMemo(() => {
-    return (activity || [])
-      .filter((a) => {
-        const s = String(a.status || '').toLowerCase();
-        return !s.includes('done') && !s.includes('complete');
-      })
-      .slice(0, 5);
-  }, [activity]);
+  const statusLabel = formatHubProjectStatus(projectStatus, t);
+  const attention = hubAttentionState({ overdue: summary.overdue });
+  const reviewPercent = summary.total
+    ? Math.round(((Number(summary.inReview) || 0) / Number(summary.total)) * 100)
+    : 0;
+  const estimateLabel =
+    Number(deliveryExtras.estimateHours) % 1 === 0
+      ? String(deliveryExtras.estimateHours)
+      : Number(deliveryExtras.estimateHours).toFixed(1);
+  // Unassigned chỉ hiện ở assignee donut — không tile trùng dưới KPI.
+  const extrasTiles =
+    Number(deliveryExtras.estimateHours) > 0
+      ? [[estimateLabel, t('workspace.projectHubStatEstimateTotal')]]
+      : [];
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabOverview')}</h3>
-          <p className={`text-xs ${muted}`}>{t('workspace.projectHubOverviewHint')}</p>
-          {board?.status ? (
-            <p className={`mt-1 text-[11px] font-semibold uppercase tracking-wide ${muted}`}>
-              {board.status}
+      <header className={`mb-4 rounded-xl border border-border bg-surface p-4`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className={`text-base font-bold leading-tight ${titleCls}`}>
+              {board?.title || t('workspace.projectHubUntitled')}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {board?.projectCode ? (
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+                  {board.projectCode}
+                </span>
+              ) : null}
+              {board?.methodology ? (
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {formatHubMethodology(board.methodology, t)}
+                </span>
+              ) : null}
+              {statusLabel ? (
+                <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {statusLabel}
+                </span>
+              ) : null}
+            </div>
+            <p className={`mt-2 flex flex-wrap items-center gap-1 text-xs ${muted}`}>
+              <Calendar size={12} className="shrink-0" aria-hidden />
+              <span>
+                {t('workspace.projectHubFieldDue')}: {formatHubDate(board?.dueDate, locale)}
+              </span>
             </p>
-          ) : null}
+            <p className={`mt-1 text-xs ${muted}`}>{t('workspace.projectHubOverviewHint')}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onOpenBacklog}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"
+            >
+              {t('workspace.projectHubOpenBacklog')}
+            </button>
+            <button
+              type="button"
+              onClick={onOpenBoard}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+            >
+              <LayoutGrid size={14} aria-hidden />
+              {t('workspace.projectHubOpenBoard')}
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onOpenBacklog}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold"
-          >
-            {t('workspace.projectHubOpenBacklog')}
-          </button>
-          <button
-            type="button"
-            onClick={onOpenBoard}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-          >
-            <LayoutGrid size={14} />
-            {t('workspace.projectHubOpenBoard')}
-          </button>
-        </div>
-      </div>
+      </header>
 
-      <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
-        <div className={cardCls}>
-          <p className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}>
-            {t('workspace.projectHubDeliveryPulse')}
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              [String(summary.total), t('workspace.projectHubStatCards')],
-              [`${summary.donePercent}%`, t('workspace.projectHubStatDone')],
-              [String(summary.overdue), t('workspace.projectHubStatOverdue')],
-            ].map(([v, l]) => (
-              <div
-                key={l}
-                className="rounded-lg border border-border bg-background px-2 py-3 text-center"
+      <section className={cardCls} aria-labelledby="overview-project-health">
+        <h3
+          id="overview-project-health"
+          className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}
+        >
+          {t('workspace.projectHubProjectHealth')}
+        </h3>
+        {boardLoading ? (
+          <OverviewMetricSkeleton count={4} isDarkMode={isDarkMode} />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {[
+                {
+                  key: 'total',
+                  value: String(summary.total),
+                  label: t('workspace.projectHubStatCards'),
+                  extra: '',
+                  tone: '',
+                  tipItems: null,
+                  tipTotal: 0,
+                  tipHeading: '',
+                },
+                {
+                  key: 'done',
+                  value: `${summary.donePercent}%`,
+                  label: t('workspace.projectHubStatDone'),
+                  extra:
+                    summary.total > 0
+                      ? t('workspace.projectHubStatDoneSub', { n: summary.done || 0 })
+                      : '',
+                  tone: summary.donePercent >= 80 ? 'success' : '',
+                  tipItems: null,
+                  tipTotal: 0,
+                  tipHeading: '',
+                },
+                {
+                  key: 'inReview',
+                  value: String(summary.inReview || 0),
+                  label: t('workspace.projectHubStatInReview'),
+                  extra: t('workspace.projectHubStatInReviewPct', { pct: reviewPercent }),
+                  tone: Number(summary.inReview) > 0 ? 'warning' : '',
+                  tipItems: inReviewCards,
+                  tipTotal: Number(summary.inReview) || 0,
+                  tipHeading: t('workspace.projectHubHealthTipInReview'),
+                },
+                {
+                  key: 'overdue',
+                  value: String(summary.overdue),
+                  label: t('workspace.projectHubStatOverdue'),
+                  extra: '',
+                  tone: attention === 'attention' ? 'destructive' : '',
+                  tipItems: overdueCards,
+                  tipTotal: Number(summary.overdue) || 0,
+                  tipHeading: t('workspace.projectHubHealthTipOverdue'),
+                },
+              ].map(({ key, value, label, extra, tone, tipItems, tipTotal, tipHeading }) => {
+                const tile = (
+                  <div
+                    className={`rounded-lg border bg-background px-2 py-3 text-center ${
+                      tone === 'destructive'
+                        ? 'border-destructive/50'
+                        : tone === 'warning'
+                          ? 'border-warning/40'
+                          : tone === 'success'
+                            ? 'border-success/30'
+                            : 'border-border'
+                    } ${tipItems?.length ? 'cursor-help' : ''}`}
+                  >
+                    <div className={`text-lg font-bold ${titleCls}`}>{value}</div>
+                    <div className={`text-[10px] ${muted}`}>{label}</div>
+                    {extra ? <div className={`mt-0.5 text-[10px] ${muted}`}>{extra}</div> : null}
+                  </div>
+                );
+                if (!(tipItems?.length > 0)) {
+                  return <div key={key}>{tile}</div>;
+                }
+                return (
+                  <OverviewHealthTip
+                    key={key}
+                    items={tipItems}
+                    totalCount={tipTotal}
+                    heading={tipHeading}
+                    moreLabel={t('workspace.projectHubHealthTipMore', {
+                      n: Math.max(0, tipTotal - tipItems.length),
+                    })}
+                  >
+                    {({ tipId, hasItems }) => (
+                      <div
+                        tabIndex={hasItems ? 0 : undefined}
+                        aria-describedby={hasItems ? tipId : undefined}
+                      >
+                        {tile}
+                      </div>
+                    )}
+                  </OverviewHealthTip>
+                );
+              })}
+            </div>
+            {attention === 'attention' && overdueCards.length > 0 ? (
+              <OverviewHealthTip
+                className="mt-3"
+                items={overdueCards}
+                totalCount={Number(summary.overdue) || 0}
+                heading={t('workspace.projectHubHealthTipOverdue')}
+                moreLabel={t('workspace.projectHubHealthTipMore', {
+                  n: Math.max(0, (Number(summary.overdue) || 0) - overdueCards.length),
+                })}
               >
-                <div className={`text-lg font-bold ${titleCls}`}>{v}</div>
-                <div className={`text-[10px] ${muted}`}>{l}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            {[
-              [String(issueCounts.story || 0), t('workspace.projectHubStatStories')],
-              [String(issueCounts.task || 0), t('workspace.projectHubStatTasks')],
-              [String(issueCounts.bug || 0), t('workspace.projectHubStatBugs')],
-            ].map(([v, l]) => (
+                {({ tipId, hasItems }) => (
+                  <div
+                    className="flex cursor-help items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                    role="status"
+                    tabIndex={hasItems ? 0 : undefined}
+                    aria-describedby={hasItems ? tipId : undefined}
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" aria-hidden />
+                    <span className="font-medium">
+                      {t('workspace.projectHubHealthAttention', { n: summary.overdue })}
+                    </span>
+                  </div>
+                )}
+              </OverviewHealthTip>
+            ) : (
               <div
-                key={l}
-                className="rounded-lg border border-dashed border-border bg-background px-2 py-2 text-center"
+                className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  attention === 'attention'
+                    ? 'border-destructive/40 bg-destructive/5 text-destructive'
+                    : 'border-success/30 bg-success/5 text-success'
+                }`}
+                role="status"
               >
-                <div className={`text-sm font-bold ${titleCls}`}>{v}</div>
-                <div className={`text-[10px] ${muted}`}>{l}</div>
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    attention === 'attention' ? 'bg-destructive' : 'bg-success'
+                  }`}
+                  aria-hidden
+                />
+                <span className="font-medium">
+                  {attention === 'attention'
+                    ? t('workspace.projectHubHealthAttention', { n: summary.overdue })
+                    : t('workspace.projectHubHealthOnTrack')}
+                </span>
               </div>
-            ))}
-          </div>
-          {board?.description ? (
-            <p className={`mt-3 line-clamp-4 text-sm ${muted}`}>{board.description}</p>
-          ) : (
-            <p className={`mt-3 text-sm ${muted}`}>{t('workspace.projectHubNoDescription')}</p>
-          )}
-          <div className={`mt-3 flex flex-wrap gap-2 text-xs ${muted}`}>
-            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1">
-              <Calendar size={12} />
-              {t('workspace.projectHubFieldDue')}: {formatHubDate(board?.dueDate, locale)}
-            </span>
-            <span className="rounded-md border border-border px-2 py-1">
-              {board?.visibility === 'workspace'
-                ? t('workspace.projectHubVisibilityWorkspace')
-                : t('workspace.projectHubVisibilityPrivate')}
-            </span>
-          </div>
-        </div>
+            )}
+            {extrasTiles.length > 0 ? (
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {extrasTiles.map(([v, l]) => (
+                  <div
+                    key={l}
+                    className="rounded-lg border border-dashed border-border bg-background px-2 py-2 text-center"
+                  >
+                    <div className={`text-sm font-bold ${titleCls}`}>{v}</div>
+                    <div className={`text-[10px] ${muted}`}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
 
-        <div className={cardCls}>
-          <p className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}>
-            {t('workspace.projectHubNextActions')}
-          </p>
-          {nextActions.length === 0 ? (
-            <p className={`text-sm ${muted}`}>{t('workspace.projectHubNextActionsEmpty')}</p>
-          ) : (
-            <ul className="space-y-2">
-              {nextActions.map((a) => (
-                <li
-                  key={a.id}
-                  className="border-b border-border pb-2 text-sm last:border-0 last:pb-0"
-                >
-                  <span className={`font-medium ${titleCls}`}>{a.title}</span>
-                  {a.assigneeName ? (
-                    <span className={`mt-0.5 block text-[11px] ${muted}`}>{a.assigneeName}</span>
+      {boardLoading ? (
+        <div className="mt-3">
+          <OverviewContextSkeleton isDarkMode={isDarkMode} />
+        </div>
+      ) : (
+        <ProjectHubOverviewCharts
+          charts={dashboardCharts}
+          cards={overviewCards}
+          lists={overviewLists}
+          members={overviewMembers}
+          muted={muted}
+          titleCls={titleCls}
+          cardCls={cardCls}
+          t={t}
+          onOpenCard={onOpenNextAction}
+        />
+      )}
+
+      {boardLoading ? null : (
+        <div className="mt-3 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+          <section className={cardCls} aria-labelledby="overview-action-center">
+            <h3
+              id="overview-action-center"
+              className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}
+            >
+              {t('workspace.projectHubNextActions')}
+            </h3>
+            {nextActions.length === 0 ? (
+              <p className={`text-sm ${muted}`}>{t('workspace.projectHubNextActionsEmpty')}</p>
+            ) : (
+              <ul className="space-y-2">
+                {nextActions.map((a) => {
+                  const dueCls =
+                    a.dueTone === 'overdue'
+                      ? 'text-destructive'
+                      : a.dueTone === 'soon'
+                        ? 'text-primary'
+                        : muted;
+                  const statusText = overviewActionStatusLabel(a, t);
+                  const who = a.assigneeName || t('workspace.projectHubStatUnassigned');
+                  return (
+                    <li key={a.id} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                      <button
+                        type="button"
+                        onClick={() => onOpenNextAction?.(a.id)}
+                        className="w-full rounded-sm text-left text-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
+                            {overviewIssueTypeLabel(a.issueType, t)}
+                          </span>
+                          {a.issueKey ? (
+                            <span className="font-mono text-[10px] font-semibold text-primary">
+                              {a.issueKey}
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className={`mt-0.5 block font-medium ${titleCls}`}>{a.title}</span>
+                        <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                          {statusText ? `${statusText} · ${who}` : who}
+                        </span>
+                        {a.dueDate ? (
+                          <span className={`mt-0.5 block text-[11px] ${dueCls}`}>
+                            {t('workspace.projectHubActionDue', {
+                              date: formatHubDate(a.dueDate, locale),
+                            })}
+                          </span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section className={cardCls} aria-labelledby="overview-delivery-snapshot">
+            <h3
+              id="overview-delivery-snapshot"
+              className={`mb-3 text-xs font-semibold uppercase tracking-wide ${muted}`}
+            >
+              {t('workspace.projectHubDeliveryPulse')}
+            </h3>
+            <dl className="space-y-2 text-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className={muted}>{t('workspace.projectHubSnapshotProgress')}</dt>
+                <dd className={`font-semibold ${titleCls}`}>{summary.donePercent}%</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className={muted}>{t('workspace.projectHubFieldDue')}</dt>
+                <dd className={`font-medium ${titleCls}`}>{formatHubDate(board?.dueDate, locale)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className={muted}>{t('workspace.projectHubVisibilityLabel')}</dt>
+                <dd className={`font-medium ${titleCls}`}>
+                  {board?.visibility === 'workspace'
+                    ? t('workspace.projectHubVisibilityWorkspace')
+                    : t('workspace.projectHubVisibilityPrivate')}
+                </dd>
+              </div>
+            </dl>
+
+            <div className="mt-3 border-t border-border pt-3">
+              <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
+                {t('workspace.projectHubOverviewActiveSprint')}
+              </p>
+              {sprintContextLoading ? (
+                <div
+                  className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
+                    isDarkMode ? 'bg-white/10' : 'bg-muted'
+                  }`}
+                  aria-busy="true"
+                  aria-label={t('common.loading')}
+                />
+              ) : activeSprint ? (
+                <div className="space-y-1">
+                  <p className={`text-sm font-semibold ${titleCls}`}>
+                    {activeSprint.name || t('workspace.projectHubUntitled')}
+                  </p>
+                  <p className={`text-xs ${muted}`}>{overviewSprintStatusLabel(activeSprint, t)}</p>
+                  {activeSprint.startDate || activeSprint.endDate ? (
+                    <p className={`text-xs ${muted}`}>
+                      {t('workspace.projectHubOverviewSprintDates', {
+                        start: formatHubDate(activeSprint.startDate, locale),
+                        end: formatHubDate(activeSprint.endDate, locale),
+                      })}
+                    </p>
                   ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+                  <p className={`text-xs ${muted}`}>
+                    {t('workspace.projectHubOverviewSprintIssues', { n: sprintIssueCount })}
+                  </p>
+                </div>
+              ) : (
+                <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewActiveSprintEmpty')}</p>
+              )}
+            </div>
+
+            <div className="mt-3 border-t border-border pt-3">
+              <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
+                {t('workspace.projectHubOverviewBacklogPulse')}
+              </p>
+              {planningContextLoading ? (
+                <div
+                  className={`h-12 animate-pulse rounded-lg motion-reduce:animate-none ${
+                    isDarkMode ? 'bg-white/10' : 'bg-muted'
+                  }`}
+                  aria-busy="true"
+                  aria-label={t('common.loading')}
+                />
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    [String(planningPulse.epic || 0), t('workspace.projectHubOverviewBacklogEpics')],
+                    [String(planningPulse.feature || 0), t('workspace.projectHubOverviewBacklogFeatures')],
+                  ].map(([v, l]) => (
+                    <div key={l} className="text-center">
+                      <div className={`text-sm font-bold ${titleCls}`}>{v}</div>
+                      <div className={`text-[10px] ${muted}`}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {board?.description ? (
+              <p className={`mt-3 line-clamp-3 border-t border-border pt-3 text-xs ${muted}`}>
+                {board.description}
+              </p>
+            ) : null}
+          </section>
         </div>
-      </div>
+      )}
 
       <div className={`${cardCls} mt-3`}>
-        <p className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}>
-          {t('workspace.projectHubRecentActivity')}
-        </p>
-        {activity.length === 0 ? (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className={`text-xs font-semibold uppercase tracking-wide ${muted}`}>
+            {t('workspace.projectHubRecentActivity')}
+          </p>
+          {!activityLoading && !activityError && activity.length > 0 ? (
+            <button
+              type="button"
+              onClick={onViewAllActivity}
+              className="text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-sm"
+            >
+              {t('workspace.projectHubActivityViewAll')}
+            </button>
+          ) : null}
+        </div>
+        {activityLoading ? (
+          <div
+            className={`h-24 animate-pulse rounded-lg motion-reduce:animate-none ${
+              isDarkMode ? 'bg-white/10' : 'bg-muted'
+            }`}
+            aria-busy="true"
+            aria-label={t('common.loading')}
+          />
+        ) : activityError ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityLoadFail')}</p>
+            <button
+              type="button"
+              onClick={onRetryActivity}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+            >
+              <RefreshCw size={14} aria-hidden />
+              {t('workspace.projectHubActivityRetry')}
+            </button>
+          </div>
+        ) : activity.length === 0 ? (
           <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityEmpty')}</p>
         ) : (
           <ul className="space-y-1.5">
             {activity.slice(0, 6).map((a) => (
               <li key={a.id} className={`text-xs ${muted}`}>
                 <span className={titleCls}>{a.title}</span>
-                {' · '}
-                {formatHubDate(a.at, locale)}
-                {a.status ? ` · ${a.status}` : ''}
+                <span className="mt-0.5 block">
+                  {a.actorName ? (
+                    <>
+                      <span className={titleCls}>{a.actorName}</span>
+                      {a.detail || a.at ? ' · ' : ''}
+                    </>
+                  ) : null}
+                  {[a.detail, formatHubDate(a.at, locale)].filter(Boolean).join(' · ')}
+                </span>
               </li>
             ))}
           </ul>
@@ -261,9 +729,15 @@ function ActivityPanel({ activity, locale, isDarkMode, t }) {
               <li key={a.id} className="rounded-xl border border-border bg-surface px-3 py-2.5">
                 <div className={`text-sm font-semibold ${titleCls}`}>{a.title}</div>
                 <div className={`mt-0.5 text-xs ${muted}`}>
+                  {a.actorName ? (
+                    <>
+                      <span className={titleCls}>{a.actorName}</span>
+                      {' · '}
+                    </>
+                  ) : null}
                   {formatHubDate(a.at, locale)}
-                  {a.assigneeName ? ` · ${a.assigneeName}` : ''}
-                  {a.status ? ` · ${a.status}` : ''}
+                  {a.detail ? ` · ${a.detail}` : ''}
+                  {!a.actorName && a.assigneeName ? ` · ${a.assigneeName}` : ''}
                 </div>
               </li>
             ))}
@@ -310,6 +784,7 @@ export default function ProjectHubShell({
   boardId = '',
   projectId: projectIdProp = '',
   boardDetail = null,
+  loadingBoardDetail = false,
   boards = [],
   isDarkMode = false,
   locale = 'vi',
@@ -332,6 +807,9 @@ export default function ProjectHubShell({
   const prevHubProjectIdRef = useRef('');
   const [membersEpoch, setMembersEpoch] = useState(0);
   const [apiActivity, setApiActivity] = useState(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState(false);
+  const [activityReloadToken, setActivityReloadToken] = useState(0);
   const [apiFiles, setApiFiles] = useState(null);
   const [projectPayload, setProjectPayload] = useState(null);
   const [sprints, setSprints] = useState([]);
@@ -348,7 +826,9 @@ export default function ProjectHubShell({
   const [completeProjectOpen, setCompleteProjectOpen] = useState(false);
   const [boardOpenCrId, setBoardOpenCrId] = useState('');
   const [crWorkIssue, setCrWorkIssue] = useState(null);
+  const [overviewWorkIssue, setOverviewWorkIssue] = useState(null);
   const [hubChatChannelId, setHubChatChannelId] = useState('');
+  const [sprintsFetching, setSprintsFetching] = useState(false);
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -375,31 +855,46 @@ export default function ProjectHubShell({
     setSprints([]);
     setPlanningItems([]);
     setApiActivity(null);
+    setActivityLoading(false);
+    setActivityError(false);
+    setActivityReloadToken(0);
     setApiFiles(null);
     setPlanningLoading(false);
     setPlanningError(false);
+    setSprintsFetching(false);
     loadedPlanningProjectRef.current = '';
     planningFetchKeyRef.current = '';
     sprintsLoadedForRef.current = '';
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
     setCompleteProjectOpen(false);
+    setOverviewWorkIssue(null);
     setHubChatChannelId('');
   }
 
   const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
   const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
   const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
+  const overdueHealthCards = useMemo(
+    () => listHubHealthCards(cards, lists, 'overdue', { limit: 8 }),
+    [cards, lists]
+  );
+  const inReviewHealthCards = useMemo(
+    () => listHubHealthCards(cards, lists, 'inReview', { limit: 8 }),
+    [cards, lists]
+  );
   const isProjectCompleted = isProjectCompletedStatus(
     projectPayload?.status || resolvedBoard?.status
   );
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
   const needsSprints =
+    tab === 'overview' ||
     tab === 'planning' ||
     tab === 'timeline' ||
     tab === 'board' ||
     (Boolean(hubCaps.canCompleteProject) && workLooksComplete && !isProjectCompleted);
-  const needsPlanningItems = tab === 'planning' || tab === 'timeline' || tab === 'board';
+  const needsPlanningItems =
+    tab === 'overview' || tab === 'planning' || tab === 'timeline' || tab === 'board';
   const needsActivity = tab === 'overview' || tab === 'activity';
   const needsFiles = tab === 'files';
 
@@ -427,6 +922,7 @@ export default function ProjectHubShell({
     if (!projectId || !needsSprints) return undefined;
     if (sprintsLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
+    setSprintsFetching(true);
     (async () => {
       try {
         const res = await projectAPI.listSprints(projectId);
@@ -435,6 +931,9 @@ export default function ProjectHubShell({
         sprintsLoadedForRef.current = projectId;
       } catch {
         if (!cancelled) setSprints([]);
+        if (!cancelled) sprintsLoadedForRef.current = projectId;
+      } finally {
+        if (!cancelled) setSprintsFetching(false);
       }
     })();
     return () => {
@@ -576,39 +1075,91 @@ export default function ProjectHubShell({
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
+  const dashboardCharts = useMemo(
+    () =>
+      buildOverviewDashboardCharts({
+        cards,
+        lists,
+        issueCounts,
+        priorityConfig: projectPayload?.priorityConfig,
+        members: Array.isArray(projectPayload?.members) ? projectPayload.members : [],
+      }),
+    [cards, lists, issueCounts, projectPayload?.priorityConfig, projectPayload?.members]
+  );
+  const deliveryExtras = useMemo(
+    () => ({
+      unassigned: countUnassignedOpenCards(cards, lists),
+      estimateHours: sumOpenCardEstimateHours(cards, lists),
+    }),
+    [cards, lists]
+  );
+  const overviewProjectStatus = projectPayload?.status || resolvedBoard?.status || '';
+  const planningPulse = useMemo(() => countPlanningByType(planningItems), [planningItems]);
+  const overviewSprintIssueCount = useMemo(
+    () => countCardsInSprint(cards, activeSprint?._id),
+    [cards, activeSprint?._id]
+  );
+  const sprintContextLoading = tab === 'overview' && sprintsFetching;
+  const planningContextLoading = tab === 'overview' && planningLoading;
   const defaultListId = String(lists[0]?._id || '').trim();
   const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
   const derivedActivity = useMemo(() => collectCardActivity(cards), [cards]);
   const files = Array.isArray(apiFiles) ? apiFiles : derivedFiles;
-  const activity = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
+  const nextActions = useMemo(
+    () => pickNextHubActions(cards, lists, { projectCode: resolvedBoard?.projectCode || '' }),
+    [cards, lists, resolvedBoard?.projectCode]
+  );
+  const activity = useMemo(() => {
+    const source = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
+    return (source || []).map((row) => mapHubActivityItem(row, t, { locale }));
+  }, [apiActivity, derivedActivity, t, locale]);
+
+  const reloadActivity = useCallback(() => {
+    activityLoadedForRef.current = '';
+    setActivityError(false);
+    setActivityReloadToken((n) => n + 1);
+  }, []);
+
+  const handleOpenNextAction = useCallback(
+    (actionId) => {
+      const card = cards.find((c) => String(c._id || c.id) === String(actionId));
+      if (card) setOverviewWorkIssue(card);
+    },
+    [cards]
+  );
+
+  const handleViewAllActivity = useCallback(() => {
+    setVisitedTabs((prev) => ({ ...prev, activity: true }));
+    setTab('activity');
+  }, []);
 
   useEffect(() => {
     if (!projectId || !needsActivity) return undefined;
     if (activityLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
+    setActivityLoading(true);
+    setActivityError(false);
     (async () => {
       try {
         const actRes = await projectAPI.getActivity(projectId, { limit: 40 });
         if (cancelled) return;
         const act = actRes?.data?.data ?? actRes?.data ?? [];
-        setApiActivity(
-          (Array.isArray(act) ? act : []).map((a) => ({
-            id: a._id,
-            title: a.title || a.type,
-            status: a.type,
-            at: a.createdAt,
-            assigneeName: '',
-          }))
-        );
+        setApiActivity(Array.isArray(act) ? act : []);
         activityLoadedForRef.current = projectId;
       } catch {
-        if (!cancelled) setApiActivity(null);
+        if (!cancelled) {
+          setApiActivity([]);
+          setActivityError(true);
+          activityLoadedForRef.current = projectId;
+        }
+      } finally {
+        if (!cancelled) setActivityLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [projectId, needsActivity]);
+  }, [projectId, needsActivity, activityReloadToken]);
 
   useEffect(() => {
     if (!projectId || !needsFiles) return undefined;
@@ -759,7 +1310,7 @@ export default function ProjectHubShell({
                   isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-muted text-muted-foreground'
                 }`}
               >
-                {resolvedBoard.methodology}
+                {formatHubMethodology(resolvedBoard.methodology, t)}
               </span>
             ) : null}
             <span className={`truncate text-[11px] leading-tight ${muted}`}>
@@ -823,13 +1374,32 @@ export default function ProjectHubShell({
         {tab === 'overview' ? (
           <OverviewPanel
             board={resolvedBoard}
+            projectStatus={overviewProjectStatus}
             summary={summary}
-            issueCounts={issueCounts}
+            deliveryExtras={deliveryExtras}
+            dashboardCharts={dashboardCharts}
+            nextActions={nextActions}
+            overdueCards={overdueHealthCards}
+            inReviewCards={inReviewHealthCards}
+            overviewCards={cards}
+            overviewLists={lists}
+            overviewMembers={Array.isArray(projectPayload?.members) ? projectPayload.members : []}
             activity={activity}
+            activityLoading={activityLoading}
+            activityError={activityError}
+            onRetryActivity={reloadActivity}
+            activeSprint={activeSprint}
+            sprintIssueCount={overviewSprintIssueCount}
+            planningPulse={planningPulse}
+            boardLoading={loadingBoardDetail}
+            sprintContextLoading={sprintContextLoading}
+            planningContextLoading={planningContextLoading}
             locale={locale}
             isDarkMode={isDarkMode}
             onOpenBoard={() => setTab('board')}
             onOpenBacklog={() => setTab('planning')}
+            onOpenNextAction={handleOpenNextAction}
+            onViewAllActivity={handleViewAllActivity}
             t={t}
           />
         ) : null}
@@ -1135,6 +1705,72 @@ export default function ProjectHubShell({
                 )
               );
               setCrWorkIssue((prev) =>
+                prev && String(prev._id || prev.id) === String(cardId) ? { ...prev, ...patch } : prev
+              );
+              const keys = Object.keys(patch || {});
+              if (keys.length === 1 && keys[0] === 'comments') return;
+              if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+                try {
+                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                } catch (err) {
+                  toast.error(
+                    resolveApiErrorMessage(err, {
+                      t,
+                      fallback: t('workspace.projectHubPlanCreateFail'),
+                    })
+                  );
+                  throw err;
+                }
+              }
+            }}
+          />
+        ) : null}
+        {overviewWorkIssue ? (
+          <WorkItemDetail
+            key={String(overviewWorkIssue?._id || overviewWorkIssue?.id || 'overview-detail')}
+            open
+            chrome="drawer"
+            drawerLayout="overlay"
+            isDarkMode={isDarkMode}
+            workspaceSlug={workspaceSlug}
+            workItem={overviewWorkIssue}
+            boardId={boardId}
+            lists={lists}
+            boardCards={cards}
+            epics={planningItems.filter((p) => String(p.type || '').toLowerCase() === 'epic')}
+            features={planningItems.filter((p) => String(p.type || '').toLowerCase() === 'feature')}
+            sprints={sprints}
+            workTypeConfig={projectPayload?.workTypeConfig}
+            priorityConfig={projectPayload?.priorityConfig}
+            projectCode={resolvedBoard?.projectCode || ''}
+            projectId={projectId}
+            defaultListId={defaultListId}
+            apiCtx={apiCtx}
+            locale={locale}
+            initialPanel="detail"
+            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
+            canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
+            canComment={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+            }
+            canChangeStatus={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) &&
+                hubCaps.permissions.includes('task:change_status'))
+            }
+            onClose={() => setOverviewWorkIssue(null)}
+            onOpenWorkItem={(card) => {
+              if (card) setOverviewWorkIssue(card);
+            }}
+            onPatchBoardCards={onPatchBoardCards}
+            onUpdateCard={async (cardId, patch) => {
+              onPatchBoardCards?.((prev) =>
+                (prev || []).map((c) =>
+                  String(c._id || c.id) === String(cardId) ? { ...c, ...patch } : c
+                )
+              );
+              setOverviewWorkIssue((prev) =>
                 prev && String(prev._id || prev.id) === String(cardId) ? { ...prev, ...patch } : prev
               );
               const keys = Object.keys(patch || {});

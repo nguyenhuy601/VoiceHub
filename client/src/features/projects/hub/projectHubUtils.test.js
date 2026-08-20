@@ -11,7 +11,11 @@ import {
   listsForStatusSelect,
   statusBucketPillClass,
   statusSelectBucket,
+  timelineBarForegroundClass,
+  timelineBarToneClass,
   countCardsByIssueType,
+  countCardsInSprint,
+  countPlanningByType,
   countIssuesByStatusBucket,
   defaultSprintDateRange,
   displayIssueKey,
@@ -28,7 +32,186 @@ import {
   mergeChangeRequestPatch,
   resolveActiveSprint,
   resolveViewerActiveSprint,
+  pickNextHubActions,
+  formatHubActivityLine,
+  normalizeHubActivityRow,
+  mapHubActivityItem,
+  countUnassignedOpenCards,
+  sumOpenCardEstimateHours,
+  buildOverviewDashboardCharts,
+  cardsHavePriorityField,
+  countOpenCardsByAssignee,
+  overviewDonutAnnulusPath,
+  overviewDonutCalloutPoints,
+  listHubHealthCards,
+  listOverviewChartSegmentCards,
+  formatHubProjectStatus,
+  hubAttentionState,
+  hubActionAttentionRank,
 } from './projectHubUtils.js';
+
+const mockT = (key, vars = {}) => {
+  const table = {
+    'workspace.projectHubWorkFieldAssignee': 'Assignee',
+    'workspace.projectHubWorkFieldTargetDate': 'Target date',
+    'workspace.projectHubWorkFieldDueDate': 'Due date',
+    'workspace.projectHubWorkFieldEstimate': 'Estimate',
+    'workspace.projectHubWorkFieldIssue': 'Issue',
+    'workspace.projectHubWorkNone': 'None',
+    'workspace.projectHubActivityUpdated': 'Updated {field}',
+    'workspace.projectHubActivityChanged': 'Changed {field}',
+    'workspace.projectHubActivityCreated': 'Created work item',
+    'workspace.projectHubActivityUpdatedMultiple': 'Updated {fields}',
+    'workspace.projectHubActivityCardUpdated': 'Card updated',
+    'workspace.projectHubActivityUntitledWork': 'Work item',
+  };
+  let out = table[key] || key;
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replace(`{${k}}`, String(v));
+  }
+  return out;
+};
+
+test('countPlanningByType và countCardsInSprint', () => {
+  assert.deepEqual(
+    countPlanningByType([
+      { type: 'epic' },
+      { type: 'feature' },
+      { type: 'Feature' },
+      { type: 'milestone' },
+    ]),
+    { epic: 1, feature: 2 }
+  );
+  assert.equal(
+    countCardsInSprint(
+      [{ sprintId: 's1' }, { sprintId: 's2' }, { sprintId: 's1' }],
+      's1'
+    ),
+    2
+  );
+  assert.equal(countCardsInSprint([{ sprintId: 's1' }], ''), 0);
+});
+
+test('pickNextHubActions: lấy từ cards mở, không từ activity log', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: 'c1', title: 'Done card', listId: 'l2', status: 'done' },
+    { _id: 'c2', title: 'Overdue', listId: 'l1', dueDate: '2020-01-01T00:00:00.000Z' },
+    { _id: 'c3', title: 'Soon', listId: 'l1', dueDate: '2099-06-01T00:00:00.000Z' },
+    { _id: 'c4', title: 'No due', listId: 'l1' },
+  ];
+  const actions = pickNextHubActions(cards, lists, { limit: 3, projectCode: 'QLKS' });
+  assert.deepEqual(
+    actions.map((a) => a.title),
+    ['Overdue', 'Soon', 'No due']
+  );
+  assert.ok(!actions.some((a) => a.title === 'Done card'));
+  assert.equal(actions[0].dueTone, 'overdue');
+  assert.equal(actions[0].issueKey, 'QLKS-C2');
+});
+
+test('hubActionAttentionRank: Overdue → soon → in review → unassigned → other', () => {
+  assert.equal(hubActionAttentionRank({ dueTone: 'overdue', isInReview: true, hasAssignee: true }), 0);
+  assert.equal(hubActionAttentionRank({ dueTone: 'soon', isInReview: true, hasAssignee: false }), 1);
+  assert.equal(hubActionAttentionRank({ dueTone: 'none', isInReview: true, hasAssignee: false }), 2);
+  assert.equal(hubActionAttentionRank({ dueTone: 'none', isInReview: false, hasAssignee: false }), 3);
+  assert.equal(hubActionAttentionRank({ dueTone: 'none', isInReview: false, hasAssignee: true }), 4);
+});
+
+test('pickNextHubActions: ranking In Review trước Unassigned', () => {
+  const soon = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  const far = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const lists = [
+    { _id: 'l-todo', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l-review', statusKey: 'review', title: 'In Review' },
+  ];
+  const cards = [
+    { _id: 'a1', title: 'Other', listId: 'l-todo', assigneeId: 'u1', assigneeName: 'An', dueDate: far },
+    { _id: 'a2', title: 'Unassigned', listId: 'l-todo' },
+    { _id: 'a3', title: 'In Review', listId: 'l-review', assigneeId: 'u2', assigneeName: 'Binh', dueDate: far },
+    { _id: 'a4', title: 'Due soon', listId: 'l-todo', assigneeId: 'u3', assigneeName: 'Chi', dueDate: soon },
+    { _id: 'a5', title: 'Overdue', listId: 'l-todo', assigneeId: 'u4', assigneeName: 'Dung', dueDate: '2020-01-01T00:00:00.000Z' },
+  ];
+  const actions = pickNextHubActions(cards, lists, { limit: 5 });
+  assert.deepEqual(
+    actions.map((a) => a.title),
+    ['Overdue', 'Due soon', 'In Review', 'Unassigned', 'Other']
+  );
+  assert.equal(actions[2].statusLabel, 'In Review');
+  assert.equal(actions[2].assigneeName, 'Binh');
+});
+
+test('countUnassignedOpenCards và sumOpenCardEstimateHours', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: 'c1', listId: 'l1', assigneeId: 'u1', estimateHours: 2 },
+    { _id: 'c2', listId: 'l1', estimateHours: 3 },
+    { _id: 'c3', listId: 'l2', status: 'done', estimateHours: 8 },
+  ];
+  assert.equal(countUnassignedOpenCards(cards, lists), 1);
+  assert.equal(sumOpenCardEstimateHours(cards, lists), 5);
+});
+
+test('formatHubProjectStatus: i18n hoặc fallback raw', () => {
+  const t = (key) =>
+    key === 'workspace.projectHubProjectStatus_in_development' ? 'Đang phát triển' : key;
+  assert.equal(formatHubProjectStatus('in_development', t), 'Đang phát triển');
+  assert.equal(formatHubProjectStatus('CUSTOM', t), 'CUSTOM');
+});
+
+test('formatHubActivityLine: không trả raw field/type keys', () => {
+  const row = normalizeHubActivityRow({
+    _id: 'log1',
+    type: 'work.field_changed',
+    title: 'Login API',
+    payload: { field: 'targetDate', from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z' },
+    createdAt: '2026-01-02T00:00:00.000Z',
+  });
+  const line = formatHubActivityLine(row, mockT, { locale: 'en' });
+  assert.ok(!line.includes('work.field_changed'));
+  assert.ok(!line.includes('targetDate'));
+  assert.ok(line.includes('Target date'));
+  assert.ok(line.includes('Updated'));
+});
+
+test('mapHubActivityItem: work.field_changed → title work + detail i18n', () => {
+  const item = mapHubActivityItem(
+    {
+      _id: 'log2',
+      type: 'work.field_changed',
+      title: 'Fix bug',
+      payload: { field: 'assigneeId', from: null, to: 'u1' },
+      createdAt: '2026-01-03T00:00:00.000Z',
+    },
+    mockT
+  );
+  assert.equal(item.title, 'Fix bug');
+  assert.ok(item.detail.includes('Assignee'));
+  assert.ok(!item.detail.includes('assigneeId'));
+});
+
+test('mapHubActivityItem: actorName từ actorId + members', () => {
+  const item = mapHubActivityItem(
+    {
+      _id: 'log3',
+      type: 'work.field_changed',
+      title: 'Fix bug',
+      actorId: 'abc123456789',
+      payload: { field: 'status', from: 'todo', to: 'review' },
+      createdAt: '2026-01-03T00:00:00.000Z',
+    },
+    mockT,
+    { members: [{ userId: 'abc123456789', displayName: 'Nguyen A' }] }
+  );
+  assert.equal(item.actorName, 'Nguyen A');
+  assert.equal(item.title, 'Fix bug');
+});
 
 test('countCardsByIssueType nhóm story / task / bug', () => {
   const counts = countCardsByIssueType([
@@ -101,6 +284,18 @@ test('statusBucketPillClass và childWorkProgress*', () => {
   assert.equal(childWorkProgressPct(0, 0), 0);
   assert.ok(childWorkProgressBarClass({ done: 1, total: 1 }).includes('bg-success'));
   assert.ok(childWorkProgressBarClass({ done: 0, total: 1 }).includes('bg-primary'));
+});
+
+test('timelineBarToneClass: overdue > done > progress > todo', () => {
+  assert.equal(timelineBarToneClass({ bucket: 'todo', dueTone: 'overdue' }), 'bg-destructive');
+  assert.equal(timelineBarToneClass({ bucket: 'done', dueTone: 'none' }), 'bg-success');
+  assert.equal(timelineBarToneClass({ bucket: 'progress', dueTone: 'soon' }), 'bg-primary');
+  assert.equal(
+    timelineBarToneClass({ bucket: 'todo', dueTone: 'none' }),
+    'bg-primary/40 ring-1 ring-inset ring-primary/25'
+  );
+  assert.equal(timelineBarForegroundClass({ bucket: 'progress', dueTone: 'none' }), 'text-primary-foreground');
+  assert.equal(timelineBarForegroundClass({ bucket: 'todo', dueTone: 'none' }), 'text-foreground');
 });
 
 test('listsForStatusSelect: ẩn 4 cột VI khi đã có cột EN cùng bucket', () => {
@@ -378,4 +573,246 @@ test('isLinkableCrWorkType: feature/story/task/bug', () => {
   assert.equal(isLinkableCrWorkType('feature'), true);
   assert.equal(isLinkableCrWorkType('story'), true);
   assert.equal(isLinkableCrWorkType('epic'), false);
+});
+
+test('hubAttentionState: overdue >= 1 → attention', () => {
+  assert.equal(hubAttentionState({ overdue: 0 }), 'on_track');
+  assert.equal(hubAttentionState({ overdue: 1 }), 'attention');
+  assert.equal(hubAttentionState({ overdue: 3 }), 'attention');
+  assert.equal(hubAttentionState({}), 'on_track');
+  assert.equal(hubAttentionState({ overdue: -1 }), 'on_track');
+  assert.equal(hubAttentionState({ overdue: NaN }), 'on_track');
+  assert.equal(hubAttentionState({ overdue: '2' }), 'attention');
+});
+
+test('listHubHealthCards: overdue / inReview titles', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'review', title: 'In Review' },
+    { _id: 'l3', statusKey: 'done', title: 'Done' },
+  ];
+  const past = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const future = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+  const cards = [
+    { _id: 'a', listId: 'l1', title: 'Overdue A', dueDate: past },
+    { _id: 'b', listId: 'l1', title: 'Soon B', dueDate: future },
+    { _id: 'c', listId: 'l2', title: 'Review C' },
+    { _id: 'd', listId: 'l3', title: 'Done past', dueDate: past },
+  ];
+  assert.deepEqual(
+    listHubHealthCards(cards, lists, 'overdue').map((r) => r.title),
+    ['Overdue A']
+  );
+  assert.deepEqual(
+    listHubHealthCards(cards, lists, 'inReview').map((r) => r.title),
+    ['Review C']
+  );
+});
+
+test('listOverviewChartSegmentCards: status / priority / assignee', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: '1', listId: 'l1', title: 'Todo Low', priority: 'low' },
+    { _id: '2', listId: 'l2', title: 'Done Med', priority: 'medium', assigneeId: 'u1', assigneeName: 'Ann' },
+    { _id: '3', listId: 'l1', title: 'Open Unassigned', priority: 'high' },
+  ];
+  assert.deepEqual(
+    listOverviewChartSegmentCards({ cards, lists, chart: 'status', segmentKey: 'done' }).map(
+      (r) => r.title
+    ),
+    ['Done Med']
+  );
+  assert.deepEqual(
+    listOverviewChartSegmentCards({ cards, lists, chart: 'priority', segmentKey: 'low' }).map(
+      (r) => r.title
+    ),
+    ['Todo Low']
+  );
+  assert.deepEqual(
+    listOverviewChartSegmentCards({
+      cards,
+      lists,
+      chart: 'assignee',
+      segmentKey: 'unassigned',
+    }).map((r) => r.title),
+    ['Open Unassigned', 'Todo Low']
+  );
+  assert.deepEqual(
+    listOverviewChartSegmentCards({
+      cards,
+      lists,
+      chart: 'assignee',
+      segmentKey: 'u1',
+    }).map((r) => r.title),
+    []
+  );
+});
+
+test('buildOverviewDashboardCharts: status donut + type bars từ cards/lists', () => {
+  const lists = [
+    { _id: 'l1', title: 'Todo', statusKey: 'todo' },
+    { _id: 'l2', title: 'Doing', statusKey: 'doing' },
+    { _id: 'l3', title: 'Done', statusKey: 'done' },
+  ];
+  const cards = [
+    { _id: 'a', listId: 'l1', issueType: 'story' },
+    { _id: 'b', listId: 'l2', issueType: 'task' },
+    { _id: 'c', listId: 'l2', issueType: 'bug' },
+    { _id: 'd', listId: 'l3', issueType: 'task' },
+  ];
+  const charts = buildOverviewDashboardCharts({ cards, lists });
+  assert.equal(charts.statusTotal, 4);
+  assert.equal(charts.donePct, 25);
+  assert.equal(charts.hasPriorityData, false);
+  assert.equal(charts.showPriorityChart, true);
+  assert.equal(charts.prioritySkippedReason, 'no_card_priority_field');
+  assert.equal(charts.prioritySegments.length, 0);
+  assert.equal(charts.assigneeTotal, 3);
+  assert.equal(charts.assigneeSegments.find((s) => s.key === 'unassigned')?.count, 3);
+  assert.deepEqual(
+    charts.statusSegments.map((s) => [s.key, s.count, s.pct]),
+    [
+      ['todo', 1, 25],
+      ['progress', 2, 50],
+      ['done', 1, 25],
+    ]
+  );
+  assert.ok(charts.statusSegments.every((s) => Number.isFinite(s.startAngle) && Number.isFinite(s.sweepAngle)));
+  assert.equal(
+    charts.statusSegments.reduce((sum, s) => sum + s.sweepAngle, 0),
+    360
+  );
+  assert.equal(charts.statusSegments.find((s) => s.key === 'todo')?.fillClass, 'fill-muted-foreground');
+  assert.equal(charts.statusSegments.find((s) => s.key === 'progress')?.fillClass, 'fill-primary');
+  assert.equal(charts.statusSegments.find((s) => s.key === 'done')?.fillClass, 'fill-success');
+  assert.equal(charts.assigneeSegments.find((s) => s.key === 'unassigned')?.fillClass, 'fill-muted-foreground/45');
+  assert.deepEqual(
+    charts.typeSegments.map((s) => [s.key, s.count, s.pct]),
+    [
+      ['story', 1, 25],
+      ['task', 2, 50],
+      ['bug', 1, 25],
+    ]
+  );
+});
+
+test('buildOverviewDashboardCharts: empty + other type', () => {
+  const empty = buildOverviewDashboardCharts({ cards: [], lists: [] });
+  assert.equal(empty.statusTotal, 0);
+  assert.equal(empty.donePct, 0);
+  assert.equal(empty.typeTotal, 0);
+  assert.equal(empty.hasPriorityData, false);
+  assert.equal(empty.assigneeTotal, 0);
+  assert.ok(empty.statusSegments.every((s) => s.count === 0 && s.pct === 0));
+
+  const withOther = buildOverviewDashboardCharts({
+    cards: [{ listId: 'x', issueType: 'epic' }],
+    lists: [{ _id: 'x', title: 'Todo' }],
+    issueCounts: { story: 0, task: 0, bug: 0, other: 1 },
+  });
+  assert.equal(withOther.typeTotal, 1);
+  assert.equal(withOther.typeSegments.find((s) => s.key === 'other')?.count, 1);
+});
+
+test('buildOverviewDashboardCharts: priority bars khi card.priority có mặt', () => {
+  assert.equal(cardsHavePriorityField([{ title: 'x' }]), false);
+  assert.equal(cardsHavePriorityField([{ priority: 'high' }]), true);
+  assert.equal(cardsHavePriorityField([{ priority: '' }]), false);
+
+  const charts = buildOverviewDashboardCharts({
+    cards: [
+      { listId: 'l1', priority: 'high', issueType: 'task' },
+      { listId: 'l1', priority: 'high', issueType: 'task' },
+      { listId: 'l1', priority: 'low', issueType: 'bug' },
+      { listId: 'l1', priority: 'urgent', issueType: 'story' },
+    ],
+    lists: [{ _id: 'l1', title: 'Todo' }],
+  });
+  assert.equal(charts.hasPriorityData, true);
+  assert.equal(charts.showPriorityChart, true);
+  assert.equal(charts.prioritySkippedReason, '');
+  assert.deepEqual(
+    charts.prioritySegments.map((s) => [s.key, s.count]),
+    [
+      ['low', 1],
+      ['medium', 0],
+      ['high', 2],
+      ['urgent', 1],
+    ]
+  );
+  assert.ok(charts.prioritySegments.every((s) => s.fillClass && s.barClass));
+  assert.equal(charts.prioritySegments.length, 4);
+});
+
+test('countOpenCardsByAssignee: open only + Unassigned + members tên', () => {
+  const lists = [
+    { _id: 'open', title: 'Todo' },
+    { _id: 'done', title: 'Done', statusKey: 'done' },
+  ];
+  const cards = [
+    { listId: 'open', assigneeId: 'u1', assigneeName: 'Huy' },
+    { listId: 'open', assigneeId: 'u1', assigneeName: 'Huy' },
+    { listId: 'open', assigneeId: 'u2' },
+    { listId: 'open' },
+    { listId: 'done', assigneeId: 'u1', assigneeName: 'Huy' },
+  ];
+  const members = [{ userId: 'u2', displayName: 'Danh Do' }];
+  const out = countOpenCardsByAssignee(cards, lists, members);
+  assert.equal(out.total, 4);
+  assert.deepEqual(
+    out.segments.map((s) => [s.key, s.count, s.label]),
+    [
+      ['u1', 2, 'Huy'],
+      ['u2', 1, 'Danh Do'],
+      ['unassigned', 1, 'Unassigned'],
+    ]
+  );
+  assert.equal(out.segments.reduce((sum, s) => sum + s.sweepAngle, 0), 360);
+});
+
+test('overviewDonutAnnulusPath: slice và full ring', () => {
+  const slice = overviewDonutAnnulusPath(50, 50, 40, 24, 0, 90);
+  assert.ok(slice.startsWith('M '));
+  assert.ok(slice.includes('A 40'));
+  assert.ok(slice.includes('Z'));
+  const full = overviewDonutAnnulusPath(50, 50, 40, 24, 0, 360);
+  assert.ok(full.includes('A 40'));
+  assert.equal(overviewDonutAnnulusPath(50, 50, 40, 24, 0, 0), '');
+});
+
+test('overviewDonutCalloutPoints: chỉ lát > 0; anchor trái/phải theo nửa vòng', () => {
+  const charts = buildOverviewDashboardCharts({
+    cards: [
+      { _id: 'a', listId: 'l1', issueType: 'task' },
+      { _id: 'b', listId: 'l1', issueType: 'task' },
+      { _id: 'c', listId: 'l3', issueType: 'task' },
+    ],
+    lists: [
+      { _id: 'l1', title: 'Todo', statusKey: 'todo' },
+      { _id: 'l2', title: 'Doing', statusKey: 'doing' },
+      { _id: 'l3', title: 'Done', statusKey: 'done' },
+    ],
+  });
+  assert.equal(charts.statusSegments.length, 3);
+  assert.equal(charts.statusSegments.find((s) => s.key === 'progress')?.count, 0);
+
+  const callouts = overviewDonutCalloutPoints(charts.statusSegments, {
+    cx: 100,
+    cy: 80,
+    rimR: 38,
+    elbowR: 50,
+    labelX: 168,
+  });
+  assert.equal(callouts.length, 2);
+  assert.ok(callouts.every((c) => c.count > 0));
+  assert.ok(callouts.every((c) => Number.isFinite(c.x1) && Number.isFinite(c.x3)));
+  for (const c of callouts) {
+    assert.ok(c.textAnchor === 'start' || c.textAnchor === 'end');
+    // L-line: đoạn ngang từ elbow → neo chữ (y2 === y3)
+    assert.equal(c.y2, c.y3);
+    assert.notEqual(c.x2, c.x3);
+  }
 });

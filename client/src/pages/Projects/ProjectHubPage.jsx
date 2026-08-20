@@ -587,6 +587,7 @@ export default function ProjectHubPage() {
           ).trim()
         }
         boardDetail={taskBoardDetail}
+        loadingBoardDetail={loadingTaskBoardDetail}
         boards={taskBoards}
         isDarkMode={isDarkMode}
         locale={locale}
