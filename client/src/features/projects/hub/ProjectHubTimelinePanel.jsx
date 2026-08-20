@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Minus, Plus, RefreshCw, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import UserAvatar from '../../../components/Shared/UserAvatar';
@@ -10,30 +10,51 @@ import WorkItemDetail from './WorkItemDetail';
 import { buildListTree } from './projectHubHierarchy';
 import { flattenExpandedRows } from './projectHubListLazy';
 import {
-  childWorkProgressBarClass,
-  childWorkProgressPct,
-  classifyListStatusBucket,
-  displayIssueKey,
-  statusBucketPillClass,
-  unwrapPlanningEntity,
-} from './projectHubUtils';
-import { childWorkStats } from './projectHubBacklogStats';
-import {
+  TIMELINE_DAY_LABEL_NUM_MIN_PX,
+  TIMELINE_PX_PER_UNIT,
   TIMELINE_ROW_PX,
   TIMELINE_SCALES,
   TIMELINE_SCROLL_EDGE_PX,
   barPlacement,
+  buildFitWindow,
   buildInitialWindow,
+  buildJumpWindow,
+  clampTimelinePxPerUnit,
   columnsTotalWidth,
+  earliestScheduledRange,
   enumerateColumns,
   extendWindow,
+  fitTimelinePxPerUnit,
+  fillViewportPxPerUnit,
   groupTimelineColumns,
+  isMajorTimelineGridColumn,
   isSameLocalDay,
+  isWeekendColumn,
   rangeForTimelineNode,
   resolveProjectTimeBounds,
+  scrollLeftForZoomAnchor,
+  scrollLeftToShowBar,
   sprintBarPlacement,
+  timelineBarLabelOutside,
+  timelineDayHeaderText,
+  timelineMinBarPx,
+  timelineTodayShowsChip,
   todayOffsetPx,
+  unionTimelineBounds,
 } from './projectHubTimeline';
+import {
+  childWorkProgressBarClass,
+  childWorkProgressPct,
+  classifyListStatusBucket,
+  displayIssueKey,
+  dueDateTone,
+  formatHubDate,
+  statusBucketPillClass,
+  timelineBarForegroundClass,
+  timelineBarToneClass,
+  unwrapPlanningEntity,
+} from './projectHubUtils';
+import { childWorkStats } from './projectHubBacklogStats';
 
 const WORK_COL_PX = 288;
 const HEADER_PX = 56;
@@ -86,6 +107,39 @@ function nodeStatusBucket(node, lists) {
   const list = (lists || []).find((l) => String(l._id || l.id) === String(raw.listId || raw.list || ''));
   return classifyListStatusBucket(raw.status || list);
 }
+
+function nodeDueTone(node, lists) {
+  const raw = node?.raw || {};
+  const list = (lists || []).find((l) => String(l._id || l.id) === String(raw.listId || raw.list || ''));
+  const due = raw.dueDate || raw.targetDate || null;
+  return dueDateTone(due, raw.status || list);
+}
+
+function nodeBarClass(node, lists) {
+  return timelineBarToneClass({
+    bucket: nodeStatusBucket(node, lists),
+    dueTone: nodeDueTone(node, lists),
+  });
+}
+
+function nodeBarForegroundClass(node, lists) {
+  return timelineBarForegroundClass({
+    bucket: nodeStatusBucket(node, lists),
+    dueTone: nodeDueTone(node, lists),
+  });
+}
+
+function nodeRowToneClass(index, hovered) {
+  if (hovered) return 'bg-muted/50';
+  return index % 2 === 1 ? 'bg-muted/20' : '';
+}
+
+const TIMELINE_LEGEND = [
+  { key: 'todo', bucket: 'todo', dueTone: 'none', labelKey: STATUS_LABEL_KEYS.todo },
+  { key: 'progress', bucket: 'progress', dueTone: 'none', labelKey: STATUS_LABEL_KEYS.progress },
+  { key: 'done', bucket: 'done', dueTone: 'none', labelKey: STATUS_LABEL_KEYS.done },
+  { key: 'overdue', bucket: 'todo', dueTone: 'overdue', labelKey: 'workspace.projectHubStatOverdue' },
+];
 
 function resolveAssignee(raw) {
   const first = raw?.assignees?.[0];
@@ -142,10 +196,15 @@ function groupHeaderLabel(group, locale) {
 }
 
 function columnHeaderLabel(col, locale) {
-  if (col.scale === 'weeks') return String(col.day);
+  if (col.scale === 'weeks') return timelineDayHeaderText(col, locale);
   if (col.scale === 'quarters') return quarterLabel(col.year, col.quarter, locale);
   return monthShort(col.year, col.month, locale);
 }
+
+const WEEKEND_HATCH_STYLE = {
+  backgroundImage:
+    'repeating-linear-gradient(-45deg, transparent, transparent 3px, var(--border-strong) 3px, var(--border-strong) 4px)',
+};
 
 function TimelineCreateEpic({ busy = false, onCreate, t }) {
   const [open, setOpen] = useState(false);
@@ -241,7 +300,9 @@ export default function ProjectHubTimelinePanel({
 }) {
   const { t } = useAppStrings();
   const [scale, setScale] = useState('months');
+  const [pxPerUnit, setPxPerUnit] = useState(TIMELINE_PX_PER_UNIT.months);
   const [range, setRange] = useState(null);
+  const [headerDragging, setHeaderDragging] = useState(false);
   const [query, setQuery] = useState('');
   const [epicFilter, setEpicFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -249,11 +310,15 @@ export default function ProjectHubTimelinePanel({
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const [detailIssue, setDetailIssue] = useState(null);
   const [createBusy, setCreateBusy] = useState(false);
+  const [hoveredRowId, setHoveredRowId] = useState(null);
   const leftRef = useRef(null);
   const rightRef = useRef(null);
   const syncingY = useRef(false);
   const pendingPrependPx = useRef(0);
   const extendingRef = useRef(false);
+  const pendingZoomAnchorRef = useRef(null);
+  const pendingFocusRangeRef = useRef(null);
+  const headerDragRef = useRef(null);
 
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
@@ -263,11 +328,45 @@ export default function ProjectHubTimelinePanel({
   );
   const boundsKey = bounds ? `${bounds.start.getTime()}:${bounds.end.getTime()}` : '';
 
+  /**
+   * Phóng cột cho đầy viewport khi đổi scale/biên (và khi resize).
+   * Không fill lại mỗi lần pan mở rộng `range` — giữ zoom +/- của user.
+   */
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const needsViewportFillRef = useRef(true);
   useEffect(() => {
     setRange(buildInitialWindow(scale, new Date(), bounds));
+    needsViewportFillRef.current = true;
   }, [scale, boundsKey, bounds]);
 
-  const columns = useMemo(() => enumerateColumns(range, scale), [range, scale]);
+  useLayoutEffect(() => {
+    if (!timelineActive) return undefined;
+    const el = rightRef.current;
+    const applyFill = (force) => {
+      const win = rangeRef.current;
+      if (!win?.start || !win?.end) return;
+      if (!force && !needsViewportFillRef.current) return;
+      const viewport = rightRef.current?.clientWidth || 0;
+      if (viewport < 120) return;
+      const nextPx = fillViewportPxPerUnit(scale, win, viewport);
+      needsViewportFillRef.current = false;
+      setPxPerUnit((prev) => (prev === nextPx ? prev : nextPx));
+    };
+    applyFill(false);
+    const ro =
+      typeof ResizeObserver !== 'undefined' && el
+        ? new ResizeObserver(() => applyFill(true))
+        : null;
+    if (ro && el) ro.observe(el);
+    return () => ro?.disconnect();
+  }, [timelineActive, scale, boundsKey, range]);
+
+  const minBarPx = useMemo(() => timelineMinBarPx(scale, pxPerUnit), [scale, pxPerUnit]);
+  const columns = useMemo(
+    () => enumerateColumns(range, scale, pxPerUnit),
+    [range, scale, pxPerUnit]
+  );
   const columnOffsets = useMemo(() => {
     let x = 0;
     return columns.map((col) => {
@@ -313,6 +412,22 @@ export default function ProjectHubTimelinePanel({
     () => flattenExpandedRows(filteredTree, expandedIds),
     [filteredTree, expandedIds]
   );
+  const scheduledRanges = useMemo(
+    () => flatRows.map(({ node }) => rangeForTimelineNode(node)).filter(Boolean),
+    [flatRows]
+  );
+  const scheduleBounds = useMemo(
+    () => (scheduledRanges.length ? unionTimelineBounds(...scheduledRanges) : null),
+    [scheduledRanges]
+  );
+  const timelineBounds = useMemo(
+    () => unionTimelineBounds(bounds, scheduleBounds) || bounds,
+    [bounds, scheduleBounds]
+  );
+  const scheduledRowCount = scheduledRanges.length;
+  const showPartialEmptyOverlay =
+    !planningLoading && flatRows.length > 0 && scheduledRowCount === 0;
+  const canJumpToSchedule = scheduledRowCount > 0;
 
   const overlappingSprints = useMemo(() => {
     if (todayX == null) return [];
@@ -336,6 +451,37 @@ export default function ProjectHubTimelinePanel({
     el.scrollLeft = Math.max(0, todayX - el.clientWidth / 2);
   }, [todayX]);
 
+  const fitTimeline = useCallback(() => {
+    if (!timelineBounds) return;
+    const el = rightRef.current;
+    const viewport = el?.clientWidth || 640;
+    const nextRange = buildFitWindow(scale, timelineBounds);
+    if (!nextRange) return;
+    const nextPx = fitTimelinePxPerUnit(scale, timelineBounds, viewport);
+    const focus = earliestScheduledRange(scheduledRanges);
+    if (focus) pendingFocusRangeRef.current = focus;
+    setRange(nextRange);
+    setPxPerUnit(nextPx);
+    if (!focus) {
+      requestAnimationFrame(() => {
+        if (rightRef.current) rightRef.current.scrollLeft = 0;
+      });
+    }
+  }, [timelineBounds, scale, scheduledRanges]);
+
+  const jumpToSchedule = useCallback(() => {
+    const focus = earliestScheduledRange(scheduledRanges);
+    if (!focus || !timelineBounds) return;
+    const place = barPlacement(focus.start, focus.end, columns, { minBarPx });
+    const el = rightRef.current;
+    if (place && el) {
+      el.scrollLeft = scrollLeftToShowBar(place, el.clientWidth);
+      return;
+    }
+    pendingFocusRangeRef.current = focus;
+    setRange(buildJumpWindow(scale, focus, timelineBounds));
+  }, [scheduledRanges, timelineBounds, columns, scale, minBarPx]);
+
   useEffect(() => {
     if (!timelineActive) return undefined;
     const id = requestAnimationFrame(centerToday);
@@ -349,6 +495,132 @@ export default function ProjectHubTimelinePanel({
     pendingPrependPx.current = 0;
     extendingRef.current = false;
   }, [range]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingZoomAnchorRef.current;
+    const el = rightRef.current;
+    if (!anchor || !el) return;
+    el.scrollLeft = scrollLeftForZoomAnchor(
+      anchor.scrollLeft,
+      anchor.pointerX,
+      anchor.oldPx,
+      pxPerUnit
+    );
+    pendingZoomAnchorRef.current = null;
+  }, [pxPerUnit]);
+
+  useLayoutEffect(() => {
+    const focus = pendingFocusRangeRef.current;
+    const el = rightRef.current;
+    if (!focus || !el || !columns.length) return;
+    const place = barPlacement(focus.start, focus.end, columns, { minBarPx });
+    if (!place) return;
+    pendingFocusRangeRef.current = null;
+    el.scrollLeft = scrollLeftToShowBar(place, el.clientWidth);
+  }, [columns, range, pxPerUnit, minBarPx]);
+
+  const applyTimelineZoom = useCallback(
+    (nextPx, pointerX) => {
+      const el = rightRef.current;
+      const clamped = clampTimelinePxPerUnit(scale, nextPx);
+      if (!el || clamped === pxPerUnit) return;
+      pendingZoomAnchorRef.current = {
+        scrollLeft: el.scrollLeft,
+        pointerX,
+        oldPx: pxPerUnit,
+      };
+      setPxPerUnit(clamped);
+    },
+    [pxPerUnit, scale]
+  );
+
+  const onHeaderPointerDown = useCallback((event) => {
+    if (event.button !== 0) return;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    headerDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      mode: null,
+      startScrollLeft: rightRef.current?.scrollLeft ?? 0,
+      startPxPerUnit: pxPerUnit,
+      lastAppliedPx: pxPerUnit,
+    };
+    setHeaderDragging(true);
+  }, [pxPerUnit]);
+
+  const onHeaderPointerMove = useCallback(
+    (event) => {
+      const drag = headerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.mode) {
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+        drag.mode = Math.abs(dx) >= Math.abs(dy) ? 'pan' : 'zoom';
+      }
+      if (drag.mode === 'pan' && rightRef.current) {
+        rightRef.current.scrollLeft = drag.startScrollLeft - dx;
+        return;
+      }
+      if (drag.mode === 'zoom') {
+        const el = rightRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const pointerX = event.clientX - rect.left;
+        const nextPx = clampTimelinePxPerUnit(scale, drag.startPxPerUnit - dy * 0.35);
+        const prevPx = drag.lastAppliedPx ?? pxPerUnit;
+        if (nextPx === prevPx) return;
+        pendingZoomAnchorRef.current = {
+          scrollLeft: el.scrollLeft,
+          pointerX,
+          oldPx: prevPx,
+        };
+        drag.lastAppliedPx = nextPx;
+        setPxPerUnit(nextPx);
+      }
+    },
+    [pxPerUnit, scale]
+  );
+
+  const onHeaderPointerUp = useCallback((event) => {
+    const drag = headerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    headerDragRef.current = null;
+    setHeaderDragging(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const onTimelineWheel = useCallback(
+    (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      const el = rightRef.current;
+      if (!el) return;
+      event.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const direction = event.deltaY > 0 ? -1 : 1;
+      const step = (TIMELINE_PX_PER_UNIT[scale] ?? 40) * 0.06;
+      applyTimelineZoom(pxPerUnit + direction * step, pointerX);
+    },
+    [applyTimelineZoom, pxPerUnit, scale]
+  );
+
+  const zoomTimelineStep = useCallback(
+    (direction) => {
+      const el = rightRef.current;
+      if (!el) return;
+      const pointerX = el.clientWidth / 2;
+      const step = (TIMELINE_PX_PER_UNIT[scale] ?? 40) * 0.12;
+      applyTimelineZoom(pxPerUnit + direction * step, pointerX);
+    },
+    [applyTimelineZoom, pxPerUnit, scale]
+  );
 
   const syncFromLeft = (event) => {
     if (syncingY.current) return;
@@ -364,12 +636,12 @@ export default function ProjectHubTimelinePanel({
       leftRef.current.scrollTop = el.scrollTop;
       syncingY.current = false;
     }
-    if (extendingRef.current || !range || !bounds) return;
+    if (extendingRef.current || !range || !timelineBounds) return;
     if (el.scrollLeft <= TIMELINE_SCROLL_EDGE_PX) {
-      const next = extendWindow(range, scale, 'prev', bounds);
+      const next = extendWindow(range, scale, 'prev', timelineBounds);
       if (next.start.getTime() !== range.start.getTime()) {
         const oldW = columnsTotalWidth(columns);
-        const newW = columnsTotalWidth(enumerateColumns(next, scale));
+        const newW = columnsTotalWidth(enumerateColumns(next, scale, pxPerUnit));
         pendingPrependPx.current = newW - oldW;
         extendingRef.current = true;
         setRange(next);
@@ -378,7 +650,7 @@ export default function ProjectHubTimelinePanel({
     }
     const room = el.scrollWidth - el.clientWidth - el.scrollLeft;
     if (room <= TIMELINE_SCROLL_EDGE_PX) {
-      const next = extendWindow(range, scale, 'next', bounds);
+      const next = extendWindow(range, scale, 'next', timelineBounds);
       if (next.end.getTime() !== range.end.getTime()) setRange(next);
     }
   };
@@ -440,57 +712,112 @@ export default function ProjectHubTimelinePanel({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy={planningLoading || undefined}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:px-4">
-        <label className="relative min-w-[10rem] flex-1">
-          <Search size={14} className={`pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 ${muted}`} aria-hidden />
-          <span className="sr-only">{t('workspace.projectHubTimelineSearchPh')}</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('workspace.projectHubTimelineSearchPh')}
-            className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground"
-          />
-        </label>
-        <select
-          className={selectCls}
-          value={epicFilter}
-          onChange={(e) => setEpicFilter(e.target.value)}
-          aria-label={t('workspace.projectHubTimelineFilterEpic')}
+      <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative min-w-[10rem] flex-1">
+            <Search
+              size={14}
+              className={`pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 ${muted}`}
+              aria-hidden
+            />
+            <span className="sr-only">{t('workspace.projectHubTimelineSearchPh')}</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('workspace.projectHubTimelineSearchPh')}
+              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground"
+            />
+          </label>
+          <select
+            className={selectCls}
+            value={epicFilter}
+            onChange={(e) => setEpicFilter(e.target.value)}
+            aria-label={t('workspace.projectHubTimelineFilterEpic')}
+          >
+            <option value="">{t('workspace.projectHubPlanAllEpics')}</option>
+            {epics.map((epic) => (
+              <option key={entityId(epic)} value={entityId(epic)}>
+                {displayIssueKey(projectCode, entityId(epic))} {epic.title || ''}
+              </option>
+            ))}
+          </select>
+          <select
+            className={selectCls}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            aria-label={t('workspace.projectHubTimelineFilterType')}
+          >
+            <option value="">{t('workspace.projectHubTimelineFilterType')}</option>
+            {TYPE_FILTERS.map((id) => (
+              <option key={id} value={id}>
+                {t(TYPE_LABEL_KEYS[id])}
+              </option>
+            ))}
+          </select>
+          <select
+            className={selectCls}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label={t('workspace.projectHubTimelineFilterStatus')}
+          >
+            <option value="">{t('workspace.projectHubTimelineFilterStatus')}</option>
+            {STATUS_FILTERS.map((id) => (
+              <option key={id} value={id}>
+                {t(STATUS_LABEL_KEYS[id])}
+              </option>
+            ))}
+          </select>
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:ml-auto">
+            <button
+              type="button"
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              onClick={jumpToSchedule}
+              disabled={!canJumpToSchedule}
+              aria-label={t('workspace.projectHubTimelineJumpScheduleAria')}
+            >
+              {t('workspace.projectHubTimelineJumpSchedule')}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              onClick={centerToday}
+              aria-label={t('workspace.projectHubTimelineTodayAria')}
+            >
+              {t('workspace.projectHubTimelineToday')}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              onClick={fitTimeline}
+              aria-label={t('workspace.projectHubTimelineFitAria')}
+            >
+              {t('workspace.projectHubTimelineFit')}
+            </button>
+          </div>
+        </div>
+        <div
+          className="flex flex-wrap items-center gap-x-2.5 gap-y-1"
+          role="list"
+          aria-label={t('workspace.projectHubTimelineLegendAria')}
         >
-          <option value="">{t('workspace.projectHubPlanAllEpics')}</option>
-          {epics.map((epic) => (
-            <option key={entityId(epic)} value={entityId(epic)}>
-              {displayIssueKey(projectCode, entityId(epic))} {epic.title || ''}
-            </option>
+          {TIMELINE_LEGEND.map((item) => (
+            <span
+              key={item.key}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+              role="listitem"
+            >
+              <span
+                className={`h-2 w-2 shrink-0 rounded-sm ${timelineBarToneClass({
+                  bucket: item.bucket,
+                  dueTone: item.dueTone,
+                })}`}
+                aria-hidden
+              />
+              {t(item.labelKey)}
+            </span>
           ))}
-        </select>
-        <select
-          className={selectCls}
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          aria-label={t('workspace.projectHubTimelineFilterType')}
-        >
-          <option value="">{t('workspace.projectHubTimelineFilterType')}</option>
-          {TYPE_FILTERS.map((id) => (
-            <option key={id} value={id}>
-              {t(TYPE_LABEL_KEYS[id])}
-            </option>
-          ))}
-        </select>
-        <select
-          className={selectCls}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label={t('workspace.projectHubTimelineFilterStatus')}
-        >
-          <option value="">{t('workspace.projectHubTimelineFilterStatus')}</option>
-          {STATUS_FILTERS.map((id) => (
-            <option key={id} value={id}>
-              {t(STATUS_LABEL_KEYS[id])}
-            </option>
-          ))}
-        </select>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -508,7 +835,7 @@ export default function ProjectHubTimelinePanel({
             {!planningLoading && !flatRows.length ? (
               <p className={`px-3 py-4 text-xs ${muted}`}>{t('workspace.projectHubTimelineEmpty')}</p>
             ) : null}
-            {flatRows.map(({ node, depth }) => {
+            {flatRows.map(({ node, depth }, index) => {
               const raw = node.raw || {};
               const canExpand = Array.isArray(node.children) && node.children.length > 0;
               const expanded = expandedIds.has(node.id);
@@ -519,11 +846,18 @@ export default function ProjectHubTimelinePanel({
                   ? childWorkStats(cards, entityId(raw), lists, node.workType)
                   : { total: 0, done: 0 };
               const pct = childWorkProgressPct(stats.done, stats.total);
+              const hovered = hoveredRowId === node.id;
+              const rangeItem = rangeForTimelineNode(node);
+              const dateSubline = rangeItem
+                ? `${formatHubDate(rangeItem.start, locale)} – ${formatHubDate(rangeItem.end, locale)}`
+                : null;
               return (
                 <div
                   key={node.id}
-                  className="relative flex items-center gap-1 border-b border-border px-2"
+                  className={`relative flex items-center gap-1 border-b border-border px-2 ${nodeRowToneClass(index, hovered)}`}
                   style={{ height: TIMELINE_ROW_PX, paddingLeft: 8 + depth * 16 }}
+                  onMouseEnter={() => setHoveredRowId(node.id)}
+                  onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}
                 >
                   {canExpand ? (
                     <button
@@ -547,8 +881,19 @@ export default function ProjectHubTimelinePanel({
                       variant="icon"
                       label={t(TYPE_LABEL_KEYS[node.workType] || TYPE_LABEL_KEYS.task)}
                     />
-                    <span className={`truncate text-xs font-medium ${titleCls}`}>
-                      {displayIssueKey(projectCode, entityId(raw))} {node.title}
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-xs font-medium leading-tight ${titleCls}`}>
+                        {displayIssueKey(projectCode, entityId(raw))} {node.title}
+                      </span>
+                      {dateSubline ? (
+                        <span className="mt-0.5 block truncate text-[10px] leading-tight text-muted-foreground">
+                          {dateSubline}
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 inline-flex max-w-full truncate rounded border border-dashed border-border px-1 py-px text-[10px] font-medium leading-tight text-muted-foreground">
+                          {t('workspace.projectHubTimelineUnscheduled')}
+                        </span>
+                      )}
                     </span>
                   </button>
                   <span
@@ -579,168 +924,358 @@ export default function ProjectHubTimelinePanel({
           </div>
         </div>
 
-        <div
-          ref={rightRef}
-          className="scrollbar-overlay min-h-0 min-w-0 flex-1 overflow-auto"
-          onScroll={onRightScroll}
-        >
-          <div className="relative" style={{ width: Math.max(totalWidth, 1), minHeight: '100%' }}>
-            <div
-              className="sticky top-0 z-20 border-b border-border bg-surface"
-              style={{ height: HEADER_PX }}
-            >
-              {showWeeksHeader ? (
-                <>
-                  <div className="flex h-7 border-b border-border text-[11px] font-semibold text-muted-foreground">
-                    {groups.map((g) => (
+        <div className="relative min-h-0 min-w-0 flex-1">
+          <div
+            ref={rightRef}
+            className="scrollbar-overlay absolute inset-0 overflow-auto"
+            onScroll={onRightScroll}
+            onWheel={onTimelineWheel}
+          >
+            <div className="relative" style={{ width: Math.max(totalWidth, 1), minHeight: '100%' }}>
+              <div
+                className={`sticky top-0 z-20 touch-none select-none border-b border-border/30 bg-surface ${
+                  headerDragging ? 'cursor-grabbing' : 'cursor-grab'
+                }`}
+                style={{ height: HEADER_PX }}
+                role="presentation"
+                title={t('workspace.projectHubTimelineHeaderDragHint')}
+                onPointerDown={onHeaderPointerDown}
+                onPointerMove={onHeaderPointerMove}
+                onPointerUp={onHeaderPointerUp}
+                onPointerCancel={onHeaderPointerUp}
+              >
+                {showWeeksHeader ? (
+                  <>
+                    <div className="flex h-7 border-b border-border/25 text-[11px] font-semibold text-muted-foreground">
+                      {groups.map((g) => (
+                        <div
+                          key={g.key}
+                          className="flex items-center border-r border-border/20 px-1.5"
+                          style={{ width: g.widthPx }}
+                        >
+                          {groupHeaderLabel(g, locale)}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex h-7 text-[9px] text-muted-foreground">
+                      {columns.map((col) => {
+                        const isToday = isSameLocalDay(col.start, today);
+                        const isMajor = isMajorTimelineGridColumn(col);
+                        const label = columnHeaderLabel(col, locale);
+                        const dayW = Number(pxPerUnit) || 0;
+                        const showDayNum = dayW >= TIMELINE_DAY_LABEL_NUM_MIN_PX;
+                        const showTodayChip = timelineTodayShowsChip(dayW);
+                        /** Đủ chỗ mới ghép số ngày + chip; hẹp thì chỉ một trong hai — không đè chữ thứ. */
+                        const showTodayBadge = isToday && (showDayNum || showTodayChip);
+                        const showTodayNum = showTodayBadge && showDayNum && (!showTodayChip || dayW >= 64);
+                        const showTodayLabel = showTodayBadge && showTodayChip;
+                        return (
+                          <div
+                            key={col.key}
+                            className={`flex items-center justify-center overflow-hidden px-0.5 ${
+                              isMajor ? 'border-l border-border/25' : ''
+                            } ${isToday ? 'bg-primary/5 font-bold text-primary' : ''}`}
+                            style={{ width: col.widthPx }}
+                            title={
+                              isToday
+                                ? t('workspace.projectHubTimelineTodayMarkerAria', {
+                                    day: today.getDate(),
+                                  })
+                                : label || undefined
+                            }
+                          >
+                            {showTodayBadge ? (
+                              <span className="flex max-w-full items-center justify-center gap-0.5">
+                                {showTodayNum ? (
+                                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground shadow-sm">
+                                    {today.getDate()}
+                                  </span>
+                                ) : null}
+                                {showTodayLabel ? (
+                                  <span className="truncate rounded bg-primary px-1.5 py-0.5 text-[9px] font-semibold leading-none text-primary-foreground shadow-sm">
+                                    {t('workspace.projectHubTimelineTodayChip')}
+                                  </span>
+                                ) : !showTodayNum ? (
+                                  <span className="truncate">{label}</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="truncate">{label}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex h-full text-xs font-semibold text-muted-foreground">
+                    {columns.map((col) => (
                       <div
-                        key={g.key}
-                        className="flex items-center border-r border-border px-1"
-                        style={{ width: g.widthPx }}
+                        key={col.key}
+                        className="flex items-center border-r border-border/20 px-2"
+                        style={{ width: col.widthPx }}
                       >
-                        {groupHeaderLabel(g, locale)}
+                        {columnHeaderLabel(col, locale)}
                       </div>
                     ))}
                   </div>
-                  <div className="flex h-7 text-[10px] text-muted-foreground">
-                    {columns.map((col) => {
-                      const isToday = isSameLocalDay(col.start, today);
-                      return (
-                        <div
-                          key={col.key}
-                          className={`flex items-center justify-center border-r border-border ${
-                            isToday ? 'font-bold text-primary' : ''
-                          }`}
-                          style={{ width: col.widthPx }}
-                        >
-                          {columnHeaderLabel(col, locale)}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : (
-                <div className="flex h-full text-xs font-semibold text-muted-foreground">
-                  {columns.map((col) => (
-                    <div
-                      key={col.key}
-                      className="flex items-center border-r border-border px-2"
-                      style={{ width: col.widthPx }}
-                    >
-                      {columnHeaderLabel(col, locale)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            <div className="relative" style={{ height: bodyH + 24 }}>
-              {columnOffsets.map((meta) => (
-                <div
-                  key={`grid-${meta.key}`}
-                  className="absolute top-0 bottom-0 border-r border-border/60"
-                  style={{ left: meta.left, width: 0 }}
-                />
-              ))}
-              {(sprints || []).map((sprint) => {
-                const place = sprintBarPlacement(sprint, columns);
-                if (!place) return null;
-                return (
+              <div className="relative bg-background" style={{ height: bodyH + 24 }}>
+                {scale === 'weeks'
+                  ? columns.map((col, i) => {
+                      const left = columnOffsets[i]?.left ?? 0;
+                      const isToday = isSameLocalDay(col.start, today);
+                      if (isWeekendColumn(col)) {
+                        return (
+                          <div
+                            key={`wknd-${col.key}`}
+                            className="pointer-events-none absolute top-0 bottom-0 bg-muted/10"
+                            style={{ left, width: col.widthPx, ...WEEKEND_HATCH_STYLE }}
+                          />
+                        );
+                      }
+                      if (isToday) {
+                        return (
+                          <div
+                            key={`today-tint-${col.key}`}
+                            className="pointer-events-none absolute top-0 bottom-0 bg-primary/5"
+                            style={{ left, width: col.widthPx }}
+                          />
+                        );
+                      }
+                      return null;
+                    })
+                  : null}
+                {columns.map((col, i) => {
+                  const left = columnOffsets[i]?.left ?? 0;
+                  const major = isMajorTimelineGridColumn(col);
+                  return (
+                    <div
+                      key={`grid-${col.key}`}
+                      className={`pointer-events-none absolute top-0 bottom-0 border-l ${
+                        major ? 'border-border/30' : 'border-border/10'
+                      }`}
+                      style={{ left }}
+                    />
+                  );
+                })}
+                {(sprints || []).map((sprint) => {
+                  const place = sprintBarPlacement(sprint, columns);
+                  if (!place) return null;
+                  return (
+                    <div
+                      key={entityId(sprint) || sprint.name}
+                      className="pointer-events-none absolute top-0 bottom-0 bg-success/10"
+                      style={{ left: place.left, width: place.width }}
+                      title={String(sprint.name || '')}
+                    >
+                      <div className="absolute inset-x-0 top-0 h-0.5 bg-success/60" />
+                    </div>
+                  );
+                })}
+                {todayX != null ? (
                   <div
-                    key={entityId(sprint) || sprint.name}
-                    className="absolute top-1 h-1.5 rounded-full bg-success/70"
-                    style={{ left: place.left, width: place.width }}
-                    title={String(sprint.name || '')}
-                  />
-                );
-              })}
-              {todayX != null ? (
-                <div
-                  className="pointer-events-none absolute top-0 z-10 w-px bg-primary"
-                  style={{ left: todayX, height: bodyH + 24 }}
-                >
-                  {overlappingSprints.length ? (
-                    <span className="absolute left-1 top-0 max-w-[12rem] truncate rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                      {overlappingSprints.map((s) => s.name).filter(Boolean).join(', ')}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {flatRows.map(({ node }, index) => {
-                const rangeItem = rangeForTimelineNode(node);
-                const place = rangeItem ? barPlacement(rangeItem.start, rangeItem.end, columns) : null;
-                return (
-                  <div
-                    key={`bar-${node.id}`}
-                    className="absolute left-0 right-0"
-                    style={{ top: 24 + index * TIMELINE_ROW_PX, height: TIMELINE_ROW_PX }}
+                    className="pointer-events-none absolute top-0 z-10 w-px bg-primary"
+                    style={{ left: todayX, height: bodyH + 24 }}
+                    aria-hidden
                   >
-                    {place ? (
-                      <button
-                        type="button"
-                        className="absolute top-2 h-5 rounded-md bg-primary"
-                        style={{ left: place.left, width: place.width }}
-                        aria-label={node.title}
-                        onClick={() => setDetailIssue(node.raw)}
-                      />
+                    {overlappingSprints.length ? (
+                      <span className="absolute left-1 top-1 max-w-[12rem] truncate rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                        {overlappingSprints.map((s) => s.name).filter(Boolean).join(', ')}
+                      </span>
                     ) : null}
                   </div>
-                );
-              })}
+                ) : null}
+                <span className="sr-only">
+                  {todayX != null
+                    ? t('workspace.projectHubTimelineTodayMarkerAria', { day: today.getDate() })
+                    : null}
+                </span>
+                {flatRows.map(({ node }, index) => {
+                  const rangeItem = rangeForTimelineNode(node);
+                  const place = rangeItem
+                    ? barPlacement(rangeItem.start, rangeItem.end, columns, { minBarPx })
+                    : null;
+                  if (!place) {
+                    const hovered = hoveredRowId === node.id;
+                    return (
+                      <div
+                        key={`bar-${node.id}`}
+                        className={`absolute left-0 right-0 ${nodeRowToneClass(index, hovered)}`}
+                        style={{ top: 24 + index * TIMELINE_ROW_PX, height: TIMELINE_ROW_PX }}
+                        onMouseEnter={() => setHoveredRowId(node.id)}
+                        onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}
+                      />
+                    );
+                  }
+                  const raw = node.raw || {};
+                  const issueKey = displayIssueKey(projectCode, entityId(raw));
+                  const startLabel = formatHubDate(rangeItem.start, locale);
+                  const endLabel = formatHubDate(rangeItem.end, locale);
+                  const tooltip = `${issueKey} · ${node.title || ''} · ${startLabel} – ${endLabel}`;
+                  const hovered = hoveredRowId === node.id;
+                  const assignee = resolveAssignee(raw);
+                  const labelOutside = timelineBarLabelOutside(place.width, columns[0]?.widthPx);
+                  const epicStats =
+                    node.workType === 'epic'
+                      ? childWorkStats(cards, entityId(raw), lists, node.workType)
+                      : null;
+                  const epicPct =
+                    epicStats && epicStats.total > 0
+                      ? childWorkProgressPct(epicStats.done, epicStats.total)
+                      : null;
+                  const labelText = `${issueKey} ${node.title || ''}`.trim();
+                  return (
+                    <div
+                      key={`bar-${node.id}`}
+                      className={`absolute left-0 right-0 ${nodeRowToneClass(index, hovered)}`}
+                      style={{ top: 24 + index * TIMELINE_ROW_PX, height: TIMELINE_ROW_PX }}
+                      onMouseEnter={() => setHoveredRowId(node.id)}
+                      onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}
+                    >
+                      <button
+                        type="button"
+                        className={`absolute top-2.5 flex h-6 items-center overflow-hidden rounded-md ${nodeBarClass(node, lists)} ${nodeBarForegroundClass(node, lists)}`}
+                        style={{ left: place.left, width: place.width }}
+                        title={tooltip}
+                        aria-label={tooltip}
+                        onClick={() => setDetailIssue(raw)}
+                      >
+                        {epicPct != null ? (
+                          <span
+                            className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-background/25"
+                            aria-hidden
+                          >
+                            <span
+                              className={`block h-full ${childWorkProgressBarClass(epicStats)}`}
+                              style={{ width: `${epicPct}%` }}
+                            />
+                          </span>
+                        ) : null}
+                        {!labelOutside ? (
+                          <span className="relative z-[1] min-w-0 truncate px-1.5 text-left text-[10px] font-semibold leading-6">
+                            {labelText}
+                          </span>
+                        ) : null}
+                      </button>
+                      {labelOutside ? (
+                        <button
+                          type="button"
+                          className="absolute top-2.5 flex max-w-[10rem] items-center gap-1 truncate pl-1 text-left sm:max-w-[14rem]"
+                          style={{ left: place.left + place.width + 4 }}
+                          title={tooltip}
+                          aria-label={tooltip}
+                          onClick={() => setDetailIssue(raw)}
+                        >
+                          <span className="min-w-0 truncate text-[10px] font-medium text-foreground">
+                            {labelText}
+                          </span>
+                          {assignee ? (
+                            <UserAvatar
+                              name={assignee.name}
+                              avatar={assignee.avatar}
+                              userId={assignee.userId}
+                              size="xs"
+                            />
+                          ) : null}
+                        </button>
+                      ) : assignee ? (
+                        <span
+                          className="pointer-events-none absolute top-2.5 flex items-center"
+                          style={{ left: place.left + place.width + 4 }}
+                        >
+                          <UserAvatar
+                            name={assignee.name}
+                            avatar={assignee.avatar}
+                            userId={assignee.userId}
+                            size="xs"
+                          />
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
+          {showPartialEmptyOverlay ? (
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-center justify-center px-4"
+              style={{ top: HEADER_PX }}
+              role="status"
+            >
+              <p className="max-w-sm rounded-md border border-dashed border-border bg-surface/95 px-3 py-2.5 text-center text-[11px] leading-snug text-muted-foreground shadow-sm">
+                {t('workspace.projectHubTimelineNoScheduled')}
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="pointer-events-none absolute bottom-3 right-3 z-30 flex justify-end">
-        <div
-          className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-1 shadow-sm"
-          role="group"
-          aria-label={t('workspace.projectHubTimelineScaleAria')}
+      <div
+        className="flex shrink-0 flex-wrap items-center justify-center gap-1 border-t border-border bg-surface px-3 py-2"
+        role="group"
+        aria-label={t('workspace.projectHubTimelineScaleAria')}
+      >
+        <button
+          type="button"
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => zoomTimelineStep(-1)}
+          aria-label={t('workspace.projectHubTimelineZoomOut')}
         >
-          <button
-            type="button"
-            className="rounded-full px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground"
-            onClick={centerToday}
-            aria-label={t('workspace.projectHubTimelineTodayAria')}
-          >
-            {t('workspace.projectHubTimelineToday')}
-          </button>
-          {TIMELINE_SCALES.map((id) => {
-            const active = scale === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setScale(id)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                  active ? 'border border-primary text-primary' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t(SCALE_LABEL_KEYS[id])}
-              </button>
-            );
-          })}
-        </div>
+          <Minus size={14} aria-hidden />
+        </button>
+        {TIMELINE_SCALES.map((id) => {
+          const active = scale === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setScale(id)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                active
+                  ? 'border border-primary text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {t(SCALE_LABEL_KEYS[id])}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => zoomTimelineStep(1)}
+          aria-label={t('workspace.projectHubTimelineZoomIn')}
+        >
+          <Plus size={14} aria-hidden />
+        </button>
       </div>
 
       <WorkItemDetail
         key={String(detailIssue?._id || detailIssue?.id || 'timeline-detail')}
         open={Boolean(detailIssue)}
-        chrome="modal"
+        chrome="drawer"
+        drawerLayout="overlay"
         isDarkMode={isDarkMode}
         workspaceSlug={workspaceSlug}
         workItem={detailIssue}
         boardId={boardId}
         lists={lists}
         boardCards={cards}
+        epics={epics}
+        features={features}
+        sprints={sprints}
         workTypeConfig={workTypeConfig}
         priorityConfig={projectPayload?.priorityConfig}
         projectCode={projectCode}
         projectId={projectId}
         defaultListId={defaultListId}
         apiCtx={apiCtx}
+        locale={locale}
         initialPanel="detail"
         canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
         canEstimate={Boolean(canManage || hubCaps?.canEstimate)}

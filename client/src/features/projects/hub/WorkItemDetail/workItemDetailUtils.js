@@ -78,6 +78,8 @@ export const HISTORY_FIELD_I18N = {
   title: 'workspace.projectHubWorkFieldTitle',
   assigneeId: 'workspace.projectHubWorkFieldAssignee',
   dueDate: 'workspace.projectHubWorkFieldDueDate',
+  targetDate: 'workspace.projectHubWorkFieldTargetDate',
+  startDate: 'workspace.projectHubWorkFieldStartDate',
   priority: 'workspace.projectHubWorkFieldPriority',
   estimateHours: 'workspace.projectHubWorkFieldEstimate',
   sprintId: 'workspace.projectHubWorkFieldSprint',
