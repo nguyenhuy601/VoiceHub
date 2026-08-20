@@ -2,15 +2,31 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   barPlacement,
+  buildFitWindow,
   buildInitialWindow,
+  buildJumpWindow,
+  clampTimelinePxPerUnit,
   columnsTotalWidth,
+  earliestScheduledRange,
   enumerateColumns,
   extendWindow,
+  fillViewportPxPerUnit,
+  fitTimelinePxPerUnit,
+  isMajorTimelineGridColumn,
+  isWeekendColumn,
   resolveProjectTimeBounds,
   resolveWorkItemRange,
+  scrollLeftForZoomAnchor,
+  scrollLeftToShowBar,
   startOfLocalDay,
   startOfWeekMonday,
+  timelineBarLabelOutside,
+  timelineBarShowsLabel,
+  timelineDayHeaderText,
+  timelineMinBarPx,
+  timelineTodayShowsChip,
   todayOffsetPx,
+  unionTimelineBounds,
   ymd,
 } from './projectHubTimeline.js';
 
@@ -132,9 +148,32 @@ test('barPlacement clip trong cửa sổ; 1 ngày khi thiếu một đầu', () 
   assert.equal(barPlacement(d(2026, 6, 1), d(2026, 6, 10), cols), null);
 });
 
+test('fillViewportPxPerUnit: cột tháng/quý đầy viewport', () => {
+  const win = { start: d(2026, 6, 1), end: d(2026, 8, 30) };
+  const px = fillViewportPxPerUnit('months', win, 900);
+  assert.equal(px, 300);
+  const qs = fillViewportPxPerUnit(
+    'quarters',
+    { start: d(2026, 6, 1), end: d(2026, 11, 31) },
+    560
+  );
+  assert.equal(qs, 280);
+});
+
+test('timelineMinBarPx + barPlacement: tháng không còn vệt mỏng 1 ngày', () => {
+  const px = 300;
+  const minBar = timelineMinBarPx('months', px);
+  assert.ok(minBar >= 22);
+  const cols = enumerateColumns({ start: d(2026, 6, 1), end: d(2026, 8, 30) }, 'months', px);
+  const oneDay = barPlacement(d(2026, 7, 18), d(2026, 7, 18), cols, { minBarPx: minBar });
+  assert.ok(oneDay.width >= minBar);
+  assert.ok(oneDay.width > 10);
+});
+
 test('todayOffsetPx trong / ngoài cửa sổ', () => {
   const cols = enumerateColumns({ start: d(2026, 7, 17), end: d(2026, 7, 23) }, 'weeks', 40);
-  assert.equal(todayOffsetPx(TODAY, cols), 40);
+  // Aug 18 = cột thứ 2 → giữa cột = 40 + 20
+  assert.equal(todayOffsetPx(TODAY, cols), 60);
   assert.equal(todayOffsetPx(d(2026, 6, 1), cols), null);
 });
 
@@ -158,4 +197,95 @@ test('resolveWorkItemRange: card một đầu → 1 ngày; epic từ target + co
 test('startOfLocalDay invalid → null', () => {
   assert.equal(startOfLocalDay('nope'), null);
   assert.equal(startOfLocalDay(null), null);
+});
+
+test('clampTimelinePxPerUnit: kẹp min/max theo scale', () => {
+  assert.equal(clampTimelinePxPerUnit('weeks', 10), 20);
+  assert.equal(clampTimelinePxPerUnit('weeks', 40), 40);
+  assert.equal(clampTimelinePxPerUnit('weeks', 200), 96);
+  assert.equal(clampTimelinePxPerUnit('months', 50), 100);
+  assert.equal(clampTimelinePxPerUnit('months', 500), 400);
+  assert.equal(clampTimelinePxPerUnit('quarters', 100), 160);
+  assert.equal(clampTimelinePxPerUnit('quarters', 800), 640);
+});
+
+test('scrollLeftForZoomAnchor: giữ điểm neo khi zoom', () => {
+  assert.equal(scrollLeftForZoomAnchor(100, 50, 40, 80), 250);
+  assert.equal(scrollLeftForZoomAnchor(100, 50, 80, 40), 25);
+  assert.equal(scrollLeftForZoomAnchor(0, 0, 40, 80), 0);
+});
+
+test('unionTimelineBounds / earliestScheduledRange / scrollLeftToShowBar', () => {
+  const a = { start: d(2023, 7, 12), end: d(2023, 8, 17) };
+  const b = { start: d(2026, 0, 1), end: d(2026, 11, 31) };
+  const u = unionTimelineBounds(a, b);
+  assert.equal(ymd(u.start), '2023-08-12');
+  assert.equal(ymd(u.end), '2026-12-31');
+  assert.equal(unionTimelineBounds(null, null), null);
+  const early = earliestScheduledRange([b, a]);
+  assert.equal(ymd(early.start), '2023-08-12');
+  assert.equal(scrollLeftToShowBar({ left: 400, width: 80 }, 400), 240);
+  assert.equal(scrollLeftToShowBar({ left: 100, width: 500 }, 200, 24), 76);
+});
+
+test('buildJumpWindow: quanh focus, kẹp biên', () => {
+  const bounds = { start: d(2023, 0, 1), end: d(2026, 11, 31) };
+  const focus = { start: d(2023, 7, 12), end: d(2023, 8, 17) };
+  const win = buildJumpWindow('weeks', focus, bounds);
+  assert.ok(win.start.getTime() <= focus.start.getTime());
+  assert.ok(win.end.getTime() >= focus.end.getTime());
+});
+
+test('buildFitWindow: toàn biên dự án theo scale', () => {
+  const bounds = { start: d(2026, 0, 15), end: d(2026, 5, 20) };
+  const months = buildFitWindow('months', bounds);
+  assert.equal(ymd(months.start), '2026-01-01');
+  assert.equal(ymd(months.end), '2026-06-30');
+  const weeks = buildFitWindow('weeks', bounds);
+  assert.equal(ymd(weeks.start), '2026-01-12');
+  assert.equal(ymd(weeks.end), '2026-06-21');
+});
+
+test('fitTimelinePxPerUnit: thu nhỏ để vừa viewport', () => {
+  const bounds = { start: d(2026, 0, 1), end: d(2026, 11, 31) };
+  const px = fitTimelinePxPerUnit('months', bounds, 600);
+  assert.equal(px, 100);
+  assert.equal(px, clampTimelinePxPerUnit('months', px));
+  const wide = fitTimelinePxPerUnit('months', bounds, 4000);
+  assert.ok(wide >= 100);
+  assert.ok(wide <= 400);
+});
+
+test('isWeekendColumn: chỉ scale weeks, Sat/Sun', () => {
+  assert.equal(isWeekendColumn({ scale: 'weeks', start: d(2026, 7, 22) }), true);
+  assert.equal(isWeekendColumn({ scale: 'weeks', start: d(2026, 7, 23) }), true);
+  assert.equal(isWeekendColumn({ scale: 'weeks', start: d(2026, 7, 20) }), false);
+  assert.equal(isWeekendColumn({ scale: 'months', start: d(2026, 7, 22) }), false);
+});
+
+test('isMajorTimelineGridColumn: weeks = Monday; months mọi cột', () => {
+  assert.equal(isMajorTimelineGridColumn({ scale: 'weeks', start: d(2026, 7, 17) }), true);
+  assert.equal(isMajorTimelineGridColumn({ scale: 'weeks', start: d(2026, 7, 20) }), false);
+  assert.equal(isMajorTimelineGridColumn({ scale: 'months', start: d(2026, 7, 1) }), true);
+});
+
+test('timelineDayHeaderText / timelineTodayShowsChip theo độ rộng cột', () => {
+  const mon = { scale: 'weeks', day: 17, start: d(2026, 7, 17), widthPx: 40 };
+  const tue = { scale: 'weeks', day: 18, start: d(2026, 7, 18), widthPx: 40 };
+  assert.ok(timelineDayHeaderText(mon, 'vi').includes('17'));
+  assert.equal(timelineDayHeaderText({ ...tue, widthPx: 20 }, 'vi'), '18');
+  assert.equal(timelineDayHeaderText({ ...tue, widthPx: 10 }, 'vi'), '');
+  assert.equal(timelineDayHeaderText({ ...mon, widthPx: 10 }, 'vi'), '17');
+  assert.equal(timelineTodayShowsChip(40), true);
+  assert.equal(timelineTodayShowsChip(20), false);
+});
+
+test('timelineBarShowsLabel / timelineBarLabelOutside: 1 cột không ngoài', () => {
+  assert.equal(timelineBarShowsLabel(79), false);
+  assert.equal(timelineBarShowsLabel(80), true);
+  assert.equal(timelineBarLabelOutside(40), false);
+  assert.equal(timelineBarLabelOutside(120), true);
+  assert.equal(timelineBarLabelOutside(96, 96), false);
+  assert.equal(timelineBarLabelOutside(100, 96), false);
+  assert.equal(timelineBarLabelOutside(200, 96), true);
 });
