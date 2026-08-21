@@ -48,7 +48,7 @@ export default function CatalogKeyLabelEditor({
                 {row.key}
               </span>
               <input
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
                 value={row.label || ''}
                 disabled={disabled}
                 onChange={(e) => {
@@ -73,14 +73,14 @@ export default function CatalogKeyLabelEditor({
       ) : null}
       <div className="flex flex-wrap items-end gap-2">
         <input
-          className="w-28 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
+          className="w-28 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
           value={draftKey}
           disabled={disabled}
           placeholder={addKeyPh}
           onChange={(e) => setDraftKey(e.target.value)}
         />
         <input
-          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
           value={draftLabel}
           disabled={disabled}
           placeholder={addLabelPh}
@@ -88,7 +88,7 @@ export default function CatalogKeyLabelEditor({
         />
         <button
           type="button"
-          className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+          className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
           disabled={disabled || !slugKey(draftKey)}
           onClick={addRow}
         >
