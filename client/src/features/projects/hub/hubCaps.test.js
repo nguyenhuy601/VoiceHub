@@ -197,6 +197,31 @@ test('legacy không capabilities → canCompleteProject theo canManageFallback',
   assert.equal(manage.canCompleteProject, true);
 });
 
+test('canManageDelivery từ delivery:manage; tắt khi project closed', () => {
+  const noPerm = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'settings:update'],
+    },
+  });
+  assert.equal(noPerm.canManageDelivery, false);
+
+  const withPerm = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'delivery:manage'],
+    },
+  });
+  assert.equal(withPerm.canManageDelivery, true);
+
+  const closed = resolveHubCapabilities({
+    status: 'closed',
+    capabilities: {
+      permissions: ['delivery:manage', 'project:view'],
+    },
+  });
+  assert.equal(closed.readOnly, true);
+  assert.equal(closed.canManageDelivery, false);
+});
+
 test('PO permissions → epic/story, không task:create', () => {
   const caps = resolveHubCapabilities({
     capabilities: {

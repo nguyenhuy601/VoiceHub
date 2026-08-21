@@ -1627,9 +1627,11 @@ export default function ProjectHubShell({
             projectId={projectId}
             boardId={boardId}
             board={resolvedBoard}
+            projectPayload={projectPayload}
             organizationId={organizationId}
             apiCtx={apiCtx}
             canManage={hubCaps.canManageSettings || canManage}
+            canManageDelivery={Boolean(hubCaps.canManageDelivery)}
             isDarkMode={isDarkMode}
             onSaved={onRefresh}
             workTypeConfig={projectPayload?.workTypeConfig}

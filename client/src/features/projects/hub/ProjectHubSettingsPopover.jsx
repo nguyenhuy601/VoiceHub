@@ -54,7 +54,7 @@ export default function ProjectHubSettingsPopover({
             <X size={16} />
           </button>
         </header>
-        <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
+        <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-3 text-foreground">{children}</div>
         {footer ? (
           <footer className="flex shrink-0 justify-end gap-2 border-t border-border px-4 py-3">{footer}</footer>
         ) : null}
