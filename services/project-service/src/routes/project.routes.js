@@ -53,8 +53,13 @@ router.use('/admin/roles', projectRoleAdminRoutes);
 /** Resource Management (Phase 3 / 3b) — trước /:projectId */
 router.get('/resources/capacity', resource.getCapacity);
 router.get('/resources/planner', resource.getPlanner);
+router.get('/resources/pool', resource.getOrgResourcePool);
 router.get('/resources/utilization', resource.getUtilization);
+router.get('/resources/performance', resource.listUserPerformance);
+router.get('/resources/performance/users/:userId', resource.getUserPerformance);
+router.get('/resources/estimate-hints', resource.getEstimateHints);
 router.get('/resources/users/:userId/allocations', resource.getUserAllocations);
+router.get('/resources/employees/:userId/profile', resource.getEmployeeResourceProfile);
 
 /** Phase 4 — Workflow template catalog */
 router.get('/workflow-templates', workflowTemplates.listTemplates);
@@ -79,7 +84,13 @@ router.get('/governance/director-health', governance.directorHealth);
 router.get('/governance/retention', governance.getRetention);
 router.put('/governance/retention', governance.putRetention);
 router.post('/governance/retention/run-stub', governance.runRetentionStub);
+router.get('/governance/working-calendar', governance.getWorkingCalendar);
+router.put('/governance/working-calendar', governance.putWorkingCalendar);
 router.get('/governance/security-flags', governance.securityFlags);
+
+/** Requirement Template Management — org-scoped packs (trước /:projectId) */
+const requirementRoutes = require('./requirement.routes');
+router.use('/requirements', requirementRoutes);
 
 router.post('/', controller.createProject);
 

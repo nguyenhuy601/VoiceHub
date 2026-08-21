@@ -14,6 +14,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberOrgRole, memberUserId, unwrapApi } from '../../utils/adminUserUtils';
+import { coalesceJobTitle } from '../../utils/jobTitleProfile';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS } from '../../utils/roleTaxonomy';
 import { unwrapOrgList } from '../../utils/userTaxonomyUtils';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -106,7 +107,7 @@ export default function UserEditPanel({ orgId, embedded = false }) {
         setInitialRole(role);
         setForm({
           displayName: data?.displayName || '',
-          jobTitle: data?.jobTitle || data?.preferences?.jobTitle || '',
+          jobTitle: coalesceJobTitle(data),
           role,
         });
       } catch (error) {

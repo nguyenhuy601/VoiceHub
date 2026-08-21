@@ -10,6 +10,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
@@ -77,7 +80,7 @@ export default function DeptListPanel({ orgId }) {
           <Link to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, null, 'members')} className={adminSecondaryBtnClass()}>
             {t('adminDomains.orgStructure.deptMembers')}
           </Link>
-          <Link to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, null, 'transfer')} className={adminSecondaryBtnClass()}>
+          <Link to="/app/admin/org-structure/departments/transfer" className={adminSecondaryBtnClass()}>
             {t('adminDomains.orgStructure.deptTransfer')}
           </Link>
         </>

@@ -66,6 +66,7 @@ function createDeps({ projectDoc, sprints = [], tasks = [], lists = [], worklogs
     TaskActivityLog: { find: () => chainFind([]) },
     recordAudit: async () => null,
     assertUserAnyProjectPermission: async () => true,
+    persistClosedProjectExperiences: async () => ({ appended: 0, skipped: true }),
   };
 }
 
@@ -153,5 +154,28 @@ describe('projectClose.service: preview + complete', () => {
     const res = await getCompleteProjectPreview({ userId: 'u1', projectId: 'p1', deps });
     assert.equal(res.closeable, true);
     assert.equal(res.snapshot.progress.work.doneCount, 1);
+  });
+
+  it('T3 complete succeeds when closed-board persist throws', async () => {
+    const projectDoc = createFakeProject();
+    const deps = createDeps({
+      projectDoc,
+      sprints: [{ _id: 's1', status: 'closed', name: 'S1' }],
+      tasks: [{ _id: 't1', status: 'done', listId: 'l1', estimateHours: 5, createdAt: new Date(), completedAt: new Date() }],
+      lists: [{ _id: 'l1', statusKey: 'done', title: 'Done' }],
+    });
+    deps.persistClosedProjectExperiences = async () => {
+      throw new Error('user-service down');
+    };
+
+    const res = await completeProject({
+      userId: 'u1',
+      projectId: 'p1',
+      closeNotes: 'Done despite S2S fail.',
+      deps,
+    });
+
+    assert.equal(res.project.status, 'closed');
+    assert.equal(res.snapshot.experience.closeNotes, 'Done despite S2S fail.');
   });
 });

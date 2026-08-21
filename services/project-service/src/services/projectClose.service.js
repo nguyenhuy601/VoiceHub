@@ -20,6 +20,9 @@ const {
   throwIfProjectNotCloseable,
   assertProjectNotAlreadyClosed,
 } = require('../utils/projectCloseGate');
+const {
+  persistClosedProjectExperiences,
+} = require('./closedBoardExperience.service');
 
 function normalizeCloseNotes(value) {
   return String(value || '').trim().slice(0, 4000);
@@ -240,6 +243,20 @@ async function completeProject({ userId, projectId, closeNotes, deps: depsOverri
     projectId: project._id,
     closedAt: now,
   });
+
+  try {
+    const persistFn =
+      typeof deps.persistClosedProjectExperiences === 'function'
+        ? deps.persistClosedProjectExperiences
+        : persistClosedProjectExperiences;
+    await persistFn({
+      project: typeof project.toObject === 'function' ? project.toObject() : project,
+      closedAt: now,
+      deps,
+    });
+  } catch (err) {
+    logger.warn('[project-close] closed-board persist failed: %s', err.message);
+  }
 
   const out = typeof project.toObject === 'function' ? project.toObject() : project;
   return {

@@ -16,6 +16,7 @@ const {
   emptyCapability,
   assertHrOnlyCapabilityReview,
 } = require('../services/capabilityProfile.service');
+const { coalesceJobTitle } = require('../utils/jobTitleProfile');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -39,6 +40,7 @@ function safeProfilePayload(profile) {
 function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false } = {}) {
   const payload = safeProfilePayload(profile);
   if (!payload || typeof payload !== 'object') return payload;
+  payload.jobTitle = coalesceJobTitle(payload);
   if (isSelf || isCompanyAdmin) {
     if (!payload.capability) {
       payload.capability = emptyCapability();
@@ -115,6 +117,81 @@ function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   });
 }
 
+/** Admin HR — bootstrap profile tối thiểu khi auth có nhưng UserProfile chưa tạo (invite chưa login). */
+async function resolveAdminUserProfile(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+
+  let profile = await userService.getUserProfileById(uid);
+  if (profile) return profile;
+
+  const authSummary = await fetchAuthSummaryByUserId(uid);
+  const email = String(authSummary?.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return null;
+
+  try {
+    profile = await userService.ensureUserProfile(uid, {
+      email,
+      displayName: String(authSummary?.displayName || '').trim() || email.split('@')[0],
+    });
+    if (profile) {
+      logger.info(`Admin lazy profile ensured for ${uid}`);
+    }
+  } catch (bootstrapErr) {
+    logger.warn('Admin lazy profile bootstrap failed:', bootstrapErr.message);
+    profile = await userService.getUserProfileById(uid);
+  }
+  return profile;
+}
+
+function systemBotUserId() {
+  return String(process.env.SYSTEM_BOT_USER_ID || '6a0000000000000000000001').trim();
+}
+
+function isSystemBotUserId(userId) {
+  const uid = String(userId || '').trim();
+  return Boolean(uid && uid === systemBotUserId());
+}
+
+function buildSystemBotProfilePayload(userId) {
+  const uid = String(userId || '').trim();
+  return {
+    userId: uid,
+    username: 'voicehub_bot',
+    displayName: 'VoiceHub',
+    avatar: null,
+    status: 'offline',
+    bio: '',
+    capability: emptyCapability(),
+  };
+}
+
+/** Bootstrap profile khi user xem/sửa hồ sơ của chính mình (GET /users/me, GET /users/:id self). */
+async function ensureSelfUserProfile(req, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !isSelfProfileRequest(req, uid)) return null;
+
+  let profile = await userService.getUserProfileById(uid);
+  if (profile) return profile;
+
+  const authEmail = authEmailFromReq(req);
+  if (!authEmail) return null;
+
+  try {
+    profile = await userService.ensureUserProfile(uid, {
+      email: authEmail,
+      displayName: authEmail.split('@')[0],
+    });
+    if (profile) {
+      logger.info(`Lazy user profile ensured for ${uid}`);
+    }
+  } catch (bootstrapErr) {
+    logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
+    profile = await userService.getUserProfileById(uid);
+  }
+  return profile;
+}
+
 class UserController {
   // Tạo user profile mới
   async createUserProfile(req, res) {
@@ -176,25 +253,36 @@ class UserController {
           message: 'userId is required',
         });
       }
-      let userProfile = await userService.getUserProfileById(userId);
+      const uid = String(userId).trim();
+
+      let userProfile =
+        (await ensureSelfUserProfile(req, uid)) || (await userService.getUserProfileById(uid));
+
+      if (!userProfile && isSystemBotUserId(uid)) {
+        return res.json({
+          success: true,
+          data: buildSystemBotProfilePayload(uid),
+        });
+      }
 
       if (!userProfile) {
         return res.status(404).json({
           success: false,
           message: 'User profile not found',
+          errorCode: 'USER_PROFILE_NOT_FOUND',
         });
       }
 
-      userProfile = await reconcileProfileEmail(req, userId, userProfile);
+      userProfile = await reconcileProfileEmail(req, uid, userProfile);
 
-      const isSelf = isSelfProfileRequest(req, userId);
+      const isSelf = isSelfProfileRequest(req, uid);
       const payload = shapeProfilePayload(userProfile, {
         isSelf,
         isCompanyAdmin: false,
       });
       const data = isSelf
         ? withAuthEmailFallback(req, payload, null, { allowCallerEmail: true })
-        : await enrichPayloadEmailFromAuth(userId, payload);
+        : await enrichPayloadEmailFromAuth(uid, payload);
 
       res.json({
         success: true,
@@ -278,22 +366,7 @@ class UserController {
         });
       }
 
-      const authEmail = authEmailFromReq(req);
-      let userProfile = await userService.getUserProfileById(userId);
-
-      if (!userProfile && authEmail) {
-        try {
-          userProfile = await userService.ensureUserProfile(userId, {
-            email: authEmail,
-            displayName: authEmail.split('@')[0],
-          });
-          if (userProfile) {
-            logger.info(`Lazy user profile ensured for ${userId}`);
-          }
-        } catch (bootstrapErr) {
-          logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
-        }
-      }
+      let userProfile = await ensureSelfUserProfile(req, userId);
 
       if (userProfile) {
         try {
@@ -652,9 +725,13 @@ class UserController {
   async adminGetProfile(req, res) {
     try {
       const userId = String(req.params.userId || '').trim();
-      const profile = await userService.getUserProfileById(userId);
+      const profile = await resolveAdminUserProfile(userId);
       if (!profile) {
-        return res.status(404).json({ success: false, message: 'User profile not found' });
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found',
+          errorCode: 'USER_PROFILE_NOT_FOUND',
+        });
       }
       const authSummary = await fetchAuthSummaryByUserId(userId);
       const payload = await enrichPayloadEmailFromAuth(
@@ -685,6 +762,7 @@ class UserController {
           messageUser: hrGate.messageUser,
         });
       }
+      await resolveAdminUserProfile(userId);
       const userProfile = await userService.updateUserProfile(userId, body, {
         capabilityMode: 'admin',
         actorUserId: actorId,

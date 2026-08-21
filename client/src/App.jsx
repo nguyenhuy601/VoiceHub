@@ -31,6 +31,7 @@ const AdminHubPage = lazy(() => import('./pages/Admin/AdminHubPage'));
 const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
 const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
 const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
+const CollaborateRequirementsPage = lazy(() => import('./features/requirements/CollaborateRequirementsPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
 const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjectWizardPage'));
 const ProjectsLandingPage = lazy(() => import('./pages/Projects/ProjectsLandingPage'));
@@ -135,6 +136,7 @@ function App() {
           <Route path="projects/:projectId" element={<ProjectHubPage />} />
           <Route path="tasks" element={<LegacyTasksRedirect />} />
           <Route path="documents" element={<DocumentsPage suiteLayout />} />
+          <Route path="requirements" element={<CollaborateRequirementsPage />} />
           <Route
             path="notifications"
             element={<NotificationsPage orgScope suiteLayout />}

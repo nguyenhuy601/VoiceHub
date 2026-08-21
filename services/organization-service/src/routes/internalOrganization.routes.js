@@ -514,6 +514,22 @@ router.get('/organizations/:orgId/departments/roster', async (req, res) => {
   }
 });
 
+/** project-service: user People Graph placement */
+router.get('/organizations/:orgId/users/:userId/placement', async (req, res) => {
+  try {
+    const organizationId = String(req.params.orgId || '').trim();
+    const userId = String(req.params.userId || '').trim();
+    if (!organizationId || !userId) {
+      return orgValidation(res, 'organizationId and userId are required');
+    }
+    const { findPlacementByStructureMembers } = require('../services/structurePlacement.service');
+    const placement = await findPlacementByStructureMembers(organizationId, userId);
+    return res.json({ success: true, data: { placement } });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 /** project-service S2S: create workgroup channel for a level-2 parent task */
 router.post('/project-workgroup-channel', async (req, res) => {
   try {

@@ -38,6 +38,8 @@
     "./messaging/analyticsEvents": "./messaging/analyticsEvents.js",
     "./messaging/dashboardProjectionEvents": "./messaging/dashboardProjectionEvents.js",
     "./messaging/*": "./messaging/*.js",
+    "./analytics/performanceMetrics": "./analytics/performanceMetrics.js",
+    "./analytics/*": "./analytics/*.js",
     "./cache/orgReadCacheKeys": "./cache/orgReadCacheKeys.js",
     "./cache/permissionCacheKeys": "./cache/permissionCacheKeys.js",
     "./cache/*": "./cache/*.js",

@@ -9,6 +9,27 @@ const {
 } = require('./governanceAccess.service');
 const auditService = require('./audit.service');
 const { logger } = require('@enterprise/shared');
+const { normalizeWorkingCalendar } = require('../utils/workingCalendar');
+
+function sanitizeHolidayPatch(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  for (const row of raw.slice(0, 366)) {
+    if (!row || typeof row !== 'object') continue;
+    const d = new Date(row.date);
+    if (Number.isNaN(d.getTime())) continue;
+    out.push({
+      date: d,
+      name: String(row.name || '').trim().slice(0, 120),
+    });
+  }
+  return out;
+}
+
+function sanitizeWorkingCalendarPatch(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  return normalizeWorkingCalendar(raw);
+}
 
 async function getOrCreateSettings(organizationId) {
   let doc = await GovernanceSettings.findOne({ organizationId });
@@ -171,6 +192,62 @@ function isValidOid(id) {
   return mongoose.Types.ObjectId.isValid(String(id || ''));
 }
 
+async function getWorkingCalendarPolicy({ userId, organizationId }) {
+  await assertOrgAdminOnly(organizationId, userId);
+  const settings = await getOrCreateSettings(organizationId);
+  const doc = settings.toObject ? settings.toObject() : settings;
+  return {
+    workingCalendar: normalizeWorkingCalendar(doc.workingCalendar || {}),
+    holidays: Array.isArray(doc.holidays) ? doc.holidays : [],
+  };
+}
+
+async function updateWorkingCalendarPolicy({ userId, organizationId, patch = {} }) {
+  await assertOrgAdminOnly(organizationId, userId);
+  const settings = await getOrCreateSettings(organizationId);
+  const before = settings.toObject();
+  if (patch.workingCalendar != null) {
+    const cal = sanitizeWorkingCalendarPatch(patch.workingCalendar);
+    if (cal) {
+      settings.workingCalendar = {
+        hoursPerDay: cal.hoursPerDay,
+        workingDayIndexes: cal.workingDayIndexes,
+        billingDaysPerMonth: cal.billingDaysPerMonth,
+      };
+    }
+  }
+  if (patch.holidays != null) {
+    const holidays = sanitizeHolidayPatch(patch.holidays);
+    if (holidays) settings.holidays = holidays;
+  }
+  settings.updatedBy = userId;
+  await settings.save();
+  await auditService.recordMutationAudit({
+    organizationId,
+    actorUserId: userId,
+    action: 'governance.working_calendar_updated',
+    resourceType: 'governance_settings',
+    resourceId: String(settings._id),
+    beforeDoc: before,
+    afterDoc: settings.toObject(),
+    keys: ['workingCalendar', 'holidays'],
+  });
+  return {
+    workingCalendar: normalizeWorkingCalendar(settings.workingCalendar || {}),
+    holidays: settings.holidays || [],
+  };
+}
+
+/** S2S / capacity — không cần org admin. */
+async function fetchOrgWorkingCalendar(organizationId) {
+  const settings = await getOrCreateSettings(organizationId);
+  const doc = settings.toObject ? settings.toObject() : settings;
+  return {
+    workingCalendar: normalizeWorkingCalendar(doc.workingCalendar || {}),
+    holidays: Array.isArray(doc.holidays) ? doc.holidays : [],
+  };
+}
+
 module.exports = {
   getDirectorHealth,
   getRetentionPolicy,
@@ -180,4 +257,7 @@ module.exports = {
   getSecurityFeatureFlagsStub,
   buildActiveProjectsFilter,
   isValidOid,
+  getWorkingCalendarPolicy,
+  updateWorkingCalendarPolicy,
+  fetchOrgWorkingCalendar,
 };

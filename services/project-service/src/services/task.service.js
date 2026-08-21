@@ -1,7 +1,12 @@
 const Task = require('../models/Task');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { taskWebhook } = require('../clients/webhook.client');
-const { emitTaskFactBestEffort } = require('../clients/analyticsPublisher.client');
+const { emitTaskFactBestEffort, emitStatusTransitionFactBestEffort } = require('../clients/analyticsPublisher.client');
+const {
+  isDoneLikeStatus,
+  isInProgressLikeStatus,
+  maybeFirstInProgressPatch,
+} = require('../utils/taskCycleTime');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const {
@@ -268,8 +273,17 @@ class TaskService {
         updateFields.completedAt = null;
       }
 
+      if (updateFields.status !== undefined && updateFields.status !== task.status) {
+        const cyclePatch = maybeFirstInProgressPatch(task, updateFields.status);
+        if (cyclePatch) {
+          Object.assign(updateFields, cyclePatch);
+        }
+      }
+
       const becameDone = updateFields.status === 'done' && task.status !== 'done';
       const leftDone = updateFields.status && updateFields.status !== 'done' && task.status === 'done';
+      const statusChanged =
+        updateFields.status !== undefined && String(updateFields.status) !== String(task.status);
 
       const encryptedUpdate = writeTaskPayload(updateFields);
       const updated = await Task.findByIdAndUpdate(
@@ -282,10 +296,34 @@ class TaskService {
         emitTaskFactBestEffort({
           taskId,
           organizationId: task.organizationId,
+          projectId: task.projectId,
           createdBy: task.createdBy,
           assigneeId: updated?.assigneeId || task.assigneeId,
           status: updated?.status || updateFields.status,
           doneDelta: becameDone ? 1 : -1,
+          estimateHours: updated?.estimateHours ?? task.estimateHours,
+          issueType: updated?.issueType || task.issueType,
+          completedAt: updated?.completedAt,
+          firstInProgressAt: updated?.firstInProgressAt || task.firstInProgressAt,
+        });
+      }
+
+      if (statusChanged) {
+        const from = String(task.status || '');
+        const to = String(updateFields.status || '');
+        const isReopen = isDoneLikeStatus(from) && !isDoneLikeStatus(to);
+        const isRework =
+          /review/i.test(from) && isInProgressLikeStatus(to) && !isDoneLikeStatus(to);
+        emitStatusTransitionFactBestEffort({
+          taskId,
+          organizationId: task.organizationId,
+          projectId: task.projectId,
+          assigneeId: updated?.assigneeId || task.assigneeId,
+          fromStatus: from,
+          toStatus: to,
+          isRework,
+          isReopen,
+          firstInProgressAt: updated?.firstInProgressAt || task.firstInProgressAt,
         });
       }
 

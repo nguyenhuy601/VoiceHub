@@ -21,6 +21,7 @@ import SettingsRbacMatrix from '../../components/Settings/SettingsRbacMatrix';
 import SettingsActiveSessions from '../../components/Settings/SettingsActiveSessions';
 import SettingsApiKeysPanel from '../../components/Settings/SettingsApiKeysPanel';
 import CapabilityProfilePanel from '../../components/Settings/CapabilityProfilePanel';
+import ProfileOverviewPanel from '../../components/Settings/ProfileOverviewPanel';
 import { FIGMA_SETTINGS_CARD, FIGMA_SETTINGS_INPUT } from '../../components/Settings/figmaSettingsClasses';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 
@@ -66,6 +67,7 @@ function SettingsPage() {
   useEffect(() => {
     const tab = String(searchParams.get('tab') || '').trim();
     if (tab === 'capability') setFigmaTab('capability');
+    if (tab === 'overview') setFigmaTab('overview');
   }, [searchParams]);
   const [sessions, setSessions] = useState([]);
   useEffect(() => {
@@ -693,6 +695,10 @@ function SettingsPage() {
             </GradientButton>
           </div>
         </div>
+      )}
+
+      {figmaTab === 'overview' && (
+        <ProfileOverviewPanel onEditCapability={() => setFigmaTab('capability')} />
       )}
 
       {figmaTab === 'capability' && <CapabilityProfilePanel />}

@@ -16,13 +16,10 @@ import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../u
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { adminQueryHubLink } from '../../utils/adminHubLinks';
+import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 
 const RBAC_POS_MANAGE_HUB = '/app/admin/rbac/positions/manage';
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
-
-function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
-}
 
 const ACTION_LINKS = [
   { tab: 'assign', labelKey: 'adminDomains.rbac.posAssign' },

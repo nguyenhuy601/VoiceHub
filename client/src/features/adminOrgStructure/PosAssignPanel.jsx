@@ -6,26 +6,26 @@ import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminDangerBtnClass,
   adminInputClass,
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-
-function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
-}
+import { memberDisplayName } from '../../utils/adminUserUtils';
+import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 
 export default function PosAssignPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const titleParam = String(searchParams.get('title') || '').trim();
-  const { members, loadMembers, error: membersError } = useAdminMembers(orgId);
+  const { members, loadMembers, membersById, error: membersError } = useAdminMembers(orgId);
   const [mode, setMode] = useState(titleParam ? 'existing' : 'existing');
   const [selectedTitle, setSelectedTitle] = useState(titleParam);
   const [customTitle, setCustomTitle] = useState('');
@@ -34,13 +34,25 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   const [positionsError, setPositionsError] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [confirmUnassign, setConfirmUnassign] = useState(false);
+
+  const selectedMember = membersById.get(userId) || null;
+  const currentTitle = memberJobTitle(selectedMember);
+  const memberName = selectedMember
+    ? memberDisplayName(selectedMember, userId)
+    : userId;
 
   useEffect(() => {
     if (titleParam) {
       setSelectedTitle(titleParam);
       setMode('existing');
+      return;
     }
-  }, [titleParam]);
+    if (currentTitle) {
+      setSelectedTitle(currentTitle);
+      setMode('existing');
+    }
+  }, [titleParam, userId, currentTitle]);
 
   useEffect(() => {
     if (!orgId) return;
@@ -101,7 +113,23 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
     }
   };
 
-  const body = (
+  const unassign = async () => {
+    if (!orgId || !userId || !currentTitle || saving) return;
+    setSaving(true);
+    try {
+      await adminUserAPI.patchProfile(orgId, userId, { jobTitle: '' });
+      toast.success(t('adminOrg.posUnassigned'));
+      setConfirmUnassign(false);
+      setSelectedTitle('');
+      await loadMembers();
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.posUnassignFail') }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formCard = (
     <AdminUserFormCard title={t('adminDomains.rbac.posAssign')}>
       {membersError || positionsError ? (
         <div className="space-y-3">
@@ -126,6 +154,15 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : (
         <form className="space-y-4" onSubmit={save}>
+        {!userId ? (
+          <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {currentTitle
+              ? t('adminOrg.posCurrentTitle', { name: currentTitle })
+              : t('adminOrg.posNoCurrentTitle')}
+          </p>
+        )}
         <div className="flex flex-wrap gap-3 text-sm">
           <label className="inline-flex items-center gap-2">
             <input
@@ -175,16 +212,41 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
             />
           </label>
         )}
-        <button
-          type="submit"
-          disabled={saving || !userId || !jobTitle}
-          className={adminPrimaryBtnClass()}
-        >
-          {saving ? t('common.saving') : t('adminDomains.rbac.posAssign')}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="submit"
+            disabled={saving || !userId || !jobTitle}
+            className={adminPrimaryBtnClass()}
+          >
+            {saving ? t('common.saving') : t('adminDomains.rbac.posAssign')}
+          </button>
+          <button
+            type="button"
+            disabled={saving || !userId || !currentTitle}
+            className={adminDangerBtnClass()}
+            onClick={() => setConfirmUnassign(true)}
+          >
+            {t('adminOrg.posUnassignFromMember')}
+          </button>
+        </div>
         </form>
       )}
     </AdminUserFormCard>
+  );
+
+  const body = (
+    <>
+      {formCard}
+      <ConfirmDialog
+        isOpen={confirmUnassign}
+        onClose={() => !saving && setConfirmUnassign(false)}
+        onConfirm={unassign}
+        title={t('adminOrg.posUnassignFromMember')}
+        message={t('adminOrg.posUnassignConfirm', { name: currentTitle, user: memberName })}
+        confirmText={t('adminOrg.posUnassignFromMember')}
+        cancelText={t('common.cancel')}
+      />
+    </>
   );
 
   if (embedded) return body;

@@ -257,7 +257,7 @@ export const ADMIN_DOMAINS = [
           { id: 'dept-head', path: '/app/admin/org-structure/departments/head', labelKey: 'adminDomains.orgStructure.deptHead', implementation: 'org-dept-head', nav: 'hidden' },
           { id: 'dept-members', path: '/app/admin/org-structure/departments/members', labelKey: 'adminDomains.orgStructure.deptMembers', implementation: 'org-dept-members', nav: 'hidden' },
           { id: 'dept-org-roles', path: '/app/admin/org-structure/departments/org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles', implementation: 'org-dept-org-roles', nav: 'hidden' },
-          { id: 'dept-transfer', path: '/app/admin/org-structure/departments/transfer', labelKey: 'adminDomains.orgStructure.deptTransfer', implementation: 'org-dept-transfer', nav: 'hidden' },
+          { id: 'dept-transfer', path: '/app/admin/org-structure/departments/transfer', labelKey: 'adminDomains.orgStructure.deptTransfer', implementation: 'org-dept-transfer' },
         ],
       },
       {
@@ -685,6 +685,12 @@ export const ADMIN_DOMAINS = [
             implementation: 'tasks-briefs',
           },
           {
+            id: 'requirements',
+            path: '/app/admin/projects/requirements',
+            labelKey: 'adminDomains.projects.requirements',
+            implementation: 'tasks-requirements',
+          },
+          {
             id: 'export',
             path: '/app/admin/projects/export',
             labelKey: 'adminDomains.projects.export',
@@ -743,6 +749,12 @@ export const ADMIN_DOMAINS = [
             path: '/app/admin/projects/utilization',
             labelKey: 'adminDomains.projects.utilization',
             implementation: 'tasks-utilization',
+          },
+          {
+            id: 'performance',
+            path: '/app/admin/projects/performance',
+            labelKey: 'adminDomains.projects.performance',
+            implementation: 'tasks-user-performance',
           },
           {
             id: 'approval-policies',
@@ -1090,7 +1102,6 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/org-structure/departments/head': '/app/admin/org-structure/departments/manage?tab=head',
   '/app/admin/org-structure/departments/members': '/app/admin/org-structure/departments/manage?tab=members',
   '/app/admin/org-structure/departments/org-roles': '/app/admin/org-structure/departments/manage?tab=org-roles',
-  '/app/admin/org-structure/departments/transfer': '/app/admin/org-structure/departments/manage?tab=transfer',
   '/app/admin/org-structure/teams/edit': '/app/admin/org-structure/teams/manage?tab=edit',
   '/app/admin/org-structure/teams/archive': '/app/admin/org-structure/teams/manage?tab=archive',
   '/app/admin/org-structure/teams/members': '/app/admin/org-structure/teams/manage?tab=members',

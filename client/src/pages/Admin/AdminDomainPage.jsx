@@ -92,7 +92,9 @@ import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel
 import TasksProjectVisibilityPolicyPanel from '../../features/adminTasks/TasksProjectVisibilityPolicyPanel';
 import DepartmentCapacityPanel from '../../features/adminTasks/DepartmentCapacityPanel';
 import ResourcePlannerPanel from '../../features/adminTasks/ResourcePlannerPanel';
+import RequirementTemplatePanel from '../../features/adminRequirements/RequirementTemplatePanel';
 import UtilizationPanel from '../../features/adminTasks/UtilizationPanel';
+import UserPerformancePanel from '../../features/adminTasks/UserPerformancePanel';
 import ApprovalPoliciesPanel from '../../features/adminTasks/ApprovalPoliciesPanel';
 import DirectorProjectHealthPanel from '../../features/adminTasks/DirectorProjectHealthPanel';
 import RetentionPolicyPanel from '../../features/adminTasks/RetentionPolicyPanel';
@@ -272,6 +274,7 @@ const TASK_PANELS = {
   'tasks-project-team': TasksProjectTeamPanel,
   'tasks-delegation': TasksDelegationPanel,
   'tasks-briefs': TasksBriefsPanel,
+  'tasks-requirements': RequirementTemplatePanel,
   'tasks-manage': TasksManagePanel,
   'tasks-change-requests': TasksChangeRequestsPanel,
   'tasks-status-priority': TasksStatusPriorityPanel,
@@ -281,6 +284,7 @@ const TASK_PANELS = {
   'tasks-department-capacity': DepartmentCapacityPanel,
   'tasks-resource-planner': ResourcePlannerPanel,
   'tasks-utilization': UtilizationPanel,
+  'tasks-user-performance': UserPerformancePanel,
   'tasks-approval-policies': ApprovalPoliciesPanel,
   'tasks-transfer-info': TasksTransferInfoPanel,
   'tasks-sprints': TasksSprintsPanel,

@@ -8,6 +8,7 @@ import {
   ChevronsRight,
   ClipboardList,
   FileText,
+  FileSpreadsheet,
   LayoutDashboard,
   MessageCircle,
   Mic,
@@ -31,9 +32,11 @@ import { useAppStrings } from '../../locales/appStrings';
 import { useFriendPending, useNotificationBadge } from '../../hooks/queries';
 import {
   buildCollaborateDocumentsPath,
+  buildCollaborateRequirementsPath,
   buildCollaborateTasksPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
+import useRequirementAccess from '../../hooks/useRequirementAccess';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
 import {
   FIGMA_SIDEBAR,
@@ -267,6 +270,13 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate';
+  const { access: requirementAccess, loaded: requirementAccessLoaded } = useRequirementAccess(
+    suiteProp === 'collaborate' ? activeOrgId : ''
+  );
+  const showRequirementsNav =
+    suiteProp === 'collaborate' &&
+    requirementAccessLoaded &&
+    requirementAccess.showCollaborateNav;
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();
@@ -364,14 +374,25 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           path: buildCollaborateDocumentsPath(activeOrgId),
           badge: 0,
         },
+      ];
+      if (showRequirementsNav) {
+        items.push({
+          key: 'requirements',
+          icon: FileSpreadsheet,
+          label: t('nav.requirements'),
+          path: buildCollaborateRequirementsPath(activeOrgId),
+          badge: 0,
+        });
+      }
+      items.push(
         {
           key: 'calendar',
           icon: Calendar,
           label: t('nav.calendar'),
           path: '/app/me/calendar',
           badge: 0,
-        },
-      ];
+        }
+      );
       if (showApprovalInbox) {
         items.push({
           key: 'approvals',
@@ -417,7 +438,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         badge: 0,
       },
     ];
-  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showAdminSuite, navigate]);
+  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showRequirementsNav, showAdminSuite, navigate]);
 
   const visibleNavItems = useMemo(
     () => filterNavForRole(navItems, role, suiteProp),
@@ -431,6 +452,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (base === '/app/collaborate/overview') return location.pathname === '/app/collaborate/overview';
     if (base === '/app/admin') return location.pathname === '/app/admin' || location.pathname.startsWith('/app/admin/');
     if (base === '/app/collaborate/approvals') return location.pathname === '/app/collaborate/approvals';
+    if (base === '/app/collaborate/requirements') return location.pathname === '/app/collaborate/requirements';
     if (base === '/app/me/dashboard') return location.pathname === '/app/me/dashboard';
     if (base === '/app/me/settings') return location.pathname === '/app/me/settings';
     if (base === '/app/collaborate/workspaces') {
@@ -460,6 +482,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         );
       }
       if (item.key === 'documents') return path === '/app/collaborate/documents';
+      if (item.key === 'requirements') return path === '/app/collaborate/requirements';
       return isActivePath(item.path);
     }
     return isActivePath(item.path);

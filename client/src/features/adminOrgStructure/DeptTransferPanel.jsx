@@ -60,7 +60,7 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
   );
 
   const validationMessage = useMemo(() => {
-    if (!userId) return t('adminOrg.selectUserFirst');
+    if (!userId) return t('adminUsers.selectUserFirst');
     if (!departments.length) return t('adminOrg.noDepartments');
     if (!toDept) return t('adminOrg.deptTransferNeedTo');
     if (fromDept && fromDept === toDept) return t('adminOrg.deptTransferSameDept');
@@ -110,6 +110,9 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
         </div>
       ) : (
         <form className="space-y-4" onSubmit={transfer}>
+        {!userId ? (
+          <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+        ) : null}
         <label className="block">
           <span className={adminLabelClass()}>{t('adminOrg.fromDept')}</span>
           <select

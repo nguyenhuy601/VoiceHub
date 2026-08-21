@@ -12,6 +12,7 @@ const {
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { logActivity } = require('./project.service');
 const { assertProjectWritable } = require('../utils/projectCloseGate');
+const { emitWorklogFactBestEffort } = require('../clients/analyticsPublisher.client');
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -110,6 +111,17 @@ async function createWorklog({
       workDate: doc.workDate,
       userId: String(doc.userId),
     },
+  });
+
+  emitWorklogFactBestEffort({
+    worklogId: doc._id,
+    organizationId: task.organizationId,
+    projectId: task.projectId,
+    taskId: task._id,
+    userId: doc.userId,
+    hours: doc.hours,
+    workDate: doc.workDate,
+    sprintId: doc.sprintId || task.sprintId,
   });
 
   return doc.toObject ? doc.toObject() : doc;

@@ -56,7 +56,19 @@ const {
   hoursFieldsTouched,
   assertHoursCapacityOrThrow,
 } = require('./hoursCapacityGuard.service');
-const { parseIncludeCardsFlag, buildBoardCardMongoFilter } = require('../utils/listLazyQuery');
+const {
+  parseIncludeCardsFlag,
+  buildBoardCardMongoFilter,
+} = require('../utils/listLazyQuery');
+const {
+  isDoneLikeStatus,
+  isInProgressLikeStatus,
+  maybeFirstInProgressPatch,
+} = require('../utils/taskCycleTime');
+const {
+  emitTaskFactBestEffort,
+  emitStatusTransitionFactBestEffort,
+} = require('../clients/analyticsPublisher.client');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -917,6 +929,8 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     summary: c.summary,
     priority: c.priority,
     dueDate: c.dueDate,
+    startDate: c.startDate || null,
+    estimateHours: c.estimateHours ?? null,
     assigneeId: c.assigneeId,
     assigneeName: c.assigneeId
       ? assigneeMap.get(String(c.assigneeId))?.displayName ||
@@ -1477,6 +1491,8 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     } else if (cat !== 'done' && toStatusKey !== 'done') {
       if (String(fromStatusKey) === 'done') card.completedAt = null;
     }
+    const cyclePatch = maybeFirstInProgressPatch(card, toStatusKey, { category: cat });
+    if (cyclePatch) Object.assign(card, cyclePatch);
   } else if (movingToDone) {
     const transition = await assertCanTransition(board, card.status, 'done', {
       card: card.toObject ? card.toObject() : card,
@@ -1491,9 +1507,47 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     if (!transition.ok) throw new Error(transition.message || 'Không chuyển được khỏi Done');
     card.status = 'todo';
     card.completedAt = null;
+  } else if (toStatusKey && fromStatusKey !== toStatusKey) {
+    const cyclePatch = maybeFirstInProgressPatch(card, toStatusKey);
+    if (cyclePatch) Object.assign(card, cyclePatch);
   }
   await card.save();
   const moved = card.toObject();
+  if (String(fromStatusKey) !== String(moved.status || '')) {
+    const isReopen = isDoneLikeStatus(fromStatusKey) && !isDoneLikeStatus(moved.status);
+    const isRework =
+      /review/i.test(String(fromStatusKey || '')) &&
+      isInProgressLikeStatus(moved.status) &&
+      !isDoneLikeStatus(moved.status);
+    emitStatusTransitionFactBestEffort({
+      taskId: cardId,
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      assigneeId: moved.assigneeId,
+      fromStatus: fromStatusKey,
+      toStatus: moved.status,
+      isRework,
+      isReopen,
+      firstInProgressAt: moved.firstInProgressAt,
+    });
+    const becameDone = isDoneLikeStatus(moved.status) && !isDoneLikeStatus(fromStatusKey);
+    const leftDone = !isDoneLikeStatus(moved.status) && isDoneLikeStatus(fromStatusKey);
+    if (becameDone || leftDone) {
+      emitTaskFactBestEffort({
+        taskId: cardId,
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        createdBy: moved.createdBy,
+        assigneeId: moved.assigneeId,
+        status: moved.status,
+        doneDelta: becameDone ? 1 : -1,
+        estimateHours: moved.estimateHours,
+        issueType: moved.issueType,
+        completedAt: moved.completedAt,
+        firstInProgressAt: moved.firstInProgressAt,
+      });
+    }
+  }
   if (board.projectId && ownerTeamId !== undefined) {
     const prevTeam = normalizeOwnerTeamId(beforeMove.ownerTeamId);
     const nextTeam = normalizeOwnerTeamId(moved.ownerTeamId);
@@ -1721,6 +1775,8 @@ async function updateCard({
     } else if (card.status === 'done') {
       next.completedAt = null;
     }
+    const cyclePatch = maybeFirstInProgressPatch(card, st);
+    if (cyclePatch) Object.assign(next, cyclePatch);
   }
   if (tags !== undefined) next.tags = Array.isArray(tags) ? tags : [];
   if (attachments !== undefined) {
@@ -1845,7 +1901,42 @@ async function updateCard({
   }
   const statusChanged =
     next.status !== undefined && String(next.status || '') !== String(card.status || '');
-  if (statusChanged) scheduleCrWorkStatusSync(out || card);
+  if (statusChanged) {
+    scheduleCrWorkStatusSync(out || card);
+    const from = String(card.status || '');
+    const to = String(next.status || '');
+    const isReopen = isDoneLikeStatus(from) && !isDoneLikeStatus(to);
+    const isRework =
+      /review/i.test(from) && isInProgressLikeStatus(to) && !isDoneLikeStatus(to);
+    emitStatusTransitionFactBestEffort({
+      taskId: cardId,
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      assigneeId: out?.assigneeId || card.assigneeId,
+      fromStatus: from,
+      toStatus: to,
+      isRework,
+      isReopen,
+      firstInProgressAt: out?.firstInProgressAt || card.firstInProgressAt,
+    });
+    const becameDone = isDoneLikeStatus(to) && !isDoneLikeStatus(from);
+    const leftDone = !isDoneLikeStatus(to) && isDoneLikeStatus(from);
+    if (becameDone || leftDone) {
+      emitTaskFactBestEffort({
+        taskId: cardId,
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        createdBy: out?.createdBy || card.createdBy,
+        assigneeId: out?.assigneeId || card.assigneeId,
+        status: to,
+        doneDelta: becameDone ? 1 : -1,
+        estimateHours: out?.estimateHours ?? card.estimateHours,
+        issueType: out?.issueType || card.issueType,
+        completedAt: out?.completedAt,
+        firstInProgressAt: out?.firstInProgressAt || card.firstInProgressAt,
+      });
+    }
+  }
   if (card.listId) {
     void notifyListWatchers({
       listId: card.listId,
@@ -2308,6 +2399,7 @@ async function archiveBoard({ userId, boardId }) {
   }
   const canAdmin = await userCanAdminBoard(userId, board);
   if (!canAdmin) throw new Error('Chỉ Owner/Admin board hoặc tổ chức mới được đóng dự án');
+  const { persistClosedBoardExperiences } = require('./closedBoardExperience.service');
   await persistClosedBoardExperiences(board);
   board.isActive = false;
   await board.save();

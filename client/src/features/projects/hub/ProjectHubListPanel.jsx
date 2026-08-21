@@ -141,7 +141,8 @@ export default function ProjectHubListPanel({
   const [busy, setBusy] = useState(false);
   const [creatingUnderId, setCreatingUnderId] = useState('');
   const [rootCreateOpen, setRootCreateOpen] = useState(false);
-  const [detailCard, setDetailCard] = useState(null);
+  const [detailIssueId, setDetailIssueId] = useState('');
+  const [detailIssueKind, setDetailIssueKind] = useState('');
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [confirmWg, setConfirmWg] = useState(null);
   const [dragSession, setDragSession] = useState(() => ({
@@ -305,6 +306,22 @@ export default function ProjectHubListPanel({
     }
     return map;
   }, [lists]);
+
+  const detailWorkItem = useMemo(() => {
+    const id = String(detailIssueId || '');
+    if (!id) return null;
+    if (detailIssueKind === 'planning') {
+      const row = (listPlanningItems || []).find((item) => entityId(item) === id);
+      if (!row) return null;
+      return {
+        ...row,
+        kind: 'planning',
+        issueType: row.issueType || row.type,
+        type: row.type || row.issueType,
+      };
+    }
+    return (listCards || []).find((card) => entityId(card) === id) || null;
+  }, [detailIssueId, detailIssueKind, listPlanningItems, listCards]);
 
   const allVisibleIds = useMemo(() => flatRows.map(({ node }) => node.id), [flatRows]);
   const allSelected =
@@ -1116,16 +1133,10 @@ export default function ProjectHubListPanel({
                   onCreateChild={createChild}
                   onOpenWorkItem={(n) => {
                     if (!n?.raw) return;
-                    if (n.kind === 'planning') {
-                      setDetailCard({
-                        ...n.raw,
-                        kind: 'planning',
-                        issueType: n.workType || n.raw.type,
-                        type: n.raw.type || n.workType,
-                      });
-                      return;
-                    }
-                    if (n.kind === 'card') setDetailCard(n.raw);
+                    const id = entityId(n.raw);
+                    if (!id) return;
+                    setDetailIssueKind(n.kind === 'planning' ? 'planning' : 'card');
+                    setDetailIssueId(id);
                   }}
                   onChangeStatus={changeStatus}
                   onChangePriority={changePriority}
@@ -1220,19 +1231,19 @@ export default function ProjectHubListPanel({
       />
 
       <WorkItemDetail
-        key={String(detailCard?._id || detailCard?.id || 'list-detail')}
-        open={Boolean(detailCard)}
+        key={String(detailWorkItem?._id || detailWorkItem?.id || 'list-detail')}
+        open={Boolean(detailWorkItem)}
         chrome="modal"
         isDarkMode={isDarkMode}
         workspaceSlug={workspaceSlug}
-        workItem={detailCard}
+        workItem={detailWorkItem}
         boardId={boardId}
         listTitle={
-          detailCard
+          detailWorkItem
             ? String(
-                listMap[String(detailCard.listId || '')]?.title ||
-                  listMap[planningStatusToListId(detailCard.status, lists)]?.title ||
-                  detailCard.status ||
+                listMap[String(detailWorkItem.listId || '')]?.title ||
+                  listMap[planningStatusToListId(detailWorkItem.status, lists)]?.title ||
+                  detailWorkItem.status ||
                   ''
               )
             : ''
@@ -1255,31 +1266,31 @@ export default function ProjectHubListPanel({
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
         }
         canChangeStatus={canChangeStatus}
-        onClose={() => setDetailCard(null)}
+        onClose={() => {
+          setDetailIssueId('');
+          setDetailIssueKind('');
+        }}
         onOpenWorkItem={(card) => {
-          if (card) setDetailCard(card);
+          const id = entityId(card);
+          if (!id) return;
+          const planning =
+            String(card?.kind || '') === 'planning' ||
+            String(card?.issueType || card?.type || '').toLowerCase() === 'epic' ||
+            String(card?.issueType || card?.type || '').toLowerCase() === 'feature';
+          setDetailIssueKind(planning ? 'planning' : 'card');
+          setDetailIssueId(id);
         }}
         onRefresh={refreshAll}
-        onPatchBoardCards={onPatchBoardCards}
-        onPatchPlanningItems={(updater) => {
-          patchPlanning(updater);
-          setDetailCard((prev) => {
-            if (!prev) return prev;
-            const nextList = updater([prev]);
-            const hit = (Array.isArray(nextList) ? nextList : []).find(
-              (row) => String(row._id || row.id) === String(prev._id || prev.id)
-            );
-            return hit ? { ...prev, ...hit } : prev;
-          });
-        }}
+        onPatchBoardCards={patchCards}
+        onPatchPlanningItems={patchPlanning}
         onUpdateCard={async (cardId, patch) => {
+          patchCards((cards) =>
+            cards.map((c) => (entityId(c) === String(cardId) ? { ...c, ...patch } : c))
+          );
           const keys = Object.keys(patch || {});
           if (!(keys.length === 1 && keys[0] === 'comments')) {
             await onUpdateCard?.(cardId, patch);
           }
-          setDetailCard((prev) =>
-            prev && String(prev._id) === String(cardId) ? { ...prev, ...patch } : prev
-          );
         }}
       />
     </div>

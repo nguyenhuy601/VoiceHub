@@ -65,6 +65,47 @@ export const SKILL_LEVEL_MAX = 5;
 export const SUMMARY_MAX_LEN = 1000;
 export const YEARS_EXPERIENCE_MAX = 40;
 export const MAX_SKILLS = 20;
+export const MAX_TOP_SKILLS = 5;
+export const MAX_BUSINESS_DOMAINS = 3;
+
+export const SENIORITY_BANDS = Object.freeze([
+  'intern',
+  'junior',
+  'mid',
+  'senior',
+  'lead',
+  'principal',
+]);
+
+export const PROFICIENCY_TIERS = Object.freeze(['beginner', 'proficient', 'expert']);
+
+export const BUSINESS_DOMAIN_WHITELIST = Object.freeze([
+  'E-commerce',
+  'Banking',
+  'Payment',
+  'Insurance',
+  'Healthcare',
+  'Logistics',
+  'Education',
+  'Telecom',
+  'Manufacturing',
+  'Government',
+  'Real Estate',
+  'Media',
+  'Gaming',
+  'ERP',
+  'CRM',
+  'Other',
+]);
+
+export function proficiencyTierFromLevel(level) {
+  const n = Number(level);
+  if (!Number.isFinite(n)) return 'proficient';
+  if (n <= 2) return 'beginner';
+  if (n >= 4) return 'expert';
+  return 'proficient';
+}
+
 /** Hire SoT (Excel / mời KN) — JD-fit; profile vẫn MAX_SKILLS. */
 export const HIRE_SKILLS_MAX = 10;
 
@@ -73,8 +114,11 @@ export const MAX_PROJECT_EXPERIENCES = 20;
 export function emptyCapabilityForm() {
   return {
     primaryDomain: '',
+    seniorityBand: '',
     yearsExperience: '',
     skills: [],
+    businessDomains: [],
+    certifications: [],
     availability: 'available',
     summary: '',
     projectExperiences: [],
@@ -115,15 +159,30 @@ export function capabilityFromApi(raw) {
     skills: Array.isArray(c.skills)
       ? c.skills
           .filter((s) => s?.name)
-          .map((s) => ({
+          .map((s, idx) => ({
             name: String(s.name),
             level: Math.min(
               SKILL_LEVEL_MAX,
               Math.max(SKILL_LEVEL_MIN, Number(s.level) || 3)
             ),
+            rank: Number(s.rank) >= 1 ? Number(s.rank) : idx + 1,
+            proficiencyTier: s.proficiencyTier || proficiencyTierFromLevel(s.level),
           }))
-          .slice(0, MAX_SKILLS)
+          .slice(0, MAX_TOP_SKILLS)
       : [],
+    businessDomains: Array.isArray(c.businessDomains)
+      ? c.businessDomains
+          .filter((d) => d?.name)
+          .map((d, idx) => ({
+            name: String(d.name),
+            rank: Number(d.rank) >= 1 ? Number(d.rank) : idx + 1,
+          }))
+          .slice(0, MAX_BUSINESS_DOMAINS)
+      : [],
+    certifications: Array.isArray(c.certifications)
+      ? c.certifications.filter((cert) => cert?.name).map((cert) => ({ ...cert, name: String(cert.name) }))
+      : [],
+    seniorityBand: SENIORITY_BANDS.includes(c.seniorityBand) ? c.seniorityBand : '',
     availability: AVAILABILITY_VALUES.includes(c.availability)
       ? c.availability
       : 'available',
@@ -152,7 +211,10 @@ export function toCapabilityPayload(form) {
   return {
     primaryDomain: form.primaryDomain,
     yearsExperience: Number.isFinite(years) ? years : null,
-    skills: (form.skills || []).slice(0, MAX_SKILLS),
+    skills: (form.skills || []).slice(0, MAX_TOP_SKILLS),
+    businessDomains: (form.businessDomains || []).slice(0, MAX_BUSINESS_DOMAINS),
+    certifications: (form.certifications || []).slice(0, 10),
+    seniorityBand: SENIORITY_BANDS.includes(form.seniorityBand) ? form.seniorityBand : '',
     availability: form.availability || 'available',
     summary: String(form.summary || '').trim().slice(0, SUMMARY_MAX_LEN),
   };

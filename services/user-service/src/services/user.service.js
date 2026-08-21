@@ -17,6 +17,7 @@ const {
   mergeClosedBoardExperience,
 } = require('./capabilityProfile.service');
 const { parseCvFileToFields } = require('./cvParse.service');
+const { coalesceJobTitle, normalizeJobTitleForSave } = require('../utils/jobTitleProfile');
 const path = require('path');
 const fs = require('fs');
 
@@ -27,10 +28,9 @@ function serviceError(message, statusCode = 400, errorCode = 'USER_VALIDATION') 
   return err;
 }
 
-/** Position SoT — Admin Position / first-login ghi preferences.jobTitle (alias top-level jobTitle). */
+/** Position SoT — prefs.jobTitle có key thì không fallback top-level. */
 function resolveJobTitle(profile) {
-  if (!profile || typeof profile !== 'object') return '';
-  return String(profile.preferences?.jobTitle || profile.jobTitle || '').trim();
+  return coalesceJobTitle(profile);
 }
 
 class UserService {
@@ -293,10 +293,12 @@ class UserService {
             : {};
         const next = { ...prev, ...patch };
         if (updateData.jobTitle !== undefined) {
-          next.jobTitle = String(updateData.jobTitle || '').trim().slice(0, 120);
+          const title = normalizeJobTitleForSave(updateData.jobTitle);
+          next.jobTitle = title;
+          updateFields.jobTitle = title;
         }
-        if (next.jobTitle !== undefined) {
-          next.jobTitle = String(next.jobTitle || '').trim().slice(0, 120);
+        if (next.jobTitle !== undefined && updateData.jobTitle === undefined) {
+          next.jobTitle = normalizeJobTitleForSave(next.jobTitle);
         }
         if (next.profileCompletedAt !== undefined) {
           next.profileCompletedAt = String(next.profileCompletedAt || '').trim();
@@ -619,7 +621,10 @@ class UserService {
 
     const setFields = {};
     if (employeeCode) setFields.employeeCode = employeeCode;
-    if (body.jobTitle != null) setFields['preferences.jobTitle'] = jobTitle;
+    if (body.jobTitle != null) {
+      setFields['preferences.jobTitle'] = jobTitle;
+      setFields.jobTitle = jobTitle;
+    }
     if (displayName) setFields.displayName = displayName;
 
     if (!structureOnly) {
