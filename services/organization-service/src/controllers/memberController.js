@@ -26,6 +26,7 @@ const {
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
+const { coalesceJobTitle } = require('../utils/jobTitleProfile');
 const { resolveFrontendUrl, logger } = require('@enterprise/shared');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
@@ -395,7 +396,7 @@ async function enrichMembersForAdminList(members) {
       employeeCode,
       username: profile.username || null,
       avatar: profile.avatar || null,
-      jobTitle: profile.jobTitle || profile.preferences?.jobTitle || null,
+      jobTitle: coalesceJobTitle(profile) || null,
       isActive: auth.isActive,
       mustChangePassword: auth.mustChangePassword,
       isLocked: auth.isLocked,

@@ -12,17 +12,27 @@ const {
   SUMMARY_MAX_LEN,
   YEARS_EXPERIENCE_MAX,
   MAX_SKILLS,
+  MAX_TOP_SKILLS,
+  MAX_BUSINESS_DOMAINS,
+  MAX_CERTIFICATIONS,
+  SENIORITY_BANDS,
   normalizeSkillName,
+  normalizeBusinessDomainName,
   isPrimaryDomain,
   isAvailability,
+  isSeniorityBand,
+  proficiencyTierFromLevel,
 } = require('../constants/capabilityCatalog');
 
 function emptyCapability() {
   return {
     positionCode: '',
     primaryDomain: '',
+    seniorityBand: '',
     yearsExperience: null,
     skills: [],
+    businessDomains: [],
+    certifications: [],
     languages: [],
     tools: [],
     availability: 'available',
@@ -130,13 +140,71 @@ function cloneProjectExperiences(list) {
   return list.map(cloneProjectExperience).filter(Boolean).slice(0, PROJECT_EXPERIENCE_MAX);
 }
 
+function cloneRankedItems(list, { normalizeName, maxItems }) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list.slice(0, maxItems)) {
+    const name = normalizeName(item?.name ?? item);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let rank = Number(item?.rank);
+    if (!Number.isFinite(rank) || rank < 1) rank = out.length + 1;
+    out.push({ name, rank: Math.min(maxItems, Math.floor(rank)) });
+  }
+  return out.map((row, idx) => ({ ...row, rank: idx + 1 }));
+}
+
+function cloneCertifications(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list.slice(0, MAX_CERTIFICATIONS)) {
+    if (!item || typeof item !== 'object') continue;
+    const name = String(item.name || '').trim().slice(0, 120);
+    if (!name) continue;
+    const row = {
+      name,
+      issuer: String(item.issuer || '').trim().slice(0, 120),
+      credentialId: String(item.credentialId || '').trim().slice(0, 120),
+      verificationStatus: item.verificationStatus === 'verified' ? 'verified' : 'suggested',
+    };
+    if (item.issuedAt) {
+      const d = new Date(item.issuedAt);
+      if (!Number.isNaN(d.getTime())) row.issuedAt = d;
+    }
+    if (item.expiresAt) {
+      const d = new Date(item.expiresAt);
+      if (!Number.isNaN(d.getTime())) row.expiresAt = d;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function enrichSkillsWithRank(skills) {
+  const list = Array.isArray(skills) ? skills : [];
+  return list.map((s, idx) => ({
+    ...s,
+    rank: Number.isFinite(Number(s.rank)) && Number(s.rank) >= 1 ? Number(s.rank) : idx + 1,
+    proficiencyTier: proficiencyTierFromLevel(s.level),
+  }));
+}
 function cloneCapability(input) {
   const base = emptyCapability();
   if (!input || typeof input !== 'object') return { ...base };
+  const skills = Array.isArray(input.skills)
+    ? enrichSkillsWithRank(input.skills.map((s) => ({ ...s })))
+    : [];
   return {
     ...base,
     ...input,
-    skills: Array.isArray(input.skills) ? input.skills.map((s) => ({ ...s })) : [],
+    skills,
+    businessDomains: Array.isArray(input.businessDomains)
+      ? input.businessDomains.map((d) => ({ ...d }))
+      : [],
+    certifications: cloneCertifications(input.certifications),
     languages: Array.isArray(input.languages) ? [...input.languages] : [],
     tools: Array.isArray(input.tools) ? [...input.tools] : [],
     projectExperiences: cloneProjectExperiences(input.projectExperiences),
@@ -182,13 +250,25 @@ function sanitizeCapabilityFields(raw) {
     fields.yearsExperience = null;
   }
 
+  if (raw.seniorityBand !== undefined) {
+    const band = String(raw.seniorityBand || '').trim();
+    if (band && !isSeniorityBand(band)) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_SENIORITY_INVALID',
+        message: `seniorityBand must be one of: ${SENIORITY_BANDS.join(', ')}`,
+      };
+    }
+    fields.seniorityBand = band;
+  }
+
   if (raw.skills !== undefined) {
     if (!Array.isArray(raw.skills)) {
       return { ok: false, errorCode: 'CAPABILITY_SKILLS_INVALID', message: 'skills must be an array' };
     }
     const seen = new Set();
     const skills = [];
-    for (const item of raw.skills.slice(0, MAX_SKILLS)) {
+    for (const item of raw.skills.slice(0, MAX_TOP_SKILLS)) {
       const name = normalizeSkillName(item?.name ?? item?.skill ?? item);
       if (!name) continue;
       const key = name.toLowerCase();
@@ -197,9 +277,34 @@ function sanitizeCapabilityFields(raw) {
       let level = Number(item?.level ?? 3);
       if (!Number.isFinite(level)) level = 3;
       level = Math.max(SKILL_LEVEL_MIN, Math.min(SKILL_LEVEL_MAX, Math.round(level)));
-      skills.push({ name, level });
+      skills.push({ name, level, rank: skills.length + 1 });
     }
-    fields.skills = skills;
+    fields.skills = enrichSkillsWithRank(skills);
+  }
+
+  if (raw.businessDomains !== undefined) {
+    if (!Array.isArray(raw.businessDomains)) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_BUSINESS_DOMAINS_INVALID',
+        message: 'businessDomains must be an array',
+      };
+    }
+    fields.businessDomains = cloneRankedItems(raw.businessDomains, {
+      normalizeName: normalizeBusinessDomainName,
+      maxItems: MAX_BUSINESS_DOMAINS,
+    });
+  }
+
+  if (raw.certifications !== undefined) {
+    if (!Array.isArray(raw.certifications)) {
+      return {
+        ok: false,
+        errorCode: 'CAPABILITY_CERTIFICATIONS_INVALID',
+        message: 'certifications must be an array',
+      };
+    }
+    fields.certifications = cloneCertifications(raw.certifications);
   }
 
   if (raw.languages !== undefined) {
@@ -312,6 +417,8 @@ function applyCapabilityAction(currentCapability, action, opts = {}) {
       delete sanitized.fields.primaryDomain;
       delete sanitized.fields.yearsExperience;
       delete sanitized.fields.skills;
+      delete sanitized.fields.businessDomains;
+      delete sanitized.fields.seniorityBand;
       delete sanitized.fields.projectExperiences;
     }
     Object.assign(next, sanitized.fields);
@@ -482,8 +589,13 @@ function toPublicVerifiedCapability(capability) {
   return {
     positionCode: c.positionCode || '',
     primaryDomain: c.primaryDomain || '',
+    seniorityBand: c.seniorityBand || '',
     yearsExperience: c.yearsExperience,
-    skills: c.skills,
+    skills: enrichSkillsWithRank(c.skills || []),
+    businessDomains: Array.isArray(c.businessDomains) ? c.businessDomains : [],
+    certifications: cloneCertifications(c.certifications).filter(
+      (cert) => cert.verificationStatus === 'verified'
+    ),
     languages: c.languages,
     tools: c.tools,
     availability: c.availability || 'available',
@@ -678,5 +790,8 @@ module.exports = {
   ADMIN_CAPABILITY_ACTIONS,
   sanitizeResourceConfigFields,
   resolveResourceConfigIntent,
+  enrichSkillsWithRank,
+  cloneCertifications,
+  cloneRankedItems,
   assertHrOnlyResourceConfigReview,
 };

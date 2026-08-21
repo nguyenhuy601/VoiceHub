@@ -12,8 +12,11 @@ import {
 } from './figmaSettingsClasses';
 import {
   AVAILABILITY_VALUES,
-  MAX_SKILLS,
+  BUSINESS_DOMAIN_WHITELIST,
+  MAX_BUSINESS_DOMAINS,
+  MAX_TOP_SKILLS,
   PRIMARY_DOMAINS,
+  SENIORITY_BANDS,
   SKILL_LEVEL_MAX,
   SKILL_LEVEL_MIN,
   SKILL_WHITELIST,
@@ -22,6 +25,7 @@ import {
   canSubmitCapability,
   capabilityFromApi,
   emptyCapabilityForm,
+  proficiencyTierFromLevel,
   toCapabilityPayload,
 } from '../../constants/capabilityCatalog';
 
@@ -56,6 +60,8 @@ export default function CapabilityProfilePanel() {
   const [serverMaxConcurrentProjects, setServerMaxConcurrentProjects] = useState(2);
   const [cvFileName, setCvFileName] = useState('');
   const [skillToAdd, setSkillToAdd] = useState('');
+  const [domainToAdd, setDomainToAdd] = useState('');
+  const [certDraft, setCertDraft] = useState({ name: '', issuer: '' });
 
   const availableSkills = useMemo(() => {
     const taken = new Set((form.skills || []).map((s) => s.name));
@@ -66,9 +72,13 @@ export default function CapabilityProfilePanel() {
     (profile) => {
       const parsed = capabilityFromApi(profile?.capability);
       setForm({
+        ...emptyCapabilityForm(),
         primaryDomain: parsed.primaryDomain,
+        seniorityBand: parsed.seniorityBand,
         yearsExperience: parsed.yearsExperience,
         skills: parsed.skills,
+        businessDomains: parsed.businessDomains,
+        certifications: parsed.certifications,
         availability: parsed.availability,
         summary: parsed.summary,
         projectExperiences: parsed.projectExperiences || [],
@@ -180,13 +190,13 @@ export default function CapabilityProfilePanel() {
     const name = String(skillToAdd || '').trim();
     if (!name || !SKILL_WHITELIST.includes(name)) return;
     if ((form.skills || []).some((s) => s.name === name)) return;
-    if ((form.skills || []).length >= MAX_SKILLS) {
-      toast.error(t('settingsCapability.maxSkills', { n: MAX_SKILLS }));
+    if ((form.skills || []).length >= MAX_TOP_SKILLS) {
+      toast.error(t('settingsCapability.maxTopSkills', { n: MAX_TOP_SKILLS }));
       return;
     }
     setForm((prev) => ({
       ...prev,
-      skills: [...(prev.skills || []), { name, level: 3 }],
+      skills: [...(prev.skills || []), { name, level: 3, rank: (prev.skills || []).length + 1 }],
     }));
     setSkillToAdd('');
   };
@@ -202,7 +212,59 @@ export default function CapabilityProfilePanel() {
     const n = Math.min(SKILL_LEVEL_MAX, Math.max(SKILL_LEVEL_MIN, Number(level) || 3));
     setForm((prev) => ({
       ...prev,
-      skills: (prev.skills || []).map((s) => (s.name === name ? { ...s, level: n } : s)),
+      skills: (prev.skills || []).map((s) =>
+        s.name === name ? { ...s, level: n, proficiencyTier: proficiencyTierFromLevel(n) } : s
+      ),
+    }));
+  };
+
+  const availableDomains = useMemo(() => {
+    const taken = new Set((form.businessDomains || []).map((d) => d.name));
+    return BUSINESS_DOMAIN_WHITELIST.filter((name) => !taken.has(name));
+  }, [form.businessDomains]);
+
+  const addDomain = () => {
+    const name = String(domainToAdd || '').trim();
+    if (!name || !BUSINESS_DOMAIN_WHITELIST.includes(name)) return;
+    if ((form.businessDomains || []).some((d) => d.name === name)) return;
+    if ((form.businessDomains || []).length >= MAX_BUSINESS_DOMAINS) {
+      toast.error(t('settingsCapability.maxTopSkills', { n: MAX_BUSINESS_DOMAINS }));
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      businessDomains: [
+        ...(prev.businessDomains || []),
+        { name, rank: (prev.businessDomains || []).length + 1 },
+      ],
+    }));
+    setDomainToAdd('');
+  };
+
+  const removeDomain = (name) => {
+    setForm((prev) => ({
+      ...prev,
+      businessDomains: (prev.businessDomains || []).filter((d) => d.name !== name),
+    }));
+  };
+
+  const addCertification = () => {
+    const name = String(certDraft.name || '').trim();
+    if (!name) return;
+    setForm((prev) => ({
+      ...prev,
+      certifications: [
+        ...(prev.certifications || []),
+        { name, issuer: String(certDraft.issuer || '').trim(), verificationStatus: 'suggested' },
+      ].slice(0, 10),
+    }));
+    setCertDraft({ name: '', issuer: '' });
+  };
+
+  const removeCertification = (name) => {
+    setForm((prev) => ({
+      ...prev,
+      certifications: (prev.certifications || []).filter((c) => c.name !== name),
     }));
   };
 
@@ -283,6 +345,25 @@ export default function CapabilityProfilePanel() {
 
         <div>
           <label className="mb-2 block text-sm font-medium text-foreground">
+            {t('settingsCapability.seniorityLabel')}
+          </label>
+          <select
+            className={roInput}
+            value={form.seniorityBand || ''}
+            disabled={excelLocked || saving}
+            onChange={(e) => setForm((p) => ({ ...p, seniorityBand: e.target.value }))}
+          >
+            <option value="">{t('settingsCapability.selectPlaceholder')}</option>
+            {SENIORITY_BANDS.map((band) => (
+              <option key={band} value={band}>
+                {t(`settingsCapability.seniority.${band}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
             {t('settingsCapability.domain')}
           </label>
           <select
@@ -319,6 +400,9 @@ export default function CapabilityProfilePanel() {
           <label className="mb-2 block text-sm font-medium text-foreground">
             {t('settingsCapability.skills')}
           </label>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {t('settingsCapability.maxTopSkills', { n: MAX_TOP_SKILLS })}
+          </p>
           {excelLocked ? null : (
           <div className="mb-2 flex gap-2">
             <select
@@ -344,7 +428,13 @@ export default function CapabilityProfilePanel() {
                 key={s.name}
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background px-3 py-2"
               >
-                <span className="min-w-[7rem] flex-1 text-sm font-medium text-foreground">{s.name}</span>
+                <span className="min-w-[7rem] flex-1 text-sm font-medium text-foreground">
+                  {s.rank ? `${s.rank}. ` : ''}
+                  {s.name}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {t(`settingsCapability.tiers.${s.proficiencyTier || proficiencyTierFromLevel(s.level)}`)}
+                </span>
                 <label className="flex items-center gap-1 text-xs text-muted-foreground">
                   {t('settingsCapability.level')}
                   <input
@@ -365,6 +455,100 @@ export default function CapabilityProfilePanel() {
                 >
                   {t('settingsPage.delete')}
                 </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            {t('settingsCapability.businessDomains')}
+          </label>
+          {excelLocked ? null : (
+            <div className="mb-2 flex gap-2">
+              <select
+                className={FIGMA_SETTINGS_INPUT}
+                value={domainToAdd}
+                onChange={(e) => setDomainToAdd(e.target.value)}
+              >
+                <option value="">{t('settingsCapability.addDomainPlaceholder')}</option>
+                {availableDomains.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <GradientButton type="button" variant="secondary" onClick={addDomain} disabled={!domainToAdd}>
+                {t('settingsCapability.addDomain')}
+              </GradientButton>
+            </div>
+          )}
+          <ul className="space-y-2">
+            {(form.businessDomains || []).map((d) => (
+              <li
+                key={d.name}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2"
+              >
+                <span className="text-sm text-foreground">
+                  {d.rank ? `${d.rank}. ` : ''}
+                  {d.name}
+                </span>
+                {excelLocked ? null : (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-destructive hover:underline"
+                    onClick={() => removeDomain(d.name)}
+                  >
+                    {t('settingsPage.delete')}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            {t('settingsCapability.certifications')}
+          </label>
+          {excelLocked ? null : (
+            <div className="mb-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <input
+                className={FIGMA_SETTINGS_INPUT}
+                placeholder={t('settingsCapability.certName')}
+                value={certDraft.name}
+                onChange={(e) => setCertDraft((p) => ({ ...p, name: e.target.value }))}
+              />
+              <input
+                className={FIGMA_SETTINGS_INPUT}
+                placeholder={t('settingsCapability.certIssuer')}
+                value={certDraft.issuer}
+                onChange={(e) => setCertDraft((p) => ({ ...p, issuer: e.target.value }))}
+              />
+              <GradientButton type="button" variant="secondary" onClick={addCertification} disabled={!certDraft.name.trim()}>
+                {t('settingsCapability.addCert')}
+              </GradientButton>
+            </div>
+          )}
+          <ul className="space-y-2">
+            {(form.certifications || []).map((c) => (
+              <li
+                key={c.name}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2"
+              >
+                <span className="text-sm text-foreground">
+                  {c.name}
+                  {c.issuer ? <span className="text-muted-foreground"> · {c.issuer}</span> : null}
+                </span>
+                {excelLocked ? null : (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-destructive hover:underline"
+                    onClick={() => removeCertification(c.name)}
+                  >
+                    {t('settingsPage.delete')}
+                  </button>
                 )}
               </li>
             ))}

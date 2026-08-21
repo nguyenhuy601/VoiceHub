@@ -134,6 +134,11 @@ const routeActionMap = {
   // Organization BFF (sau permission middleware — org-service kiểm tra membership)
   'GET /api/organizations/:orgId/shell': 'organization:read',
   'GET /api/organizations/:orgId/documents-overview': 'organization:read',
+
+  // Historical Performance (report-service / project-service C2)
+  'GET /api/reports/v1/performance': 'task:read',
+  'GET /api/reports/v1/performance/users/:userId': 'task:read',
+  'GET /api/reports/v1/performance/estimate-hints': 'task:read',
 };
 
 /**
@@ -150,6 +155,7 @@ const DOWNSTREAM_AUTH_PREFIXES = [
   '/api/projects',
   '/api/ai/tasks',
   '/api/workspaces',
+  '/api/reports',
 ];
 
 const TASK_AUTH_BYPASS_PREFIXES = [

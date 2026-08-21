@@ -31,14 +31,14 @@ export function toDatetimeLocalValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function toDateInputValue(iso) {
-  if (!iso) return '';
-  const s = String(iso);
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (m) return m[1];
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+export function resolveWorkItemDueDate(workItem, { isPlanning } = {}) {
+  if (!workItem) return null;
+  if (isPlanning) return workItem.targetDate ?? workItem.dueDate ?? null;
+  return workItem.dueDate ?? null;
+}
+
+export function resolveWorkItemStartDate(workItem) {
+  return workItem?.startDate ?? null;
 }
 
 export function hoursInputValue(raw) {

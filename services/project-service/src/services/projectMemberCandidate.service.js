@@ -7,6 +7,7 @@ const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { fetchEnabledPositionKeys } = require('../clients/orgMasterData.client');
 const { summarizeProjectRoleStaffing } = require('../utils/projectStaffingSummary');
 const { scorePositionMatch } = require('../utils/positionCandidateMatch');
+const { scoreVerifiedCapability } = require('../utils/capabilityMatch');
 const {
   flattenSegments,
   allocatedPctOnDay,
@@ -17,6 +18,9 @@ const {
   filterUsersToRelatedDepartments,
 } = require('../utils/allocationOverlap');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+const { loadPerformanceByUserIds } = require('./userPerformance.service');
+const { scoreHistoricalPerformance } = require('../utils/performanceMatch');
 
 async function enrichProfiles(userIds = []) {
   const unique = [...new Set((userIds || []).map(String).filter(Boolean))];
@@ -24,6 +28,7 @@ async function enrichProfiles(userIds = []) {
     unique.map(async (uid) => {
       let displayName = uid.slice(-6);
       let jobTitle = '';
+      let verifiedCapability = null;
       try {
         const res = await fetchUserProfileByIdInternal(uid);
         const profile = res?.data?.data ?? res?.data ?? null;
@@ -33,13 +38,15 @@ async function enrichProfiles(userIds = []) {
           profile?.username ||
           profile?.email?.split('@')[0] ||
           displayName;
-        jobTitle = String(
-          profile?.jobTitle || profile?.preferences?.jobTitle || ''
-        ).trim();
+        jobTitle = coalesceJobTitle(profile);
+        const cap = profile?.capability;
+        if (cap && String(cap.verificationStatus || '') === 'verified') {
+          verifiedCapability = cap;
+        }
       } catch {
         /* optional enrich */
       }
-      return { userId: uid, displayName, jobTitle };
+      return { userId: uid, displayName, jobTitle, verifiedCapability };
     })
   );
   return new Map(rows.map((row) => [row.userId, row]));
@@ -134,17 +141,23 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
     };
   }
 
-  const [allocationRows, enabledPositionKeys, profileByUserId] = await Promise.all([
-    ProjectMember.find({
-      organizationId,
-      userId: { $in: unionUserIds },
-      status: 'active',
-    })
-      .select('userId allocations allocationStatus')
-      .lean(),
-    fetchEnabledPositionKeys(organizationId).catch(() => null),
-    enrichProfiles(unionUserIds),
-  ]);
+  const [allocationRows, enabledPositionKeys, profileByUserId, performanceByUserId] =
+    await Promise.all([
+      ProjectMember.find({
+        organizationId,
+        userId: { $in: unionUserIds },
+        status: 'active',
+      })
+        .select('userId allocations allocationStatus')
+        .lean(),
+      fetchEnabledPositionKeys(organizationId).catch(() => null),
+      enrichProfiles(unionUserIds),
+      loadPerformanceByUserIds({
+        organizationId,
+        userIds: unionUserIds,
+        windowDays: 90,
+      }).catch(() => new Map()),
+    ]);
 
   const rowsByUser = new Map();
   for (const row of allocationRows) {
@@ -177,17 +190,30 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
       enabledPositionKeys,
     });
 
+    const capabilityMatch = scoreVerifiedCapability({
+      verifiedCapability: profile?.verifiedCapability,
+      projectRoleKey: targetRoleKey,
+    });
+
+    const performanceMatch = scoreHistoricalPerformance(
+      performanceByUserId.get(userId) || null
+    );
+
     const suggestReasons = [];
     if (hasPriorRole) suggestReasons.push('prior_role');
     if (relatedUserIds?.has(userId)) suggestReasons.push('related_department');
     if (availability === 'available') suggestReasons.push('capacity_available');
     if (positionMatch.reason) suggestReasons.push(positionMatch.reason);
+    for (const r of capabilityMatch.reasons || []) suggestReasons.push(r);
+    for (const r of performanceMatch.reasons || []) suggestReasons.push(r);
 
     const capacityScore = Math.round(
       availablePct +
         (availability === 'available' ? 25 : availability === 'partial' ? 5 : -50) +
         (hasPriorRole ? 5 : 0) +
-        positionMatch.boost
+        positionMatch.boost +
+        capabilityMatch.boost +
+        performanceMatch.boost
     );
 
     return {
@@ -200,6 +226,11 @@ async function listMemberCandidates({ organizationId, projectId, projectRoleKey,
       allocatedPct,
       availablePct,
       availability,
+      capabilityBoost: capabilityMatch.boost,
+      matchedSkills: capabilityMatch.skillMatch?.matched || [],
+      matchedDomains: capabilityMatch.domainMatch?.matched || [],
+      performanceBoost: performanceMatch.boost,
+      performance: performanceMatch.slim,
       suggestReasons,
       score: capacityScore,
       capacityScore,

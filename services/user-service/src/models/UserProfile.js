@@ -146,10 +146,35 @@ const userProfileSchema = new mongoose.Schema(
       positionCode: { type: String, trim: true, default: '' },
       primaryDomain: { type: String, trim: true, default: '' },
       yearsExperience: { type: Number, default: null },
+      /** Band cấp bậc HR — bổ sung jobTitle text (intern|junior|mid|senior|lead|principal). */
+      seniorityBand: { type: String, trim: true, default: '' },
       skills: [
         {
           name: { type: String, trim: true },
           level: { type: Number, min: 1, max: 5, default: 3 },
+          /** Thứ tự thành thạo (1 = mạnh nhất) — derive từ thứ tự mảng nếu thiếu. */
+          rank: { type: Number, min: 1, max: 20, default: null },
+        },
+      ],
+      /** Domain nghiệp vụ (E-commerce, Banking, Payment…) — tách tech skills. */
+      businessDomains: [
+        {
+          name: { type: String, trim: true },
+          rank: { type: Number, min: 1, max: 10, default: null },
+        },
+      ],
+      certifications: [
+        {
+          name: { type: String, trim: true, maxlength: 120 },
+          issuer: { type: String, trim: true, maxlength: 120, default: '' },
+          issuedAt: { type: Date, default: null },
+          expiresAt: { type: Date, default: null },
+          credentialId: { type: String, trim: true, maxlength: 120, default: '' },
+          verificationStatus: {
+            type: String,
+            enum: ['suggested', 'verified'],
+            default: 'suggested',
+          },
         },
       ],
       languages: [{ type: String, trim: true }],

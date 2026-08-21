@@ -222,6 +222,14 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Lần đầu chuyển sang trạng thái in-progress (cycle time = completedAt − firstInProgressAt).
+     * Không ghi đè sau khi đã set.
+     */
+    firstInProgressAt: {
+      type: Date,
+      default: null,
+    },
     tags: [
       {
         type: String,

@@ -90,6 +90,41 @@ const SKILL_LEVEL_MAX = 5;
 const SUMMARY_MAX_LEN = 1000;
 const YEARS_EXPERIENCE_MAX = 40;
 const MAX_SKILLS = 20;
+/** Top-N tech skills for AI matching (rank 1 = strongest). */
+const MAX_TOP_SKILLS = 5;
+const MAX_BUSINESS_DOMAINS = 3;
+const MAX_CERTIFICATIONS = 10;
+
+const SENIORITY_BANDS = Object.freeze([
+  'intern',
+  'junior',
+  'mid',
+  'senior',
+  'lead',
+  'principal',
+]);
+
+const PROFICIENCY_TIERS = Object.freeze(['beginner', 'proficient', 'expert']);
+
+/** Business domain knowledge — tách khỏi tech skills (Payment, Banking, …). */
+const BUSINESS_DOMAIN_WHITELIST = Object.freeze([
+  'E-commerce',
+  'Banking',
+  'Payment',
+  'Insurance',
+  'Healthcare',
+  'Logistics',
+  'Education',
+  'Telecom',
+  'Manufacturing',
+  'Government',
+  'Real Estate',
+  'Media',
+  'Gaming',
+  'ERP',
+  'CRM',
+  'Other',
+]);
 
 const skillAliasMap = (() => {
   const map = new Map();
@@ -137,6 +172,57 @@ function isVerificationStatus(value) {
   return VERIFICATION_STATUSES.includes(String(value || '').trim());
 }
 
+const businessDomainAliasMap = (() => {
+  const map = new Map();
+  for (const name of BUSINESS_DOMAIN_WHITELIST) {
+    map.set(name.toLowerCase(), name);
+  }
+  map.set('ecommerce', 'E-commerce');
+  map.set('e-commerce', 'E-commerce');
+  map.set('fintech', 'Payment');
+  map.set('finance', 'Banking');
+  return map;
+})();
+
+function normalizeBusinessDomainName(raw) {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!key) return null;
+  return businessDomainAliasMap.get(key) || null;
+}
+
+function isSeniorityBand(value) {
+  return SENIORITY_BANDS.includes(String(value || '').trim());
+}
+
+function proficiencyTierFromLevel(level) {
+  const n = Number(level);
+  if (!Number.isFinite(n)) return 'proficient';
+  if (n <= 2) return 'beginner';
+  if (n >= 4) return 'expert';
+  return 'proficient';
+}
+
+function levelFromProficiencyTier(tier) {
+  const t = String(tier || '').trim().toLowerCase();
+  if (t === 'beginner') return 2;
+  if (t === 'expert') return 5;
+  return 3;
+}
+
+/** HR suggestion — không auto-ghi; chỉ gợi ý khi chưa có seniorityBand. */
+function suggestSeniorityFromYears(years) {
+  const y = Number(years);
+  if (!Number.isFinite(y) || y < 0) return null;
+  if (y < 1) return 'intern';
+  if (y < 2) return 'junior';
+  if (y < 5) return 'mid';
+  if (y < 8) return 'senior';
+  return 'lead';
+}
+
 module.exports = {
   POSITION_CODES,
   PRIMARY_DOMAINS,
@@ -144,14 +230,25 @@ module.exports = {
   VERIFICATION_STATUSES,
   CAPABILITY_ACTIONS,
   SKILL_WHITELIST,
+  BUSINESS_DOMAIN_WHITELIST,
+  SENIORITY_BANDS,
+  PROFICIENCY_TIERS,
   SKILL_LEVEL_MIN,
   SKILL_LEVEL_MAX,
   SUMMARY_MAX_LEN,
   YEARS_EXPERIENCE_MAX,
   MAX_SKILLS,
+  MAX_TOP_SKILLS,
+  MAX_BUSINESS_DOMAINS,
+  MAX_CERTIFICATIONS,
   normalizeSkillName,
+  normalizeBusinessDomainName,
   isPositionCode,
   isPrimaryDomain,
   isAvailability,
   isVerificationStatus,
+  isSeniorityBand,
+  proficiencyTierFromLevel,
+  levelFromProficiencyTier,
+  suggestSeniorityFromYears,
 };

@@ -281,6 +281,20 @@ export const projectAPI = {
       })
     ),
 
+  /**
+   * Phase 2/3 — org-wide employee resource pool (admin / resource_manager).
+   * params: asOf, verifiedOnly, departmentId, limit,
+   *         fromDate, toDate | requirementPackId (Phase 3 capacityRange).
+   */
+  listOrgResourcePool: (organizationId, params = {}, config = {}) =>
+    apiClient.get(
+      '/projects/resources/pool',
+      withOrg(organizationId, {
+        params: { ...params, organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
   /** Phase 3 — Resource Planner (project related depts) */
   getProjectPlanner: (projectId, params = {}, config = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/resources/planner`, {
@@ -298,10 +312,41 @@ export const projectAPI = {
       })
     ),
 
+  /** Employee Resource Profile aggregate (self OK; others need RM/admin). */
+  getEmployeeResourceProfile: (organizationId, userId, params = {}, config = {}) =>
+    apiClient.get(
+      `/projects/resources/employees/${encodeURIComponent(userId)}/profile`,
+      withOrg(organizationId, {
+        params: { organizationId, ...params },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
   /** Phase 3b — Utilization (planned ∩ actual hours) */
   getUtilization: (organizationId, params = {}) =>
     apiClient.get(
       '/projects/resources/utilization',
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** Historical Performance — list (admin) */
+  listUserPerformance: (organizationId, params = {}) =>
+    apiClient.get(
+      '/projects/resources/performance',
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** Historical Performance — user detail */
+  getUserPerformance: (organizationId, userId, params = {}) =>
+    apiClient.get(
+      `/projects/resources/performance/users/${encodeURIComponent(userId)}`,
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** AI / estimate calibration hints */
+  getEstimateHints: (organizationId, params = {}) =>
+    apiClient.get(
+      '/projects/resources/estimate-hints',
       withOrg(organizationId, { params: { ...params, organizationId } })
     ),
 

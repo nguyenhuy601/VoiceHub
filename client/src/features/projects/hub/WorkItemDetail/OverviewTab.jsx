@@ -1,15 +1,18 @@
 import { CheckCircle2, Circle } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
 import UserAvatar from '../../../../components/Shared/UserAvatar';
 import { canSetCardAssignee } from '../../../../utils/goldenAssignPolicy';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
+import { projectAPI } from '../../../../services/api/projectAPI';
+import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import { TASK_BOARD_LABELS, labelById } from '../../board/taskBoardCardLabels';
 import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../../../components/Organization/figmaOrganizationClasses';
-import { dueDateTone, formatHubDateShort, listsForStatusSelect } from '../projectHubUtils';
+import { dueDateTone, formatHubDateShort, listsForStatusSelect, toDateInputValue } from '../projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
 import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { useWorkItemDetail } from './WorkItemDetailContext';
-import { relId } from './workItemDetailUtils';
+import { relId, resolveWorkItemDueDate, resolveWorkItemStartDate } from './workItemDetailUtils';
 
 function DetailRow({ label, children }) {
   return (
@@ -73,7 +76,62 @@ export default function OverviewTab() {
     taskWorkspaceScope,
     onOpenChangeRequest,
     priorityConfig,
+    apiCtx,
   } = ctx;
+
+  const [estimateHint, setEstimateHint] = useState(null);
+  const [hintLoading, setHintLoading] = useState(false);
+
+  const applyEstimateHint = useCallback(async () => {
+    const orgId = apiCtx?.organizationId || workItem?.organizationId || '';
+    const aid = String(assigneeId || workItem?.assigneeId || '').trim();
+    if (!orgId || !aid) {
+      toast.error(t('taskBoard.estimateHintNeedAssignee'));
+      return;
+    }
+    setHintLoading(true);
+    try {
+      const baseline =
+        estimateHours === '' || estimateHours == null ? undefined : Number(estimateHours);
+      const res = await projectAPI.getEstimateHints(orgId, {
+        assigneeId: aid,
+        baselineHours: Number.isFinite(baseline) ? baseline : undefined,
+        issueType: workItem?.issueType,
+      });
+      const data = res?.data?.data ?? res?.data ?? res;
+      setEstimateHint(data);
+      if (data?.calibration?.applied && data.calibration.suggestedHours != null) {
+        setEstimateHours(String(data.calibration.suggestedHours));
+        toast.success(
+          t('taskBoard.estimateHintApplied', {
+            hours: data.calibration.suggestedHours,
+            accuracy: data.userPerformanceHints?.accuracyPct ?? '—',
+          })
+        );
+      } else {
+        toast(
+          t('taskBoard.estimateHintSkipped', {
+            reason: data?.calibration?.reason || data?.confidence || 'low',
+          })
+        );
+      }
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('taskBoard.estimateHintFail') })
+      );
+    } finally {
+      setHintLoading(false);
+    }
+  }, [
+    apiCtx?.organizationId,
+    workItem?.organizationId,
+    workItem?.assigneeId,
+    workItem?.issueType,
+    assigneeId,
+    estimateHours,
+    setEstimateHours,
+    t,
+  ]);
 
   const listArr = Array.isArray(lists) ? lists : Object.values(lists || {});
   const listById = new Map(listArr.map((l) => [String(l._id), l]));
@@ -94,7 +152,8 @@ export default function OverviewTab() {
     : null;
   const parentTitle = parentPlanning?.title || parentCard?.title || parentFeature?.title || '';
   const sprint = (sprints || []).find((s) => String(s._id) === String(workItem?.sprintId || ''));
-  const dueTone = dueDateTone(workItem?.dueDate, workItem?.status || currentList);
+  const resolvedDueDate = resolveWorkItemDueDate(workItem, { isPlanning });
+  const dueTone = dueDateTone(resolvedDueDate, workItem?.status || currentList);
   const reporterId = workItem?.createdBy || workItem?.reporterId || '';
   const reporter = actorFromMembers(projectMembers, reporterId);
   const isDone = String(workItem?.status || '') === 'done';
@@ -329,7 +388,7 @@ export default function OverviewTab() {
           className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
           onChange={(e) => setStartDateLocal(e.target.value)}
           onBlur={async () => {
-            const prev = toDateInputComparable(workItem?.startDate);
+            const prev = toDateInputValue(resolveWorkItemStartDate(workItem));
             if (startDateLocal === prev) return;
             await save({ startDate: startDateLocal || null });
           }}
@@ -344,34 +403,57 @@ export default function OverviewTab() {
           className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
           onChange={(e) => setDueDateLocal(e.target.value)}
           onBlur={async () => {
-            const prev = toDateInputComparable(workItem?.dueDate);
+            const prev = toDateInputValue(resolvedDueDate);
             if (dueDateLocal === prev) return;
-            await save({ dueDate: dueDateLocal || null });
+            const nextDue = dueDateLocal || null;
+            await save(
+              isPlanning ? { targetDate: nextDue, dueDate: nextDue } : { dueDate: nextDue }
+            );
           }}
         />
       </DetailRow>
 
       {isTimeTrackingV1Enabled() && canEstimate && !isPlanning ? (
         <DetailRow label={t('taskBoard.estimateHours')}>
-          <input
-            type="number"
-            min={0}
-            step={0.25}
-            value={estimateHours}
-            disabled={saving}
-            className={`${FIGMA_ORG_TASK_MODAL_INPUT} w-28 py-1 text-xs`}
-            onChange={(e) => setEstimateHours(e.target.value)}
-            onBlur={async () => {
-              const next =
-                estimateHours === '' || estimateHours == null ? null : Number(estimateHours);
-              const prev =
-                workItem?.estimateHours == null || workItem?.estimateHours === ''
-                  ? null
-                  : Number(workItem.estimateHours);
-              if (next === prev || (Number.isNaN(next) && prev == null)) return;
-              await save({ estimateHours: next });
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              step={0.25}
+              value={estimateHours}
+              disabled={saving}
+              className={`${FIGMA_ORG_TASK_MODAL_INPUT} w-28 py-1 text-xs`}
+              onChange={(e) => setEstimateHours(e.target.value)}
+              onBlur={async () => {
+                const next =
+                  estimateHours === '' || estimateHours == null ? null : Number(estimateHours);
+                const prev =
+                  workItem?.estimateHours == null || workItem?.estimateHours === ''
+                    ? null
+                    : Number(workItem.estimateHours);
+                if (next === prev || (Number.isNaN(next) && prev == null)) return;
+                await save({ estimateHours: next });
+              }}
+            />
+            <button
+              type="button"
+              disabled={saving || hintLoading || !assigneeId}
+              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted disabled:opacity-50"
+              onClick={applyEstimateHint}
+            >
+              {hintLoading ? t('common.loading') : t('taskBoard.estimateHintApply')}
+            </button>
+          </div>
+          {estimateHint?.userPerformanceHints ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t('taskBoard.estimateHintSummary', {
+                accuracy: estimateHint.userPerformanceHints.accuracyPct ?? '—',
+                avgEst: estimateHint.userPerformanceHints.avgEstimateHours ?? '—',
+                avgAct: estimateHint.userPerformanceHints.avgActualHours ?? '—',
+                confidence: estimateHint.confidence || 'low',
+              })}
+            </p>
+          ) : null}
         </DetailRow>
       ) : null}
 
@@ -404,14 +486,4 @@ export default function OverviewTab() {
       ) : null}
     </div>
   );
-}
-
-function toDateInputComparable(iso) {
-  if (!iso) return '';
-  const s = String(iso);
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (m) return m[1];
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }

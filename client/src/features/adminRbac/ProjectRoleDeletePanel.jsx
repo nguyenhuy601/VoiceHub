@@ -55,24 +55,6 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
     }
   };
 
-  const formCard = (
-    <AdminUserFormCard title={t('adminDomains.rbac.projectRoleDelete')}>
-      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-        <div className="font-medium">Key: {role.key}</div>
-        <div className="mt-1">{role.label}</div>
-        {role.isSystem ? <div className="mt-2 text-xs text-emerald-700">System role</div> : null}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" disabled={!role || role.isSystem || busy} className={adminDangerBtnClass()} onClick={del}>
-          {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
-        </button>
-        <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
-          {t('common.cancel') || 'Cancel'}
-        </button>
-      </div>
-    </AdminUserFormCard>
-  );
-
   if (loading) {
     const loadingBody = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
     if (embedded) return loadingBody;
@@ -92,6 +74,24 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
       </AdminUserPanelShell>
     );
   }
+
+  const formCard = (
+    <AdminUserFormCard title={t('adminDomains.rbac.projectRoleDelete')}>
+      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+        <div className="font-medium">Key: {role.key}</div>
+        <div className="mt-1">{role.label}</div>
+        {role.isSystem ? <div className="mt-2 text-xs text-emerald-700">System role</div> : null}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" disabled={role.isSystem || busy} className={adminDangerBtnClass()} onClick={del}>
+          {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
+        </button>
+        <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
+          {t('common.cancel') || 'Cancel'}
+        </button>
+      </div>
+    </AdminUserFormCard>
+  );
 
   if (embedded) return formCard;
 

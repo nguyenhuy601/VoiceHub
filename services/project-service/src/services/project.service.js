@@ -132,6 +132,20 @@ async function seedDefaultLists(boardId) {
  * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
  * projectId !== boardId.
  */
+function normalizeBudgetStub(raw) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object') return null;
+  const amountRaw = raw.amount;
+  const amount =
+    amountRaw === null || amountRaw === undefined || amountRaw === ''
+      ? null
+      : Number(amountRaw);
+  if (amount !== null && !Number.isFinite(amount)) return null;
+  const currency = String(raw.currency || 'VND').trim().slice(0, 8) || 'VND';
+  const note = String(raw.note || '').trim().slice(0, 240);
+  return { amount, currency, note };
+}
+
 async function createProject({
   userId,
   organizationId,
@@ -169,6 +183,8 @@ async function createProject({
   visibilityPolicy,
   informationLevelOverrides,
   relatedDepartmentIds,
+  requiredProjectRoles,
+  budgetStub,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateTaskInScope(scope)) {
@@ -244,6 +260,13 @@ async function createProject({
     assertCanUseCustomProjectVisibility(ctx, userId);
   }
 
+  const normalizedRoles =
+    requiredProjectRoles !== undefined
+      ? normalizeRequiredProjectRoles(requiredProjectRoles)
+      : undefined;
+  const normalizedBudget =
+    budgetStub !== undefined ? normalizeBudgetStub(budgetStub) : undefined;
+
   const project = await Project.create({
     organizationId,
     teamId: null,
@@ -264,6 +287,8 @@ async function createProject({
     isActive: true,
     ...init.fields,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
+    ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
+    ...(normalizedBudget !== undefined ? { budgetStub: normalizedBudget } : {}),
   });
 
   const board = await TaskBoard.create({

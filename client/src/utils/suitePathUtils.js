@@ -171,6 +171,12 @@ export function buildCollaborateDocumentsPath(orgId = '') {
   return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
 }
 
+export function buildCollaborateRequirementsPath(orgId = '') {
+  const base = '/app/collaborate/requirements';
+  const id = String(orgId || '').trim();
+  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+}
+
 export function buildCollaborateOrgNotificationsPath(orgId = '') {
   const base = '/app/collaborate/notifications';
   const id = String(orgId || '').trim();

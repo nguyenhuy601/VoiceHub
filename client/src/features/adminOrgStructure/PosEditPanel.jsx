@@ -14,10 +14,7 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberUserId } from '../../utils/adminUserUtils';
-
-function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
-}
+import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 
 export default function PosEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();

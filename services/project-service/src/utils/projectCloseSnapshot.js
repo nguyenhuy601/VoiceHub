@@ -169,6 +169,7 @@ function buildPerformance({ tasks, listsById, sprints }) {
   const velocityHoursList = sprintRows.map((s) => s.velocityHours);
   const throughputPerSprint = sprintRows.map((s) => s.doneCount);
   const leadHours = [];
+  const cycleHours = [];
   const byType = { story: { count: 0, leadHours: [] }, task: { count: 0, leadHours: [] }, bug: { count: 0, leadHours: [] } };
 
   for (const task of tasks || []) {
@@ -180,6 +181,8 @@ function buildPerformance({ tasks, listsById, sprints }) {
       leadHours.push(lead);
       byType[type].leadHours.push(lead);
     }
+    const cycle = hoursBetween(task?.completedAt, task?.firstInProgressAt);
+    if (cycle != null) cycleHours.push(cycle);
   }
 
   return {
@@ -198,7 +201,16 @@ function buildPerformance({ tasks, listsById, sprints }) {
       median: median(leadHours),
       sampleSize: leadHours.length,
     },
-    cycleTimeHours: unavailable('missing_firstInProgressAt'),
+    cycleTimeHours:
+      cycleHours.length > 0
+        ? {
+            value: average(cycleHours),
+            average: average(cycleHours),
+            median: median(cycleHours),
+            sampleSize: cycleHours.length,
+            unavailableReason: null,
+          }
+        : unavailable('missing_firstInProgressAt'),
     byIssueType: {
       story: { count: byType.story.count, avgLeadTimeHours: average(byType.story.leadHours) },
       task: { count: byType.task.count, avgLeadTimeHours: average(byType.task.leadHours) },

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
 import AdminOrgUnitOpsHubShell from '../../components/admin/AdminOrgUnitOpsHubShell';
 import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
@@ -9,7 +10,6 @@ import DeptParentPanel from './DeptParentPanel';
 import DeptHeadPanel from './DeptHeadPanel';
 import DeptMembersPanel from './DeptMembersPanel';
 import DeptOrgRolesPanel from './DeptOrgRolesPanel';
-import DeptTransferPanel from './DeptTransferPanel';
 
 const TAB_EDIT = 'edit';
 const TAB_DISABLE = 'disable';
@@ -17,10 +17,11 @@ const TAB_PARENT = 'parent';
 const TAB_HEAD = 'head';
 const TAB_MEMBERS = 'members';
 const TAB_ORG_ROLES = 'org-roles';
-const TAB_TRANSFER = 'transfer';
+const DEPT_TRANSFER_PATH = '/app/admin/org-structure/departments/transfer';
 
 export default function DeptManageHubPanel({ orgId }) {
   const { t } = useAppStrings();
+  const [searchParams] = useSearchParams();
   const { departments, loading, error, loadStructure } = useAdminOrgStructure(orgId, {
     includeInactive: true,
   });
@@ -33,10 +34,22 @@ export default function DeptManageHubPanel({ orgId }) {
       { id: TAB_HEAD, label: t('adminDomains.orgStructure.deptHead') },
       { id: TAB_MEMBERS, label: t('adminDomains.orgStructure.deptMembers') },
       { id: TAB_ORG_ROLES, label: t('adminDomains.orgStructure.deptOrgRoles') },
-      { id: TAB_TRANSFER, label: t('adminDomains.orgStructure.deptTransfer') },
     ],
     [t]
   );
+
+  const transferRedirectTo = useMemo(() => {
+    if (String(searchParams.get('tab') || '') !== 'transfer') return '';
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    next.delete('unitId');
+    const qs = next.toString();
+    return `${DEPT_TRANSFER_PATH}${qs ? `?${qs}` : ''}`;
+  }, [searchParams]);
+
+  if (transferRedirectTo) {
+    return <Navigate to={transferRedirectTo} replace />;
+  }
 
   return (
     <AdminOrgUnitOpsHubShell
@@ -72,7 +85,6 @@ export default function DeptManageHubPanel({ orgId }) {
           {activeTab === TAB_HEAD ? <DeptHeadPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_MEMBERS ? <DeptMembersPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_ORG_ROLES ? <DeptOrgRolesPanel orgId={orgId} embedded /> : null}
-          {activeTab === TAB_TRANSFER ? <DeptTransferPanel orgId={orgId} embedded /> : null}
         </div>
       )}
     </AdminOrgUnitOpsHubShell>

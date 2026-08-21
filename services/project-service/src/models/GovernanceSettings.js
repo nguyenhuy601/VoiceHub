@@ -31,6 +31,23 @@ const governanceSettingsSchema = new mongoose.Schema(
       default: '',
       maxlength: 1000,
     },
+    /** Org working calendar — capacity/utilization (Phase ERP). */
+    workingCalendar: {
+      hoursPerDay: { type: Number, default: 8, min: 1, max: 24 },
+      /** UTC weekday indexes: 0=Sun … 6=Sat; default Mon–Fri. */
+      workingDayIndexes: {
+        type: [Number],
+        default: () => [1, 2, 3, 4, 5],
+      },
+      /** Billing convention (e.g. 20 × 8h = 160h/month). */
+      billingDaysPerMonth: { type: Number, default: 20, min: 1, max: 31 },
+    },
+    holidays: [
+      {
+        date: { type: Date, required: true },
+        name: { type: String, trim: true, default: '', maxlength: 120 },
+      },
+    ],
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

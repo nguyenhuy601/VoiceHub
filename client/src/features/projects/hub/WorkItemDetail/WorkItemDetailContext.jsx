@@ -11,7 +11,7 @@ import {
 } from '../../../../utils/hoursSoftWarning';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
 import { parseCardLabelIds } from '../../board/taskBoardCardLabels';
-import { unwrapPlanningEntity } from '../projectHubUtils';
+import { toDateInputValue, unwrapPlanningEntity } from '../projectHubUtils';
 import {
   buildTabVisibilityContext,
   listVisibleTabs,
@@ -23,7 +23,8 @@ import {
   isPlanningIssue,
   mapInitialPanelToTab,
   relId,
-  toDateInputValue,
+  resolveWorkItemDueDate,
+  resolveWorkItemStartDate,
   unwrapList,
 } from './workItemDetailUtils';
 
@@ -126,8 +127,8 @@ export function WorkItemDetailProvider({
     setTitle(String(workItem.title || ''));
     setDescription(String(workItem.description || ''));
     setLabelIds(parseCardLabelIds(workItem.tags || workItem.labels));
-    setDueDateLocal(toDateInputValue(workItem.dueDate));
-    setStartDateLocal(toDateInputValue(workItem.startDate));
+    setDueDateLocal(toDateInputValue(resolveWorkItemDueDate(workItem, { isPlanning })));
+    setStartDateLocal(toDateInputValue(resolveWorkItemStartDate(workItem)));
     setEstimateHours(hoursInputValue(workItem.estimateHours));
     setAssigneeId(workItem.assigneeId ? String(workItem.assigneeId) : '');
     setAttachments(Array.isArray(workItem.attachments) ? [...workItem.attachments] : []);
@@ -154,11 +155,17 @@ export function WorkItemDetailProvider({
           if (patch.title !== undefined) body.title = patch.title;
           if (patch.description !== undefined) body.description = patch.description;
           if (patch.targetDate !== undefined) body.targetDate = patch.targetDate;
-          else if (patch.dueDate !== undefined) body.dueDate = patch.dueDate;
+          else if (patch.dueDate !== undefined) body.targetDate = patch.dueDate;
           if (patch.startDate !== undefined) body.startDate = patch.startDate;
           const res = await projectAPI.patchPlanningItem(projectId, issueId, body);
           const saved = unwrapPlanningEntity(res) || body;
           const local = { ...patch, ...body, ...saved };
+          if (local.targetDate !== undefined && local.dueDate === undefined) {
+            local.dueDate = local.targetDate;
+          }
+          if (local.dueDate !== undefined && local.targetDate === undefined) {
+            local.targetDate = local.dueDate;
+          }
           onPatchPlanningItems?.((items) =>
             (items || []).map((row) =>
               String(row._id || row.id) === String(issueId) ? { ...row, ...local } : row
@@ -249,9 +256,15 @@ export function WorkItemDetailProvider({
   const patchLocalWorkItem = useCallback(
     (patch) => {
       if (isPlanning) {
+        const nextPatch = { ...patch };
+        if (nextPatch.dueDate !== undefined && nextPatch.targetDate === undefined) {
+          nextPatch.targetDate = nextPatch.dueDate;
+        } else if (nextPatch.targetDate !== undefined && nextPatch.dueDate === undefined) {
+          nextPatch.dueDate = nextPatch.targetDate;
+        }
         onPatchPlanningItems?.((items) =>
           (items || []).map((row) =>
-            String(row._id || row.id) === String(issueId) ? { ...row, ...patch } : row
+            String(row._id || row.id) === String(issueId) ? { ...row, ...nextPatch } : row
           )
         );
         return;
