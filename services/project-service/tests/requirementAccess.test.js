@@ -49,6 +49,11 @@ describe('requirement:create-project gate (T3)', () => {
     assert.ok(REQUIREMENT_PERMISSIONS.includes('requirement:run-ai-planning'));
   });
 
+  it('documents PM approver may run AI (via isRequirementApproverUser)', () => {
+    // Auth matrix: capacity (Admin/RM) OR requirement approver (PM/PO/Project Manager).
+    assert.ok(REQUIREMENT_PERMISSIONS.includes('requirement:run-ai-planning'));
+  });
+
   it('create-from-pack gate mirrors canCreateTask flag', () => {
     // Same predicate as canCreateTaskInScope / canCreateFromPack (avoid importing env-bound module).
     const canCreateFromPack = (scope) => Boolean(scope?.canCreateTask);

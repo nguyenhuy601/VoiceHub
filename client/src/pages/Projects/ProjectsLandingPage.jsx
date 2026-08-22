@@ -7,11 +7,13 @@ import { projectAPI } from '../../services/api/projectAPI';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
 import {
   buildCollaborateProjectHubPath,
+  buildCollaborateProjectsNewAiPath,
   buildCollaborateProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import useRequirementAccess from '../../hooks/useRequirementAccess';
 
 function unwrapProjectList(res) {
   const raw = res?.data?.projects ?? res?.projects ?? res?.data ?? res ?? [];
@@ -37,6 +39,8 @@ export default function ProjectsLandingPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const { access: requirementAccess } = useRequirementAccess(orgId);
+  const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   useEffect(() => {
     if (!orgId) {
@@ -97,6 +101,18 @@ export default function ProjectsLandingPage() {
     navigate(buildCollaborateProjectsNewPath(orgId, { from: 'hub' }));
   }, [canCreate, navigate, orgId, t]);
 
+  const handleCreateWithAi = useCallback(() => {
+    if (!orgId) {
+      toast.error(t('organizations.selectOrgFirst'));
+      return;
+    }
+    if (!canCreateWithAi) {
+      toast.error(t('taskBoard.createBoardDenied'));
+      return;
+    }
+    navigate(buildCollaborateProjectsNewAiPath(orgId, { from: 'hub' }));
+  }, [canCreateWithAi, navigate, orgId, t]);
+
   const handleSelect = useCallback(
     (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
@@ -145,6 +161,7 @@ export default function ProjectsLandingPage() {
         projects={projects}
         activeProjectsCount={activeProjectsCount}
         onCreateProject={canCreate ? handleCreate : undefined}
+        onCreateProjectWithAi={canCreateWithAi ? handleCreateWithAi : undefined}
         onSelectProject={handleSelect}
       />
     </div>

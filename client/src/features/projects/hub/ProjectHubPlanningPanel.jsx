@@ -19,6 +19,7 @@ import WorkItemDetail from './WorkItemDetail';
 import { childWorkStats } from './projectHubBacklogStats';
 import ProjectHubEditSprintModal from './ProjectHubEditSprintModal';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
+import ProjectHubStartSprintModal from './ProjectHubStartSprintModal';
 import ProjectHubInlineCreateBar from './ProjectHubInlineCreateBar';
 import ProjectHubSprintSection from './ProjectHubSprintSection';
 import {
@@ -117,6 +118,7 @@ export default function ProjectHubPlanningPanel({
   const [itemType, setItemType] = useState('release');
   const [editSprint, setEditSprint] = useState(null);
   const [completeSprintId, setCompleteSprintId] = useState(null);
+  const [startSprintId, setStartSprintId] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [detailIssueId, setDetailIssueId] = useState('');
 
@@ -486,8 +488,8 @@ export default function ProjectHubPlanningPanel({
     }
   };
 
-  const startSprint = async (sprintId) => {
-    if (!canManageSprints || busy || !projectId) return;
+  const openStartSprint = (sprintId) => {
+    if (!canManageSprints || busy) return;
     const sprint = sprints.find((row) => String(row._id || row.id) === String(sprintId));
     if (!sprint) {
       toast.error(t('workspace.projectHubPlanSprintFail'));
@@ -507,19 +509,54 @@ export default function ProjectHubPlanningPanel({
       }
       return;
     }
-    const dates = defaultSprintDateRange(sprint);
-    if (dates.error) {
+    setStartSprintId(String(sprintId));
+  };
+
+  const startSprint = async (form) => {
+    if (!canManageSprints || busy || !projectId || !startSprintId) return;
+    const sprintId = startSprintId;
+    const sprint = sprints.find((row) => String(row._id || row.id) === String(sprintId));
+    if (!sprint) {
+      toast.error(t('workspace.projectHubPlanSprintFail'));
+      return;
+    }
+    const issueCount = (issuesBySprint.get(String(sprintId)) || []).length;
+    const check = assertCanStartSprint({
+      sprint,
+      sprints,
+      issueCount,
+      canManage: canManageSprints,
+      memberIdsBySprintId,
+    });
+    if (!check.ok) {
+      if (check.errorKey !== 'workspace.projectHubSprintStartNoPermission') {
+        toast.error(t(check.errorKey));
+      }
+      return;
+    }
+    const startIso = form?.startDate || null;
+    const endIso = form?.endDate || null;
+    if (!startIso || !endIso || new Date(startIso).getTime() >= new Date(endIso).getTime()) {
       toast.error(t('workspace.projectHubSprintDatesInvalid'));
+      return;
+    }
+    const name = String(form?.sprintName || '').trim();
+    if (!name) {
+      toast.error(t('workspace.projectHubPlanSprintFail'));
       return;
     }
     setBusy(true);
     try {
       await projectAPI.patchSprint(projectId, sprintId, {
         status: 'active',
-        startDate: dates.startDate,
-        endDate: dates.endDate,
+        name,
+        goal: String(form?.sprintGoal || ''),
+        startDate: startIso,
+        endDate: endIso,
+        autoComplete: Boolean(form?.autoComplete),
       });
       toast.success(t('workspace.projectHubPlanSprintStarted'));
+      setStartSprintId(null);
       await onReloadSprints?.();
       onReloadPlanning?.();
       onRefresh?.();
@@ -527,8 +564,8 @@ export default function ProjectHubPlanningPanel({
         {
           ...sprint,
           status: 'active',
-          startDate: dates.startDate,
-          endDate: dates.endDate,
+          startDate: startIso,
+          endDate: endIso,
         },
       ]);
       if (ready) onOpenBoard?.();
@@ -1010,7 +1047,7 @@ export default function ProjectHubPlanningPanel({
                       onToggleCollapse={() =>
                         setCollapsed((c) => ({ ...c, [sid]: !c[sid] }))
                       }
-                      onStart={() => startSprint(sid)}
+                      onStart={() => openStartSprint(sid)}
                       onComplete={() => openCompleteSprint(sid)}
                       onEdit={() => setEditSprint(sprint)}
                       onDeleteSprint={() => setConfirm({ kind: 'sprint', id: sid, title: sprint.name })}
@@ -1161,6 +1198,22 @@ export default function ProjectHubPlanningPanel({
           </div>
         ) : null}
       </div>
+
+      <ProjectHubStartSprintModal
+        isOpen={Boolean(startSprintId)}
+        sprint={
+          startSprintId
+            ? sprints.find((s) => String(s._id || s.id) === String(startSprintId)) || null
+            : null
+        }
+        workItemCount={
+          startSprintId ? (issuesBySprint.get(String(startSprintId)) || []).length : 0
+        }
+        busy={busy}
+        onClose={() => setStartSprintId(null)}
+        onStart={startSprint}
+        t={t}
+      />
 
       <ProjectHubEditSprintModal
         isOpen={Boolean(editSprint)}

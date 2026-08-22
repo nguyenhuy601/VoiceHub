@@ -839,15 +839,44 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     ? await Task.find(cardFilter).sort({ listId: 1, position: 1, createdAt: 1 }).lean()
     : [];
 
+  /** Feature (PlanningItem) — union lên Kanban khi xem full board (không scope epic/feature/parent). */
+  let featureItems = [];
+  if (wantCards && !scopedCardQuery && board.projectId) {
+    const PlanningItem = require('../models/PlanningItem');
+    featureItems = await PlanningItem.find({
+      projectId: board.projectId,
+      type: 'feature',
+      isActive: true,
+    })
+      .sort({ sortOrder: 1, createdAt: 1 })
+      .lean();
+  }
+
   const canAdmin = await userCanAdminBoard(userId, board);
   const capabilities = await resolveBoardCapabilities(userId, board);
   const activeListCount = lists.length;
+  const listsWithStatusKey = lists.map((l) => {
+    const statusKey =
+      String(l.statusKey || '').trim() ||
+      require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
+      '';
+    return { ...l, statusKey };
+  });
+  const { resolveFeatureBoardListId, resolveFeatureDisplaySprintId } =
+    require('../utils/planningBoardStatus');
+  const featureListIds = featureItems.map((f) =>
+    resolveFeatureBoardListId(f.status, listsWithStatusKey)
+  );
   const cardCountByList = new Map();
   for (const c of cards) {
     const lid = String(c.listId || '');
     cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
   }
-  const listsEnriched = lists.map((l) => {
+  for (const lid of featureListIds) {
+    if (!lid) continue;
+    cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+  }
+  const listsEnriched = listsWithStatusKey.map((l) => {
     const cardCount = cardCountByList.get(String(l._id)) || 0;
     const policy = resolveListArchivePolicy({
       list: l,
@@ -855,13 +884,8 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
       activeListCount,
       canAdmin,
     });
-    const statusKey =
-      String(l.statusKey || '').trim() ||
-      require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
-      '';
     return {
       ...l,
-      statusKey,
       cardCount,
       watcherCount: watcherCountByList.get(String(l._id)) || 0,
       isWatching: watchingSet.has(String(l._id)),
@@ -900,8 +924,8 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
 
   const assigneeIds = [
     ...new Set(
-      cards
-        .flatMap((c) => {
+      [
+        ...cards.flatMap((c) => {
           const ids = [];
           if (c?.assigneeId) ids.push(String(c.assigneeId));
           if (c?.createdBy) ids.push(String(c.createdBy));
@@ -909,8 +933,14 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
             if (a?.userId) ids.push(String(a.userId));
           }
           return ids;
-        })
-        .filter(Boolean)
+        }),
+        ...featureItems.flatMap((f) => {
+          const ids = [];
+          if (f?.assigneeId) ids.push(String(f.assigneeId));
+          if (f?.createdBy) ids.push(String(f.createdBy));
+          return ids;
+        }),
+      ].filter(Boolean)
     ),
   ];
   const assigneeRows = assigneeIds.length ? await enrichAssignableProfiles(assigneeIds, userId) : [];
@@ -920,6 +950,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
   // Keep only fields needed by FE (avoid large docs)
   const sanitizedCards = cards.map((c) => ({
     _id: c._id,
+    kind: 'task',
     boardId: c.boardId,
     listId: c.listId,
     ownerTeamId: c.ownerTeamId || null,
@@ -1007,8 +1038,92 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
       : [],
   }));
 
+  const featureCards = featureItems.map((f, idx) => {
+    const listId =
+      featureListIds[idx] ||
+      resolveFeatureBoardListId(f.status, listsEnriched) ||
+      null;
+    const assigneeId = oidToStr(f.assigneeId);
+    const parentId = oidToStr(f.parentId);
+    const displaySprintId = resolveFeatureDisplaySprintId(f.sprintId, f._id, cards);
+    return {
+      _id: f._id,
+      kind: 'planning',
+      type: 'feature',
+      issueType: 'feature',
+      boardId: board._id,
+      listId,
+      title: f.title,
+      description: f.description || '',
+      summary: '',
+      priority: f.priority || 'medium',
+      dueDate: f.dueDate || f.targetDate || null,
+      startDate: f.startDate || null,
+      estimateHours: null,
+      assigneeId,
+      assigneeName: assigneeId
+        ? assigneeMap.get(String(assigneeId))?.displayName ||
+          assigneeMap.get(String(assigneeId))?.username ||
+          ''
+        : '',
+      assignees: assigneeId
+        ? [
+            {
+              userId: String(assigneeId),
+              displayName:
+                assigneeMap.get(String(assigneeId))?.displayName ||
+                assigneeMap.get(String(assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
+      assignments: assigneeId
+        ? [
+            {
+              userId: String(assigneeId),
+              slot: 'primary',
+              projectRoleId: null,
+              displayName:
+                assigneeMap.get(String(assigneeId))?.displayName ||
+                assigneeMap.get(String(assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
+      createdBy: oidToStr(f.createdBy),
+      reporterName: f.createdBy
+        ? assigneeMap.get(String(f.createdBy))?.displayName ||
+          assigneeMap.get(String(f.createdBy))?.username ||
+          ''
+        : '',
+      reporterAvatar: f.createdBy ? assigneeMap.get(String(f.createdBy))?.avatar || '' : '',
+      tags: [],
+      attachments: [],
+      checklists: [],
+      parentTaskId: null,
+      parentId,
+      epicId: parentId,
+      featureId: null,
+      projectId: oidToStr(f.projectId) || oidToStr(board.projectId) || null,
+      sprintId: displaySprintId,
+      status: f.status,
+      completedAt: null,
+      position: Number(f.sortOrder) || idx + 1,
+      workGroupChannelId: oidToStr(f.workGroupChannelId),
+      ownerTeamId: null,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+      changeRequestIds: [],
+      comments: [],
+    };
+  });
+
+  const mergedSanitized = [...sanitizedCards, ...featureCards];
+
   const changeRequestService = require('./changeRequest.service');
-  const cardsWithCr = await changeRequestService.enrichTasksWithChangeRequests(sanitizedCards);
+  const cardsWithCr = await changeRequestService.enrichTasksWithChangeRequests(mergedSanitized);
 
   const { attachProjectIdentityToBoard } = require('./project.service');
   const boardWithProject = await attachProjectIdentityToBoard(board);
@@ -1304,7 +1419,119 @@ function scheduleCrWorkStatusSync(card) {
 
 async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId }) {
   const card = await Task.findById(cardId);
-  if (!card || !card.boardId) throw new Error('Card không tồn tại');
+  if (card && card.boardId) {
+    return moveTaskCard({ userId, card, cardId, toListId, position, index, ownerTeamId });
+  }
+  return movePlanningFeatureCard({ userId, cardId, toListId, position, index });
+}
+
+/**
+ * Kéo Feature (PlanningItem) trên board — SSOT = status; listId derive lúc đọc.
+ */
+async function movePlanningFeatureCard({ userId, cardId, toListId, position, index }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const { normalizePlanningStatus } = require('../utils/planningItemTypes');
+  const { listIdToPlanningStatus } = require('../utils/planningBoardStatus');
+  const { resolveListStatusKey } = require('./workflow.service');
+
+  const feature = await PlanningItem.findOne({
+    _id: cardId,
+    type: 'feature',
+    isActive: true,
+  });
+  if (!feature) throw new Error('Card không tồn tại');
+
+  const list = await TaskBoardList.findOne({
+    _id: toListId,
+    isArchived: false,
+  }).lean();
+  if (!list) throw new Error('List đích không hợp lệ');
+
+  const board = await ensureBoardViewAccess(list.boardId, userId);
+  if (!board) throw new Error('Không có quyền xem board này');
+  if (
+    board.projectId &&
+    feature.projectId &&
+    String(board.projectId) !== String(feature.projectId)
+  ) {
+    throw new Error('List đích không hợp lệ');
+  }
+
+  const caps = await resolveBoardCapabilities(userId, board);
+  if (!caps.canMoveCards) throw new Error('Không có quyền kéo thẻ trên board này');
+
+  const movingToDone = isDoneListTitle(list.title);
+  if (movingToDone && !caps.canMoveToDone) {
+    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+  }
+
+  const isAssignee = feature.assigneeId && String(feature.assigneeId) === String(userId);
+  const canFreelyMove = caps.canCreateCards || caps.canEditCards || caps.canManageBoard;
+  if (!canFreelyMove && !isAssignee) {
+    throw new Error('Bạn chỉ được kéo thẻ được gán cho mình');
+  }
+
+  const listWithKey = {
+    ...list,
+    statusKey:
+      String(list.statusKey || '').trim() ||
+      resolveListStatusKey(list) ||
+      '',
+  };
+  const toStatusKey =
+    resolveListStatusKey(listWithKey) ||
+    listIdToPlanningStatus(toListId, [listWithKey]) ||
+    'todo';
+
+  feature.status = normalizePlanningStatus(toStatusKey, 'todo');
+  if (index != null && Number.isFinite(Number(index))) {
+    feature.sortOrder = (Number(index) + 1) * 1000;
+  } else if (position != null && Number.isFinite(Number(position))) {
+    feature.sortOrder = Number(position);
+  }
+  await feature.save();
+
+  const assigneeId = feature.assigneeId || null;
+  let assigneeName = '';
+  let avatar = '';
+  if (assigneeId) {
+    const rows = await enrichAssignableProfiles([String(assigneeId)], userId);
+    const row = rows[0];
+    assigneeName = row?.displayName || row?.username || '';
+    avatar = row?.avatar || '';
+  }
+
+  return {
+    _id: feature._id,
+    kind: 'planning',
+    type: 'feature',
+    issueType: 'feature',
+    boardId: board._id,
+    listId: toListId,
+    title: feature.title,
+    description: feature.description || '',
+    dueDate: feature.dueDate || null,
+    startDate: feature.startDate || null,
+    assigneeId,
+    assigneeName,
+    assignees: assigneeId
+      ? [{ userId: String(assigneeId), displayName: assigneeName, avatar }]
+      : [],
+    parentId: feature.parentId || null,
+    epicId: feature.parentId || null,
+    featureId: null,
+    parentTaskId: null,
+    projectId: feature.projectId || board.projectId || null,
+    sprintId: feature.sprintId || null,
+    status: feature.status,
+    position: Number(feature.sortOrder) || 0,
+    workGroupChannelId: feature.workGroupChannelId || null,
+    createdAt: feature.createdAt,
+    updatedAt: feature.updatedAt,
+  };
+}
+
+async function moveTaskCard({ userId, card, cardId, toListId, position, index, ownerTeamId }) {
   const board = await ensureBoardViewAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
   const beforeMove = {
@@ -1411,6 +1638,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
         const refreshed = await Task.findById(card._id).lean();
         return {
           ...refreshed,
+          kind: 'task',
           approvalRequest: gate.request,
           approvalPending: true,
         };
@@ -1433,6 +1661,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
         const refreshed = await Task.findById(card._id).lean();
         return {
           ...refreshed,
+          kind: 'task',
           approvalRequest: gate.request,
           approvalPending: true,
         };
@@ -1552,9 +1781,9 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     const prevTeam = normalizeOwnerTeamId(beforeMove.ownerTeamId);
     const nextTeam = normalizeOwnerTeamId(moved.ownerTeamId);
     if (nextTeam && nextTeam !== prevTeam) {
-      void emitTeamChannelProvisionIfNeeded({
-        organizationId: board.organizationId,
+      emitTeamChannelProvisionIfNeeded({
         projectId: board.projectId,
+        organizationId: board.organizationId,
         teamId: nextTeam,
         actorUserId: userId,
       });
@@ -1580,7 +1809,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
       changes: diffTaskFields(beforeMove, { listId: moved.listId, status: moved.status }),
     });
   }
-  return moved;
+  return { ...moved, kind: 'task' };
 }
 
 async function updateCard({

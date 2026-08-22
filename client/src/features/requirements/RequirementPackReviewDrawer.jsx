@@ -25,29 +25,96 @@ function canRunAiOnPack(pack) {
   return true;
 }
 
-function AiPlanningOverlaySummary({ pack, t }) {
+function AiPlanningOverlaySummary({ pack, t, canRunAiPlanning, busy, onApproveStaffing, onDiscardStaffing }) {
   const planning = pack?.aiPlanning;
   if (!planning || planning.status === 'none') return null;
   const overlay = planning.overlay || {};
   const roles = Array.isArray(overlay.roles) ? overlay.roles : [];
   const gaps = Array.isArray(overlay.gaps) ? overlay.gaps : [];
+  const proposal = overlay.staffingProposal;
+  const proposalPending =
+    proposal && typeof proposal === 'object' && !proposal.accepted && !overlay.staffingProposalAcceptedAt;
+  const llm = overlay.llm || {};
 
   return (
     <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-foreground">{t('requirements.aiPlanningTitle')}</span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-          {t(`requirements.aiPlanningStatus.${planning.status}`, {
-            defaultValue: planning.status,
-          })}
+          {t(`requirements.aiPlanningStatus.${planning.status}`)}
         </span>
         {overlay.engine ? (
           <span className="text-[11px] text-muted-foreground">{overlay.engine}</span>
+        ) : null}
+        {llm.model ? (
+          <span className="text-[11px] text-muted-foreground">{llm.model}</span>
+        ) : null}
+        {llm.staffingStatus ? (
+          <span className="text-[11px] text-muted-foreground">
+            {t('requirements.aiLlmStaffingStatus', { status: llm.staffingStatus })}
+          </span>
         ) : null}
       </div>
       {planning.status === 'failed' ? (
         <p className="mt-2 text-destructive">{overlay.message || t('requirements.aiPlanningFail')}</p>
       ) : null}
+
+      {proposalPending ? (
+        <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
+          <p className="text-xs font-semibold text-foreground">
+            {t('requirements.aiStaffingProposalTitle')}
+          </p>
+          {proposal.rationale ? (
+            <p className="mt-1 text-xs text-muted-foreground">{proposal.rationale}</p>
+          ) : null}
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {(proposal.requiredRoles || []).map((r) => (
+              <li key={r.roleKey}>
+                {r.roleKey} ×{r.requiredCount}
+              </li>
+            ))}
+          </ul>
+          {(proposal.requiredSkills || []).length ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {(proposal.requiredSkills || []).map((s) => s.name || s).join(', ')}
+            </p>
+          ) : null}
+          {proposal.estimatedHoursTotal != null ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('requirements.aiStaffingHours', { hours: proposal.estimatedHoursTotal })}
+            </p>
+          ) : null}
+          {canRunAiPlanning ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <GradientButton
+                variant="success"
+                disabled={busy}
+                onClick={onApproveStaffing}
+                className="px-3 py-1.5 text-xs"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {t('requirements.aiStaffingApprove')}
+              </GradientButton>
+              <GradientButton
+                variant="shell"
+                disabled={busy}
+                onClick={onDiscardStaffing}
+                className="px-3 py-1.5 text-xs"
+              >
+                <X className="h-3.5 w-3.5" />
+                {t('requirements.aiStaffingDiscard')}
+              </GradientButton>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {overlay.staffingProposalAcceptedAt ? (
+        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+          {t('requirements.aiStaffingAccepted')}
+        </p>
+      ) : null}
+
       {roles.length > 0 ? (
         <ul className="mt-2 space-y-2">
           {roles.map((role) => {
@@ -58,12 +125,16 @@ function AiPlanningOverlaySummary({ pack, t }) {
                   {role.roleKey} ×{role.requiredCount}
                 </span>
                 {top.length ? (
-                  <span>
-                    {' — '}
-                    {top
-                      .map((s) => `${s.displayName || s.userId} (${s.score})`)
-                      .join(', ')}
-                  </span>
+                  <ul className="mt-1 space-y-1 pl-2">
+                    {top.map((s) => (
+                      <li key={`${role.roleKey}-${s.userId}`}>
+                        {s.displayName || s.userId} ({s.score})
+                        {s.rationale ? (
+                          <span className="block text-[11px] opacity-90">— {s.rationale}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
                   <span> — {t('requirements.aiPlanningNoCandidates')}</span>
                 )}
@@ -272,6 +343,40 @@ export default function RequirementPackReviewDrawer({
     }
   };
 
+  const approveAiStaffing = async () => {
+    if (!orgId || !packId || busy) return;
+    setBusy(true);
+    try {
+      const res = await requirementAPI.approveAiStaffing(orgId, packId);
+      setPack(unwrap(res));
+      toast.success(t('requirements.aiStaffingApproveSuccess'));
+      onChanged?.();
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('requirements.aiStaffingApproveFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const discardAiStaffing = async () => {
+    if (!orgId || !packId || busy) return;
+    setBusy(true);
+    try {
+      const res = await requirementAPI.discardAiStaffing(orgId, packId);
+      setPack(unwrap(res));
+      toast.success(t('requirements.aiStaffingDiscardSuccess'));
+      onChanged?.();
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, { t, fallback: t('requirements.aiStaffingDiscardFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <button
@@ -317,7 +422,14 @@ export default function RequirementPackReviewDrawer({
             </div>
           ) : pack ? (
             <>
-              <AiPlanningOverlaySummary pack={pack} t={t} />
+              <AiPlanningOverlaySummary
+                pack={pack}
+                t={t}
+                canRunAiPlanning={canRunAiPlanning}
+                busy={busy}
+                onApproveStaffing={approveAiStaffing}
+                onDiscardStaffing={discardAiStaffing}
+              />
               <RequirementPreviewTabs
                 fileName={pack.sourceFileName || pack.overview?.requirementName || ''}
                 valid={!(pack.importIssues || []).some((i) => i.severity === 'error')}

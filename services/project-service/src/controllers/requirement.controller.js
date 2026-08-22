@@ -15,7 +15,7 @@ const {
   rejectRequirementPack,
   createProjectFromRequirementPack,
 } = require('../services/requirementPack.service');
-const { runAiPlanningHeuristic } = require('../services/aiPlanning.service');
+const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
   assertRequirementPermission,
   resolveRequirementAccess,
@@ -264,6 +264,50 @@ async function runAiPlanning(req, res) {
   }
 }
 
+async function approveAiStaffing(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const pack = await approveStaffingProposal({
+      userId,
+      organizationId,
+      packId,
+    });
+    return res.json({ success: true, data: pack });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function discardAiStaffing(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const pack = await discardStaffingProposal({
+      userId,
+      organizationId,
+      packId,
+    });
+    return res.json({ success: true, data: pack });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 module.exports = {
   downloadTemplate,
   previewImport,
@@ -277,4 +321,6 @@ module.exports = {
   rejectPack,
   createProjectFromPack,
   runAiPlanning,
+  approveAiStaffing,
+  discardAiStaffing,
 };

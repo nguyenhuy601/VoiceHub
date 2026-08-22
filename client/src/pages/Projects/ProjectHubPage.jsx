@@ -514,6 +514,13 @@ export default function ProjectHubPage() {
       onAddCard={handleAddBoardCard}
       onMoveCard={handleMoveBoardCard}
       onUpdateCard={handleUpdateBoardCard}
+      onBoardCardsPatch={(updater) => {
+        setTaskBoardDetail((prev) => {
+          if (!prev) return prev;
+          const cards = typeof updater === 'function' ? updater(prev.cards || []) : prev.cards;
+          return { ...prev, cards: Array.isArray(cards) ? cards : prev.cards };
+        });
+      }}
       onReorderList={handleReorderBoardList}
       onRefresh={refreshTaskBoardView}
       onCreateBoard={canCreateWorkspaceTask ? () => openProjectSetupWizard() : undefined}

@@ -91,4 +91,18 @@ export const requirementAPI = {
       {},
       withOrg(organizationId)
     ),
+
+  approveAiStaffing: (organizationId, packId) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/approve-staffing`,
+      {},
+      withOrg(organizationId)
+    ),
+
+  discardAiStaffing: (organizationId, packId) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/discard-staffing`,
+      {},
+      withOrg(organizationId)
+    ),
 };
