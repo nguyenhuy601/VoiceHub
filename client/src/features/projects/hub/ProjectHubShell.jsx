@@ -1594,10 +1594,18 @@ export default function ProjectHubShell({
             boardId={boardId}
             organizationId={organizationId}
             projectPayload={projectPayload}
+            boardCards={cards}
+            boardLists={lists}
             membersActive={tab === 'members'}
             canManage={hubCaps.canManageMembers || canManage}
             isDarkMode={isDarkMode}
             onMembersChanged={() => setMembersEpoch((n) => n + 1)}
+            onOpenList={() => setTab('list')}
+            onOpenWorkItem={(work) => {
+              const id = String(work?._id || work?.id || '');
+              const fromBoard = cards.find((c) => String(c._id || c.id) === id);
+              setCrWorkIssue(fromBoard || work || null);
+            }}
           />
         </div>
         ) : null}

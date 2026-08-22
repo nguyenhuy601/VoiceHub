@@ -188,6 +188,488 @@ export function sumOpenCardEstimateHours(cards = [], lists = []) {
   }, 0);
 }
 
+/**
+ * Execution load theo primary assigneeId trên board mở.
+ * Không suy Planned Allocation % từ số Work / estimateHours.
+ * @returns {Map<string, { openCount: number, estimateHours: number, unestimatedCount: number }>}
+ */
+export function buildMemberWorkloadMap(cards = [], lists = []) {
+  const listById = hubListById(lists);
+  const byUser = new Map();
+
+  for (const card of cards || []) {
+    if (!isHubCardOpen(card, listById)) continue;
+    const uid = String(card?.assigneeId || '').trim();
+    if (!uid) continue;
+
+    const prev = byUser.get(uid) || {
+      openCount: 0,
+      estimateHours: 0,
+      unestimatedCount: 0,
+    };
+    prev.openCount += 1;
+
+    const raw = card?.estimateHours;
+    if (raw === undefined || raw === null || raw === '') {
+      prev.unestimatedCount += 1;
+    } else {
+      const h = Number(raw);
+      if (!Number.isFinite(h) || h < 0) {
+        prev.unestimatedCount += 1;
+      } else if (h > 0) {
+        prev.estimateHours += h;
+      }
+    }
+    byUser.set(uid, prev);
+  }
+
+  for (const stats of byUser.values()) {
+    stats.estimateHours = Math.round(Number(stats.estimateHours) * 100) / 100;
+  }
+  return byUser;
+}
+
+/** Chuỗi giờ estimate cho UI Members pulse (null nếu không có tổng > 0). */
+export function formatMemberEstimateHours(hours) {
+  const n = Number(hours);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+}
+
+/**
+ * Lọc roster People Pulse.
+ * @param {Array} rows
+ * @param {'all'|'overallocated'|'noPlan'|'hasWork'|'skewed'|'overCeiling'|'workOverload'} filter
+ */
+export function filterMemberPulseRows(rows = [], filter = 'all') {
+  const list = Array.isArray(rows) ? rows : [];
+  const key = String(filter || 'all');
+  if (key === 'overallocated') {
+    return list.filter((r) => String(r?.allocationStatus || '').toLowerCase() === 'overallocated');
+  }
+  if (key === 'noPlan') {
+    return list.filter((r) => !Array.isArray(r?.allocations) || r.allocations.length === 0);
+  }
+  if (key === 'hasWork') {
+    return list.filter((r) => (Number(r?.openCount) || 0) > 0);
+  }
+  if (key === 'workOverload' || key === 'skewed' || key === 'overCeiling') {
+    // workOverload = gộp; skewed/overCeiling giữ alias để tương thích state cũ
+    if (key === 'skewed') return list.filter((r) => Boolean(r?.workloadSkewed));
+    if (key === 'overCeiling') return list.filter((r) => Boolean(r?.overSprintCeiling));
+    return list.filter((r) => isMemberWorkOverloaded(r));
+  }
+  return list;
+}
+
+/** Work quá tải = vượt trần Σh tuyệt đối hoặc lệch tải so team (FE). */
+export function isMemberWorkOverloaded(row) {
+  return Boolean(row?.overSprintCeiling || row?.workloadSkewed);
+}
+
+/**
+ * Một badge Work trên roster: ưu tiên «Quá tải giờ» (trần) rồi «Lệch tải».
+ * @returns {{ kind: 'ceiling'|'skew', skewedAlso: boolean }|null}
+ */
+export function resolveMemberWorkOverloadBadge(row) {
+  const overCeiling = Boolean(row?.overSprintCeiling);
+  const skewed = Boolean(row?.workloadSkewed);
+  if (!overCeiling && !skewed) return null;
+  if (overCeiling) return { kind: 'ceiling', skewedAlso: skewed };
+  return { kind: 'skew', skewedAlso: false };
+}
+
+/**
+ * Sort: Quá phân bổ → Quá tải Work (trần trước lệch) → nhiều Work mở → tên.
+ */
+export function sortMemberPulseRows(rows = []) {
+  return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+    const aOver = String(a?.allocationStatus || '').toLowerCase() === 'overallocated' ? 0 : 1;
+    const bOver = String(b?.allocationStatus || '').toLowerCase() === 'overallocated' ? 0 : 1;
+    if (aOver !== bOver) return aOver - bOver;
+    const aWork = isMemberWorkOverloaded(a) ? 0 : 1;
+    const bWork = isMemberWorkOverloaded(b) ? 0 : 1;
+    if (aWork !== bWork) return aWork - bWork;
+    const aCeil = a?.overSprintCeiling ? 0 : 1;
+    const bCeil = b?.overSprintCeiling ? 0 : 1;
+    if (aCeil !== bCeil) return aCeil - bCeil;
+    const openDiff = (Number(b?.openCount) || 0) - (Number(a?.openCount) || 0);
+    if (openDiff) return openDiff;
+    return String(a?.name || '').localeCompare(String(b?.name || ''), 'vi', { sensitivity: 'base' });
+  });
+}
+
+/** Ngưỡng share Work/Σh so team (FE People Pulse — không phải BE allocationStatus). */
+export const WORKLOAD_SKEW_SHARE_THRESHOLD = 0.5;
+/** Lệch nếu giờ ≥ factor × median giờ của người có estimate > 0. */
+export const WORKLOAD_SKEW_MEDIAN_FACTOR = 2;
+
+function medianOfSorted(sorted = []) {
+  const n = sorted.length;
+  if (!n) return null;
+  const mid = Math.floor(n / 2);
+  if (n % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Cảnh báo lệch tải Work/Σh so team (FE-only).
+ * Không đổi Planned Allocation / allocationStatus từ BE.
+ *
+ * Lệch khi team ≥ 2 người có openCount > 0 và:
+ *   shareHours ≥ 50%  OR  shareOpen ≥ 50%  OR  hours ≥ 2 × median(hours>0)
+ *
+ * @param {Array<{ id?: string, openCount?: number, estimateHours?: number }>} rows
+ * @param {{ shareThreshold?: number, medianFactor?: number }} [options]
+ * @returns {{
+ *   applicable: boolean,
+ *   teamOpenSum: number,
+ *   teamHoursSum: number,
+ *   workerCount: number,
+ *   byUserId: Map<string, {
+ *     skewed: boolean,
+ *     openCount: number,
+ *     estimateHours: number,
+ *     shareOpen: number|null,
+ *     shareHours: number|null,
+ *     reasons: string[],
+ *   }>
+ * }}
+ */
+export function computeMemberWorkloadSkew(rows = [], options = {}) {
+  const shareThreshold = Number(options.shareThreshold);
+  const medianFactor = Number(options.medianFactor);
+  const thr = Number.isFinite(shareThreshold) && shareThreshold > 0
+    ? shareThreshold
+    : WORKLOAD_SKEW_SHARE_THRESHOLD;
+  const factor = Number.isFinite(medianFactor) && medianFactor > 0
+    ? medianFactor
+    : WORKLOAD_SKEW_MEDIAN_FACTOR;
+
+  const list = Array.isArray(rows) ? rows : [];
+  const byUserId = new Map();
+
+  const workers = [];
+  for (const row of list) {
+    const id = String(row?.id || row?.userId || '').trim();
+    if (!id) continue;
+    const openCount = Math.max(0, Number(row?.openCount) || 0);
+    const estimateHours = Math.max(0, Number(row?.estimateHours) || 0);
+    const entry = {
+      skewed: false,
+      openCount,
+      estimateHours,
+      shareOpen: null,
+      shareHours: null,
+      reasons: [],
+    };
+    byUserId.set(id, entry);
+    if (openCount > 0) workers.push({ id, openCount, estimateHours });
+  }
+
+  const teamOpenSum = workers.reduce((s, w) => s + w.openCount, 0);
+  const teamHoursSum = workers.reduce((s, w) => s + w.estimateHours, 0);
+  const workerCount = workers.length;
+
+  if (workerCount < 2 || teamOpenSum <= 0) {
+    return {
+      applicable: false,
+      teamOpenSum,
+      teamHoursSum: Math.round(teamHoursSum * 100) / 100,
+      workerCount,
+      byUserId,
+    };
+  }
+
+  const hoursForMedian = workers
+    .map((w) => w.estimateHours)
+    .filter((h) => h > 0)
+    .sort((a, b) => a - b);
+  const medianHours = medianOfSorted(hoursForMedian);
+
+  for (const w of workers) {
+    const entry = byUserId.get(w.id);
+    if (!entry) continue;
+    const shareOpen = teamOpenSum > 0 ? w.openCount / teamOpenSum : null;
+    const shareHours = teamHoursSum > 0 ? w.estimateHours / teamHoursSum : null;
+    entry.shareOpen = shareOpen != null ? Math.round(shareOpen * 1000) / 1000 : null;
+    entry.shareHours = shareHours != null ? Math.round(shareHours * 1000) / 1000 : null;
+
+    const reasons = [];
+    if (shareHours != null && shareHours >= thr - 1e-9) reasons.push('shareHours');
+    if (shareOpen != null && shareOpen >= thr - 1e-9) reasons.push('shareOpen');
+    if (
+      medianHours != null &&
+      medianHours > 0 &&
+      w.estimateHours >= medianHours * factor - 1e-9
+    ) {
+      reasons.push('medianHours');
+    }
+    entry.reasons = reasons;
+    entry.skewed = reasons.length > 0;
+  }
+
+  return {
+    applicable: true,
+    teamOpenSum,
+    teamHoursSum: Math.round(teamHoursSum * 100) / 100,
+    workerCount,
+    byUserId,
+  };
+}
+
+/**
+ * Gắn cờ lệch tải Work lên roster rows (FE) — không đổi allocationStatus BE.
+ * @param {Array} rows
+ * @returns {Array}
+ */
+export function annotateRowsWithWorkloadSkew(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const skew = computeMemberWorkloadSkew(list);
+  return list.map((row) => {
+    const id = String(row?.id || row?.userId || '').trim();
+    const info = skew.byUserId.get(id);
+    return {
+      ...row,
+      workloadSkewed: Boolean(info?.skewed),
+      workloadShareOpen: info?.shareOpen ?? null,
+      workloadShareHours: info?.shareHours ?? null,
+      workloadSkewReasons: Array.isArray(info?.reasons) ? info.reasons : [],
+      workloadTeamHoursSum: skew.teamHoursSum,
+      workloadTeamOpenSum: skew.teamOpenSum,
+    };
+  });
+}
+
+/**
+ * Trần soft Σ estimateHours (mọi thẻ đang mở trên board / người).
+ * 40 ≈ 1 tuần FTE — không phải giờ theo ngày lịch, không gắn sprint active.
+ * Khác Planned Allocation % (quét ngày BE).
+ */
+export const SPRINT_CEILING_HOURS = 40;
+
+/**
+ * @param {number} estimateHours
+ * @param {number} [ceilingHours]
+ * @returns {boolean}
+ */
+export function isOverSprintCeiling(estimateHours, ceilingHours = SPRINT_CEILING_HOURS) {
+  const hours = Number(estimateHours);
+  const ceiling = Number(ceilingHours);
+  const cap =
+    Number.isFinite(ceiling) && ceiling > 0 ? ceiling : SPRINT_CEILING_HOURS;
+  if (!Number.isFinite(hours) || hours <= 0) return false;
+  return hours > cap;
+}
+
+/**
+ * Gắn cờ vượt trần soft (Σh open tuyệt đối trên board) —
+ * tách Lệch tải (tương đối team) và Quá phân bổ (Planned % theo ngày).
+ * @param {Array} rows
+ * @param {{ ceilingHours?: number }} [options]
+ * @returns {Array}
+ */
+export function annotateRowsWithSprintCeiling(rows = [], options = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ceilingRaw = Number(options.ceilingHours);
+  const ceiling =
+    Number.isFinite(ceilingRaw) && ceilingRaw > 0 ? ceilingRaw : SPRINT_CEILING_HOURS;
+  return list.map((row) => {
+    const hours = Math.max(0, Number(row?.estimateHours) || 0);
+    const over = isOverSprintCeiling(hours, ceiling);
+    return {
+      ...row,
+      overSprintCeiling: over,
+      sprintCeilingHours: ceiling,
+      sprintCeilingOverBy: over ? Math.round((hours - ceiling) * 10) / 10 : 0,
+    };
+  });
+}
+
+/**
+ * Lệch tải + vượt trần sprint trên roster (một lần map).
+ * @param {Array} rows
+ * @param {{ ceilingHours?: number }} [options]
+ */
+export function annotateMemberPulseRows(rows = [], options = {}) {
+  return annotateRowsWithSprintCeiling(annotateRowsWithWorkloadSkew(rows), options);
+}
+
+/** Ngưỡng capacity Planned Allocation (1 FTE) — FE People Pulse. */
+export const OVERALLOC_CAPACITY_THRESHOLD_PCT = 100;
+
+/** Ngưỡng thanh Phân bổ: <70 xanh · 70–99 vàng · ≥100 đỏ (max segment = 100). */
+export const ALLOC_BAR_OK_MAX_PCT = 70;
+
+/**
+ * Tone màu thanh Planned % (không dùng allocationStatus BE).
+ * @param {number|null|undefined} pct
+ * @returns {'empty'|'ok'|'high'|'over'}
+ */
+export function resolveAllocationBarTone(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n) || n <= 0) return 'empty';
+  if (n >= OVERALLOC_CAPACITY_THRESHOLD_PCT) return 'over';
+  if (n >= ALLOC_BAR_OK_MAX_PCT) return 'high';
+  return 'ok';
+}
+
+/**
+ * Giải thích badge Quá phân bổ cho UI — khớp data đã tải, không đoán mù.
+ * @param {{
+ *   memberOver?: boolean,
+ *   timelineStatus?: 'ok'|'overallocated'|null,
+ *   peersLoad?: 'idle'|'loading'|'ok'|'forbidden'|'error',
+ *   peerCountWithPct?: number,
+ *   localSegmentsOver?: boolean,
+ * }} input
+ * @returns {'none'|'local_segments'|'multi_project'|'peers_forbidden'|'peers_error'|'timeline_over_no_peers'|'stale_member_flag'|'member_over_loading'}
+ */
+export function resolveOverallocExplainKind(input = {}) {
+  const memberOver = Boolean(input.memberOver);
+  const timelineStatus = input.timelineStatus == null ? null : String(input.timelineStatus);
+  const peersLoad = String(input.peersLoad || 'idle');
+  const peerCount = Math.max(0, Number(input.peerCountWithPct) || 0);
+  const localOver = Boolean(input.localSegmentsOver);
+
+  const timelineOver = timelineStatus === 'overallocated';
+  const timelineOk = timelineStatus === 'ok';
+  const effectiveOver = timelineStatus != null ? timelineOver : memberOver;
+
+  if (!effectiveOver && !memberOver) return 'none';
+  if (localOver) return 'local_segments';
+  if (peerCount > 0 && (effectiveOver || memberOver)) return 'multi_project';
+  if (peersLoad === 'loading' && memberOver) return 'member_over_loading';
+  if (peersLoad === 'forbidden' && (effectiveOver || memberOver)) return 'peers_forbidden';
+  if (peersLoad === 'error' && (effectiveOver || memberOver)) return 'peers_error';
+  if (peersLoad === 'ok' && timelineOver && peerCount === 0) return 'timeline_over_no_peers';
+  if (peersLoad === 'ok' && memberOver && timelineOk) return 'stale_member_flag';
+  if (memberOver || effectiveOver) return 'timeline_over_no_peers';
+  return 'none';
+}
+
+/**
+ * Phương trình ước lượng quá phân bổ Planned % (FE).
+ * Cộng current + peers có %; peer thiếu % → excluded (không cộng).
+ * Không phải max-ngày BE; không dùng Work/Σh.
+ *
+ * @param {{ currentLabel?: string, currentPct?: number|null, currentRangeLabel?: string, peerRows?: Array<{ key?: string, label?: string, pct?: number|null, rangeLabel?: string }> }} input
+ * @param {{ threshold?: number }} [options]
+ * @returns {{
+ *   terms: Array<{ key: string, label: string, pct: number, role: 'current'|'peer', rangeLabel: string }>,
+ *   excluded: Array<{ key: string, label: string }>,
+ *   knownSum: number,
+ *   threshold: number,
+ *   exceedsThreshold: boolean,
+ * }}
+ */
+export function buildOverallocFormula(input = {}, options = {}) {
+  const thresholdRaw = Number(options.threshold);
+  const threshold =
+    Number.isFinite(thresholdRaw) && thresholdRaw > 0
+      ? thresholdRaw
+      : OVERALLOC_CAPACITY_THRESHOLD_PCT;
+
+  const terms = [];
+  const excluded = [];
+  let sum = 0;
+
+  const currentLabel = String(input.currentLabel || '').trim() || '—';
+  if (input.currentPct != null && input.currentPct !== '') {
+    const currentPct = Number(input.currentPct);
+    if (Number.isFinite(currentPct) && currentPct >= 0) {
+      terms.push({
+        key: 'current',
+        label: currentLabel,
+        pct: Math.round(currentPct * 10) / 10,
+        role: 'current',
+        rangeLabel: String(input.currentRangeLabel || '').trim(),
+      });
+      sum += currentPct;
+    }
+  }
+
+  const peers = Array.isArray(input.peerRows) ? input.peerRows : [];
+  peers.forEach((row, idx) => {
+    const key = String(row?.key || `peer-${idx}`);
+    const label = String(row?.label || '').trim() || '—';
+    if (row?.pct == null || row?.pct === '') {
+      excluded.push({ key, label });
+      return;
+    }
+    const pctRaw = Number(row.pct);
+    if (Number.isFinite(pctRaw) && pctRaw >= 0) {
+      terms.push({
+        key,
+        label,
+        pct: Math.round(pctRaw * 10) / 10,
+        role: 'peer',
+        rangeLabel: String(row.rangeLabel || '').trim(),
+      });
+      sum += pctRaw;
+    } else {
+      excluded.push({ key, label });
+    }
+  });
+
+  const knownSum = Math.round(sum * 10) / 10;
+  return {
+    terms,
+    excluded,
+    knownSum,
+    threshold,
+    exceedsThreshold: knownSum > threshold,
+  };
+}
+
+/**
+ * Work đang mở của một assignee (primary assigneeId) — cho drawer Members.
+ * @returns {Array<{ id: string, title: string, statusLabel: string, estimateHours: number|null, card: object }>}
+ */
+export function listMemberOpenCards(cards = [], lists = [], userId = '', { limit = 40 } = {}) {
+  const uid = String(userId || '').trim();
+  if (!uid) return [];
+  const listById = hubListById(lists);
+  const out = [];
+  for (const card of cards || []) {
+    if (!isHubCardOpen(card, listById)) continue;
+    if (String(card?.assigneeId || '').trim() !== uid) continue;
+    const list = listById.get(String(card?.listId || card?.list || ''));
+    const statusBucket = classifyListStatusBucket(card?.status || list);
+    const statusLabel = String(card?.status || list?.title || list?.statusKey || '').trim() || '—';
+    const h = Number(card?.estimateHours);
+    out.push({
+      id: String(card?._id || card?.id || ''),
+      title: String(card?.title || card?.name || '—').trim() || '—',
+      statusLabel,
+      statusBucket,
+      estimateHours: Number.isFinite(h) && h > 0 ? h : null,
+      card,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Nhãn Work status trong drawer Members (i18n bucket, không raw todo/in_progress). */
+export function formatMemberOpenStatusLabel(statusBucket, fallback = '', t) {
+  if (typeof t === 'function') {
+    if (statusBucket === 'todo') {
+      const label = t('workspace.projectHubBacklogStatusTodo');
+      if (label && label !== 'workspace.projectHubBacklogStatusTodo') return label;
+    }
+    if (statusBucket === 'progress') {
+      const label = t('workspace.projectHubBacklogStatusProgress');
+      if (label && label !== 'workspace.projectHubBacklogStatusProgress') return label;
+    }
+    if (statusBucket === 'done') {
+      const label = t('workspace.projectHubBacklogStatusDone');
+      if (label && label !== 'workspace.projectHubBacklogStatusDone') return label;
+    }
+  }
+  return String(fallback || '—').trim() || '—';
+}
+
 /** i18n nhãn status project (planning, ready_for_planning, …). */
 export function formatHubProjectStatus(status, t) {
   const raw = String(status || '').trim();

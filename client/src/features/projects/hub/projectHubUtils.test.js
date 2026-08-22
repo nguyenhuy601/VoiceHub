@@ -38,6 +38,25 @@ import {
   mapHubActivityItem,
   countUnassignedOpenCards,
   sumOpenCardEstimateHours,
+  buildMemberWorkloadMap,
+  formatMemberEstimateHours,
+  filterMemberPulseRows,
+  sortMemberPulseRows,
+  computeMemberWorkloadSkew,
+  annotateRowsWithWorkloadSkew,
+  annotateRowsWithSprintCeiling,
+  annotateMemberPulseRows,
+  isOverSprintCeiling,
+  SPRINT_CEILING_HOURS,
+  isMemberWorkOverloaded,
+  resolveMemberWorkOverloadBadge,
+  buildOverallocFormula,
+  resolveAllocationBarTone,
+  resolveOverallocExplainKind,
+  ALLOC_BAR_OK_MAX_PCT,
+  OVERALLOC_CAPACITY_THRESHOLD_PCT,
+  listMemberOpenCards,
+  formatMemberOpenStatusLabel,
   buildOverviewDashboardCharts,
   cardsHavePriorityField,
   countOpenCardsByAssignee,
@@ -156,6 +175,340 @@ test('countUnassignedOpenCards và sumOpenCardEstimateHours', () => {
   ];
   assert.equal(countUnassignedOpenCards(cards, lists), 1);
   assert.equal(sumOpenCardEstimateHours(cards, lists), 5);
+});
+
+test('buildMemberWorkloadMap: open + estimate theo assigneeId; bỏ Done và unassigned', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: 'c1', listId: 'l1', assigneeId: 'u1', estimateHours: 2 },
+    { _id: 'c2', listId: 'l1', assigneeId: 'u1', estimateHours: 3.5 },
+    { _id: 'c3', listId: 'l1', assigneeId: 'u1' },
+    { _id: 'c4', listId: 'l1', assigneeId: 'u2', estimateHours: 10 },
+    { _id: 'c5', listId: 'l1', estimateHours: 99 },
+    { _id: 'c6', listId: 'l2', assigneeId: 'u1', estimateHours: 40 },
+  ];
+  const map = buildMemberWorkloadMap(cards, lists);
+  assert.equal(map.get('u1').openCount, 3);
+  assert.equal(map.get('u1').estimateHours, 5.5);
+  assert.equal(map.get('u1').unestimatedCount, 1);
+  assert.equal(map.get('u2').openCount, 1);
+  assert.equal(map.get('u2').estimateHours, 10);
+  assert.equal(map.has(''), false);
+});
+
+test('formatMemberEstimateHours', () => {
+  assert.equal(formatMemberEstimateHours(8), '8');
+  assert.equal(formatMemberEstimateHours(5.5), '5.5');
+  assert.equal(formatMemberEstimateHours(0), null);
+  assert.equal(formatMemberEstimateHours(null), null);
+});
+
+test('filterMemberPulseRows + sortMemberPulseRows', () => {
+  const rows = [
+    { id: 'a', name: 'An', allocationStatus: 'ok', allocations: [{ allocationPct: 50 }], openCount: 2 },
+    { id: 'b', name: 'Binh', allocationStatus: 'overallocated', allocations: [{ allocationPct: 100 }], openCount: 1 },
+    { id: 'c', name: 'Cuong', allocationStatus: 'ok', allocations: [], openCount: 5, workloadSkewed: true },
+  ];
+  assert.equal(filterMemberPulseRows(rows, 'overallocated').map((r) => r.id).join(','), 'b');
+  assert.equal(filterMemberPulseRows(rows, 'noPlan').map((r) => r.id).join(','), 'c');
+  assert.equal(filterMemberPulseRows(rows, 'hasWork').length, 3);
+  assert.equal(filterMemberPulseRows(rows, 'skewed').map((r) => r.id).join(','), 'c');
+  assert.deepEqual(
+    sortMemberPulseRows(rows).map((r) => r.id),
+    ['b', 'c', 'a']
+  );
+});
+
+test('annotateRowsWithWorkloadSkew gắn cờ lệch tải', () => {
+  const annotated = annotateRowsWithWorkloadSkew([
+    { id: 'duy', openCount: 13, estimateHours: 84.5 },
+    { id: 'canh', openCount: 3, estimateHours: 10 },
+    { id: 'other', openCount: 3, estimateHours: 10 },
+  ]);
+  assert.equal(annotated.find((r) => r.id === 'duy').workloadSkewed, true);
+  assert.equal(annotated.find((r) => r.id === 'canh').workloadSkewed, false);
+  assert.ok(annotated.find((r) => r.id === 'duy').workloadShareHours >= 0.5);
+});
+
+test('isOverSprintCeiling: > 40 → true; ≤ 40 → false', () => {
+  assert.equal(isOverSprintCeiling(84.5), true);
+  assert.equal(isOverSprintCeiling(40), false);
+  assert.equal(isOverSprintCeiling(40.1), true);
+  assert.equal(isOverSprintCeiling(0), false);
+  assert.equal(isOverSprintCeiling(50, 60), false);
+  assert.equal(SPRINT_CEILING_HOURS, 40);
+});
+
+test('annotateRowsWithSprintCeiling + filter overCeiling', () => {
+  const annotated = annotateRowsWithSprintCeiling([
+    { id: 'jay', openCount: 6, estimateHours: 76 },
+    { id: 'huy', openCount: 1, estimateHours: 2 },
+  ]);
+  assert.equal(annotated.find((r) => r.id === 'jay').overSprintCeiling, true);
+  assert.equal(annotated.find((r) => r.id === 'jay').sprintCeilingOverBy, 36);
+  assert.equal(annotated.find((r) => r.id === 'huy').overSprintCeiling, false);
+  const filtered = filterMemberPulseRows(annotated, 'overCeiling');
+  assert.deepEqual(
+    filtered.map((r) => r.id),
+    ['jay']
+  );
+});
+
+test('annotateMemberPulseRows: lệch tải và vượt trần độc lập', () => {
+  const rows = annotateMemberPulseRows([
+    { id: 'soloHeavy', openCount: 5, estimateHours: 50 },
+    { id: 'idle', openCount: 0, estimateHours: 0 },
+  ]);
+  // Chỉ 1 worker → không lệch tải; vẫn vượt trần tuyệt đối
+  assert.equal(rows.find((r) => r.id === 'soloHeavy').workloadSkewed, false);
+  assert.equal(rows.find((r) => r.id === 'soloHeavy').overSprintCeiling, true);
+});
+
+test('sortMemberPulseRows: overallocated → overCeiling → skewed', () => {
+  const sorted = sortMemberPulseRows([
+    { id: 'skew', name: 'S', allocationStatus: 'ok', workloadSkewed: true, overSprintCeiling: false, openCount: 9 },
+    { id: 'ceil', name: 'C', allocationStatus: 'ok', workloadSkewed: false, overSprintCeiling: true, openCount: 1 },
+    { id: 'over', name: 'O', allocationStatus: 'overallocated', workloadSkewed: false, overSprintCeiling: false, openCount: 0 },
+  ]);
+  assert.deepEqual(
+    sorted.map((r) => r.id),
+    ['over', 'ceil', 'skew']
+  );
+});
+
+test('resolveMemberWorkOverloadBadge: gộp — ưu tiên ceiling', () => {
+  assert.equal(resolveMemberWorkOverloadBadge({}), null);
+  assert.deepEqual(resolveMemberWorkOverloadBadge({ overSprintCeiling: true, workloadSkewed: true }), {
+    kind: 'ceiling',
+    skewedAlso: true,
+  });
+  assert.deepEqual(resolveMemberWorkOverloadBadge({ overSprintCeiling: false, workloadSkewed: true }), {
+    kind: 'skew',
+    skewedAlso: false,
+  });
+  assert.equal(isMemberWorkOverloaded({ overSprintCeiling: true }), true);
+  assert.equal(isMemberWorkOverloaded({ workloadSkewed: true }), true);
+  assert.equal(isMemberWorkOverloaded({}), false);
+  const rows = [
+    { id: 'a', overSprintCeiling: true },
+    { id: 'b', workloadSkewed: true },
+    { id: 'c' },
+  ];
+  assert.deepEqual(
+    filterMemberPulseRows(rows, 'workOverload').map((r) => r.id),
+    ['a', 'b']
+  );
+});
+
+test('computeMemberWorkloadSkew: Duy-like 84.5h vs 10h/10h → lệch tải', () => {
+  const rows = [
+    { id: 'duy', openCount: 13, estimateHours: 84.5 },
+    { id: 'canh', openCount: 3, estimateHours: 10 },
+    { id: 'other', openCount: 3, estimateHours: 10 },
+    { id: 'idle', openCount: 0, estimateHours: 0 },
+  ];
+  const skew = computeMemberWorkloadSkew(rows);
+  assert.equal(skew.applicable, true);
+  assert.equal(skew.workerCount, 3);
+  assert.equal(skew.teamOpenSum, 19);
+  assert.equal(skew.teamHoursSum, 104.5);
+  assert.equal(skew.byUserId.get('duy').skewed, true);
+  assert.ok(skew.byUserId.get('duy').reasons.includes('shareHours'));
+  assert.ok(skew.byUserId.get('duy').reasons.includes('shareOpen'));
+  assert.ok(skew.byUserId.get('duy').reasons.includes('medianHours'));
+  assert.equal(skew.byUserId.get('canh').skewed, false);
+  assert.equal(skew.byUserId.get('other').skewed, false);
+  assert.equal(skew.byUserId.get('idle').skewed, false);
+});
+
+test('computeMemberWorkloadSkew: cân bằng 20/20/20 → không lệch', () => {
+  const rows = [
+    { id: 'a', openCount: 2, estimateHours: 20 },
+    { id: 'b', openCount: 2, estimateHours: 20 },
+    { id: 'c', openCount: 2, estimateHours: 20 },
+  ];
+  const skew = computeMemberWorkloadSkew(rows);
+  assert.equal(skew.applicable, true);
+  assert.equal(skew.byUserId.get('a').skewed, false);
+  assert.equal(skew.byUserId.get('b').skewed, false);
+  assert.equal(skew.byUserId.get('c').skewed, false);
+});
+
+test('computeMemberWorkloadSkew: một người có Work → không applicable', () => {
+  const skew = computeMemberWorkloadSkew([
+    { id: 'solo', openCount: 5, estimateHours: 40 },
+    { id: 'idle', openCount: 0, estimateHours: 0 },
+  ]);
+  assert.equal(skew.applicable, false);
+  assert.equal(skew.byUserId.get('solo').skewed, false);
+});
+
+test('computeMemberWorkloadSkew: chỉ lệch theo openCount khi thiếu estimate', () => {
+  const rows = [
+    { id: 'heavy', openCount: 10, estimateHours: 0 },
+    { id: 'light', openCount: 2, estimateHours: 0 },
+    { id: 'light2', openCount: 2, estimateHours: 0 },
+  ];
+  const skew = computeMemberWorkloadSkew(rows);
+  assert.equal(skew.applicable, true);
+  assert.equal(skew.teamHoursSum, 0);
+  assert.equal(skew.byUserId.get('heavy').skewed, true);
+  assert.ok(skew.byUserId.get('heavy').reasons.includes('shareOpen'));
+  assert.equal(skew.byUserId.get('heavy').reasons.includes('shareHours'), false);
+  assert.equal(skew.byUserId.get('light').skewed, false);
+});
+
+test('computeMemberWorkloadSkew: không gán skewed từ allocationStatus Planned', () => {
+  const rows = [
+    { id: 'a', openCount: 2, estimateHours: 20, allocationStatus: 'overallocated' },
+    { id: 'b', openCount: 2, estimateHours: 20, allocationStatus: 'ok' },
+    { id: 'c', openCount: 2, estimateHours: 20, allocationStatus: 'ok' },
+  ];
+  const skew = computeMemberWorkloadSkew(rows);
+  assert.equal(skew.byUserId.get('a').skewed, false);
+});
+
+test('resolveOverallocExplainKind: khớp data — không đoán đa dự án khi peer trống', () => {
+  assert.equal(resolveOverallocExplainKind({ memberOver: false }), 'none');
+  assert.equal(
+    resolveOverallocExplainKind({
+      memberOver: true,
+      peersLoad: 'ok',
+      peerCountWithPct: 2,
+    }),
+    'multi_project'
+  );
+  assert.equal(
+    resolveOverallocExplainKind({
+      memberOver: true,
+      localSegmentsOver: true,
+      peersLoad: 'ok',
+      peerCountWithPct: 0,
+    }),
+    'local_segments'
+  );
+  assert.equal(
+    resolveOverallocExplainKind({
+      memberOver: true,
+      peersLoad: 'forbidden',
+      peerCountWithPct: 0,
+    }),
+    'peers_forbidden'
+  );
+  assert.equal(
+    resolveOverallocExplainKind({
+      memberOver: true,
+      timelineStatus: 'ok',
+      peersLoad: 'ok',
+      peerCountWithPct: 0,
+    }),
+    'stale_member_flag'
+  );
+  assert.equal(
+    resolveOverallocExplainKind({
+      memberOver: true,
+      timelineStatus: 'overallocated',
+      peersLoad: 'ok',
+      peerCountWithPct: 0,
+    }),
+    'timeline_over_no_peers'
+  );
+});
+
+test('resolveAllocationBarTone: <70 xanh · 70–99 vàng · ≥100 đỏ', () => {
+  assert.equal(resolveAllocationBarTone(null), 'empty');
+  assert.equal(resolveAllocationBarTone(0), 'empty');
+  assert.equal(resolveAllocationBarTone(40), 'ok');
+  assert.equal(resolveAllocationBarTone(69.9), 'ok');
+  assert.equal(resolveAllocationBarTone(ALLOC_BAR_OK_MAX_PCT), 'high');
+  assert.equal(resolveAllocationBarTone(99), 'high');
+  assert.equal(resolveAllocationBarTone(100), 'over');
+  assert.equal(resolveAllocationBarTone(100.1), 'over');
+});
+
+test('buildOverallocFormula: 100 + 100 → 200 vượt ngưỡng', () => {
+  const f = buildOverallocFormula({
+    currentLabel: 'QLKH',
+    currentPct: 100,
+    peerRows: [
+      { key: 'p1', label: 'QLKS', pct: 100 },
+      { key: 'p2', label: 'Cafe', pct: null },
+    ],
+  });
+  assert.equal(f.threshold, OVERALLOC_CAPACITY_THRESHOLD_PCT);
+  assert.equal(f.knownSum, 200);
+  assert.equal(f.exceedsThreshold, true);
+  assert.equal(f.terms.length, 2);
+  assert.equal(f.terms[0].role, 'current');
+  assert.equal(f.terms[1].pct, 100);
+  assert.equal(f.excluded.length, 1);
+  assert.equal(f.excluded[0].label, 'Cafe');
+});
+
+test('buildOverallocFormula: chỉ current 100 → không vượt (ước lượng)', () => {
+  const f = buildOverallocFormula({
+    currentLabel: 'QLKH',
+    currentPct: 100,
+    peerRows: [{ key: 'p1', label: 'Other', pct: null }],
+  });
+  assert.equal(f.knownSum, 100);
+  assert.equal(f.exceedsThreshold, false);
+  assert.equal(f.terms.length, 1);
+  assert.equal(f.excluded.length, 1);
+});
+
+test('buildOverallocFormula: peer thiếu % không cộng; làm tròn 1 chữ số', () => {
+  const f = buildOverallocFormula({
+    currentPct: 40.14,
+    currentLabel: 'A',
+    peerRows: [{ key: 'b', label: 'B', pct: 40.14 }],
+  });
+  assert.equal(f.knownSum, 80.3);
+  assert.equal(f.exceedsThreshold, false);
+});
+
+test('buildOverallocFormula: gắn rangeLabel provenance', () => {
+  const f = buildOverallocFormula({
+    currentLabel: 'QLKH',
+    currentPct: 100,
+    currentRangeLabel: '29/07/2026→…',
+    peerRows: [{ key: 'p1', label: 'QLKS', pct: 100, rangeLabel: '01/08/2026→…' }],
+  });
+  assert.equal(f.terms[0].rangeLabel, '29/07/2026→…');
+  assert.equal(f.terms[1].rangeLabel, '01/08/2026→…');
+});
+
+test('listMemberOpenCards chỉ open + assignee', () => {
+  const lists = [
+    { _id: 'l1', statusKey: 'todo', title: 'To Do' },
+    { _id: 'l2', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: 'c1', listId: 'l1', assigneeId: 'u1', title: 'A', estimateHours: 2 },
+    { _id: 'c2', listId: 'l1', assigneeId: 'u2', title: 'B' },
+    { _id: 'c3', listId: 'l2', assigneeId: 'u1', title: 'Done' },
+  ];
+  const mine = listMemberOpenCards(cards, lists, 'u1');
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].title, 'A');
+  assert.equal(mine[0].estimateHours, 2);
+  assert.equal(mine[0].statusBucket, 'todo');
+});
+
+test('formatMemberOpenStatusLabel dùng i18n bucket', () => {
+  const t = (key) =>
+    ({
+      'workspace.projectHubBacklogStatusTodo': 'Chưa làm',
+      'workspace.projectHubBacklogStatusProgress': 'Đang làm',
+      'workspace.projectHubBacklogStatusDone': 'Xong',
+    })[key] || key;
+  assert.equal(formatMemberOpenStatusLabel('todo', 'todo', t), 'Chưa làm');
+  assert.equal(formatMemberOpenStatusLabel('progress', 'in_progress', t), 'Đang làm');
+  assert.equal(formatMemberOpenStatusLabel('done', 'done', t), 'Xong');
+  assert.equal(formatMemberOpenStatusLabel('', 'custom', t), 'custom');
 });
 
 test('formatHubProjectStatus: i18n hoặc fallback raw', () => {

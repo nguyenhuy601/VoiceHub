@@ -22,6 +22,7 @@ export const pageStrings = {
       loading: 'Đang tải…',
       loadingEllipsis: 'Đang tải...',
       saving: 'Đang lưu…',
+      refresh: 'Làm mới',
       optional: 'tuỳ chọn',
       newBadge: 'MỚI',
       importantBadge: 'QUAN TRỌNG',
@@ -520,41 +521,41 @@ export const pageStrings = {
       projectHubMembersFail: 'Không tải được thành viên dự án.',
       projectHubMembersManageHint: 'Quản lý sâu: Admin → Projects → Members',
       projectHubMembersAddTitle: 'Thêm thành viên',
-      projectHubMembersEditTitle: 'Cập nhật roles',
-      projectHubMembersAddHint: 'Chọn người từ Related Departments và gán project roles.',
+      projectHubMembersEditTitle: 'Cập nhật vai trò',
+      projectHubMembersAddHint: 'Chọn người từ phòng liên quan và gán vai trò dự án.',
       projectHubMembersCancel: 'Hủy',
       projectHubMembersSearchUser: 'Tìm thành viên…',
       projectHubMembersPickUser: 'Chọn thành viên…',
-      projectHubMembersFilterRole: 'Lọc theo role cần',
-      projectHubMembersFilterRolePh: 'Chọn project role để gợi ý…',
-      projectHubMembersPickRoleFirst: 'Chọn project role trước để xem gợi ý phù hợp.',
-      projectHubMembersPickFromDepts: 'Thành viên theo Related Departments',
+      projectHubMembersFilterRole: 'Lọc theo vai trò cần',
+      projectHubMembersFilterRolePh: 'Chọn vai trò dự án để gợi ý…',
+      projectHubMembersPickRoleFirst: 'Chọn vai trò dự án trước để xem gợi ý phù hợp.',
+      projectHubMembersPickFromDepts: 'Thành viên theo phòng liên quan',
       projectHubMembersNeedRelatedDepts:
-        'Chưa gắn Related Departments — mở Settings dự án để chọn phòng trước khi thêm thành viên.',
+        'Chưa gắn phòng liên quan — mở Cài đặt dự án để chọn phòng trước khi thêm thành viên.',
       projectHubMembersCompanyPosition: 'Vị trí',
       projectHubMembersAllocatedPct: '{pct}% đang làm',
       projectHubMembersUnplacedDept: 'Chưa gán phòng ban',
       projectHubMembersNoCandidates: 'Không có ứng viên để thêm vào dự án.',
       projectHubMembersCandidateLoadFail: 'Không tải được danh sách gợi ý thành viên.',
-      projectHubMembersCandidateReasonResp: 'Responsibility: {keys}',
-      projectHubMembersCandidateReasonPrior: 'Đã từng giữ role {key} ở dự án khác',
-      projectHubMembersCandidateReasonGeneric: 'Phù hợp theo role đã chọn',
-      projectHubMembersCandidateAvailable: 'Available',
-      projectHubMembersStaffingUnset: 'Role này chưa khai báo nhu cầu nhân sự trong Settings.',
-      projectHubMembersStaffingNeeds: 'Role này vẫn đang thiếu nhân sự',
-      projectHubMembersStaffingFilled: 'Role này đã đủ nhân sự',
+      projectHubMembersCandidateReasonResp: 'Trách nhiệm: {keys}',
+      projectHubMembersCandidateReasonPrior: 'Đã từng giữ vai trò {key} ở dự án khác',
+      projectHubMembersCandidateReasonGeneric: 'Phù hợp theo vai trò đã chọn',
+      projectHubMembersCandidateAvailable: 'Còn trống',
+      projectHubMembersStaffingUnset: 'Vai trò này chưa khai báo nhu cầu nhân sự trong Cài đặt.',
+      projectHubMembersStaffingNeeds: 'Vai trò này vẫn đang thiếu nhân sự',
+      projectHubMembersStaffingFilled: 'Vai trò này đã đủ nhân sự',
       projectHubMembersStaffingSummary: 'Cần {required} • Đã có {current} • Còn thiếu {remaining}',
-      projectHubMembersPickRoles: 'Chọn project roles',
+      projectHubMembersPickRoles: 'Chọn vai trò dự án',
       projectHubMembersRolesSelected: '{n} đã chọn',
       projectHubMembersRoster: 'Danh sách thành viên',
       projectHubMembersFunctionAria: 'Chọn chức năng thành viên',
       projectHubMembersRetry: 'Thử lại',
-      projectHubMembersNoRoles: 'Không tải được danh sách roles.',
-      projectHubMembersRoleRequired: 'Vui lòng chọn ít nhất 1 role.',
-      projectHubMembersRolesSave: 'Lưu roles',
-      projectHubMembersRolesSaved: 'Đã cập nhật roles.',
-      projectHubMembersRoleSaveFail: 'Không thể cập nhật roles.',
-      projectHubMembersAddMore: 'Thêm thêm',
+      projectHubMembersNoRoles: 'Không tải được danh sách vai trò.',
+      projectHubMembersRoleRequired: 'Vui lòng chọn ít nhất 1 vai trò.',
+      projectHubMembersRolesSave: 'Lưu vai trò',
+      projectHubMembersRolesSaved: 'Đã cập nhật vai trò.',
+      projectHubMembersRoleSaveFail: 'Không thể cập nhật vai trò.',
+      projectHubMembersAddMore: 'Thêm tiếp',
       projectHubMembersSetRoles: 'Sửa',
       projectHubBulkTitle: 'Thêm hàng loạt từ phòng ban',
       projectHubBulkHint: 'Phòng {dept}: {n} người chưa có trong dự án.',
@@ -563,25 +564,171 @@ export const pageStrings = {
       projectHubBulkSubmitWithCount: 'Thêm {n} người vào dự án',
       projectHubBulkNoCandidates: 'Không còn thành viên phòng ban để thêm.',
       projectHubBulkDone: 'Đã thêm {ok}, lỗi {fail}, overallocated {over}.',
-      projectHubAllocSegments: 'Kế hoạch phân bổ (Planned Allocation)',
+      projectHubAllocSegments: 'Kế hoạch phân bổ',
       projectHubAllocAddSegment: '+ Khoảng thời gian',
       projectHubAllocStart: 'Từ ngày',
       projectHubAllocEnd: 'Đến ngày',
       projectHubAllocRequired:
-        'Cần ít nhất 1 khoảng kế hoạch phân bổ (startDate + %). PM/RM nhập tay — không tự tính từ task.',
-      projectHubAllocBillable: 'Billable (tính chi phí khách hàng)',
-      projectHubAllocOverBadge: 'Overallocated (kế hoạch >100%)',
+        'Cần ít nhất 1 khoảng kế hoạch phân bổ (ngày bắt đầu + %). PM/RM nhập tay — không tự tính từ task.',
+      projectHubAllocBillable: 'Tính phí khách hàng (billable)',
+      projectHubAllocBillableShort: 'Tính phí',
+      projectHubAllocOverBadge: 'Quá phân bổ (kế hoạch >100%)',
+      projectHubPulseMetricsAria: 'Phân bổ kế hoạch, công việc đang phụ trách và giờ thực tế',
+      projectHubPulseTimeBasesHint:
+        'Phân bổ % = theo ngày (segment). Việc Σh = tổng estimate thẻ đang mở trên board (không theo ngày/tuần lịch). Quá tải giờ = Σh > 40h (mức soft ≈ 1 tuần FTE). Lệch tải = so team. Thực tế = worklog tháng này.',
+      projectHubPulseTimeBasesHintShort:
+        'Phân bổ theo ngày · Việc Σh = backlog mở · Quá tải > 40h soft · Thực tế = tháng này',
+      projectHubPulsePlanned: 'Phân bổ',
+      projectHubPulsePlannedEmpty: 'Chưa có kế hoạch',
+      projectHubPulsePlannedHint:
+        'Planned Allocation do PM/RM nhập theo khoảng ngày segment — BE quét chồng lịch theo ngày. Không tự tính từ Việc / Σh trên board.',
+      projectHubPulseOverBadge: 'Quá phân bổ',
+      projectHubPulseOverBadgeHint:
+        'Tổng % kế hoạch chồng lịch theo ngày (mọi dự án còn hiệu lực) > 100% — không phải vì chỉ % dự án này (vd. 80%). Mở chi tiết để xem dự án khác / quyền tải.',
+      projectHubPulseWork: 'Việc',
+      projectHubPulseWorkOpen: '{n} đang mở',
+      projectHubPulseWorkHint:
+        'Số thẻ đang mở được gán trên board (assignee) — backlog tích lũy, không lọc theo ngày/tuần/sprint lịch. Khác Planned %.',
+      projectHubPulseEstimate: 'Σ {h}h',
+      projectHubPulseEstimateVsCeiling: 'Σ {h}h · mức {ceiling}h',
+      projectHubPulseEstimateEmpty: 'Chưa có estimate',
+      projectHubPulseEstimateHint:
+        'Tổng estimateHours mọi thẻ đang mở được gán cho người này trên board — không phải giờ làm trong ngày/tuần này hay trong sprint đang chạy.',
+      projectHubPulseActual: 'Thực tế',
+      projectHubPulseActualHours: '{h}h',
+      projectHubPulseActualHint:
+        'Giờ đã log (worklog) trong tháng hiện tại trên dự án này — khác Planned % (theo ngày) và Việc Σh (backlog mở).',
+      projectHubPulseFilterAria: 'Lọc danh sách thành viên theo tín hiệu nguồn lực',
+      projectHubPulseFilterAll: 'Tất cả',
+      projectHubPulseFilterOver: 'Quá phân bổ',
+      projectHubPulseFilterNoPlan: 'Chưa có kế hoạch',
+      projectHubPulseFilterHasWork: 'Đang có việc',
+      projectHubPulseFilterWorkOverload: 'Quá tải việc',
+      projectHubPulseSkewBadge: 'Lệch tải',
+      projectHubPulseSkewBadgeHint:
+        'Σh / số việc mở lệch so team trên board (không theo ngày lịch) — khác Quá phân bổ (Planned % theo ngày).',
+      projectHubPulseSkewHint:
+        'Đang ôm ~{pctH}% Σ giờ team ({h}h / {teamH}h) · ~{pctN}% số việc mở ({n}/{teamN}). Đây là backlog mở trên board, không phải giờ theo ngày/tuần lịch. Khác Planned Allocation.',
+      projectHubPulseWorkOverloadCeilingBadge: 'Quá tải giờ',
+      projectHubPulseWorkOverloadCeilingHint:
+        'Σ estimate mọi thẻ đang mở trên board = {h}h > mức soft {ceiling}h (≈ 1 tuần FTE) — vượt {over}h. Không phải giờ làm “tuần này”, không gắn sprint lịch. Khác Phân bổ % (theo ngày).',
+      projectHubPulseWorkOverloadAlsoSkew: 'Đồng thời lệch tải so với team trên board (cùng backlog mở).',
+      projectHubPulseFilterEmpty: 'Không có thành viên khớp bộ lọc.',
+      projectHubMemberDrawerTitle: 'Chi tiết thành viên',
+      projectHubMemberDrawerClose: 'Đóng',
+      projectHubMemberDrawerOpenAria: 'Xem chi tiết {name}',
+      projectHubMemberDrawerWorkEmpty: 'Không có việc đang mở được gán.',
+      projectHubMemberDrawerOpenList: 'Mở Danh sách',
+      projectHubMemberDrawerPeersEmpty: 'Không có phân bổ đã lưu trên dự án khác (trong kết quả vừa tải).',
+      projectHubMemberDrawerPeersLoading: 'Đang tải phân bổ trên dự án khác…',
+      projectHubMemberDrawerPeersForbidden:
+        'Không xem được phân bổ dự án khác — cần quyền quản lý nguồn lực (RM/admin). Badge Quá phân bổ (nếu có) vẫn có thể đúng từ quét ngày hệ thống.',
+      projectHubMemberDrawerPeersError: 'Không tải được phân bổ trên dự án khác. Thử lại sau.',
+      projectHubMemberDrawerTimelineOk:
+        'Timeline vừa tải: trong capacity (tổng ngày ≤ 100% theo dữ liệu timeline).',
+      projectHubMemberDrawerTimelineOver:
+        'Timeline vừa tải: quá phân bổ (tổng % theo ngày > 100% trên mọi dự án còn hiệu lực).',
+      projectHubOverWhyTitle: 'Vì sao quá phân bổ?',
+      projectHubOverWhyFormula:
+        'Mỗi ngày hệ thống cộng % kế hoạch phân bổ của người này trên mọi dự án còn hiệu lực. Ngày nào tổng > 100% → đánh dấu quá phân bổ.',
+      projectHubOverWhyNotWork:
+        'Không tính từ số Việc đang mở hay Σ estimate — đó là tải thực thi, xử lý riêng.',
+      projectHubOverWhyBeMultiProject:
+        'Do chồng lịch đa dự án (quét ngày) — không phải vì % trên dự án đang xem cao.',
+      projectHubOverWhyReasonLocal:
+        'Các khoảng phân bổ trên dự án đang xem chồng ngày với tổng > 100%.',
+      projectHubOverWhyReasonPeersForbidden:
+        'Không tải được danh sách dự án khác (thiếu quyền RM/admin). Badge có thể do % trên dự án khác — hãy nhờ RM mở Resource / phân bổ.',
+      projectHubOverWhyReasonPeersError:
+        'Không tải được phân bổ dự án khác — không kết luận “không có dự án khác”. Thử lại hoặc kiểm tra mạng.',
+      projectHubOverWhyReasonNoPeersListed:
+        'Timeline/BE đánh dấu quá phân bổ nhưng UI không liệt kê được dự án khác có %. Có thể dữ liệu lệch hoặc segment ẩn — mở Sửa phân bổ / hỏi RM.',
+      projectHubOverWhyReasonStale:
+        'Danh sách thành viên còn gắn Quá phân bổ, nhưng timeline vừa tải: trong capacity. Làm mới trang Thành viên để đồng bộ.',
+      projectHubOverWhyReasonLoading: 'Đang tải phân bổ đa dự án để giải thích badge…',
+      projectHubOverWhyFormulaBtn: 'Công thức',
+      projectHubOverWhyFormulaHide: 'Ẩn công thức',
+      projectHubOverWhyFormulaEqTitle: 'Phương trình ước lượng',
+      projectHubOverWhyFormulaSourceHint:
+        'Mỗi % là Planned Allocation PM/RM đã nhập trên dự án — không tính từ Việc hay Σ estimate.',
+      projectHubOverWhyFormulaTotal: 'Tổng đã biết',
+      projectHubOverWhyFormulaThreshold: 'Ngưỡng capacity',
+      projectHubOverWhyFormulaEmpty: 'Chưa có % kế hoạch nào để cộng.',
+      projectHubOverWhyFormulaVerdictOver: '{sum}% > {threshold}% → Quá phân bổ',
+      projectHubOverWhyFormulaVerdictOk: '{sum}% ≤ {threshold}% — trong capacity (ước lượng FE)',
+      projectHubOverWhyFormulaVerdictIncomplete:
+        '{sum}% ≤ {threshold}% trên UI — ước lượng FE chưa đủ peer. BE đã xác nhận quá phân bổ (quét ngày).',
+      projectHubOverWhyFormulaTotalHint:
+        'Ước lượng FE — cộng các % đã biết; không thay kết quả quét ngày của BE.',
+      projectHubOverWhyFormulaBeStatus: 'Trạng thái BE: Quá phân bổ (allocationStatus)',
+      projectHubOverWhyLayersBtn: 'Ba nguồn số',
+      projectHubOverWhyLayersHide: 'Ẩn ba nguồn số',
+      projectHubOverWhyLayersTitle: 'Ba nguồn số',
+      projectHubOverWhyLayerPm: 'Từng % — PM/RM đã lưu Planned Allocation trên từng dự án.',
+      projectHubOverWhyLayerFe: 'Tổng đã biết — ước lượng FE (cộng các % hiện có trên UI).',
+      projectHubOverWhyLayerBe: 'Badge quá phân bổ — BE xác nhận (quét ngày chồng lịch > 100%).',
+      projectHubOverWhyTermSource: 'Nguồn: PM/RM đã lưu (Planned Allocation)',
+      projectHubOverWhyTermRange: 'Khoảng: {range}',
+      projectHubOverWhyTermRangeUnknown: 'Khoảng: chưa có ngày segment đã lưu',
+      projectHubOverWhyGuideBtn: 'PM ước lượng % thế nào?',
+      projectHubOverWhyGuideHide: 'Ẩn hướng dẫn ước lượng',
+      projectHubOverWhyGuideTitle: 'PM ước lượng Planned % thế nào?',
+      projectHubOverWhyGuide1:
+        '100% = full capacity (1 FTE) của người đó cho dự án trong ngày làm việc.',
+      projectHubOverWhyGuide2:
+        'Hỏi: người này dành bao nhiêu thời gian cho dự án này trong khoảng ngày?',
+      projectHubOverWhyGuide3:
+        'Đang nhiều dự án → chia % (ví dụ 40% + 60%); tránh 100% + 100% cùng ngày.',
+      projectHubOverWhyGuide4:
+        'Tham khảo Việc / Σh / Lệch tải để chỉnh lại — không dùng chúng để tự sinh %.',
+      projectHubOverWhyGuide5:
+        'Sau khi Lưu segment, BE chỉ kiểm tra tổng theo ngày > 100% — không tính ra từng %.',
+      projectHubOverWhyFaqBtn: 'Hỏi–đáp nhanh (GV / PM)',
+      projectHubOverWhyFaqHide: 'Ẩn hỏi–đáp',
+      projectHubOverWhyFaqTitle: 'Hỏi–đáp nhanh',
+      projectHubOverWhyExampleTitle: 'Ví dụ',
+      projectHubOverWhyExampleOk: 'Hợp lệ: 40% + 60% = 100% (trong capacity).',
+      projectHubOverWhyExampleOver: 'Quá phân bổ: 100% + 100% = 200% (chồng ngày).',
+      projectHubOverWhyFaqQ1: '100% trên một dự án lấy từ đâu?',
+      projectHubOverWhyFaqA1:
+        'PM/RM đã nhập và lưu Planned Allocation — không phải công thức từ Việc hay BE.',
+      projectHubOverWhyFaqQ2: 'Vì sao mỗi dự án 100% mà vẫn đỏ?',
+      projectHubOverWhyFaqA2:
+        'Vì tổng % chồng lịch trên cùng ngày > 100%. BE gắn badge quá phân bổ.',
+      projectHubOverWhyFaqQ3: 'Số Việc / Σ estimate có tạo ra % không?',
+      projectHubOverWhyFaqA3:
+        'Không. Việc / Σh là tổng estimate thẻ đang mở trên board (không theo ngày/tuần lịch); xử lý riêng (reassign / cắt scope). Quá tải giờ chỉ so Σh với mức soft ≈ 40h FTE-tuần — không tạo Planned %.',
+      projectHubOverWhyFaqQ4: 'Xóa hết task có hết badge đỏ không?',
+      projectHubOverWhyFaqA4:
+        'Không. Phải sửa Planned % hoặc khoảng ngày (giảm chồng lịch), rồi Lưu.',
+      projectHubOverWhyThisProject: 'Dự án đang xem',
+      projectHubOverWhyPeer: 'Dự án khác',
+      projectHubOverWhyNoPct: 'Chưa có % — không cộng vào tổng',
+      projectHubOverWhySumHint:
+        'Ước lượng cộng các % đã biết: {sum}% (BE quét từng ngày chồng lịch; có thể ≥ {sum}% nếu khoảng ngày chồng).',
+      projectHubOverWhyActionsTitle: 'PM có thể xử lý',
+      projectHubOverWhyAction1: 'Sửa phân bổ dự án này — giảm % hoặc rút khoảng ngày.',
+      projectHubOverWhyAction2: 'Giảm % / cắt chồng lịch trên dự án khác đang 100% (hoặc cao).',
+      projectHubOverWhyAction3:
+        'Việc đang mở xử lý riêng (reassign / cắt scope) — không xóa badge quá phân bổ.',
+      projectHubOverWhyEdit: 'Mở form Sửa phân bổ',
+      projectHubAllocBarAria: 'Phân bổ kế hoạch {pct}%',
+      projectHubAllocBarNoPct: 'Chưa có % phân bổ',
+      projectHubAllocBarTrackHint:
+        'Thanh = % kế hoạch của dòng dự án: <70% xanh · 70–99% vàng · ≥100% đỏ. Badge Quá phân bổ (quét ngày) tách riêng — có thể do dự án khác.',
+      projectHubAllocEmptyTitle: 'Chưa có kế hoạch đã lưu',
       projectHubAllocEmptyHint:
-        'Chưa có kế hoạch phân bổ. Nhập % và khoảng ngày khi gán người — đây là kế hoạch PM/RM, không phải giờ làm thực tế.',
+        'Form trống — không phải 100%. Bấm «+ Khoảng thời gian» để thêm khoảng rồi Lưu. Đây là kế hoạch PM/RM, không phải giờ làm thực tế.',
+      projectHubAllocRemoveSegment: 'Xóa khoảng thời gian',
       workflowTransitionDenied: 'Không có transition hợp lệ tới cột này.',
-      projectHubAllocSavedOver: 'Đã lưu — cảnh báo Overallocated (tổng kế hoạch >100%).',
+      projectHubAllocSavedOver: 'Đã lưu — cảnh báo quá phân bổ (tổng kế hoạch >100%).',
       projectHubAllocLocalOverWarn:
-        'Các khoảng kế hoạch trên form đang chồng ngày với tổng >100% — vẫn lưu được nhưng sẽ đánh dấu Overallocated.',
+        'Các khoảng kế hoạch trên form đang chồng ngày với tổng >100% — vẫn lưu được nhưng sẽ đánh dấu quá phân bổ.',
       projectHubAllocTimeline: 'Kế hoạch phân bổ trên dự án khác',
-      projectHubMembersCandidatePartial: 'Partial',
-      projectHubPlannerTitle: 'Resource Planner (Planned)',
+      projectHubMembersCandidatePartial: 'Một phần',
+      projectHubPlannerTitle: 'Lập kế hoạch nguồn lực (kế hoạch)',
       projectHubPlannerHint:
-        'Ứng viên theo Related Departments + Position master — dựa trên kế hoạch phân bổ, không phải Actual hours.',
+        'Ứng viên theo phòng liên quan + vị trí master — dựa trên kế hoạch phân bổ, không phải giờ thực tế.',
       projectHubSettingsHint: 'Chọn nhóm cài đặt để mở cửa sổ chỉnh sửa.',
       projectHubSettingsIdentityTitle: 'Thông tin dự án',
       projectHubSettingsProfileTitle: 'Hồ sơ dự án',
@@ -4428,6 +4575,7 @@ export const pageStrings = {
       loading: 'Loading…',
       loadingEllipsis: 'Loading...',
       saving: 'Saving…',
+      refresh: 'Refresh',
       optional: 'optional',
       newBadge: 'NEW',
       importantBadge: 'IMPORTANT',
@@ -4975,9 +5123,155 @@ export const pageStrings = {
       projectHubAllocRequired:
         'Need at least one planned allocation segment (startDate + %). Entered by PM/RM — not derived from tasks.',
       projectHubAllocBillable: 'Billable (customer cost)',
+      projectHubAllocBillableShort: 'Billable',
       projectHubAllocOverBadge: 'Overallocated (planned >100%)',
+      projectHubPulseMetricsAria: 'Planned allocation, assigned open work, and actual hours',
+      projectHubPulseTimeBasesHint:
+        'Planned % = by calendar day (segments). Open work Σh = estimates on open board cards (not by calendar day/week). Hours overload = Σh > 40h (soft ≈ 1 FTE week). Skew = vs team. Actual = worklog this month.',
+      projectHubPulseTimeBasesHintShort:
+        'Planned by day · Open work Σh = backlog · Overload > 40h soft · Actual = this month',
+      projectHubPulsePlanned: 'Planned',
+      projectHubPulsePlannedEmpty: 'No plan yet',
+      projectHubPulsePlannedHint:
+        'Planned Allocation is entered by PM/RM for segment date ranges — BE checks day-overlap. Not derived from open work / Σh on the board.',
+      projectHubPulseOverBadge: 'Overallocated',
+      projectHubPulseOverBadgeHint:
+        'Planned % overlapping by calendar day (all active projects) totals > 100% — not because this project’s % alone is high (e.g. 80%). Open detail to see other projects / load permission.',
+      projectHubPulseWork: 'Work',
+      projectHubPulseWorkOpen: '{n} open',
+      projectHubPulseWorkHint:
+        'Open assigned cards on the board (assignee) — cumulative backlog, not filtered by calendar day/week or sprint dates. Different from Planned %.',
+      projectHubPulseEstimate: 'Σ {h}h',
+      projectHubPulseEstimateVsCeiling: 'Σ {h}h · cap {ceiling}h',
+      projectHubPulseEstimateEmpty: 'No estimates yet',
+      projectHubPulseEstimateHint:
+        'Sum of estimateHours on all open cards assigned to this person on the board — not hours worked today/this week, and not limited to the active sprint.',
+      projectHubPulseActual: 'Actual',
+      projectHubPulseActualHours: '{h}h',
+      projectHubPulseActualHint:
+        'Logged worklog hours this calendar month on this project — different from Planned % (by day) and open-work Σh (backlog).',
+      projectHubPulseFilterAria: 'Filter members by resource signals',
+      projectHubPulseFilterAll: 'All',
+      projectHubPulseFilterOver: 'Overallocated',
+      projectHubPulseFilterNoPlan: 'No plan',
+      projectHubPulseFilterHasWork: 'Has open work',
+      projectHubPulseFilterWorkOverload: 'Work overload',
+      projectHubPulseSkewBadge: 'Skewed load',
+      projectHubPulseSkewBadgeHint:
+        'Σh / open work count skewed vs this board’s team (not by calendar day) — different from Overallocated (Planned % by day).',
+      projectHubPulseSkewHint:
+        'Holding ~{pctH}% of team Σ hours ({h}h / {teamH}h) · ~{pctN}% of open work ({n}/{teamN}). This is open board backlog, not hours by calendar day/week. Not Planned Allocation.',
+      projectHubPulseWorkOverloadCeilingBadge: 'Hours overload',
+      projectHubPulseWorkOverloadCeilingHint:
+        'Σ estimate of all open board cards = {h}h > soft cap {ceiling}h (≈ 1 FTE week) — over by {over}h. Not “hours this week”, not tied to sprint dates. Not Planned % (by day).',
+      projectHubPulseWorkOverloadAlsoSkew: 'Also skewed vs teammates on this board (same open backlog).',
+      projectHubPulseFilterEmpty: 'No members match this filter.',
+      projectHubMemberDrawerTitle: 'Member detail',
+      projectHubMemberDrawerClose: 'Close',
+      projectHubMemberDrawerOpenAria: 'View details for {name}',
+      projectHubMemberDrawerWorkEmpty: 'No open assigned work.',
+      projectHubMemberDrawerOpenList: 'Open List',
+      projectHubMemberDrawerPeersEmpty: 'No saved allocation on other projects (in the result just loaded).',
+      projectHubMemberDrawerPeersLoading: 'Loading allocations on other projects…',
+      projectHubMemberDrawerPeersForbidden:
+        'Cannot view other-project allocations — needs resource manager / admin. An Overallocated badge (if shown) may still be correct from the day sweep.',
+      projectHubMemberDrawerPeersError: 'Could not load other-project allocations. Try again later.',
+      projectHubMemberDrawerTimelineOk:
+        'Timeline just loaded: within capacity (daily total ≤ 100% from timeline data).',
+      projectHubMemberDrawerTimelineOver:
+        'Timeline just loaded: overallocated (daily % total > 100% across active projects).',
+      projectHubOverWhyTitle: 'Why overallocated?',
+      projectHubOverWhyFormula:
+        'Each day the system sums this person’s planned allocation % across all projects still in effect. Any day with total > 100% → overallocated.',
+      projectHubOverWhyNotWork:
+        'Not derived from open work count or Σ estimate — that is execution load; handle separately.',
+      projectHubOverWhyBeMultiProject:
+        'Caused by multi-project day overlap (day sweep) — not because this project’s % alone is high.',
+      projectHubOverWhyReasonLocal:
+        'Allocation segments on this project overlap with a daily total > 100%.',
+      projectHubOverWhyReasonPeersForbidden:
+        'Cannot load other projects (needs RM/admin). The badge may still be due to % on other projects — ask an RM to open Resource / allocations.',
+      projectHubOverWhyReasonPeersError:
+        'Could not load other-project allocations — do not conclude “no other projects”. Retry or check the network.',
+      projectHubOverWhyReasonNoPeersListed:
+        'Timeline/BE marks overallocated but the UI lists no other projects with %. Data may be skewed or segments hidden — open Edit allocation / ask an RM.',
+      projectHubOverWhyReasonStale:
+        'Members list still shows Overallocated, but the timeline just loaded: within capacity. Refresh the Members tab to sync.',
+      projectHubOverWhyReasonLoading: 'Loading multi-project allocations to explain the badge…',
+      projectHubOverWhyFormulaBtn: 'Formula',
+      projectHubOverWhyFormulaHide: 'Hide formula',
+      projectHubOverWhyFormulaEqTitle: 'Estimated equation',
+      projectHubOverWhyFormulaSourceHint:
+        'Each % is Planned Allocation entered by PM/RM on that project — not from open work or Σ estimate.',
+      projectHubOverWhyFormulaTotal: 'Known total',
+      projectHubOverWhyFormulaThreshold: 'Capacity threshold',
+      projectHubOverWhyFormulaEmpty: 'No planned % to add yet.',
+      projectHubOverWhyFormulaVerdictOver: '{sum}% > {threshold}% → Overallocated',
+      projectHubOverWhyFormulaVerdictOk: '{sum}% ≤ {threshold}% — within capacity (FE estimate)',
+      projectHubOverWhyFormulaVerdictIncomplete:
+        '{sum}% ≤ {threshold}% on this UI — FE estimate is missing peers. BE already confirmed overallocated (day sweep).',
+      projectHubOverWhyFormulaTotalHint:
+        'FE estimate — sums known % on this UI; does not replace the BE day sweep.',
+      projectHubOverWhyFormulaBeStatus: 'BE status: Overallocated (allocationStatus)',
+      projectHubOverWhyLayersBtn: 'Three number sources',
+      projectHubOverWhyLayersHide: 'Hide number sources',
+      projectHubOverWhyLayersTitle: 'Three number sources',
+      projectHubOverWhyLayerPm: 'Each % — Planned Allocation saved by PM/RM on that project.',
+      projectHubOverWhyLayerFe: 'Known total — FE estimate (sum of % shown here).',
+      projectHubOverWhyLayerBe: 'Overallocated badge — BE confirmation (daily overlap sum > 100%).',
+      projectHubOverWhyTermSource: 'Source: saved by PM/RM (Planned Allocation)',
+      projectHubOverWhyTermRange: 'Range: {range}',
+      projectHubOverWhyTermRangeUnknown: 'Range: no saved segment dates yet',
+      projectHubOverWhyGuideBtn: 'How should PMs estimate %?',
+      projectHubOverWhyGuideHide: 'Hide estimation guide',
+      projectHubOverWhyGuideTitle: 'How PMs estimate Planned %',
+      projectHubOverWhyGuide1:
+        '100% = full capacity (1 FTE) for that person on this project on a working day.',
+      projectHubOverWhyGuide2:
+        'Ask: how much of their time is committed to this project in the date range?',
+      projectHubOverWhyGuide3:
+        'On multiple projects, split % (e.g. 40% + 60%); avoid 100% + 100% on the same days.',
+      projectHubOverWhyGuide4:
+        'Use open work / Σh / workload skew as a check — never as the formula that creates %.',
+      projectHubOverWhyGuide5:
+        'After saving segments, BE only checks daily totals > 100% — it does not invent each %.',
+      projectHubOverWhyFaqBtn: 'Quick FAQ (lecturer / PM)',
+      projectHubOverWhyFaqHide: 'Hide FAQ',
+      projectHubOverWhyFaqTitle: 'Quick FAQ',
+      projectHubOverWhyExampleTitle: 'Examples',
+      projectHubOverWhyExampleOk: 'Valid: 40% + 60% = 100% (within capacity).',
+      projectHubOverWhyExampleOver: 'Overallocated: 100% + 100% = 200% (overlapping days).',
+      projectHubOverWhyFaqQ1: 'Where does 100% on one project come from?',
+      projectHubOverWhyFaqA1:
+        'PM/RM entered and saved Planned Allocation — not a formula from open work or BE.',
+      projectHubOverWhyFaqQ2: 'Why red if each project is only 100%?',
+      projectHubOverWhyFaqA2:
+        'Because overlapping days sum to more than 100%. BE sets the overallocated badge.',
+      projectHubOverWhyFaqQ3: 'Do open work counts / Σ estimates create the %?',
+      projectHubOverWhyFaqA3:
+        'No. Open work / Σh is the sum of estimates on open board cards (not by calendar day/week); handle separately (reassign / cut scope). Hours overload only compares Σh to a soft ≈ 40h FTE-week cap — it does not create Planned %.',
+      projectHubOverWhyFaqQ4: 'Will clearing all tasks clear the red badge?',
+      projectHubOverWhyFaqA4:
+        'No. Edit Planned % or date ranges (reduce overlap), then Save.',
+      projectHubOverWhyThisProject: 'This project',
+      projectHubOverWhyPeer: 'Other projects',
+      projectHubOverWhyNoPct: 'No % yet — does not add to the total',
+      projectHubOverWhySumHint:
+        'Rough sum of known %: {sum}% (BE sweeps overlapping days; can be ≥ {sum}% when ranges overlap).',
+      projectHubOverWhyActionsTitle: 'What PMs can do',
+      projectHubOverWhyAction1: 'Edit allocation on this project — lower % or shorten the date range.',
+      projectHubOverWhyAction2: 'Lower % / remove overlap on other projects that are at 100% (or high).',
+      projectHubOverWhyAction3:
+        'Handle open work separately (reassign / cut scope) — it will not clear the overallocated badge.',
+      projectHubOverWhyEdit: 'Open Edit allocation',
+      projectHubAllocBarAria: 'Planned allocation {pct}%',
+      projectHubAllocBarNoPct: 'No allocation % yet',
+      projectHubAllocBarTrackHint:
+        'Bar = this project’s planned %: <70% green · 70–99% amber · ≥100% red. Overallocated badge (day sweep) is separate — may be due to other projects.',
+      projectHubAllocEmptyTitle: 'No saved plan yet',
       projectHubAllocEmptyHint:
-        'No planned allocation yet. Enter % and date ranges when assigning people — this is PM/RM plan, not actual hours.',
+        'This form is empty — not 100%. Tap «+ Time range» to add a segment, then Save. This is PM/RM plan, not actual hours.',
+      projectHubAllocRemoveSegment: 'Remove time range',
       workflowTransitionDenied: 'No valid transition to this column.',
       projectHubAllocSavedOver: 'Saved — Overallocated warning (planned total >100%).',
       projectHubAllocLocalOverWarn:

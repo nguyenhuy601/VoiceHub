@@ -323,10 +323,13 @@ export const projectAPI = {
     ),
 
   /** Phase 3b — Utilization (planned ∩ actual hours) */
-  getUtilization: (organizationId, params = {}) =>
+  getUtilization: (organizationId, params = {}, config = {}) =>
     apiClient.get(
       '/projects/resources/utilization',
-      withOrg(organizationId, { params: { ...params, organizationId } })
+      withOrg(organizationId, {
+        params: { ...params, organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
     ),
 
   /** Historical Performance — list (admin) */
