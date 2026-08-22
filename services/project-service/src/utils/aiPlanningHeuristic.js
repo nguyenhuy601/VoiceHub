@@ -117,11 +117,20 @@ function scorePoolItemForRole({ item, roleKey, requiredSkills }) {
 }
 
 /**
- * @param {{ pack: object, poolItems?: object[], window?: object|null }} input
+ * @param {{ pack: object, poolItems?: object[], window?: object|null, staffingOverride?: object|null }} input
  */
-function buildHeuristicOverlay({ pack, poolItems = [], window = null } = {}) {
-  const staffing = pack?.staffingPlan || {};
-  const constraints = mapPackConstraintsToProject(pack || {});
+function buildHeuristicOverlay({
+  pack,
+  poolItems = [],
+  window = null,
+  staffingOverride = null,
+} = {}) {
+  const packForRank =
+    staffingOverride && typeof staffingOverride === 'object'
+      ? { ...pack, staffingPlan: staffingOverride }
+      : pack;
+  const staffing = packForRank?.staffingPlan || {};
+  const constraints = mapPackConstraintsToProject(packForRank || {});
   const rolesIn = Array.isArray(staffing.requiredRoles) ? staffing.requiredRoles : [];
   const items = Array.isArray(poolItems) ? poolItems : [];
 
@@ -134,7 +143,7 @@ function buildHeuristicOverlay({ pack, poolItems = [], window = null } = {}) {
       .toLowerCase();
     if (!roleKey) continue;
     const requiredCount = Math.max(1, Number(roleRow.requiredCount) || 1);
-    const requiredSkills = skillsForRole(pack, roleKey);
+    const requiredSkills = skillsForRole(packForRank, roleKey);
     const scored = items
       .map((item) => scorePoolItemForRole({ item, roleKey, requiredSkills }))
       .filter((s) => s.userId)
@@ -158,7 +167,7 @@ function buildHeuristicOverlay({ pack, poolItems = [], window = null } = {}) {
       });
     }
 
-    const hoursNeededHint = (pack?.functionalRequirements || [])
+    const hoursNeededHint = (packForRank?.functionalRequirements || [])
       .filter(
         (row) =>
           String(row.suggestedRoleKey || '')
@@ -201,6 +210,7 @@ function buildHeuristicOverlay({ pack, poolItems = [], window = null } = {}) {
       poolSize: items.length,
       requiredRoleCount: roles.length,
       estimatedHoursTotal: staffing.estimatedHoursTotal ?? null,
+      staffingSource: staffingOverride ? 'proposal' : 'pack',
       constraints: {
         title: constraints.title,
         startDate: constraints.startDate || null,

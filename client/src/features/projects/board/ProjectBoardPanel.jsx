@@ -26,6 +26,7 @@ import { useProjectWorkTypes } from '../hub/useProjectWorkTypes';
 import ProjectHubSprintBoardCard from '../hub/ProjectHubSprintBoardCard';
 import { entityRelId } from '../hub/projectHubBacklogStats';
 import { isCardInSprint, statusSelectBucket } from '../hub/projectHubUtils';
+import { planningStatusToListId } from '../hub/planningBoardStatus';
 import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
 import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -438,6 +439,8 @@ export default function TaskBoardWorkspacePanel({
   sprintFilterId = '',
   defaultSprintId = '',
   hubSprintCard = null,
+  /** Optimistic patch cards trên boardDetail (parent state). */
+  onBoardCardsPatch = null,
 }) {
   const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
@@ -524,8 +527,9 @@ export default function TaskBoardWorkspacePanel({
     (cards) => {
       let next = Array.isArray(cards) ? cards : [];
       const sprintId = String(sprintFilterId || '').trim();
+      const allBoardCardsForSprint = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
       if (sprintId) {
-        next = next.filter((c) => isCardInSprint(c, sprintId));
+        next = next.filter((c) => isCardInSprint(c, sprintId, { allCards: allBoardCardsForSprint }));
       }
       if (showMyTasksOnly && currentUserId) {
         next = next.filter((c) => String(c.assigneeId || '') === String(currentUserId));
@@ -552,7 +556,7 @@ export default function TaskBoardWorkspacePanel({
       }
       return next;
     },
-    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId, hubSprintCard]
+    [showMyTasksOnly, currentUserId, boardSearchQuery, sprintFilterId, hubSprintCard, boardDetail?.cards]
   );
 
   const attachSprintToCreate = (payload) => {
@@ -1269,6 +1273,8 @@ export default function TaskBoardWorkspacePanel({
           allCards={allBoardCards}
           lists={listMap}
           workTypeConfig={workTypeConfig}
+          epics={hubSprintCard.epics || []}
+          features={hubSprintCard.features || []}
         />
       );
     }
@@ -2196,6 +2202,8 @@ export default function TaskBoardWorkspacePanel({
         listTitle={detailCard ? listTitleForCard(detailCard) : ''}
         lists={listMap}
         boardCards={Array.isArray(boardDetail?.cards) ? boardDetail.cards : []}
+        epics={hubSprintCard?.epics || []}
+        features={hubSprintCard?.features || []}
         workTypeConfig={workTypeConfig}
         projectCode={hubSprintCard?.projectCode || ''}
         projectId={hubSprintCard?.projectId || boardDetail?.board?.projectId || ''}
@@ -2232,7 +2240,58 @@ export default function TaskBoardWorkspacePanel({
         onOpenWorkItem={(card) => {
           if (card) openCardDetail(card, 'detail');
         }}
+        onOpenChangeRequest={hubSprintCard?.onOpenChangeRequest}
         onRefresh={onRefresh}
+        onPatchPlanningItems={(updater) => {
+          hubSprintCard?.onPatchPlanningItems?.(updater);
+          const syncPlanningCard = (row, prev) => {
+            if (!row) return prev;
+            const listId =
+              planningStatusToListId(row.status, listMap) || prev?.listId || row.listId || null;
+            return {
+              ...prev,
+              ...row,
+              kind: 'planning',
+              type: 'feature',
+              issueType: 'feature',
+              listId,
+              dueDate: row.dueDate ?? row.targetDate ?? prev?.dueDate ?? null,
+            };
+          };
+          onBoardCardsPatch?.((cards) => {
+            const planningRows = (cards || []).filter(
+              (c) =>
+                String(c?.kind || '') === 'planning' ||
+                String(c?.issueType || c?.type || '').toLowerCase() === 'feature'
+            );
+            const nextPlanning =
+              typeof updater === 'function' ? updater(planningRows) : planningRows;
+            const byId = new Map(
+              (nextPlanning || []).map((r) => [String(r._id || r.id), r])
+            );
+            return (cards || []).map((c) => {
+              const id = String(c._id || c.id || '');
+              const isPlanningCard =
+                String(c?.kind || '') === 'planning' ||
+                String(c?.issueType || c?.type || '').toLowerCase() === 'feature';
+              if (!isPlanningCard || !byId.has(id)) return c;
+              return syncPlanningCard(byId.get(id), c);
+            });
+          });
+          setDetailCard((prev) => {
+            if (!prev) return prev;
+            const isPlanningCard =
+              String(prev?.kind || '') === 'planning' ||
+              String(prev?.issueType || prev?.type || '').toLowerCase() === 'feature';
+            if (!isPlanningCard) return prev;
+            const nextPlanning =
+              typeof updater === 'function' ? updater([prev]) : [prev];
+            const row = (nextPlanning || []).find(
+              (r) => String(r._id || r.id) === String(prev._id || prev.id)
+            );
+            return syncPlanningCard(row, prev);
+          });
+        }}
         onUpdateCard={async (cardId, patch) => {
           const keys = Object.keys(patch || {});
           if (!(keys.length === 1 && keys[0] === 'comments')) {

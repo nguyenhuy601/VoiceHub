@@ -34,6 +34,7 @@ const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxP
 const CollaborateRequirementsPage = lazy(() => import('./features/requirements/CollaborateRequirementsPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
 const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjectWizardPage'));
+const CreateProjectAiWizardPage = lazy(() => import('./pages/Projects/CreateProjectAiWizardPage'));
 const ProjectsLandingPage = lazy(() => import('./pages/Projects/ProjectsLandingPage'));
 const ProjectChatPage = lazy(() => import('./pages/Projects/ProjectChatPage'));
 const ProjectsShellLayout = lazy(() => import('./pages/Projects/ProjectsShellLayout'));
@@ -99,6 +100,14 @@ function App() {
           element={
             <Protected>
               <CreateProjectWizardPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/app/collaborate/projects/new-ai"
+          element={
+            <Protected>
+              <CreateProjectAiWizardPage />
             </Protected>
           }
         />

@@ -17,6 +17,7 @@ import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import ProjectHubCompleteProjectModal from './ProjectHubCompleteProjectModal';
 import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
+import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
 import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
 import {
@@ -1010,6 +1011,16 @@ export default function ProjectHubShell({
       }),
     [sprints, cardsForSprintResolve, currentUserId]
   );
+
+  useSprintAutoCompletePrompt(sprints, {
+    enabled: Boolean(hubCaps?.canManageSprints || canManage) && Boolean(projectId),
+    onPromptComplete: (sprintId) => {
+      const id = String(sprintId || '').trim();
+      if (!id) return;
+      setCompleteSprintId(id);
+    },
+  });
+
   const sprintFilterId =
     boardReady && activeSprint?._id ? String(activeSprint._id) : '';
 
@@ -1019,6 +1030,12 @@ export default function ProjectHubShell({
         defaultSprintId: sprintFilterId || undefined,
         hubSprintCard: {
           projectCode: resolvedBoard?.projectCode || '',
+          projectId: String(projectId || ''),
+          epics: (planningItems || []).filter((p) => String(p.type || '').toLowerCase() === 'epic'),
+          features: (planningItems || []).filter(
+            (p) => String(p.type || '').toLowerCase() === 'feature'
+          ),
+          onPatchPlanningItems: patchPlanningItems,
           onOpenChangeRequest: (crId) => {
             const id = String(crId || '').trim();
             if (!id) return;

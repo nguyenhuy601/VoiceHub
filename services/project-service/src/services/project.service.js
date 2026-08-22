@@ -1288,6 +1288,7 @@ async function createProjectSprint({
   endDate,
   status,
   boardId,
+  autoComplete,
 }) {
   const project = await getProject({ userId, projectId });
   assertProjectWritable(project);
@@ -1312,6 +1313,7 @@ async function createProjectSprint({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     status: st,
+    autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
   return row.toObject();
@@ -1347,6 +1349,9 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   if (patch.goal !== undefined) sprint.goal = String(patch.goal || '').trim().slice(0, 2000);
   if (patch.startDate !== undefined) sprint.startDate = patch.startDate ? new Date(patch.startDate) : null;
   if (patch.endDate !== undefined) sprint.endDate = patch.endDate ? new Date(patch.endDate) : null;
+  if (patch.autoComplete !== undefined) {
+    sprint.autoComplete = Boolean(patch.autoComplete);
+  }
   if (patch.status !== undefined) {
     const st = String(patch.status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');

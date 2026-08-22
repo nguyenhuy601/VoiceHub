@@ -57,6 +57,7 @@ async function createSprint({
   startDate,
   endDate,
   status,
+  autoComplete,
 }) {
   const board = await requireBoardAdmin(boardId, userId, { permission: 'sprint:create' });
   if (!board.projectId) {
@@ -78,6 +79,7 @@ async function createSprint({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     status: st,
+    autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
   return row.toObject();
@@ -93,6 +95,7 @@ async function updateSprint({
   endDate,
   status,
   reviewNotes,
+  autoComplete,
 }) {
   await requireBoardAdmin(boardId, userId, { permission: 'sprint:create' });
   const sprint = await Sprint.findOne({ _id: sprintId, boardId });
@@ -105,6 +108,9 @@ async function updateSprint({
   if (goal !== undefined) sprint.goal = String(goal || '').trim();
   if (startDate !== undefined) sprint.startDate = startDate ? new Date(startDate) : null;
   if (endDate !== undefined) sprint.endDate = endDate ? new Date(endDate) : null;
+  if (autoComplete !== undefined) {
+    sprint.autoComplete = Boolean(autoComplete);
+  }
   if (status !== undefined) {
     const st = String(status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');

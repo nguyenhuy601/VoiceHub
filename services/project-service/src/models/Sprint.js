@@ -48,6 +48,20 @@ const sprintSchema = new mongoose.Schema(
       index: true,
     },
     /**
+     * Khi true: job nhắc còn ≤3 ngày tới endDate; client mở modal xác nhận Complete khi tới hạn.
+     * Không tự đóng sprint.
+     */
+    autoComplete: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    /** Idempotent: đã gửi notification “còn 3 ngày” một lần. */
+    autoCompleteReminder3dSentAt: {
+      type: Date,
+      default: null,
+    },
+    /**
      * Lifecycle fields (close).
      * Additive-only: không phá dữ liệu hiện có.
      */
@@ -86,5 +100,11 @@ const sprintSchema = new mongoose.Schema(
 
 sprintSchema.index({ projectId: 1, status: 1, createdAt: -1 });
 sprintSchema.index({ boardId: 1, status: 1, createdAt: -1 });
+sprintSchema.index({
+  status: 1,
+  autoComplete: 1,
+  autoCompleteReminder3dSentAt: 1,
+  endDate: 1,
+});
 
 module.exports = mongoose.model('Sprint', sprintSchema);

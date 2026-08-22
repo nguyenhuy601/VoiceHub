@@ -17,5 +17,7 @@ router.post('/:packId/approve', controller.approvePack);
 router.post('/:packId/reject', controller.rejectPack);
 router.post('/:packId/create-project', controller.createProjectFromPack);
 router.post('/:packId/ai-planning/run', controller.runAiPlanning);
+router.post('/:packId/ai-planning/approve-staffing', controller.approveAiStaffing);
+router.post('/:packId/ai-planning/discard-staffing', controller.discardAiStaffing);
 
 module.exports = router;

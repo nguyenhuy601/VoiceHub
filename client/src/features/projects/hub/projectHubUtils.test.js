@@ -498,6 +498,26 @@ test('isCardInSprint: match / null / khác id', () => {
   assert.equal(isCardInSprint({ sprintId: 's1' }, ''), false);
 });
 
+test('isCardInSprint: Feature inherit sprint từ Task con', () => {
+  const feature = { _id: 'f1', kind: 'planning', issueType: 'feature', sprintId: null };
+  const childInSprint = { _id: 't1', featureId: 'f1', sprintId: 's1', issueType: 'task' };
+  const childOther = { _id: 't2', featureId: 'f1', sprintId: 's2', issueType: 'task' };
+  assert.equal(isCardInSprint(feature, 's1', { allCards: [childInSprint] }), true);
+  assert.equal(isCardInSprint(feature, 's1', { allCards: [childOther] }), false);
+  assert.equal(isCardInSprint(feature, 's1', { allCards: [] }), false);
+  assert.equal(isCardInSprint(feature, 's1'), false);
+});
+
+test('isCardInSprint: Task không inherit qua featureId', () => {
+  const task = { _id: 't1', issueType: 'task', sprintId: null, featureId: 'f1' };
+  assert.equal(
+    isCardInSprint(task, 's1', {
+      allCards: [{ _id: 't2', featureId: 'f1', sprintId: 's1' }],
+    }),
+    false
+  );
+});
+
 test('isProjectDateRangeInvalid: thiếu một ngày OK; start > end invalid; cùng ngày OK', () => {
   assert.equal(isProjectDateRangeInvalid('', '2026-02-01'), false);
   assert.equal(isProjectDateRangeInvalid('2026-02-01', ''), false);

@@ -1420,6 +1420,35 @@ export function addDaysToDateTimeLocal(startValue, days) {
   return toDateTimeLocalValue(d);
 }
 
+/** Duration UI keys → số ngày. `custom` → null (không auto tính end). */
+export const SPRINT_DURATION_DAYS = Object.freeze({
+  '1w': 7,
+  '2w': 14,
+  '3w': 21,
+  '4w': 28,
+  custom: null,
+});
+
+export function getSprintDurationDays(duration) {
+  const key = String(duration || '').trim();
+  if (!Object.prototype.hasOwnProperty.call(SPRINT_DURATION_DAYS, key)) return null;
+  return SPRINT_DURATION_DAYS[key];
+}
+
+/**
+ * Tính end datetime-local từ duration cố định; `custom` trả lại end hiện tại (không đổi).
+ * @returns {{ duration: string, endDate: string }}
+ */
+export function applySprintDuration(duration, startDateTimeLocal, currentEndDateTimeLocal = '') {
+  const next = String(duration || 'custom').trim() || 'custom';
+  const days = getSprintDurationDays(next);
+  if (days == null) {
+    return { duration: 'custom', endDate: currentEndDateTimeLocal || '' };
+  }
+  const base = startDateTimeLocal || toDateTimeLocalValue(new Date());
+  return { duration: next, endDate: addDaysToDateTimeLocal(base, days) };
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SPRINT_DAYS = 14;
 
@@ -1610,8 +1639,20 @@ export function resolveViewerActiveSprint({ sprints = [], cards = [], userId = '
   return resolveActiveSprint(active);
 }
 
-export function isCardInSprint(card, sprintId) {
+export function isCardInSprint(card, sprintId, { allCards = [] } = {}) {
   const sid = String(sprintId || '').trim();
   if (!sid) return false;
-  return String(card?.sprintId || '').trim() === sid;
+  if (String(card?.sprintId || '').trim() === sid) return true;
+
+  const kind = String(card?.kind || '').toLowerCase();
+  const issueType = String(card?.issueType || card?.type || '').toLowerCase();
+  const isFeature = kind === 'planning' || issueType === 'feature';
+  if (!isFeature) return false;
+
+  const featureId = String(card?._id || card?.id || '').trim();
+  if (!featureId) return false;
+  return (Array.isArray(allCards) ? allCards : []).some((child) => {
+    if (String(child?.featureId || '').trim() !== featureId) return false;
+    return String(child?.sprintId || '').trim() === sid;
+  });
 }

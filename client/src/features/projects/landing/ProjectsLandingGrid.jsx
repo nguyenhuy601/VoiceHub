@@ -12,6 +12,7 @@ import {
   Mic,
   Plus,
   Shield,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -93,6 +94,7 @@ export default function ProjectsLandingGrid({
   assignedTasksCount = null,
   activeProjectsCount = null,
   onCreateProject,
+  onCreateProjectWithAi,
   onSelectProject,
   onModuleClick = null,
   onBack = null,
@@ -398,16 +400,29 @@ export default function ProjectsLandingGrid({
                     {t('workspace.completedProjects')}
                   </button>
                 </div>
-                {createAction ? (
-                  <button
-                    type="button"
-                    onClick={createAction}
-                    aria-label={createFirstLabel}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md transition hover:opacity-90"
-                  >
-                    <Plus size={18} />
-                  </button>
-                ) : null}
+                <div className="flex items-center gap-1.5">
+                  {onCreateProjectWithAi ? (
+                    <button
+                      type="button"
+                      onClick={onCreateProjectWithAi}
+                      aria-label={t('workspace.createProjectWithAi')}
+                      title={t('workspace.createProjectWithAi')}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-sm transition hover:bg-muted/40"
+                    >
+                      <Sparkles size={16} />
+                    </button>
+                  ) : null}
+                  {createAction ? (
+                    <button
+                      type="button"
+                      onClick={createAction}
+                      aria-label={createFirstLabel}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md transition hover:opacity-90"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
@@ -449,16 +464,28 @@ export default function ProjectsLandingGrid({
               <Users size={40} className="mb-4 text-muted-foreground/50" aria-hidden />
             )}
             <p className="text-sm font-semibold text-foreground">{emptyLabel}</p>
-            {createAction ? (
-              <button
-                type="button"
-                onClick={createAction}
-                className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover"
-              >
-                <Plus size={16} />
-                {createFirstLabel}
-              </button>
-            ) : null}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {createAction ? (
+                <button
+                  type="button"
+                  onClick={createAction}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover"
+                >
+                  <Plus size={16} />
+                  {createFirstLabel}
+                </button>
+              ) : null}
+              {onCreateProjectWithAi ? (
+                <button
+                  type="button"
+                  onClick={onCreateProjectWithAi}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-muted/40"
+                >
+                  <Sparkles size={16} />
+                  {t('workspace.createProjectWithAi')}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {projectView === 'active' && activeCards.length > 0 ? (

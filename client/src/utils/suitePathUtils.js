@@ -208,6 +208,18 @@ export function buildCollaborateProjectsNewPath(orgId = '', query = {}) {
   return qs ? `${base}?${qs}` : base;
 }
 
+/** Full-screen AI Create Project Wizard (PM / requirement approver). */
+export function buildCollaborateProjectsNewAiPath(orgId = '', query = {}) {
+  const base = '/app/collaborate/projects/new-ai';
+  const params = new URLSearchParams();
+  const id = String(orgId || '').trim();
+  if (id) params.set('organizationId', id);
+  const from = String(query?.from || '').trim();
+  if (from) params.set('from', from);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 export function orgQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('organizationId') || params.get('orgId') || '').trim();

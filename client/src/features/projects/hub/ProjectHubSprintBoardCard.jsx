@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronRight, GitFork, GitPullRequest, Pencil, User } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, GitFork, GitPullRequest, MoreHorizontal, Pencil, User } from 'lucide-react';
 import UserAvatar from '../../../components/Shared/UserAvatar';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
-import { cardsUnderParent, childWorkStats, entityRelId } from './projectHubBacklogStats';
+import { childWorkStats, directChildCards, entityRelId } from './projectHubBacklogStats';
+import { resolveBoardParentTitle } from './projectHubBoardParent';
 import {
   childWorkProgressBarClass,
   childWorkProgressPct,
@@ -15,6 +16,8 @@ import {
   statusBucketPillClass,
 } from './projectHubUtils';
 import { childWorkTypeIdsForParent, workTypeTitleKey } from './projectWorkTypes';
+
+export { resolveBoardParentTitle } from './projectHubBoardParent';
 
 function cardAssignee(card) {
   const list = Array.isArray(card?.assignees) ? card.assignees : [];
@@ -151,7 +154,7 @@ function ChildPreviewRow({ card, listById, projectCode, onOpenCard, t }) {
 }
 
 /**
- * Thẻ Kanban sprint: gọn — title/due/key/assignee + 1 tầng con (status pill).
+ * Thẻ Kanban sprint — layout: title, Due date, Parent, type+key+assignee.
  */
 export default function ProjectHubSprintBoardCard({
   card,
@@ -164,19 +167,30 @@ export default function ProjectHubSprintBoardCard({
   allCards = [],
   lists = [],
   workTypeConfig = null,
+  epics = [],
+  features = [],
 }) {
   const { t, locale } = useAppStrings();
-  const [childrenOpen, setChildrenOpen] = useState(true);
+  const [childrenOpen, setChildrenOpen] = useState(false);
   const issueId = String(card?._id || card?.id || '');
   const title = String(card?.title || '').trim();
-  const dueLabel = formatHubDueDate(card?.dueDate, locale);
+  const dueDate = card?.dueDate;
+  const dueLabel = formatHubDueDate(dueDate, locale);
+  const dueTone = dueDateTone(dueDate, card?.status);
   const assignee = cardAssignee(card);
   const issueType = card?.issueType || card?.type || 'task';
-  const dueTone = dueDateTone(card?.dueDate, card?.status);
-  const children = useMemo(() => cardsUnderParent(allCards, issueId), [allCards, issueId]);
+  const issueKey = displayIssueKey(projectCode, issueId);
+  const parentTitle = useMemo(
+    () => resolveBoardParentTitle(card, { epics, features, allCards }),
+    [card, epics, features, allCards]
+  );
   const viewedType = useMemo(
     () => resolveBoardWorkType(card, allCards, workTypeConfig),
     [card, allCards, workTypeConfig]
+  );
+  const children = useMemo(
+    () => directChildCards(allCards, issueId, viewedType),
+    [allCards, issueId, viewedType]
   );
   const childStats = useMemo(
     () => childWorkStats(allCards, issueId, lists, viewedType),
@@ -195,26 +209,66 @@ export default function ProjectHubSprintBoardCard({
 
   return (
     <>
-      <div className="min-w-0 pr-5">
-        <div className="truncate font-semibold text-foreground" title={title}>
-          {title || '—'}
+      <div className="min-w-0 pr-8">
+        <div className="flex min-w-0 items-start gap-1">
+          <div className="min-w-0 flex-1 truncate font-semibold text-foreground" title={title}>
+            {title || '—'}
+          </div>
+          {typeof onOpenMenu === 'function' ? (
+            <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                type="button"
+                title={t('taskBoard.editCard')}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => onOpenMenu(card, e)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                title={t('taskBoard.cardActionsTitle')}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => onOpenMenu(card, e)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ) : null}
         </div>
+
         {dueLabel ? (
-          <div
-            className={`mt-1 flex items-center gap-1 text-[10px] ${
-              dueTone === 'overdue' ? 'font-semibold text-destructive' : 'text-muted-foreground'
-            }`}
-          >
-            {dueTone === 'overdue' ? <AlertTriangle size={12} aria-hidden /> : null}
-            <span>{dueLabel}</span>
+          <div className="mt-1.5">
+            <div className="text-[10px] text-muted-foreground">{t('workspace.projectHubWorkFieldDueDate')}</div>
+            <div
+              className={`mt-0.5 flex items-center gap-1 text-[11px] ${
+                dueTone === 'overdue' ? 'font-semibold text-destructive' : 'text-foreground'
+              }`}
+            >
+              <span>{dueLabel}</span>
+              {dueTone === 'overdue' ? <AlertTriangle size={12} aria-hidden /> : null}
+            </div>
+          </div>
+        ) : null}
+
+        {parentTitle ? (
+          <div className="mt-1.5">
+            <div className="text-[10px] text-muted-foreground">{t('workspace.projectHubWorkFieldParent')}</div>
+            <div
+              className="mt-0.5 inline-flex max-w-full items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2 py-0.5"
+              title={parentTitle}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-sm bg-primary" aria-hidden />
+              <span className="truncate text-[11px] font-medium text-foreground">{parentTitle}</span>
+            </div>
           </div>
         ) : null}
       </div>
+
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
         <ProjectHubIssueTypeBadge type={issueType} label={typeLabel(issueType, t)} variant="icon" />
-        <span className="truncate text-[10px] font-semibold text-muted-foreground">
-          {displayIssueKey(projectCode, issueId)}
-        </span>
+        <span className="truncate text-[10px] font-semibold text-muted-foreground">{issueKey}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {showDoneCheck ? (
             <Check
@@ -226,6 +280,7 @@ export default function ProjectHubSprintBoardCard({
           <AssigneeMark assignee={assignee} t={t} />
         </span>
       </div>
+
       {Array.isArray(card?.changeRequests) && card.changeRequests.length ? (
         <div className="mt-1.5 flex flex-wrap gap-1" onPointerDown={(e) => e.stopPropagation()}>
           {card.changeRequests.map((cr) => {
@@ -249,6 +304,7 @@ export default function ProjectHubSprintBoardCard({
           })}
         </div>
       ) : null}
+
       {childStats.total > 0 ? (
         <div className="mt-2 border-t border-border pt-2" onPointerDown={(e) => e.stopPropagation()}>
           <button
@@ -301,17 +357,6 @@ export default function ProjectHubSprintBoardCard({
             </div>
           ) : null}
         </div>
-      ) : null}
-      {typeof onOpenMenu === 'function' ? (
-        <button
-          type="button"
-          title={t('taskBoard.editCard')}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => onOpenMenu(card, e)}
-          className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
       ) : null}
     </>
   );
