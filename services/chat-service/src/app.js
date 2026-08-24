@@ -1,11 +1,32 @@
 const express = require('express');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const { authenticate } = require('@enterprise/shared/middleware/auth');
+const { MAX_UPLOAD_BYTES } = require('./config/fileRetention');
+const messageController = require('./controllers/message.controller');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
 app.use(createCorsMiddleware());
+
+// Binary upload — đăng ký trước express.json để body không bị nuốt
+const rawUploadParser = express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES });
+const uploadStorageHandlers = [
+  authenticate,
+  rawUploadParser,
+  messageController.uploadStorageObject.bind(messageController),
+];
+app.post('/api/messages/storage/upload', ...uploadStorageHandlers);
+app.post('/api/chat/messages/storage/upload', ...uploadStorageHandlers);
+
+const downloadStorageHandlers = [
+  authenticate,
+  messageController.downloadStorageObject.bind(messageController),
+];
+app.get('/api/messages/storage/object', ...downloadStorageHandlers);
+app.get('/api/chat/messages/storage/object', ...downloadStorageHandlers);
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 

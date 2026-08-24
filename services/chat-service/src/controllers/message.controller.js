@@ -6,6 +6,14 @@ const Conversation = require('../models/Conversation');
 const messageService = require('../services/message.service');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const firebaseStorage = require('../utils/firebaseStorage');
+const objectStorage = require('../utils/objectStorage');
+const { uploadBuffer, isFirebaseBillingOrPermissionError } = require('../utils/storageUpload');
+const {
+  assertAllowedStoragePath,
+  openStorageObjectReadStream,
+  guessContentTypeFromFileName,
+  withUtf8ContentType,
+} = require('../utils/storageRead');
 const {
   attachSignedReadUrlsToMessages,
   attachSignedReadUrlToMessage,
@@ -446,6 +454,149 @@ class MessageController {
         },
       });
     } catch (error) {
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
+    }
+  }
+
+  /** Upload file qua server (Admin SDK) — tránh browser PUT signed URL bị 403 CORS/GCS. */
+  async uploadStorageObject(req, res) {
+    try {
+      if (!firebaseStorage.isEnabled() && !objectStorage.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: 'File storage is not configured on server',
+          messageUser: 'Kho lưu trữ file chưa được cấu hình trên server.',
+        });
+      }
+
+      const userId = req.user?.id || req.user?._id;
+      const fileNameRaw =
+        req.headers['x-file-name'] || req.headers['x-filename'] || '';
+      let fileName = String(fileNameRaw || '').trim();
+      try {
+        fileName = decodeURIComponent(fileName);
+      } catch {
+        /* giữ nguyên nếu không encode */
+      }
+      const mimeType = String(
+        req.headers['x-mime-type'] || req.headers['content-type'] || ''
+      )
+        .split(';')[0]
+        .trim();
+      const retentionContext = String(req.headers['x-retention-context'] || 'org_room').trim();
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
+      const size = body.length;
+
+      if (!fileName || !mimeType || size <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'X-File-Name, X-Mime-Type and non-empty body are required',
+        });
+      }
+
+      if (!['dm', 'org_room', 'meeting'].includes(retentionContext)) {
+        return res.status(400).json({
+          success: false,
+          message: 'retentionContext must be dm | org_room | meeting',
+        });
+      }
+
+      if (size > MAX_UPLOAD_BYTES) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid size (max ${MAX_UPLOAD_BYTES} bytes)`,
+        });
+      }
+
+      if (!isMimeAllowed(mimeType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'MIME type not allowed',
+        });
+      }
+
+      const safe = firebaseStorage.sanitizeFileName(fileName);
+      const storagePath = `temp/${String(userId)}/${randomUUID()}_${safe}`;
+
+      const { storageBackend } = await uploadBuffer(storagePath, body, mimeType);
+
+      const fileExpiresAt = new Date(Date.now() + ttlMsForRetentionContext(retentionContext));
+
+      res.json({
+        success: true,
+        data: {
+          storagePath,
+          storageBackend,
+          bucket:
+            storageBackend === 'minio'
+              ? objectStorage.getBucket()
+              : process.env.FIREBASE_STORAGE_BUCKET,
+          fileExpiresAt: fileExpiresAt.toISOString(),
+          retentionContext,
+          mimeType,
+          size,
+        },
+      });
+    } catch (error) {
+      if (isFirebaseBillingOrPermissionError(error) && !objectStorage.isEnabled()) {
+        return sendServiceError(res, 503, {
+          errorCode: 'CHAT_STORAGE_UNAVAILABLE',
+          messageUser:
+            'Kho lưu trữ Firebase tạm ngưng. Bật MinIO dev hoặc kích hoạt lại billing Firebase.',
+          message: error.message,
+        });
+      }
+      if (Number(error?.statusCode) === 503 && error?.messageUser) {
+        return sendServiceError(res, 503, {
+          errorCode: 'CHAT_STORAGE_UNAVAILABLE',
+          messageUser: error.messageUser,
+          message: error.message,
+        });
+      }
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
+    }
+  }
+
+  /** Tải object storage (MinIO/Firebase) qua same-origin — JWT, tránh href storagePath trong SPA. */
+  async downloadStorageObject(req, res) {
+    try {
+      const storagePath = String(req.query?.storagePath || '').trim();
+      if (!storagePath) {
+        return res.status(400).json({ success: false, message: 'storagePath is required' });
+      }
+
+      const { stream, fileName } = await openStorageObjectReadStream(storagePath);
+      const safeName = firebaseStorage.sanitizeFileName(fileName);
+      const mimeBase =
+        String(req.query?.mimeType || '').split(';')[0].trim() ||
+        guessContentTypeFromFileName(fileName).split(';')[0].trim();
+      const contentType = withUtf8ContentType(mimeBase);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      res.setHeader('Cache-Control', 'private, max-age=60');
+      stream.on('error', (err) => {
+        if (!res.headersSent) {
+          sendErrorFromCatch(res, err, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
+        } else {
+          res.end();
+        }
+      });
+      stream.pipe(res);
+    } catch (error) {
+      const status = Number(error?.statusCode) || 500;
+      if (status === 404) {
+        return sendServiceError(res, 404, {
+          errorCode: 'MESSAGE_NOT_FOUND',
+          messageUser: 'Không tìm thấy tệp đính kèm.',
+          message: error.message,
+        });
+      }
+      if (status === 403) {
+        return chatForbidden(res, error.message, error.errorCode || 'MESSAGE_FORBIDDEN');
+      }
+      if (status === 400) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
@@ -1457,12 +1608,12 @@ class MessageController {
   }
 
   /**
-   * Nội bộ: System Bot đăng tin chào lên Department Channel (org-service gọi sau provision).
-   * Body: { organizationId, roomId, content?, departmentName? }
+   * Nội bộ: System Bot đăng tin lên kênh (dept welcome hoặc project #announcement).
+   * Body: { organizationId, roomId, content?, departmentName?, refs?, activityEventId? }
    */
   async createSystemChannelMessageInternal(req, res) {
     try {
-      const { organizationId, roomId, content, departmentName } = req.body || {};
+      const { organizationId, roomId, content, departmentName, refs, activityEventId } = req.body || {};
       const orgId = String(organizationId || '').trim();
       const channelId = String(roomId || '').trim();
       if (!orgId || !mongoose.Types.ObjectId.isValid(orgId)) {
@@ -1470,6 +1621,21 @@ class MessageController {
       }
       if (!channelId || !mongoose.Types.ObjectId.isValid(channelId)) {
         return res.status(400).json({ success: false, message: 'roomId is required and must be valid' });
+      }
+
+      const eventKey = String(activityEventId || '').trim().slice(0, 120);
+      if (eventKey) {
+        const existing = await Message.findOne({ activityEventId: eventKey }).lean();
+        if (existing) {
+          const payloadExisting = (await attachSignedReadUrlToMessage(existing)) || existing;
+          return res.status(200).json({ success: true, data: payloadExisting, duplicate: true });
+        }
+      }
+
+      const { parseMessageRefs } = require('../utils/messageRefs');
+      const parsedRefs = parseMessageRefs(refs);
+      if (parsedRefs.error) {
+        return res.status(400).json({ success: false, message: parsedRefs.error });
       }
 
       const botId = String(process.env.SYSTEM_BOT_USER_ID || '6a0000000000000000000001').trim();
@@ -1487,13 +1653,34 @@ class MessageController {
           ? `Chào mừng đến kênh phòng ban «${deptLabel}». Đây là không gian thông báo và phối hợp nội bộ — giao việc chính thức trên kênh dự án + bảng công việc.`
           : 'Chào mừng đến kênh phòng ban. Đây là không gian thông báo và phối hợp nội bộ — giao việc chính thức trên kênh dự án + bảng công việc.');
 
-      const message = await messageService.createMessage({
+      const createPayload = {
         senderId: botId,
         roomId: channelId,
         organizationId: orgId,
         content: body,
         messageType: 'system',
-      });
+      };
+      if (parsedRefs.refs.length) {
+        createPayload.refs = parsedRefs.refs;
+      }
+      if (eventKey) {
+        createPayload.activityEventId = eventKey;
+      }
+
+      let message;
+      try {
+        message = await messageService.createMessage(createPayload);
+      } catch (createErr) {
+        // Race on unique activityEventId
+        if (eventKey && /duplicate|E11000/i.test(String(createErr?.message || ''))) {
+          const again = await Message.findOne({ activityEventId: eventKey }).lean();
+          if (again) {
+            const payloadAgain = (await attachSignedReadUrlToMessage(again)) || again;
+            return res.status(200).json({ success: true, data: payloadAgain, duplicate: true });
+          }
+        }
+        throw createErr;
+      }
       const payloadMessage = (await attachSignedReadUrlToMessage(message)) || message;
 
       await emitRealtimeEvent({

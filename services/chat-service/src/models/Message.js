@@ -59,6 +59,12 @@ const messageSchema = new mongoose.Schema(
       ],
       default: undefined,
     },
+    /** Idempotency for project.v1.work.activity → announcement (sparse unique). */
+    activityEventId: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+    },
     /** Tin nhắn kênh trả lời một tin khác (cùng roomId). */
     replyToMessageId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -137,6 +143,14 @@ messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1 });
 messageSchema.index({ roomId: 1, 'visibility.projectId': 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1, _id: -1 });
+messageSchema.index(
+  { activityEventId: 1 },
+  {
+    unique: true,
+    sparse: true,
+    name: 'activityEventId_unique_sparse',
+  }
+);
 messageSchema.index(
   { organizationId: 1, createdAt: -1 },
   {
