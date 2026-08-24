@@ -74,6 +74,15 @@ describe('mapLogRow', () => {
   });
 });
 
+describe('list history enrich labels', () => {
+  it('workHistory.service có enrichHistoryItemsWithLabels', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../src/services/workHistory.service.js'), 'utf8');
+    assert.match(src, /enrichHistoryItemsWithLabels/);
+    assert.match(src, /fromLabel/);
+    assert.match(src, /toLabel/);
+  });
+});
+
 describe('list history query select', () => {
   it('workHistory.service select cụ thể — không find() trần', () => {
     const src = fs.readFileSync(path.join(__dirname, '../src/services/workHistory.service.js'), 'utf8');

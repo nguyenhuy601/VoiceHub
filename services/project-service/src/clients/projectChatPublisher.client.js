@@ -107,6 +107,51 @@ function emitProjectTeamChannelProvisionBestEffort({
   }).catch(() => null);
 }
 
+/**
+ * Significant Work change → chat #announcement (fire-and-forget).
+ * @param {{
+ *   organizationId: string,
+ *   projectId: string,
+ *   actorId: string,
+ *   taskId?: string,
+ *   boardId?: string,
+ *   activityLogId?: string,
+ *   field: string,
+ *   from?: unknown,
+ *   to?: unknown,
+ *   label?: string,
+ *   taskTitle?: string,
+ * }} partial
+ */
+function emitWorkActivityBestEffort(partial = {}) {
+  const organizationId = String(partial.organizationId || '').trim();
+  const projectId = String(partial.projectId || '').trim();
+  const field = String(partial.field || '').trim();
+  if (!organizationId || !projectId || !field) return;
+  const activityLogId = String(partial.activityLogId || '').trim();
+  const eventId = activityLogId
+    ? `work-activity:${activityLogId}`
+    : undefined;
+  publishProjectChatEventFireAndForget({
+    type: PROJECT_CHAT_EVENT_TYPES.WORK_ACTIVITY,
+    eventId,
+    organizationId,
+    projectId,
+    userId: partial.actorId || undefined,
+    payload: {
+      field,
+      from: partial.from ?? null,
+      to: partial.to ?? null,
+      taskId: partial.taskId ? String(partial.taskId) : null,
+      boardId: partial.boardId ? String(partial.boardId) : null,
+      activityLogId: activityLogId || null,
+      label: partial.label ? String(partial.label).slice(0, 120) : '',
+      taskTitle: partial.taskTitle ? String(partial.taskTitle).slice(0, 200) : '',
+      kind: 'task',
+    },
+  }).catch(() => null);
+}
+
 module.exports = {
   PROJECT_CHAT_EVENT_TYPES,
   isPublishEnabled,
@@ -114,4 +159,5 @@ module.exports = {
   emitProjectMemberChangedBestEffort,
   emitProjectCoreChannelsProvisionBestEffort,
   emitProjectTeamChannelProvisionBestEffort,
+  emitWorkActivityBestEffort,
 };
