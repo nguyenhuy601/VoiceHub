@@ -9,6 +9,7 @@ import {
   channelQueryFromSearch,
   isProjectChatTabEnabled,
   orgQueryFromSearch,
+  projectQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
 
@@ -18,15 +19,19 @@ export default function ProjectChatPage() {
   const [searchParams] = useSearchParams();
   const orgId = orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
   const channelId = channelQueryFromSearch(searchParams);
+  const projectIdFilter = projectQueryFromSearch(searchParams);
   const chatEnabled = isProjectChatTabEnabled();
 
   const handleSelectChannel = useCallback(
     (id) => {
       navigate(
-        buildCollaborateProjectsChatPath(orgId, { channelId: String(id || '').trim() })
+        buildCollaborateProjectsChatPath(orgId, {
+          channelId: String(id || '').trim(),
+          projectId: projectIdFilter,
+        })
       );
     },
-    [navigate, orgId]
+    [navigate, orgId, projectIdFilter]
   );
 
   if (!chatEnabled) {
@@ -44,6 +49,7 @@ export default function ProjectChatPage() {
   return (
     <ProjectChatWorkspace
       organizationId={orgId}
+      projectIdFilter={projectIdFilter}
       channelId={channelId}
       onSelectChannel={handleSelectChannel}
       emptyCta={
