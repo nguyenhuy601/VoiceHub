@@ -8,9 +8,10 @@ const {
 } = require('../messaging/projectChatEvents');
 
 describe('projectChatEvents', () => {
-  it('knows member.changed and channel.provision', () => {
+  it('knows member.changed, channel.provision and work.activity', () => {
     assert.equal(isKnownProjectChatEventType(PROJECT_CHAT_EVENT_TYPES.MEMBER_CHANGED), true);
     assert.equal(isKnownProjectChatEventType(PROJECT_CHAT_EVENT_TYPES.CHANNEL_PROVISION), true);
+    assert.equal(isKnownProjectChatEventType(PROJECT_CHAT_EVENT_TYPES.WORK_ACTIVITY), true);
     assert.equal(isKnownProjectChatEventType('project.v1.room.acl'), false);
   });
 
