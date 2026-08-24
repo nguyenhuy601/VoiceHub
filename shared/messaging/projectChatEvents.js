@@ -10,6 +10,8 @@ const EXCHANGE = process.env.RABBITMQ_EXCHANGE || 'voicehub.topic';
 const PROJECT_CHAT_EVENT_TYPES = {
   MEMBER_CHANGED: 'project.v1.member.changed',
   CHANNEL_PROVISION: 'project.v1.channel.provision',
+  /** Significant Work field change → #announcement contextual message */
+  WORK_ACTIVITY: 'project.v1.work.activity',
 };
 
 const CATALOG = [
@@ -25,6 +27,12 @@ const CATALOG = [
     consumers: ['organization-service'],
     description: 'Tạo Channel Project (core/team) — chỉ org-service ghi Channel.',
   },
+  {
+    type: PROJECT_CHAT_EVENT_TYPES.WORK_ACTIVITY,
+    publisher: 'project-service',
+    consumers: ['chat-service'],
+    description: 'Significant Work field change → system message on project #announcement.',
+  },
 ];
 
 const CHAT_QUEUE =
@@ -35,8 +43,11 @@ const ORG_QUEUE =
   process.env.RABBITMQ_PROJECT_CHAT_EVENTS_ORG_QUEUE || 'voicehub.project.chat.events.org';
 const ORG_DLQ = `${ORG_QUEUE}.dlq`;
 
-/** Chat chỉ bind membership — không nhận provision. */
-const BINDING_KEYS = [PROJECT_CHAT_EVENT_TYPES.MEMBER_CHANGED];
+/** Chat bind membership + work activity (không nhận provision). */
+const BINDING_KEYS = [
+  PROJECT_CHAT_EVENT_TYPES.MEMBER_CHANGED,
+  PROJECT_CHAT_EVENT_TYPES.WORK_ACTIVITY,
+];
 
 const ORG_BINDING_KEYS = [
   PROJECT_CHAT_EVENT_TYPES.MEMBER_CHANGED,
