@@ -203,6 +203,13 @@ const noPermissionRoutes = [
   '/api/notifications',
   '/api/organizations/my',
   '/api/organizations/company-invites',
+  // Signed upload: JWT + chat-service authenticate; dùng cho chat và task attachment (không ép chat:write).
+  '/api/messages/storage/signed-upload',
+  '/api/chat/messages/storage/signed-upload',
+  '/api/messages/storage/upload',
+  '/api/chat/messages/storage/upload',
+  '/api/messages/storage/object',
+  '/api/chat/messages/storage/object',
 ];
 
 /**
