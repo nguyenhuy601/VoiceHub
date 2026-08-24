@@ -18,6 +18,18 @@ function cacheTtlSeconds(ttlMs) {
   return Math.min(MAX_CACHE_SEC, Math.max(MIN_CACHE_SEC, sec));
 }
 
+/** Giữ caption người dùng; chỉ thay content khi DB lưu tên file (legacy client đọc URL từ content). */
+function applySignedReadUrlToMessage(msg, url) {
+  if (!url) return msg;
+  const originalContent = String(msg.content || '').trim();
+  const fileName = String(msg.fileMeta?.originalName || '').trim();
+  const hasUserCaption = Boolean(originalContent && fileName && originalContent !== fileName);
+  if (hasUserCaption) {
+    return { ...msg, signedReadUrl: url };
+  }
+  return { ...msg, content: url, signedReadUrl: url };
+}
+
 /**
  * @param {string|null|undefined} storagePath
  */
@@ -58,7 +70,7 @@ async function attachSignedReadUrlsToMessages(messages) {
         try {
           const cached = await redis.get(`${REDIS_PREFIX}${sp}`);
           if (cached) {
-            return { ...msg, content: cached };
+            return applySignedReadUrlToMessage(msg, cached);
           }
         } catch {
           /* miss */
@@ -74,7 +86,7 @@ async function attachSignedReadUrlsToMessages(messages) {
             /* ignore */
           }
         }
-        return { ...msg, content: url };
+        return applySignedReadUrlToMessage(msg, url);
       } catch (err) {
         logger.warn(`[attachSignedReadUrls] path=${sp}: ${err.message}`);
         return msg;
