@@ -78,8 +78,11 @@ export const projectAPI = {
   getOverview: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/overview`),
 
-  getActivity: (projectId, params = {}) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/activity`, { params }),
+  getActivity: (projectId, params = {}, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/activity`, {
+      params,
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    }),
 
   getFiles: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/files`),
@@ -92,8 +95,10 @@ export const projectAPI = {
       },
     }),
 
-  listMembers: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`),
+  listMembers: (projectId, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`, {
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    }),
 
   listMemberCandidates: (projectId, projectRoleKey) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/member-candidates`, {

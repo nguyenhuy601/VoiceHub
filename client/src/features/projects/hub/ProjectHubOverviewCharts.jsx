@@ -469,6 +469,7 @@ export function ProjectHubOverviewCharts({
   cards = [],
   lists = [],
   members = [],
+  showAssigneeChart = true,
   muted,
   titleCls,
   cardCls,
@@ -579,6 +580,7 @@ export function ProjectHubOverviewCharts({
         ) : null}
       </section>
 
+      {showAssigneeChart ? (
       <section
         className={`${cardCls} sm:col-span-2 lg:col-span-1`}
         aria-labelledby="overview-assignee-donut"
@@ -619,6 +621,7 @@ export function ProjectHubOverviewCharts({
           />
         ) : null}
       </section>
+      ) : null}
     </div>
   );
 }

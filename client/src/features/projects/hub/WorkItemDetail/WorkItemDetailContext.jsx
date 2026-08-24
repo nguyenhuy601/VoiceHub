@@ -30,6 +30,14 @@ import {
 
 const WorkItemDetailContext = createContext(null);
 
+/** Tránh `prop = []` tạo reference mới mỗi render → tabCtx đổi → activeTab bị reset. */
+const EMPTY_ARRAY = Object.freeze([]);
+
+function stableListProp(prop) {
+  if (!Array.isArray(prop) || prop.length === 0) return EMPTY_ARRAY;
+  return prop;
+}
+
 export function useWorkItemDetail() {
   const ctx = useContext(WorkItemDetailContext);
   if (!ctx) throw new Error('useWorkItemDetail must be used within WorkItemDetailProvider');
@@ -40,11 +48,11 @@ export function WorkItemDetailProvider({
   children,
   open = true,
   workItem,
-  boardCards = [],
-  lists = [],
-  epics = [],
-  features = [],
-  sprints = [],
+  boardCards: boardCardsProp,
+  lists: listsProp,
+  epics: epicsProp,
+  features: featuresProp,
+  sprints: sprintsProp,
   projectCode = '',
   projectId = '',
   boardId = '',
@@ -61,6 +69,7 @@ export function WorkItemDetailProvider({
   canEstimate = true,
   canComment = true,
   canChangeStatus = true,
+  canViewMembers = false,
   onClose,
   onUpdateCard = null,
   onRefresh = null,
@@ -70,6 +79,12 @@ export function WorkItemDetailProvider({
   onOpenWorkItem = null,
   priorityConfig = null,
 }) {
+  const boardCards = stableListProp(boardCardsProp);
+  const lists = stableListProp(listsProp);
+  const epics = stableListProp(epicsProp);
+  const features = stableListProp(featuresProp);
+  const sprints = stableListProp(sprintsProp);
+
   const { t } = useAppStrings();
   const boardApiOpts = useMemo(() => {
     if (apiCtx && typeof apiCtx === 'object') return apiCtx;
@@ -99,10 +114,15 @@ export function WorkItemDetailProvider({
   const preferredTab = mapInitialPanelToTab(initialPanel);
   const [activeTab, setActiveTab] = useState(() => pickInitialVisibleTab(tabCtx, preferredTab));
 
+  // Chỉ reset khi mở lại / đổi work item / đổi initialPanel.
+  // Không phụ thuộc tabCtx: default `[]` hoặc parent tạo mảng mới mỗi render
+  // từng làm tabCtx đổi liên tục → nuốt mọi setActiveTab từ click.
   useEffect(() => {
     if (!open) return;
     setActiveTab(pickInitialVisibleTab(tabCtx, mapInitialPanelToTab(initialPanel)));
-  }, [open, issueId, initialPanel, tabCtx]);
+    // tabCtx lấy bản sau render khi issueId/initialPanel đổi; cố ý không đưa vào deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- xem comment trên
+  }, [open, issueId, initialPanel]);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -184,7 +204,10 @@ export function WorkItemDetailProvider({
       try {
         if (onUpdateCard) {
           await onUpdateCard(issueId, patch);
+        } else {
+          await taskAPI.updateBoardCard(issueId, patch, boardApiOpts);
         }
+        patchLocalWorkItem(patch);
         toast.success(t('taskBoard.saved'));
         setHoursWarn(null);
         setPendingPatch(null);
@@ -238,10 +261,10 @@ export function WorkItemDetailProvider({
   }, [open, boardId, activeTab, loadAssignableMembers]);
 
   useEffect(() => {
-    if (!open || !projectId) return undefined;
+    if (!open || !projectId || !canViewMembers) return undefined;
     let cancelled = false;
     projectAPI
-      .listMembers(projectId)
+      .listMembers(projectId, { skipPermissionDeniedToast: true })
       .then((res) => {
         if (!cancelled) setProjectMembers(unwrapList(res, unwrapTaskApiPayload));
       })
@@ -251,7 +274,7 @@ export function WorkItemDetailProvider({
     return () => {
       cancelled = true;
     };
-  }, [open, projectId]);
+  }, [open, projectId, canViewMembers]);
 
   const patchLocalWorkItem = useCallback(
     (patch) => {

@@ -160,6 +160,8 @@ export default function ProjectHubChangeRequestsPanel({
   canCreate = false,
   canUpdate = false,
   canDelete = false,
+  /** Enrich actor names — chỉ gọi listMembers khi true (members:view). */
+  canViewMembers = false,
   boardId = '',
   boardCards = [],
   lists = [],
@@ -259,10 +261,13 @@ export default function ProjectHubChangeRequestsPanel({
   }, [loadList]);
 
   useEffect(() => {
-    if (!listActive || !projectId) return undefined;
+    if (!listActive || !projectId || !canViewMembers) {
+      setProjectMembers([]);
+      return undefined;
+    }
     let cancelled = false;
     projectAPI
-      .listMembers(projectId)
+      .listMembers(projectId, { skipPermissionDeniedToast: true })
       .then((res) => {
         if (!cancelled) setProjectMembers(unwrapProjectMembers(res));
       })
@@ -272,7 +277,7 @@ export default function ProjectHubChangeRequestsPanel({
     return () => {
       cancelled = true;
     };
-  }, [listActive, projectId]);
+  }, [listActive, projectId, canViewMembers]);
 
   const parentCardCount = Array.isArray(boardCards) ? boardCards.length : 0;
   const workCards = useMemo(

@@ -6,6 +6,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
+import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
 import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
@@ -186,8 +187,19 @@ function OverviewPanel({
   onOpenBacklog,
   onOpenNextAction,
   onViewAllActivity,
+  overviewVisibility = null,
+  activityRestricted = false,
   t,
 }) {
+  const vis = overviewVisibility || {
+    capsReady: false,
+    canViewTaskMetrics: false,
+    canViewMemberBreakdown: false,
+    canViewSprintContext: false,
+    canViewPlanningPulse: false,
+    canViewActivity: false,
+    canShowAssigneeNames: false,
+  };
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const cardCls = 'rounded-xl border border-border bg-surface p-4';
@@ -268,6 +280,10 @@ function OverviewPanel({
         </h3>
         {boardLoading ? (
           <OverviewMetricSkeleton count={4} isDarkMode={isDarkMode} />
+        ) : !vis.canViewTaskMetrics ? (
+          <p className={`text-sm ${muted}`} role="status">
+            {t('workspace.projectHubOverviewTaskMetricsRestricted')}
+          </p>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -425,21 +441,22 @@ function OverviewPanel({
         <div className="mt-3">
           <OverviewContextSkeleton isDarkMode={isDarkMode} />
         </div>
-      ) : (
+      ) : vis.canViewTaskMetrics && dashboardCharts ? (
         <ProjectHubOverviewCharts
           charts={dashboardCharts}
           cards={overviewCards}
           lists={overviewLists}
           members={overviewMembers}
+          showAssigneeChart={vis.canViewMemberBreakdown}
           muted={muted}
           titleCls={titleCls}
           cardCls={cardCls}
           t={t}
           onOpenCard={onOpenNextAction}
         />
-      )}
+      ) : null}
 
-      {boardLoading ? null : (
+      {boardLoading || !vis.canViewTaskMetrics ? null : (
         <div className="mt-3 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
           <section className={cardCls} aria-labelledby="overview-action-center">
             <h3
@@ -460,7 +477,11 @@ function OverviewPanel({
                         ? 'text-primary'
                         : muted;
                   const statusText = overviewActionStatusLabel(a, t);
-                  const who = a.assigneeName || t('workspace.projectHubStatUnassigned');
+                  const who = vis.canShowAssigneeNames
+                    ? a.assigneeName || t('workspace.projectHubStatUnassigned')
+                    : a.assigneeName
+                      ? t('workspace.projectHubOverviewAssigneeRestricted')
+                      : t('workspace.projectHubStatUnassigned');
                   return (
                     <li key={a.id} className="border-b border-border pb-2 last:border-0 last:pb-0">
                       <button
@@ -527,7 +548,9 @@ function OverviewPanel({
               <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
                 {t('workspace.projectHubOverviewActiveSprint')}
               </p>
-              {sprintContextLoading ? (
+              {!vis.canViewSprintContext ? (
+                <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewSprintRestricted')}</p>
+              ) : sprintContextLoading ? (
                 <div
                   className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
                     isDarkMode ? 'bg-white/10' : 'bg-muted'
@@ -562,7 +585,9 @@ function OverviewPanel({
               <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
                 {t('workspace.projectHubOverviewBacklogPulse')}
               </p>
-              {planningContextLoading ? (
+              {!vis.canViewPlanningPulse ? (
+                <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewPlanningRestricted')}</p>
+              ) : planningContextLoading ? (
                 <div
                   className={`h-12 animate-pulse rounded-lg motion-reduce:animate-none ${
                     isDarkMode ? 'bg-white/10' : 'bg-muted'
@@ -617,6 +642,10 @@ function OverviewPanel({
             aria-busy="true"
             aria-label={t('common.loading')}
           />
+        ) : !vis.canViewActivity || activityRestricted ? (
+          <p className={`text-sm ${muted}`} role="status">
+            {t('workspace.projectHubOverviewActivityRestricted')}
+          </p>
         ) : activityError ? (
           <div className="flex flex-col items-start gap-2">
             <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityLoadFail')}</p>
@@ -810,6 +839,7 @@ export default function ProjectHubShell({
   const [apiActivity, setApiActivity] = useState(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
+  const [activityRestricted, setActivityRestricted] = useState(false);
   const [activityReloadToken, setActivityReloadToken] = useState(0);
   const [apiFiles, setApiFiles] = useState(null);
   const [projectPayload, setProjectPayload] = useState(null);
@@ -858,6 +888,7 @@ export default function ProjectHubShell({
     setApiActivity(null);
     setActivityLoading(false);
     setActivityError(false);
+    setActivityRestricted(false);
     setActivityReloadToken(0);
     setApiFiles(null);
     setPlanningLoading(false);
@@ -888,15 +919,31 @@ export default function ProjectHubShell({
     projectPayload?.status || resolvedBoard?.status
   );
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
+  const informationLevel = String(
+    projectPayload?.access?.informationLevel ||
+      resolvedBoard?.access?.informationLevel ||
+      boardDetail?.access?.informationLevel ||
+      ''
+  ).toLowerCase();
+  const capsReady = Boolean(projectId && projectPayload);
+  const overviewVisibility = useMemo(
+    () => resolveOverviewVisibility(hubCaps, { informationLevel, capsReady }),
+    [hubCaps, informationLevel, capsReady]
+  );
+  const isSummaryOnly = informationLevel === 'summary';
   const needsSprints =
-    tab === 'overview' ||
+    (tab === 'overview' && overviewVisibility.canViewSprintContext) ||
     tab === 'planning' ||
     tab === 'timeline' ||
     tab === 'board' ||
     (Boolean(hubCaps.canCompleteProject) && workLooksComplete && !isProjectCompleted);
   const needsPlanningItems =
-    tab === 'overview' || tab === 'planning' || tab === 'timeline' || tab === 'board';
-  const needsActivity = tab === 'overview' || tab === 'activity';
+    (tab === 'overview' && overviewVisibility.canViewPlanningPulse) ||
+    tab === 'planning' ||
+    tab === 'timeline' ||
+    tab === 'board';
+  const needsActivity =
+    (tab === 'overview' && overviewVisibility.canViewActivity) || tab === 'activity';
   const needsFiles = tab === 'files';
 
   useEffect(() => {
@@ -1031,6 +1078,7 @@ export default function ProjectHubShell({
         hubSprintCard: {
           projectCode: resolvedBoard?.projectCode || '',
           projectId: String(projectId || ''),
+          canViewMembers: hubCaps.canViewMembers,
           epics: (planningItems || []).filter((p) => String(p.type || '').toLowerCase() === 'epic'),
           features: (planningItems || []).filter(
             (p) => String(p.type || '').toLowerCase() === 'feature'
@@ -1048,14 +1096,6 @@ export default function ProjectHubShell({
     : boardSlot;
 
   const projectAccess = projectPayload?.access || null;
-
-  const informationLevel = String(
-    projectAccess?.informationLevel ||
-      resolvedBoard?.access?.informationLevel ||
-      boardDetail?.access?.informationLevel ||
-      ''
-  ).toLowerCase();
-  const isSummaryOnly = informationLevel === 'summary';
 
   const visibleTabs = useMemo(() => {
     return PROJECT_HUB_TABS.filter((item) => {
@@ -1092,17 +1132,28 @@ export default function ProjectHubShell({
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
-  const dashboardCharts = useMemo(
-    () =>
-      buildOverviewDashboardCharts({
-        cards,
-        lists,
-        issueCounts,
-        priorityConfig: projectPayload?.priorityConfig,
-        members: Array.isArray(projectPayload?.members) ? projectPayload.members : [],
-      }),
-    [cards, lists, issueCounts, projectPayload?.priorityConfig, projectPayload?.members]
-  );
+  const dashboardCharts = useMemo(() => {
+    if (!overviewVisibility.canViewTaskMetrics) return null;
+    return buildOverviewDashboardCharts({
+      cards,
+      lists,
+      issueCounts,
+      priorityConfig: projectPayload?.priorityConfig,
+      members: overviewVisibility.canViewMemberBreakdown
+        ? Array.isArray(projectPayload?.members)
+          ? projectPayload.members
+          : []
+        : [],
+    });
+  }, [
+    cards,
+    lists,
+    issueCounts,
+    projectPayload?.priorityConfig,
+    projectPayload?.members,
+    overviewVisibility.canViewTaskMetrics,
+    overviewVisibility.canViewMemberBreakdown,
+  ]);
   const deliveryExtras = useMemo(
     () => ({
       unassigned: countUnassignedOpenCards(cards, lists),
@@ -1127,13 +1178,22 @@ export default function ProjectHubShell({
     [cards, lists, resolvedBoard?.projectCode]
   );
   const activity = useMemo(() => {
+    if (!overviewVisibility.canViewActivity || activityRestricted) return [];
     const source = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
     return (source || []).map((row) => mapHubActivityItem(row, t, { locale }));
-  }, [apiActivity, derivedActivity, t, locale]);
+  }, [
+    apiActivity,
+    derivedActivity,
+    t,
+    locale,
+    overviewVisibility.canViewActivity,
+    activityRestricted,
+  ]);
 
   const reloadActivity = useCallback(() => {
     activityLoadedForRef.current = '';
     setActivityError(false);
+    setActivityRestricted(false);
     setActivityReloadToken((n) => n + 1);
   }, []);
 
@@ -1156,18 +1216,31 @@ export default function ProjectHubShell({
     let cancelled = false;
     setActivityLoading(true);
     setActivityError(false);
+    setActivityRestricted(false);
     (async () => {
       try {
-        const actRes = await projectAPI.getActivity(projectId, { limit: 40 });
+        const actRes = await projectAPI.getActivity(
+          projectId,
+          { limit: 40 },
+          { skipPermissionDeniedToast: true }
+        );
         if (cancelled) return;
         const act = actRes?.data?.data ?? actRes?.data ?? [];
         setApiActivity(Array.isArray(act) ? act : []);
         activityLoadedForRef.current = projectId;
-      } catch {
+        setActivityRestricted(false);
+      } catch (err) {
         if (!cancelled) {
+          const status = Number(err?.status || err?.response?.status || 0);
           setApiActivity([]);
-          setActivityError(true);
           activityLoadedForRef.current = projectId;
+          if (status === 403) {
+            setActivityError(false);
+            setActivityRestricted(true);
+          } else {
+            setActivityError(true);
+            setActivityRestricted(false);
+          }
         }
       } finally {
         if (!cancelled) setActivityLoading(false);
@@ -1417,6 +1490,8 @@ export default function ProjectHubShell({
             onOpenBacklog={() => setTab('planning')}
             onOpenNextAction={handleOpenNextAction}
             onViewAllActivity={handleViewAllActivity}
+            overviewVisibility={overviewVisibility}
+            activityRestricted={activityRestricted}
             t={t}
           />
         ) : null}
@@ -1563,6 +1638,7 @@ export default function ProjectHubShell({
               projectIdFilter={projectId}
               channelId={hubChatChannelId}
               onSelectChannel={setHubChatChannelId}
+              canViewMembers={hubCaps.canViewMembers}
             />
           </div>
         ) : null}
@@ -1583,6 +1659,7 @@ export default function ProjectHubShell({
             canCreate={hubCaps.canCreateChangeRequest}
             canUpdate={hubCaps.canUpdateChangeRequest}
             canDelete={hubCaps.canDeleteChangeRequest}
+            canViewMembers={hubCaps.canViewMembers}
             boardCards={cards}
             lists={lists}
             boardId={boardId}
@@ -1712,6 +1789,7 @@ export default function ProjectHubShell({
               (Array.isArray(hubCaps?.permissions) &&
                 hubCaps.permissions.includes('task:change_status'))
             }
+            canViewMembers={hubCaps.canViewMembers}
             onClose={() => setCrWorkIssue(null)}
             onOpenWorkItem={(card) => {
               if (card) setCrWorkIssue(card);
@@ -1786,6 +1864,7 @@ export default function ProjectHubShell({
               (Array.isArray(hubCaps?.permissions) &&
                 hubCaps.permissions.includes('task:change_status'))
             }
+            canViewMembers={hubCaps.canViewMembers}
             onClose={() => setOverviewWorkIssue(null)}
             onOpenWorkItem={(card) => {
               if (card) setOverviewWorkIssue(card);

@@ -94,6 +94,8 @@ function WorkItemDetailHeader() {
 
 function WorkItemDetailTabs() {
   const { visibleTabs, activeTab, setActiveTab, t } = useWorkItemDetail();
+  const ids = visibleTabs.map((item) => item.id);
+  const selectedId = ids.includes(activeTab) ? activeTab : ids[0] || 'overview';
   return (
     <div
       className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-3 py-2"
@@ -105,10 +107,10 @@ function WorkItemDetailTabs() {
           key={item.id}
           type="button"
           role="tab"
-          aria-selected={activeTab === item.id}
+          aria-selected={selectedId === item.id}
           onClick={() => setActiveTab(item.id)}
           className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
-            activeTab === item.id
+            selectedId === item.id
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground'
           }`}

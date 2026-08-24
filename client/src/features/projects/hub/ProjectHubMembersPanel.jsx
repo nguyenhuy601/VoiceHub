@@ -209,11 +209,20 @@ export default function ProjectHubMembersPanel({
     setLoading(true);
     setLoadError(false);
     try {
-      const res = await projectDeliveryAPI.listProjectMembers(id, { asProject: Boolean(pid) });
+      const res = await projectDeliveryAPI.listProjectMembers(id, {
+        asProject: Boolean(pid),
+        skipPermissionDeniedToast: true,
+      });
       const data = unwrap(res);
       setMembers(Array.isArray(data) ? data : data?.items || []);
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
+      const status = Number(err?.status || err?.response?.status || 0);
+      // 403 đã skip ở apiClient; không toast thêm khi thiếu quyền (stale caps).
+      if (status !== 403) {
+        toast.error(
+          resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
+        );
+      }
       setMembers([]);
       setLoadError(true);
     } finally {
@@ -222,8 +231,9 @@ export default function ProjectHubMembersPanel({
   }, [projectId, boardId, t]);
 
   useEffect(() => {
+    if (!membersActive) return;
     load();
-  }, [load]);
+  }, [load, membersActive]);
 
   const orgById = useMemo(() => {
     const map = new Map();

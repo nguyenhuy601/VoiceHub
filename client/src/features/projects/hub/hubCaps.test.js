@@ -35,10 +35,14 @@ test('suy ra canViewMembers từ permissions[] khi BE cũ chưa gửi flag', () 
   assert.equal(visible.canViewMembers, true);
 });
 
-test('không có capabilities → giữ tab Members (legacy / đang load)', () => {
+test('không có capabilities → fail-closed; canManageFallback bật quyền xem', () => {
   const caps = resolveHubCapabilities(null, { canManageFallback: false });
-  assert.equal(caps.canViewMembers, true);
-  assert.equal(caps.canViewChangeRequests, true);
+  assert.equal(caps.canViewMembers, false);
+  assert.equal(caps.canViewChangeRequests, false);
+
+  const manage = resolveHubCapabilities(null, { canManageFallback: true });
+  assert.equal(manage.canViewMembers, true);
+  assert.equal(manage.canViewChangeRequests, true);
 });
 
 test('canViewChangeRequests từ change_request:view', () => {
