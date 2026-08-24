@@ -82,6 +82,18 @@ describe('projectChannelAcl', () => {
     assert.equal(insider.canWrite, true);
   });
 
+  it('cross_team: project member can read and write', () => {
+    const perms = resolveProjectChannelPermissions({
+      channel: { projectId: 'p1', projectChannelKind: 'cross_team', type: 'chat' },
+      userId: 'u1',
+      isProjectMember: true,
+      isInOrgTeam: false,
+    });
+    assert.equal(perms.canSee, true);
+    assert.equal(perms.canRead, true);
+    assert.equal(perms.canWrite, true);
+  });
+
   it('serializes FE payload without work names', () => {
     const row = serializeProjectChannel({
       _id: 'c1',
