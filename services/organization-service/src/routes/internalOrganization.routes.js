@@ -555,6 +555,52 @@ router.post('/project-workgroup-channel', async (req, res) => {
   }
 });
 
+/**
+ * chat-service S2S: resolve project channel by kind (e.g. announcement).
+ * GET /project-channel/:organizationId/:projectId?kind=announcement
+ */
+router.get('/project-channel/:organizationId/:projectId', async (req, res) => {
+  try {
+    const organizationId = String(req.params.organizationId || '').trim();
+    const projectId = String(req.params.projectId || '').trim();
+    const kind = String(req.query.kind || 'announcement').trim() || 'announcement';
+    if (!organizationId || !projectId) {
+      return orgValidation(res, 'organizationId and projectId are required');
+    }
+    const allowedKinds = new Set(['general', 'announcement', 'cross_team', 'team', 'workgroup']);
+    if (!allowedKinds.has(kind)) {
+      return orgValidation(res, 'kind is invalid');
+    }
+    const channel = await Channel.findOne({
+      organization: organizationId,
+      projectId,
+      projectChannelKind: kind,
+      isActive: true,
+    })
+      .select('_id name projectChannelKind type projectName')
+      .lean();
+    if (!channel) {
+      return res.status(404).json({
+        success: false,
+        message: 'Project channel not found',
+        errorCode: 'PROJECT_CHANNEL_NOT_FOUND',
+      });
+    }
+    return res.json({
+      success: true,
+      data: {
+        channelId: String(channel._id),
+        name: String(channel.name || ''),
+        projectChannelKind: String(channel.projectChannelKind || ''),
+        type: String(channel.type || ''),
+        projectName: String(channel.projectName || ''),
+      },
+    });
+  } catch (err) {
+    return orgCatch(res, err);
+  }
+});
+
 /** project-service S2S: update workgroup channel members */
 router.put('/project-workgroup-channel/:channelId/members', async (req, res) => {
   try {
