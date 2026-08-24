@@ -423,6 +423,7 @@ function UnifiedChatComposer({
             value={value}
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
+            onPaste={onPaste}
             disabled={disabled}
             placeholder={resolvedPlaceholder}
             className={inputClass}
@@ -435,6 +436,7 @@ function UnifiedChatComposer({
             rows={1}
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
+            onPaste={onPaste}
             disabled={disabled}
             placeholder={resolvedPlaceholder}
             className={textareaClass}

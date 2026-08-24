@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Code,
   Download,
@@ -11,12 +12,276 @@ import {
 } from 'lucide-react';
 import friendService from '../../services/friendService';
 import toast from 'react-hot-toast';
+import apiClient from '../../services/api/apiClient';
+import {
+  ensureTypedBlob,
+  resolveAttachmentContentType,
+  shouldOpenAttachmentInline,
+  triggerBlobDownload,
+} from '../../features/projects/board/taskBoardAttachmentDisplay';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveAttachmentReadUrl } from '../../utils/orgChatMessageUtils';
 import ChatMessageText from './ChatMessageText';
 import FriendCallLogMessage from './FriendCallLogMessage';
 
 /** Hien thi tin nhan file/hinh: the tep thay vi chuoi URL Firebase dai. */
+
+function isStorageObjectPath(value) {
+  const s = String(value || '').trim();
+  if (!s || /^https?:\/\//i.test(s)) return false;
+  return /^(temp|tasks|chat|dm)\//.test(s.replace(/^\/+/, ''));
+}
+
+function resolveStoragePathFromFileMeta(fileMeta) {
+  const sp = String(fileMeta?.storagePath || '').trim();
+  return isStorageObjectPath(sp) ? sp : '';
+}
+
+async function fetchStorageObjectBlob(storagePath) {
+  const payload = await apiClient.get('/messages/storage/object', {
+    params: { storagePath },
+    responseType: 'blob',
+  });
+  if (payload instanceof Blob) return payload;
+  if (payload?.data instanceof Blob) return payload.data;
+  throw new Error('Invalid storage object response');
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Tab trình duyệt không luôn tôn trọng charset trên blob:text — bọc HTML + meta utf-8. */
+async function blobForInlineTextView(fileBlob, fileName) {
+  const text = await fileBlob.text();
+  const html = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>${escapeHtml(fileName)}</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:1rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;}</style></head><body>${escapeHtml(text)}</body></html>`;
+  return new Blob([html], { type: 'text/html;charset=utf-8' });
+}
+
+async function prepareStorageObjectBlob(storagePath, fileName, mimeType) {
+  const contentType = resolveAttachmentContentType({ mimeType, name: fileName }, storagePath);
+  const payload = await fetchStorageObjectBlob(storagePath);
+  return ensureTypedBlob(payload, contentType);
+}
+
+async function openStorageObject(storagePath, fileName, mimeType) {
+  let fileBlob = await prepareStorageObjectBlob(storagePath, fileName, mimeType);
+  const contentType = resolveAttachmentContentType({ mimeType, name: fileName }, storagePath);
+  const baseMime = contentType.split(';')[0].trim().toLowerCase();
+
+  if (shouldOpenAttachmentInline(contentType)) {
+    if (baseMime.startsWith('text/') && baseMime !== 'text/html') {
+      fileBlob = await blobForInlineTextView(fileBlob, fileName);
+    }
+    const blobUrl = URL.createObjectURL(fileBlob);
+    window.open(blobUrl, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    return;
+  }
+
+  triggerBlobDownload(fileBlob, safeDownloadFileName(fileName));
+}
+
+async function downloadStorageObject(storagePath, fileName, mimeType) {
+  let fileBlob = await prepareStorageObjectBlob(storagePath, fileName, mimeType);
+  const contentType = resolveAttachmentContentType({ mimeType, name: fileName }, storagePath);
+  const baseMime = contentType.split(';')[0].trim().toLowerCase();
+
+  if (baseMime.startsWith('text/') || baseMime === 'application/json') {
+    const buf = await fileBlob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    if (!hasBom) {
+      const withBom = new Uint8Array(bytes.length + 3);
+      withBom.set([0xef, 0xbb, 0xbf], 0);
+      withBom.set(bytes, 3);
+      fileBlob = new Blob([withBom], { type: contentType });
+    }
+  }
+
+  triggerBlobDownload(fileBlob, safeDownloadFileName(fileName));
+}
+
+function ChatStoragePathFileCard({ fileMeta, compact = false }) {
+  const { t } = useAppStrings();
+  const storagePath = resolveStoragePathFromFileMeta(fileMeta);
+  const name = resolveDisplayFileName(fileMeta, storagePath);
+  const sizeLabel = formatFileSize(fileMeta?.byteSize);
+  const mime = fileMeta?.mimeType || '';
+  const [busy, setBusy] = useState(false);
+
+  const runAction = async (action) => {
+    if (!storagePath || busy) return;
+    setBusy(true);
+    try {
+      if (action === 'open') {
+        await openStorageObject(storagePath, name, mime);
+      } else {
+        await downloadStorageObject(storagePath, name, mime);
+      }
+    } catch {
+      toast.error(t('organizations.sendMessageFail'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (compact) {
+    return (
+      <div className="flex min-w-0 max-w-full flex-col gap-1.5 rounded-lg border border-border bg-surface p-2 text-left">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => runAction('open')}
+          className="flex min-w-0 w-full items-center gap-2 text-left transition hover:opacity-95 disabled:opacity-60"
+        >
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+            aria-hidden
+          >
+            <FileTypeIcon name={name} mime={mime} className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-semibold text-foreground">{name}</span>
+            <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+              {sizeLabel}
+              <span className="mx-1 text-muted-foreground/60">·</span>
+              <span className="text-success">{t('friendChat.clickToOpen')}</span>
+            </span>
+          </span>
+        </button>
+        <div className="flex gap-1 border-t border-white/[0.08] pt-1.5">
+          <button
+            type="button"
+            title={t('friendChat.downloadFile')}
+            disabled={busy}
+            onClick={() => runAction('download')}
+            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80 disabled:opacity-60"
+          >
+            <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            {t('friendChat.downloadFileShort')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 items-stretch gap-3 rounded-xl border border-border bg-surface p-3 text-left">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => runAction('open')}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:opacity-95 disabled:opacity-60"
+      >
+        <span
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+          aria-hidden
+        >
+          <FileTypeIcon name={name} mime={mime} className="h-6 w-6" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-foreground">{name}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {sizeLabel}
+            <span className="mx-1 text-muted-foreground/60">·</span>
+            <span className="text-success">{t('friendChat.clickToOpen')}</span>
+          </span>
+        </span>
+      </button>
+      <div className="flex shrink-0 flex-col gap-1.5 border-l border-white/[0.08] pl-2">
+        <button
+          type="button"
+          title={t('friendChat.downloadFile')}
+          disabled={busy}
+          onClick={() => runAction('download')}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80 disabled:opacity-60"
+        >
+          <Download className="h-4 w-4" strokeWidth={2} aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChatStoragePathImagePreview({ fileMeta, compact, onImageClick, messageId, t }) {
+  const storagePath = resolveStoragePathFromFileMeta(fileMeta);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [failed, setFailed] = useState(false);
+  const name = resolveDisplayFileName(fileMeta, storagePath) || t('friendChat.imageAlt');
+  const mime = fileMeta?.mimeType || 'image/jpeg';
+
+  useEffect(() => {
+    if (!storagePath) return undefined;
+    let revoked = false;
+    let objectUrl = '';
+    fetchStorageObjectBlob(storagePath)
+      .then((blob) => {
+        if (revoked) return;
+        const typed = blob.type ? blob : new Blob([blob], { type: mime });
+        objectUrl = URL.createObjectURL(typed);
+        setPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!revoked) setFailed(true);
+      });
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [storagePath, mime]);
+
+  if (failed || !storagePath) {
+    return <ChatStoragePathFileCard fileMeta={fileMeta} compact={compact} />;
+  }
+
+  if (!previewUrl) {
+    return (
+      <div
+        className={`animate-pulse rounded-xl bg-white/10 ${compact ? 'h-28 w-40' : 'h-40 w-56'}`}
+        aria-hidden
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (onImageClick) {
+            onImageClick(previewUrl, messageId);
+          } else {
+            window.open(previewUrl, '_blank', 'noopener,noreferrer');
+          }
+        }}
+        className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/60"
+      >
+        <img
+          src={previewUrl}
+          alt={name}
+          className={`max-w-full rounded-xl object-contain ${compact ? 'max-h-36' : 'max-h-64'}`}
+        />
+      </button>
+      <div className="flex justify-end gap-1">
+        <button
+          type="button"
+          title={t('friendChat.downloadFile')}
+          onClick={() => downloadStorageObject(storagePath, name, mime)}
+          className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
+        >
+          <Download className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+          {t('friendChat.downloadFileShort')}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function formatFileSize(bytes) {
   const n = Number(bytes);
@@ -291,6 +556,7 @@ export function ChatMessageAttachmentBody({
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const content = message?.content;
+  const readUrl = resolveAttachmentReadUrl(message);
   const fm = message?.fileMeta;
   const mt = message?.messageType || 'text';
 
@@ -375,25 +641,37 @@ export function ChatMessageAttachmentBody({
     );
   }
 
-  if (mt === 'image' && isHttpUrl(content)) {
-    const alt = resolveDisplayFileName(fm, content) || t('friendChat.imageAlt');
+  if (mt === 'image' && resolveStoragePathFromFileMeta(fm)) {
+    return (
+      <ChatStoragePathImagePreview
+        fileMeta={fm}
+        compact={compact}
+        onImageClick={onImageClick}
+        messageId={message?._id || message?.id}
+        t={t}
+      />
+    );
+  }
+
+  if (mt === 'image' && isHttpUrl(readUrl)) {
+    const alt = resolveDisplayFileName(fm, readUrl) || t('friendChat.imageAlt');
     const fileName =
-      resolveDisplayFileName(fm, content) || guessNameFromUrl(content) || 'image.jpg';
+      resolveDisplayFileName(fm, readUrl) || guessNameFromUrl(readUrl) || 'image.jpg';
     return (
       <div className="space-y-2">
         <button
           type="button"
           onClick={() => {
             if (onImageClick) {
-              onImageClick(content, message?._id || message?.id);
+              onImageClick(readUrl, message?._id || message?.id);
             } else {
-              window.open(content, '_blank', 'noopener,noreferrer');
+              window.open(readUrl, '_blank', 'noopener,noreferrer');
             }
           }}
           className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/60"
         >
           <img
-            src={content}
+            src={readUrl}
             alt={alt}
             className={`max-w-full rounded-xl object-contain ${compact ? 'max-h-36' : 'max-h-64'}`}
           />
@@ -402,7 +680,7 @@ export function ChatMessageAttachmentBody({
           <button
             type="button"
             title={t('friendChat.saveFile')}
-            onClick={() => saveFileWithPicker(content, fileName)}
+            onClick={() => saveFileWithPicker(readUrl, fileName)}
             className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
           >
             <FolderDown className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
@@ -411,7 +689,7 @@ export function ChatMessageAttachmentBody({
           <button
             type="button"
             title={t('friendChat.downloadFile')}
-            onClick={() => downloadToDisk(content, fileName)}
+            onClick={() => downloadToDisk(readUrl, fileName)}
             className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
           >
             <Download className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
@@ -422,16 +700,37 @@ export function ChatMessageAttachmentBody({
     );
   }
 
-  if (mt === 'file' && isHttpUrl(content)) {
-    return <ChatFileCard url={content.trim()} fileMeta={fm} compact={compact} />;
+  if (mt === 'file' && resolveStoragePathFromFileMeta(fm)) {
+    return <ChatStoragePathFileCard fileMeta={fm} compact={compact} />;
   }
 
-  if (isStorageUrl(content) && fm && mt !== 'image') {
-    return <ChatFileCard url={content.trim()} fileMeta={fm} compact={compact} />;
+  if (mt === 'file' && isHttpUrl(readUrl)) {
+    return <ChatFileCard url={readUrl.trim()} fileMeta={fm} compact={compact} />;
   }
 
-  if (isStorageUrl(content) && !fm) {
-    return <ChatFileCard url={content.trim()} fileMeta={null} compact={compact} />;
+  if (isStorageUrl(readUrl) && fm && mt !== 'image') {
+    return <ChatFileCard url={readUrl.trim()} fileMeta={fm} compact={compact} />;
+  }
+
+  if (isStorageUrl(readUrl) && !fm) {
+    return <ChatFileCard url={readUrl.trim()} fileMeta={null} compact={compact} />;
+  }
+
+  // Tin file/ảnh sau F5: API có thể trả messageType=file + fileMeta nhưng content chỉ là tên file
+  // (MinIO không gắn signed URL). Vẫn hiện thẻ đính kèm thay vì text thuần.
+  if ((mt === 'file' || mt === 'image') && fm) {
+    if (mt === 'image') {
+      return (
+        <ChatStoragePathImagePreview
+          fileMeta={fm}
+          compact={compact}
+          onImageClick={onImageClick}
+          messageId={message?._id || message?.id}
+          t={t}
+        />
+      );
+    }
+    return <ChatStoragePathFileCard fileMeta={fm} compact={compact} />;
   }
 
   return (
