@@ -15,10 +15,14 @@ function projectBase(projectId) {
 export const projectDeliveryAPI = {
   listProjectRoles: (boardId) => apiClient.get(`${boardBase(boardId)}/project-roles`),
   /** @param {string} id boardId hoặc projectId — BE resolve cả hai qua listProjectMemberships */
-  listProjectMembers: (id, { asProject = false } = {}) =>
+  listProjectMembers: (id, { asProject = false, skipPermissionDeniedToast = false } = {}) =>
     asProject
-      ? apiClient.get(`${projectBase(id)}/members`)
-      : apiClient.get(`${boardBase(id)}/project-members`),
+      ? apiClient.get(`${projectBase(id)}/members`, {
+          skipPermissionDeniedToast: Boolean(skipPermissionDeniedToast),
+        })
+      : apiClient.get(`${boardBase(id)}/project-members`, {
+          skipPermissionDeniedToast: Boolean(skipPermissionDeniedToast),
+        }),
   setMemberRoles: (boardId, memberUserId, projectRoleKeys, options = {}) =>
     apiClient.put(`${boardBase(boardId)}/project-members/${memberUserId}/roles`, {
       projectRoleKeys,

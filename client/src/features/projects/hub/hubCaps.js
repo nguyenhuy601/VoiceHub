@@ -113,8 +113,8 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
     {
       canManagePlanning: fallback,
       canManageMembers: fallback,
-      canViewMembers: true,
-      canViewChangeRequests: true,
+      canViewMembers: fallback,
+      canViewChangeRequests: fallback,
       canCreateChangeRequest: fallback,
       canUpdateChangeRequest: fallback,
       canDeleteChangeRequest: fallback,
