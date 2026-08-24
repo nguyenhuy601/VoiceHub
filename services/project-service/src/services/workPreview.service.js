@@ -162,12 +162,19 @@ async function buildTaskPreview(access, entityId) {
 
   const projectCode = String(access.project.projectCode || '').trim();
   const statusLabel = String(list?.title || task.status || '').trim();
+  const resolved = access.resolved || {};
+  const canChangeStatus =
+    Boolean(resolved.isOrgAdmin || resolved.isCreator) ||
+    hasPermission(resolved.permissions || [], 'task:change_status') ||
+    hasPermission(resolved.permissions || [], 'task:update');
 
   return {
     restricted: false,
     kind: 'task',
     id: String(task._id),
     projectId: String(access.project._id),
+    boardId: task.boardId ? String(task.boardId) : null,
+    listId: task.listId ? String(task.listId) : null,
     displayIssueKey: displayIssueKey(projectCode, task._id),
     title: String(task.title || ''),
     issueType: String(task.issueType || 'task'),
@@ -186,7 +193,11 @@ async function buildTaskPreview(access, entityId) {
       title: String(cr.title || ''),
     })),
     recent,
-    actions: { canOpenDetail: true, canOpenDiscussion: true },
+    actions: {
+      canOpenDetail: true,
+      canOpenDiscussion: true,
+      canChangeStatus,
+    },
   };
 }
 
