@@ -1,10 +1,11 @@
 /**
- * Upload file/hình: signed URL từ server → PUT lên Firebase → POST /messages kèm fileMeta.
- * Hiển thị trong chat: `components/Chat/ChatFileAttachment.jsx` (thẻ file / ảnh, không render URL thô).
+ * Upload file/hình cho chat: ưu tiên proxy same-origin (/messages/storage/upload),
+ * fallback signed URL nếu proxy không khả dụng.
+ * Hiển thị trong chat: `components/Chat/ChatFileAttachment.jsx`.
  */
 
 /**
- * Một số trình duyệt/OS để trống `file.type`; map theo đuôi để server nhận MIME chuẩn (tránh chỉ octet-stream).
+ * Một số trình duyệt/OS để trống `file.type`; map theo đuôi để server nhận MIME chuẩn.
  * @param {string} name
  */
 function guessMimeFromFileName(name) {
@@ -19,7 +20,21 @@ function guessMimeFromFileName(name) {
   if (n.endsWith('.pptx')) {
     return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
   }
+  if (n.endsWith('.png')) return 'image/png';
+  if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg';
+  if (n.endsWith('.gif')) return 'image/gif';
+  if (n.endsWith('.webp')) return 'image/webp';
+  if (n.endsWith('.pdf')) return 'application/pdf';
+  if (n.endsWith('.md')) return 'text/markdown';
+  if (n.endsWith('.txt')) return 'text/plain';
   return '';
+}
+
+function isProxyUploadFailure(err) {
+  const status = Number(err?.response?.status || err?.status || 0);
+  if (status >= 500 || status === 503) return true;
+  const msg = String(err?.message || '').toLowerCase();
+  return msg.includes('storage') && (msg.includes('minio') || msg.includes('503'));
 }
 
 /**
@@ -45,22 +60,41 @@ function putFileWithProgress(url, file, contentType, onProgress) {
 }
 
 /**
- * @param {import('axios').AxiosInstance} api
- * @param {File} file
- * @param {{ retentionContext: 'dm'|'org_room'|'meeting', receiverId?: string, roomId?: string, organizationId?: string }} options
- * @param {(percent: number) => void} [onProgress] — 0–100 (gồm lấy URL + upload + tạo tin)
+ * Upload qua proxy same-origin — tránh PUT trực tiếp lên GCS/Firebase (403 trên voicehub.local).
+ * @returns {Promise<{ storagePath: string, storageBackend?: string }>}
  */
-export async function uploadChatFileAndCreateMessage(api, file, options, onProgress) {
-  const {
-    retentionContext,
-    receiverId,
-    roomId,
-    organizationId,
-  } = options;
+async function uploadViaStorageProxy(api, file, resolvedMime, retentionContext, onProgress) {
+  onProgress?.(5);
+  const payload = await api.post('/messages/storage/upload', file, {
+    headers: {
+      'Content-Type': resolvedMime,
+      'X-File-Name': encodeURIComponent(file.name),
+      'X-Mime-Type': resolvedMime,
+      'X-Retention-Context': retentionContext,
+    },
+    onUploadProgress: (event) => {
+      if (event.total && typeof onProgress === 'function') {
+        onProgress(Math.round((event.loaded / event.total) * 85));
+      }
+    },
+    transformRequest: [(data) => data],
+  });
+  const data = payload?.data ?? payload;
+  if (!data?.storagePath) {
+    throw new Error(payload?.message || 'Không lấy được storagePath từ proxy upload');
+  }
+  onProgress?.(88);
+  return {
+    storagePath: String(data.storagePath),
+    storageBackend: data.storageBackend || undefined,
+  };
+}
 
-  const resolvedMime =
-    file.type || guessMimeFromFileName(file.name) || 'application/octet-stream';
-
+/**
+ * Fallback: signed URL từ server → PUT lên Firebase/GCS.
+ * @returns {Promise<{ storagePath: string }>}
+ */
+async function uploadViaSignedUrl(api, file, resolvedMime, retentionContext, onProgress) {
   onProgress?.(2);
   const signedRes = await api.post('/messages/storage/signed-upload', {
     fileName: file.name,
@@ -69,7 +103,6 @@ export async function uploadChatFileAndCreateMessage(api, file, options, onProgr
     retentionContext,
   });
 
-  // api.js interceptor đã unwrap axios → signedRes = body JSON { success, data?, message? }
   const payload = signedRes?.data ?? signedRes;
   const data = payload?.data ?? payload;
   if (!data?.uploadUrl || !data?.storagePath) {
@@ -95,14 +128,56 @@ export async function uploadChatFileAndCreateMessage(api, file, options, onProgr
     throw err;
   }
 
-  const isImage = (file.type || '').startsWith('image/');
+  onProgress?.(88);
+  return { storagePath: String(data.storagePath) };
+}
+
+/**
+ * @param {import('axios').AxiosInstance} api
+ * @param {File} file
+ * @param {{ retentionContext: 'dm'|'org_room'|'meeting', receiverId?: string, roomId?: string, organizationId?: string, caption?: string, replyToMessageId?: string }} options
+ * @param {(percent: number) => void} [onProgress] — 0–100 (gồm lấy URL + upload + tạo tin)
+ */
+export async function uploadChatFileAndCreateMessage(api, file, options, onProgress) {
+  const { retentionContext, receiverId, roomId, organizationId, caption, replyToMessageId } =
+    options;
+
+  const resolvedMime =
+    file.type || guessMimeFromFileName(file.name) || 'application/octet-stream';
+
+  let storagePath;
+  try {
+    const uploaded = await uploadViaStorageProxy(
+      api,
+      file,
+      resolvedMime,
+      retentionContext,
+      onProgress
+    );
+    storagePath = uploaded.storagePath;
+  } catch (proxyErr) {
+    if (isProxyUploadFailure(proxyErr)) {
+      throw proxyErr;
+    }
+    const uploaded = await uploadViaSignedUrl(
+      api,
+      file,
+      resolvedMime,
+      retentionContext,
+      onProgress
+    );
+    storagePath = uploaded.storagePath;
+  }
+
+  const isImage = (file.type || resolvedMime || '').startsWith('image/');
   const messageType = isImage ? 'image' : 'file';
+  const captionText = String(caption || '').trim();
 
   const body = {
-    content: file.name,
+    content: captionText || file.name,
     messageType,
     fileMeta: {
-      storagePath: data.storagePath,
+      storagePath,
       originalName: file.name,
       mimeType: resolvedMime,
       byteSize: file.size,
@@ -112,11 +187,15 @@ export async function uploadChatFileAndCreateMessage(api, file, options, onProgr
   if (receiverId) body.receiverId = receiverId;
   if (roomId) body.roomId = roomId;
   if (organizationId) body.organizationId = organizationId;
+  if (replyToMessageId) body.replyToMessageId = String(replyToMessageId);
 
-  onProgress?.(88);
+  onProgress?.(92);
   const msgRes = await api.post('/messages', body);
   onProgress?.(100);
   const msgPayload = msgRes?.data ?? msgRes;
-  return msgPayload?.data ?? msgPayload;
+  const msg = msgPayload?.data ?? msgPayload;
+  if (msg?.fileMeta && storagePath && !msg.fileMeta.storagePath) {
+    msg.fileMeta = { ...msg.fileMeta, storagePath };
+  }
+  return msg;
 }
-
