@@ -39,15 +39,32 @@ describe('workflowTransition (Phase 4)', () => {
   });
 
   it('T1b: startup linear edges ok', () => {
+    assert.equal(assertTransitionAllowed(startup, 'todo', 'in_progress').ok, true);
+    assert.equal(assertTransitionAllowed(startup, 'in_progress', 'done').ok, true);
+  });
+
+  it('T1c: alias doing ↔ in_progress vẫn khớp cạnh', () => {
     assert.equal(assertTransitionAllowed(startup, 'todo', 'doing').ok, true);
     assert.equal(assertTransitionAllowed(startup, 'doing', 'done').ok, true);
+    const legacyDoing = {
+      states: [
+        { key: 'todo', order: 1, isInitial: true },
+        { key: 'doing', order: 2 },
+        { key: 'done', order: 3, isFinal: true },
+      ],
+      transitions: [
+        { fromKey: 'todo', toKey: 'doing', name: 'Start' },
+        { fromKey: 'doing', toKey: 'done', name: 'Complete' },
+      ],
+    };
+    assert.equal(assertTransitionAllowed(legacyDoing, 'todo', 'in_progress').ok, true);
   });
 
   it('T2: missing default task:change_status → 403', () => {
     const r = evaluateTransition({
       workflow: startup,
       fromStatus: 'todo',
-      toStatus: 'doing',
+      toStatus: 'in_progress',
       card: { title: 'X' },
       actorPermissions: ['task:view'],
       isElevated: false,
@@ -72,7 +89,7 @@ describe('workflowTransition (Phase 4)', () => {
     const r = evaluateTransition({
       workflow: startup,
       fromStatus: 'todo',
-      toStatus: 'doing',
+      toStatus: 'in_progress',
       card: { title: 'X' },
       actorPermissions: ['task:update'],
       isElevated: false,
@@ -80,11 +97,47 @@ describe('workflowTransition (Phase 4)', () => {
     assert.equal(r.ok, true);
   });
 
+  it('T2d: review→done thiếu quyền → 403 (fail-closed Done)', () => {
+    const denied = evaluateTransition({
+      workflow: sme,
+      fromStatus: 'review',
+      toStatus: 'done',
+      card: { title: 'X', assigneeId: 'u1' },
+      actorPermissions: ['task:view', 'backlog:update'],
+      isElevated: false,
+    });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.statusCode, 403);
+
+    const allowed = evaluateTransition({
+      workflow: sme,
+      fromStatus: 'review',
+      toStatus: 'done',
+      card: { title: 'X', assigneeId: 'u1' },
+      actorPermissions: ['task:change_status'],
+      isElevated: false,
+    });
+    assert.equal(allowed.ok, true);
+  });
+
+  it('T2e: observer không Done dù isElevated=false', () => {
+    const r = evaluateTransition({
+      workflow: sme,
+      fromStatus: 'review',
+      toStatus: 'done',
+      card: { title: 'X', assigneeId: 'u1' },
+      actorPermissions: [],
+      isElevated: false,
+    });
+    assert.equal(r.ok, false);
+    assert.equal(r.statusCode, 403);
+  });
+
   it('T3: condition roleKeys unknown_custom rejected at save', () => {
     const r = validateTransitionRoleKeys([
       {
         fromKey: 'todo',
-        toKey: 'doing',
+        toKey: 'in_progress',
         conditions: [{ type: 'project_role', roleKeys: ['unknown_custom'] }],
       },
     ]);
@@ -97,7 +150,7 @@ describe('workflowTransition (Phase 4)', () => {
     const r = validateTransitionRoleKeys([
       {
         fromKey: 'todo',
-        toKey: 'doing',
+        toKey: 'in_progress',
         conditions: ['role_in_project:project_manager'],
       },
     ]);
@@ -107,7 +160,7 @@ describe('workflowTransition (Phase 4)', () => {
   it('T4: validator assignee_present fails clearly', () => {
     const r = evaluateTransition({
       workflow: startup,
-      fromStatus: 'doing',
+      fromStatus: 'in_progress',
       toStatus: 'done',
       card: { title: 'No assignee' },
       actorPermissions: ['task:update'],
@@ -120,7 +173,7 @@ describe('workflowTransition (Phase 4)', () => {
   it('T4b: assignee present passes', () => {
     const r = evaluateTransition({
       workflow: startup,
-      fromStatus: 'doing',
+      fromStatus: 'in_progress',
       toStatus: 'done',
       card: { title: 'Ok', assigneeId: 'u1' },
       actorPermissions: ['task:update'],
@@ -136,7 +189,7 @@ describe('workflowTransition (Phase 4)', () => {
   it('inferStatusKeyFromTitle maps common labels', () => {
     assert.equal(inferStatusKeyFromTitle('Done'), 'done');
     assert.equal(inferStatusKeyFromTitle('To Do'), 'todo');
-    assert.equal(inferStatusKeyFromTitle('In Progress'), 'doing');
+    assert.equal(inferStatusKeyFromTitle('In Progress'), 'in_progress');
   });
 
   it('T5: board columns = template statuses', () => {

@@ -8,6 +8,7 @@ const Task = require('../models/Task');
 const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
 const { logger } = require('@enterprise/shared');
+const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
 const {
@@ -886,6 +887,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     });
     return {
       ...l,
+      title: repairUtf8Mojibake(l.title),
       cardCount,
       watcherCount: watcherCountByList.get(String(l._id)) || 0,
       isWatching: watchingSet.has(String(l._id)),
@@ -913,7 +915,10 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
         _id: wf._id,
         name: wf.name,
         templateKey: wf.templateKey || '',
-        states: wf.states || [],
+        states: (wf.states || []).map((s) => ({
+          ...s,
+          label: repairUtf8Mojibake(s?.label),
+        })),
         transitions: wf.transitions || [],
         transitionsByFrom,
       };

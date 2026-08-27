@@ -1218,10 +1218,72 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
     return [];
   }
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  return TaskActivityLog.find({ projectId })
+  const logs = await TaskActivityLog.find({ projectId })
     .sort({ createdAt: -1 })
     .limit(lim)
     .lean();
+
+  const FIELD_TITLE_KEYS = new Set([
+    'status',
+    'listId',
+    'assigneeId',
+    'priority',
+    'dueDate',
+    'sprintId',
+    'issue',
+    'title',
+    'estimateHours',
+    'parentTaskId',
+    'epicId',
+    'comment',
+    'worklog',
+  ]);
+
+  const taskIds = [
+    ...new Set(
+      (logs || [])
+        .map((l) => (l?.taskId ? String(l.taskId) : ''))
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  const titleByTaskId = new Map();
+  if (taskIds.length) {
+    const tasks = await Task.find({ _id: { $in: taskIds } })
+      .select('title')
+      .lean();
+    for (const task of tasks || []) {
+      const id = task?._id ? String(task._id) : '';
+      if (id) titleByTaskId.set(id, String(task.title || '').trim());
+    }
+  }
+
+  const hydrated = (logs || []).map((log) => {
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const rawTitle = String(log?.title || '').trim();
+    const workTitle =
+      (tid && titleByTaskId.get(tid)) ||
+      (rawTitle && !FIELD_TITLE_KEYS.has(rawTitle) ? rawTitle : '');
+    return workTitle && workTitle !== rawTitle ? { ...log, title: workTitle } : { ...log, title: workTitle || rawTitle };
+  });
+
+  // Cùng mutation thường ghi status + listId — Overview chỉ cần status (giống #announcement).
+  const statusTwinKeys = new Set();
+  for (const log of hydrated) {
+    const field = String(log?.payload?.field || '').trim();
+    if (field !== 'status') continue;
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const at = log?.createdAt ? new Date(log.createdAt).getTime() : 0;
+    if (!tid || !Number.isFinite(at)) continue;
+    statusTwinKeys.add(`${tid}:${Math.round(at / 3000)}`);
+  }
+  return hydrated.filter((log) => {
+    const field = String(log?.payload?.field || '').trim();
+    if (field !== 'listId') return true;
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const at = log?.createdAt ? new Date(log.createdAt).getTime() : 0;
+    if (!tid || !Number.isFinite(at)) return true;
+    return !statusTwinKeys.has(`${tid}:${Math.round(at / 3000)}`);
+  });
 }
 
 async function getProjectFiles({ userId, projectId }) {

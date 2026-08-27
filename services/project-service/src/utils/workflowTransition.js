@@ -5,6 +5,7 @@
 const {
   DEFAULT_CHANGE_STATUS_PERMISSION,
 } = require('./workflowTemplates.defaults');
+const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
 
 let MASTER_PROJECT_ROLE_KEYS_CACHE = null;
 function getMasterProjectRoleKeys() {
@@ -34,6 +35,37 @@ const LEGACY_STATUSES = Object.freeze([
   'deploy',
 ]);
 
+/** Seed cột dùng in_progress; template cũ / label “Doing” dùng doing — dual-read. */
+const STATUS_KEY_ALIASES = Object.freeze({
+  doing: Object.freeze(['doing', 'in_progress']),
+  in_progress: Object.freeze(['in_progress', 'doing']),
+});
+
+function statusKeyEquivalents(key) {
+  const k = String(key || '').trim();
+  if (!k) return [];
+  return STATUS_KEY_ALIASES[k] || [k];
+}
+
+function statusKeysMatch(a, b) {
+  const left = statusKeyEquivalents(a);
+  const right = new Set(statusKeyEquivalents(b));
+  return left.some((k) => right.has(k));
+}
+
+function workflowHasStatusKey(workflowKeys, statusKey) {
+  const keys = workflowKeys instanceof Set ? workflowKeys : new Set(workflowKeys || []);
+  return statusKeyEquivalents(statusKey).some((k) => keys.has(k));
+}
+
+function findTransition(workflow, fromStatus, toStatus) {
+  const from = String(fromStatus || '').trim();
+  const to = String(toStatus || '').trim();
+  return (workflow?.transitions || []).find(
+    (t) => statusKeysMatch(t.fromKey, from) && statusKeysMatch(t.toKey, to)
+  );
+}
+
 /**
  * @returns {{ ok: boolean, message?: string, transition?: object|null }}
  */
@@ -41,26 +73,24 @@ function assertTransitionAllowed(workflow, fromStatus, toStatus) {
   const from = String(fromStatus || '').trim();
   const to = String(toStatus || '').trim();
   if (!to) return { ok: false, message: 'status đích bắt buộc' };
-  if (from === to) return { ok: true, transition: null };
+  if (from === to || statusKeysMatch(from, to)) return { ok: true, transition: null };
 
   if (!workflow || !Array.isArray(workflow.states) || !workflow.states.length) {
-    if (!LEGACY_STATUSES.includes(to)) {
+    if (!LEGACY_STATUSES.includes(to) && !statusKeyEquivalents(to).some((k) => LEGACY_STATUSES.includes(k))) {
       return { ok: false, message: `status không hợp lệ: ${to}` };
     }
     return { ok: true, transition: null };
   }
 
   const keys = new Set(workflow.states.map((s) => String(s.key)));
-  if (!keys.has(to)) {
+  if (!workflowHasStatusKey(keys, to)) {
     return { ok: false, message: `Status “${to}” không có trong workflow của board` };
   }
-  if (from && !keys.has(from)) {
+  if (from && !workflowHasStatusKey(keys, from)) {
     const initial = workflow.states.find((s) => s.isInitial);
-    if (initial && to === initial.key) return { ok: true, transition: null };
+    if (initial && statusKeysMatch(to, initial.key)) return { ok: true, transition: null };
   }
-  const transition = (workflow.transitions || []).find(
-    (t) => String(t.fromKey) === from && String(t.toKey) === to
-  );
+  const transition = findTransition(workflow, from, to);
   if (!transition) {
     return {
       ok: false,
@@ -253,7 +283,7 @@ function evaluateTransition({
 } = {}) {
   const graph = assertTransitionAllowed(workflow, fromStatus, toStatus);
   if (!graph.ok) return graph;
-  if (fromStatus === toStatus) return { ok: true };
+  if (fromStatus === toStatus || statusKeysMatch(fromStatus, toStatus)) return { ok: true };
 
   const transition = graph.transition;
   if (!transition) return { ok: true };
@@ -302,15 +332,17 @@ function inferStatusKeyFromTitle(title = '') {
   if (/deploy/.test(n)) return 'deploy';
   if (/analys/.test(n)) return 'analysis';
   if (/^dev$|develop/.test(n)) return 'dev';
-  if (/doing|in progress|dang lam|đang làm|progress/.test(n)) return 'doing';
+  if (/doing|in progress|dang lam|đang làm|progress/.test(n)) return 'in_progress';
   if (/^open$|todo|to do|backlog|viec can lam|việc cần làm/.test(n)) return 'todo';
   return '';
 }
 
+const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
+
 function statesToBoardShape(statuses = []) {
   return (statuses || []).map((s, i) => ({
     key: String(s.key || '').trim(),
-    label: String(s.label || s.key || '').trim(),
+    label: repairUtf8Mojibake(String(s.label || s.key || '').trim()),
     order: Number(s.sortOrder ?? s.order) || i + 1,
     isInitial: Boolean(s.isInitial),
     isFinal: Boolean(s.isFinal),
@@ -392,6 +424,11 @@ function planListMigration(existingLists = [], states = []) {
 
 module.exports = {
   LEGACY_STATUSES,
+  STATUS_KEY_ALIASES,
+  statusKeyEquivalents,
+  statusKeysMatch,
+  workflowHasStatusKey,
+  findTransition,
   assertTransitionAllowed,
   runValidators,
   runConditions,
