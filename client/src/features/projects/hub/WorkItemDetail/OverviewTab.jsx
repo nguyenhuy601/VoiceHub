@@ -1,18 +1,26 @@
 import { CheckCircle2, Circle } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import UserAvatar from '../../../../components/Shared/UserAvatar';
+import { useAuth } from '../../../../context/AuthContext';
 import { canSetCardAssignee } from '../../../../utils/goldenAssignPolicy';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
 import { projectAPI } from '../../../../services/api/projectAPI';
+import { taskAPI } from '../../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
-import { TASK_BOARD_LABELS, labelById } from '../../board/taskBoardCardLabels';
+import { TASK_BOARD_LABELS } from '../../board/taskBoardCardLabels';
 import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../../../components/Organization/figmaOrganizationClasses';
-import { dueDateTone, formatHubDateShort, listsForStatusSelect, toDateInputValue } from '../projectHubUtils';
+import { dueDateTone, formatHubDateShort, listsForStatusSelect, resolveHubActor } from '../projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
 import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { useWorkItemDetail } from './WorkItemDetailContext';
-import { relId, resolveWorkItemDueDate, resolveWorkItemStartDate } from './workItemDetailUtils';
+import {
+  buildWorkItemDatePatch,
+  dateInputValueFromIso,
+  relId,
+  resolveWorkItemDueDate,
+  resolveWorkItemStartDate,
+} from './workItemDetailUtils';
 
 function DetailRow({ label, children }) {
   return (
@@ -23,31 +31,11 @@ function DetailRow({ label, children }) {
   );
 }
 
-function actorFromMembers(members, actorId) {
-  const id = String(actorId || '');
-  const row = (members || []).find((m) => {
-    const uid = String(m?.userId || m?.user?._id || m?._id || m?.id || '');
-    return uid === id;
-  });
-  const nested = row?.user && typeof row.user === 'object' ? row.user : null;
-  return {
-    id,
-    displayName:
-      row?.displayName ||
-      nested?.displayName ||
-      row?.fullName ||
-      nested?.fullName ||
-      row?.name ||
-      nested?.name ||
-      (id ? id.slice(-6) : '—'),
-    avatar: row?.avatar || nested?.avatar || '',
-  };
-}
-
 export default function OverviewTab() {
   const ctx = useWorkItemDetail();
   const {
     workItem,
+    issueId,
     isPlanning,
     boardCards,
     lists,
@@ -60,6 +48,8 @@ export default function OverviewTab() {
     canEstimate,
     saving,
     save,
+    apiCtx,
+    patchLocalWorkItem,
     assigneeId,
     setAssigneeId,
     labelIds,
@@ -76,8 +66,8 @@ export default function OverviewTab() {
     taskWorkspaceScope,
     onOpenChangeRequest,
     priorityConfig,
-    apiCtx,
   } = ctx;
+  const { user: authUser } = useAuth();
 
   const [estimateHint, setEstimateHint] = useState(null);
   const [hintLoading, setHintLoading] = useState(false);
@@ -154,8 +144,39 @@ export default function OverviewTab() {
   const sprint = (sprints || []).find((s) => String(s._id) === String(workItem?.sprintId || ''));
   const resolvedDueDate = resolveWorkItemDueDate(workItem, { isPlanning });
   const dueTone = dueDateTone(resolvedDueDate, workItem?.status || currentList);
-  const reporterId = workItem?.createdBy || workItem?.reporterId || '';
-  const reporter = actorFromMembers(projectMembers, reporterId);
+  const reporterMembers = useMemo(() => {
+    const byId = new Map();
+    for (const m of [...(assignableMembers || []), ...(projectMembers || [])]) {
+      const id = String(m?.userId || m?.user?._id || m?.user?.id || m?._id || m?.id || '').trim();
+      if (!id || byId.has(id)) continue;
+      byId.set(id, m);
+    }
+    return [...byId.values()];
+  }, [assignableMembers, projectMembers]);
+  const reporter = useMemo(() => {
+    const base = resolveHubActor(workItem, reporterMembers);
+    if (!base?.userId) return base;
+    const looksLikeIdTail =
+      !base.name ||
+      base.name === base.userId.slice(-6) ||
+      /^[a-f0-9]{24}$/i.test(base.name);
+    if (!looksLikeIdTail) return base;
+    const authId = String(authUser?._id || authUser?.id || '').trim();
+    if (authId && authId === base.userId) {
+      const selfName = String(
+        authUser?.displayName || authUser?.fullName || authUser?.name || authUser?.username || ''
+      ).trim();
+      if (selfName) {
+        return {
+          ...base,
+          name: selfName,
+          avatar: base.avatar || authUser?.avatar || authUser?.avatarUrl || '',
+        };
+      }
+    }
+    return base;
+  }, [workItem, reporterMembers, authUser]);
+  const reporterId = reporter?.userId || '';
   const isDone = String(workItem?.status || '') === 'done';
 
   const boardMembers = (assignableMembers || [])
@@ -351,31 +372,31 @@ export default function OverviewTab() {
             : t('workspace.projectHubWorkNone')
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {TASK_BOARD_LABELS.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                disabled={saving}
-                onClick={() => void toggleLabel(l.id)}
-                className="h-5 min-w-[2rem] rounded-full border border-border px-2"
-                style={{
-                  backgroundColor: l.color,
-                  opacity: labelIds.includes(l.id) ? 1 : 0.35,
-                }}
-                title={l.id}
-                aria-pressed={labelIds.includes(l.id)}
-              />
-            ))}
-            {labelIds.length
-              ? labelIds.map((id) => {
-                  const l = labelById(id);
-                  return l ? (
-                    <span key={`sel-${id}`} className="text-[10px] text-muted-foreground">
-                      {id}
-                    </span>
-                  ) : null;
-                })
-              : null}
+            {TASK_BOARD_LABELS.map((l) => {
+              const selected = labelIds.includes(l.id);
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void toggleLabel(l.id)}
+                  className="inline-flex h-6 items-center gap-1.5 rounded-full border border-border px-2 text-[10px] font-medium capitalize text-foreground"
+                  style={{
+                    backgroundColor: selected ? l.color : 'transparent',
+                    opacity: selected ? 1 : 0.55,
+                  }}
+                  title={l.id}
+                  aria-pressed={selected}
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60"
+                    style={{ backgroundColor: l.color }}
+                    aria-hidden
+                  />
+                  {l.id}
+                </button>
+              );
+            })}
           </div>
         )}
       </DetailRow>
@@ -388,9 +409,9 @@ export default function OverviewTab() {
           className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
           onChange={(e) => setStartDateLocal(e.target.value)}
           onBlur={async () => {
-            const prev = toDateInputValue(resolveWorkItemStartDate(workItem));
+            const prev = dateInputValueFromIso(resolveWorkItemStartDate(workItem));
             if (startDateLocal === prev) return;
-            await save({ startDate: startDateLocal || null });
+            await save(buildWorkItemDatePatch({ isPlanning, startDate: startDateLocal || null }));
           }}
         />
       </DetailRow>
@@ -403,12 +424,9 @@ export default function OverviewTab() {
           className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1 text-xs`}
           onChange={(e) => setDueDateLocal(e.target.value)}
           onBlur={async () => {
-            const prev = toDateInputValue(resolvedDueDate);
+            const prev = dateInputValueFromIso(resolvedDueDate);
             if (dueDateLocal === prev) return;
-            const nextDue = dueDateLocal || null;
-            await save(
-              isPlanning ? { targetDate: nextDue, dueDate: nextDue } : { dueDate: nextDue }
-            );
+            await save(buildWorkItemDatePatch({ isPlanning, dueDate: dueDateLocal || null }));
           }}
         />
       </DetailRow>
@@ -467,21 +485,49 @@ export default function OverviewTab() {
         {reporterId ? (
           <span className="inline-flex items-center gap-1">
             <UserAvatar
-              avatar={reporter.avatar}
-              userId={reporter.id}
-              name={reporter.displayName}
+              avatar={reporter?.avatar}
+              userId={reporterId}
+              name={reporter?.name}
               size="sm"
             />
-            <span>{reporter.displayName}</span>
+            <span>{reporter?.name || reporterId.slice(-6)}</span>
           </span>
         ) : (
           t('workspace.projectHubWorkNone')
         )}
       </DetailRow>
 
-      {currentList?.title || ctx.listTitle ? (
+      {!isPlanning && listArr.length > 0 ? (
         <DetailRow label={t('workspace.projectHubWorkFieldList')}>
-          {currentList?.title || ctx.listTitle}
+          {canChangeStatus ? (
+            <select
+              className={`${FIGMA_ORG_TASK_MODAL_INPUT} py-1.5 text-xs`}
+              value={String(workItem?.listId || '')}
+              disabled={saving}
+              onChange={async (e) => {
+                const nextListId = e.target.value;
+                const prevListId = String(workItem?.listId || '');
+                if (!nextListId || nextListId === prevListId || !issueId) return;
+                try {
+                  await taskAPI.moveBoardCard(issueId, { toListId: nextListId }, apiCtx || {});
+                  patchLocalWorkItem({ listId: nextListId });
+                  toast.success(t('taskBoard.saved'));
+                } catch (error) {
+                  toast.error(
+                    resolveApiErrorMessage(error, { t, fallback: t('taskBoard.saveFail') })
+                  );
+                }
+              }}
+            >
+              {listArr.map((list) => (
+                <option key={list._id || list.id} value={String(list._id || list.id)}>
+                  {list.title || String(list.statusKey || '')}
+                </option>
+              ))}
+            </select>
+          ) : (
+            currentList?.title || ctx.listTitle || t('workspace.projectHubWorkNone')
+          )}
         </DetailRow>
       ) : null}
     </div>

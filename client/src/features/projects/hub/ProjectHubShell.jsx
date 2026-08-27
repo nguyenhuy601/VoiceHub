@@ -1,10 +1,11 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, RefreshCw } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
 import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
@@ -860,6 +861,8 @@ export default function ProjectHubShell({
   const [overviewWorkIssue, setOverviewWorkIssue] = useState(null);
   const [hubChatChannelId, setHubChatChannelId] = useState('');
   const [sprintsFetching, setSprintsFetching] = useState(false);
+  /** Đã kết thúc lần fetch sprint đầu cho projectId (success/fail) — tránh hiện Board “khóa” giả khi đang hydrate. */
+  const [sprintsHydratedFor, setSprintsHydratedFor] = useState('');
 
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
@@ -894,6 +897,7 @@ export default function ProjectHubShell({
     setPlanningLoading(false);
     setPlanningError(false);
     setSprintsFetching(false);
+    setSprintsHydratedFor('');
     loadedPlanningProjectRef.current = '';
     planningFetchKeyRef.current = '';
     sprintsLoadedForRef.current = '';
@@ -905,7 +909,13 @@ export default function ProjectHubShell({
   }
 
   const cards = Array.isArray(boardDetail?.cards) ? boardDetail.cards : [];
-  const lists = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
+  const lists = useMemo(() => {
+    const raw = Array.isArray(boardDetail?.lists) ? boardDetail.lists : [];
+    return raw.map((list) => {
+      const title = repairUtf8Mojibake(list?.title);
+      return title === list?.title ? list : { ...list, title };
+    });
+  }, [boardDetail?.lists]);
   const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
   const overdueHealthCards = useMemo(
     () => listHubHealthCards(cards, lists, 'overdue', { limit: 8 }),
@@ -931,12 +941,6 @@ export default function ProjectHubShell({
     [hubCaps, informationLevel, capsReady]
   );
   const isSummaryOnly = informationLevel === 'summary';
-  const needsSprints =
-    (tab === 'overview' && overviewVisibility.canViewSprintContext) ||
-    tab === 'planning' ||
-    tab === 'timeline' ||
-    tab === 'board' ||
-    (Boolean(hubCaps.canCompleteProject) && workLooksComplete && !isProjectCompleted);
   const needsPlanningItems =
     (tab === 'overview' && overviewVisibility.canViewPlanningPulse) ||
     tab === 'planning' ||
@@ -966,9 +970,18 @@ export default function ProjectHubShell({
     };
   }, [projectId, boardDetail?.board?.status]);
 
+  // Hydrate sprint ngay khi mở Hub (không chờ tab Backlog) — Board không bị “khóa giả” lúc fetch.
   useEffect(() => {
-    if (!projectId || !needsSprints) return undefined;
-    if (sprintsLoadedForRef.current === projectId) return undefined;
+    if (!projectId) {
+      setSprints([]);
+      setSprintsFetching(false);
+      setSprintsHydratedFor('');
+      return undefined;
+    }
+    if (sprintsLoadedForRef.current === projectId) {
+      setSprintsHydratedFor(projectId);
+      return undefined;
+    }
     let cancelled = false;
     setSprintsFetching(true);
     (async () => {
@@ -977,9 +990,12 @@ export default function ProjectHubShell({
         if (cancelled) return;
         setSprints(unwrapPlanningList(res));
         sprintsLoadedForRef.current = projectId;
+        setSprintsHydratedFor(projectId);
       } catch {
-        if (!cancelled) setSprints([]);
-        if (!cancelled) sprintsLoadedForRef.current = projectId;
+        if (cancelled) return;
+        setSprints([]);
+        sprintsLoadedForRef.current = projectId;
+        setSprintsHydratedFor(projectId);
       } finally {
         if (!cancelled) setSprintsFetching(false);
       }
@@ -987,7 +1003,7 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId, needsSprints]);
+  }, [projectId]);
 
   const patchPlanningItems = useCallback((updater) => {
     setPlanningItems((prev) => (typeof updater === 'function' ? updater(prev) : prev));
@@ -1000,14 +1016,19 @@ export default function ProjectHubShell({
     if (!pid) {
       setSprints([]);
       sprintsLoadedForRef.current = '';
+      setSprintsHydratedFor('');
       return;
     }
+    setSprintsFetching(true);
     try {
       const res = await projectAPI.listSprints(pid);
       setSprints(unwrapPlanningList(res));
       sprintsLoadedForRef.current = pid;
+      setSprintsHydratedFor(pid);
     } catch {
       /* giữ sprint hiện tại */
+    } finally {
+      setSprintsFetching(false);
     }
   }, [projectId]);
 
@@ -1167,7 +1188,9 @@ export default function ProjectHubShell({
     () => countCardsInSprint(cards, activeSprint?._id),
     [cards, activeSprint?._id]
   );
-  const sprintContextLoading = tab === 'overview' && sprintsFetching;
+  const sprintsHydrated = Boolean(projectId) && sprintsHydratedFor === projectId;
+  const sprintContextLoading =
+    (tab === 'overview' || tab === 'board') && (sprintsFetching || !sprintsHydrated);
   const planningContextLoading = tab === 'overview' && planningLoading;
   const defaultListId = String(lists[0]?._id || '').trim();
   const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
@@ -1180,12 +1203,30 @@ export default function ProjectHubShell({
   const activity = useMemo(() => {
     if (!overviewVisibility.canViewActivity || activityRestricted) return [];
     const source = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
-    return (source || []).map((row) => mapHubActivityItem(row, t, { locale }));
+    const statusTwinKeys = new Set();
+    for (const row of source || []) {
+      const field = String(row?.payload?.field || '').trim();
+      if (field !== 'status') continue;
+      const tid = String(row?.taskId || '').trim();
+      const at = row?.createdAt ? new Date(row.createdAt).getTime() : 0;
+      if (!tid || !Number.isFinite(at)) continue;
+      statusTwinKeys.add(`${tid}:${Math.round(at / 3000)}`);
+    }
+    const filtered = (source || []).filter((row) => {
+      const field = String(row?.payload?.field || '').trim();
+      if (field !== 'listId') return true;
+      const tid = String(row?.taskId || '').trim();
+      const at = row?.createdAt ? new Date(row.createdAt).getTime() : 0;
+      if (!tid || !Number.isFinite(at)) return true;
+      return !statusTwinKeys.has(`${tid}:${Math.round(at / 3000)}`);
+    });
+    return filtered.map((row) => mapHubActivityItem(row, t, { locale, cards }));
   }, [
     apiActivity,
     derivedActivity,
     t,
     locale,
+    cards,
     overviewVisibility.canViewActivity,
     activityRestricted,
   ]);
@@ -1508,6 +1549,7 @@ export default function ProjectHubShell({
             boardId={boardId}
             defaultListId={defaultListId}
             lists={lists}
+            sprints={sprints}
             projectCode={resolvedBoard?.projectCode || ''}
             hubCaps={hubCaps}
             canManage={canManage}
@@ -1525,6 +1567,7 @@ export default function ProjectHubShell({
             membersEpoch={membersEpoch}
             workTypeConfig={projectPayload?.workTypeConfig}
             priorityConfig={projectPayload?.priorityConfig}
+            workflowTransitionsByFrom={boardDetail?.workflow?.transitionsByFrom || null}
           />
         </div>
         ) : null}
@@ -1570,6 +1613,7 @@ export default function ProjectHubShell({
             }}
             workTypeConfig={projectPayload?.workTypeConfig}
             priorityConfig={projectPayload?.priorityConfig}
+            workflowTransitionsByFrom={boardDetail?.workflow?.transitionsByFrom || null}
           />
         </div>
         ) : null}
@@ -1611,7 +1655,17 @@ export default function ProjectHubShell({
         </div>
         ) : null}
         {tab === 'board' ? (
-          boardReady ? (
+          !sprintsHydrated || sprintsFetching ? (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+              <Loader2
+                className={`h-5 w-5 animate-spin ${isDarkMode ? 'text-slate-300' : 'text-muted-foreground'}`}
+                aria-hidden
+              />
+              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}>
+                {t('common.loading')}
+              </p>
+            </div>
+          ) : boardReady ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardKanban}</div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-12 text-center">

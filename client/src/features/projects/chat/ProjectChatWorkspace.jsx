@@ -14,6 +14,7 @@ import ForwardChannelModal from '../../../components/Organization/ForwardChannel
 import { Modal } from '../../../components/Shared';
 import ProjectChannelMessageRow from './ProjectChannelMessageRow';
 import WorkItemDetail from '../hub/WorkItemDetail/WorkItemDetail';
+import { hydrateWorkItemDetailFromHub } from '../hub/WorkItemDetail/hydrateWorkItemDetailFromHub';
 import ProjectHubChangeRequestDetailDrawer from '../hub/ProjectHubChangeRequestDetailDrawer';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
@@ -298,28 +299,29 @@ export default function ProjectChatWorkspace({
     if (kind !== 'task' || !entityId || payload?.restricted) return;
     setPreviewTarget(null);
     void (async () => {
-      let workItem = {
-        _id: entityId,
-        title: payload?.title || target?.title || target?.label || '',
-        issueType: payload?.issueType || 'task',
-        status: payload?.status || '',
-        priority: payload?.priority || '',
-        projectId,
-      };
       try {
-        const res = await taskAPI.getTask(entityId, apiCtx);
-        const data = unwrapTaskApiPayload(res);
-        if (data && typeof data === 'object') workItem = data;
-      } catch {
-        /* stub from preview */
+        const hydrated = await hydrateWorkItemDetailFromHub({
+          entityId,
+          projectId,
+          boardId: String(payload?.boardId || target?.boardId || '').trim(),
+          stub: {
+            title: payload?.title || target?.title || target?.label || '',
+            issueType: payload?.issueType || 'task',
+            status: payload?.status || '',
+            priority: payload?.priority || '',
+            project: payload?.project,
+          },
+          apiCtx,
+        });
+        setWorkDetail({
+          ...hydrated,
+          initialPanel: panel === 'activity' ? 'activity' : 'detail',
+        });
+      } catch (err) {
+        toast.error(
+          resolveApiErrorMessage(err, { t, fallback: t('taskBoard.loadBoardFail') })
+        );
       }
-      setWorkDetail({
-        workItem,
-        projectId,
-        projectCode: payload?.project?.projectCode || '',
-        boardId: String(workItem.boardId || '').trim(),
-        initialPanel: panel === 'activity' ? 'activity' : 'detail',
-      });
     })();
   };
 
@@ -743,17 +745,38 @@ export default function ProjectChatWorkspace({
           projectId={workDetail.projectId}
           projectCode={workDetail.projectCode}
           boardId={workDetail.boardId}
+          boardCards={workDetail.boardCards || []}
+          lists={workDetail.lists || []}
+          epics={workDetail.epics || []}
+          features={workDetail.features || []}
+          sprints={workDetail.sprints || []}
           apiCtx={apiCtx}
           isDarkMode={isDarkMode}
           locale={locale}
           initialPanel={workDetail.initialPanel || 'detail'}
           canViewMembers={canViewMembers}
           onClose={() => setWorkDetail(null)}
+          onPatchBoardCards={(updater) => {
+            setWorkDetail((prev) => {
+              if (!prev) return prev;
+              const nextCards =
+                typeof updater === 'function' ? updater(prev.boardCards || []) : updater;
+              const wid = String(prev.workItem?._id || prev.workItem?.id || '');
+              const nextItem =
+                (nextCards || []).find((c) => String(c._id || c.id) === wid) || prev.workItem;
+              return { ...prev, boardCards: nextCards || [], workItem: nextItem };
+            });
+          }}
           onUpdateCard={async (cardId, patch) => {
             setWorkDetail((prev) => {
               if (!prev?.workItem) return prev;
-              if (String(prev.workItem._id || prev.workItem.id) !== String(cardId)) return prev;
-              return { ...prev, workItem: { ...prev.workItem, ...patch } };
+              const wid = String(prev.workItem._id || prev.workItem.id);
+              if (wid !== String(cardId)) return prev;
+              const nextItem = { ...prev.workItem, ...patch };
+              const nextCards = (prev.boardCards || []).map((c) =>
+                String(c._id || c.id) === String(cardId) ? { ...c, ...patch } : c
+              );
+              return { ...prev, workItem: nextItem, boardCards: nextCards };
             });
             const keys = Object.keys(patch || {});
             if (keys.length === 1 && keys[0] === 'comments') return;

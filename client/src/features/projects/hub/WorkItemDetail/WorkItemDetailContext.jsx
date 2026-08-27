@@ -11,7 +11,7 @@ import {
 } from '../../../../utils/hoursSoftWarning';
 import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
 import { parseCardLabelIds } from '../../board/taskBoardCardLabels';
-import { toDateInputValue, unwrapPlanningEntity } from '../projectHubUtils';
+import { unwrapPlanningEntity } from '../projectHubUtils';
 import {
   buildTabVisibilityContext,
   listVisibleTabs,
@@ -19,6 +19,7 @@ import {
   resolveWorkItemType,
 } from './workItemDetailTabs';
 import {
+  dateInputValueFromIso,
   hoursInputValue,
   isPlanningIssue,
   mapInitialPanelToTab,
@@ -147,8 +148,8 @@ export function WorkItemDetailProvider({
     setTitle(String(workItem.title || ''));
     setDescription(String(workItem.description || ''));
     setLabelIds(parseCardLabelIds(workItem.tags || workItem.labels));
-    setDueDateLocal(toDateInputValue(resolveWorkItemDueDate(workItem, { isPlanning })));
-    setStartDateLocal(toDateInputValue(resolveWorkItemStartDate(workItem)));
+    setDueDateLocal(dateInputValueFromIso(resolveWorkItemDueDate(workItem, { isPlanning })));
+    setStartDateLocal(dateInputValueFromIso(resolveWorkItemStartDate(workItem)));
     setEstimateHours(hoursInputValue(workItem.estimateHours));
     setAssigneeId(workItem.assigneeId ? String(workItem.assigneeId) : '');
     setAttachments(Array.isArray(workItem.attachments) ? [...workItem.attachments] : []);
@@ -175,7 +176,10 @@ export function WorkItemDetailProvider({
           if (patch.title !== undefined) body.title = patch.title;
           if (patch.description !== undefined) body.description = patch.description;
           if (patch.targetDate !== undefined) body.targetDate = patch.targetDate;
-          else if (patch.dueDate !== undefined) body.targetDate = patch.dueDate;
+          if (patch.dueDate !== undefined) body.dueDate = patch.dueDate;
+          else if (patch.targetDate !== undefined && body.dueDate === undefined) {
+            body.dueDate = patch.targetDate;
+          }
           if (patch.startDate !== undefined) body.startDate = patch.startDate;
           const res = await projectAPI.patchPlanningItem(projectId, issueId, body);
           const saved = unwrapPlanningEntity(res) || body;

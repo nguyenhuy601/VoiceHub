@@ -62,6 +62,8 @@ import {
   countOpenCardsByAssignee,
   overviewDonutAnnulusPath,
   overviewDonutCalloutPoints,
+  resolveOverviewDonutCalloutCollisions,
+  OVERVIEW_DONUT_CALLOUT_MIN_GAP,
   listHubHealthCards,
   listOverviewChartSegmentCards,
   formatHubProjectStatus,
@@ -549,6 +551,24 @@ test('mapHubActivityItem: work.field_changed → title work + detail i18n', () =
   assert.ok(!item.detail.includes('assigneeId'));
 });
 
+test('mapHubActivityItem: title cũ = field key → untitled + status labels', () => {
+  const item = mapHubActivityItem(
+    {
+      _id: 'log-status',
+      type: 'work.field_changed',
+      title: 'status',
+      taskId: 'card1',
+      payload: { field: 'status', from: 'todo', to: 'in_progress' },
+      createdAt: '2026-01-03T00:00:00.000Z',
+    },
+    mockT,
+    { cards: [{ _id: 'card1', title: 'Doi chieu lech thue' }] }
+  );
+  assert.equal(item.title, 'Doi chieu lech thue');
+  assert.ok(!item.detail.includes('todo'));
+  assert.ok(item.detail.includes('To Do') || item.detail.includes('In Progress'));
+});
+
 test('mapHubActivityItem: actorName từ actorId + members', () => {
   const item = mapHubActivityItem(
     {
@@ -697,6 +717,22 @@ test('listsForStatusSelect: board không statusKey vẫn dedupe bucket EN/VI', (
   ];
   const titles = listsForStatusSelect(lists).map((l) => l.title);
   assert.deepEqual(titles, ['Todo', 'In progress']);
+});
+
+test('listsForStatusSelect: lọc theo transitionsByFrom — Done không mở Review', () => {
+  const lists = [
+    { _id: 'todo', title: 'Todo', statusKey: 'todo', order: 1 },
+    { _id: 'ip', title: 'Đang xử lý', statusKey: 'in_progress', order: 2 },
+    { _id: 'review', title: 'Review', statusKey: 'review', order: 3 },
+    { _id: 'done', title: 'Done', statusKey: 'done', order: 4 },
+  ];
+  const transitionsByFrom = {
+    done: [{ toKey: 'in_progress' }],
+    review: [{ toKey: 'done' }, { toKey: 'in_progress' }],
+  };
+  const fromDone = listsForStatusSelect(lists, 'done', transitionsByFrom).map((l) => l.statusKey);
+  assert.deepEqual([...fromDone].sort(), ['done', 'in_progress']);
+  assert.equal(fromDone.includes('review'), false);
 });
 
 test('classifyListStatusBucket và dueDateTone', () => {
@@ -891,6 +927,12 @@ test('resolveHubActor: DTO name, members lookup, fallback id', () => {
   const fallback = resolveHubActor({ createdBy: 'abc123456789' }, []);
   assert.equal(fallback.name, '456789');
   assert.equal(resolveHubActor({}, []), null);
+  // ObjectId giả làm reporterName → bỏ, lấy members
+  const oid = '6a59e6cc81b638829ba7b085';
+  const fromOidName = resolveHubActor({ createdBy: oid, reporterName: oid }, [
+    { userId: oid, displayName: 'Nhất Nhất' },
+  ]);
+  assert.equal(fromOidName.name, 'Nhất Nhất');
 });
 
 test('collectCrWorkItems: union workItems + workItemIds, join boardCards', () => {
@@ -1184,8 +1226,63 @@ test('overviewDonutCalloutPoints: chỉ lát > 0; anchor trái/phải theo nửa
   assert.ok(callouts.every((c) => Number.isFinite(c.x1) && Number.isFinite(c.x3)));
   for (const c of callouts) {
     assert.ok(c.textAnchor === 'start' || c.textAnchor === 'end');
-    // L-line: đoạn ngang từ elbow → neo chữ (y2 === y3)
-    assert.equal(c.y2, c.y3);
+    // L-line: đoạn ngang từ elbow → neo chữ (y2 === y3) khi không collision
+    assert.ok(Number.isFinite(c.y2) && Number.isFinite(c.y3));
     assert.notEqual(c.x2, c.x3);
+  }
+});
+
+test('resolveOverviewDonutCalloutCollisions: tách y cùng phía khi sát nhau', () => {
+  const rows = [
+    { key: 'a', y3: 40, textAnchor: 'end' },
+    { key: 'b', y3: 42, textAnchor: 'end' },
+    { key: 'c', y3: 100, textAnchor: 'start' },
+  ];
+  resolveOverviewDonutCalloutCollisions(rows, { minGap: OVERVIEW_DONUT_CALLOUT_MIN_GAP });
+  const left = rows.filter((r) => r.textAnchor === 'end').sort((a, b) => a.y3 - b.y3);
+  assert.equal(left.length, 2);
+  assert.ok(left[1].y3 - left[0].y3 >= OVERVIEW_DONUT_CALLOUT_MIN_GAP - 0.01);
+  assert.equal(rows.find((r) => r.key === 'c').y3, 100);
+});
+
+test('overviewDonutCalloutPoints: lát nhỏ sát đỉnh không đè y', () => {
+  // Giống case 127 todo + 1 progress + 2 done — hai lát nhỏ cùng nửa trái gần đỉnh.
+  const charts = buildOverviewDashboardCharts({
+    cards: [
+      ...Array.from({ length: 127 }, (_, i) => ({
+        _id: `t${i}`,
+        listId: 'l1',
+        issueType: 'task',
+      })),
+      { _id: 'p1', listId: 'l2', issueType: 'task' },
+      { _id: 'd1', listId: 'l3', issueType: 'task' },
+      { _id: 'd2', listId: 'l3', issueType: 'task' },
+    ],
+    lists: [
+      { _id: 'l1', title: 'Todo', statusKey: 'todo' },
+      { _id: 'l2', title: 'Doing', statusKey: 'doing' },
+      { _id: 'l3', title: 'Done', statusKey: 'done' },
+    ],
+  });
+  const callouts = overviewDonutCalloutPoints(charts.statusSegments, {
+    cx: 100,
+    cy: 80,
+    rimR: 38,
+    elbowR: 50,
+    labelX: 168,
+  });
+  assert.equal(callouts.length, 3);
+  const bySide = { start: [], end: [] };
+  for (const c of callouts) {
+    bySide[c.textAnchor === 'end' ? 'end' : 'start'].push(c);
+  }
+  for (const list of Object.values(bySide)) {
+    list.sort((a, b) => a.y3 - b.y3);
+    for (let i = 1; i < list.length; i += 1) {
+      assert.ok(
+        list[i].y3 - list[i - 1].y3 >= OVERVIEW_DONUT_CALLOUT_MIN_GAP - 0.01,
+        `overlap ${list[i - 1].key}@${list[i - 1].y3} vs ${list[i].key}@${list[i].y3}`
+      );
+    }
   }
 });

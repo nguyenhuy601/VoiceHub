@@ -132,6 +132,20 @@ export function listVisibleTabIds(ctx) {
   return listVisibleTabs(ctx).map((t) => t.id);
 }
 
+/**
+ * Giữ tab đang chọn nếu vẫn visible; nếu không → preferred hoặc tab đầu.
+ * Dùng khi visibility đổi (worklog flag…) mà không reset về initialPanel mỗi render.
+ */
+export function clampActiveTab(activeTabId, visibleIds, preferredTabId) {
+  const ids = Array.isArray(visibleIds) ? visibleIds.filter(Boolean) : [];
+  if (!ids.length) return 'overview';
+  const cur = String(activeTabId || '');
+  if (cur && ids.includes(cur)) return cur;
+  const pref = String(preferredTabId || 'overview');
+  if (ids.includes(pref)) return pref;
+  return ids[0];
+}
+
 export function pickInitialVisibleTab(ctx, preferredTabId) {
   const ids = listVisibleTabIds(ctx);
   if (!ids.length) return 'overview';

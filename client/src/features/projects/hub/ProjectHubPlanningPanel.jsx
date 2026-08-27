@@ -101,6 +101,7 @@ export default function ProjectHubPlanningPanel({
   onOpenChangeRequest = null,
   workTypeConfig: serverWorkTypeConfig = null,
   priorityConfig = null,
+  workflowTransitionsByFrom = null,
 }) {
   const { t } = useAppStrings();
   const [view, setView] = useState('backlog');
@@ -152,7 +153,9 @@ export default function ProjectHubPlanningPanel({
       hubCaps?.canUpdateBacklog ||
       hubCaps?.canCreateTask ||
       hubCaps?.canCreateBug ||
-      hubCaps?.canUpdateStory
+      hubCaps?.canUpdateStory ||
+      hubPerms.includes('task:change_status') ||
+      hubPerms.includes('task:update')
   );
   const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
   const hasBoardColumn = Boolean(boardId && defaultListId);
@@ -898,6 +901,7 @@ export default function ProjectHubPlanningPanel({
       key={issue?._id || issue?.id}
       issue={issue}
       lists={lists}
+      workflowTransitionsByFrom={workflowTransitionsByFrom}
       epics={epics}
       projectCode={projectCode}
       containerId={containerId}

@@ -1,6 +1,6 @@
 /** Helpers cho Project Hub (Collaborate Tasks). */
 
-import { HISTORY_FIELD_I18N } from './WorkItemDetail/workItemDetailUtils.js';
+import { HISTORY_FIELD_I18N, HISTORY_STATUS_LABELS } from './WorkItemDetail/workItemDetailUtils.js';
 import { normalizePriorityConfig, slugPriorityKey } from './projectPriorityConfig.js';
 
 export const PROJECT_HUB_TABS = [
@@ -782,7 +782,11 @@ function hubActivityPayload(raw) {
 export function normalizeHubActivityRow(raw) {
   const type = String(raw?.type || '');
   const payload = hubActivityPayload(raw);
-  const workTitle = String(raw?.title || payload.title || '').trim();
+  const rawTitle = String(raw?.title || payload.title || '').trim();
+  // Log cũ từng ghi title = field key (status/listId) — không dùng làm tên work.
+  const workTitle = Object.prototype.hasOwnProperty.call(HISTORY_FIELD_I18N, rawTitle)
+    ? ''
+    : rawTitle;
   const base = {
     id: String(raw?._id || raw?.id || ''),
     at: raw?.createdAt || raw?.at || null,
@@ -847,7 +851,7 @@ function hubActivityFieldLabel(field, t) {
   return i18nKey ? t(i18nKey) : key;
 }
 
-function formatHubActivityValue(value, t, locale = 'vi') {
+function formatHubActivityValue(value, t, locale = 'vi', field = '') {
   if (value === null || value === undefined || value === '') {
     return t('workspace.projectHubWorkNone');
   }
@@ -862,6 +866,11 @@ function formatHubActivityValue(value, t, locale = 'vi') {
   const text = String(value);
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
     return formatHubDate(text, locale);
+  }
+  const fieldKey = String(field || '');
+  if (fieldKey === 'status' || fieldKey === 'listId') {
+    const statusLabel = HISTORY_STATUS_LABELS[text.toLowerCase()];
+    if (statusLabel) return statusLabel;
   }
   return text;
 }
@@ -895,8 +904,8 @@ export function formatHubActivityLine(row, t, { locale = 'vi' } = {}) {
     ((norm.from !== null && norm.from !== undefined && norm.from !== '') ||
       (norm.to !== null && norm.to !== undefined && norm.to !== ''))
   ) {
-    const from = formatHubActivityValue(norm.from, t, locale);
-    const to = formatHubActivityValue(norm.to, t, locale);
+    const from = formatHubActivityValue(norm.from, t, locale, field);
+    const to = formatHubActivityValue(norm.to, t, locale, field);
     line = `${line}: ${from} → ${to}`;
   }
 
@@ -904,7 +913,7 @@ export function formatHubActivityLine(row, t, { locale = 'vi' } = {}) {
 }
 
 /** Map activity API / fallback card → item hiển thị Overview & Activity tab. */
-export function mapHubActivityItem(raw, t, { locale = 'vi', members = [] } = {}) {
+export function mapHubActivityItem(raw, t, { locale = 'vi', members = [], cards = [] } = {}) {
   if (raw?.kind === 'card') {
     return {
       id: raw.id,
@@ -917,6 +926,13 @@ export function mapHubActivityItem(raw, t, { locale = 'vi', members = [] } = {})
   }
 
   const norm = normalizeHubActivityRow(raw);
+  const taskId = String(raw?.taskId || raw?.payload?.taskId || '').trim();
+  const cardTitle = taskId
+    ? String(
+        (Array.isArray(cards) ? cards : []).find((c) => String(c?._id || c?.id) === taskId)?.title ||
+          ''
+      ).trim()
+    : '';
   const actor = resolveHubActor(
     {
       createdBy: raw?.actorId,
@@ -928,7 +944,7 @@ export function mapHubActivityItem(raw, t, { locale = 'vi', members = [] } = {})
   return {
     id: norm.id || `${norm.type}-${norm.at}`,
     at: norm.at,
-    title: norm.workTitle || t('workspace.projectHubActivityUntitledWork'),
+    title: norm.workTitle || cardTitle || t('workspace.projectHubActivityUntitledWork'),
     detail: formatHubActivityLine(norm, t, { locale }),
     assigneeName: '',
     actorName: actor?.name || '',
@@ -948,6 +964,10 @@ export function formatHubDate(value, locale = 'vi') {
 
 export function toDateInputValue(value) {
   if (!value) return '';
+  if (typeof value === 'string') {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+    if (m) return m[1];
+  }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return d.toISOString().slice(0, 10);
@@ -1040,17 +1060,20 @@ export function findMemberByUserId(members, userId) {
 
 /** Tên reporter / createdBy: field API, rồi members, rồi 6 ký tự cuối id. */
 export function resolveHubActor(raw, members = []) {
-  const nameFromDto = String(
+  const userId =
+    extractHubUserId(raw?.reporterId) ||
+    extractHubUserId(raw?.createdById) ||
+    extractHubUserId(raw?.createdBy);
+  const rawName = String(
     raw?.reporterName ||
       raw?.createdByName ||
       raw?.creatorName ||
       (typeof raw?.createdBy === 'object' ? raw.createdBy?.displayName || raw.createdBy?.name : '') ||
       ''
   ).trim();
-  const userId =
-    extractHubUserId(raw?.reporterId) ||
-    extractHubUserId(raw?.createdById) ||
-    extractHubUserId(raw?.createdBy);
+  // Tránh hiện ObjectId / trùng userId như “tên” (BE đôi khi gắn nhầm).
+  const nameFromDto =
+    rawName && rawName !== userId && !/^[a-f0-9]{24}$/i.test(rawName) ? rawName : '';
   const avatarFromDto =
     raw?.reporterAvatar ||
     raw?.createdByAvatar ||
@@ -1276,8 +1299,9 @@ function hasListStatusKey(list) {
  * Dropdown đổi status: ưu tiên cột map workflow (`statusKey`).
  * Board chưa sync: một list / bucket (ẩn Chưa làm/… khi đã có Todo/…).
  * Luôn giữ list hiện tại của thẻ.
+ * @param {object[]|null} [transitionsByFrom] map fromKey → [{ toKey }] — lọc cạnh hợp lệ (vd. Done chỉ reopen → in_progress).
  */
-export function listsForStatusSelect(lists = [], currentListId = '') {
+export function listsForStatusSelect(lists = [], currentListId = '', transitionsByFrom = null) {
   const arr = asStatusSelectLists(lists);
   const current = String(currentListId || '');
   const hasWorkflowKey = arr.some(hasListStatusKey);
@@ -1304,9 +1328,39 @@ export function listsForStatusSelect(lists = [], currentListId = '') {
     if (cur) byBucket.set(statusSelectBucket(cur), cur);
   }
 
-  return [...byBucket.values()].sort(
+  let out = [...byBucket.values()].sort(
     (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
   );
+
+  if (transitionsByFrom && typeof transitionsByFrom === 'object' && current) {
+    const cur = arr.find((l) => String(l?._id || l?.id || '') === current);
+    const fromKey = String(cur?.statusKey || '').trim();
+    if (fromKey) {
+      const fromAliases =
+        fromKey === 'doing' || fromKey === 'in_progress'
+          ? ['doing', 'in_progress']
+          : [fromKey];
+      const allowed = new Set(fromAliases);
+      for (const fk of fromAliases) {
+        for (const edge of transitionsByFrom[fk] || []) {
+          const toKey = String(edge?.toKey || '').trim();
+          if (!toKey) continue;
+          if (toKey === 'doing' || toKey === 'in_progress') {
+            allowed.add('doing');
+            allowed.add('in_progress');
+          } else allowed.add(toKey);
+        }
+      }
+      out = out.filter((list) => {
+        const id = String(list?._id || list?.id || '');
+        if (id === current) return true;
+        const key = String(list?.statusKey || '').trim();
+        return key && allowed.has(key);
+      });
+    }
+  }
+
+  return out;
 }
 
 export function countIssuesByStatusBucket(issues = [], lists = []) {
@@ -1429,17 +1483,71 @@ export function overviewDonutAnnulusPath(cx, cy, outerR, innerR, startAngle, swe
   ].join(' ');
 }
 
+/** Khoảng tối thiểu giữa 2 callout (nhãn + % ≈ 2 dòng 9px → cần ≥32). */
+export const OVERVIEW_DONUT_CALLOUT_MIN_GAP = 34;
+
+/**
+ * Tách callout cùng phía khi y quá gần — tránh đè nhãn lát nhỏ sát nhau.
+ * @param {Array<{ y3: number, textAnchor?: string }>} callouts
+ * @param {{ minGap?: number, minY?: number, maxY?: number }} [opts]
+ */
+export function resolveOverviewDonutCalloutCollisions(
+  callouts = [],
+  { minGap = OVERVIEW_DONUT_CALLOUT_MIN_GAP, minY = 12, maxY = 148 } = {}
+) {
+  const gap = Math.max(1, Number(minGap) || OVERVIEW_DONUT_CALLOUT_MIN_GAP);
+  const lo = Number.isFinite(minY) ? minY : 12;
+  const hi = Number.isFinite(maxY) ? maxY : 148;
+  const sides = { start: [], end: [] };
+  for (const c of callouts || []) {
+    if (!c) continue;
+    const side = c.textAnchor === 'end' ? 'end' : 'start';
+    sides[side].push(c);
+  }
+  for (const list of Object.values(sides)) {
+    list.sort((a, b) => Number(a.y3) - Number(b.y3));
+    for (let i = 1; i < list.length; i += 1) {
+      const prev = list[i - 1];
+      const cur = list[i];
+      const floor = Number(prev.y3) + gap;
+      if (Number(cur.y3) < floor) cur.y3 = floor;
+    }
+    for (const c of list) {
+      c.y3 = Math.max(lo, Math.min(hi, Number(c.y3)));
+    }
+    // Pass ngược: nếu clamp đáy làm đè lại, kéo lên trong biên.
+    for (let i = list.length - 2; i >= 0; i -= 1) {
+      const next = list[i + 1];
+      const cur = list[i];
+      const ceil = Number(next.y3) - gap;
+      if (Number(cur.y3) > ceil) cur.y3 = Math.max(lo, ceil);
+    }
+  }
+  return callouts;
+}
+
 /**
  * Leader-line kiểu ClickUp: rim → radial elbow → ngang tới neo chữ.
  * Góc 0 = đỉnh; chỉ segment có sweep > 0.
+ * Cùng phía: resolveOverviewDonutCalloutCollisions tách y khi lát nhỏ sát nhau.
  */
 export function overviewDonutCalloutPoints(
   segments = [],
-  { cx = 100, cy = 80, rimR = 40, elbowR = 52, labelPad = 14, labelX = null } = {}
+  {
+    cx = 100,
+    cy = 80,
+    rimR = 40,
+    elbowR = 52,
+    labelPad = 14,
+    labelX = null,
+    minGap = OVERVIEW_DONUT_CALLOUT_MIN_GAP,
+    minY = 12,
+    maxY = 148,
+  } = {}
 ) {
   const rightX = Number.isFinite(labelX) ? labelX : cx + elbowR + labelPad + 8;
   const leftX = Number.isFinite(labelX) ? 2 * cx - labelX : cx - elbowR - labelPad - 8;
-  return (segments || [])
+  const callouts = (segments || [])
     .filter((seg) => Number(seg.sweepAngle) > 0.5)
     .map((seg) => {
       const mid = Number.isFinite(seg.midAngle)
@@ -1471,6 +1579,7 @@ export function overviewDonutCalloutPoints(
         barClass: seg.barClass || '',
       };
     });
+  return resolveOverviewDonutCalloutCollisions(callouts, { minGap, minY, maxY });
 }
 
 /** Card có field priority khác rỗng → đủ dữ liệu vẽ Priority chart. */

@@ -34,6 +34,7 @@ import { childWorkStats } from './projectHubBacklogStats';
 import { canExpandListRow, flattenExpandedRows } from './projectHubListLazy';
 import { unwrapPlanningEntity, unwrapPlanningList } from './projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from './planningBoardStatus';
+import { buildWorkItemDatePatch } from './WorkItemDetail/workItemDetailUtils';
 import {
   isBoardCreateType,
   isPlanningCreateType,
@@ -92,6 +93,7 @@ export default function ProjectHubListPanel({
   boardId = '',
   defaultListId = '',
   lists = [],
+  sprints = [],
   projectCode = '',
   hubCaps = null,
   canManage = false,
@@ -109,6 +111,7 @@ export default function ProjectHubListPanel({
   membersEpoch = 0,
   workTypeConfig: serverWorkTypeConfig = null,
   priorityConfig = null,
+  workflowTransitionsByFrom = null,
 }) {
   const { t } = useAppStrings();
   const listColumns = useMemo(
@@ -175,7 +178,13 @@ export default function ProjectHubListPanel({
   const canCreateTask = Boolean(canManage || hubCaps?.canCreateTask);
   const canCreateBug = Boolean(canManage || hubCaps?.canCreateBug);
   const canChangeStatus = Boolean(
-    canManage || hubCaps?.canUpdateBacklog || hubCaps?.canCreateTask || hubCaps?.canUpdateStory
+    canManage ||
+      hubCaps?.canUpdateBacklog ||
+      hubCaps?.canCreateTask ||
+      hubCaps?.canUpdateStory ||
+      (Array.isArray(hubCaps?.permissions) &&
+        (hubCaps.permissions.includes('task:change_status') ||
+          hubCaps.permissions.includes('task:update')))
   );
   const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
   const hasBoardColumn = Boolean(boardId && defaultListId);
@@ -239,23 +248,38 @@ export default function ProjectHubListPanel({
     setEpicsLoading(true);
     setEpicsError(false);
     try {
-      const res = await projectAPI.listPlanningItems(projectId, { type: 'epic' });
-      const rows = unwrapPlanningList(res);
+      const epicRes = await projectAPI.listPlanningItems(projectId, { type: 'epic' });
+      const rows = unwrapPlanningList(epicRes);
       setListPlanningItems(Array.isArray(rows) ? rows : []);
-      setListCards([]);
-      setExpandedIds(new Set());
-      setLoadedIds(new Set());
-      setLoadingIds(new Set());
-      setExpandErrorIds(new Set());
       epicsLoadedForRef.current = projectId;
     } catch {
       setListPlanningItems([]);
       setEpicsError(true);
       epicsLoadedForRef.current = '';
+    }
+
+    // Board cards riêng — orphan task hiện root dù không có Epic / epic API lỗi.
+    try {
+      if (boardId) {
+        const boardRes = await taskAPI.getBoardDetail(boardId, {
+          ...(apiCtx || {}),
+          skipNotFoundToast: true,
+        });
+        const boardCards = unwrapTaskBoardDetailPayload(boardRes)?.cards;
+        setListCards(Array.isArray(boardCards) ? boardCards : []);
+      } else {
+        setListCards([]);
+      }
+    } catch {
+      setListCards([]);
     } finally {
       setEpicsLoading(false);
+      setExpandedIds(new Set());
+      setLoadedIds(new Set());
+      setLoadingIds(new Set());
+      setExpandErrorIds(new Set());
     }
-  }, [projectId, listActive]);
+  }, [projectId, listActive, boardId, apiCtx]);
 
   useEffect(() => {
     void loadListEpics();
@@ -810,23 +834,55 @@ export default function ProjectHubListPanel({
     if (!canChangeStatus || busy) return;
     const id = entityId(node.raw);
     if (!id) return;
-    const next = dateValue ? new Date(dateValue).toISOString() : null;
+    const isPlanning = node.kind === 'planning';
+    const patch = buildWorkItemDatePatch({ isPlanning, dueDate: dateValue || null });
     setBusy(true);
     try {
       if (node.kind === 'card') {
-        const patch = { dueDate: next };
         if (onUpdateCard) {
           await onUpdateCard(id, patch);
         } else {
           await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
         patchCards((cards) =>
-          cards.map((c) => (entityId(c) === id ? { ...c, dueDate: next } : c))
+          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
         );
-      } else if (node.kind === 'planning' && projectId) {
-        await projectAPI.patchPlanningItem(projectId, id, { targetDate: next });
+      } else if (isPlanning && projectId) {
+        await projectAPI.patchPlanningItem(projectId, id, patch);
         patchPlanning((items) =>
-          items.map((row) => (entityId(row) === id ? { ...row, targetDate: next } : row))
+          items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
+        );
+      }
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeStartDate = async (node, dateValue) => {
+    if (!canChangeStatus || busy) return;
+    const id = entityId(node.raw);
+    if (!id) return;
+    const isPlanning = node.kind === 'planning';
+    const patch = buildWorkItemDatePatch({ isPlanning, startDate: dateValue || null });
+    setBusy(true);
+    try {
+      if (node.kind === 'card') {
+        if (onUpdateCard) {
+          await onUpdateCard(id, patch);
+        } else {
+          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+        }
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
+        );
+      } else if (isPlanning && projectId) {
+        await projectAPI.patchPlanningItem(projectId, id, patch);
+        patchPlanning((items) =>
+          items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
         );
       }
     } catch (err) {
@@ -1054,6 +1110,9 @@ export default function ProjectHubListPanel({
                 {t('workspace.projectHubListUpdatedColumn')}
               </ResizableTableHeader>
               <ResizableTableHeader column={listColumns[10]} onResizeStart={onResizeStart}>
+                {t('workspace.projectHubListStartColumn')}
+              </ResizableTableHeader>
+              <ResizableTableHeader column={listColumns[11]} onResizeStart={onResizeStart}>
                 {t('workspace.projectHubListDueColumn')}
               </ResizableTableHeader>
               <div className="border-r border-border" aria-hidden />
@@ -1092,6 +1151,7 @@ export default function ProjectHubListPanel({
                   )}
                   lists={lists}
                   listMap={listMap}
+                  workflowTransitionsByFrom={workflowTransitionsByFrom}
                   priorityConfig={priorityConfig}
                   hasBoardColumn={hasBoardColumn}
                   busy={busy}
@@ -1141,6 +1201,7 @@ export default function ProjectHubListPanel({
                   onChangeStatus={changeStatus}
                   onChangePriority={changePriority}
                   onChangePlanningStatus={changePlanningStatus}
+                  onChangeStartDate={changeStartDate}
                   onChangeDueDate={changeDueDate}
                   onAssignMember={(n, member) => void assignMember(n, member)}
                   onManageTypes={onOpenSettings}
@@ -1252,6 +1313,7 @@ export default function ProjectHubListPanel({
         boardCards={listCards}
         epics={epics}
         features={features}
+        sprints={sprints}
         workTypeConfig={workTypeConfig}
         priorityConfig={priorityConfig}
         projectCode={projectCode}
@@ -1266,6 +1328,7 @@ export default function ProjectHubListPanel({
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
         }
         canChangeStatus={canChangeStatus}
+        canViewMembers={Boolean(hubCaps?.canViewMembers || canManage)}
         onClose={() => {
           setDetailIssueId('');
           setDetailIssueKind('');

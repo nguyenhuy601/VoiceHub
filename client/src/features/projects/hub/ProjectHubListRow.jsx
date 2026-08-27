@@ -13,12 +13,16 @@ import {
   formatHubDueDate,
   listsForStatusSelect,
   resolveHubActor,
-  toDateInputValue,
   HUB_GRID_CELL_BORDER,
 } from './projectHubUtils';
 import { WORK_TYPE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
 import { normalizePriorityConfig } from './projectPriorityConfig';
 import { planningStatusToListId } from './planningBoardStatus';
+import {
+  dateInputValueFromIso,
+  resolveWorkItemDueDate,
+  resolveWorkItemStartDate,
+} from './WorkItemDetail/workItemDetailUtils';
 
 export const LIST_TABLE_COLUMNS = [
   { id: 'drag', minPx: 28, defaultPx: 28, resizable: false },
@@ -31,6 +35,7 @@ export const LIST_TABLE_COLUMNS = [
   { id: 'resolution', minPx: 72, defaultPx: 88 },
   { id: 'created', minPx: 96, defaultPx: 120 },
   { id: 'updated', minPx: 96, defaultPx: 120 },
+  { id: 'start', minPx: 80, defaultPx: 96 },
   { id: 'due', minPx: 80, defaultPx: 96 },
   { id: 'actions', minPx: 36, defaultPx: 36, resizable: false },
 ];
@@ -124,6 +129,7 @@ export default function ProjectHubListRow({
   childStats = null,
   lists = [],
   listMap = {},
+  workflowTransitionsByFrom = null,
   hasBoardColumn = false,
   busy = false,
   canChangeStatus = false,
@@ -147,6 +153,7 @@ export default function ProjectHubListRow({
   onChangeStatus,
   onChangePriority = null,
   onChangePlanningStatus = null,
+  onChangeStartDate = null,
   onChangeDueDate = null,
   onAssignMember = null,
   priorityConfig = null,
@@ -184,10 +191,14 @@ export default function ProjectHubListRow({
       : t('workspace.projectHubListResolutionOpen');
   const createdLabel = formatHubDateTime(raw.createdAt, locale) || '—';
   const updatedLabel = formatHubDateTime(raw.updatedAt || raw.createdAt, locale) || '—';
-  const dueIso = node.kind === 'planning' ? raw.targetDate : raw.dueDate;
+  const startIso = resolveWorkItemStartDate(raw);
+  const dueIso = resolveWorkItemDueDate(raw, { isPlanning });
+  const startInput = dateInputValueFromIso(startIso);
+  const dueInput = dateInputValueFromIso(dueIso);
+  const startLabel = formatHubDueDate(startIso, locale) || t('workspace.projectHubListPriorityNone');
   const dueLabel = formatHubDueDate(dueIso, locale) || t('workspace.projectHubListPriorityNone');
-  const dueInput = toDateInputValue(dueIso);
   const canEditDue = canChangeStatus && (openable || node.kind === 'planning');
+  const canEditStart = canEditDue;
   const priorityItems = normalizePriorityConfig(priorityConfig).items;
   const currentPriority = String(raw.priority || 'medium').toLowerCase();
   const priorityOptions = priorityItems.some((i) => i.key === currentPriority)
@@ -198,8 +209,13 @@ export default function ProjectHubListRow({
   const previewPad = Math.max(0, depth + indentStep) * WORK_TYPE_INDENT_PX;
 
   const listOptions = useMemo(
-    () => listsForStatusSelect(lists, isPlanning ? planningSelectListId : raw.listId),
-    [lists, raw.listId, isPlanning, planningSelectListId]
+    () =>
+      listsForStatusSelect(
+        lists,
+        isPlanning ? planningSelectListId : raw.listId,
+        workflowTransitionsByFrom
+      ),
+    [lists, raw.listId, isPlanning, planningSelectListId, workflowTransitionsByFrom]
   );
 
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
@@ -440,6 +456,24 @@ export default function ProjectHubListRow({
         <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{resolution}</div>
         <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{createdLabel}</div>
         <div className={`truncate text-xs text-muted-foreground ${HUB_GRID_CELL_BORDER}`}>{updatedLabel}</div>
+        <div
+          className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {canEditStart ? (
+            <input
+              type="date"
+              className="w-full max-w-[9.5rem] rounded-md border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+              value={startInput}
+              disabled={busy}
+              aria-label={t('workspace.projectHubListStartColumn')}
+              onChange={(e) => onChangeStartDate?.(node, e.target.value)}
+            />
+          ) : (
+            <span className="truncate text-xs text-muted-foreground">{startLabel}</span>
+          )}
+        </div>
         <div
           className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}
           onClick={(e) => e.stopPropagation()}

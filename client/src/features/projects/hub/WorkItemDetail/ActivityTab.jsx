@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../../context/AuthContext';
 import { projectAPI } from '../../../../services/api/projectAPI';
@@ -11,33 +11,23 @@ import {
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
 } from '../../../../components/Organization/figmaOrganizationClasses';
 import { useWorkItemDetail } from './WorkItemDetailContext';
-import { HISTORY_FIELD_I18N, unwrapList } from './workItemDetailUtils';
+import {
+  HISTORY_FIELD_I18N,
+  formatHistoryDisplay,
+  historySideLabel,
+  isNoopHistoryRow,
+  unwrapList,
+} from './workItemDetailUtils';
+import { resolveHubActor } from '../projectHubUtils';
 
 function actorFromMembers(members, actorId) {
+  const resolved = resolveHubActor({ createdBy: actorId }, members);
   const id = String(actorId || '');
-  const row = (members || []).find((m) => {
-    const uid = String(m?.userId || m?.user?._id || m?._id || m?.id || '');
-    return uid === id;
-  });
-  const nested = row?.user && typeof row.user === 'object' ? row.user : null;
   return {
-    id,
-    displayName:
-      row?.displayName ||
-      nested?.displayName ||
-      row?.fullName ||
-      nested?.fullName ||
-      row?.name ||
-      nested?.name ||
-      (id ? id.slice(-6) : '—'),
-    avatar: row?.avatar || nested?.avatar || '',
+    id: resolved?.userId || id,
+    displayName: resolved?.name || (id ? id.slice(-6) : '—'),
+    avatar: resolved?.avatar || '',
   };
-}
-
-function formatHistoryValue(value, t) {
-  if (value === null || value === undefined || value === '') return t('workspace.projectHubWorkNone');
-  if (Array.isArray(value)) return value.length ? value.join(', ') : t('workspace.projectHubWorkNone');
-  return String(value);
 }
 
 export default function ActivityTab() {
@@ -50,6 +40,8 @@ export default function ActivityTab() {
     t,
     canComment,
     projectMembers,
+    assignableMembers,
+    lists,
     onPatchBoardCards,
     onUpdateCard,
   } = useWorkItemDetail();
@@ -61,7 +53,29 @@ export default function ActivityTab() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(false);
 
+  const actorMembers = useMemo(() => {
+    const byId = new Map();
+    for (const m of [...(assignableMembers || []), ...(projectMembers || [])]) {
+      const id = String(m?.userId || m?.user?._id || m?.user?.id || m?._id || m?.id || '').trim();
+      if (!id || byId.has(id)) continue;
+      byId.set(id, m);
+    }
+    return [...byId.values()];
+  }, [assignableMembers, projectMembers]);
+
   const comments = Array.isArray(workItem?.comments) ? workItem.comments : [];
+  const historyCtx = useMemo(
+    () => ({
+      members: actorMembers,
+      lists: Array.isArray(lists) ? lists : Object.values(lists || {}),
+    }),
+    [actorMembers, lists]
+  );
+
+  const visibleHistory = useMemo(
+    () => (Array.isArray(history) ? history : []).filter((row) => !isNoopHistoryRow(row, historyCtx)),
+    [history, historyCtx]
+  );
 
   const loadHistory = useCallback(async () => {
     if (!issueId) return;
@@ -112,6 +126,10 @@ export default function ActivityTab() {
     }
   };
 
+  const noneLabel = t('workspace.projectHubWorkNone');
+  const showCommentsBlock = (subTab === 'comments' || subTab === 'all') && !isPlanning;
+  const showHistoryBlock = subTab === 'history' || subTab === 'all';
+
   return (
     <div className="space-y-3 px-1 py-1">
       <div className="flex flex-wrap gap-1">
@@ -129,7 +147,7 @@ export default function ActivityTab() {
         <button
           type="button"
           className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
-            subTab === 'history' || subTab === 'all'
+            subTab === 'history'
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground'
           }`}
@@ -150,7 +168,7 @@ export default function ActivityTab() {
         ) : null}
       </div>
 
-      {(subTab === 'comments' || subTab === 'all') && !isPlanning ? (
+      {showCommentsBlock ? (
         <div>
           {canComment ? (
             <div className="mb-3">
@@ -181,14 +199,14 @@ export default function ActivityTab() {
             </div>
           ) : null}
           {comments.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{t('workspace.projectHubWorkHistoryEmpty')}</p>
+            <p className="text-xs text-muted-foreground">{t('workspace.projectHubWorkCommentsEmpty')}</p>
           ) : (
             <ul className="space-y-3">
               {[...comments]
                 .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
                 .map((cm, idx) => {
                   const uid = String(cm.userId || cm.createdBy || '');
-                  const actor = actorFromMembers(projectMembers, uid);
+                  const actor = actorFromMembers(actorMembers, uid);
                   const author =
                     actor.displayName ||
                     (uid === String(user?.id || user?._id)
@@ -213,7 +231,7 @@ export default function ActivityTab() {
         </div>
       ) : null}
 
-      {subTab === 'history' || subTab === 'all' ? (
+      {showHistoryBlock ? (
         <div>
           {historyLoading ? (
             <p className="text-xs text-muted-foreground" role="status">
@@ -232,12 +250,12 @@ export default function ActivityTab() {
               </button>
             </div>
           ) : null}
-          {!historyLoading && !historyError && history.length === 0 ? (
+          {!historyLoading && !historyError && visibleHistory.length === 0 ? (
             <p className="text-xs text-muted-foreground">{t('workspace.projectHubWorkHistoryEmpty')}</p>
           ) : null}
           <ul className="space-y-3">
-            {history.map((row) => {
-              const actor = actorFromMembers(projectMembers, row.actorId);
+            {visibleHistory.map((row) => {
+              const actor = actorFromMembers(actorMembers, row.actorId);
               const fieldKey = HISTORY_FIELD_I18N[row.field] || '';
               const fieldLabel = fieldKey ? t(fieldKey) : row.field || '';
               const verb =
@@ -246,6 +264,8 @@ export default function ActivityTab() {
                   : row.field === 'issue'
                     ? t('workspace.projectHubWorkCreated')
                     : t('workspace.projectHubWorkUpdated');
+              const fromText = formatHistoryDisplay(historySideLabel(row, 'from', historyCtx), noneLabel);
+              const toText = formatHistoryDisplay(historySideLabel(row, 'to', historyCtx), noneLabel);
               return (
                 <li key={row.id || `${row.field}-${row.createdAt}`} className="flex gap-2 text-xs">
                   <UserAvatar
@@ -263,7 +283,7 @@ export default function ActivityTab() {
                     </p>
                     {row.field !== 'issue' && row.field !== 'comment' ? (
                       <p className="mt-0.5 text-muted-foreground">
-                        {formatHistoryValue(row.from, t)} → {formatHistoryValue(row.to, t)}
+                        {fromText} → {toText}
                       </p>
                     ) : null}
                   </div>
