@@ -253,10 +253,16 @@ function HubDonutChart({
               strokeWidth={14}
             />
             {hasWork ? renderSlices(100, 80, 36, 22) : null}
-            {callouts.map((c) => (
+            {callouts.map((c) => {
+              // rim → elbow → ngang cột chữ → dọc tới y đã tách (nếu collision).
+              const linePts =
+                Math.abs(Number(c.y3) - Number(c.y2)) > 0.5
+                  ? `${c.x1},${c.y1} ${c.x2},${c.y2} ${c.x3},${c.y2} ${c.x3},${c.y3}`
+                  : `${c.x1},${c.y1} ${c.x2},${c.y2} ${c.x3},${c.y3}`;
+              return (
               <g key={`callout-${c.key}`} aria-hidden className="pointer-events-none">
                 <polyline
-                  points={`${c.x1},${c.y1} ${c.x2},${c.y2} ${c.x3},${c.y3}`}
+                  points={linePts}
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.25"
@@ -283,7 +289,8 @@ function HubDonutChart({
                   {calloutValue(c)}
                 </text>
               </g>
-            ))}
+              );
+            })}
             <text
               x={100}
               y={78}

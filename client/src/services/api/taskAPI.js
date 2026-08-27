@@ -468,10 +468,14 @@ export const taskAPI = {
   /** Brief dự án (BGĐ → chỉ định PM) — luôn legacy /tasks/project-briefs */
   createProjectBrief: (payload = {}) => apiClient.post('/tasks/project-briefs', payload),
 
-  listProjectBriefs: (filters = {}) => {
+  listProjectBriefs: (filters = {}, opts = {}) => {
     const params = buildQueryParams(filters);
     const q = params.toString();
-    return apiClient.get(q ? `/tasks/project-briefs?${q}` : '/tasks/project-briefs');
+    const cfg = {};
+    if (opts.timeout != null) cfg.timeout = opts.timeout;
+    if (opts.signal) cfg.signal = opts.signal;
+    if (opts.skipPermissionDeniedToast) cfg.skipPermissionDeniedToast = true;
+    return apiClient.get(q ? `/tasks/project-briefs?${q}` : '/tasks/project-briefs', cfg);
   },
 
   getProjectBrief: (briefId) => apiClient.get(`/tasks/project-briefs/${encodeURIComponent(briefId)}`),

@@ -85,7 +85,7 @@ export default function ProjectHubPage() {
   const [taskBoardDetail, setTaskBoardDetail] = useState(null);
   const [loadingTaskBoardDetail, setLoadingTaskBoardDetail] = useState(false);
   const [accessibleTaskBoards, setAccessibleTaskBoards] = useState([]);
-  const [taskWorkspaceScope, setTaskWorkspaceScope] = useState(null);
+  const [taskWorkspaceScope, setTaskWorkspaceScope] = useState(undefined);
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
 
@@ -152,6 +152,7 @@ export default function ProjectHubPage() {
       return undefined;
     }
     let cancelled = false;
+    setTaskWorkspaceScope(undefined);
     organizationAPI
       .getTaskWorkspaceScope(orgId)
       .then((res) => {
@@ -169,12 +170,23 @@ export default function ProjectHubPage() {
   useEffect(() => {
     if (!orgId) {
       setProjectBriefs([]);
+      setLoadingProjectBriefs(false);
+      return undefined;
+    }
+    // undefined = đang load scope — chờ; null = không có scope → bỏ briefs (tránh 403 treo).
+    if (taskWorkspaceScope === undefined) return undefined;
+    if (!taskWorkspaceScope) {
+      setProjectBriefs([]);
+      setLoadingProjectBriefs(false);
       return undefined;
     }
     let cancelled = false;
     setLoadingProjectBriefs(true);
     taskAPI
-      .listProjectBriefs({ organizationId: String(orgId), status: 'open' })
+      .listProjectBriefs(
+        { organizationId: String(orgId), status: 'open' },
+        { timeout: 4000, skipPermissionDeniedToast: true }
+      )
       .then((res) => {
         if (cancelled) return;
         const payload = unwrapTaskApiPayload(res);
@@ -194,7 +206,7 @@ export default function ProjectHubPage() {
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, taskWorkspaceScope]);
 
   useEffect(() => {
     const pid = String(projectId || '').trim();

@@ -406,6 +406,7 @@ export const pageStrings = {
       projectHubListResolutionColumn: 'Resolution',
       projectHubListCreatedColumn: 'Created',
       projectHubListUpdatedColumn: 'Updated',
+      projectHubListStartColumn: 'Start date',
       projectHubListDueColumn: 'Due date',
       projectHubTableResizeCol: 'Kéo để đổi độ rộng cột',
       projectHubPlanningStatus_planned: 'Planned',
@@ -615,8 +616,10 @@ export const pageStrings = {
       projectHubSettingsGroupStaffingHint: 'Số lượng cần theo từng vai trò dự án.',
       projectHubSettingsGroupWorkflowHint: 'Phương pháp (Scrum/Kanban), giới hạn WIP/sprint và áp mẫu quy trình.',
       projectHubSettingsStatusPriorityTitle: 'Trạng thái / Độ ưu tiên',
-      projectHubSettingsStatusPriorityHint: 'Sửa nhãn, xóa hoặc thêm trạng thái (cột bảng) và độ ưu tiên.',
-      projectHubSettingsStatusHint: 'Trạng thái map sang cột Kanban. Xóa trạng thái sẽ gỡ chuyển trạng thái liên quan.',
+      projectHubSettingsStatusPriorityHint:
+        'Sửa nhãn (key không đổi), kéo dọc để sắp xếp, thêm/xóa trạng thái và độ ưu tiên. Lưu sẽ nối cạnh chuyển trạng thái liền kề.',
+      projectHubSettingsStatusHint:
+        'Trạng thái map sang cột Kanban. Kéo ⋮⋮ để đổi thứ tự cột. Xóa trạng thái sẽ gỡ chuyển trạng thái liên quan; lưu sẽ tạo cạnh liền kề còn thiếu.',
       projectHubSettingsPriorityHint: 'Độ ưu tiên hiện trên danh sách / chi tiết việc. Khóa cũ trên thẻ giữ đến khi đổi.',
       projectHubSettingsStatusNeedWorkflow: 'Chưa có quy trình trên bảng — áp mẫu ở nhóm Quy trình trước.',
       projectHubSettingsGroupApprovalHint: 'Chính sách mặc định khi chuyển việc sang Hoàn thành.',
@@ -4918,6 +4921,7 @@ export const pageStrings = {
       projectHubListResolutionColumn: 'Resolution',
       projectHubListCreatedColumn: 'Created',
       projectHubListUpdatedColumn: 'Updated',
+      projectHubListStartColumn: 'Start date',
       projectHubListDueColumn: 'Due date',
       projectHubTableResizeCol: 'Drag to resize column',
       projectHubPlanningStatus_planned: 'Planned',
@@ -5128,8 +5132,10 @@ export const pageStrings = {
       projectHubSettingsGroupWorkflowHint:
         'Methodology (Scrum/Kanban), WIP/sprint days, and apply a workflow template.',
       projectHubSettingsStatusPriorityTitle: 'Status / Priority',
-      projectHubSettingsStatusPriorityHint: 'Rename, delete, or add board statuses and priorities.',
-      projectHubSettingsStatusHint: 'Statuses map to Kanban columns. Deleting a status drops related transitions.',
+      projectHubSettingsStatusPriorityHint:
+        'Rename labels (keys stay fixed), drag to reorder, add or remove statuses and priorities. Save links adjacent status transitions.',
+      projectHubSettingsStatusHint:
+        'Statuses map to Kanban columns. Drag ⋮⋮ to reorder columns. Deleting a status drops related transitions; save adds missing adjacent edges.',
       projectHubSettingsPriorityHint: 'Priorities appear on List / work detail. Existing card keys stay until changed.',
       projectHubSettingsStatusNeedWorkflow: 'This board has no workflow yet — apply a template in Workflow first.',
       projectHubSettingsGroupApprovalHint: 'Default policy when moving a task to Done.',

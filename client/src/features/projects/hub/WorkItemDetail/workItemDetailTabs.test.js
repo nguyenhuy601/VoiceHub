@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { defaultWorkTypeConfig, normalizeWorkTypeConfig } from '../projectWorkTypes.js';
 import {
   buildTabVisibilityContext,
+  clampActiveTab,
   listVisibleTabIds,
   pickInitialVisibleTab,
 } from './workItemDetailTabs.js';
@@ -94,4 +95,13 @@ test('mapInitialPanelToTab + pickInitialVisibleTab', () => {
   });
   assert.equal(pickInitialVisibleTab(ctx, 'children'), 'overview');
   assert.equal(pickInitialVisibleTab(ctx, 'attachments'), 'attachments');
+});
+
+test('clampActiveTab giữ tab hiện tại; không nhảy về preferred nếu vẫn visible', () => {
+  const ids = ['overview', 'description', 'activity', 'attachments'];
+  assert.equal(clampActiveTab('activity', ids, 'overview'), 'activity');
+  assert.equal(clampActiveTab('description', ids, 'activity'), 'description');
+  assert.equal(clampActiveTab('worklog', ids, 'activity'), 'activity');
+  assert.equal(clampActiveTab('worklog', ids, 'missing'), 'overview');
+  assert.equal(clampActiveTab('x', [], 'overview'), 'overview');
 });

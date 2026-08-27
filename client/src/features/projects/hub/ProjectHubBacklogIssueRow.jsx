@@ -14,6 +14,10 @@ import {
   normalizeIssueType,
 } from './projectHubUtils';
 import { WORK_TYPE_INDENT_PX } from './projectWorkTypes';
+import {
+  resolveWorkItemDueDate,
+  resolveWorkItemStartDate,
+} from './WorkItemDetail/workItemDetailUtils';
 
 function typeLabel(type, t) {
   const raw = String(type || '').toLowerCase();
@@ -37,6 +41,7 @@ function bucketLabel(bucket, t) {
 export default function ProjectHubBacklogIssueRow({
   issue,
   lists = [],
+  workflowTransitionsByFrom = null,
   epics = [],
   projectCode = '',
   containerId = 'backlog',
@@ -66,8 +71,8 @@ export default function ProjectHubBacklogIssueRow({
     disabled: busy || !issueId,
   });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-  const paddingLeft = 8 + Number(depth || 0) * WORK_TYPE_INDENT_PX;
-  const rowStyle = style ? { ...style, paddingLeft } : { paddingLeft };
+  /** Chỉ thụt title — không padding cả hàng (tránh lệch cột Status/Due). */
+  const titleIndentPx = Number(depth || 0) * WORK_TYPE_INDENT_PX;
 
   const [epicOpen, setEpicOpen] = useState(false);
   const epicRef = useRef(null);
@@ -84,12 +89,16 @@ export default function ProjectHubBacklogIssueRow({
   const listById = useMemo(() => new Map((lists || []).map((l) => [String(l._id), l])), [lists]);
   const currentList = listById.get(String(issue?.listId || ''));
   const statusSelectLists = useMemo(
-    () => listsForStatusSelect(lists, issue?.listId),
-    [lists, issue?.listId]
+    () => listsForStatusSelect(lists, issue?.listId, workflowTransitionsByFrom),
+    [lists, issue?.listId, workflowTransitionsByFrom]
   );
   const bucket = classifyListStatusBucket(issue?.status || currentList);
-  const tone = dueDateTone(issue?.dueDate, issue?.status || currentList);
+  const dueRaw = resolveWorkItemDueDate(issue);
+  const startRaw = resolveWorkItemStartDate(issue);
+  const tone = dueDateTone(dueRaw, issue?.status || currentList);
   const epic = epics.find((e) => String(e._id) === String(issue?.epicId || ''));
+  const startLabel = startRaw ? formatHubDateShort(startRaw, locale) : '';
+  const dueLabel = dueRaw ? formatHubDateShort(dueRaw, locale) : '';
   const assignee =
     issue?.assignees?.[0] ||
     (issue?.assigneeName || issue?.assigneeId
@@ -137,7 +146,7 @@ export default function ProjectHubBacklogIssueRow({
   return (
     <div
       ref={setNodeRef}
-      style={rowStyle}
+      style={style}
       className={`group relative grid w-full min-w-0 max-w-full items-center gap-x-2 border-b border-border bg-surface px-2 py-1.5 last:border-b-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(6.5rem,9rem)_auto] lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(8rem,11rem)_auto] ${
         isDragging ? 'opacity-60' : ''
       } ${selected ? 'bg-primary/10' : 'hover:bg-muted/60'} ${
@@ -171,6 +180,7 @@ export default function ProjectHubBacklogIssueRow({
       </span>
       <span
         className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground"
+        style={titleIndentPx ? { paddingLeft: titleIndentPx } : undefined}
         title={issue?.title || ''}
       >
         {issue?.title || ''}
@@ -282,10 +292,13 @@ export default function ProjectHubBacklogIssueRow({
         )}
       </div>
 
-      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="grid shrink-0 items-center gap-x-1.5 grid-cols-[6.5rem_auto] md:grid-cols-[6.5rem_4.75rem_4.75rem_2rem_1.75rem_auto]"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         {canChangeStatus && statusSelectLists.length > 0 ? (
           <select
-            className={`w-[5.75rem] truncate rounded-md border px-1.5 py-0.5 text-[11px] font-semibold sm:w-[6.5rem] ${statusPill}`}
+            className={`w-full min-w-0 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPill}`}
             value={String(issue?.listId || '')}
             onChange={(e) => onChangeStatus?.(issueId, e.target.value)}
             disabled={busy}
@@ -298,40 +311,64 @@ export default function ProjectHubBacklogIssueRow({
             ))}
           </select>
         ) : (
-          <span className={`w-[5.75rem] truncate rounded-md border px-1.5 py-0.5 text-center text-[11px] font-semibold sm:w-[6.5rem] ${statusPill}`}>
+          <span
+            className={`w-full min-w-0 truncate rounded-md border px-1.5 py-0.5 text-center text-[11px] font-semibold ${statusPill}`}
+          >
             {currentList?.title || bucketLabel(bucket, t)}
           </span>
         )}
 
-        {issue?.dueDate ? (
-          <span className={`hidden items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold md:inline-flex ${dueCls}`}>
-            {tone === 'overdue' ? <AlertTriangle size={11} aria-hidden /> : <Clock size={11} aria-hidden />}
-            {formatHubDateShort(issue.dueDate, locale)}
-          </span>
-        ) : null}
+        <span
+          className={`hidden min-w-0 items-center justify-center truncate rounded-md border border-border px-1 py-0.5 text-[11px] font-semibold tabular-nums md:inline-flex ${
+            startLabel ? 'text-muted-foreground' : 'text-muted-foreground/70'
+          }`}
+          title={t('workspace.projectHubWorkDetailsStart')}
+        >
+          {startLabel || '—'}
+        </span>
 
-        <span className="hidden min-w-[1.5rem] justify-center rounded border border-border px-1 py-0.5 text-[11px] text-muted-foreground md:inline-flex">
+        <span
+          className={`hidden min-w-0 items-center justify-center gap-0.5 truncate rounded-md border px-1 py-0.5 text-[11px] font-semibold tabular-nums md:inline-flex ${
+            dueLabel ? dueCls : 'border-border text-muted-foreground/70'
+          }`}
+          title={t('workspace.projectHubWorkDetailsDue')}
+        >
+          {dueLabel ? (
+            <>
+              {tone === 'overdue' ? <AlertTriangle size={11} aria-hidden /> : <Clock size={11} aria-hidden />}
+              {dueLabel}
+            </>
+          ) : (
+            '—'
+          )}
+        </span>
+
+        <span className="hidden min-w-0 items-center justify-center truncate rounded border border-border px-0.5 py-0.5 text-[11px] tabular-nums text-muted-foreground md:inline-flex">
           {estimate}
         </span>
 
-        {assignee ? (
-          <span className="hidden md:inline-flex">
-          <UserAvatar
-            avatar={assignee.avatar}
-            userId={assignee.userId}
-            name={assignee.displayName || assignee.name || ''}
-            size="sm"
-          />
-          </span>
-        ) : null}
+        <span className="hidden size-6 items-center justify-center md:inline-flex">
+          {assignee ? (
+            <UserAvatar
+              avatar={assignee.avatar}
+              userId={assignee.userId}
+              name={assignee.displayName || assignee.name || ''}
+              size="sm"
+            />
+          ) : (
+            <span className="size-6" aria-hidden />
+          )}
+        </span>
 
-        <ProjectHubIssueMoreMenu
-          canDelete={canDelete}
-          disabled={busy}
-          onDelete={() => onDelete?.(issueId, issue?.title || '')}
-          t={t}
-          isDarkMode={isDarkMode}
-        />
+        <div className="flex justify-end">
+          <ProjectHubIssueMoreMenu
+            canDelete={canDelete}
+            disabled={busy}
+            onDelete={() => onDelete?.(issueId, issue?.title || '')}
+            t={t}
+            isDarkMode={isDarkMode}
+          />
+        </div>
       </div>
     </div>
   );
