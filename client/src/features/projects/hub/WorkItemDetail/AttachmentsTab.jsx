@@ -1,13 +1,55 @@
 import { useRef, useState } from 'react';
-import { Link2, Paperclip } from 'lucide-react';
+import { Link2, Paperclip, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import { uploadTaskBoardAttachment } from '../../board/taskBoardAttachmentUpload';
+import { openTaskBoardAttachment, isStoredObjectAttachment } from '../../board/taskBoardAttachmentOpen';
 import {
   FIGMA_ORG_TASK_MODAL_INPUT,
   FIGMA_ORG_TASK_MODAL_PRIMARY_BTN,
 } from '../../../../components/Organization/figmaOrganizationClasses';
 import { useWorkItemDetail } from './WorkItemDetailContext';
+
+function AttachmentLink({ attachment, t }) {
+  const [opening, setOpening] = useState(false);
+  const label = attachment.name || attachment.url || attachment.storagePath || '';
+  const stored = isStoredObjectAttachment(attachment);
+
+  if (stored) {
+    return (
+      <button
+        type="button"
+        disabled={opening}
+        onClick={async () => {
+          setOpening(true);
+          try {
+            await openTaskBoardAttachment(attachment);
+          } catch (err) {
+            toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.openAttachmentFail') }));
+          } finally {
+            setOpening(false);
+          }
+        }}
+        className="flex items-center gap-2 text-sm text-primary hover:underline disabled:opacity-60"
+      >
+        <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {opening ? t('taskBoard.openingAttachment') : label}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={attachment.url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-2 text-sm text-primary hover:underline"
+    >
+      <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {label}
+    </a>
+  );
+}
 
 export default function AttachmentsTab() {
   const {
@@ -41,16 +83,30 @@ export default function AttachmentsTab() {
       {attachments.length > 0 ? (
         <ul className="space-y-1">
           {attachments.map((a, i) => (
-            <li key={`${a.url}-${i}`}>
-              <a
-                href={a.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-sm text-primary hover:underline"
+            <li
+              key={`${a.storagePath || a.url}-${i}`}
+              className="flex items-center justify-between gap-2"
+            >
+              <AttachmentLink attachment={a} t={t} />
+              <button
+                type="button"
+                disabled={saving}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                title={t('taskBoard.removeAttachment')}
+                aria-label={t('taskBoard.removeAttachment')}
+                onClick={async () => {
+                  const prev = attachments;
+                  const next = attachments.filter((_, idx) => idx !== i);
+                  setAttachments(next);
+                  try {
+                    await save({ attachments: next });
+                  } catch {
+                    setAttachments(prev);
+                  }
+                }}
               >
-                <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                {a.name || a.url}
-              </a>
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
             </li>
           ))}
         </ul>
@@ -70,12 +126,16 @@ export default function AttachmentsTab() {
             if (!file || uploadingFile) return;
             setUploadingFile(true);
             setUploadProgress(0);
+            const prev = attachments;
             try {
               const item = await uploadTaskBoardAttachment(file, setUploadProgress, { t, locale });
               const next = [...attachments, item];
               setAttachments(next);
-              await save({ attachments: next });
-              toast.success(t('taskBoard.fileAttached'));
+              try {
+                await save({ attachments: next });
+              } catch {
+                setAttachments(prev);
+              }
             } catch (err) {
               toast.error(resolveApiErrorMessage(err, { t, fallback: t('taskBoard.uploadFail') }));
             } finally {
@@ -114,11 +174,16 @@ export default function AttachmentsTab() {
           onClick={async () => {
             const url = attachUrl.trim();
             const name = attachName.trim() || url;
+            const prev = attachments;
             const next = [...attachments, { url, name }];
             setAttachments(next);
-            await save({ attachments: next });
-            setAttachUrl('');
-            setAttachName('');
+            try {
+              await save({ attachments: next });
+              setAttachUrl('');
+              setAttachName('');
+            } catch {
+              setAttachments(prev);
+            }
           }}
         >
           {t('taskBoard.insertLink')}
