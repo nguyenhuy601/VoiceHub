@@ -33,6 +33,7 @@ import { useAppStrings } from '../../../locales/appStrings';
 import { Modal } from '../../../components/Shared';
 import aiTaskService from '../../../services/aiTaskService';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 
 const LIST_WIDTH = 'w-[272px]';
 const LANE_LABEL_WIDTH = 'w-[140px] min-w-[140px]';
@@ -328,7 +329,7 @@ function KanbanListColumn({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{list.title}</h3>
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{repairUtf8Mojibake(list.title)}</h3>
         {list.isWatching || list.watcherCount > 0 ? (
           <span
             className={`flex items-center gap-0.5 text-[10px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
@@ -605,8 +606,18 @@ export default function TaskBoardWorkspacePanel({
       const toKey = listStatusKeyById.get(String(toListId));
       if (!fromKey || !toKey) return true;
       if (fromKey === toKey) return true;
-      const edges = workflowTransitionsByFrom[fromKey] || [];
-      return edges.some((e) => String(e.toKey) === toKey);
+      /** Alias doing ↔ in_progress (seed cột vs template cũ). */
+      const fromAliases =
+        fromKey === 'doing' || fromKey === 'in_progress'
+          ? ['doing', 'in_progress']
+          : [fromKey];
+      const toAliases =
+        toKey === 'doing' || toKey === 'in_progress' ? ['doing', 'in_progress'] : [toKey];
+      for (const fk of fromAliases) {
+        const edges = workflowTransitionsByFrom[fk] || [];
+        if (edges.some((e) => toAliases.includes(String(e.toKey)))) return true;
+      }
+      return false;
     },
     [workflowTransitionsByFrom, listStatusKeyById]
   );
@@ -1699,7 +1710,7 @@ export default function TaskBoardWorkspacePanel({
                     key={`head-${list._id}`}
                     className={`${LIST_WIDTH} shrink-0 truncate px-2 text-sm font-semibold`}
                   >
-                    {list.title}
+                    {repairUtf8Mojibake(list.title)}
                   </div>
                 ))}
               </div>
@@ -2233,6 +2244,7 @@ export default function TaskBoardWorkspacePanel({
               Boolean(boardCapabilities?.canManageBoard)
             : true
         }
+        canViewMembers={Boolean(hubSprintCard?.canViewMembers)}
         onClose={() => {
           setDetailCard(null);
           setDetailPanel('detail');
@@ -2290,6 +2302,20 @@ export default function TaskBoardWorkspacePanel({
               (r) => String(r._id || r.id) === String(prev._id || prev.id)
             );
             return syncPlanningCard(row, prev);
+          });
+        }}
+        onPatchBoardCards={(updater) => {
+          onBoardCardsPatch?.((cards) =>
+            typeof updater === 'function' ? updater(cards || []) : cards || []
+          );
+          setDetailCard((prev) => {
+            if (!prev) return prev;
+            const next =
+              typeof updater === 'function' ? updater([prev]) : Array.isArray(updater) ? updater : [prev];
+            const row = (next || []).find(
+              (c) => String(c._id || c.id) === String(prev._id || prev.id)
+            );
+            return row || prev;
           });
         }}
         onUpdateCard={async (cardId, patch) => {

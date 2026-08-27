@@ -476,18 +476,32 @@ function resolveListStatusKey(list) {
 }
 
 /**
- * Allowed toKeys from a status for FE drag hints.
+ * Allowed toKeys from a status for FE drag hints (gồm alias doing ↔ in_progress).
  */
 function allowedTransitionsFrom(workflow, fromStatus) {
   const from = String(fromStatus || '').trim();
   if (!workflow?.transitions?.length) return [];
-  return (workflow.transitions || [])
-    .filter((t) => String(t.fromKey) === from)
-    .map((t) => ({
-      toKey: t.toKey,
-      name: t.name || `${from}→${t.toKey}`,
-      requiredPermission: t.requiredPermission || '',
-    }));
+  const {
+    statusKeysMatch,
+    statusKeyEquivalents,
+  } = require('../utils/workflowTransition');
+  const seen = new Set();
+  const out = [];
+  for (const t of workflow.transitions || []) {
+    if (!statusKeysMatch(t.fromKey, from)) continue;
+    const toKey = String(t.toKey || '').trim();
+    if (!toKey) continue;
+    for (const alias of statusKeyEquivalents(toKey)) {
+      if (seen.has(alias)) continue;
+      seen.add(alias);
+      out.push({
+        toKey: alias,
+        name: t.name || `${from}→${alias}`,
+        requiredPermission: t.requiredPermission || '',
+      });
+    }
+  }
+  return out;
 }
 
 async function loadBoardWorkflowLean(board) {

@@ -8,24 +8,31 @@ const DEFAULT_CHANGE_STATUS_PERMISSION = 'task:change_status';
 const STARTUP_TEMPLATE = Object.freeze({
   key: 'startup',
   name: 'Startup',
-  description: 'Todo → Doing → Done',
+  description: 'Todo → In progress → Done',
   companySizes: Object.freeze(['startup']),
   statuses: [
     { key: 'todo', label: 'Todo', category: 'todo', sortOrder: 1, isInitial: true, isFinal: false },
-    { key: 'doing', label: 'Doing', category: 'in_progress', sortOrder: 2, isInitial: false, isFinal: false },
+    {
+      key: 'in_progress',
+      label: 'In progress',
+      category: 'in_progress',
+      sortOrder: 2,
+      isInitial: false,
+      isFinal: false,
+    },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 3, isInitial: false, isFinal: true },
   ],
   transitions: [
-    { fromKey: 'todo', toKey: 'doing', name: 'Start' },
+    { fromKey: 'todo', toKey: 'in_progress', name: 'Start' },
     {
-      fromKey: 'doing',
+      fromKey: 'in_progress',
       toKey: 'done',
       name: 'Complete',
       validators: ['assignee_present'],
       requiresApprovalPolicyKey: 'task_done_startup',
     },
-    { fromKey: 'doing', toKey: 'todo', name: 'Backlog' },
-    { fromKey: 'done', toKey: 'doing', name: 'Reopen' },
+    { fromKey: 'in_progress', toKey: 'todo', name: 'Backlog' },
+    { fromKey: 'done', toKey: 'in_progress', name: 'Reopen' },
   ],
 });
 
@@ -33,17 +40,24 @@ const STARTUP_TEMPLATE = Object.freeze({
 const SME_TEMPLATE = Object.freeze({
   key: 'sme',
   name: 'SME',
-  description: 'Todo → Doing → Review → Done',
+  description: 'Todo → In progress → Review → Done',
   companySizes: Object.freeze(['sme']),
   statuses: [
     { key: 'todo', label: 'Todo', category: 'todo', sortOrder: 1, isInitial: true, isFinal: false },
-    { key: 'doing', label: 'Doing', category: 'in_progress', sortOrder: 2, isInitial: false, isFinal: false },
+    {
+      key: 'in_progress',
+      label: 'In progress',
+      category: 'in_progress',
+      sortOrder: 2,
+      isInitial: false,
+      isFinal: false,
+    },
     { key: 'review', label: 'Review', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 4, isInitial: false, isFinal: true },
   ],
   transitions: [
-    { fromKey: 'todo', toKey: 'doing', name: 'Start' },
-    { fromKey: 'doing', toKey: 'review', name: 'Submit review', validators: ['assignee_present'] },
+    { fromKey: 'todo', toKey: 'in_progress', name: 'Start' },
+    { fromKey: 'in_progress', toKey: 'review', name: 'Submit review', validators: ['assignee_present'] },
     {
       fromKey: 'review',
       toKey: 'done',
@@ -51,9 +65,9 @@ const SME_TEMPLATE = Object.freeze({
       validators: ['assignee_present'],
       requiresApprovalPolicyKey: 'task_done',
     },
-    { fromKey: 'review', toKey: 'doing', name: 'Rework' },
-    { fromKey: 'doing', toKey: 'todo', name: 'Backlog' },
-    { fromKey: 'done', toKey: 'doing', name: 'Reopen' },
+    { fromKey: 'review', toKey: 'in_progress', name: 'Rework' },
+    { fromKey: 'in_progress', toKey: 'todo', name: 'Backlog' },
+    { fromKey: 'done', toKey: 'in_progress', name: 'Reopen' },
   ],
 });
 

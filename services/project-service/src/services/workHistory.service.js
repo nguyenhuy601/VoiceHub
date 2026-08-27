@@ -263,6 +263,20 @@ async function publishAnnouncementFromHistoryRows({
 /**
  * Append-only field history. Best-effort — không rollback mutation.
  */
+async function resolveWorkHistoryTitle({ taskId = null, planningItemId = null } = {}) {
+  const tid = asOid(taskId);
+  if (tid) {
+    const task = await Task.findById(tid).select('title').lean();
+    return String(task?.title || '').trim().slice(0, 500);
+  }
+  const pid = asOid(planningItemId);
+  if (pid) {
+    const item = await PlanningItem.findById(pid).select('title').lean();
+    return String(item?.title || '').trim().slice(0, 500);
+  }
+  return '';
+}
+
 async function appendFieldChanges({
   organizationId,
   projectId,
@@ -277,6 +291,8 @@ async function appendFieldChanges({
     const projectOid = asOid(projectId);
     const actorOid = asOid(actorId);
     if (!orgOid || !projectOid || !actorOid) return;
+    // Overview/Activity dùng log.title làm tên work item — không ghi field key (status/listId).
+    const workTitle = await resolveWorkHistoryTitle({ taskId, planningItemId });
     const rows = (Array.isArray(changes) ? changes : [])
       .filter((ch) => ch && ch.field)
       .map((ch) => ({
@@ -287,7 +303,7 @@ async function appendFieldChanges({
         planningItemId: asOid(planningItemId) || null,
         actorId: actorOid,
         type: 'work.field_changed',
-        title: String(ch.field).slice(0, 500),
+        title: workTitle,
         payload: {
           field: String(ch.field).slice(0, 64),
           from: serializeHistoryValue(ch.from),

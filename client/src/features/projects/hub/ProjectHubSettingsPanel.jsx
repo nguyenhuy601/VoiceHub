@@ -6,6 +6,7 @@ import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
 import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
@@ -14,6 +15,8 @@ import ProjectHubDelegationSection from './ProjectHubDelegationSection';
 import CatalogKeyLabelEditor from './CatalogKeyLabelEditor';
 import { normalizePriorityConfig } from './projectPriorityConfig';
 import {
+  ensureAdjacentTransitions,
+  ensureReopenFromDone,
   filterTransitionsByStateKeys,
   mergeEditorItemsToStates,
   statesToEditorItems,
@@ -394,7 +397,14 @@ export default function ProjectHubSettingsPanel({
         const wf = unwrapTaskApiPayload(res) ?? res?.data?.data ?? res?.data ?? res;
         if (cancelled) return;
         setWorkflowDoc(wf && typeof wf === 'object' ? wf : null);
-        setWorkflowStates(Array.isArray(wf?.states) ? wf.states.map((s) => ({ ...s })) : []);
+        setWorkflowStates(
+          Array.isArray(wf?.states)
+            ? wf.states.map((s) => ({
+                ...s,
+                label: repairUtf8Mojibake(s?.label),
+              }))
+            : []
+        );
       } catch {
         if (!cancelled) {
           setWorkflowDoc(null);
@@ -582,12 +592,21 @@ export default function ProjectHubSettingsPanel({
         await taskAPI.patchBoard(boardId, body, opts);
       }
       if (boardId && workflowDoc && workflowStates.length) {
-        const transitions = filterTransitionsByStateKeys(workflowDoc.transitions, workflowStates);
+        const transitions = ensureReopenFromDone(
+          ensureAdjacentTransitions(
+            filterTransitionsByStateKeys(workflowDoc.transitions, workflowStates),
+            workflowStates
+          ),
+          workflowStates
+        );
         await taskAPI.putBoardWorkflow(
           boardId,
           {
             name: workflowDoc.name || 'Default',
-            states: workflowStates,
+            states: workflowStates.map((s) => ({
+              ...s,
+              label: repairUtf8Mojibake(s?.label),
+            })),
             transitions,
             templateKey: workflowDoc.templateKey,
             templateId: workflowDoc.templateId,
