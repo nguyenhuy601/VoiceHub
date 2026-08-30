@@ -109,16 +109,11 @@ function allLeavesHaveStaffing(pack) {
 
 function buildNotReadyError(pack, { errorCode, messagePrefix }) {
   const readiness = computePlanningReadiness(pack);
-  if (readiness.readyForHeuristic && readiness.allLeavesStaffed) {
+  // Gate submit/AI on per-leaf staffing only — pack-level planning score is informational.
+  if (readiness.allLeavesStaffed) {
     return null;
   }
-  const missing = [];
-  if (!readiness.readyForHeuristic) {
-    missing.push(`planningScore=${readiness.score}<${HEURISTIC_THRESHOLD}`);
-  }
-  if (!readiness.allLeavesStaffed) {
-    missing.push('leafStaffingIncomplete');
-  }
+  const missing = ['leafStaffingIncomplete'];
   const err = new Error(`${messagePrefix} (${missing.join(', ')})`);
   err.statusCode = 422;
   err.errorCode = errorCode;

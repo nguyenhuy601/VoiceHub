@@ -1,8 +1,6 @@
 # Infra / AI bổ sung cho Swarm dev — gắn overlay voicehub_enterprise-network
-# DNS alias khớp tên service Swarm (minio, ollama, paddleocr-service, meilisearch).
-#
-# Trước khi bật: scale Swarm trùng tên về 0 (dev-enable-profile.sh làm giúp):
-#   docker service scale voicehub_ollama=0 voicehub_paddleocr-service=0
+# DNS alias: minio, ollama, paddleocr-service, meilisearch (app Swarm gọi cùng hostname).
+# Ollama + PaddleOCR chỉ chạy ở đây, không còn trong docker-stack.yml.
 #
 #   bash devops/swarm/dev-enable-profile.sh
 

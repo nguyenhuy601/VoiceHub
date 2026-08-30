@@ -130,6 +130,22 @@ describe('requirementPlanningReadiness', () => {
     );
   });
 
+  it('assertPackReadyForSubmit passes when all leaves staffed without pack-level deadline', () => {
+    const readiness = assertPackReadyForSubmit({
+      overview: {},
+      functionalRequirements: [
+        {
+          level: 'Requirement',
+          suggestedSkills: ['React'],
+          estimateHours: 8,
+          suggestedRoleKey: 'frontend_developer',
+        },
+      ],
+    });
+    assert.equal(readiness.allLeavesStaffed, true);
+    assert.ok(readiness.score < 100);
+  });
+
   it('assertPackReadyForSubmit passes when heuristic and leaf staffing ok', () => {
     const readiness = assertPackReadyForSubmit({
       overview: { deadline: new Date('2026-12-30') },

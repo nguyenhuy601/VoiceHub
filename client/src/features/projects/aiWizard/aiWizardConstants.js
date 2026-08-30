@@ -10,8 +10,7 @@ export function canRunAiOnPack(pack) {
   if (!['under_review', 'approved', 'project_linked'].includes(status)) return false;
   const readiness = pack?.planningReadiness;
   if (!readiness) return false;
-  if (readiness.readyForHeuristic !== true) return false;
-  if (readiness.allLeavesStaffed === false) return false;
+  if (readiness.allLeavesStaffed !== true) return false;
   return true;
 }
 

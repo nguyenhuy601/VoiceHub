@@ -79,7 +79,6 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
 | AI / summary | `ai-task-service`, `ai-task-worker`, `ai-task-extract-worker`, `ai-task-sync-worker`, `summary-service`, `summary-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
-| Tuỳ stack | `ollama`, `paddleocr-service` (có thể scale 0 khi chuyển sang Compose extra) |
 
 ### Compose extra (AI / storage / STT)
 
