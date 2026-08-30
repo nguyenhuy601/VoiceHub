@@ -24,14 +24,12 @@ function unwrap(res) {
 function PlanningScoreBadge({ readiness, t }) {
   const score = readiness?.score;
   if (score == null) return null;
-  const canSubmit =
-    readiness?.readyForHeuristic === true && readiness?.allLeavesStaffed !== false;
-  const tone =
-    score >= 80 && canSubmit
+  const canSubmit = readiness?.allLeavesStaffed === true;
+  const tone = !canSubmit
+    ? 'bg-destructive/15 text-destructive'
+    : score >= 80
       ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-      : score >= 40 && canSubmit
-        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
-        : 'bg-destructive/15 text-destructive';
+      : 'bg-amber-500/15 text-amber-800 dark:text-amber-200';
   return (
     <span
       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
@@ -45,8 +43,7 @@ function PlanningScoreBadge({ readiness, t }) {
 function canSubmitPackForReview(pack) {
   const readiness = pack?.planningReadiness;
   if (!readiness) return false;
-  if (readiness.readyForHeuristic !== true) return false;
-  if (readiness.allLeavesStaffed === false) return false;
+  if (readiness.allLeavesStaffed !== true) return false;
   return true;
 }
 

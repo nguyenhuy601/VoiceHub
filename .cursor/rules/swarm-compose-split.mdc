@@ -13,11 +13,12 @@ alwaysApply: true
 | **Docker Compose** | `docker-compose.swarm-extra.yml` | **Chỉ** infra/AI bổ sung: `ollama`, `paddleocr-service`, `minio`, `minio-init`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker` |
 
 **Không** dùng `docker compose up` cho `api-gateway`, `user-service`, hay bất kỳ service trong `docker-stack.yml`.
+**Không** đưa `ollama` / `paddleocr-service` vào Swarm — chúng chỉ chạy Compose extra.
 
 ## Compose extra (`docker-compose.swarm-extra.yml`)
 
 - Gắn overlay `voicehub_enterprise-network` (external) — cùng network với Swarm.
-- Trước khi bật: scale Swarm trùng tên về 0 (`ollama`, `paddleocr-service`) — script `bash devops/swarm/dev-enable-profile.sh`.
+- Script `bash devops/swarm/dev-enable-profile.sh` gỡ leftover Swarm ollama/paddle (nếu còn) rồi `compose up` extra.
 - Lệnh chuẩn:
 
 ```bash

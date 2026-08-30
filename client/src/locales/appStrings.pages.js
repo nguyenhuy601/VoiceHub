@@ -1416,7 +1416,7 @@ export const pageStrings = {
       createProjectFail: 'Không tạo được dự án từ gói requirements.',
       planningScore: 'Planning {score}%',
       planningNotReady:
-        'Chưa đủ staffing trên FR leaf (skills, hours, role) hoặc điểm planning thấp — không thể gửi duyệt.',
+        'Chưa đủ staffing trên FR leaf (skills, hours, role) — không thể gửi duyệt.',
       missingLeafStaffing: 'FR leaf thiếu staffing: {ids}',
       aiPlanningTitle: 'AI Resource Planning',
       aiPlanningRun: 'Chạy AI Planning',
@@ -1487,7 +1487,7 @@ export const pageStrings = {
       needPack: 'Chọn hoặc import một requirement pack trước.',
       needSubmitterForDraft: 'Pack đang nháp — cần quyền BA/Admin để gửi duyệt trước khi chạy AI.',
       needApproverForReview: 'Pack đang chờ duyệt — cần quyền PM/PO để duyệt trước khi tạo dự án.',
-      packNotReadyForAi: 'Pack chưa đủ staffing trên FR leaf hoặc điểm planning thấp — không chạy AI được.',
+      packNotReadyForAi: 'Pack chưa đủ staffing trên FR leaf (skills, hours, role) — không chạy AI được.',
       needRunAiFirst: 'Chạy AI Planning trước khi tiếp tục (hoặc đợi kết quả ready/failed).',
       needApprovedPack: 'Pack phải ở trạng thái approved trước khi tạo dự án.',
       titleRequired: 'Nhập tên dự án.',
@@ -5930,7 +5930,7 @@ export const pageStrings = {
       createProjectFail: 'Could not create project from requirement pack.',
       planningScore: 'Planning {score}%',
       planningNotReady:
-        'Leaf FR staffing is incomplete (skills, hours, role) or planning score is too low — cannot submit for review.',
+        'Leaf FR staffing is incomplete (skills, hours, role) — cannot submit for review.',
       missingLeafStaffing: 'FR leaves missing staffing: {ids}',
       aiPlanningTitle: 'AI Resource Planning',
       aiPlanningRun: 'Run AI Planning',
@@ -6006,7 +6006,7 @@ export const pageStrings = {
       needApproverForReview:
         'Pack is under review — PM/PO approve permission is required before creating a project.',
       packNotReadyForAi:
-        'Pack leaf FR staffing is incomplete or planning score is too low — cannot run AI.',
+        'Pack leaf FR staffing is incomplete (skills, hours, role) — cannot run AI.',
       needRunAiFirst: 'Run AI Planning first (wait until status is ready or failed).',
       needApprovedPack: 'Pack must be approved before creating a project.',
       titleRequired: 'Enter a project title.',

@@ -929,48 +929,6 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "4.00"
-          memory: 3G
-        reservations:
-          cpus: "1.00"
-          memory: 768M
-      placement:
-        constraints:
-          - node.labels.ai == true
-
-  paddleocr-service:
-    image: blazordevlab/paddleocrapi:latest
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "2.00"
-          memory: 512M
-        reservations:
-          cpus: "0.50"
-          memory: 192M
-      placement:
-        constraints:
-          - node.labels.ai == true
-
-volumes:
-  ollama_data:
 networks:
   enterprise-network:
     driver: overlay
