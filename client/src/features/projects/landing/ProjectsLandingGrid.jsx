@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
   Briefcase,
   ChevronLeft,
   ChevronRight,
@@ -11,13 +10,14 @@ import {
   MessageCircle,
   Mic,
   Plus,
-  Shield,
   Sparkles,
   Users,
 } from 'lucide-react';
 import { useAppStrings } from '../../../locales/appStrings';
 import { displayDepartmentName } from '../../../utils/orgEntityDisplay';
 import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from '../../../components/Organization/figmaOrganizationClasses';
+import { paginateList } from './projectsLandingPagination';
+import { isProjectActiveForUi, isProjectCompletedForUi } from './projectLandingActive';
 
 const GRAD_PAIRS = [
   ['#1D4ED8', '#3B82F6'],
@@ -26,18 +26,6 @@ const GRAD_PAIRS = [
   ['#059669', '#34D399'],
   ['#DC2626', '#F87171'],
 ];
-
-const PROJECT_COMPLETED_STATUSES = new Set(['closed', 'completed', 'archived']);
-
-function isProjectCompletedForUi(projectRaw = null) {
-  const st = String(projectRaw?.status || '').toLowerCase();
-  return PROJECT_COMPLETED_STATUSES.has(st) || projectRaw?.isActive === false;
-}
-
-function isProjectActiveForUi(projectRaw = null) {
-  const st = String(projectRaw?.status || '').toLowerCase();
-  return projectRaw?.isActive !== false && !PROJECT_COMPLETED_STATUSES.has(st);
-}
 
 function pickGrad(seed) {
   const n = String(seed || '')
@@ -92,9 +80,10 @@ export default function ProjectsLandingGrid({
   organizationName = '',
   projects = [],
   assignedTasksCount = null,
-  activeProjectsCount = null,
   onCreateProject,
   onCreateProjectWithAi,
+  createProjectDisabled = false,
+  createProjectWithAiDisabled = false,
   onSelectProject,
   onModuleClick = null,
   onBack = null,
@@ -107,68 +96,27 @@ export default function ProjectsLandingGrid({
 
   const cards = useMemo(() => buildProjectCards(projects, locale), [projects, locale]);
   const activeCards = useMemo(() => cards.filter((card) => isProjectActiveForUi(card.raw)), [cards]);
-  const completedCards = useMemo(() => cards.filter((card) => isProjectCompletedForUi(card.raw)), [cards]);
-  const [projectView, setProjectView] = useState('active');
-  const visibleCards = projectView === 'completed' ? completedCards : activeCards;
+  const [activePage, setActivePage] = useState(1);
+
+  const pagedActive = useMemo(
+    () => paginateList(activeCards, activePage),
+    [activeCards, activePage]
+  );
+
+  useEffect(() => {
+    setActivePage(1);
+  }, [activeCards.length]);
+
+  useEffect(() => {
+    if (activePage !== pagedActive.page) setActivePage(pagedActive.page);
+  }, [activePage, pagedActive.page]);
   const totalOnline = cards.reduce((sum, card) => sum + Number(card.online || 0), 0);
   const teamMetricCount = 0;
   const resolvedAssignedTasks =
     assignedTasksCount != null
       ? Number(assignedTasksCount) || 0
       : cards.reduce((sum, card) => sum + Number(card.activeTasks || 0), 0);
-  const resolvedActiveProjects =
-    activeProjectsCount != null
-      ? Number(activeProjectsCount) || 0
-      : activeCards.length;
-  const primaryRole = t('workspace.memberRole');
   const orgInitial = String(organizationName || 'VoiceHub').trim().charAt(0).toUpperCase() || 'V';
-  const metrics = useProjects
-    ? [
-        {
-          key: 'all',
-          icon: Briefcase,
-          value: cards.length,
-          label: t('workspace.projectsMetricAll'),
-          tone: 'text-primary bg-primary/10',
-        },
-        {
-          key: 'projects',
-          icon: ClipboardList,
-          value: resolvedActiveProjects,
-          label: t('workspace.activeProjects'),
-          tone: 'text-violet-600 bg-violet-500/10 dark:text-violet-400',
-        },
-      ]
-    : [
-        {
-          key: 'teams',
-          icon: Users,
-          value: teamMetricCount,
-          label: t('workspace.yourTeams'),
-          tone: 'text-primary bg-primary/10',
-        },
-        {
-          key: 'online',
-          icon: Activity,
-          value: totalOnline,
-          label: t('workspace.onlineNowLabel'),
-          tone: 'text-success bg-success/10',
-        },
-        {
-          key: 'tasks',
-          icon: ClipboardList,
-          value: resolvedAssignedTasks,
-          label: t('workspace.activeTasks'),
-          tone: 'text-warning bg-warning/10',
-        },
-        {
-          key: 'role',
-          icon: Shield,
-          value: primaryRole,
-          label: t('workspace.yourRole'),
-          tone: 'text-destructive bg-destructive/10',
-        },
-      ];
 
   const emptyLabel = useProjects
     ? t('workspace.noProjectsYet')
@@ -327,13 +275,42 @@ export default function ProjectsLandingGrid({
     </div>
   );
 
+  const renderProjectsPager = (paged, setPage, prevLabel, nextLabel, pageLabel) =>
+    paged.showPager ? (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+        <button
+          type="button"
+          disabled={paged.page <= 1}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+          aria-label={prevLabel}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+          {prevLabel}
+        </button>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {pageLabel}
+        </span>
+        <button
+          type="button"
+          disabled={paged.page >= paged.totalPages}
+          onClick={() => setPage((p) => Math.min(paged.totalPages, p + 1))}
+          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+          aria-label={nextLabel}
+        >
+          {nextLabel}
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+    ) : null;
+
   return (
     <div
       className="flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65"
       aria-label={t('workspace.projectsLandingAria')}
     >
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 shadow-xs backdrop-blur-sm">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {onBack ? (
               <button
@@ -354,7 +331,7 @@ export default function ProjectsLandingGrid({
                 {departmentName ||
                   (useProjects ? t('workspace.projectsPageTitle') : organizationName || t('workspace.organization'))}
               </h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">
                 {departmentName
                   ? t('workspace.teamHubSubtitle', {
                       org: organizationName || t('workspace.organization'),
@@ -364,96 +341,48 @@ export default function ProjectsLandingGrid({
                   : useProjects
                     ? t('workspace.projectsPageSubtitle', {
                         org: organizationName || t('workspace.organization'),
-                        count: cards.length,
+                        count: activeCards.length,
                       })
                     : t('workspace.orgSubtitle', { teams: teamMetricCount, online: totalOnline })}
                 {!useProjects && resolvedAssignedTasks > 0
                   ? t('workspace.orgSubtitleTasks', { tasks: resolvedAssignedTasks })
                   : ''}
               </p>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div
-                  className="inline-flex overflow-hidden rounded-lg border border-border bg-surface/60 p-0.5"
-                  role="tablist"
-                  aria-label={t('workspace.projectsTabsAria')}
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={projectView === 'active'}
-                    onClick={() => setProjectView('active')}
-                    className={`px-3 py-1.5 text-xs font-semibold transition ${
-                      projectView === 'active' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-primary'
-                    }`}
-                  >
-                    {t('workspace.activeProjects')}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={projectView === 'completed'}
-                    onClick={() => setProjectView('completed')}
-                    className={`px-3 py-1.5 text-xs font-semibold transition ${
-                      projectView === 'completed' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-primary'
-                    }`}
-                  >
-                    {t('workspace.completedProjects')}
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {onCreateProjectWithAi ? (
-                    <button
-                      type="button"
-                      onClick={onCreateProjectWithAi}
-                      aria-label={t('workspace.createProjectWithAi')}
-                      title={t('workspace.createProjectWithAi')}
-                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-sm transition hover:bg-muted/40"
-                    >
-                      <Sparkles size={16} />
-                    </button>
-                  ) : null}
-                  {createAction ? (
-                    <button
-                      type="button"
-                      onClick={createAction}
-                      aria-label={createFirstLabel}
-                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md transition hover:opacity-90"
-                    >
-                      <Plus size={18} />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
             </div>
           </div>
+          {(onCreateProjectWithAi || createAction) ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {onCreateProjectWithAi ? (
+                <button
+                  type="button"
+                  onClick={onCreateProjectWithAi}
+                  disabled={createProjectWithAiDisabled}
+                  aria-busy={createProjectWithAiDisabled || undefined}
+                  aria-label={t('workspace.createProjectWithAi')}
+                  title={t('workspace.createProjectWithAi')}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-sm transition hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Sparkles size={16} />
+                </button>
+              ) : null}
+              {createAction ? (
+                <button
+                  type="button"
+                  onClick={createAction}
+                  disabled={useProjects ? createProjectDisabled : false}
+                  aria-busy={(useProjects && createProjectDisabled) || undefined}
+                  aria-label={createFirstLabel}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Plus size={18} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="px-6 py-6">
-        <div
-          className={`mb-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${
-            useProjects ? 'xl:grid-cols-2' : 'xl:grid-cols-4'
-          }`}
-        >
-          {metrics.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.key}
-                className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
-              >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-105 ${item.tone}`}>
-                  <Icon size={16} />
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate text-lg font-bold leading-none text-foreground">{item.value}</div>
-                  <div className="mt-1 truncate text-xs text-muted-foreground">{item.label}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {cards.length === 0 ? (
+        {activeCards.length === 0 ? (
           <div
             className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center"
             role="status"
@@ -469,7 +398,9 @@ export default function ProjectsLandingGrid({
                 <button
                   type="button"
                   onClick={createAction}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover"
+                  disabled={useProjects ? createProjectDisabled : false}
+                  aria-busy={(useProjects && createProjectDisabled) || undefined}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Plus size={16} />
                   {createFirstLabel}
@@ -479,7 +410,9 @@ export default function ProjectsLandingGrid({
                 <button
                   type="button"
                   onClick={onCreateProjectWithAi}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-muted/40"
+                  disabled={createProjectWithAiDisabled}
+                  aria-busy={createProjectWithAiDisabled || undefined}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Sparkles size={16} />
                   {t('workspace.createProjectWithAi')}
@@ -487,178 +420,24 @@ export default function ProjectsLandingGrid({
               ) : null}
             </div>
           </div>
-        ) : null}
-        {projectView === 'active' && activeCards.length > 0 ? (
+        ) : (
           <div className="mb-6">
             <div className="mb-3 text-sm font-bold text-foreground">{t('workspace.activeProjects')}</div>
             <div className={FIGMA_WS_TEAM_GRID}>
-              {activeCards.map((card) => (
-            <div
-              key={card.id}
-              role="button"
-              tabIndex={0}
-              onClick={() =>
-                card.isProject
-                  ? onSelectProject?.(card.raw, card.id)
-                  : onSelectTeam?.(card.raw, card.id)
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter')
-                  card.isProject
-                    ? onSelectProject?.(card.raw, card.id)
-                    : onSelectTeam?.(card.raw, card.id);
-              }}
-              className={`${FIGMA_WS_TEAM_CARD} group`}
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-sm font-extrabold text-white shadow-md"
-                  style={{
-                    background: `linear-gradient(135deg, ${card.gradStart}, ${card.gradEnd})`,
-                    boxShadow: `0 4px 14px ${card.gradStart}44`,
-                  }}
-                >
-                  {card.initial}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <h3 className="truncate text-base font-bold text-foreground">{card.name}</h3>
-                        {card.isProject &&
-                        isProjectCompletedForUi(card.raw) ? (
-                          <span className="shrink-0 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-success">
-                            {t('workspace.projectHubCompleteProjectBadge')}
-                          </span>
-                        ) : null}
-                        {String(card.type).toLowerCase() === 'public' ? null : (
-                          <Lock size={12} className="shrink-0 text-muted-foreground/50" />
-                        )}
-                      </div>
-                      {card.role ? (
-                        <span className="mt-1 inline-flex rounded-md bg-primary/10 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-primary">
-                          {card.role}
-                        </span>
-                      ) : null}
-                    </div>
-                    <ChevronRight size={14} className="shrink-0 text-muted-foreground transition group-hover:text-primary" />
-                  </div>
-                  {card.description ? (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{card.description}</p>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                {card.avatars.length > 0 ? (
-                  <span className="flex -space-x-2">
-                    {card.avatars.map((avatar) => (
-                      <span
-                        key={avatar.id}
-                        title={avatar.name}
-                        className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-surface text-[0.55rem] font-bold"
-                        style={{ background: `${avatar.color}18`, color: avatar.color }}
-                      >
-                        {avatar.initials}
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-                <span className="flex items-center gap-1">
-                  <Users size={11} />
-                  {card.members} {t('workspace.members')}
-                </span>
-                {card.relatedDeptCount > 0 ? (
-                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                    {t('workspace.projectHubRelatedDeptsCount').replace(
-                      '{n}',
-                      String(card.relatedDeptCount)
-                    )}
-                  </span>
-                ) : null}
-                {card.isSummaryOnly ? (
-                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
-                    Summary
-                  </span>
-                ) : null}
-                {card.online > 0 ? (
-                  <span className="flex items-center gap-1 font-medium text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    {card.online} {t('workspace.online')}
-                  </span>
-                ) : null}
-                {card.activeTasks > 0 ? (
-                  <span className="ml-auto flex items-center gap-1">
-                    <ClipboardList size={11} />
-                    {card.activeTasks} {t('workspace.tasks')}
-                  </span>
-                ) : null}
-              </div>
-
-              {card.channels.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {card.channels.map((ch, chIdx) => (
-                    <span
-                      key={`${card.id}-ch-${chIdx}-${ch}`}
-                      className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground"
-                    >
-                      <Hash size={9} />
-                      {ch.replace(/^#/, '')}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-
-              {card.recentActivity ? (
-                <p className="truncate rounded-lg border border-border bg-background px-2.5 py-2 text-[0.6875rem] text-muted-foreground">
-                  {card.recentActivity}
-                  {card.activityTime ? ` · ${card.activityTime}` : ''}
-                </p>
-              ) : null}
-
-              {onModuleClick ? (
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { module: 'chat', icon: MessageCircle, label: t('workspace.moduleChat'), badge: card.unreadChat, color: 'text-primary' },
-                    { module: 'voice', icon: Mic, label: t('workspace.moduleVoice'), badge: 0, color: 'text-success' },
-                    { module: 'tasks', icon: ClipboardList, label: t('workspace.moduleTask'), badge: card.unreadTask, color: 'text-warning' },
-                    { module: 'documents', icon: FileText, label: t('workspace.moduleDocs'), badge: 0, color: 'text-violet-500 dark:text-violet-400' },
-                  ].map((btn) => (
-                    <button
-                      key={btn.module}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onModuleClick(card.id, btn.module, card.raw, {
-                          isProject: Boolean(card.isProject),
-                        });
-                      }}
-                      className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
-                    >
-                      {btn.badge > 0 ? (
-                        <span className="absolute right-1.5 top-1 min-w-[15px] rounded-full bg-primary px-1 text-[0.5rem] font-bold text-primary-foreground">
-                          {btn.badge}
-                        </span>
-                      ) : null}
-                      <btn.icon size={15} className={btn.color} />
-                      {btn.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+              {pagedActive.items.map((card) => renderCard(card))}
             </div>
-          ))}
-            </div>
+            {renderProjectsPager(
+              pagedActive,
+              setActivePage,
+              t('workspace.projectsLandingPrev'),
+              t('workspace.projectsLandingNext'),
+              t('workspace.projectsLandingPage', {
+                page: pagedActive.page,
+                total: pagedActive.totalPages,
+              })
+            )}
           </div>
-        ) : null}
-        {projectView === 'completed' && completedCards.length > 0 ? (
-          <div className={activeCards.length > 0 ? 'mt-6' : ''}>
-            <div className="mb-3 text-sm font-bold text-foreground">{t('workspace.completedProjects')}</div>
-            <div className={FIGMA_WS_TEAM_GRID}>
-              {completedCards.map(renderCard)}
-            </div>
-          </div>
-        ) : null}
+        )}
       </div>
     </div>
   );

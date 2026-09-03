@@ -1,91 +1,79 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import AdminRolePicker from '../../components/adminRbac/AdminRolePicker';
 import MasterPermissionTreeEditor from '../../components/adminRbac/MasterPermissionTreeEditor';
 import { GradientButton } from '../../components/Shared';
 import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
+import { useRbacCatalog, useRolePermissionGroups } from '../../hooks/useRoleMasterGrantsMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { isProjectMasterPermission } from '../../config/adminRbacCatalog';
-import { normalizeRoleDisplayName, unwrapRoleApi } from '../../utils/adminRbacUtils';
+import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
+import { queryKeys } from '../../lib/queryKeys';
+import {
+  grantKeysFromDraft,
+  grantsDraftFromList,
+  isProjectMasterPermission,
+  notifyRbacGrantsChanged,
+} from '../../utils/rbacV2Ui';
 
 export default function RolePermissionsPanel({ orgId }) {
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const roleId = String(searchParams.get('roleId') || '').trim();
   const { rolesById, loadRoles } = useAdminRoles(orgId);
   const role = rolesById.get(roleId);
 
-  const [tree, setTree] = useState([]);
-  const [bindings, setBindings] = useState([]);
+  const catalogQuery = useRbacCatalog();
+  const groupsQuery = useRolePermissionGroups(orgId, roleId, { enabled: Boolean(orgId && roleId) });
+
+  const tree = Array.isArray(catalogQuery.data?.tree) ? catalogQuery.data.tree : [];
+  const catalogError = catalogQuery.isError;
+  const bindings = Array.isArray(groupsQuery.data) ? groupsQuery.data : [];
+  const loading = Boolean(orgId && roleId) && groupsQuery.isPending;
+
   const [groupId, setGroupId] = useState('');
+  const [hydratedGroupId, setHydratedGroupId] = useState('');
   const [grantsDraft, setGrantsDraft] = useState({});
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await roleAPI.getRbacCatalog();
-        const data = unwrapRoleApi(res) || res?.data?.data || res?.data;
-        if (!cancelled) setTree(data?.tree || []);
-      } catch (_) {
-        if (!cancelled) setTree([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!orgId || !roleId) {
-      setBindings([]);
       setGroupId('');
+      setHydratedGroupId('');
       setGrantsDraft({});
       return;
     }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await roleAPI.listRolePermissionGroups(roleId, orgId);
-        const data = unwrapRoleApi(res) || res?.data?.data || res?.data || [];
-        const list = Array.isArray(data) ? data : [];
-        if (cancelled) return;
-        setBindings(list);
-        const first = list.find((b) => b.group)?.group || list[0]?.group;
-        const gid = first?._id || first?.id || '';
-        setGroupId(String(gid));
-        const grants = first?.grants || [];
-        const draft = {};
-        for (const g of grants) {
-          if (!isProjectMasterPermission(g)) draft[g] = true;
-        }
-        setGrantsDraft(draft);
-      } catch (error) {
-        if (!cancelled) {
-          setBindings([]);
-          toast.error(
-            resolveApiErrorMessage(error, { t, fallback: 'Không tải được Permission Groups của role' })
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, roleId, t]);
+    if (groupsQuery.isPending || groupsQuery.isError) return;
+    const list = Array.isArray(groupsQuery.data) ? groupsQuery.data : [];
+    const first = list.find((b) => b.group)?.group || list[0]?.group;
+    const gid = String(first?._id || first?.id || '');
+    setGroupId(gid);
+    setGrantsDraft(grantsDraftFromList(first?.grants || []));
+    setHydratedGroupId(gid);
+  }, [orgId, roleId, groupsQuery.data, groupsQuery.isPending, groupsQuery.isError]);
+
+  useEffect(() => {
+    if (!groupsQuery.isError) return;
+    toast.error(
+      resolveApiErrorMessage(groupsQuery.error, {
+        t,
+        fallback: 'Không tải được Permission Groups của role',
+      })
+    );
+  }, [groupsQuery.isError, groupsQuery.error, t]);
 
   const activeGroup = useMemo(() => {
     const hit = bindings.find((b) => String(b.group?._id || b.permissionGroupId) === String(groupId));
     return hit?.group || null;
   }, [bindings, groupId]);
+
+  const catalogReady = tree.length > 0 && !catalogError;
+  const canSave =
+    Boolean(role && groupId && hydratedGroupId === groupId && catalogReady && !busy && !loading);
 
   const setMany = (keys, value) => {
     setGrantsDraft((prev) => {
@@ -102,28 +90,26 @@ export default function RolePermissionsPanel({ orgId }) {
     setGroupId(gid);
     const hit = bindings.find((b) => String(b.group?._id || b.permissionGroupId) === String(gid));
     const grants = hit?.group?.grants || [];
-    const draft = {};
-    for (const g of grants) {
-      if (!isProjectMasterPermission(g)) draft[g] = true;
-    }
-    setGrantsDraft(draft);
+    setGrantsDraft(grantsDraftFromList(grants));
+    setHydratedGroupId(gid);
   };
 
   const save = async () => {
-    if (!orgId || !roleId || !groupId || busy) return;
+    if (!canSave) return;
     setBusy(true);
     try {
-      const grants = Object.keys(grantsDraft).filter((k) => grantsDraft[k] && !isProjectMasterPermission(k));
+      const grants = grantKeysFromDraft(grantsDraft);
       await roleAPI.setPermissionGroupGrants(groupId, {
         organizationId: orgId,
         serverId: orgId,
         grants,
       });
       toast.success(t('adminRbac.permissionsSaved'));
+      notifyRbacGrantsChanged();
       await loadRoles();
-      const res = await roleAPI.listRolePermissionGroups(roleId, orgId);
-      const data = unwrapRoleApi(res) || res?.data?.data || res?.data || [];
-      setBindings(Array.isArray(data) ? data : []);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.rbac.roleGroups(orgId, roleId),
+      });
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.permissionsSaveFail') }));
     } finally {
@@ -152,7 +138,7 @@ export default function RolePermissionsPanel({ orgId }) {
             ) : null}
           </div>
           {role && groupId ? (
-            <GradientButton type="button" disabled={busy} onClick={save}>
+            <GradientButton type="button" disabled={!canSave} onClick={save}>
               {busy ? t('common.saving') : t('common.save')}
             </GradientButton>
           ) : null}
@@ -164,6 +150,10 @@ export default function RolePermissionsPanel({ orgId }) {
           </p>
         ) : loading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : catalogError || !tree.length ? (
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+            {t('adminRbac.createHint')}
+          </p>
         ) : !bindings.length ? (
           <p className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-muted-foreground">
             Role chưa gắn Permission Group. Hãy clone template (màn Create) hoặc chạy direct-replace.

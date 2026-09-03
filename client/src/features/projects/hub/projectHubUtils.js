@@ -1364,6 +1364,149 @@ export function buildOverviewDashboardCharts({
   };
 }
 
+/** Map GET /projects/:id/overview `charts` → shape OverviewPanel (parity buildOverviewDashboardCharts). */
+export function chartsFromOverviewApi(charts = {}, priorityConfig) {
+  const byStatus = charts?.byStatus || {};
+  const statusTotal =
+    (Number(byStatus.todo) || 0) +
+    (Number(byStatus.progress) || 0) +
+    (Number(byStatus.done) || 0);
+  const statusSegments = attachDonutAngles(
+    OVERVIEW_STATUS_SEGMENTS.map((meta) => ({
+      key: meta.key,
+      labelKey: meta.labelKey,
+      barClass: meta.barClass,
+      fillClass: meta.fillClass,
+      count: Number(byStatus[meta.key]) || 0,
+    }))
+  );
+
+  const byType = charts?.byType || {};
+  const typeRows = OVERVIEW_TYPE_SEGMENTS.map((meta) => ({
+    key: meta.key,
+    labelKey: meta.labelKey,
+    barClass: meta.barClass,
+    count: Number(byType[meta.key]) || 0,
+  }));
+  const otherCount = Number(byType.other) || 0;
+  if (otherCount > 0) {
+    typeRows.push({
+      key: 'other',
+      labelKey: 'workspace.projectHubOverviewTypeOther',
+      barClass: 'bg-muted-foreground/30',
+      count: otherCount,
+    });
+  }
+  const typeTotal = typeRows.reduce((sum, row) => sum + row.count, 0);
+  const typeSegments = typeRows.map((row) => ({
+    ...row,
+    pct: overviewPct(row.count, typeTotal),
+  }));
+
+  const priorityRows = Array.isArray(charts?.byPriority) ? charts.byPriority : [];
+  const hasPriorityData = priorityRows.some((row) => Number(row?.count) > 0);
+  const { items } = normalizePriorityConfig(priorityConfig);
+  const prioritySegments = [];
+  let priorityTotal = 0;
+  if (hasPriorityData) {
+    const byKey = new Map(priorityRows.map((r) => [String(r.key || ''), Number(r.count) || 0]));
+    for (const item of items) {
+      const count = byKey.get(item.key) || 0;
+      priorityTotal += count;
+      prioritySegments.push({
+        key: item.key,
+        label: item.label,
+        labelKey: OVERVIEW_PRIORITY_LABEL_KEY[item.key] || '',
+        barClass: OVERVIEW_PRIORITY_BAR_CLASS[item.key] || 'bg-muted-foreground/30',
+        fillClass: OVERVIEW_PRIORITY_FILL_CLASS[item.key] || 'fill-muted-foreground/30',
+        count,
+        pct: 0,
+      });
+    }
+    for (const row of priorityRows) {
+      if (items.some((i) => i.key === row.key)) continue;
+      const count = Number(row.count) || 0;
+      if (!count) continue;
+      priorityTotal += count;
+      prioritySegments.push({
+        key: row.key,
+        label: row.key,
+        labelKey: OVERVIEW_PRIORITY_LABEL_KEY[row.key] || '',
+        barClass: OVERVIEW_PRIORITY_BAR_CLASS[row.key] || 'bg-muted-foreground/30',
+        fillClass: OVERVIEW_PRIORITY_FILL_CLASS[row.key] || 'fill-muted-foreground/30',
+        count,
+        pct: 0,
+      });
+    }
+    prioritySegments.forEach((seg) => {
+      seg.pct = overviewPct(seg.count, priorityTotal);
+    });
+  }
+
+  const assigneeRows = Array.isArray(charts?.byAssignee) ? charts.byAssignee : [];
+  const assigneeSegmentRows = [];
+  let colorIdx = 0;
+  for (const row of assigneeRows) {
+    if (row.other) {
+      assigneeSegmentRows.push({
+        key: 'other',
+        label: 'Other',
+        labelKey: 'workspace.projectHubOverviewAssigneeOther',
+        count: Number(row.count) || 0,
+        fillClass: OVERVIEW_ASSIGNEE_OTHER_FILL,
+        barClass: OVERVIEW_ASSIGNEE_OTHER_BAR,
+      });
+      continue;
+    }
+    if (row.unassigned) {
+      assigneeSegmentRows.push({
+        key: 'unassigned',
+        label: 'Unassigned',
+        labelKey: 'workspace.projectHubStatUnassigned',
+        count: Number(row.count) || 0,
+        fillClass: OVERVIEW_ASSIGNEE_UNASSIGNED_FILL,
+        barClass: OVERVIEW_ASSIGNEE_UNASSIGNED_BAR,
+      });
+      continue;
+    }
+    assigneeSegmentRows.push({
+      key: String(row.userId || row.displayName || colorIdx),
+      label: String(row.displayName || '').trim() || String(row.userId || '').slice(-6),
+      labelKey: '',
+      count: Number(row.count) || 0,
+      fillClass: OVERVIEW_ASSIGNEE_FILL[colorIdx % OVERVIEW_ASSIGNEE_FILL.length],
+      barClass: OVERVIEW_ASSIGNEE_BAR[colorIdx % OVERVIEW_ASSIGNEE_BAR.length],
+    });
+    colorIdx += 1;
+  }
+  const assigneeTotal = assigneeSegmentRows.reduce((sum, row) => sum + row.count, 0);
+  const assigneeSegments = attachDonutAngles(
+    assigneeSegmentRows.map((row) => ({
+      ...row,
+      pct: overviewPct(row.count, assigneeTotal),
+    }))
+  );
+
+  return {
+    statusTotal,
+    donePct: overviewPct(byStatus.done, statusTotal),
+    statusSegments,
+    typeTotal,
+    typeSegments,
+    hasPriorityData,
+    showPriorityChart: true,
+    prioritySkippedReason: hasPriorityData ? '' : 'no_card_priority_field',
+    priorityTotal,
+    prioritySegments,
+    assigneeTotal,
+    assigneeSegments,
+  };
+}
+
+export function hubOverviewAggregateEnabled() {
+  return String(import.meta.env.VITE_HUB_OVERVIEW_AGGREGATE || '1').trim() !== '0';
+}
+
 /**
  * Hạng mục thuộc 1 lát/cột Overview chart (status | priority | assignee).
  * @returns {{ id: string, title: string, priority?: string, assigneeName?: string }[]}

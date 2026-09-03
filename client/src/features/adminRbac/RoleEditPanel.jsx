@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AdminRolePicker from '../../components/adminRbac/AdminRolePicker';
 import { GradientButton } from '../../components/Shared';
-import { DEFAULT_ROLE_SCOPE, PACK_ROLE_SCOPES } from '../../config/adminRbacCatalog';
+import { DEFAULT_ROLE_SCOPE, PACK_ROLE_SCOPES } from '../../config/rbacRoleScope';
 import { adminSecondaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';

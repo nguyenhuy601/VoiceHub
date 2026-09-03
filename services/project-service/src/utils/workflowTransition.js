@@ -337,8 +337,6 @@ function inferStatusKeyFromTitle(title = '') {
   return '';
 }
 
-const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
-
 function statesToBoardShape(statuses = []) {
   return (statuses || []).map((s, i) => ({
     key: String(s.key || '').trim(),

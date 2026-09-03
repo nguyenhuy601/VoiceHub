@@ -1,7 +1,5 @@
 import {
   ACTION_LABEL,
-  RBAC_PERMISSION_GROUPS,
-  grantedPermissionCount,
   isProtectedDefaultRole,
   isStructuralRole,
   isSystemCatalogRole,
@@ -9,18 +7,11 @@ import {
   normalizeRoleId,
   permissionEntriesFromState,
   permissionStateFromEntries,
-  totalPermissionSlotCount,
   unwrapList,
 } from '../components/Organization/rbacSettingsHelpers';
-import {
-  permissionDraftForEditor,
-  permissionEntriesForPersist,
-} from './rbacPermissionBridge';
 
 export {
   ACTION_LABEL,
-  RBAC_PERMISSION_GROUPS,
-  grantedPermissionCount,
   isProtectedDefaultRole,
   isStructuralRole,
   isSystemCatalogRole,
@@ -28,9 +19,6 @@ export {
   normalizeRoleId,
   permissionEntriesFromState,
   permissionStateFromEntries,
-  permissionDraftForEditor,
-  permissionEntriesForPersist,
-  totalPermissionSlotCount,
   unwrapList,
 };
 

@@ -201,6 +201,58 @@ test('legacy không capabilities → canCompleteProject theo canManageFallback',
   assert.equal(manage.canCompleteProject, true);
 });
 
+test('canArchiveProject từ project:archive / project:delete / canManageBoard', () => {
+  const noPerm = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view'],
+    },
+  });
+  assert.equal(noPerm.canArchiveProject, false);
+  assert.equal(noPerm.canArchiveWithoutComplete, false);
+
+  const archive = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'project:archive'],
+    },
+  });
+  assert.equal(archive.canArchiveProject, true);
+  assert.equal(archive.canArchiveWithoutComplete, false);
+
+  const deletePerm = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'project:delete'],
+    },
+  });
+  assert.equal(deletePerm.canArchiveProject, true);
+  assert.equal(deletePerm.canArchiveWithoutComplete, true);
+
+  const boardFlag = resolveHubCapabilities({
+    capabilities: {
+      canManageBoard: true,
+      permissions: ['project:view'],
+    },
+  });
+  assert.equal(boardFlag.canArchiveProject, true);
+});
+
+test('status closed → vẫn canArchiveProject khi có quyền', () => {
+  const caps = resolveHubCapabilities({
+    status: 'closed',
+    capabilities: {
+      permissions: ['project:view', 'project:archive'],
+    },
+  });
+  assert.equal(caps.readOnly, true);
+  assert.equal(caps.canArchiveProject, true);
+  assert.equal(caps.canCompleteProject, false);
+});
+
+test('legacy canManageFallback → canArchiveProject + canArchiveWithoutComplete', () => {
+  const manage = resolveHubCapabilities(null, { canManageFallback: true });
+  assert.equal(manage.canArchiveProject, true);
+  assert.equal(manage.canArchiveWithoutComplete, true);
+});
+
 test('canManageDelivery từ delivery:manage; tắt khi project closed', () => {
   const noPerm = resolveHubCapabilities({
     capabilities: {

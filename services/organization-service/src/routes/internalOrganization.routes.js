@@ -469,6 +469,17 @@ router.get(
   }
 );
 
+/** project-service: org requirement access policy */
+router.get(
+  '/organizations/:organizationId/requirement-access-policy',
+  async (req, res) => {
+    const {
+      getInternalRequirementAccessPolicy,
+    } = require('../controllers/requirementAccessPolicy.controller');
+    return getInternalRequirementAccessPolicy(req, res);
+  }
+);
+
 /** project-service: enabled master project role keys for ensureOrgProjectRoles */
 router.get('/organizations/:organizationId/master-data/enabled-project-roles', async (req, res) => {
   try {
@@ -631,5 +642,12 @@ router.put('/project-workgroup-channel/:channelId/members', async (req, res) => 
     return orgCatch(res, err);
   }
 });
+
+const skillRegistryController = require('../controllers/skillRegistry.controller');
+
+/** project-service / user-service S2S: resolve skills against org registry */
+router.post('/organizations/:organizationId/skills/resolve-batch', skillRegistryController.resolveBatchInternal);
+router.post('/organizations/:organizationId/skills/seed', skillRegistryController.seedInternal);
+router.post('/organizations/:organizationId/skills/by-ids', skillRegistryController.getSkillsByIdsInternal);
 
 module.exports = router;

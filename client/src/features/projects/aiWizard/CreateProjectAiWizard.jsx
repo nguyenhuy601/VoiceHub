@@ -1,45 +1,20 @@
 import { ArrowLeft } from 'lucide-react';
-import RequirementPreviewTabs from '../../requirements/RequirementPreviewTabs';
+import AiPlanningRunningBanner from '../../requirements/AiPlanningRunningBanner';
 import { useAppStrings } from '../../../locales/appStrings';
 import { wizardUi } from '../wizard/projectWizardUi';
 import useCreateProjectAiWizard from './useCreateProjectAiWizard';
 import AiWizardStepSource from './AiWizardStepSource';
 import AiWizardStepPlanning from './AiWizardStepPlanning';
 import AiWizardStepReview from './AiWizardStepReview';
+import AiWizardStepAssign from './AiWizardStepAssign';
 import AiWizardStepConfirm from './AiWizardStepConfirm';
 
 function AiWizardPreviewPane({ wizard, t }) {
-  const { stepId, preview, pack, previewTree, overlay } = wizard;
-
-  if (stepId === 'source') {
-    return (
-      <RequirementPreviewTabs
-        fileName={preview?.fileName || pack?.sourceFileName || ''}
-        valid={preview?.valid ?? null}
-        errorCount={preview?.errorCount ?? 0}
-        warningCount={preview?.warningCount ?? 0}
-        summary={preview?.summary || pack?.summary || null}
-        previewTree={previewTree}
-        excelPreview={preview?.excelPreview || pack?.excelPreview || null}
-        issues={preview?.issues || []}
-        labels={{
-          tabTree: t('requirements.tabTree'),
-          tabExcel: t('requirements.tabExcel'),
-          parsedOk: t('requirements.parsedOk'),
-          parsedFail: t('requirements.parsedFail'),
-          previewMeta: t('requirements.previewMeta'),
-          emptyTree: t('requirements.emptyTree'),
-          noExcelPreview: t('requirements.noExcelPreview'),
-          excelSearch: t('requirements.excelSearch'),
-          excelTruncated: t('requirements.excelTruncated'),
-        }}
-      />
-    );
-  }
+  const { stepId, pack, overlay } = wizard;
 
   if (stepId === 'planning') {
     const score = pack?.planningReadiness?.score;
-    const status = String(pack?.aiPlanning?.status || 'none');
+    const status = wizard.busy ? 'pending' : String(pack?.aiPlanning?.status || 'none');
     return (
       <div className="space-y-4">
         <p className={wizardUi.previewLabel}>{t('aiCreateWizard.previewPlanning')}</p>
@@ -53,6 +28,11 @@ function AiWizardPreviewPane({ wizard, t }) {
           <p className="mt-4 text-sm text-foreground">
             {t(`requirements.aiPlanningStatus.${status}`)}
           </p>
+          {wizard.busy ? (
+            <div className="mt-4">
+              <AiPlanningRunningBanner t={t} />
+            </div>
+          ) : null}
           <p className={wizardUi.previewHint}>{t('aiCreateWizard.previewPlanningHint')}</p>
         </div>
       </div>
@@ -86,6 +66,28 @@ function AiWizardPreviewPane({ wizard, t }) {
     );
   }
 
+  if (stepId === 'assign') {
+    const leaves = Array.isArray(overlay.leafAssignments) ? overlay.leafAssignments : [];
+    const assigned = leaves.filter((row) => {
+      const ext = String(row.externalId || '').trim();
+      return ext && String(wizard.leafAssignMap?.[ext] || '').trim();
+    }).length;
+    return (
+      <div className="space-y-4">
+        <p className={wizardUi.previewLabel}>{t('aiCreateWizard.previewAssign')}</p>
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-3xl font-semibold text-foreground">
+            {assigned}/{leaves.length}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t('aiCreateWizard.assignProgress', { assigned, total: leaves.length })}
+          </p>
+          <p className={wizardUi.previewHint}>{t('aiCreateWizard.previewAssignHint')}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <p className={wizardUi.previewLabel}>{t('aiCreateWizard.previewConfirm')}</p>
@@ -103,7 +105,7 @@ function AiWizardPreviewPane({ wizard, t }) {
 }
 
 /**
- * Full-screen AI Create Project Wizard — Source → Planning → Review → Confirm.
+ * Full-screen AI Create Project Wizard — Source → Planning → Review → Assign → Confirm.
  */
 export default function CreateProjectAiWizard({
   organizationId,
@@ -116,6 +118,13 @@ export default function CreateProjectAiWizard({
 
   const isLast = wizard.step >= wizard.steps.length - 1;
   const stepNum = wizard.step + 1;
+  const hidePreviewPane = wizard.stepId === 'source';
+  const planningStatus = String(wizard.pack?.aiPlanning?.status || 'none');
+  const planningBlocksNext =
+    wizard.stepId === 'planning' &&
+    (wizard.busy || planningStatus === 'pending' || planningStatus === 'none');
+  const anyBusy = wizard.busy || wizard.enrichBusy;
+  const sourceBlocksNext = wizard.stepId === 'source' && !wizard.packId;
   const headerBackLabel = backLabel || t('adminTasks.wizardBackToHub') || 'Back';
 
   const onHeaderBack = () => {
@@ -165,8 +174,14 @@ export default function CreateProjectAiWizard({
         }
       `}</style>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-2">
-        <div className={wizardUi.formPane}>
+      <div
+        className={
+          hidePreviewPane
+            ? 'flex min-h-0 flex-1 flex-col'
+            : 'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-2'
+        }
+      >
+        <div className={hidePreviewPane ? `${wizardUi.formPane} lg:border-r-0` : wizardUi.formPane}>
           <header className="shrink-0 px-5 pt-5 sm:px-8 sm:pt-8">
             <button type="button" onClick={onHeaderBack} className={wizardUi.backLink}>
               <ArrowLeft className="h-4 w-4" />
@@ -178,17 +193,13 @@ export default function CreateProjectAiWizard({
             <div key={`${wizard.step}-${wizard.slideDir}`} className={slideClass}>
               {wizard.stepId === 'source' ? (
                 <AiWizardStepSource
-                  sourceMode={wizard.sourceMode}
-                  setSourceMode={wizard.setSourceMode}
-                  preview={wizard.preview}
                   approvedPacks={wizard.approvedPacks}
                   packsLoading={wizard.packsLoading}
+                  packsError={wizard.packsError}
                   pack={wizard.pack}
                   busy={wizard.busy}
-                  access={wizard.access}
-                  onPreviewUpload={wizard.previewUpload}
-                  onConfirmUpload={wizard.confirmUpload}
                   onSelectPack={wizard.selectApprovedPack}
+                  onRetryPacks={wizard.loadApprovedPacks}
                   t={t}
                 />
               ) : null}
@@ -197,16 +208,35 @@ export default function CreateProjectAiWizard({
                   pack={wizard.pack}
                   busy={wizard.busy}
                   canRunAi={wizard.canRunAiOnPack}
+                  canApproveStaffing={wizard.access?.canRunAiPlanning}
                   onRunAi={wizard.runAiPlanning}
+                  onApproveStaffing={wizard.approveStaffing}
+                  onDiscardStaffing={wizard.discardStaffing}
                   t={t}
                 />
               ) : null}
               {wizard.stepId === 'review' ? (
                 <AiWizardStepReview
                   pack={wizard.pack}
-                  busy={wizard.busy}
+                  busy={wizard.busy || wizard.enrichBusy}
+                  enrichBusy={wizard.enrichBusy}
+                  canApproveStaffing={wizard.access?.canRunAiPlanning}
+                  canRunEnrich={wizard.access?.canRunAiPlanning}
                   onApproveStaffing={wizard.approveStaffing}
                   onDiscardStaffing={wizard.discardStaffing}
+                  onRunEnrich={wizard.runEnrich}
+                  t={t}
+                />
+              ) : null}
+              {wizard.stepId === 'assign' ? (
+                <AiWizardStepAssign
+                  overlay={wizard.overlay}
+                  leafAssignMap={wizard.leafAssignMap}
+                  roleFilter={wizard.assignRoleFilter}
+                  onRoleFilterChange={wizard.setAssignRoleFilter}
+                  onAssignChange={wizard.patchLeafAssign}
+                  onApplyAiSuggestions={wizard.applyAiLeafSuggestions}
+                  busy={wizard.busy}
                   t={t}
                 />
               ) : null}
@@ -231,7 +261,7 @@ export default function CreateProjectAiWizard({
                   type="button"
                   className={wizardUi.secondaryBtn}
                   onClick={wizard.goBack}
-                  disabled={wizard.busy}
+                  disabled={anyBusy}
                 >
                   {t('common.back') || 'Back'}
                 </button>
@@ -240,7 +270,7 @@ export default function CreateProjectAiWizard({
                   type="button"
                   className={wizardUi.secondaryBtn}
                   onClick={onCancel}
-                  disabled={wizard.busy}
+                  disabled={anyBusy}
                 >
                   {t('common.cancel')}
                 </button>
@@ -250,7 +280,7 @@ export default function CreateProjectAiWizard({
                   type="button"
                   className={wizardUi.primaryBtn}
                   onClick={wizard.goNext}
-                  disabled={wizard.busy}
+                  disabled={anyBusy || planningBlocksNext || sourceBlocksNext}
                 >
                   {t('common.next') || 'Next'}
                 </button>
@@ -259,21 +289,23 @@ export default function CreateProjectAiWizard({
                   type="button"
                   className={wizardUi.primaryBtn}
                   onClick={wizard.createProject}
-                  disabled={wizard.busy}
+                  disabled={anyBusy}
                 >
-                  {wizard.busy ? t('common.saving') : t('aiCreateWizard.createCta')}
+                  {wizard.busy ? t('aiCreateWizard.createProjectImporting') : t('aiCreateWizard.createCta')}
                 </button>
               )}
             </div>
           </footer>
         </div>
 
-        <div className={wizardUi.previewPane}>
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.08),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.12),transparent_50%)]" />
-          <div className="relative min-h-0 flex-1 overflow-y-auto">
-            <AiWizardPreviewPane wizard={wizard} t={t} />
+        {hidePreviewPane ? null : (
+          <div className={wizardUi.previewPane}>
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.08),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.12),transparent_50%)]" />
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
+              <AiWizardPreviewPane wizard={wizard} t={t} />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

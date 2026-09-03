@@ -1,8 +1,8 @@
 const { services, fetchJson, unwrapPayload } = require('./httpDownstream');
 
 const ENRICH_TIMEOUT_MS = Math.min(
-  8000,
-  Math.max(3000, parseInt(process.env.BFF_DOWNSTREAM_TIMEOUT_MS || '7000', 10) || 7000)
+  2500,
+  Math.max(1500, parseInt(process.env.BFF_BOOTSTRAP_ENRICH_TIMEOUT_MS || '2000', 10) || 2000)
 );
 
 async function sumTaskDoneForOrgs(orgIds, headers) {

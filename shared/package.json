@@ -10,6 +10,7 @@
     "./config/roleTaxonomy": "./config/roleTaxonomy.js",
     "./config/masterData": "./config/masterData/index.js",
     "./config/projectVisibilityPolicy": "./config/projectVisibilityPolicy.js",
+    "./config/requirementAccessPolicy": "./config/requirementAccessPolicy.js",
     "./config/assignmentEngine": "./config/assignmentEngine.js",
     "./config/redis": "./config/redis.js",
     "./config/redisConnection": "./config/redisConnection.js",

@@ -14,6 +14,7 @@ const {
   approveRequirementPack,
   rejectRequirementPack,
   createProjectFromRequirementPack,
+  deleteRequirementPack,
 } = require('../services/requirementPack.service');
 const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
@@ -145,7 +146,8 @@ async function getPack(req, res) {
     if (!organizationId || !packId) {
       return res.status(400).json({ success: false, message: 'organizationId và packId bắt buộc' });
     }
-    const pack = await getRequirementPack({ userId, organizationId, packId });
+    const view = String(req.query?.view || 'full').trim();
+    const pack = await getRequirementPack({ userId, organizationId, packId, view });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -235,6 +237,8 @@ async function createProjectFromPack(req, res) {
       organizationId,
       packId,
       title: req.body?.title,
+      importWorkItems: Boolean(req.body?.importWorkItems),
+      leafAssignments: req.body?.leafAssignments,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -253,10 +257,12 @@ async function runAiPlanning(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
+    const phase = req.body?.phase;
     const pack = await runAiPlanningHeuristic({
       userId,
       organizationId,
       packId,
+      phase,
     });
     return res.json({ success: true, data: pack });
   } catch (err) {
@@ -308,6 +314,24 @@ async function discardAiStaffing(req, res) {
   }
 }
 
+async function deletePack(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await deleteRequirementPack({ userId, organizationId, packId });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 module.exports = {
   downloadTemplate,
   previewImport,
@@ -319,6 +343,7 @@ module.exports = {
   submitPack,
   approvePack,
   rejectPack,
+  deletePack,
   createProjectFromPack,
   runAiPlanning,
   approveAiStaffing,

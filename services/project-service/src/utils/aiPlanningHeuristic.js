@@ -10,6 +10,33 @@ const { mapPackConstraintsToProject } = require('./mapPackConstraintsToProject')
 const ENGINE = 'heuristic_v1';
 const MIN_TOP_N = 5;
 
+function normalizeRoleKey(roleKey) {
+  return String(roleKey || '')
+    .trim()
+    .toLowerCase();
+}
+
+function requirementSkillObjectsForRole(pack, roleKey) {
+  const refs = pack?.requirementSkills || [];
+  if (!refs.length) return null;
+  const key = normalizeRoleKey(roleKey);
+  const leafIds = new Set(
+    (pack?.functionalRequirements || [])
+      .filter((row) => normalizeRoleKey(row.suggestedRoleKey) === key)
+      .map((row) => String(row.externalId || '').trim())
+      .filter(Boolean)
+  );
+  if (!leafIds.size) return null;
+  return refs
+    .filter((ref) => leafIds.has(String(ref.externalId || '').trim()))
+    .map((ref) => ({
+      skillId: ref.skillId ? String(ref.skillId) : '',
+      name: ref.skillNameSnapshot || ref.rawInput || '',
+      requiredLevel: ref.requiredLevel ?? null,
+    }))
+    .filter((ref) => ref.skillId || ref.name);
+}
+
 function clampScore(n) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));
@@ -94,12 +121,15 @@ function capacityBoost(item) {
   return { boost, reasons, availableHours: Number.isFinite(availableHours) ? availableHours : null };
 }
 
-function scorePoolItemForRole({ item, roleKey, requiredSkills }) {
+function scorePoolItemForRole({ item, roleKey, requiredSkills, pack, registrySkills }) {
   const capability = asVerifiedCapability(item?.capability);
+  const requirementSkillObjects = pack ? requirementSkillObjectsForRole(pack, roleKey) : null;
   const capMatch = scoreVerifiedCapability({
     verifiedCapability: capability,
     projectRoleKey: roleKey,
     requiredSkills,
+    registrySkills,
+    requirementSkillObjects,
   });
   const perfMatch = scoreHistoricalPerformance(rollupFromSlimPerformance(item?.performance));
   const cap = capacityBoost(item);
@@ -117,21 +147,50 @@ function scorePoolItemForRole({ item, roleKey, requiredSkills }) {
 }
 
 /**
- * @param {{ pack: object, poolItems?: object[], window?: object|null, staffingOverride?: object|null }} input
+ * @param {{
+ *   pack: object,
+ *   poolItems?: object[],
+ *   window?: object|null,
+ *   staffingOverride?: object|null,
+ *   staffingRoles?: object[]|null,
+ *   registrySkills?: object[],
+ * }} input
  */
 function buildHeuristicOverlay({
   pack,
   poolItems = [],
   window = null,
   staffingOverride = null,
+  staffingRoles = null,
+  registrySkills = [],
 } = {}) {
   const packForRank =
-    staffingOverride && typeof staffingOverride === 'object'
+    staffingOverride && typeof staffingOverride === 'object' && !staffingRoles?.length
       ? { ...pack, staffingPlan: staffingOverride }
       : pack;
   const staffing = packForRank?.staffingPlan || {};
   const constraints = mapPackConstraintsToProject(packForRank || {});
-  const rolesIn = Array.isArray(staffing.requiredRoles) ? staffing.requiredRoles : [];
+
+  let rolesIn;
+  let staffingSource;
+  let leafCountByRoleMeta = null;
+
+  if (Array.isArray(staffingRoles) && staffingRoles.length) {
+    rolesIn = staffingRoles.map((row) => ({
+      roleKey: String(row.roleKey || '').trim().toLowerCase(),
+      requiredCount: Math.max(1, Number(row.requiredCount) || 1),
+    }));
+    staffingSource = 'baseline_fte';
+    leafCountByRoleMeta = staffingRoles.reduce((acc, row) => {
+      const key = String(row.roleKey || '').trim().toLowerCase();
+      if (key && row.leafCount != null) acc[key] = Number(row.leafCount) || 0;
+      return acc;
+    }, {});
+  } else {
+    rolesIn = Array.isArray(staffing.requiredRoles) ? staffing.requiredRoles : [];
+    staffingSource = staffingOverride ? 'proposal' : 'pack';
+  }
+
   const items = Array.isArray(poolItems) ? poolItems : [];
 
   const roles = [];
@@ -145,7 +204,9 @@ function buildHeuristicOverlay({
     const requiredCount = Math.max(1, Number(roleRow.requiredCount) || 1);
     const requiredSkills = skillsForRole(packForRank, roleKey);
     const scored = items
-      .map((item) => scorePoolItemForRole({ item, roleKey, requiredSkills }))
+      .map((item) =>
+        scorePoolItemForRole({ item, roleKey, requiredSkills, pack: packForRank, registrySkills })
+      )
       .filter((s) => s.userId)
       .sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName));
 
@@ -210,7 +271,8 @@ function buildHeuristicOverlay({
       poolSize: items.length,
       requiredRoleCount: roles.length,
       estimatedHoursTotal: staffing.estimatedHoursTotal ?? null,
-      staffingSource: staffingOverride ? 'proposal' : 'pack',
+      staffingSource,
+      leafCountByRole: leafCountByRoleMeta,
       constraints: {
         title: constraints.title,
         startDate: constraints.startDate || null,

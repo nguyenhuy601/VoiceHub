@@ -78,6 +78,10 @@ function dashboardSummaryCacheKey(userId) {
   return `bff:dashboard-summary:v4:${String(userId || '').trim()}`;
 }
 
+function projectOverviewCacheKey(userId, projectId) {
+  return `bff:project-overview:${String(userId || '').trim()}:${String(projectId || '').trim()}`;
+}
+
 module.exports = {
   connectBffRedis,
   getCachedJson,
@@ -86,5 +90,6 @@ module.exports = {
   shellCacheKey,
   documentsOverviewCacheKey,
   dashboardSummaryCacheKey,
+  projectOverviewCacheKey,
   isCacheEnabled,
 };

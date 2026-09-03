@@ -57,6 +57,8 @@ const requirementImportSessionSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    newSkillsDetected: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    skillResolveEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

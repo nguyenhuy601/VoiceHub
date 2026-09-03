@@ -1,13 +1,10 @@
-import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import OrganizationSettingsPanel from '../../components/Organization/OrganizationSettingsPanel';
-import { organizationAPI } from '../../services/api/organizationAPI';
+import useOrganizationDetail from '../../hooks/useOrganizationDetail';
 import { useAppStrings } from '../../locales/appStrings';
 import { mapLegacyAdminTabToPath, buildCommunicateChannelsPath } from '../../utils/suitePathUtils';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
-
-const unwrap = (payload) => payload?.data ?? payload;
 
 const SETTINGS_TAB_TO_ADMIN = {
   general: 'general',
@@ -32,36 +29,15 @@ export default function OrganizationSettingsPage() {
   const initialTab = searchParams.get('tab') || undefined;
   const singleOrg = readSingleOrgModeFlag();
 
-  const [organization, setOrganization] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    organization,
+    loading,
+    reload: refreshOrganization,
+  } = useOrganizationDetail(orgId, { enabled: !singleOrg && Boolean(orgId) });
+
   const organizationHomePath = orgId
     ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`
     : '/app/collaborate/workspaces';
-
-  useEffect(() => {
-    if (singleOrg) return undefined;
-    let cancelled = false;
-    (async () => {
-      if (!orgId) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      try {
-        const payload = await organizationAPI.getOrganization(orgId);
-        const data = unwrap(payload);
-        const o = data?.data ?? data;
-        if (!cancelled) setOrganization(o || null);
-      } catch {
-        if (!cancelled) setOrganization(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, singleOrg]);
 
   if (singleOrg) {
     const mapped = SETTINGS_TAB_TO_ADMIN[initialTab] || initialTab || 'overview';
@@ -69,15 +45,7 @@ export default function OrganizationSettingsPage() {
   }
 
   const handleOrganizationUpdated = () => {
-    if (!orgId) return;
-    organizationAPI
-      .getOrganization(orgId)
-      .then((payload) => {
-        const data = unwrap(payload);
-        const o = data?.data ?? data;
-        if (o) setOrganization(o);
-      })
-      .catch(() => {});
+    refreshOrganization().catch(() => {});
   };
 
   if (!orgId) {
@@ -103,8 +71,8 @@ export default function OrganizationSettingsPage() {
   if (!organization) {
     return (
       <div className={shell}>
-        <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-          <p className={mutedTextCls}>{t('organizationSettings.notFound')}</p>
+        <main className={`flex flex-1 flex-col items-center justify-center gap-3 ${mutedTextCls}`}>
+          <p>{t('organizationSettings.notFound')}</p>
           <button
             type="button"
             onClick={() => navigate('/app/collaborate/workspaces')}
@@ -120,9 +88,9 @@ export default function OrganizationSettingsPage() {
   return (
     <div className={shell}>
       <OrganizationSettingsPanel
-        suiteLayout
         organization={organization}
         initialTab={initialTab}
+        suiteLayout
         onBack={() => navigate(organizationHomePath)}
         onOrganizationUpdated={handleOrganizationUpdated}
         onOrganizationDeleted={() => navigate('/app/collaborate/workspaces')}

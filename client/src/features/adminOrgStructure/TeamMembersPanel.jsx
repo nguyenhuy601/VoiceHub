@@ -20,7 +20,7 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
   const {
     members,
     loading: membersLoading,

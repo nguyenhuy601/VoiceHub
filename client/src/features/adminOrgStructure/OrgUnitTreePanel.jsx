@@ -14,6 +14,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
 
 function flattenTree(nodes, depth = 0, acc = []) {
   for (const n of nodes || []) {
@@ -26,9 +27,8 @@ function flattenTree(nodes, depth = 0, acc = []) {
 export default function OrgUnitTreePanel({ orgId }) {
   const { t } = useAppStrings();
   const [tree, setTree] = useState([]);
-  const [levels, setLevels] = useState([]);
   const [selectedId, setSelectedId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingUnits, setLoadingUnits] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -39,40 +39,41 @@ export default function OrgUnitTreePanel({ orgId }) {
     parentUnitId: '',
   });
 
+  const { levels, loading: levelsLoading, reload: reloadLevels } = useOrgStructureLevels(orgId);
+
   const flat = useMemo(() => flattenTree(tree), [tree]);
   const selected = useMemo(
     () => flat.find((u) => unitId(u) === selectedId) || null,
     [flat, selectedId]
   );
 
-  const load = useCallback(async () => {
+  const loadUnits = useCallback(async () => {
     if (!orgId) return;
-    setLoading(true);
+    setLoadingUnits(true);
     setLoadError('');
     try {
-      const [unitsRes, lvlRes] = await Promise.all([
-        organizationAPI.listStructureUnits(orgId),
-        organizationAPI.getStructureLevels(orgId),
-      ]);
+      const unitsRes = await organizationAPI.listStructureUnits(orgId);
       const unitsData = unwrapOrgApi(unitsRes);
-      const schema = unwrapOrgApi(lvlRes);
       setTree(Array.isArray(unitsData?.unitsTree) ? unitsData.unitsTree : []);
-      const lvls = Array.isArray(schema?.levels) ? schema.levels.filter((l) => l.enabled !== false) : [];
-      setLevels(lvls);
     } catch (error) {
       const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
       toast.error(msg);
       setLoadError(msg);
       setTree([]);
-      setLevels([]);
     } finally {
-      setLoading(false);
+      setLoadingUnits(false);
     }
   }, [orgId, t]);
 
+  const load = useCallback(async () => {
+    await Promise.all([loadUnits(), reloadLevels()]);
+  }, [loadUnits, reloadLevels]);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    loadUnits();
+  }, [loadUnits]);
+
+  const loading = loadingUnits || levelsLoading;
 
   useEffect(() => {
     if (!selected) return;

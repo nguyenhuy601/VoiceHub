@@ -15,7 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { GradientButton } from '../Shared';
-import PermissionEditorGrid from '../adminRbac/PermissionEditorGrid';
+import MasterPermissionTreeEditor from '../adminRbac/MasterPermissionTreeEditor';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import api from '../../services/api';
@@ -23,7 +23,6 @@ import userService from '../../services/userService';
 import {
   MEMBERSHIP_ROLE_LABEL,
   buildStructurePath,
-  grantedPermissionCount,
   groupStructuralRoles,
   isProtectedDefaultRole,
   isStructuralRole,
@@ -33,16 +32,20 @@ import {
   normalizeRoleId,
   structureMapsFromPayload,
   structureTierSections,
-  totalPermissionSlotCount,
   unwrapList,
 } from './rbacSettingsHelpers';
-import {
-  permissionDraftForEditor,
-  permissionEntriesForPersist,
-} from '../../utils/rbacPermissionBridge';
+import { unwrapRoleApi } from '../../utils/adminRbacUtils';
+import useRoleMasterGrantsMap from '../../hooks/useRoleMasterGrantsMap';
 import { priorityFromTier, TIER_EXEC } from './roleRbacUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  countMasterGrants,
+  grantKeysFromDraft,
+  grantsDraftFromList,
+  isProjectMasterPermission,
+  notifyRbacGrantsChanged,
+} from '../../utils/rbacV2Ui';
 
 function stripDiacritics(s) {
   return String(s || '')
@@ -84,7 +87,10 @@ export default function OrganizationRbacSettings({ orgId }) {
   const [assignmentsByUser, setAssignmentsByUser] = useState({});
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [permEditMode, setPermEditMode] = useState(false);
-  const [permDraft, setPermDraft] = useState({});
+  const [grantsDraft, setGrantsDraft] = useState({});
+  const [bindings, setBindings] = useState([]);
+  const [groupId, setGroupId] = useState('');
+  const [hydratedGroupId, setHydratedGroupId] = useState('');
   const [savingPerms, setSavingPerms] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
@@ -93,8 +99,6 @@ export default function OrganizationRbacSettings({ orgId }) {
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [memberDetailPerms, setMemberDetailPerms] = useState([]);
   const [memberProfiles, setMemberProfiles] = useState({});
-
-  const totalSlots = useMemo(() => totalPermissionSlotCount(), []);
 
   const systemRoles = useMemo(
     () => roles.filter(isSystemCatalogRole).sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0)),
@@ -108,6 +112,12 @@ export default function OrganizationRbacSettings({ orgId }) {
     () => systemRoles.find((r) => normalizeRoleId(r) === selectedRoleId) || null,
     [systemRoles, selectedRoleId]
   );
+  const { catalog, grantsByRoleId, error: catalogMapError } = useRoleMasterGrantsMap(orgId, systemRoles);
+  const tree = Array.isArray(catalog?.tree) ? catalog.tree : [];
+  const catalogError = Boolean(catalogMapError);
+  const totalSlots = (catalog?.masterPermissions || []).filter(
+    (k) => !String(k || '').startsWith('project.')
+  ).length;
 
   const roleMemberCounts = useMemo(() => {
     const counts = new Map();
@@ -193,22 +203,58 @@ export default function OrganizationRbacSettings({ orgId }) {
   }, [systemRoles, selectedRoleId]);
 
   useEffect(() => {
-    if (!selectedRole) return;
-    setPermDraft(permissionDraftForEditor(selectedRole.permissions));
-    setPermEditMode(false);
-  }, [selectedRole]);
+    if (!selectedRole || !orgId) {
+      setBindings([]);
+      setGroupId('');
+      setHydratedGroupId('');
+      setGrantsDraft({});
+      setPermEditMode(false);
+      return undefined;
+    }
+    const roleId = normalizeRoleId(selectedRole);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await roleAPI.listRolePermissionGroups(roleId, orgId);
+        const data = unwrapRoleApi(res) || [];
+        const list = Array.isArray(data) ? data : [];
+        if (cancelled) return;
+        setBindings(list);
+        const first = list.find((b) => b.group)?.group || list[0]?.group;
+        const gid = String(first?._id || first?.id || '');
+        setGroupId(gid);
+        setGrantsDraft(grantsDraftFromList(first?.grants || []));
+        setHydratedGroupId(gid);
+        setPermEditMode(false);
+      } catch {
+        if (!cancelled) {
+          setBindings([]);
+          setHydratedGroupId('');
+          setGrantsDraft({});
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, selectedRole]);
+
+  const catalogReady = tree.length > 0 && !catalogError;
+  const canSavePerms =
+    Boolean(selectedRole && groupId && hydratedGroupId === groupId && catalogReady && !savingPerms);
 
   const saveRolePermissions = async () => {
-    if (!selectedRole || !orgId) return;
+    if (!canSavePerms || !orgId) return;
     setSavingPerms(true);
     try {
-      await roleAPI.updateRole(normalizeRoleId(selectedRole), {
-        permissions: permissionEntriesForPersist(permDraft),
-        serverId: orgId,
+      await roleAPI.setPermissionGroupGrants(groupId, {
         organizationId: orgId,
+        serverId: orgId,
+        grants: grantKeysFromDraft(grantsDraft),
       });
       toast.success(t('organizationSettings.rbacPermsSaved'));
       setPermEditMode(false);
+      notifyRbacGrantsChanged();
       await loadAll();
     } catch (e) {
       toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacPermsSaveFail') }));
@@ -446,7 +492,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                 {systemRoles.map((role) => {
                   const rid = normalizeRoleId(role);
                   const active = rid === selectedRoleId;
-                  const granted = grantedPermissionCount(role.permissions);
+                  const granted = countMasterGrants(grantsByRoleId[rid]);
                   const membersN = roleMemberCounts.get(rid) || 0;
                   return (
                     <button
@@ -497,7 +543,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                         {normalizeRoleDisplayName(selectedRole.name)}
                       </span>
                       <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
-                        {grantedPermissionCount(selectedRole.permissions)}/{totalSlots} quyền
+                        {countMasterGrants(grantsByRoleId[normalizeRoleId(selectedRole)])}/{totalSlots} quyền
                       </span>
                       {permEditMode ? (
                         <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
@@ -534,7 +580,11 @@ export default function OrganizationRbacSettings({ orgId }) {
                           type="button"
                           onClick={() => {
                             setPermEditMode(false);
-                            setPermDraft(permissionDraftForEditor(selectedRole.permissions));
+                            const hit =
+                              bindings.find(
+                                (b) => String(b.group?._id || b.permissionGroupId) === String(groupId)
+                              )?.group || bindings[0]?.group;
+                            setGrantsDraft(grantsDraftFromList(hit?.grants || []));
                           }}
                           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300"
                         >
@@ -543,8 +593,8 @@ export default function OrganizationRbacSettings({ orgId }) {
                         <button
                           type="button"
                           onClick={saveRolePermissions}
-                          disabled={savingPerms}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+                          disabled={!canSavePerms}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
                         >
                           {t('common.save')}
                         </button>
@@ -552,8 +602,9 @@ export default function OrganizationRbacSettings({ orgId }) {
                     ) : (
                       <button
                         type="button"
+                        disabled={!groupId || !catalogReady}
                         onClick={() => setPermEditMode(true)}
-                        className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-200"
+                        className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-200 disabled:opacity-50"
                       >
                         <Pencil className="mr-1 inline h-3.5 w-3.5" />
                         {t('organizationSettings.rbacEdit')}
@@ -563,30 +614,43 @@ export default function OrganizationRbacSettings({ orgId }) {
                 </div>
 
                 <div className="space-y-4">
-                  <PermissionEditorGrid
-                    permDraft={permDraft}
-                    editable={permEditMode}
-                    roleName={normalizeRoleDisplayName(selectedRole.name)}
-                    roleScope={selectedRole.scope || 'ORGANIZATION'}
-                    onToggle={(key) =>
-                      setPermDraft((prev) => {
-                        const next = { ...prev };
-                        if (next[key]) delete next[key];
-                        else next[key] = true;
-                        return next;
-                      })
-                    }
-                    onSetMany={(keys, value) => {
-                      setPermDraft((prev) => {
-                        const next = { ...prev };
-                        for (const key of keys) {
-                          if (value) next[key] = true;
-                          else delete next[key];
-                        }
-                        return next;
-                      });
-                    }}
-                  />
+                  {!bindings.length ? (
+                    <p className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-slate-400">
+                      Role chưa gắn Permission Group. Hãy clone template (màn Create) hoặc chạy direct-replace.
+                    </p>
+                  ) : catalogError || !tree.length ? (
+                    <p className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300">
+                      {t('organizationSettings.rbacLoadFail')}
+                    </p>
+                  ) : (
+                    <MasterPermissionTreeEditor
+                      tree={tree}
+                      excludeCategoryKeys={['project']}
+                      grantsDraft={grantsDraft}
+                      editable={permEditMode}
+                      onToggle={(key) => {
+                        if (!permEditMode || isProjectMasterPermission(key)) return;
+                        setGrantsDraft((prev) => {
+                          const next = { ...prev };
+                          if (next[key]) delete next[key];
+                          else next[key] = true;
+                          return next;
+                        });
+                      }}
+                      onSetMany={(keys, value) => {
+                        if (!permEditMode) return;
+                        setGrantsDraft((prev) => {
+                          const next = { ...prev };
+                          for (const key of keys || []) {
+                            if (isProjectMasterPermission(key)) continue;
+                            if (value) next[key] = true;
+                            else delete next[key];
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  )}
                 </div>
               </>
             )}

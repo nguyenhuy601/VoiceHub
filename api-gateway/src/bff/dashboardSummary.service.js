@@ -1,6 +1,7 @@
 const { services, buildTrustedHeaders, fetchJson, unwrapPayload } = require('./httpDownstream');
 const { getDashboardReadModelMode } = require('@enterprise/shared/config/reportServiceFlags');
 const { fetchDashboardReadModel } = require('./dashboardReadModel.client');
+const { mergeOrgDashboardStats } = require('./dashboardSummary.merge');
 
 const SUMMARY_TIMEOUT_MS = Math.min(
   8000,
@@ -155,4 +156,4 @@ async function buildDashboardSummary(userId, userEmail) {
   return { ...fanout, _rm: 'OFF' };
 }
 
-module.exports = { buildDashboardSummary, buildDashboardSummaryFanout, sumTaskDoneForOrgs };
+module.exports = { buildDashboardSummary, buildDashboardSummaryFanout };

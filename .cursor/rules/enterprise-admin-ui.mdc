@@ -1,5 +1,5 @@
 ---
-description: Chuẩn thiết kế UI admin/enterprise — form phức tạp, RBAC, catalog lớn phải chi tiết như PermissionEditorGrid (2 cột, summary, search, bảng)
+description: Chuẩn thiết kế UI admin/enterprise — form phức tạp, RBAC, catalog lớn phải chi tiết như MasterPermissionTreeEditor (2 cột, summary, search, bảng)
 globs: client/src/**/*.{jsx,tsx,css}
 alwaysApply: false
 ---
@@ -8,7 +8,7 @@ alwaysApply: false
 
 Khi thiết kế hoặc refactor **màn admin**, **form cấu hình**, **gán quyền / catalog nhiều mục** (RBAC, settings, matrix, picker lớn): **không** xếp toàn bộ thành card dài một trang. Làm **chi tiết, có cấu trúc**, ưu tiên quản lý hàng trăm mục.
 
-Tham chiếu chuẩn: `client/src/components/adminRbac/PermissionEditorGrid.jsx`.
+Tham chiếu chuẩn: `client/src/components/adminRbac/MasterPermissionTreeEditor.jsx`.
 
 ## Bắt buộc có
 

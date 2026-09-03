@@ -10,18 +10,28 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 export default function BranchCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { loadStructure } = useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_CREATE);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', location: '' });
 
   const submit = async (e) => {
     e.preventDefault();
     if (!orgId || saving) return;
+    if (!canCreateBranch) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const name = String(form.name || '').trim();
     if (!name) {
       toast.error(t('adminOrg.branchCreateValidation'));
@@ -48,6 +58,9 @@ export default function BranchCreatePanel({ orgId }) {
       title={t('adminDomains.orgStructure.branchCreate')}
       hint={t('adminOrg.branchCreateHint')}
     >
+      {!canCreateBranch ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+      ) : (
       <AdminUserFormCard>
         <form className="mx-auto max-w-lg space-y-4" onSubmit={submit}>
           <label className="block">
@@ -74,6 +87,7 @@ export default function BranchCreatePanel({ orgId }) {
           </button>
         </form>
       </AdminUserFormCard>
+      )}
     </AdminUserPanelShell>
   );
 }

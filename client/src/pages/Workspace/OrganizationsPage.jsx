@@ -225,7 +225,7 @@ function OrganizationsPage({
   const organizationsLoaded =
     landingDemo || orgsQuery.isFetched || orgsQuery.isSuccess || orgsQuery.isError;
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
-  const { isFullAccess, isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant, loading: grantsLoading } = useEffectiveMasterGrants(selectedOrganizationId);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [departments, setDepartments] = useState([]);
@@ -1319,7 +1319,7 @@ function OrganizationsPage({
     isOrgMembershipStructureAdmin(selectedOrganization?.myRole) ||
     Boolean(membershipScope?.canSeeAllStructure);
 
-  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const canCreateDepartment = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
   const canCreateChannel = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.CHANNEL_CREATE);
   const canUpdateTeam =

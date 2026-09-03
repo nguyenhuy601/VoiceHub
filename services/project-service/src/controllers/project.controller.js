@@ -120,7 +120,8 @@ async function listProjects(req, res) {
       return res.status(503).json({ success: false, message: 'Database unavailable' });
     }
     const userId = asUserId(req);
-    const { organizationId, teamId, scopeType, scopeId, includeArchived } = req.query || {};
+    const { organizationId, teamId, scopeType, scopeId, includeArchived, excludeClosed } =
+      req.query || {};
     if (!userId) return unauthorized(res);
     if (!validOid(organizationId)) {
       return sendServiceError(res, 400, {
@@ -138,6 +139,9 @@ async function listProjects(req, res) {
       includeArchived:
         String(includeArchived || '').trim() === '1' ||
         String(includeArchived || '').toLowerCase() === 'true',
+      excludeClosed:
+        String(excludeClosed || '').trim() === '1' ||
+        String(excludeClosed || '').toLowerCase() === 'true',
     });
     return res.json({ success: true, data });
   } catch (err) {

@@ -33,7 +33,11 @@ export default function FriendCallRealtimeHost() {
   const [incoming, setIncoming] = useState(null);
   const [busy, setBusy] = useState(false);
   const [resolvedCallerName, setResolvedCallerName] = useState('');
-  const friendsQuery = useFriendsList({ enabled: isAuthenticated });
+  /** Defer friends directory until a call is active — avoid GET /friends on every authenticated page. */
+  const needFriendsDirectory = Boolean(incoming || outboundRinging || session);
+  const friendsQuery = useFriendsList({
+    enabled: isAuthenticated && needFriendsDirectory,
+  });
 
   const meId = user?.userId ?? user?._id ?? user?.id;
   const meStr = meId != null && meId !== '' ? String(meId) : '';

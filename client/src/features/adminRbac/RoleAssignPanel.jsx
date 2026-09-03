@@ -16,6 +16,7 @@ import {
   normalizeRoleId,
   unwrapUserRoleList,
 } from '../../utils/adminRbacUtils';
+import { notifyRbacGrantsChanged } from '../../utils/rbacV2Ui';
 
 export default function RoleAssignPanel({ orgId, embedded = false, onAssigned }) {
   const { t } = useAppStrings();
@@ -94,6 +95,7 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
       if (embedded) await onAssigned?.();
       else await reloadAssignments();
       setDetailTick((n) => n + 1);
+      notifyRbacGrantsChanged();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.assignFail') }));
     } finally {

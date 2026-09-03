@@ -11,6 +11,9 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -19,6 +22,9 @@ export default function DivisionCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { branches, loadStructure } = useAdminOrgStructure(orgId);
   const { ready, createParents } = useOrgStructureLevels(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
   const requireBranch = createParents.divisionParent === 'branch';
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', branchId: '' });
@@ -26,6 +32,10 @@ export default function DivisionCreatePanel({ orgId }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!orgId || saving || !ready) return;
+    if (!canCreateDivision) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const name = String(form.name || '').trim();
     const branchId = String(form.branchId || '').trim();
     if (!name || (requireBranch && !branchId)) {
@@ -56,6 +66,9 @@ export default function DivisionCreatePanel({ orgId }) {
             : t('adminOrg.divisionCreateHintRoot')
       }
     >
+      {!canCreateDivision ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+      ) : (
       <AdminUserFormCard>
         <form className="mx-auto max-w-lg space-y-4" onSubmit={submit}>
           <label className="block">
@@ -94,6 +107,7 @@ export default function DivisionCreatePanel({ orgId }) {
           </button>
         </form>
       </AdminUserFormCard>
+      )}
     </AdminUserPanelShell>
   );
 }

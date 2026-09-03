@@ -1,5 +1,8 @@
 const XLSX = require('xlsx');
-const { sheetToMatrix } = require('./requirementTemplateParse');
+const { SHEETS } = require('../constants/requirementTemplate.constants');
+const { isFrExecutionLeaf } = require('./requirementFrLevel');
+const { sheetToMatrix, normalizeHeader } = require('./requirementTemplateParse');
+const { rollupFrEstimateHours } = require('./requirementStaffingRollup');
 
 const MAX_PREVIEW_ROWS = 500;
 const MAX_PREVIEW_COLS = 30;
@@ -44,8 +47,63 @@ function matrixToPreviewRows(matrix) {
 /**
  * Build a read-only spreadsheet snapshot for Excel Preview UI.
  * @param {Buffer} fileBuffer
- * @param {{ fileName?: string }} [options]
+ * @param {{ fileName?: string, functionalRequirements?: Array<object> }} [options]
  */
+function findFunctionalSheet(sheets = []) {
+  return (
+    sheets.find((s) => normalizeHeader(s.name) === normalizeHeader(SHEETS.FUNCTIONAL)) ||
+    sheets.find((s) => /functional/i.test(String(s.name || ''))) ||
+    null
+  );
+}
+
+/**
+ * Overlay rolled-up Effort Hours on non-leaf FR rows in an excelPreview snapshot.
+ * @param {object} excelPreview
+ * @param {Array<object>} functionalRequirements
+ */
+function overlayRolledUpEffortHoursInPreview(excelPreview, functionalRequirements = []) {
+  if (!excelPreview || !Array.isArray(excelPreview.sheets) || !functionalRequirements.length) {
+    return excelPreview;
+  }
+
+  const sheet = findFunctionalSheet(excelPreview.sheets);
+  if (!sheet || !Array.isArray(sheet.rows) || sheet.rows.length < 2) {
+    return excelPreview;
+  }
+
+  const headerCells = sheet.rows[0]?.cells || [];
+  const headerNorm = headerCells.map(normalizeHeader);
+  const idIdx = headerNorm.indexOf(normalizeHeader('ID'));
+  const levelIdx = headerNorm.indexOf(normalizeHeader('Level'));
+  const hoursIdx = headerNorm.indexOf(normalizeHeader('Effort Hours'));
+  if (idIdx < 0 || levelIdx < 0 || hoursIdx < 0) {
+    return excelPreview;
+  }
+
+  const hoursById = rollupFrEstimateHours(functionalRequirements);
+  const frById = new Map(
+    functionalRequirements
+      .map((fr) => [String(fr.externalId || '').trim(), fr])
+      .filter(([id]) => id)
+  );
+  for (let i = 1; i < sheet.rows.length; i += 1) {
+    const row = sheet.rows[i];
+    const cells = row?.cells;
+    if (!Array.isArray(cells)) continue;
+
+    const externalId = String(cells[idIdx] || '').trim();
+    if (!externalId) continue;
+    const frRow = frById.get(externalId);
+    if (frRow && isFrExecutionLeaf(frRow, functionalRequirements)) continue;
+
+    const rolled = hoursById.get(externalId);
+    cells[hoursIdx] = rolled != null && rolled > 0 ? String(rolled) : '';
+  }
+
+  return excelPreview;
+}
+
 function buildExcelPreviewFromBuffer(fileBuffer, options = {}) {
   const fileName = String(options.fileName || '').slice(0, 255);
   if (!fileBuffer || !Buffer.isBuffer(fileBuffer)) {
@@ -75,12 +133,18 @@ function buildExcelPreviewFromBuffer(fileBuffer, options = {}) {
     });
   }
 
-  return {
+  const preview = {
     fileName,
     sheetCount: sheets.length,
     totalRows,
     sheets,
   };
+
+  if (Array.isArray(options.functionalRequirements) && options.functionalRequirements.length) {
+    overlayRolledUpEffortHoursInPreview(preview, options.functionalRequirements);
+  }
+
+  return preview;
 }
 
 function buildRequirementSourceStoragePath(organizationId, packId) {
@@ -96,4 +160,5 @@ module.exports = {
   buildExcelPreviewFromBuffer,
   buildRequirementSourceStoragePath,
   matrixToPreviewRows,
+  overlayRolledUpEffortHoursInPreview,
 };

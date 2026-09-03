@@ -4,8 +4,11 @@
 
 const axios = require('axios');
 
-const DEFAULT_MODEL = 'qwen3:4b';
-const DEFAULT_TIMEOUT_MS = 90000;
+const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
+const DEFAULT_TIMEOUT_MS = 240000;
+const DEFAULT_ENRICH_TIMEOUT_MS = 120000;
+const MAX_PLANNING_TIMEOUT_MS = 600000;
+const DEFAULT_NUM_PREDICT = 512;
 
 function llmProvider() {
   return String(process.env.LLM_PROVIDER || 'ollama').trim().toLowerCase();
@@ -27,10 +30,18 @@ function ollamaModel() {
   return String(process.env.OLLAMA_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
 }
 
+function clampTimeoutMs(raw, fallback) {
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 5000) return Math.min(n, MAX_PLANNING_TIMEOUT_MS);
+  return fallback;
+}
+
 function planningTimeoutMs() {
-  const n = Number(process.env.OLLAMA_PLANNING_TIMEOUT_MS);
-  if (Number.isFinite(n) && n >= 5000) return Math.min(n, 300000);
-  return DEFAULT_TIMEOUT_MS;
+  return clampTimeoutMs(process.env.OLLAMA_PLANNING_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
+}
+
+function enrichTimeoutMs() {
+  return clampTimeoutMs(process.env.OLLAMA_PLANNING_ENRICH_TIMEOUT_MS, DEFAULT_ENRICH_TIMEOUT_MS);
 }
 
 /**
@@ -63,10 +74,10 @@ function extractJsonPayload(text) {
 
 /**
  * Call Ollama /api/generate and parse JSON from response.
- * @param {{ prompt: string, temperature?: number, timeoutMs?: number }} opts
+ * @param {{ prompt: string, temperature?: number, timeoutMs?: number, numPredict?: number }} opts
  * @returns {Promise<{ ok: boolean, model: string, data: unknown|null, error?: string, skipped?: boolean }>}
  */
-async function generateJson({ prompt, temperature = 0.1, timeoutMs } = {}) {
+async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict } = {}) {
   const model = ollamaModel();
   if (!isAiPlanningLlmEnabled() || llmProvider() === 'mock') {
     return { ok: false, model, data: null, skipped: true, error: 'llm_skipped' };
@@ -76,7 +87,12 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs } = {}) {
     return { ok: false, model, data: null, skipped: true, error: 'ollama_base_url_missing' };
   }
 
-  const timeout = timeoutMs != null ? Number(timeoutMs) : planningTimeoutMs();
+  const timeout = timeoutMs != null ? clampTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS) : planningTimeoutMs();
+  const predict =
+    numPredict != null && Number.isFinite(Number(numPredict))
+      ? Math.max(32, Math.min(2048, Math.round(Number(numPredict))))
+      : DEFAULT_NUM_PREDICT;
+
   try {
     const res = await axios.post(
       `${baseUrl}/api/generate`,
@@ -86,7 +102,7 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs } = {}) {
         stream: false,
         options: {
           temperature,
-          num_predict: 2048,
+          num_predict: predict,
         },
       },
       { timeout, validateStatus: () => true }
@@ -114,11 +130,15 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs } = {}) {
 module.exports = {
   DEFAULT_MODEL,
   DEFAULT_TIMEOUT_MS,
+  DEFAULT_ENRICH_TIMEOUT_MS,
+  MAX_PLANNING_TIMEOUT_MS,
+  DEFAULT_NUM_PREDICT,
   llmProvider,
   isAiPlanningLlmEnabled,
   ollamaBaseUrl,
   ollamaModel,
   planningTimeoutMs,
+  enrichTimeoutMs,
   extractJsonPayload,
   generateJson,
 };

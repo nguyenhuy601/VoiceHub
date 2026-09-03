@@ -27,10 +27,21 @@ function stripVerifiedCapability(capability) {
 }
 
 /** Compact capability snippet for pool list rows. */
-function stripVerifiedCapabilityForPool(capability) {
+function compactProjectExperiencesForPool(experiences, limit = 3) {
+  return (Array.isArray(experiences) ? experiences : [])
+    .filter((row) => row?.status === 'verified')
+    .slice(0, limit)
+    .map((row) => ({
+      role: String(row.role || '').slice(0, 64),
+      work: String(row.work || '').slice(0, 120),
+      year: row.year ?? null,
+    }));
+}
+
+function stripVerifiedCapabilityForPool(capability, options = {}) {
   const full = stripVerifiedCapability(capability);
   if (!full) return null;
-  return {
+  const out = {
     primaryDomain: full.primaryDomain,
     seniorityBand: full.seniorityBand,
     yearsExperience: full.yearsExperience,
@@ -39,9 +50,14 @@ function stripVerifiedCapabilityForPool(capability) {
     availability: full.availability,
     verifiedAt: full.verifiedAt,
   };
+  if (options.includeProjectExperiences) {
+    out.projectExperiences = compactProjectExperiencesForPool(full.projectExperiences);
+  }
+  return out;
 }
 
 module.exports = {
   stripVerifiedCapability,
   stripVerifiedCapabilityForPool,
+  compactProjectExperiencesForPool,
 };

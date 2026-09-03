@@ -1,14 +1,12 @@
 const ExcelJS = require('exceljs');
 const {
   TEMPLATE_VERSION,
+  TEMPLATE_FILE_NAME,
   SHEETS,
   SHEET_COLUMNS,
   OVERVIEW_FIELDS,
   PRIORITIES,
   FR_LEVELS,
-  SCOPE_TYPES,
-  NFR_CATEGORIES,
-  INTEGRATION_DIRECTIONS,
 } = require('../constants/requirementTemplate.constants');
 
 async function buildRequirementTemplateBuffer() {
@@ -30,8 +28,10 @@ async function buildRequirementTemplateBuffer() {
   readme.addRow(['5. Date format: YYYY-MM-DD.']);
   readme.addRow([`6. Priority: ${PRIORITIES.join(', ')}.`]);
   readme.addRow([`7. FR Level: ${FR_LEVELS.join(', ')}.`]);
-  readme.addRow(['8. Parent ID must exist in the ID column.']);
-  readme.addRow(['9. Staffing on FR Level=Requirement (required values): Suggested Skills, Effort Hours (>0), Suggested Role. Columns may be absent on v1.0 files but each leaf must still provide values.']);
+  readme.addRow(['8. Parent ID must exist in the ID column. Epic has no Parent ID.']);
+  readme.addRow([
+    '9. Staffing: Story / Task / Subtask require Suggested Role. Task / Subtask (and Story without Task children) require Suggested Skills + Effort Hours (>0). Epic / Feature: Suggested Role optional.',
+  ]);
   readme.addRow(['10. Optional overview: Start Date, Budget Currency.']);
 
   const overview = wb.addWorksheet(SHEETS.OVERVIEW);
@@ -47,10 +47,21 @@ async function buildRequirementTemplateBuffer() {
 
   const fr = wb.addWorksheet(SHEETS.FUNCTIONAL);
   fr.addRow(SHEET_COLUMNS[SHEETS.FUNCTIONAL]);
-  fr.addRow(['FR-001', 'Module', '', 'Authentication', 'Quản lý xác thực', 'High', '']);
-  fr.addRow(['FR-002', 'Capability', 'FR-001', 'User Authentication', '', 'High', '']);
-  fr.addRow(['FR-003', 'Feature', 'FR-002', 'Login', '', 'High', '']);
-  fr.addRow(['FR-004', 'Requirement', 'FR-003', 'Login with email', 'User login bằng email', 'High', '', 'React;REST API', '40', 'frontend_developer']);
+  fr.addRow(['FR-001', 'Epic', '', 'Authentication', 'Quản lý xác thực', 'High', '']);
+  fr.addRow(['FR-002', 'Feature', 'FR-001', 'User Authentication', '', 'High', '']);
+  fr.addRow(['FR-003', 'Story', 'FR-002', 'Login', 'User can sign in', 'High', '', '', '', 'product_owner']);
+  fr.addRow([
+    'FR-004',
+    'Task',
+    'FR-003',
+    'Login with email',
+    'User login bằng email',
+    'High',
+    '',
+    'React;REST API',
+    '40',
+    'frontend_developer',
+  ]);
 
   const nfr = wb.addWorksheet(SHEETS.NFR);
   nfr.addRow(SHEET_COLUMNS[SHEETS.NFR]);
@@ -81,4 +92,5 @@ async function buildRequirementTemplateBuffer() {
 
 module.exports = {
   buildRequirementTemplateBuffer,
+  TEMPLATE_FILE_NAME,
 };

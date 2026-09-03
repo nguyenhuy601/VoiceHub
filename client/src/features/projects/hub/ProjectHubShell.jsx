@@ -18,6 +18,7 @@ import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
 import ProjectHubCompleteProjectModal from './ProjectHubCompleteProjectModal';
+import ProjectHubArchiveProjectModal from './ProjectHubArchiveProjectModal';
 import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
 import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
@@ -25,6 +26,7 @@ import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
 import {
   PROJECT_HUB_TABS,
   buildOverviewDashboardCharts,
+  chartsFromOverviewApi,
   collectCardActivity,
   collectCardAttachments,
   computeHubBoardSummary,
@@ -36,6 +38,7 @@ import {
   formatHubMethodology,
   formatHubProjectStatus,
   hubAttentionState,
+  hubOverviewAggregateEnabled,
   listHubHealthCards,
   normalizeIssueType,
   mapHubActivityItem,
@@ -45,6 +48,11 @@ import {
   sumOpenCardEstimateHours,
   unwrapPlanningList,
 } from './projectHubUtils';
+import {
+  useInvalidateProjectHub,
+  useProjectHubOverview,
+  useProjectHubProject,
+} from './useProjectHubQueries';
 
 function OverviewMetricSkeleton({ count = 4, isDarkMode }) {
   const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
@@ -831,6 +839,7 @@ export default function ProjectHubShell({
   onBack = null,
   onBoardChange: _onBoardChange = null,
   currentUserId = '',
+  onNeedFullBoardCards = null,
 }) {
   const { t } = useAppStrings();
   const [tab, setTab] = useState('overview');
@@ -843,7 +852,7 @@ export default function ProjectHubShell({
   const [activityRestricted, setActivityRestricted] = useState(false);
   const [activityReloadToken, setActivityReloadToken] = useState(0);
   const [apiFiles, setApiFiles] = useState(null);
-  const [projectPayload, setProjectPayload] = useState(null);
+  const invalidateProjectHub = useInvalidateProjectHub();
   const [sprints, setSprints] = useState([]);
   const [planningItems, setPlanningItems] = useState([]);
   const [planningLoading, setPlanningLoading] = useState(false);
@@ -856,6 +865,7 @@ export default function ProjectHubShell({
   const filesLoadedForRef = useRef('');
   const [completeSprintId, setCompleteSprintId] = useState(null);
   const [completeProjectOpen, setCompleteProjectOpen] = useState(false);
+  const [archiveProjectOpen, setArchiveProjectOpen] = useState(false);
   const [boardOpenCrId, setBoardOpenCrId] = useState('');
   const [crWorkIssue, setCrWorkIssue] = useState(null);
   const [overviewWorkIssue, setOverviewWorkIssue] = useState(null);
@@ -863,11 +873,6 @@ export default function ProjectHubShell({
   const [sprintsFetching, setSprintsFetching] = useState(false);
   /** Đã kết thúc lần fetch sprint đầu cho projectId (success/fail) — tránh hiện Board “khóa” giả khi đang hydrate. */
   const [sprintsHydratedFor, setSprintsHydratedFor] = useState('');
-
-  const hubCaps = useMemo(
-    () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
-    [projectPayload, canManage]
-  );
 
   const resolvedBoard = useMemo(() => {
     if (boardDetail?.board) return boardDetail.board;
@@ -881,6 +886,20 @@ export default function ProjectHubShell({
       boards.find((b) => String(b._id) === String(boardId))?.projectId ||
       ''
   ).trim();
+
+  const useOverviewAggregate = hubOverviewAggregateEnabled();
+  const {
+    data: overviewPayload = null,
+    isLoading: overviewLoading,
+    refetch: refetchOverview,
+  } = useProjectHubOverview(projectId, { enabled: useOverviewAggregate });
+  const { data: projectQueryData = null } = useProjectHubProject(projectId);
+  const projectPayload = projectQueryData ?? overviewPayload?.project ?? null;
+
+  const hubCaps = useMemo(
+    () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
+    [projectPayload, canManage]
+  );
 
   if (prevHubProjectIdRef.current !== projectId) {
     prevHubProjectIdRef.current = projectId;
@@ -904,6 +923,7 @@ export default function ProjectHubShell({
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
     setCompleteProjectOpen(false);
+    setArchiveProjectOpen(false);
     setOverviewWorkIssue(null);
     setHubChatChannelId('');
   }
@@ -916,15 +936,22 @@ export default function ProjectHubShell({
       return title === list?.title ? list : { ...list, title };
     });
   }, [boardDetail?.lists]);
-  const summary = useMemo(() => computeHubBoardSummary(cards, lists), [cards, lists]);
-  const overdueHealthCards = useMemo(
-    () => listHubHealthCards(cards, lists, 'overdue', { limit: 8 }),
-    [cards, lists]
-  );
-  const inReviewHealthCards = useMemo(
-    () => listHubHealthCards(cards, lists, 'inReview', { limit: 8 }),
-    [cards, lists]
-  );
+  const summary = useMemo(() => {
+    if (overviewPayload?.summary) return overviewPayload.summary;
+    return computeHubBoardSummary(cards, lists);
+  }, [overviewPayload?.summary, cards, lists]);
+  const overdueHealthCards = useMemo(() => {
+    if (overviewPayload?.healthPreview?.overdue?.length) {
+      return overviewPayload.healthPreview.overdue;
+    }
+    return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
+  }, [overviewPayload?.healthPreview?.overdue, cards, lists]);
+  const inReviewHealthCards = useMemo(() => {
+    if (overviewPayload?.healthPreview?.inReview?.length) {
+      return overviewPayload.healthPreview.inReview;
+    }
+    return listHubHealthCards(cards, lists, 'inReview', { limit: 8 });
+  }, [overviewPayload?.healthPreview?.inReview, cards, lists]);
   const isProjectCompleted = isProjectCompletedStatus(
     projectPayload?.status || resolvedBoard?.status
   );
@@ -942,40 +969,29 @@ export default function ProjectHubShell({
   );
   const isSummaryOnly = informationLevel === 'summary';
   const needsPlanningItems =
-    (tab === 'overview' && overviewVisibility.canViewPlanningPulse) ||
-    tab === 'planning' ||
-    tab === 'timeline' ||
-    tab === 'board';
+    tab === 'planning' || tab === 'timeline' || tab === 'board';
   const needsActivity =
     (tab === 'overview' && overviewVisibility.canViewActivity) || tab === 'activity';
   const needsFiles = tab === 'files';
+  const needsSprints =
+    tab === 'board' ||
+    Boolean(visitedTabs.board) ||
+    (capsReady &&
+      (overviewVisibility.canViewSprintContext || Boolean(hubCaps.canCompleteProject)));
 
   useEffect(() => {
-    if (!projectId) {
-      setProjectPayload(null);
-      return;
+    if ((tab === 'board' || tab === 'list') && typeof onNeedFullBoardCards === 'function') {
+      onNeedFullBoardCards();
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await projectAPI.get(projectId);
-        const data = res?.data?.data ?? res?.data ?? res;
-        if (!cancelled) setProjectPayload(data || null);
-      } catch {
-        if (!cancelled) setProjectPayload(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, boardDetail?.board?.status]);
+  }, [tab, onNeedFullBoardCards]);
 
-  // Hydrate sprint ngay khi mở Hub (không chờ tab Backlog) — Board không bị “khóa giả” lúc fetch.
+  // Hydrate sprint khi Board / complete gate / sprint context overview cần.
   useEffect(() => {
-    if (!projectId) {
-      setSprints([]);
-      setSprintsFetching(false);
-      setSprintsHydratedFor('');
+    if (!projectId || !needsSprints) {
+      if (!needsSprints && sprintsLoadedForRef.current !== projectId) {
+        setSprints([]);
+        setSprintsHydratedFor('');
+      }
       return undefined;
     }
     if (sprintsLoadedForRef.current === projectId) {
@@ -1003,7 +1019,7 @@ export default function ProjectHubShell({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, needsSprints]);
 
   const patchPlanningItems = useCallback((updater) => {
     setPlanningItems((prev) => (typeof updater === 'function' ? updater(prev) : prev));
@@ -1155,6 +1171,12 @@ export default function ProjectHubShell({
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
   const dashboardCharts = useMemo(() => {
     if (!overviewVisibility.canViewTaskMetrics) return null;
+    if (overviewPayload?.charts) {
+      return chartsFromOverviewApi(
+        overviewPayload.charts,
+        projectPayload?.priorityConfig || overviewPayload?.project?.priorityConfig
+      );
+    }
     return buildOverviewDashboardCharts({
       cards,
       lists,
@@ -1170,6 +1192,8 @@ export default function ProjectHubShell({
     cards,
     lists,
     issueCounts,
+    overviewPayload?.charts,
+    overviewPayload?.project?.priorityConfig,
     projectPayload?.priorityConfig,
     projectPayload?.members,
     overviewVisibility.canViewTaskMetrics,
@@ -1177,29 +1201,46 @@ export default function ProjectHubShell({
   ]);
   const deliveryExtras = useMemo(
     () => ({
-      unassigned: countUnassignedOpenCards(cards, lists),
-      estimateHours: sumOpenCardEstimateHours(cards, lists),
+      unassigned:
+        overviewPayload?.summary?.unassigned ?? countUnassignedOpenCards(cards, lists),
+      estimateHours:
+        overviewPayload?.summary?.estimateHours ?? sumOpenCardEstimateHours(cards, lists),
     }),
-    [cards, lists]
+    [overviewPayload?.summary, cards, lists]
   );
   const overviewProjectStatus = projectPayload?.status || resolvedBoard?.status || '';
-  const planningPulse = useMemo(() => countPlanningByType(planningItems), [planningItems]);
-  const overviewSprintIssueCount = useMemo(
-    () => countCardsInSprint(cards, activeSprint?._id),
-    [cards, activeSprint?._id]
+  const planningPulse = useMemo(
+    () => overviewPayload?.planningPulse ?? countPlanningByType(planningItems),
+    [overviewPayload?.planningPulse, planningItems]
   );
+  const overviewSprintIssueCount = useMemo(() => {
+    if (overviewPayload?.activeSprint?.issueCount != null) {
+      return Number(overviewPayload.activeSprint.issueCount) || 0;
+    }
+    return countCardsInSprint(cards, activeSprint?._id);
+  }, [overviewPayload?.activeSprint?.issueCount, cards, activeSprint?._id]);
+  const overviewActiveSprint = useMemo(() => {
+    if (overviewPayload?.activeSprint) {
+      return overviewPayload.activeSprint;
+    }
+    return activeSprint;
+  }, [overviewPayload?.activeSprint, activeSprint]);
+  const nextActions = useMemo(() => {
+    if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
+      return overviewPayload.nextActions;
+    }
+    return pickNextHubActions(cards, lists, { projectCode: resolvedBoard?.projectCode || '' });
+  }, [overviewPayload?.nextActions, cards, lists, resolvedBoard?.projectCode]);
   const sprintsHydrated = Boolean(projectId) && sprintsHydratedFor === projectId;
   const sprintContextLoading =
-    (tab === 'overview' || tab === 'board') && (sprintsFetching || !sprintsHydrated);
+    overviewVisibility.canViewSprintContext &&
+    (tab === 'overview' || tab === 'board') &&
+    (sprintsFetching || !sprintsHydrated);
   const planningContextLoading = tab === 'overview' && planningLoading;
   const defaultListId = String(lists[0]?._id || '').trim();
   const derivedFiles = useMemo(() => collectCardAttachments(cards), [cards]);
   const derivedActivity = useMemo(() => collectCardActivity(cards), [cards]);
   const files = Array.isArray(apiFiles) ? apiFiles : derivedFiles;
-  const nextActions = useMemo(
-    () => pickNextHubActions(cards, lists, { projectCode: resolvedBoard?.projectCode || '' }),
-    [cards, lists, resolvedBoard?.projectCode]
-  );
   const activity = useMemo(() => {
     if (!overviewVisibility.canViewActivity || activityRestricted) return [];
     const source = Array.isArray(apiActivity) ? apiActivity : derivedActivity;
@@ -1231,6 +1272,16 @@ export default function ProjectHubShell({
     activityRestricted,
   ]);
 
+  const reloadOverview = useCallback(() => {
+    void refetchOverview();
+    invalidateProjectHub(projectId, boardId);
+  }, [refetchOverview, invalidateProjectHub, projectId, boardId]);
+
+  const handleHubRefresh = useCallback(() => {
+    reloadOverview();
+    onRefresh?.();
+  }, [reloadOverview, onRefresh]);
+
   const reloadActivity = useCallback(() => {
     activityLoadedForRef.current = '';
     setActivityError(false);
@@ -1241,9 +1292,22 @@ export default function ProjectHubShell({
   const handleOpenNextAction = useCallback(
     (actionId) => {
       const card = cards.find((c) => String(c._id || c.id) === String(actionId));
-      if (card) setOverviewWorkIssue(card);
+      if (card) {
+        setOverviewWorkIssue(card);
+        return;
+      }
+      const fromApi = nextActions.find((a) => String(a.id) === String(actionId));
+      if (fromApi) {
+        setOverviewWorkIssue({
+          _id: fromApi.id,
+          id: fromApi.id,
+          title: fromApi.title,
+          issueType: fromApi.issueType,
+          dueDate: fromApi.dueDate,
+        });
+      }
     },
-    [cards]
+    [cards, nextActions]
   );
 
   const handleViewAllActivity = useCallback(() => {
@@ -1255,42 +1319,48 @@ export default function ProjectHubShell({
     if (!projectId || !needsActivity) return undefined;
     if (activityLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
-    setActivityLoading(true);
-    setActivityError(false);
-    setActivityRestricted(false);
-    (async () => {
-      try {
-        const actRes = await projectAPI.getActivity(
-          projectId,
-          { limit: 40 },
-          { skipPermissionDeniedToast: true }
-        );
-        if (cancelled) return;
-        const act = actRes?.data?.data ?? actRes?.data ?? [];
-        setApiActivity(Array.isArray(act) ? act : []);
-        activityLoadedForRef.current = projectId;
-        setActivityRestricted(false);
-      } catch (err) {
-        if (!cancelled) {
-          const status = Number(err?.status || err?.response?.status || 0);
-          setApiActivity([]);
+    let timer = null;
+    const runFetch = () => {
+      if (cancelled) return;
+      setActivityLoading(true);
+      setActivityError(false);
+      setActivityRestricted(false);
+      (async () => {
+        try {
+          const actRes = await projectAPI.getActivity(
+            projectId,
+            { limit: 10 },
+            { skipPermissionDeniedToast: true }
+          );
+          if (cancelled) return;
+          const act = actRes?.data?.data ?? actRes?.data ?? [];
+          setApiActivity(Array.isArray(act) ? act : []);
           activityLoadedForRef.current = projectId;
-          if (status === 403) {
-            setActivityError(false);
-            setActivityRestricted(true);
-          } else {
-            setActivityError(true);
-            setActivityRestricted(false);
+          setActivityRestricted(false);
+        } catch (err) {
+          if (!cancelled) {
+            const status = Number(err?.status || err?.response?.status || 0);
+            setApiActivity([]);
+            activityLoadedForRef.current = projectId;
+            if (status === 403) {
+              setActivityError(false);
+              setActivityRestricted(true);
+            } else {
+              setActivityError(true);
+              setActivityRestricted(false);
+            }
           }
+        } finally {
+          if (!cancelled) setActivityLoading(false);
         }
-      } finally {
-        if (!cancelled) setActivityLoading(false);
-      }
-    })();
+      })();
+    };
+    timer = setTimeout(runFetch, tab === 'overview' ? 300 : 0);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [projectId, needsActivity, activityReloadToken]);
+  }, [projectId, needsActivity, activityReloadToken, tab]);
 
   useEffect(() => {
     if (!projectId || !needsFiles) return undefined;
@@ -1335,6 +1405,13 @@ export default function ProjectHubShell({
     sprintsReadyForCompleteGate &&
     !hasOpenSprints;
 
+  const projectStillActive = projectPayload?.isActive !== false;
+  const showArchiveProjectButton =
+    hasBoard &&
+    projectStillActive &&
+    Boolean(hubCaps.canArchiveProject) &&
+    (isProjectCompleted || Boolean(hubCaps.canArchiveWithoutComplete));
+
   const toolbar = (
     <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
       {hasBoard && isProjectCompleted ? (
@@ -1351,6 +1428,21 @@ export default function ProjectHubShell({
         >
           <span className="hidden sm:inline">{t('workspace.projectHubCompleteProject')}</span>
           <span className="sm:hidden">{t('workspace.projectHubCompleteProjectShort')}</span>
+        </button>
+      ) : null}
+      {showArchiveProjectButton ? (
+        <button
+          type="button"
+          onClick={() => setArchiveProjectOpen(true)}
+          title={t('workspace.projectHubArchiveProject')}
+          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+            isDarkMode
+              ? 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
+              : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+          }`}
+        >
+          <span className="hidden sm:inline">{t('workspace.projectHubArchiveProject')}</span>
+          <span className="sm:hidden">{t('workspace.projectHubArchiveProjectShort')}</span>
         </button>
       ) : null}
       {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
@@ -1519,10 +1611,10 @@ export default function ProjectHubShell({
             activityLoading={activityLoading}
             activityError={activityError}
             onRetryActivity={reloadActivity}
-            activeSprint={activeSprint}
+            activeSprint={overviewActiveSprint}
             sprintIssueCount={overviewSprintIssueCount}
             planningPulse={planningPulse}
-            boardLoading={loadingBoardDetail}
+            boardLoading={loadingBoardDetail && !overviewPayload}
             sprintContextLoading={sprintContextLoading}
             planningContextLoading={planningContextLoading}
             locale={locale}
@@ -1559,7 +1651,7 @@ export default function ProjectHubShell({
             workspaceSlug={workspaceSlug}
             onPatchPlanningItems={patchPlanningItems}
             onReloadPlanning={reloadPlanning}
-            onRefresh={onRefresh}
+            onRefresh={handleHubRefresh}
             onUpdateCard={onUpdateCard}
             onPatchBoardCards={onPatchBoardCards}
             onOpenSettings={() => setTab('settings')}
@@ -1568,6 +1660,7 @@ export default function ProjectHubShell({
             workTypeConfig={projectPayload?.workTypeConfig}
             priorityConfig={projectPayload?.priorityConfig}
             workflowTransitionsByFrom={boardDetail?.workflow?.transitionsByFrom || null}
+            parentBoardCards={cards}
           />
         </div>
         ) : null}
@@ -1646,7 +1739,7 @@ export default function ProjectHubShell({
             sprints={sprints}
             onPatchPlanningItems={patchPlanningItems}
             onReloadPlanning={reloadPlanning}
-            onRefresh={onRefresh}
+            onRefresh={handleHubRefresh}
             onUpdateCard={onUpdateCard}
             onPatchBoardCards={onPatchBoardCards}
             timelineActive={tab === 'timeline'}
@@ -1763,6 +1856,11 @@ export default function ProjectHubShell({
             apiCtx={apiCtx}
             canManage={hubCaps.canManageSettings || canManage}
             canManageDelivery={Boolean(hubCaps.canManageDelivery)}
+            canArchiveProject={Boolean(hubCaps.canArchiveProject)}
+            canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
+            isProjectCompleted={isProjectCompleted}
+            projectStillActive={projectStillActive}
+            onRequestArchive={() => setArchiveProjectOpen(true)}
             isDarkMode={isDarkMode}
             onSaved={onRefresh}
             workTypeConfig={projectPayload?.workTypeConfig}
@@ -1804,6 +1902,18 @@ export default function ProjectHubShell({
             }));
             setCompleteProjectOpen(false);
             onRefresh?.();
+          }}
+        />
+        <ProjectHubArchiveProjectModal
+          isOpen={archiveProjectOpen}
+          projectId={projectId}
+          projectTitle={resolvedBoard?.title || projectPayload?.title || ''}
+          earlyArchive={!isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)}
+          onClose={() => setArchiveProjectOpen(false)}
+          onArchived={() => {
+            toast.success(t('workspace.projectHubArchiveSuccess'));
+            setArchiveProjectOpen(false);
+            onBack?.();
           }}
         />
         {crWorkIssue ? (

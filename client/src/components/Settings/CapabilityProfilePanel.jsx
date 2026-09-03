@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../../utils/helpers';
+import useUserMe from '../../hooks/useUserMe';
 import {
   FIGMA_SETTINGS_CARD,
   FIGMA_SETTINGS_INPUT,
@@ -28,6 +29,8 @@ import {
   proficiencyTierFromLevel,
   toCapabilityPayload,
 } from '../../constants/capabilityCatalog';
+import { useWorkspace } from '../../context/WorkspaceContext';
+import useOrgSkillCatalog from '../../hooks/useOrgSkillCatalog';
 
 const STATUS_BADGE = {
   draft: 'bg-muted text-muted-foreground',
@@ -47,7 +50,13 @@ function readJobTitle(profile) {
 export default function CapabilityProfilePanel() {
   const { t } = useAppStrings();
   const { user, updateUser } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const { company } = useWorkspace();
+  const orgId = String(company?._id || company?.id || '').trim();
+  const { skillNames, skillByName, loading: skillsCatalogLoading } = useOrgSkillCatalog(orgId);
+  const skillWhitelist = skillNames.length ? skillNames : [...SKILL_WHITELIST];
+  const { me, loading: meLoading, setMeData, reload: reloadMe } = useUserMe({
+    enabled: Boolean(user?.id || user?.userId || user?._id),
+  });
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(() => emptyCapabilityForm());
   const [jobTitle, setJobTitle] = useState('');
@@ -62,11 +71,12 @@ export default function CapabilityProfilePanel() {
   const [skillToAdd, setSkillToAdd] = useState('');
   const [domainToAdd, setDomainToAdd] = useState('');
   const [certDraft, setCertDraft] = useState({ name: '', issuer: '' });
+  const loading = meLoading;
 
   const availableSkills = useMemo(() => {
     const taken = new Set((form.skills || []).map((s) => s.name));
-    return SKILL_WHITELIST.filter((name) => !taken.has(name));
-  }, [form.skills]);
+    return skillWhitelist.filter((name) => !taken.has(name));
+  }, [form.skills, skillWhitelist]);
 
   const applyServerCapability = useCallback(
     (profile) => {
@@ -105,26 +115,23 @@ export default function CapabilityProfilePanel() {
     [updateUser, user]
   );
 
+  useEffect(() => {
+    if (!me || typeof me !== 'object') return;
+    applyServerCapability(me);
+    // hydrate form từ cache shared — không put lại setMeData
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
   const hydrate = useCallback(async () => {
-    setLoading(true);
     try {
-      const res = await userService.getMe();
-      const profile = unwrapApiData(res) || res;
-      applyServerCapability(profile);
+      const profile = await reloadMe();
+      if (profile) applyServerCapability(profile);
     } catch (error) {
       toast.error(
         resolveApiErrorMessage(error, { t, fallback: t('settingsCapability.loadFail') })
       );
-    } finally {
-      setLoading(false);
     }
-  }, [t, applyServerCapability]);
-
-  useEffect(() => {
-    hydrate();
-    // chỉ hydrate khi mount tab
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [t, applyServerCapability, reloadMe]);
 
   const confirmExperience = async (evidenceBoardId) => {
     const boardId = String(evidenceBoardId || '').trim();
@@ -137,6 +144,7 @@ export default function CapabilityProfilePanel() {
       });
       const profile = unwrapApiData(res) || res;
       applyServerCapability(profile);
+      if (profile && typeof profile === 'object') setMeData(profile);
       toast.success(t('settingsCapability.confirmOk'));
     } catch (error) {
       toast.error(
@@ -172,6 +180,7 @@ export default function CapabilityProfilePanel() {
       const res = await userService.updateProfile(payload);
       const profile = unwrapApiData(res) || res;
       applyServerCapability(profile);
+      if (profile && typeof profile === 'object') setMeData(profile);
       toast.success(
         capabilityAction === 'submit'
           ? t('settingsCapability.toastSubmitted')
@@ -188,15 +197,24 @@ export default function CapabilityProfilePanel() {
 
   const addSkill = () => {
     const name = String(skillToAdd || '').trim();
-    if (!name || !SKILL_WHITELIST.includes(name)) return;
+    if (!name || !skillWhitelist.includes(name)) return;
     if ((form.skills || []).some((s) => s.name === name)) return;
     if ((form.skills || []).length >= MAX_TOP_SKILLS) {
       toast.error(t('settingsCapability.maxTopSkills', { n: MAX_TOP_SKILLS }));
       return;
     }
+    const registrySkill = skillByName.get(name);
     setForm((prev) => ({
       ...prev,
-      skills: [...(prev.skills || []), { name, level: 3, rank: (prev.skills || []).length + 1 }],
+      skills: [
+        ...(prev.skills || []),
+        {
+          name,
+          skillId: registrySkill?.id || undefined,
+          level: 3,
+          rank: (prev.skills || []).length + 1,
+        },
+      ],
     }));
     setSkillToAdd('');
   };

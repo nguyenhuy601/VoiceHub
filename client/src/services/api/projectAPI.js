@@ -50,6 +50,31 @@ export function mapProjectsToBoardPickerRows(projects = []) {
     .filter(Boolean);
 }
 
+/** Map GET /projects/:id/boards → rows picker (._id = boardId). */
+export function mapBoardsToPickerRows(boards = [], projectMeta = {}) {
+  const projectId = String(projectMeta?.projectId || '').trim();
+  const fallbackTitle = String(projectMeta?.title || '').trim();
+  return (Array.isArray(boards) ? boards : [])
+    .map((b) => {
+      const boardId = String(b?._id || b?.id || '').trim();
+      if (!boardId) return null;
+      return {
+        ...b,
+        _id: boardId,
+        projectId: String(b?.projectId || projectId || '').trim(),
+        title: b?.title || fallbackTitle || '',
+        projectCode: b?.projectCode || projectMeta?.projectCode || '',
+        description: b?.description ?? projectMeta?.description,
+        dueDate: b?.dueDate ?? projectMeta?.dueDate,
+        visibility: b?.visibility ?? projectMeta?.visibility,
+        background: b?.background ?? projectMeta?.background,
+        status: b?.status ?? projectMeta?.status,
+        defaultBoardId: boardId,
+      };
+    })
+    .filter(Boolean);
+}
+
 /**
  * Canonical Project API (`/api/projects`).
  * projectId ≠ boardId (defaultBoardId trên response create/list).

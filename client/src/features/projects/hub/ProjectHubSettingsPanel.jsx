@@ -174,6 +174,11 @@ export default function ProjectHubSettingsPanel({
   apiCtx = null,
   canManage = false,
   canManageDelivery = false,
+  canArchiveProject = false,
+  canArchiveWithoutComplete = false,
+  isProjectCompleted = false,
+  projectStillActive = true,
+  onRequestArchive = null,
   isDarkMode = false,
   onSaved,
   workTypeConfig: serverWorkTypeConfig = null,
@@ -1308,6 +1313,15 @@ export default function ProjectHubSettingsPanel({
     openSection === 'statusPriority' ||
     openSection === 'workflow';
 
+  const canArchiveNow =
+    Boolean(canArchiveProject) &&
+    projectStillActive &&
+    Boolean(resolvedProjectId) &&
+    (isProjectCompleted || Boolean(canArchiveWithoutComplete));
+
+  const showArchiveDangerZone =
+    Boolean(canArchiveProject) && projectStillActive && Boolean(resolvedProjectId);
+
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-4 py-4 sm:px-6 sm:py-5">
@@ -1334,6 +1348,36 @@ export default function ProjectHubSettingsPanel({
             </li>
           ))}
         </ul>
+
+        {showArchiveDangerZone ? (
+          <section
+            className="mt-6 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+            aria-labelledby="project-hub-settings-danger-title"
+          >
+            <h4
+              id="project-hub-settings-danger-title"
+              className={`text-sm font-bold ${titleCls}`}
+            >
+              {t('workspace.projectHubSettingsDangerTitle')}
+            </h4>
+            <p className={`mt-1 text-xs leading-relaxed ${muted}`}>
+              {t('workspace.projectHubSettingsDangerHint')}
+            </p>
+            {!canArchiveNow && !isProjectCompleted && !canArchiveWithoutComplete ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {t('workspace.projectHubSettingsArchiveNeedComplete')}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={!canArchiveNow}
+              onClick={() => onRequestArchive?.()}
+              className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('workspace.projectHubArchiveProject')}
+            </button>
+          </section>
+        ) : null}
 
         <ProjectHubSettingsPopover
           isOpen={Boolean(openSection)}

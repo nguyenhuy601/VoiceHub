@@ -49,9 +49,13 @@ describe('requirement:create-project gate (T3)', () => {
     assert.ok(REQUIREMENT_PERMISSIONS.includes('requirement:run-ai-planning'));
   });
 
-  it('documents PM approver may run AI (via isRequirementApproverUser)', () => {
-    // Auth matrix: capacity (Admin/RM) OR requirement approver (PM/PO/Project Manager).
+  it('run-ai-planning reserved for PO/PM approvers (not BA submitter)', () => {
+    // Collaborate UI: canRunAiPlanning mirrors canApprove (PO/PM only).
+    // Admin Hub: org owner/admin/hr via canUserRunAiPlanning org_admin path.
     assert.ok(REQUIREMENT_PERMISSIONS.includes('requirement:run-ai-planning'));
+    assert.equal(isApproverJobTitle('Product Manager'), true);
+    assert.equal(isSubmitterJobTitle('Business Analyst'), true);
+    assert.equal(isApproverJobTitle('Business Analyst'), false);
   });
 
   it('create-from-pack gate mirrors canCreateTask flag', () => {

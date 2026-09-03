@@ -11,6 +11,7 @@ const {
   assertProjectWritable,
   assertProjectNotAlreadyClosed,
   assertMustCompleteBeforeArchive,
+  canSkipCompleteGateBeforeArchive,
   assertPatchDoesNotCloseProject,
 } = require('../src/utils/projectCloseGate');
 
@@ -155,5 +156,20 @@ describe('projectCloseGate: project complete vs archive', () => {
       (err) => err.errorCode === 'USE_COMPLETE_PROJECT'
     );
     assert.doesNotThrow(() => assertPatchDoesNotCloseProject('closed', 'closed'));
+  });
+
+  it('canSkipCompleteGateBeforeArchive — project:delete / org elevated', () => {
+    assert.equal(canSkipCompleteGateBeforeArchive({ isOrgAdmin: true }), true);
+    assert.equal(canSkipCompleteGateBeforeArchive({ isCreator: true }), true);
+    assert.equal(canSkipCompleteGateBeforeArchive({ legacyOrgAdmin: true }), true);
+    assert.equal(
+      canSkipCompleteGateBeforeArchive({ permissions: ['project:delete'] }),
+      true
+    );
+    assert.equal(
+      canSkipCompleteGateBeforeArchive({ permissions: ['project:archive'] }),
+      false
+    );
+    assert.equal(canSkipCompleteGateBeforeArchive({ permissions: [] }), false);
   });
 });

@@ -23,6 +23,9 @@ export default function TeamArchivePanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canDeleteTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 

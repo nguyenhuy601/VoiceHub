@@ -61,7 +61,8 @@ const SUGGESTED_PROJECT_ROLE_SET = new Set(SUGGESTED_PROJECT_ROLE_KEYS);
 
 const STAFFING_SOURCE = Object.freeze(['excel', 'rollup', 'ai']);
 
-const FR_LEAF_LEVEL = 'Requirement';
+/** @deprecated prefer requirementFrLevel.isFrExecutionLeaf */
+const FR_LEAF_LEVEL = 'Task';
 
 module.exports = {
   REQUIREMENT_SKILL_WHITELIST,

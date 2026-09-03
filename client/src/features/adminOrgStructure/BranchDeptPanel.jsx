@@ -15,7 +15,7 @@ export default function BranchDeptPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { branches, departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { branches, departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
   const [selectedId, setSelectedId] = useState(unitParam);
 
   useEffect(() => {

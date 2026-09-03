@@ -12,6 +12,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -20,7 +23,10 @@ export default function DivisionEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
-  const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '' });
@@ -45,6 +51,10 @@ export default function DivisionEditPanel({ orgId, embedded = false }) {
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !selectedId || saving) return;
+    if (!canUpdateDivision) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     setSaving(true);
     try {
       await organizationAPI.updateDivision(orgId, selectedId, {

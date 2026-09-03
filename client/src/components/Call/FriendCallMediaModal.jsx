@@ -124,7 +124,8 @@ export default function FriendCallMediaModal() {
   const [isRecording, setIsRecording] = useState(false);
   const [remoteTile, setRemoteTile] = useState(null);
   const [fetchedPeer, setFetchedPeer] = useState({ name: '', avatar: null });
-  const friendsQuery = useFriendsList();
+  // Defer until call session — avoid GET /friends on every authenticated page (e.g. collaborate/projects).
+  const friendsQuery = useFriendsList({ enabled: Boolean(session) });
 
   const localVideoRef = useRef(null);
   const sessionPeerRef = useRef({ label: '', avatar: null });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Check, Download, FolderPlus, Sparkles, X } from 'lucide-react';
+import { Check, Download, FolderPlus, Loader2, Sparkles, Trash2, X } from 'lucide-react';
 
 import GradientButton from '../../components/Shared/GradientButton';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
@@ -10,6 +10,9 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
+import AiStaffingProposalPanel from './AiStaffingProposalPanel';
+import AiPlanningRunningBanner from './AiPlanningRunningBanner';
+import { formatAiPlanningSuggestionProfile } from '../../utils/aiPlanningSuggestionDisplay';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -24,15 +27,27 @@ function canRunAiOnPack(pack) {
   return true;
 }
 
-function AiPlanningOverlaySummary({ pack, t, canRunAiPlanning, busy, onApproveStaffing, onDiscardStaffing }) {
+function AiPlanningOverlaySummary({
+  pack,
+  t,
+  canRunAiPlanning,
+  busy,
+  aiPlanningBusy = false,
+  onApproveStaffing,
+  onDiscardStaffing,
+}) {
   const planning = pack?.aiPlanning;
-  if (!planning || planning.status === 'none') return null;
+  if (!planning || planning.status === 'none') {
+    if (!aiPlanningBusy) return null;
+    return (
+      <div className="mb-4">
+        <AiPlanningRunningBanner t={t} />
+      </div>
+    );
+  }
   const overlay = planning.overlay || {};
   const roles = Array.isArray(overlay.roles) ? overlay.roles : [];
   const gaps = Array.isArray(overlay.gaps) ? overlay.gaps : [];
-  const proposal = overlay.staffingProposal;
-  const proposalPending =
-    proposal && typeof proposal === 'object' && !proposal.accepted && !overlay.staffingProposalAcceptedAt;
   const llm = overlay.llm || {};
 
   return (
@@ -50,68 +65,36 @@ function AiPlanningOverlaySummary({ pack, t, canRunAiPlanning, busy, onApproveSt
         ) : null}
         {llm.staffingStatus ? (
           <span className="text-[11px] text-muted-foreground">
-            {t('requirements.aiLlmStaffingStatus', { status: llm.staffingStatus })}
+            {t('requirements.aiLlmStaffingStatus', {
+              status:
+                t(`requirements.aiLlmStaffingStatusLabels.${llm.staffingStatus}`, {
+                  defaultValue: llm.staffingStatus,
+                }),
+            })}
           </span>
         ) : null}
       </div>
+      {aiPlanningBusy || planning.status === 'pending' ? (
+        <div className="mt-3">
+          <AiPlanningRunningBanner t={t} />
+        </div>
+      ) : null}
+
       {planning.status === 'failed' ? (
         <p className="mt-2 text-destructive">{overlay.message || t('requirements.aiPlanningFail')}</p>
       ) : null}
 
-      {proposalPending ? (
-        <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
-          <p className="text-xs font-semibold text-foreground">
-            {t('requirements.aiStaffingProposalTitle')}
-          </p>
-          {proposal.rationale ? (
-            <p className="mt-1 text-xs text-muted-foreground">{proposal.rationale}</p>
-          ) : null}
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-            {(proposal.requiredRoles || []).map((r) => (
-              <li key={r.roleKey}>
-                {r.roleKey} ×{r.requiredCount}
-              </li>
-            ))}
-          </ul>
-          {(proposal.requiredSkills || []).length ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {(proposal.requiredSkills || []).map((s) => s.name || s).join(', ')}
-            </p>
-          ) : null}
-          {proposal.estimatedHoursTotal != null ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('requirements.aiStaffingHours', { hours: proposal.estimatedHoursTotal })}
-            </p>
-          ) : null}
-          {canRunAiPlanning ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <GradientButton
-                variant="success"
-                disabled={busy}
-                onClick={onApproveStaffing}
-                className="px-3 py-1.5 text-xs"
-              >
-                <Check className="h-3.5 w-3.5" />
-                {t('requirements.aiStaffingApprove')}
-              </GradientButton>
-              <GradientButton
-                variant="shell"
-                disabled={busy}
-                onClick={onDiscardStaffing}
-                className="px-3 py-1.5 text-xs"
-              >
-                <X className="h-3.5 w-3.5" />
-                {t('requirements.aiStaffingDiscard')}
-              </GradientButton>
-            </div>
-          ) : null}
+      {planning.status === 'ready' && !aiPlanningBusy ? (
+        <div className="mt-3">
+          <AiStaffingProposalPanel
+            overlay={overlay}
+            t={t}
+            canApproveStaffing={canRunAiPlanning}
+            busy={busy}
+            onApproveStaffing={onApproveStaffing}
+            onDiscardStaffing={onDiscardStaffing}
+          />
         </div>
-      ) : null}
-
-      {overlay.staffingProposalAcceptedAt ? (
-        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
-          {t('requirements.aiStaffingAccepted')}
-        </p>
       ) : null}
 
       {roles.length > 0 ? (
@@ -125,14 +108,22 @@ function AiPlanningOverlaySummary({ pack, t, canRunAiPlanning, busy, onApproveSt
                 </span>
                 {top.length ? (
                   <ul className="mt-1 space-y-1 pl-2">
-                    {top.map((s) => (
+                    {top.map((s) => {
+                      const profileLine = formatAiPlanningSuggestionProfile(s, t);
+                      return (
                       <li key={`${role.roleKey}-${s.userId}`}>
                         {s.displayName || s.userId} ({s.score})
+                        {profileLine ? (
+                          <span className="block text-[11px] opacity-80">
+                            {profileLine}
+                          </span>
+                        ) : null}
                         {s.rationale ? (
                           <span className="block text-[11px] opacity-90">— {s.rationale}</span>
                         ) : null}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ) : (
                   <span> — {t('requirements.aiPlanningNoCandidates')}</span>
@@ -170,12 +161,14 @@ export default function RequirementPackReviewDrawer({
   canRunAiPlanning = false,
   onClose = null,
   onChanged = null,
+  onDeletePack = null,
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [pack, setPack] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [aiPlanningBusy, setAiPlanningBusy] = useState(false);
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
@@ -216,20 +209,28 @@ export default function RequirementPackReviewDrawer({
 
   const showApprove = canApprove && pack?.status === 'under_review';
   const showCreateProject = canCreateFromPack && pack?.status === 'approved';
+  const showDelete = canApprove && pack?.status === 'approved';
   const showRunAi = canRunAiPlanning && canRunAiOnPack(pack);
-  const showFooter = showApprove || showCreateProject || showRunAi;
+  const showFooter = showApprove || showCreateProject || showRunAi || showDelete;
   const labels = {
-    tabTree: t('requirements.tabTree'),
-    tabExcel: t('requirements.tabExcel'),
     parsedOk: t('requirements.parsedOk'),
     parsedFail: t('requirements.parsedFail'),
     meta: t('requirements.previewMeta'),
-    emptyTree: t('requirements.emptyTree'),
+    previewNoIssues: t('requirements.previewNoIssues'),
+    fixHintColumn: t('requirements.fixHintColumn'),
+    sheetIssueBanner: t('requirements.sheetIssueBanner'),
+    noIssuesOnSheet: t('requirements.noIssuesOnSheet'),
     emptyExcel: t('requirements.noExcelPreview'),
-    searchPlaceholder: t('requirements.excelSearch'),
-    truncatedHint: t('requirements.excelTruncated'),
     derivedFromPackHint: t('requirements.derivedFromPackHint'),
+    planningScore: t('requirements.planningScore'),
+    planningNotReady: t('requirements.planningNotReady'),
+    missingLeafStaffing: t('requirements.missingLeafStaffing'),
+    previewPlanningLowScore: t('requirements.previewPlanningLowScore'),
+    previewPackReady: t('requirements.previewPackReady'),
+    previewPackProcessed: t('requirements.previewPackProcessed'),
   };
+
+  const planningPreview = pack?.planningPreview || null;
 
   const downloadSource = async () => {
     if (!orgId || !packId || busy || !pack?.sourceFileId) return;
@@ -328,6 +329,19 @@ export default function RequirementPackReviewDrawer({
   const runAiPlanning = async () => {
     if (!orgId || !packId || busy) return;
     setBusy(true);
+    setAiPlanningBusy(true);
+    setPack((prev) =>
+      prev
+        ? {
+            ...prev,
+            aiPlanning: {
+              ...(prev.aiPlanning || {}),
+              status: 'pending',
+              overlay: prev.aiPlanning?.overlay || null,
+            },
+          }
+        : prev
+    );
     try {
       const res = await requirementAPI.runAiPlanning(orgId, packId);
       setPack(unwrap(res));
@@ -339,6 +353,7 @@ export default function RequirementPackReviewDrawer({
       );
     } finally {
       setBusy(false);
+      setAiPlanningBusy(false);
     }
   };
 
@@ -414,7 +429,15 @@ export default function RequirementPackReviewDrawer({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="relative min-h-0 flex-1 overflow-y-auto p-4">
+          {aiPlanningBusy ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-16 backdrop-blur-[1px]"
+              aria-hidden
+            >
+              <AiPlanningRunningBanner t={t} className="shadow-sm" />
+            </div>
+          ) : null}
           {loading ? (
             <div className="flex justify-center py-12">
               <BrandPageLoader />
@@ -426,18 +449,20 @@ export default function RequirementPackReviewDrawer({
                 t={t}
                 canRunAiPlanning={canRunAiPlanning}
                 busy={busy}
+                aiPlanningBusy={aiPlanningBusy}
                 onApproveStaffing={approveAiStaffing}
                 onDiscardStaffing={discardAiStaffing}
               />
               <RequirementPreviewTabs
+                previewMode="pack"
                 fileName={pack.sourceFileName || pack.overview?.requirementName || ''}
-                valid={!(pack.importIssues || []).some((i) => i.severity === 'error')}
-                errorCount={(pack.importIssues || []).filter((i) => i.severity === 'error').length}
-                warningCount={(pack.importIssues || []).filter((i) => i.severity === 'warning').length}
-                previewTree={pack.previewTree || []}
-                excelPreview={pack.excelPreview}
-                issues={pack.importIssues || []}
+                errorCount={planningPreview?.errorCount ?? 0}
+                warningCount={planningPreview?.warningCount ?? 0}
+                infoCount={planningPreview?.infoCount ?? 0}
+                excelPreview={planningPreview?.excelPreview ?? pack.excelPreview}
+                issues={planningPreview?.issues ?? []}
                 labels={labels}
+                planningReadiness={pack.planningReadiness || null}
                 headerExtra={
                   pack.sourceFileId ? (
                     <GradientButton
@@ -467,8 +492,14 @@ export default function RequirementPackReviewDrawer({
                 onClick={runAiPlanning}
                 className="px-4 py-2 text-sm"
               >
-                <Sparkles className="h-4 w-4" />
-                {t('requirements.aiPlanningRun')}
+                {aiPlanningBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="h-4 w-4" aria-hidden />
+                )}
+                {aiPlanningBusy
+                  ? t('requirements.aiPlanningStatus.pending')
+                  : t('requirements.aiPlanningRun')}
               </GradientButton>
             ) : null}
             {showApprove ? (
@@ -502,6 +533,17 @@ export default function RequirementPackReviewDrawer({
               >
                 <FolderPlus className="h-4 w-4" />
                 {t('requirements.createProject')}
+              </GradientButton>
+            ) : null}
+            {showDelete ? (
+              <GradientButton
+                variant="shell"
+                disabled={busy}
+                onClick={() => onDeletePack?.(pack)}
+                className="px-4 py-2 text-sm text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+                {t('requirements.deletePack')}
               </GradientButton>
             ) : null}
           </footer>

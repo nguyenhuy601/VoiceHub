@@ -255,17 +255,56 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
             <button type="button" disabled={busy} className={adminPrimaryBtnClass()} onClick={submit}>
               {busy ? t('common.saving') : t('common.save')}
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              className={adminSecondaryBtnClass()}
-              onClick={() => navigate('/app/admin/rbac/project-roles')}
-            >
-              {t('common.cancel') || 'Cancel'}
-            </button>
+            {!embedded ? (
+              <button
+                type="button"
+                disabled={busy}
+                className={adminSecondaryBtnClass()}
+                onClick={() => navigate('/app/admin/rbac/project-roles')}
+              >
+                {t('common.cancel') || 'Cancel'}
+              </button>
+            ) : null}
           </div>
         </>
       )}
+    </AdminUserFormCard>
+  );
+
+  const permissionMatrixCard = role ? (
+    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
+      <p className="mb-3 text-xs text-muted-foreground">
+        {t('adminRbac.permissionMatrixHint') ||
+          'System roles: chỉ sửa permissions. Custom roles: sửa label + canAssign + permissions.'}
+      </p>
+      <div className="max-h-[28rem] space-y-4 overflow-auto pr-1">
+        {PERMISSION_GROUPS.map((group) => (
+          <div key={group.title}>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {group.title}
+            </p>
+            <ul className="space-y-1">
+              {group.keys.map((key) => (
+                <li key={key}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      checked={selectedPerms.has(key)}
+                      onChange={() => togglePerm(key)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                    <span className="font-mono text-xs">{key}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </AdminUserFormCard>
+  ) : (
+    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
+      <p className="text-sm text-muted-foreground">{t('adminRbac.selectRoleFirst')}</p>
     </AdminUserFormCard>
   );
 
@@ -283,7 +322,14 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
     );
   }
 
-  if (embedded) return editFormCard;
+  if (embedded) {
+    return (
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        {editFormCard}
+        {permissionMatrixCard}
+      </div>
+    );
+  }
 
   return (
     <AdminUserPanelShell
@@ -327,42 +373,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
 
         {editFormCard}
 
-        {role ? (
-          <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
-            <p className="mb-3 text-xs text-muted-foreground">
-              {t('adminRbac.permissionMatrixHint') ||
-                'System roles: chỉ sửa permissions. Custom roles: sửa label + canAssign + permissions.'}
-            </p>
-            <div className="max-h-[28rem] space-y-4 overflow-auto pr-1">
-              {PERMISSION_GROUPS.map((group) => (
-                <div key={group.title}>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {group.title}
-                  </p>
-                  <ul className="space-y-1">
-                    {group.keys.map((key) => (
-                      <li key={key}>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-muted/40">
-                          <input
-                            type="checkbox"
-                            checked={selectedPerms.has(key)}
-                            onChange={() => togglePerm(key)}
-                            className="h-4 w-4 rounded border-border accent-primary"
-                          />
-                          <span className="font-mono text-xs">{key}</span>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </AdminUserFormCard>
-        ) : (
-          <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
-            <p className="text-sm text-muted-foreground">{t('adminRbac.selectRoleFirst')}</p>
-          </AdminUserFormCard>
-        )}
+        {permissionMatrixCard}
       </div>
     </AdminUserPanelShell>
   );

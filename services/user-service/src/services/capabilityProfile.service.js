@@ -277,7 +277,18 @@ function sanitizeCapabilityFields(raw) {
       let level = Number(item?.level ?? 3);
       if (!Number.isFinite(level)) level = 3;
       level = Math.max(SKILL_LEVEL_MIN, Math.min(SKILL_LEVEL_MAX, Math.round(level)));
-      skills.push({ name, level, rank: skills.length + 1 });
+      const skillIdRaw = String(item?.skillId || '').trim();
+      const skillEntry = { name, level, rank: skills.length + 1 };
+      if (skillIdRaw) skillEntry.skillId = skillIdRaw;
+      if (item?.experienceYears != null) {
+        const exp = Number(item.experienceYears);
+        if (Number.isFinite(exp)) skillEntry.experienceYears = Math.max(0, Math.min(YEARS_EXPERIENCE_MAX, exp));
+      }
+      if (item?.lastUsedAt) {
+        const d = new Date(item.lastUsedAt);
+        if (!Number.isNaN(d.getTime())) skillEntry.lastUsedAt = d;
+      }
+      skills.push(skillEntry);
     }
     fields.skills = enrichSkillsWithRank(skills);
   }

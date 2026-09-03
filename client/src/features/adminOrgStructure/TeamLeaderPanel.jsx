@@ -20,7 +20,7 @@ export default function TeamLeaderPanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
 

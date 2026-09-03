@@ -108,16 +108,20 @@ async function buildBootstrap(userId, userEmail, suite = '', systemRole = '', mu
   const suiteNorm = String(suite || '').trim().toLowerCase();
   if (!suiteNorm) return base;
 
-  const { enrichment, partialEnrichment } = await buildSuiteEnrichment(
-    suiteNorm,
-    organizations,
-    headers
-  );
+  let enrichment = { upcomingMeetings: [], taskDoneByOrg: null };
+  let partialEnrichment = { enrichment: true };
+  try {
+    const built = await buildSuiteEnrichment(suiteNorm, organizations, headers);
+    enrichment = built.enrichment || enrichment;
+    partialEnrichment = built.partialEnrichment || {};
+  } catch (err) {
+    console.warn('[bff:bootstrap] enrichment failed open:', err?.message || err);
+  }
 
   return {
     ...base,
     suite: suiteNorm,
-    enrichment: enrichment || { upcomingMeetings: [], taskDoneByOrg: null },
+    enrichment,
     partial: {
       ...base.partial,
       enrichment: partialEnrichment,

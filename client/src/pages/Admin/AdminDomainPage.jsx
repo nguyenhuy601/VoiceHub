@@ -7,6 +7,8 @@ import {
   resolveAdminLegacyRedirect,
 } from '../../config/adminDomainsConfig';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { navItemIsAllowed } from '../../config/rbacUiGrantMap';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
 import AdminModulePlaceholderPage from './AdminModulePlaceholderPage';
 import UsersListPanel from '../../features/adminUsers/UsersListPanel';
@@ -299,7 +301,8 @@ const TASK_PANELS = {
 
 export default function AdminDomainPage() {
   const location = useLocation();
-  const { orgId } = useCompanyAdminContext();
+  const { orgId, isFullAccess } = useCompanyAdminContext();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
   const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
 
   const legacy = resolveAdminLegacyRedirect(location.pathname, location.search);
@@ -326,6 +329,14 @@ export default function AdminDomainPage() {
   }
 
   const impl = match.item.implementation;
+
+  if (!navItemIsAllowed(match.item, { isFullAccess, hasGrant })) {
+    return (
+      <div className="rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground">
+        Không có quyền xem màn này.
+      </div>
+    );
+  }
 
   if (impl?.startsWith('settings-')) return <CompanyAdminSettingsPage />;
 

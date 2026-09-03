@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { organizationAPI } from './organizationAPI';
 
 function withOrg(organizationId, config = {}) {
   const orgId = String(organizationId || '').trim();
@@ -47,8 +48,15 @@ export const requirementAPI = {
   getAccess: (organizationId) =>
     apiClient.get('/projects/requirements/access', withOrg(organizationId)),
 
-  getPack: (organizationId, packId) =>
-    apiClient.get(`/projects/requirements/${encodeURIComponent(packId)}`, withOrg(organizationId)),
+  getPack: (organizationId, packId, options = {}) => {
+    const view = String(options.view || '').trim();
+    return apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}`,
+      withOrg(organizationId, {
+        params: view ? { view } : {},
+      })
+    );
+  },
 
   downloadSourceFile: (organizationId, packId) =>
     apiClient.get(`/projects/requirements/${encodeURIComponent(packId)}/source-file`, {
@@ -78,19 +86,37 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
+  deletePack: (organizationId, packId) =>
+    apiClient.delete(
+      `/projects/requirements/${encodeURIComponent(String(packId || '').trim())}`,
+      {
+        ...withOrg(organizationId),
+        skipNotFoundToast: true,
+      }
+    ),
+
   createProjectFromPack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/create-project`,
       body,
-      withOrg(organizationId)
+      {
+        ...withOrg(organizationId),
+        timeout: 300000,
+      }
     ),
 
-  runAiPlanning: (organizationId, packId) =>
-    apiClient.post(
+  runAiPlanning: (organizationId, packId, options = {}) => {
+    const phase = options.phase;
+    const body = phase ? { phase } : {};
+    return apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/run`,
-      {},
-      withOrg(organizationId)
-    ),
+      body,
+      {
+        ...withOrg(organizationId),
+        timeout: options.timeout ?? 300000,
+      }
+    );
+  },
 
   approveAiStaffing: (organizationId, packId) =>
     apiClient.post(
@@ -105,4 +131,10 @@ export const requirementAPI = {
       {},
       withOrg(organizationId)
     ),
+
+  listSkills: (organizationId, params = {}) =>
+    organizationAPI.listSkills(organizationId, params),
+
+  reviewSkill: (organizationId, skillId, body = {}) =>
+    organizationAPI.reviewSkill(organizationId, skillId, body),
 };

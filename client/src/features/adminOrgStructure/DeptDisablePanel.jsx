@@ -25,6 +25,9 @@ export default function DeptDisablePanel({ orgId, embedded = false }) {
   const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, {
     includeInactive: true,
   });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canDeleteDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 

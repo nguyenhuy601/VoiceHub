@@ -112,6 +112,7 @@ export default function ProjectHubListPanel({
   workTypeConfig: serverWorkTypeConfig = null,
   priorityConfig = null,
   workflowTransitionsByFrom = null,
+  parentBoardCards = null,
 }) {
   const { t } = useAppStrings();
   const listColumns = useMemo(
@@ -260,7 +261,13 @@ export default function ProjectHubListPanel({
 
     // Board cards riêng — orphan task hiện root dù không có Epic / epic API lỗi.
     try {
-      if (boardId) {
+      const seeded =
+        Array.isArray(parentBoardCards) && parentBoardCards.length > 0
+          ? parentBoardCards
+          : null;
+      if (seeded) {
+        setListCards(seeded);
+      } else if (boardId) {
         const boardRes = await taskAPI.getBoardDetail(boardId, {
           ...(apiCtx || {}),
           skipNotFoundToast: true,
@@ -279,7 +286,7 @@ export default function ProjectHubListPanel({
       setLoadingIds(new Set());
       setExpandErrorIds(new Set());
     }
-  }, [projectId, listActive, boardId, apiCtx]);
+  }, [projectId, listActive, boardId, apiCtx, parentBoardCards]);
 
   useEffect(() => {
     void loadListEpics();

@@ -10,6 +10,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
@@ -17,15 +20,18 @@ import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
 const BRANCH_MANAGE_HUB = '/app/admin/org-structure/branches/manage';
 const ACTION_LINKS = [
-  { tab: 'edit', labelKey: 'adminDomains.orgStructure.branchEdit' },
-  { tab: 'disable', labelKey: 'adminDomains.orgStructure.branchDisable' },
-  { tab: 'departments', labelKey: 'adminDomains.orgStructure.branchDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.branchEdit', grant: RBAC_GRANT.BRANCH_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.branchDisable', grant: RBAC_GRANT.BRANCH_UPDATE },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.branchDept', grant: RBAC_GRANT.BRANCH_UPDATE },
 ];
 
 export default function BranchListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { branches: structureBranches, loading: structureLoading, loadStructure } =
     useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_CREATE);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -83,10 +89,12 @@ export default function BranchListPanel({ orgId }) {
       hint={t('adminOrg.branchListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/branches/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.branchCreate')}
-        </Link>
+        canCreateBranch ? (
+          <Link to="/app/admin/org-structure/branches/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.branchCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -151,7 +159,9 @@ export default function BranchListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
                               key={link.tab}
                               to={adminOrgUnitHubLink(BRANCH_MANAGE_HUB, id, link.tab)}

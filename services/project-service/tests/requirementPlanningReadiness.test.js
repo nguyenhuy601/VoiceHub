@@ -5,7 +5,7 @@ const {
   isKnownSkill,
   isKnownProjectRole,
 } = require('../src/utils/requirementStaffingParse');
-const { buildStaffingPlanFromParsed } = require('../src/utils/requirementStaffingRollup');
+const { buildStaffingPlanFromParsed, rollupFrEstimateHours } = require('../src/utils/requirementStaffingRollup');
 const {
   computePlanningReadiness,
   allLeavesHaveStaffing,
@@ -21,18 +21,49 @@ describe('requirementStaffingRollup', () => {
     assert.deepEqual(parseSkillsCsv('React; REST API'), ['React', 'REST API']);
   });
 
+  it('rollupFrEstimateHours sums leaf hours up the hierarchy', () => {
+    const hoursById = rollupFrEstimateHours([
+      {
+        externalId: 'FR-001',
+        level: 'Epic',
+        parentExternalId: '',
+      },
+      {
+        externalId: 'FR-002',
+        level: 'Story',
+        parentExternalId: 'FR-001',
+      },
+      {
+        externalId: 'FR-003',
+        level: 'Task',
+        parentExternalId: 'FR-002',
+        estimateHours: 8,
+      },
+      {
+        externalId: 'FR-004',
+        level: 'Task',
+        parentExternalId: 'FR-002',
+        estimateHours: 8,
+      },
+    ]);
+    assert.equal(hoursById.get('FR-003'), 8);
+    assert.equal(hoursById.get('FR-004'), 8);
+    assert.equal(hoursById.get('FR-002'), 16);
+    assert.equal(hoursById.get('FR-001'), 16);
+  });
+
   it('rollup sums leaf hours and unions skills', () => {
     const plan = buildStaffingPlanFromParsed({
       overview: { startDate: '2026-01-01', budgetCurrency: 'VND' },
       functionalRequirements: [
         {
-          level: 'Requirement',
+          level: 'Task',
           suggestedSkills: ['React', 'TypeScript'],
           estimateHours: 40,
           suggestedRoleKey: 'frontend_developer',
         },
         {
-          level: 'Module',
+          level: 'Epic',
           suggestedSkills: ['Java'],
           estimateHours: 10,
           suggestedRoleKey: 'backend_developer',
@@ -67,7 +98,7 @@ describe('requirementPlanningReadiness', () => {
       overview: { deadline: new Date('2026-12-30'), platform: ['Web'] },
       functionalRequirements: [
         {
-          level: 'Requirement',
+          level: 'Task',
           estimateHours: 8,
           suggestedSkills: ['React'],
           suggestedRoleKey: 'frontend_developer',
@@ -95,7 +126,7 @@ describe('requirementPlanningReadiness', () => {
       allLeavesHaveStaffing({
         functionalRequirements: [
           {
-            level: 'Requirement',
+            level: 'Task',
             suggestedSkills: ['React'],
             estimateHours: 8,
             suggestedRoleKey: 'frontend_developer',
@@ -108,7 +139,7 @@ describe('requirementPlanningReadiness', () => {
       allLeavesHaveStaffing({
         functionalRequirements: [
           {
-            level: 'Requirement',
+            level: 'Task',
             suggestedSkills: ['React'],
             estimateHours: 8,
             suggestedRoleKey: '',
@@ -135,7 +166,7 @@ describe('requirementPlanningReadiness', () => {
       overview: {},
       functionalRequirements: [
         {
-          level: 'Requirement',
+          level: 'Task',
           suggestedSkills: ['React'],
           estimateHours: 8,
           suggestedRoleKey: 'frontend_developer',
@@ -151,7 +182,7 @@ describe('requirementPlanningReadiness', () => {
       overview: { deadline: new Date('2026-12-30') },
       functionalRequirements: [
         {
-          level: 'Requirement',
+          level: 'Task',
           suggestedSkills: ['React'],
           estimateHours: 8,
           suggestedRoleKey: 'frontend_developer',
@@ -168,7 +199,7 @@ describe('requirementPlanningReadiness', () => {
       functionalRequirements: [
         {
           externalId: 'FR-001',
-          level: 'Requirement',
+          level: 'Task',
           name: 'Login',
           suggestedSkills: ['React'],
           estimateHours: 8,
@@ -176,7 +207,7 @@ describe('requirementPlanningReadiness', () => {
         },
         {
           externalId: 'FR-002',
-          level: 'Requirement',
+          level: 'Task',
           name: 'Logout',
           suggestedSkills: ['React'],
           estimateHours: 4,
@@ -196,7 +227,7 @@ describe('requirementPlanningReadiness', () => {
           functionalRequirements: [
             {
               externalId: 'FR-010',
-              level: 'Requirement',
+              level: 'Task',
               name: 'Pay',
               suggestedSkills: [],
               estimateHours: null,
@@ -218,7 +249,7 @@ describe('requirementPlanningReadiness', () => {
       functionalRequirements: [
         {
           externalId: 'FR-001',
-          level: 'Requirement',
+          level: 'Task',
           suggestedSkills: ['React'],
           estimateHours: 8,
           suggestedRoleKey: 'frontend_developer',
@@ -231,7 +262,7 @@ describe('requirementPlanningReadiness', () => {
 });
 
 describe('requirementTemplateValidate staffing warnings', () => {
-  it('warns effort on Module level without error', () => {
+  it('warns when Epic has Effort Hours (non-execution level)', () => {
     const issues = validateBusinessLayer({
       overview: {
         requirementName: 'Test',
@@ -242,10 +273,11 @@ describe('requirementTemplateValidate staffing warnings', () => {
         deadline: '2026-12-30',
         priority: 'High',
       },
+      templateVersion: '1.2',
       functionalRequirements: [
         {
           externalId: 'FR-001',
-          level: 'Module',
+          level: 'Epic',
           parentExternalId: '',
           name: 'Auth',
           description: '',
@@ -257,10 +289,6 @@ describe('requirementTemplateValidate staffing warnings', () => {
         },
       ],
     });
-    assert.ok(issues.some((i) => i.code === 'REQ_FR_EFFORT_NON_LEAF' && i.severity === 'warning'));
-    assert.equal(
-      issues.some((i) => i.severity === 'error' && i.code === 'REQ_FR_EFFORT_NON_LEAF'),
-      false
-    );
+    assert.ok(issues.some((i) => i.code === 'REQ_FR_EFFORT_NON_LEAF'));
   });
 });

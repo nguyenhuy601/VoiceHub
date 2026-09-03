@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { requirementAPI } from '../../../services/api/requirementAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import useRequirementAccess from '../../../hooks/useRequirementAccess';
+import useRequirementPacks from '../../../hooks/useRequirementPacks';
+import { queryKeys } from '../../../lib/queryKeys';
 import {
   AI_WIZARD_STEPS,
   canRunAiOnPack,
+  initLeafAssignMapFromOverlay,
   unwrapRequirementPayload,
 } from './aiWizardConstants';
 
@@ -28,17 +32,27 @@ export default function useCreateProjectAiWizard({
 } = {}) {
   const { t } = useAppStrings();
   const orgId = String(organizationId || '').trim();
+  const queryClient = useQueryClient();
   const { access, loading: accessLoading } = useRequirementAccess(orgId);
+  /** Same gate as CreateProjectAiWizard no-access UI — avoid listPacks before access / without rights. */
+  const canUseAiWizard = Boolean(access?.canRunAiPlanning);
+  const packsQueryEnabled = Boolean(orgId) && !accessLoading && canUseAiWizard;
 
   const [step, setStep] = useState(0);
   const [slideDir, setSlideDir] = useState('forward');
   const [busy, setBusy] = useState(false);
-  const [sourceMode, setSourceMode] = useState('upload'); // upload | pick
-  const [preview, setPreview] = useState(null);
-  const [approvedPacks, setApprovedPacks] = useState([]);
-  const [packsLoading, setPacksLoading] = useState(false);
   const [pack, setPack] = useState(null);
   const [confirmForm, setConfirmForm] = useState(() => emptyConfirmForm(null));
+  const [leafAssignMap, setLeafAssignMap] = useState({});
+  const [assignRoleFilter, setAssignRoleFilter] = useState('');
+  const [enrichBusy, setEnrichBusy] = useState(false);
+
+  const {
+    packs: approvedPacks,
+    loading: packsLoading,
+    isError: packsError,
+    reload: loadApprovedPacks,
+  } = useRequirementPacks(orgId, { status: 'approved', enabled: packsQueryEnabled });
 
   const stepId = AI_WIZARD_STEPS[step]?.id || 'source';
   const packId = String(pack?._id || '').trim();
@@ -50,7 +64,7 @@ export default function useCreateProjectAiWizard({
   const refreshPack = useCallback(
     async (id = packId) => {
       if (!orgId || !id) return null;
-      const res = await requirementAPI.getPack(orgId, id);
+      const res = await requirementAPI.getPack(orgId, id, { view: 'wizard' });
       const next = unwrapRequirementPayload(res);
       setPack(next);
       return next;
@@ -58,33 +72,47 @@ export default function useCreateProjectAiWizard({
     [orgId, packId]
   );
 
-  const loadApprovedPacks = useCallback(async () => {
-    if (!orgId) return;
-    setPacksLoading(true);
-    try {
-      const res = await requirementAPI.listPacks(orgId, { status: 'approved' });
-      const data = unwrapRequirementPayload(res);
-      const list = Array.isArray(data) ? data : Array.isArray(data?.packs) ? data.packs : [];
-      setApprovedPacks(list.filter((p) => String(p?.status || '') === 'approved'));
-    } catch (error) {
-      setApprovedPacks([]);
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.loadPackFail') }));
-    } finally {
-      setPacksLoading(false);
-    }
-  }, [orgId, t]);
+  const hydrateWizardPack = useCallback(
+    async (id) => {
+      const packKey = String(id || '').trim();
+      if (!orgId || !packKey) return null;
+      try {
+        const res = await requirementAPI.getPack(orgId, packKey, { view: 'wizard' });
+        const next = unwrapRequirementPayload(res);
+        setPack((prev) => (String(prev?._id || '') === packKey ? next : prev));
+        return next;
+      } catch {
+        return null;
+      }
+    },
+    [orgId]
+  );
 
   useEffect(() => {
-    if (sourceMode === 'pick' && orgId) {
-      loadApprovedPacks();
-    }
-  }, [sourceMode, orgId, loadApprovedPacks]);
+    if (!packsError) return;
+    toast.error(t('aiCreateWizard.loadPacksFail'));
+  }, [packsError, t]);
 
   useEffect(() => {
     if (pack) {
       setConfirmForm(emptyConfirmForm(pack));
     }
   }, [pack?._id]);
+
+  /** List row thiếu projectObjective — điền sau hydrate view=wizard. */
+  useEffect(() => {
+    const objective = String(pack?.overview?.projectObjective || '').trim();
+    if (!objective) return;
+    setConfirmForm((prev) => (prev.description ? prev : { ...prev, description: objective }));
+  }, [pack?._id, pack?.overview?.projectObjective]);
+
+  const overlay = pack?.aiPlanning?.overlay || {};
+
+  useEffect(() => {
+    if (Array.isArray(overlay.leafAssignments) && overlay.leafAssignments.length) {
+      setLeafAssignMap(initLeafAssignMapFromOverlay(overlay));
+    }
+  }, [pack?._id, overlay.generatedAt]);
 
   /** Draft → under_review (if can submit); under_review → approved (if can approve). */
   const ensureLifecycleForWizard = useCallback(
@@ -119,42 +147,28 @@ export default function useCreateProjectAiWizard({
     [access.canApprove, access.canSubmit, orgId, t]
   );
 
-  const previewUpload = useCallback(
-    async (file) => {
-      if (!orgId || !file || busy) return;
-      setBusy(true);
-      try {
-        const res = await requirementAPI.previewImport(orgId, file);
-        setPreview(unwrapRequirementPayload(res));
-        setPack(null);
-      } catch (error) {
-        setPreview(null);
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.previewFail') }));
-      } finally {
-        setBusy(false);
+  const tryAdvanceFromSource = useCallback(
+    async (current) => {
+      if (!current) {
+        toast.error(t('aiCreateWizard.needPack'));
+        return false;
       }
+      try {
+        const ready = await ensureLifecycleForWizard(current);
+        if (!canRunAiOnPack(ready)) {
+          toast.error(t('aiCreateWizard.packNotReadyForAi'));
+          return false;
+        }
+      } catch (error) {
+        toast.error(resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.needPack') }));
+        return false;
+      }
+      setSlideDir('forward');
+      setStep((s) => Math.min(AI_WIZARD_STEPS.length - 1, s + 1));
+      return true;
     },
-    [busy, orgId, t]
+    [ensureLifecycleForWizard, t]
   );
-
-  const confirmUpload = useCallback(async () => {
-    const sessionId = String(preview?.sessionId || '').trim();
-    if (!orgId || !sessionId || busy) return;
-    setBusy(true);
-    try {
-      const res = await requirementAPI.confirmImport(orgId, sessionId);
-      const data = unwrapRequirementPayload(res);
-      const imported = data?.pack || data;
-      setPreview(null);
-      const ready = await ensureLifecycleForWizard(imported);
-      setPack(ready);
-      toast.success(t('requirements.importSuccess'));
-    } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.importFail') }));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, ensureLifecycleForWizard, orgId, preview?.sessionId, t]);
 
   const selectApprovedPack = useCallback(
     async (selected) => {
@@ -162,21 +176,35 @@ export default function useCreateProjectAiWizard({
       if (!orgId || !id || busy) return;
       setBusy(true);
       try {
-        const res = await requirementAPI.getPack(orgId, id);
-        setPack(unwrapRequirementPayload(res));
-        setPreview(null);
+        setPack(selected);
+        const advanced = await tryAdvanceFromSource(selected);
+        if (advanced) {
+          void hydrateWizardPack(id);
+        }
       } catch (error) {
         toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.loadPackFail') }));
       } finally {
         setBusy(false);
       }
     },
-    [busy, orgId, t]
+    [busy, hydrateWizardPack, orgId, t, tryAdvanceFromSource]
   );
 
   const runAiPlanning = useCallback(async () => {
     if (!orgId || !packId || busy) return;
     setBusy(true);
+    setPack((prev) =>
+      prev
+        ? {
+            ...prev,
+            aiPlanning: {
+              ...(prev.aiPlanning || {}),
+              status: 'pending',
+              overlay: prev.aiPlanning?.overlay || null,
+            },
+          }
+        : prev
+    );
     try {
       let current = pack;
       if (current?.status === 'draft' || current?.status === 'under_review') {
@@ -186,7 +214,10 @@ export default function useCreateProjectAiWizard({
         toast.error(t('aiCreateWizard.packNotReadyForAi'));
         return;
       }
-      const res = await requirementAPI.runAiPlanning(orgId, String(current._id));
+      const res = await requirementAPI.runAiPlanning(orgId, String(current._id), {
+        phase: 'staffing',
+        timeout: 300000,
+      });
       setPack(unwrapRequirementPayload(res));
       toast.success(t('requirements.aiPlanningSuccess'));
     } catch (error) {
@@ -196,6 +227,44 @@ export default function useCreateProjectAiWizard({
       setBusy(false);
     }
   }, [busy, ensureLifecycleForWizard, orgId, pack, packId, refreshPack, t]);
+
+  const runEnrich = useCallback(async () => {
+    if (!orgId || !packId || busy || enrichBusy) return;
+    setEnrichBusy(true);
+    setPack((prev) => {
+      if (!prev) return prev;
+      const overlayPrev = prev.aiPlanning?.overlay || {};
+      const llmPrev = overlayPrev.llm && typeof overlayPrev.llm === 'object' ? overlayPrev.llm : {};
+      return {
+        ...prev,
+        aiPlanning: {
+          ...(prev.aiPlanning || {}),
+          status: prev.aiPlanning?.status || 'ready',
+          overlay: {
+            ...overlayPrev,
+            llm: {
+              ...llmPrev,
+              enrichStatus: 'pending',
+              enrichError: null,
+            },
+          },
+        },
+      };
+    });
+    try {
+      const res = await requirementAPI.runAiPlanning(orgId, packId, {
+        phase: 'enrich',
+        timeout: 300000,
+      });
+      setPack(unwrapRequirementPayload(res));
+      toast.success(t('aiCreateWizard.enrichSuccess'));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.enrichFail') }));
+      await refreshPack().catch(() => null);
+    } finally {
+      setEnrichBusy(false);
+    }
+  }, [busy, enrichBusy, orgId, packId, refreshPack, t]);
 
   const approveStaffing = useCallback(async () => {
     if (!orgId || !packId || busy) return;
@@ -239,36 +308,65 @@ export default function useCreateProjectAiWizard({
     if (step >= AI_WIZARD_STEPS.length - 1) return;
 
     if (stepId === 'source') {
-      if (!packId) {
-        toast.error(t('aiCreateWizard.needPack'));
-        return;
-      }
       setBusy(true);
       try {
-        const ready = await ensureLifecycleForWizard(pack);
-        if (!canRunAiOnPack(ready)) {
-          toast.error(t('aiCreateWizard.packNotReadyForAi'));
-          return;
+        const advanced = await tryAdvanceFromSource(pack);
+        if (advanced && packId) {
+          void hydrateWizardPack(packId);
         }
-      } catch (error) {
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.needPack') }));
-        return;
       } finally {
         setBusy(false);
       }
+      return;
     }
 
     if (stepId === 'planning') {
       const status = String(pack?.aiPlanning?.status || 'none');
+      if (status === 'pending') {
+        toast.error(t('aiCreateWizard.needRunAiPending'));
+        return;
+      }
       if (status !== 'ready' && status !== 'failed') {
         toast.error(t('aiCreateWizard.needRunAiFirst'));
         return;
       }
     }
 
+    if (stepId === 'assign') {
+      const leaves = overlay.leafAssignments || [];
+      const unassigned = leaves.filter((row) => {
+        const ext = String(row.externalId || '').trim();
+        return ext && !String(leafAssignMap[ext] || '').trim();
+      });
+      if (unassigned.length > 0) {
+        toast(t('aiCreateWizard.assignUnassignedWarning'), { icon: 'ℹ️' });
+      }
+    }
+
     setSlideDir('forward');
     setStep((s) => Math.min(AI_WIZARD_STEPS.length - 1, s + 1));
-  }, [ensureLifecycleForWizard, pack, packId, step, stepId, t]);
+  }, [
+    hydrateWizardPack,
+    leafAssignMap,
+    overlay.leafAssignments,
+    pack,
+    packId,
+    step,
+    stepId,
+    t,
+    tryAdvanceFromSource,
+  ]);
+
+  const patchLeafAssign = useCallback((externalId, userId) => {
+    const ext = String(externalId || '').trim();
+    if (!ext) return;
+    setLeafAssignMap((prev) => ({ ...prev, [ext]: String(userId || '') }));
+  }, []);
+
+  const applyAiLeafSuggestions = useCallback(() => {
+    setLeafAssignMap(initLeafAssignMapFromOverlay(overlay));
+    toast.success(t('aiCreateWizard.assignApplyAiDone'));
+  }, [overlay, t]);
 
   const createProject = useCallback(async () => {
     if (!orgId || !packId || busy) return;
@@ -287,12 +385,20 @@ export default function useCreateProjectAiWizard({
         toast.error(t('aiCreateWizard.needApprovedPack'));
         return;
       }
-      // create-from-pack seeds only the creator — no AI auto-assign roster
+      const leafAssignments = Object.entries(leafAssignMap).map(([externalId, userId]) => ({
+        externalId,
+        userId: userId ? String(userId) : null,
+      }));
       const res = await requirementAPI.createProjectFromPack(orgId, String(current._id), {
         title,
+        importWorkItems: true,
+        leafAssignments,
       });
       const data = unwrapRequirementPayload(res);
       toast.success(t('requirements.createProjectSuccess'));
+      await queryClient.invalidateQueries({
+        queryKey: [...queryKeys.requirements.all, 'packs', orgId],
+      });
       onCreated?.(data);
     } catch (error) {
       toast.error(
@@ -305,20 +411,14 @@ export default function useCreateProjectAiWizard({
     busy,
     confirmForm.title,
     ensureLifecycleForWizard,
+    leafAssignMap,
     onCreated,
     orgId,
     pack,
     packId,
+    queryClient,
     t,
   ]);
-
-  const previewTree = useMemo(() => {
-    if (preview?.previewTree) return preview.previewTree;
-    if (pack?.functionalRequirements) return pack.functionalRequirements;
-    return [];
-  }, [pack, preview]);
-
-  const overlay = pack?.aiPlanning?.overlay || {};
 
   return {
     access,
@@ -328,22 +428,24 @@ export default function useCreateProjectAiWizard({
     steps: AI_WIZARD_STEPS,
     slideDir,
     busy,
-    sourceMode,
-    setSourceMode,
-    preview,
-    setPreview,
+    enrichBusy,
     approvedPacks,
     packsLoading,
+    packsError,
     pack,
     packId,
     confirmForm,
     patchConfirmForm,
-    previewTree,
     overlay,
-    previewUpload,
-    confirmUpload,
+    leafAssignMap,
+    assignRoleFilter,
+    setAssignRoleFilter,
+    patchLeafAssign,
+    applyAiLeafSuggestions,
     selectApprovedPack,
+    loadApprovedPacks,
     runAiPlanning,
+    runEnrich,
     approveStaffing,
     discardStaffing,
     goBack,

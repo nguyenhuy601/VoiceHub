@@ -8,20 +8,26 @@ import {
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
 const DIVISION_MANAGE_HUB = '/app/admin/org-structure/divisions/manage';
 const ACTION_LINKS = [
-  { tab: 'edit', labelKey: 'adminDomains.orgStructure.divisionEdit' },
-  { tab: 'disable', labelKey: 'adminDomains.orgStructure.divisionDisable' },
-  { tab: 'departments', labelKey: 'adminDomains.orgStructure.divisionDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.divisionEdit', grant: RBAC_GRANT.DIVISION_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.divisionDisable', grant: RBAC_GRANT.DIVISION_UPDATE },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.divisionDept', grant: RBAC_GRANT.DIVISION_UPDATE },
 ];
 
 export default function DivisionListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -43,10 +49,12 @@ export default function DivisionListPanel({ orgId }) {
       hint={t('adminOrg.divisionListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/divisions/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.divisionCreate')}
-        </Link>
+        canCreateDivision ? (
+          <Link to="/app/admin/org-structure/divisions/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.divisionCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -104,7 +112,9 @@ export default function DivisionListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
                               key={link.tab}
                               to={adminOrgUnitHubLink(DIVISION_MANAGE_HUB, id, link.tab)}

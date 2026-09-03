@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
-import { organizationAPI } from '../../services/api/organizationAPI';
-import { projectAPI } from '../../services/api/projectAPI';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
+import { isProjectActiveForUi } from '../../features/projects/landing/projectLandingActive';
 import {
   buildCollaborateProjectHubPath,
   buildCollaborateProjectsNewAiPath,
@@ -12,13 +11,19 @@ import {
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
-import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
+import useOrganizationDetail from '../../hooks/useOrganizationDetail';
+import useOrgProjectsList from '../../hooks/useOrgProjectsList';
+import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
+import { resolveLandingCreateActions } from '../../features/projects/landing/projectsLandingCreateActions';
 
-function unwrapProjectList(res) {
-  const raw = res?.data?.projects ?? res?.projects ?? res?.data ?? res ?? [];
-  return Array.isArray(raw) ? raw : [];
-}
+/**
+ * Projects Landing — A/B/C/D:
+ * A Bootstrap = App Shell only (auth restore), not page data.
+ * B = org detail + projects list + task scope + requirement access.
+ * C = organizationId from URL/storage (routing).
+ * D page BFF = not used here (Hub overview only).
+ */
 
 function isMyProject(project) {
   const mb = project?.myMembership;
@@ -33,60 +38,35 @@ export default function ProjectsLandingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const orgId = orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
-  const [orgName, setOrgName] = useState('');
-  const [projects, setProjects] = useState([]);
-  const [canCreate, setCanCreate] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
-  const { access: requirementAccess } = useRequirementAccess(orgId);
+
+  const { organization } = useOrganizationDetail(orgId);
+  const {
+    projects: rawProjects,
+    loading: projectsLoading,
+    isError: projectsError,
+    reload: reloadProjects,
+  } = useOrgProjectsList(orgId, { excludeClosed: true });
+  const { canCreateTask, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
+  const { access: requirementAccess, loading: requirementAccessLoading } =
+    useRequirementAccess(orgId);
+
+  const orgName = String(organization?.name || '').trim();
+  const canCreate = Boolean(canCreateTask);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
-  useEffect(() => {
-    if (!orgId) {
-      setProjects([]);
-      setLoadError(false);
-      setLoading(false);
-      return undefined;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(false);
-    Promise.all([
-      organizationAPI.getOrganization(orgId).catch(() => null),
-      projectAPI.list({ organizationId: orgId }),
-      organizationAPI.getTaskWorkspaceScope(orgId).catch(() => null),
-    ])
-      .then(([orgRes, listRes, scopeRes]) => {
-        if (cancelled) return;
-        const org = orgRes?.data?.data ?? orgRes?.data ?? orgRes;
-        setOrgName(String(org?.name || '').trim());
-        setProjects(unwrapProjectList(listRes).filter(isMyProject));
-        const scope = scopeRes?.data?.data ?? scopeRes?.data ?? scopeRes;
-        setCanCreate(Boolean(scope?.canCreateTask));
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setProjects([]);
-          setLoadError(true);
-          toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, t, reloadToken]);
+  /** Grid waits only on projects list; create actions resolve progressively. */
+  const listLoading = Boolean(orgId) && projectsLoading;
+  const { showCreate, createDisabled, showCreateWithAi, createWithAiDisabled } =
+    resolveLandingCreateActions({
+      scopeLoading,
+      canCreate,
+      requirementAccessLoading,
+      canCreateWithAi,
+    });
 
-  const activeProjectsCount = useMemo(
-    () =>
-      projects.filter((p) => {
-        const st = String(p?.status || '').toLowerCase();
-        return p?.isActive !== false && !['closed', 'completed', 'archived'].includes(st);
-      }).length,
-    [projects]
+  const projects = useMemo(
+    () => rawProjects.filter(isMyProject).filter(isProjectActiveForUi),
+    [rawProjects]
   );
 
   const handleCreate = useCallback(() => {
@@ -131,7 +111,7 @@ export default function ProjectsLandingPage() {
     );
   }
 
-  if (loading) {
+  if (listLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t('common.loading')}
@@ -139,14 +119,14 @@ export default function ProjectsLandingPage() {
     );
   }
 
-  if (loadError) {
+  if (projectsError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="text-sm text-muted-foreground">{t('taskBoard.loadBoardFail')}</p>
         <button
           type="button"
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-          onClick={() => setReloadToken((n) => n + 1)}
+          onClick={() => reloadProjects()}
         >
           {t('workspace.projectHubTimelineRetry')}
         </button>
@@ -159,9 +139,10 @@ export default function ProjectsLandingPage() {
       <ProjectsLandingGrid
         organizationName={orgName}
         projects={projects}
-        activeProjectsCount={activeProjectsCount}
-        onCreateProject={canCreate ? handleCreate : undefined}
-        onCreateProjectWithAi={canCreateWithAi ? handleCreateWithAi : undefined}
+        onCreateProject={showCreate ? handleCreate : undefined}
+        onCreateProjectWithAi={showCreateWithAi ? handleCreateWithAi : undefined}
+        createProjectDisabled={createDisabled}
+        createProjectWithAiDisabled={createWithAiDisabled}
         onSelectProject={handleSelect}
       />
     </div>

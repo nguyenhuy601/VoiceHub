@@ -18,6 +18,9 @@ import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { hasLayerPrefix } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
 
@@ -48,6 +51,9 @@ const actionBtn = '!px-2 !py-1 text-xs whitespace-nowrap';
 
 export default function OrgRoleListPanel({ orgId }) {
   const { t } = useAppStrings();
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdateOrgRole = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.ORG_ROLE_UPDATE);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -82,6 +88,10 @@ export default function OrgRoleListPanel({ orgId }) {
 
   const onReorder = async (orderedIds) => {
     if (!orgId || reordering) return;
+    if (!canUpdateOrgRole) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const prev = roles;
     setRoles(reorderItemsByIds(roles, orderedIds));
     setReordering(true);
@@ -126,7 +136,7 @@ export default function OrgRoleListPanel({ orgId }) {
           <>
             <AdminSortableRoleList
               items={roles}
-              disabled={reordering}
+              disabled={reordering || !canUpdateOrgRole}
               emptyLabel={t('adminRbac.orgRoleDirectoryEmpty')}
               onReorder={onReorder}
               gridClassName={ADMIN_ROLE_LIST_GRID}
@@ -168,24 +178,30 @@ export default function OrgRoleListPanel({ orgId }) {
                   <div className="flex flex-wrap justify-end gap-1.5 self-center">
                     {!role.isSystem ? (
                       <>
-                        <Link
-                          to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
-                          className={adminSecondaryBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.edit')}
-                        </Link>
-                        <Link
-                          to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'delete')}
-                          className={adminDangerBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.delete')}
-                        </Link>
-                        <Link
-                          to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'assign')}
-                          className={adminSecondaryBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.roleActionAssign')}
-                        </Link>
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                            className={adminSecondaryBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.edit')}
+                          </Link>
+                        ) : null}
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'delete')}
+                            className={adminDangerBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.delete')}
+                          </Link>
+                        ) : null}
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'assign')}
+                            className={adminSecondaryBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.roleActionAssign')}
+                          </Link>
+                        ) : null}
                       </>
                     ) : (
                       <span className="text-xs text-muted-foreground">System</span>

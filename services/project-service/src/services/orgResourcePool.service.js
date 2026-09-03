@@ -50,7 +50,7 @@ function parseBool(raw, defaultValue = false) {
   return defaultValue;
 }
 
-function profileIdentity(profile, userId) {
+function profileIdentity(profile, userId, options = {}) {
   const p = profile || {};
   const displayName =
     p.displayName ||
@@ -69,7 +69,9 @@ function profileIdentity(profile, userId) {
       p.resourceConfig && typeof p.resourceConfig === 'object'
         ? { maxConcurrentProjects: p.resourceConfig.maxConcurrentProjects ?? null }
         : null,
-    capability: stripVerifiedCapabilityForPool(p.capability),
+    capability: stripVerifiedCapabilityForPool(p.capability, {
+      includeProjectExperiences: Boolean(options.includeProjectExperiences),
+    }),
   };
 }
 
@@ -103,6 +105,8 @@ async function listOrgResourcePool({
   requirementPackId,
   /** Internal: caller already asserted capacity / AI-planning permission */
   skipCapacityAuth = false,
+  /** Internal: include compact verified projectExperiences on capability (AI planning enrich) */
+  forAiPlanning = false,
 } = {}) {
   const orgId = asOid(organizationId);
   if (!orgId) {
@@ -154,7 +158,9 @@ async function listOrgResourcePool({
 
   let items = memberships.map((m) => {
     const uid = m.userId;
-    const identity = profileIdentity(profileMap.get(uid), uid);
+    const identity = profileIdentity(profileMap.get(uid), uid, {
+      includeProjectExperiences: Boolean(forAiPlanning),
+    });
     const rows = rowsByUser.get(uid) || [];
     const flat = flattenSegments(rows);
     const allocatedPct = allocatedPctOnDay(flat, asOfMs);

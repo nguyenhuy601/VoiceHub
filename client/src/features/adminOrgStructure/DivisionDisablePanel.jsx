@@ -11,6 +11,9 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -20,6 +23,9 @@ export default function DivisionDisablePanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: true });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +40,10 @@ export default function DivisionDisablePanel({ orgId, embedded = false }) {
 
   const toggle = async (isActive) => {
     if (!orgId || !selectedId || busy) return;
+    if (!canUpdateDivision) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     setBusy(true);
     try {
       await organizationAPI.updateDivision(orgId, selectedId, { isActive });

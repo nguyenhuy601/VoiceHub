@@ -39,6 +39,7 @@ import {
   countUnassignedOpenCards,
   sumOpenCardEstimateHours,
   buildOverviewDashboardCharts,
+  chartsFromOverviewApi,
   cardsHavePriorityField,
   countOpenCardsByAssignee,
   overviewDonutAnnulusPath,
@@ -759,6 +760,24 @@ test('buildOverviewDashboardCharts: status donut + type bars từ cards/lists', 
       ['bug', 1, 25],
     ]
   );
+});
+
+test('chartsFromOverviewApi: maps BE overview charts to dashboard shape', () => {
+  const charts = chartsFromOverviewApi(
+    {
+      byStatus: { todo: 2, progress: 1, done: 1 },
+      byType: { story: 1, task: 2, bug: 1, other: 0 },
+      byPriority: [{ key: 'high', count: 2 }],
+      byAssignee: [{ userId: 'u1', displayName: 'A', count: 2 }],
+    },
+    { items: [{ key: 'high', label: 'High' }] }
+  );
+  assert.equal(charts.statusTotal, 4);
+  assert.equal(charts.donePct, 25);
+  assert.equal(charts.typeTotal, 4);
+  assert.equal(charts.hasPriorityData, true);
+  assert.equal(charts.priorityTotal, 2);
+  assert.equal(charts.assigneeTotal, 2);
 });
 
 test('buildOverviewDashboardCharts: empty + other type', () => {

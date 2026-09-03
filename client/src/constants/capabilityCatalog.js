@@ -161,6 +161,7 @@ export function capabilityFromApi(raw) {
           .filter((s) => s?.name)
           .map((s, idx) => ({
             name: String(s.name),
+            skillId: String(s.skillId || s.skill_id || '').trim() || undefined,
             level: Math.min(
               SKILL_LEVEL_MAX,
               Math.max(SKILL_LEVEL_MIN, Number(s.level) || 3)

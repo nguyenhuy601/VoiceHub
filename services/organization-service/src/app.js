@@ -25,6 +25,7 @@ const memberRoutes = require('./routes/memberRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const channelRoutes = require('./routes/channelRoutes');
 const hierarchyRoutes = require('./routes/hierarchyRoutes');
+const skillRegistryRoutes = require('./routes/skillRegistryRoutes');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const internalOrganizationRoutes = require('./routes/internalOrganization.routes');
 const memberController = require('./controllers/memberController');
@@ -42,6 +43,7 @@ app.use('/api/organizations/:orgId/departments/:deptId/channels', channelRoutes)
 // Legacy compatibility while FE migrates from teams -> channels.
 app.use('/api/organizations/:orgId/departments/:deptId/teams', teamRoutes);
 app.use('/api/organizations/:orgId/hierarchy', hierarchyRoutes);
+app.use('/api/organizations/:orgId/skills', skillRegistryRoutes);
 
 app.use(errorHandler);
 

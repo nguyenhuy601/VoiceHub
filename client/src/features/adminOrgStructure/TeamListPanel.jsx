@@ -19,19 +19,19 @@ import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
 const TEAM_MANAGE_HUB = '/app/admin/org-structure/teams/manage';
 const ACTION_LINKS = [
-  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
-  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers' },
-  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_UPDATE },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
-  const { isFullAccess, isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {

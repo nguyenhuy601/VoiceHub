@@ -1,97 +1,73 @@
-import { useState } from 'react';
 import RequirementExcelPreviewGrid from './RequirementExcelPreviewGrid';
+import { getPlanningReadinessTone } from '../../utils/requirementImportReadiness';
+import { resolveSeverityFilter } from '../../utils/requirementIssueHints';
 
-function PreviewTreeNode({ node, depth = 0 }) {
-  if (!node) return null;
-  const hours = node.estimateHours;
-  const skills = node.suggestedSkills || [];
-  const roleKey = String(node.suggestedRoleKey || '').trim();
-  const hasStaffing = (hours != null && hours > 0) || skills.length > 0 || Boolean(roleKey);
-  return (
-    <li className="text-sm">
-      <div style={{ paddingLeft: depth * 12 }} className="flex flex-wrap items-center gap-1.5">
-        <span>{node.name || node.externalId}</span>
-        {hasStaffing ? (
-          <span className="inline-flex flex-wrap gap-1">
-            {hours != null && hours > 0 ? (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                {hours}h
-              </span>
-            ) : null}
-            {roleKey ? (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                {roleKey}
-              </span>
-            ) : null}
-            {skills.slice(0, 3).map((skill) => (
-              <span
-                key={`${node.externalId}-${skill}`}
-                className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              >
-                {skill}
-              </span>
-            ))}
-            {skills.length > 3 ? (
-              <span className="text-[10px] text-muted-foreground">+{skills.length - 3}</span>
-            ) : null}
-          </span>
-        ) : null}
-      </div>
-      {(node.children || []).length > 0 ? (
-        <ul className="mt-0.5 list-none pl-0">
-          {node.children.map((child) => (
-            <PreviewTreeNode key={child.externalId} node={child} depth={depth + 1} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  );
+function planningScoreClass(tone) {
+  if (tone === 'destructive') return 'font-medium text-destructive';
+  if (tone === 'success') return 'font-medium text-emerald-700 dark:text-emerald-300';
+  if (tone === 'warning') return 'font-medium text-amber-800 dark:text-amber-200';
+  return 'text-muted-foreground';
+}
+
+function readinessStripClass(tone) {
+  if (tone === 'destructive') {
+    return 'border-destructive/30 bg-destructive/10 text-destructive';
+  }
+  if (tone === 'success') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200';
+  }
+  if (tone === 'warning') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200';
+  }
+  return '';
 }
 
 /**
- * Dual tabs: Requirement Tree + Excel Preview.
+ * Import preview — issue-focused Excel rows (no requirement tree, no full-file browse).
  */
 export default function RequirementPreviewTabs({
   fileName = '',
   valid = null,
   errorCount = 0,
   warningCount = 0,
+  infoCount = 0,
   summary = null,
-  previewTree = [],
   excelPreview = null,
   issues = [],
   labels = {},
   headerExtra = null,
+  className = '',
+  fillParent = false,
+  planningReadiness = null,
+  previewMode = 'import',
 }) {
-  const [tab, setTab] = useState('tree');
   const sheetCount = excelPreview?.sheetCount ?? excelPreview?.sheets?.length ?? 0;
   const totalRows = excelPreview?.totalRows ?? 0;
   const displayName = fileName || excelPreview?.fileName || '—';
+  const readinessTone = getPlanningReadinessTone(planningReadiness);
+  const planningScore = planningReadiness?.score;
+  const missingLeafIds = planningReadiness?.missingLeafIds || [];
+  const showReadinessStrip =
+    planningReadiness &&
+    (missingLeafIds.length > 0 ||
+      planningReadiness.allLeavesStaffed !== true ||
+      (planningReadiness.allLeavesStaffed === true && planningScore != null && planningScore < 80));
 
-  const tabBtn = (id, label) => {
-    const selected = tab === id;
-    return (
-      <button
-        type="button"
-        onClick={() => setTab(id)}
-        className={
-          selected
-            ? 'border-b-2 border-primary px-3 py-2 text-sm font-semibold text-primary'
-            : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
-        }
-      >
-        {label}
-      </button>
-    );
-  };
+  const severityFilter = resolveSeverityFilter(errorCount, warningCount, infoCount);
+  const hasIssues = severityFilter != null;
+  const isPackMode = previewMode === 'pack';
+
+  const shellHeightClass = fillParent ? 'h-full min-h-0' : 'h-[min(70vh,42rem)]';
 
   return (
-    <div className="rounded-lg border border-border bg-muted/30 text-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-3 py-2">
+    <div
+      className={`flex ${shellHeightClass} flex-col overflow-hidden rounded-lg border border-border bg-muted/30 text-sm ${className}`}
+    >
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 font-medium text-foreground">
             <span className="truncate">{displayName}</span>
-            {valid != null ? (
+            {valid != null && !isPackMode ? (
               <span
                 className={
                   valid
@@ -116,10 +92,22 @@ export default function RequirementPreviewTabs({
                 {summary.scopeCount ?? 0}
               </span>
             ) : null}
-            {errorCount || warningCount ? (
+            {errorCount || warningCount || infoCount ? (
               <span>
                 {' '}
                 · {errorCount} errors, {warningCount} warnings
+                {infoCount ? `, ${infoCount} notes` : ''}
+              </span>
+            ) : null}
+            {planningScore != null ? (
+              <span>
+                {' '}
+                ·{' '}
+                <span className={planningScoreClass(readinessTone)}>
+                  {labels.planningScore
+                    ? labels.planningScore.replace('{score}', String(planningScore))
+                    : `Planning ${planningScore}%`}
+                </span>
               </span>
             ) : null}
           </div>
@@ -127,58 +115,68 @@ export default function RequirementPreviewTabs({
         {headerExtra}
       </div>
 
-      <div className="flex gap-1 border-b border-border px-1">
-        {tabBtn('tree', labels.tabTree || 'Requirement Tree')}
-        {tabBtn('excel', labels.tabExcel || 'Excel Preview')}
-      </div>
-
-      {excelPreview?.derivedFromPack ? (
-        <div className="border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-          {labels.derivedFromPackHint ||
-            'View reconstructed from saved pack data (not the original Excel bytes).'}
+      {showReadinessStrip ? (
+        <div
+          className={`shrink-0 border-b px-3 py-2 text-xs ${readinessStripClass(readinessTone)}`}
+        >
+          {missingLeafIds.length > 0 ? (
+            <p>
+              {labels.missingLeafStaffing
+                ? labels.missingLeafStaffing.replace(
+                    '{ids}',
+                    missingLeafIds.slice(0, 8).join(', ')
+                  )
+                : `Hàng thực thi thiếu staffing: ${missingLeafIds.slice(0, 8).join(', ')}`}
+            </p>
+          ) : planningReadiness?.allLeavesStaffed !== true ? (
+            <p>{labels.planningNotReady || 'Chưa đủ staffing trên hàng thực thi (Story/Task/Subtask).'}</p>
+          ) : planningScore != null && planningScore < 80 ? (
+            <p>
+              {labels.previewPlanningLowScore
+                ? labels.previewPlanningLowScore.replace('{score}', String(planningScore))
+                : `Planning ${planningScore}% — có thể thiếu deadline hoặc thông tin overview.`}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="p-3">
-        {tab === 'tree' ? (
-          (previewTree || []).length > 0 ? (
-            <ul className="list-none pl-0">
-              {previewTree.map((node) => (
-                <PreviewTreeNode key={node.externalId} node={node} />
-              ))}
-            </ul>
-          ) : (
-            <p className="text-muted-foreground">{labels.emptyTree || 'No requirement tree'}</p>
-          )
+      {excelPreview?.derivedFromPack ? (
+        <div
+          className={`shrink-0 border-b border-border px-3 py-2 text-xs ${
+            isPackMode
+              ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+              : 'bg-amber-500/10 text-amber-800 dark:text-amber-200'
+          }`}
+        >
+          {isPackMode
+            ? labels.previewPackProcessed ||
+              'Post-import view — parent Effort Hours rolled up; new skills show registry status.'
+            : labels.derivedFromPackHint ||
+              'View reconstructed from saved pack data (not the original Excel bytes).'}
+        </div>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        {!hasIssues ? (
+          <div className="flex flex-1 items-center justify-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+              {isPackMode
+                ? labels.previewPackReady ||
+                  'Post-import data processed — no blocking issues.'
+                : labels.previewNoIssues || 'No errors or warnings — file is ready to import.'}
+            </p>
+          </div>
         ) : (
           <RequirementExcelPreviewGrid
+            className="h-full min-h-0 flex-1"
             excelPreview={excelPreview}
             issues={issues}
-            searchPlaceholder={labels.searchPlaceholder}
-            truncatedHint={labels.truncatedHint}
-            emptyLabel={labels.emptyExcel || labels.noExcelPreview}
+            severityFilter={severityFilter}
+            emptyLabel={labels.noExcelPreview || labels.emptyExcel || 'No Excel preview'}
+            labels={labels}
           />
         )}
-
-        {(issues || []).length > 0 ? (
-          <div className="mt-3 space-y-1 border-t border-border pt-3">
-            {(issues || []).slice(0, 12).map((issue, idx) => (
-              <div
-                key={`${issue.code}-${idx}`}
-                className={
-                  issue.severity === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-300'
-                }
-              >
-                {issue.sheet ? `${issue.sheet}: ` : ''}
-                {issue.row != null ? `R${issue.row} ` : ''}
-                {issue.message}
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   );
 }
-
-export { PreviewTreeNode };

@@ -59,5 +59,5 @@ export default function useRbacRolelessAssignments(orgId, { enabled = true } = {
     [assignmentsReady, assignmentsByUser]
   );
 
-  return { rolelessFilter, reloadAssignments, assignmentsReady };
+  return { rolelessFilter, reloadAssignments, assignmentsReady, assignmentsByUser };
 }
