@@ -1,27 +1,34 @@
 import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { DEFAULT_ROLE_SCOPE, ROLE_SCOPES } from '../../config/adminRbacCatalog';
+import { DEFAULT_ROLE_SCOPE, ROLE_SCOPES } from '../../config/rbacRoleScope';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminRoles from '../../hooks/useAdminRoles';
+import useRoleMasterGrantsMap from '../../hooks/useRoleMasterGrantsMap';
 import {
-  grantedPermissionCount,
   isProtectedDefaultRole,
   normalizeRoleDisplayName,
   normalizeRoleId,
-  totalPermissionSlotCount,
 } from '../../utils/adminRbacUtils';
+import { countMasterGrants } from '../../utils/rbacV2Ui';
 import { splitLayerLabel } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
 import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
-const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
 const PERM_PACK_MANAGE_HUB = '/app/admin/rbac/roles/manage';
 
 /** Chỉ lối V2 + assign/delete — không dẫn vào grid V1 `/rbac/edit`. */
 const ACTION_LINKS = [
-  { path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions', useRoleId: true },
-  { tab: 'delete', labelKey: 'adminDomains.rbac.delete', hub: PERM_PACK_MANAGE_HUB },
-  { tab: 'assign', labelKey: 'adminDomains.rbac.assign', hub: PERM_PACK_MANAGE_HUB },
+  {
+    path: '/app/admin/rbac/permissions',
+    labelKey: 'adminDomains.rbac.permissions',
+    useRoleId: true,
+    grant: RBAC_GRANT.PERM_GROUP_UPDATE_GRANT,
+  },
+  { tab: 'delete', labelKey: 'adminDomains.rbac.delete', hub: PERM_PACK_MANAGE_HUB, grant: RBAC_GRANT.PERM_GROUP_CLONE },
+  { tab: 'assign', labelKey: 'adminDomains.rbac.assign', hub: PERM_PACK_MANAGE_HUB, grant: RBAC_GRANT.PERM_GROUP_ASSIGN },
 ];
 
 function roleScopeLabel(scope, t) {
@@ -36,8 +43,13 @@ function roleScopeLabel(scope, t) {
 export default function RolesListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
+  const { catalog, grantsByRoleId } = useRoleMasterGrantsMap(orgId, systemRoles);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
   const [query, setQuery] = useState('');
-  const totalSlots = useMemo(() => totalPermissionSlotCount(), []);
+  const totalSlots = (catalog?.masterPermissions || []).filter(
+    (k) => !String(k || '').startsWith('project.')
+  ).length;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -136,7 +148,7 @@ export default function RolesListPanel({ orgId }) {
               <tbody>
                 {filtered.map((role) => {
                   const id = normalizeRoleId(role);
-                  const granted = grantedPermissionCount(role.permissions);
+                  const granted = countMasterGrants(grantsByRoleId[id]);
                   const displayName = normalizeRoleDisplayName(role.name);
                   const displaySystemName = splitLayerLabel(displayName, 'system').suffix || displayName;
                   return (
@@ -166,7 +178,9 @@ export default function RolesListPanel({ orgId }) {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
                               key={link.path || link.tab}
                               to={

@@ -10,6 +10,7 @@ const {
   MASTER_PERMISSIONS,
   TEMPLATE_DEFINITIONS,
   SPECIALIZATIONS,
+  PROJECT_PACK_TEMPLATE_KEYS,
   isValidMasterPermission,
   isProjectMasterPermission,
   stripProjectGrantsUnlessProjectPack,
@@ -125,6 +126,7 @@ class RbacV2Service {
       modules: MODULES,
       masterPermissions: MASTER_PERMISSIONS,
       specializations: SPECIALIZATIONS,
+      projectPackTemplateKeys: [...PROJECT_PACK_TEMPLATE_KEYS],
       tree: buildCatalogTree(),
       templates:
         templates.length > 0

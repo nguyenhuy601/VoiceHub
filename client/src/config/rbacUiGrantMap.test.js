@@ -95,4 +95,10 @@ test('canActWithGrant bypasses for full access', () => {
   assert.equal(canActWithGrant(true, () => false, RBAC_GRANT.TEAM_CREATE), true);
   assert.equal(canActWithGrant(false, () => false, RBAC_GRANT.TEAM_CREATE), false);
   assert.equal(canActWithGrant(false, (k) => k === RBAC_GRANT.TEAM_CREATE, RBAC_GRANT.TEAM_CREATE), true);
+  assert.equal(canActWithGrant(false, () => true, ''), false);
+  assert.equal(canActWithGrant(true, () => false, ''), true);
+});
+
+test('channel.view is a mapped grant', () => {
+  assert.equal(RBAC_GRANT.CHANNEL_VIEW, 'communication.channel.view');
 });

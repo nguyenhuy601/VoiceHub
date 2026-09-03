@@ -20,6 +20,8 @@ import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import CapabilityReviewPanel from './CapabilityReviewPanel';
 
 const TABS = [
@@ -72,8 +74,9 @@ export default function AdminUserDetailDrawer({
   onCapabilityStatusChange,
 }) {
   const { t } = useAppStrings();
-  const { canVerifyCapability, canAccessHub } = useCompanyAdminAccess();
-  const canReviewCapability = Boolean(canVerifyCapability);
+  const { isFullAccess, canAccessHub } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canReviewCapability = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.SKILL_REGISTRY_REVIEW);
   const canConfirmExperience = Boolean(canAccessHub);
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);

@@ -1,9 +1,13 @@
-const { FR_LEAF_LEVEL } = require('../constants/requirementStaffing.constants');
+const {
+  isFrExecutionLeaf,
+  isFrRoleRequiredLevel,
+  listFrExecutionLeaves,
+} = require('./requirementFrLevel');
 
 const HEURISTIC_THRESHOLD = 40;
 const FULL_ENGINE_THRESHOLD = 80;
 
-function leafMissingStaffingReasons(row) {
+function executionLeafMissingStaffingReasons(row) {
   const missing = [];
   if (!(row.suggestedSkills || []).length) missing.push('skills');
   if (row.estimateHours == null || Number(row.estimateHours) <= 0) missing.push('hours');
@@ -12,14 +16,32 @@ function leafMissingStaffingReasons(row) {
 }
 
 function listMissingLeafStaffing(frList = []) {
-  const leaves = (frList || []).filter((row) => row.level === FR_LEAF_LEVEL);
   const missingLeafIds = [];
-  leaves.forEach((row, index) => {
-    const reasons = leafMissingStaffingReasons(row);
-    if (!reasons.length) return;
-    const id = String(row.externalId || row.name || '').trim() || `leaf#${index + 1}`;
-    missingLeafIds.push(id);
+  const seen = new Set();
+
+  for (const row of listFrExecutionLeaves(frList)) {
+    const reasons = executionLeafMissingStaffingReasons(row);
+    if (!reasons.length) continue;
+    const id =
+      String(row.externalId || row.name || '').trim() ||
+      `leaf#${frList.indexOf(row) + 1}`;
+    if (!seen.has(id)) {
+      seen.add(id);
+      missingLeafIds.push(id);
+    }
+  }
+
+  frList.forEach((row, index) => {
+    if (!isFrRoleRequiredLevel(row.level)) return;
+    if (isFrExecutionLeaf(row, frList)) return;
+    if (String(row.suggestedRoleKey || '').trim()) return;
+    const id = String(row.externalId || row.name || '').trim() || `row#${index + 1}`;
+    if (!seen.has(id)) {
+      seen.add(id);
+      missingLeafIds.push(id);
+    }
   });
+
   return missingLeafIds;
 }
 
@@ -28,8 +50,8 @@ function computePlanningReadiness(pack) {
   const frList = pack?.functionalRequirements || [];
   const staffing = pack?.staffingPlan || {};
 
-  const leaves = frList.filter((row) => row.level === FR_LEAF_LEVEL);
-  const leavesWithHours = leaves.filter(
+  const executionLeaves = listFrExecutionLeaves(frList);
+  const leavesWithHours = executionLeaves.filter(
     (row) => row.estimateHours != null && Number(row.estimateHours) > 0
   );
   const hasAnySkills =
@@ -41,7 +63,7 @@ function computePlanningReadiness(pack) {
 
   const hasDeadline = Boolean(overview.deadline);
   const hasPlatform = Array.isArray(overview.platform) && overview.platform.length > 0;
-  const hasFrLeaves = leaves.length > 0;
+  const hasFrLeaves = executionLeaves.length > 0;
   const hasAnyEffort =
     leavesWithHours.length > 0 ||
     (staffing.estimatedHoursTotal != null && Number(staffing.estimatedHoursTotal) > 0);
@@ -54,7 +76,7 @@ function computePlanningReadiness(pack) {
   if (hasAnyRoles) score += 15;
 
   const missingLeafIds = listMissingLeafStaffing(frList);
-  const allLeavesStaffed = leaves.length > 0 && missingLeafIds.length === 0;
+  const allLeavesStaffed = executionLeaves.length > 0 && missingLeafIds.length === 0;
 
   return {
     hasDeadline,
@@ -63,7 +85,7 @@ function computePlanningReadiness(pack) {
     hasAnyEffort,
     hasAnySkills,
     hasAnyRoles,
-    leafCount: leaves.length,
+    leafCount: executionLeaves.length,
     leavesWithHours: leavesWithHours.length,
     allLeavesStaffed,
     missingLeafIds,
@@ -99,17 +121,12 @@ function attachPlanningReadinessList(rows) {
   });
 }
 
-/**
- * Every FR leaf must have skills, effort hours > 0, and a suggested role.
- * Packs with zero leaves are not staffed-complete.
- */
 function allLeavesHaveStaffing(pack) {
   return Boolean(computePlanningReadiness(pack).allLeavesStaffed);
 }
 
 function buildNotReadyError(pack, { errorCode, messagePrefix }) {
   const readiness = computePlanningReadiness(pack);
-  // Gate submit/AI on per-leaf staffing only — pack-level planning score is informational.
   if (readiness.allLeavesStaffed) {
     return null;
   }
@@ -149,14 +166,38 @@ function assertPackReadyForAiRun(pack) {
   return computePlanningReadiness(pack);
 }
 
+function pickPlanningReadinessSummary(pack) {
+  const readiness = computePlanningReadiness(pack);
+  return {
+    score: readiness.score,
+    readyForHeuristic: readiness.readyForHeuristic,
+    readyForFullEngine: readiness.readyForFullEngine,
+    leafCount: readiness.leafCount,
+    leavesWithHours: readiness.leavesWithHours,
+    allLeavesStaffed: readiness.allLeavesStaffed,
+    missingLeafIds: readiness.missingLeafIds,
+  };
+}
+
+function assertPreviewReadyForImport(packPayload) {
+  const err = buildNotReadyError(packPayload, {
+    errorCode: 'REQ_IMPORT_STAFFING_INCOMPLETE',
+    messagePrefix: 'Không thể import — FR execution row chưa đủ staffing',
+  });
+  if (err) throw err;
+  return computePlanningReadiness(packPayload);
+}
+
 module.exports = {
   computePlanningReadiness,
   attachPlanningReadiness,
   attachPlanningReadinessList,
+  pickPlanningReadinessSummary,
   allLeavesHaveStaffing,
   listMissingLeafStaffing,
   assertPackReadyForSubmit,
   assertPackReadyForAiRun,
+  assertPreviewReadyForImport,
   HEURISTIC_THRESHOLD,
   FULL_ENGINE_THRESHOLD,
 };

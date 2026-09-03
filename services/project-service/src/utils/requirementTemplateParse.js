@@ -10,6 +10,7 @@ const {
   parseEstimateHours,
   normalizeRoleKey,
 } = require('./requirementStaffingParse');
+const { normalizeFunctionalRequirementsLevels } = require('./requirementFrLevel');
 
 function normalizeHeader(raw) {
   return String(raw || '')
@@ -165,7 +166,9 @@ function parseRequirementWorkbook(buffer) {
     sheetNames,
     overview: parseOverview(overviewRows.rows),
     scope: parseScope(scopeRows.rows),
-    functionalRequirements: parseFunctional(frRows.rows),
+    functionalRequirements: normalizeFunctionalRequirementsLevels(parseFunctional(frRows.rows), {
+      templateVersion,
+    }),
     nonFunctionalRequirements: parseTableRows(nfrRows.rows, {
       externalId: 'ID',
       category: 'Category',

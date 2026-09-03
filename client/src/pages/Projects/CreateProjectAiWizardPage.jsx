@@ -1,27 +1,38 @@
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import CreateProjectAiWizard from '../../features/projects/aiWizard/CreateProjectAiWizard';
-import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
+import {
+  buildCollaborateProjectHubPath,
+  buildCollaborateProjectsPath,
+} from '../../utils/suitePathUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { wizardUi } from '../../features/projects/wizard/projectWizardUi';
+import { queryKeys } from '../../lib/queryKeys';
 
 /**
  * Full-viewport AI create-project page (no suite sidebar).
  * Route: /app/collaborate/projects/new-ai?organizationId=
+ * Back / cancel → danh sách dự án (Projects Landing), không phải workspaces.
  */
 export default function CreateProjectAiWizardPage() {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const queryClient = useQueryClient();
 
   const organizationId = String(params.get('organizationId') || params.get('orgId') || '').trim();
 
-  const cancelTarget = organizationId
-    ? `/app/collaborate/workspaces?organizationId=${encodeURIComponent(organizationId)}`
-    : '/app/collaborate/workspaces';
+  const cancelTarget = buildCollaborateProjectsPath(organizationId);
+  const backLabel = t('adminTasks.wizardBackToAdmin') || 'Back to projects';
 
   const onCancel = () => navigate(cancelTarget);
 
   const onCreated = (result) => {
+    if (organizationId) {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projects.listAll(organizationId),
+      });
+    }
     const project = result?.project || result;
     const projectId = String(project?._id || project?.projectId || result?.projectId || '').trim();
     const boardId = String(
@@ -40,8 +51,8 @@ export default function CreateProjectAiWizardPage() {
         <p className="text-sm text-muted-foreground">
           {t('organizations.selectOrgFirst') || 'Chọn organization trước khi tạo dự án.'}
         </p>
-        <Link to="/app/collaborate/workspaces" className={wizardUi.link}>
-          {t('adminTasks.wizardBackToHub') || 'Back to workspaces'}
+        <Link to={buildCollaborateProjectsPath()} className={wizardUi.link}>
+          {backLabel}
         </Link>
       </div>
     );
@@ -50,7 +61,7 @@ export default function CreateProjectAiWizardPage() {
   return (
     <CreateProjectAiWizard
       organizationId={organizationId}
-      backLabel={t('adminTasks.wizardBackToHub') || 'Back to workspaces'}
+      backLabel={backLabel}
       onCancel={onCancel}
       onCreated={onCreated}
     />

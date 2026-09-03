@@ -13,10 +13,20 @@ const {
   NFR_CATEGORIES,
   OVERVIEW_FIELDS,
 } = require('../constants/requirementTemplate.constants');
-const { FR_LEAF_LEVEL } = require('../constants/requirementStaffing.constants');
+const {
+  isFrDescRequiredLevel,
+  isFrRoleRequiredLevel,
+  isFrExecutionLeaf,
+  isFrExecutionLeafLevel,
+  buildFrChildrenByParent,
+  storyHasTaskOrSubtaskChildren,
+  normalizeFunctionalRequirementsLevels,
+  isLegacyGroupingStoryRow,
+} = require('./requirementFrLevel');
 const { normalizeHeader } = require('./requirementTemplateParse');
 const { parseDateValue } = require('./requirementDateUtils');
 const { isKnownSkill, isKnownProjectRole } = require('./requirementStaffingParse');
+const { rollupFrEstimateHours } = require('./requirementStaffingRollup');
 
 function issue({ code, sheet = '', row = null, column = '', message, severity = 'error' }) {
   return { code, sheet, row, column, message, severity };
@@ -96,6 +106,7 @@ function validateStructureLayer({ sheetNames, columnMaps = {} }) {
 function validateBusinessLayer(parsed) {
   const issues = [];
   const overview = parsed?.overview || {};
+  const templateVersion = parsed?.templateVersion || TEMPLATE_VERSION;
 
   for (const field of OVERVIEW_FIELDS) {
     if (!field.required) continue;
@@ -146,7 +157,11 @@ function validateBusinessLayer(parsed) {
     );
   }
 
-  const frList = parsed?.functionalRequirements || [];
+  const frList = normalizeFunctionalRequirementsLevels(parsed?.functionalRequirements || [], {
+    templateVersion,
+  });
+  const childrenByParent = buildFrChildrenByParent(frList);
+
   if (frList.length > MAX_FR_ROWS) {
     issues.push(
       issue({
@@ -171,6 +186,8 @@ function validateBusinessLayer(parsed) {
 
   for (const row of frList) {
     const { externalId, level, parentExternalId, name, description, priority, _rowNumber } = row;
+    const legacyGroupingStory = isLegacyGroupingStoryRow(row, frList, templateVersion);
+
     if (!externalId) {
       issues.push(
         issue({
@@ -221,14 +238,18 @@ function validateBusinessLayer(parsed) {
       );
     }
 
-    if (level === 'Requirement' && !String(description || '').trim()) {
+    if (
+      isFrDescRequiredLevel(level) &&
+      !legacyGroupingStory &&
+      !String(description || '').trim()
+    ) {
       issues.push(
         issue({
           code: 'REQ_FR_DESC_REQUIRED',
           sheet: SHEETS.FUNCTIONAL,
           row: _rowNumber,
           column: 'Description',
-          message: 'Description is required for Level=Requirement',
+          message: `Description is required for Level=${level}`,
         })
       );
     } else if (level === 'Feature' && !String(description || '').trim()) {
@@ -257,15 +278,15 @@ function validateBusinessLayer(parsed) {
     }
 
     const parent = String(parentExternalId || '').trim();
-    if (level === 'Module') {
+    if (level === 'Epic') {
       if (parent) {
         issues.push(
           issue({
-            code: 'REQ_FR_MODULE_PARENT',
+            code: 'REQ_FR_EPIC_PARENT',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
             column: 'Parent ID',
-            message: 'Module must not have Parent ID',
+            message: 'Epic must not have Parent ID',
           })
         );
       }
@@ -283,7 +304,9 @@ function validateBusinessLayer(parsed) {
 
     idToLevel.set(externalId, level);
 
-    if (level === FR_LEAF_LEVEL) {
+    const executionLeaf = isFrExecutionLeaf(row, frList);
+
+    if (executionLeaf) {
       const skills = row.suggestedSkills || [];
       if (skills.length === 0) {
         issues.push(
@@ -292,7 +315,7 @@ function validateBusinessLayer(parsed) {
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
             column: 'Suggested Skills',
-            message: 'Requirement leaf requires Suggested Skills',
+            message: `${level} execution row requires Suggested Skills`,
           })
         );
       }
@@ -303,47 +326,69 @@ function validateBusinessLayer(parsed) {
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
             column: 'Effort Hours',
-            message: 'Requirement leaf requires Effort Hours > 0',
-          })
-        );
-      }
-      if (!String(row.suggestedRoleKey || '').trim()) {
-        issues.push(
-          issue({
-            code: 'REQ_FR_LEAF_ROLE_REQUIRED',
-            sheet: SHEETS.FUNCTIONAL,
-            row: _rowNumber,
-            column: 'Suggested Role',
-            message: 'Requirement leaf requires Suggested Role',
+            message: `${level} execution row requires Effort Hours > 0`,
           })
         );
       }
     }
 
-    if (row.estimateHours != null) {
-      if (level !== FR_LEAF_LEVEL) {
-        issues.push(
-          issue({
-            code: 'REQ_FR_EFFORT_NON_LEAF',
-            sheet: SHEETS.FUNCTIONAL,
-            row: _rowNumber,
-            column: 'Effort Hours',
-            message: 'Effort Hours is recommended only for Level=Requirement',
-            severity: 'warning',
-          })
-        );
-      }
+    if (
+      isFrRoleRequiredLevel(level) &&
+      !legacyGroupingStory &&
+      !String(row.suggestedRoleKey || '').trim()
+    ) {
+      issues.push(
+        issue({
+          code: 'REQ_FR_LEAF_ROLE_REQUIRED',
+          sheet: SHEETS.FUNCTIONAL,
+          row: _rowNumber,
+          column: 'Suggested Role',
+          message: `${level} requires Suggested Role`,
+        })
+      );
+    }
+
+    if (
+      level === 'Story' &&
+      storyHasTaskOrSubtaskChildren(row, childrenByParent) &&
+      row.estimateHours != null &&
+      Number(row.estimateHours) > 0
+    ) {
+      issues.push(
+        issue({
+          code: 'REQ_FR_STORY_HOURS_WITH_TASK_CHILDREN',
+          sheet: SHEETS.FUNCTIONAL,
+          row: _rowNumber,
+          column: 'Effort Hours',
+          message: 'Story with Task/Subtask children should not declare Effort Hours (use child rows)',
+          severity: 'warning',
+        })
+      );
+    }
+
+    if (row.estimateHours != null && Number(row.estimateHours) > 0 && !executionLeaf) {
+      issues.push(
+        issue({
+          code: 'REQ_FR_EFFORT_NON_LEAF',
+          sheet: SHEETS.FUNCTIONAL,
+          row: _rowNumber,
+          column: 'Effort Hours',
+          message: 'Effort Hours is recommended only on Task, Subtask, or Story without Task children',
+          severity: 'warning',
+        })
+      );
     }
 
     for (const skill of row.suggestedSkills || []) {
       if (!isKnownSkill(skill)) {
         issues.push(
           issue({
-            code: 'REQ_FR_UNKNOWN_SKILL',
+            code: 'REQ_FR_NEW_SKILL',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
             column: 'Suggested Skills',
-            message: `Unknown skill (not in whitelist): ${skill}`,
+            message: `New skill detected (will register as PENDING): ${skill}`,
+            severity: 'warning',
           })
         );
       }
@@ -363,9 +408,9 @@ function validateBusinessLayer(parsed) {
   }
 
   for (const row of frList) {
-    const { externalId, level, parentExternalId, _rowNumber } = row;
+    const { level, parentExternalId, _rowNumber } = row;
     const parent = String(parentExternalId || '').trim();
-    if (!parent || level === 'Module') continue;
+    if (!parent || level === 'Epic') continue;
 
     const parentLevel = idToLevel.get(parent);
     if (!parentLevel) {
@@ -413,6 +458,18 @@ function validateBusinessLayer(parsed) {
   return issues;
 }
 
+function applyRollupHoursToTreeNodes(nodes, hoursById) {
+  for (const node of nodes) {
+    const externalId = String(node.externalId || '').trim();
+    if (!isFrExecutionLeafLevel(node.level) && externalId && hoursById.has(externalId)) {
+      node.estimateHours = hoursById.get(externalId);
+    }
+    if ((node.children || []).length) {
+      applyRollupHoursToTreeNodes(node.children, hoursById);
+    }
+  }
+}
+
 function buildFunctionalPreviewTree(functionalRequirements = []) {
   const byId = new Map();
   for (const node of functionalRequirements) {
@@ -433,6 +490,8 @@ function buildFunctionalPreviewTree(functionalRequirements = []) {
     for (const n of list) sortChildren(n.children || []);
   };
   sortChildren(roots);
+  const hoursById = rollupFrEstimateHours(functionalRequirements);
+  applyRollupHoursToTreeNodes(roots, hoursById);
   return roots;
 }
 

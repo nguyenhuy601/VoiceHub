@@ -112,4 +112,49 @@ describe('aiPlanningHeuristic', () => {
     assert.equal(scored.userId, 'u0');
     assert.ok(scored.score <= 45);
   });
+
+  it('uses staffingRoles FTE counts instead of pack staffingPlan leaf counts', () => {
+    const pack = packFixture({
+      staffingPlan: {
+        requiredSkills: [{ name: 'React', source: 'rollup' }],
+        requiredRoles: [{ roleKey: 'frontend_developer', requiredCount: 20, source: 'rollup' }],
+        estimatedHoursTotal: 160,
+      },
+    });
+    const overlay = buildHeuristicOverlay({
+      pack,
+      staffingRoles: [{ roleKey: 'frontend_developer', requiredCount: 2, leafCount: 20, roleHours: 160 }],
+      poolItems: [
+        {
+          userId: 'u1',
+          displayName: 'One',
+          capability: { skills: [{ name: 'React', rank: 1, level: 3 }], businessDomains: [] },
+          availablePct: 50,
+        },
+      ],
+    });
+    assert.equal(overlay.roles[0].requiredCount, 2);
+    assert.equal(overlay.inputMeta.staffingSource, 'baseline_fte');
+    assert.ok(
+      overlay.gaps.some(
+        (g) => g.type === 'role_candidate_shortfall' && g.requiredCount === 2
+      )
+    );
+  });
+
+  it('staffingRoles takes priority over staffingOverride', () => {
+    const pack = packFixture();
+    const overlay = buildHeuristicOverlay({
+      pack,
+      staffingRoles: [{ roleKey: 'frontend_developer', requiredCount: 1, leafCount: 1 }],
+      staffingOverride: {
+        requiredRoles: [{ roleKey: 'backend_developer', requiredCount: 5 }],
+        requiredSkills: [{ name: 'Java' }],
+      },
+      poolItems: [],
+    });
+    assert.equal(overlay.roles.length, 1);
+    assert.equal(overlay.roles[0].roleKey, 'frontend_developer');
+    assert.equal(overlay.inputMeta.staffingSource, 'baseline_fte');
+  });
 });

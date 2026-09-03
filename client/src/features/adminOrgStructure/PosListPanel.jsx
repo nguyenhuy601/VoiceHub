@@ -17,19 +17,24 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { adminQueryHubLink } from '../../utils/adminHubLinks';
 import { memberJobTitle } from '../../utils/userTaxonomyUtils';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 const RBAC_POS_MANAGE_HUB = '/app/admin/rbac/positions/manage';
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
 const ACTION_LINKS = [
-  { tab: 'assign', labelKey: 'adminDomains.rbac.posAssign' },
-  { tab: 'edit', labelKey: 'adminDomains.rbac.posEdit' },
-  { tab: 'disable', labelKey: 'adminDomains.rbac.posDisable' },
+  { tab: 'assign', labelKey: 'adminDomains.rbac.posAssign', grant: RBAC_GRANT.EMPLOYEE_UPDATE },
+  { tab: 'edit', labelKey: 'adminDomains.rbac.posEdit', grant: RBAC_GRANT.POSITION_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.rbac.posDisable', grant: RBAC_GRANT.POSITION_UPDATE },
 ];
 
 export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
@@ -234,7 +239,9 @@ export default function PosListPanel({ orgId }) {
                     <td className="px-4 py-3 text-muted-foreground">{row.count}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {ACTION_LINKS.map((link) => (
+                        {ACTION_LINKS.filter((link) =>
+                          canActWithGrant(isFullAccess, hasGrant, link.grant)
+                        ).map((link) => (
                           <Link
                             key={link.tab}
                             to={adminQueryHubLink(RBAC_POS_MANAGE_HUB, { title: row.title }, link.tab)}

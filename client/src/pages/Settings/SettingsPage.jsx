@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ConfirmDialog, GradientButton } from '../../components/Shared';
 import roleAPI from '../../services/api/roleAPI';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import userService from '../../services/userService';
 import authService from '../../services/authService';
 import { useAuth } from '../../context/AuthContext';
@@ -24,6 +23,10 @@ import CapabilityProfilePanel from '../../components/Settings/CapabilityProfileP
 import ProfileOverviewPanel from '../../components/Settings/ProfileOverviewPanel';
 import { FIGMA_SETTINGS_CARD, FIGMA_SETTINGS_INPUT } from '../../components/Settings/figmaSettingsClasses';
 import { hasBackendCapability } from '../../config/backendCapabilities';
+import { useOrganizationsMy } from '../../hooks/queries/useOrganizationsMy';
+import useUserMe from '../../hooks/useUserMe';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 
 const isValidMongoObjectId = (s) =>
   typeof s === 'string' && /^[a-fA-F0-9]{24}$/.test(s);
@@ -51,6 +54,9 @@ const SHOW_ROLE_DEBUG_SWITCHER =
 function SettingsPage() {
   const { t, locale } = useAppStrings();
   const { user, updateUser } = useAuth();
+  const queryClient = useQueryClient();
+  const { me: meProfile } = useUserMe({ enabled: Boolean(user?.id || user?.userId || user?._id) });
+  const orgsQuery = useOrganizationsMy({ enabled: Boolean(user) });
   const { isDarkMode, toggleTheme, fontScale, setFontScale } = useTheme();
   const [activeTab, setActiveTab] = useState('general');
   const { role: uiRole, meta: uiRoleMeta } = useUiRole();
@@ -156,8 +162,33 @@ function SettingsPage() {
 
   /* ----- LOAD ROLES ON MOUNT ----- */
   useEffect(() => {
-    fetchRoles();
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        setRoleLoading(true);
+        const orgs = Array.isArray(orgsQuery.data) ? orgsQuery.data : [];
+        const first = orgs[0];
+        const oid = first?._id ?? first?.id;
+        const idStr = oid != null ? String(oid) : '';
+        if (!isValidMongoObjectId(idStr)) {
+          if (!cancelled) setRoleContextOrganizationId(null);
+          return;
+        }
+        if (!cancelled) setRoleContextOrganizationId(idStr);
+        const response = await roleAPI.getRolesByOrganization(idStr);
+        const raw = response?.data ?? response;
+        const data = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+        if (!cancelled && data.length > 0) setRoles(data);
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('Settings: roles fetch skipped', err?.message);
+      } finally {
+        if (!cancelled) setRoleLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgsQuery.data]);
 
   useEffect(() => {
     const orgData = localStorage.getItem('settings:organization');
@@ -238,9 +269,8 @@ function SettingsPage() {
   const fetchRoles = async () => {
     try {
       setRoleLoading(true);
-      const orgPayload = await organizationAPI.getOrganizations();
-      const orgListRaw = orgPayload?.data ?? orgPayload;
-      const orgs = Array.isArray(orgListRaw) ? orgListRaw : [];
+      await orgsQuery.refetch();
+      const orgs = Array.isArray(orgsQuery.data) ? orgsQuery.data : [];
       const first = orgs[0];
       const oid = first?._id ?? first?.id;
       const idStr = oid != null ? String(oid) : '';
@@ -271,45 +301,29 @@ function SettingsPage() {
     }));
   }, [user, t]);
 
-  /** Bootstrap BFF không gửi phone — tải đầy đủ từ GET /users/me */
+  /** Bootstrap BFF không gửi phone — hydrate từ shared GET /users/me */
   useEffect(() => {
-    const userId = user?.id || user?.userId || user?._id;
-    if (!userId) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await userService.getMe();
-        const data = unwrapApiData(res);
-        if (cancelled || !data || typeof data !== 'object') return;
-        const phoneValue = String(data.phone || data.phoneNumber || data.mobile || '').trim();
-        setUserProfileForm((prev) => ({
-          ...prev,
-          fullName: data.displayName || data.fullName || data.name || prev.fullName,
-          phone:
-            phoneValue ||
-            prev.phone ||
-            user?.phone ||
-            user?.phoneNumber ||
-            user?.mobile ||
-            '',
-          email: data.email || prev.email || user?.email || getJwtEmail() || '',
-        }));
-        updateUser(
-          mergeAuthUserFromProfile(user, {
-            ...data,
-            ...(phoneValue ? { phone: phoneValue } : {}),
-          })
-        );
-      } catch (err) {
-        if (import.meta.env.DEV) {
-          console.warn('Settings: profile fetch skipped', err?.message);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, user?.userId, user?._id, updateUser]);
+    if (!meProfile || typeof meProfile !== 'object') return;
+    const phoneValue = String(meProfile.phone || meProfile.phoneNumber || meProfile.mobile || '').trim();
+    setUserProfileForm((prev) => ({
+      ...prev,
+      fullName: meProfile.displayName || meProfile.fullName || meProfile.name || prev.fullName,
+      phone:
+        phoneValue ||
+        prev.phone ||
+        user?.phone ||
+        user?.phoneNumber ||
+        user?.mobile ||
+        '',
+      email: meProfile.email || prev.email || user?.email || getJwtEmail() || '',
+    }));
+    updateUser(
+      mergeAuthUserFromProfile(user, {
+        ...meProfile,
+        ...(phoneValue ? { phone: phoneValue } : {}),
+      })
+    );
+  }, [meProfile]);
 
   useEffect(() => {
     localStorage.setItem('settings:apiKeys', JSON.stringify(apiKeys));
@@ -360,6 +374,9 @@ function SettingsPage() {
       const res = await userService.updateProfile(payload);
       const saved = unwrapApiData(res) || res?.data || res;
       updateUser(mergeAuthUserFromProfile(user, { ...payload, ...saved }));
+      queryClient.setQueryData(queryKeys.user.me(), (prev) =>
+        prev && typeof prev === 'object' ? { ...prev, ...payload, ...saved } : saved
+      );
       setUserProfileForm((prev) => ({
         ...prev,
         fullName: payload.displayName || prev.fullName,

@@ -113,3 +113,6 @@ exports.authorizeOrGrant = (roles, masterKey) => {
     next();
   };
 };
+
+/** Chỉ master grant V2 — không bypass org membership role. */
+exports.authorizeGrant = (masterKey) => exports.authorizeOrGrant([], masterKey);

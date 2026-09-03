@@ -3,6 +3,7 @@ const { handleBootstrap } = require('./bootstrap.handler');
 const { handleDashboardSummary } = require('./dashboardSummary.handler');
 const { handleOrgShell } = require('./orgShell.handler');
 const { handleDocumentsOverview } = require('./documentsOverview.handler');
+const { handleProjectOverview } = require('./projectOverview.handler');
 
 /** BFF không cần permission middleware (bootstrap, dashboard). */
 const publicBffRouter = express.Router();
@@ -59,6 +60,8 @@ publicBffRouter.get('/api/bootstrap', handleBootstrap);
  *         $ref: '#/components/responses/InternalError'
  */
 publicBffRouter.get('/api/dashboard/summary', handleDashboardSummary);
+
+publicBffRouter.get('/api/projects/:projectId/overview', handleProjectOverview);
 
 /** BFF org read — sau permission; org-service vẫn kiểm tra membership. */
 const orgBffRouter = express.Router();

@@ -1,5 +1,5 @@
 const express = require('express');
-const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
+const { protect, authorizeOrGrant } = require('../middleware/auth');
 const hierarchyController = require('../controllers/hierarchyController');
 const organizationController = require('../controllers/organizationController');
 
@@ -14,15 +14,15 @@ router.use(protect);
  * and workspace until cutover; new writes should go through structureController + OU.
  */
 router.get('/branches', hierarchyController.listBranches);
-router.post('/branches', authorize(['owner', 'admin']), hierarchyController.createBranch);
+router.post('/branches', authorizeOrGrant(['owner', 'admin'], 'organization.branch.create'), hierarchyController.createBranch);
 // Huy: PUT chi nhánh — sửa / vô hiệu hóa (domain Cơ cấu tổ chức)
-router.put('/branches/:branchId', authorize(['owner', 'admin']), hierarchyController.updateBranch);
+router.put('/branches/:branchId', authorizeOrGrant(['owner', 'admin'], 'organization.branch.update'), hierarchyController.updateBranch);
 
 router.get('/branches/:branchId/divisions', hierarchyController.listDivisions);
-router.post('/branches/:branchId/divisions', authorize(['owner', 'admin']), hierarchyController.createDivision);
+router.post('/branches/:branchId/divisions', authorizeOrGrant(['owner', 'admin'], 'organization.division.create'), hierarchyController.createDivision);
 router.get('/divisions', hierarchyController.listDivisions);
-router.post('/divisions', authorize(['owner', 'admin']), hierarchyController.createDivision);
-router.put('/divisions/:divisionId', authorize(['owner', 'admin']), hierarchyController.updateDivision);
+router.post('/divisions', authorizeOrGrant(['owner', 'admin'], 'organization.division.create'), hierarchyController.createDivision);
+router.put('/divisions/:divisionId', authorizeOrGrant(['owner', 'admin'], 'organization.division.update'), hierarchyController.updateDivision);
 
 router.get('/divisions/:divisionId/departments', hierarchyController.listDepartmentsByDivision);
 router.post('/divisions/:divisionId/departments', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.department.create'), hierarchyController.createDepartmentByDivision);
@@ -35,12 +35,12 @@ router.post('/teams', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.creat
 router.put('/teams/:teamId', authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.update'), hierarchyController.updateTeamByHierarchy);
 router.get(
   '/teams/:teamId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.view'),
   organizationController.listTeamRoleAccess
 );
 router.put(
   '/teams/:teamId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(STRUCTURE_ADMIN, 'organization.team.update'),
   organizationController.saveTeamRoleAccess
 );
 

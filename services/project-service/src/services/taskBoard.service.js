@@ -869,13 +869,44 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     resolveFeatureBoardListId(f.status, listsWithStatusKey)
   );
   const cardCountByList = new Map();
-  for (const c of cards) {
-    const lid = String(c.listId || '');
-    cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
-  }
-  for (const lid of featureListIds) {
-    if (!lid) continue;
-    cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+  if (wantCards) {
+    for (const c of cards) {
+      const lid = String(c.listId || '');
+      cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+    }
+    for (const lid of featureListIds) {
+      if (!lid) continue;
+      cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+    }
+  } else if (listIds.length) {
+    const taskCounts = await Task.aggregate([
+      {
+        $match: {
+          boardId: boardOid,
+          isActive: true,
+          listId: { $in: listIds },
+        },
+      },
+      { $group: { _id: '$listId', count: { $sum: 1 } } },
+    ]);
+    for (const row of taskCounts) {
+      if (row?._id) cardCountByList.set(String(row._id), Number(row.count) || 0);
+    }
+    if (!scopedCardQuery && board.projectId) {
+      const PlanningItem = require('../models/PlanningItem');
+      const featureStatusRows = await PlanningItem.find({
+        projectId: board.projectId,
+        type: 'feature',
+        isActive: true,
+      })
+        .select('status')
+        .lean();
+      for (const f of featureStatusRows) {
+        const lid = resolveFeatureBoardListId(f.status, listsWithStatusKey);
+        if (!lid) continue;
+        cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+      }
+    }
   }
   const listsEnriched = listsWithStatusKey.map((l) => {
     const cardCount = cardCountByList.get(String(l._id)) || 0;

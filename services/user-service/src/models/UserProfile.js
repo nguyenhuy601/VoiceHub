@@ -150,10 +150,13 @@ const userProfileSchema = new mongoose.Schema(
       seniorityBand: { type: String, trim: true, default: '' },
       skills: [
         {
+          skillId: { type: mongoose.Schema.Types.ObjectId, default: null },
           name: { type: String, trim: true },
           level: { type: Number, min: 1, max: 5, default: 3 },
           /** Thứ tự thành thạo (1 = mạnh nhất) — derive từ thứ tự mảng nếu thiếu. */
           rank: { type: Number, min: 1, max: 20, default: null },
+          experienceYears: { type: Number, min: 0, max: 40, default: null },
+          lastUsedAt: { type: Date, default: null },
         },
       ],
       /** Domain nghiệp vụ (E-commerce, Banking, Payment…) — tách tech skills. */

@@ -5,7 +5,6 @@ import useRbacRolelessAssignments from '../../hooks/useRbacRolelessAssignments';
 import AdminRbacOpsHubShell from '../../components/admin/AdminRbacOpsHubShell';
 import AdminRolePicker from '../../components/adminRbac/AdminRolePicker';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { memberEmail } from '../../utils/adminUserUtils';
 import RoleAssignPanel from './RoleAssignPanel';
 import RoleRevokePanel from './RoleRevokePanel';
 import RoleDeletePanel from './RoleDeletePanel';
@@ -21,9 +20,19 @@ export default function PermPackManageHubPanel({ orgId }) {
   const tabFromUrl = String(searchParams.get('tab') || '').trim();
   const activeTab = TAB_IDS.includes(tabFromUrl) ? tabFromUrl : TAB_ASSIGN;
   const userId = String(searchParams.get('userId') || '').trim();
-  const { rolelessFilter, reloadAssignments } = useRbacRolelessAssignments(orgId, {
-    enabled: activeTab === TAB_ASSIGN,
+  const needsRbacPicker = activeTab === TAB_ASSIGN || activeTab === TAB_REVOKE;
+  const { assignmentsByUser, assignmentsReady, reloadAssignments } = useRbacRolelessAssignments(orgId, {
+    enabled: needsRbacPicker,
   });
+
+  const rbacPickerProps = useMemo(
+    () => ({
+      pageSize: 10,
+      showRbacRoleFilter: true,
+      rbacAssignments: { byUser: assignmentsByUser, ready: assignmentsReady },
+    }),
+    [assignmentsByUser, assignmentsReady]
+  );
 
   const tabs = useMemo(
     () => [
@@ -48,16 +57,17 @@ export default function PermPackManageHubPanel({ orgId }) {
         return (
           <AdminUserPicker
             orgId={orgId}
-            hint={t('adminRbac.assignPickerHint')}
-            filterFn={rolelessFilter}
-            emptyLabel={t('adminRbac.assignNoRoleless')}
-            subtitleFn={(m) => `${memberEmail(m)} · ${t('adminRbac.assignRolelessBadge')}`}
+            hint={t('adminRbac.permPackPickerHint')}
+            emptyLabel={t('adminUsers.noUsers')}
+            {...rbacPickerProps}
           />
         );
       }
-      return <AdminUserPicker orgId={orgId} hint={t('adminRbac.revokePickerHint')} />;
+      return (
+        <AdminUserPicker orgId={orgId} hint={t('adminRbac.revokePickerHint')} {...rbacPickerProps} />
+      );
     },
-    [orgId, t, rolelessFilter]
+    [orgId, t, rbacPickerProps]
   );
 
   const panelKey = `${orgId || ''}:${userId || 'none'}`;

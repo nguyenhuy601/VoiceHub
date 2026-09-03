@@ -5,6 +5,8 @@ const {
 } = require('../constants/requirementTemplate.constants');
 const { buildFunctionalPreviewTree } = require('./requirementTemplateValidate');
 const { MAX_PREVIEW_ROWS } = require('./requirementExcelPreview');
+const { isFrExecutionLeafLevel } = require('./requirementFrLevel');
+const { rollupFrEstimateHours } = require('./requirementStaffingRollup');
 
 function cell(value) {
   if (value == null) return '';
@@ -66,7 +68,13 @@ function buildFunctionalMatrix(functionalRequirements = []) {
   const header = SHEET_COLUMNS[SHEETS.FUNCTIONAL];
   const rows = [header];
   const sorted = [...functionalRequirements].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const hoursById = rollupFrEstimateHours(sorted);
   for (const fr of sorted) {
+    const externalId = String(fr.externalId || '').trim();
+    const displayHours =
+      !isFrExecutionLeafLevel(fr.level) && externalId && hoursById.has(externalId)
+        ? hoursById.get(externalId)
+        : fr.estimateHours;
     rows.push([
       cell(fr.externalId),
       cell(fr.level),
@@ -76,7 +84,7 @@ function buildFunctionalMatrix(functionalRequirements = []) {
       cell(fr.priority),
       cell(fr.acceptanceCriteria),
       Array.isArray(fr.suggestedSkills) ? fr.suggestedSkills.join(';') : '',
-      fr.estimateHours != null ? cell(fr.estimateHours) : '',
+      displayHours != null ? cell(displayHours) : '',
       cell(fr.suggestedRoleKey),
     ]);
   }
@@ -230,6 +238,14 @@ function ensurePackPreviewViews(pack) {
 
   if (needsExcelPreview(next)) {
     next.excelPreview = buildSyntheticExcelPreviewFromPack(next);
+  }
+
+  if ((next.functionalRequirements || []).length) {
+    const { buildPackPlanningPreview } = require('./requirementPackPlanningPreview');
+    next.planningPreview = buildPackPlanningPreview(next);
+    if (next.planningPreview?.excelPreview) {
+      next.excelPreview = next.planningPreview.excelPreview;
+    }
   }
 
   return next;

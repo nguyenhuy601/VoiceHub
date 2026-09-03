@@ -1,48 +1,71 @@
 /** Huy: Levels đã setup (OrgLevelSchema) — dùng để gated parent fields CRUD. */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { organizationAPI } from '../services/api/organizationAPI';
 import { unwrapOrgApi } from '../utils/adminOrgStructureUtils';
 import { resolveOrgUnitCreateParents } from '../utils/orgUnitCreateParents';
+import { queryKeys } from '../lib/queryKeys';
+import { STALE_TIME_ORG_LEVELS_MS } from '../lib/queryClient';
 
-export function useOrgStructureLevels(orgId) {
-  const [levels, setLevels] = useState([]);
-  const [loading, setLoading] = useState(Boolean(orgId));
-  const [ready, setReady] = useState(false);
+/**
+ * @typedef {{ levels: object[], setupCompleted: boolean, templateId: string }} OrgStructureLevelsSchema
+ */
+
+export async function fetchOrgStructureLevels(orgId) {
+  const res = await organizationAPI.getStructureLevels(orgId);
+  const schema = unwrapOrgApi(res);
+  return {
+    levels: Array.isArray(schema?.levels) ? schema.levels : [],
+    setupCompleted: Boolean(schema?.setupCompleted),
+    templateId: String(schema?.templateId || ''),
+  };
+}
+
+/**
+ * @param {string} orgId
+ * @param {{ enabled?: boolean }} [options]
+ */
+export function useOrgStructureLevels(orgId, options = {}) {
+  const queryClient = useQueryClient();
+  const id = String(orgId || '').trim();
+  const enabledProp = options.enabled !== false;
+  const enabled = enabledProp && Boolean(id);
+
+  const query = useQuery({
+    queryKey: queryKeys.org.levels(id),
+    queryFn: () => fetchOrgStructureLevels(id),
+    enabled,
+    staleTime: STALE_TIME_ORG_LEVELS_MS,
+  });
+
+  const schemaLevels = enabled && Array.isArray(query.data?.levels) ? query.data.levels : [];
+  const levels = useMemo(
+    () => schemaLevels.filter((l) => l && l.enabled !== false && l.key),
+    [schemaLevels]
+  );
+  const setupCompleted = !enabled
+    ? null
+    : query.isFetched
+      ? Boolean(query.data?.setupCompleted)
+      : null;
+  const templateId = enabled ? String(query.data?.templateId || '') : '';
+  const loading = enabled && query.isPending;
+  const ready = !enabled || query.isFetched;
 
   const reload = useCallback(async () => {
-    if (!orgId) {
-      setLevels([]);
-      setReady(true);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await organizationAPI.getStructureLevels(orgId);
-      const schema = unwrapOrgApi(res);
-      const list = Array.isArray(schema?.levels)
-        ? schema.levels.filter((l) => l && l.enabled !== false && l.key)
-        : [];
-      setLevels(list);
-    } catch {
-      setLevels([]);
-    } finally {
-      setReady(true);
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    setReady(false);
-    reload();
-  }, [reload]);
+    if (!id) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.org.levels(id) });
+  }, [id, queryClient]);
 
   const enabledKeys = useMemo(
     () => new Set(levels.map((l) => String(l.key).toLowerCase().trim())),
     [levels]
   );
 
-  const hasLevel = useCallback((key) => enabledKeys.has(String(key || '').toLowerCase().trim()), [enabledKeys]);
+  const hasLevel = useCallback(
+    (key) => enabledKeys.has(String(key || '').toLowerCase().trim()),
+    [enabledKeys]
+  );
 
   /** Parent level ngay trên (order nhỏ hơn gần nhất) — null nếu là tầng gốc. */
   const parentLevelKey = useCallback(
@@ -60,7 +83,19 @@ export function useOrgStructureLevels(orgId) {
 
   const createParents = useMemo(() => resolveOrgUnitCreateParents(enabledKeys), [enabledKeys]);
 
-  return { levels, loading, ready, reload, hasLevel, parentLevelKey, enabledKeys, createParents };
+  return {
+    levels,
+    schemaLevels,
+    setupCompleted,
+    templateId,
+    loading,
+    ready,
+    reload,
+    hasLevel,
+    parentLevelKey,
+    enabledKeys,
+    createParents,
+  };
 }
 
 export default useOrgStructureLevels;

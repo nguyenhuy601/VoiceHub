@@ -61,7 +61,14 @@ describe('requirementPackPreviewFallback', () => {
     assert.ok(enriched.excelPreview.sheets.some((s) => /Functional/i.test(s.name)));
   });
 
-  it('ensurePackPreviewViews does not overwrite existing snapshots', () => {
+  it('ensurePackPreviewViews attaches planningPreview with rollup excel', () => {
+    const enriched = ensurePackPreviewViews({ ...legacyPack });
+    assert.ok(enriched.planningPreview);
+    assert.ok(Array.isArray(enriched.planningPreview.issues));
+    assert.equal(enriched.excelPreview.derivedFromPack, true);
+  });
+
+  it('ensurePackPreviewViews keeps existing previewTree but rebuilds excel from FR', () => {
     const existingTree = [{ externalId: 'KEEP', name: 'Keep', children: [] }];
     const existingExcel = {
       fileName: 'kept.xlsx',
@@ -75,7 +82,47 @@ describe('requirementPackPreviewFallback', () => {
       excelPreview: existingExcel,
     });
     assert.equal(enriched.previewTree, existingTree);
-    assert.equal(enriched.excelPreview, existingExcel);
+    assert.ok(enriched.planningPreview);
+    assert.equal(enriched.excelPreview.derivedFromPack, true);
+    assert.notEqual(enriched.excelPreview, existingExcel);
+  });
+
+  it('buildSyntheticExcelPreviewFromPack rolls up leaf hours on parent rows', () => {
+    const pack = {
+      ...legacyPack,
+      functionalRequirements: [
+        {
+          externalId: 'FR-001',
+          level: 'Module',
+          parentExternalId: '',
+          name: 'Auth',
+          description: 'Login module',
+          priority: 'High',
+          sortOrder: 0,
+        },
+        {
+          externalId: 'FR-002',
+          level: 'Requirement',
+          parentExternalId: 'FR-001',
+          name: 'Login email',
+          description: 'Email login',
+          priority: 'High',
+          sortOrder: 1,
+          estimateHours: 8,
+        },
+      ],
+    };
+    const preview = buildSyntheticExcelPreviewFromPack(pack);
+    const fr = preview.sheets.find((s) => /Functional/i.test(s.name));
+    assert.ok(fr);
+    const header = fr.rows[0].cells;
+    const idIdx = header.indexOf('ID');
+    const hoursIdx = header.indexOf('Effort Hours');
+    const byId = new Map(
+      fr.rows.slice(1).map((row) => [String(row.cells[idIdx] || '').trim(), row.cells[hoursIdx]])
+    );
+    assert.equal(byId.get('FR-001'), '8');
+    assert.equal(byId.get('FR-002'), '8');
   });
 
   it('buildSyntheticExcelPreviewFromPack includes overview header', () => {

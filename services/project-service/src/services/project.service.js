@@ -506,6 +506,7 @@ async function listProjects({
   scopeType,
   scopeId,
   includeArchived = false,
+  excludeClosed = false,
 }) {
   const userOid = mongoose.Types.ObjectId.isValid(userId)
     ? new mongoose.Types.ObjectId(String(userId))
@@ -528,6 +529,9 @@ async function listProjects({
 
   const base = { organizationId: orgOid };
   if (!allowArchived) base.isActive = true;
+  if (excludeClosed) {
+    base.status = { $nin: ['closed'] };
+  }
   const st = String(scopeType || '').toLowerCase();
   if (st === 'organization' && scopeId && mongoose.Types.ObjectId.isValid(scopeId)) {
     base.scopeType = 'organization';
@@ -1075,13 +1079,36 @@ async function patchProject({ userId, projectId, patch }) {
 async function archiveProject({ userId, projectId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  await assertProjectMatrixOrAdmin(
-    userId,
-    project.toObject(),
-    ['project:archive'],
-    'Không có quyền đóng dự án (project:archive)'
-  );
-  assertMustCompleteBeforeArchive(project);
+  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { canSkipCompleteGateBeforeArchive } = require('../utils/projectCloseGate');
+  let skipCompleteGate = false;
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserAnyProjectPermission } = require('./projectAccess.service');
+    const resolved = await assertUserAnyProjectPermission({
+      userId,
+      projectId,
+      permissions: ['project:archive', 'project:delete'],
+      message: 'Không có quyền đóng dự án (project:archive)',
+    });
+    skipCompleteGate = canSkipCompleteGateBeforeArchive({
+      isOrgAdmin: resolved.isOrgAdmin,
+      isCreator: resolved.isCreator,
+      permissions: resolved.permissions,
+    });
+  } else {
+    await assertProjectMatrixOrAdmin(
+      userId,
+      project.toObject(),
+      ['project:archive'],
+      'Không có quyền đóng dự án (project:archive)'
+    );
+    skipCompleteGate = canSkipCompleteGateBeforeArchive({
+      legacyOrgAdmin: await userCanAdminProject(userId, project.toObject()),
+    });
+  }
+  if (!skipCompleteGate) {
+    assertMustCompleteBeforeArchive(project);
+  }
   const beforeSnap = project.toObject();
   const now = new Date();
   project.isActive = false;
@@ -1168,30 +1195,115 @@ async function createBoardInProject({
   return board.toObject();
 }
 
+async function countPlanningByType({ projectId }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const pid = mongoose.Types.ObjectId.isValid(String(projectId))
+    ? new mongoose.Types.ObjectId(String(projectId))
+    : projectId;
+  const rows = await PlanningItem.aggregate([
+    { $match: { projectId: pid, isActive: true, type: { $in: ['epic', 'feature'] } } },
+    { $group: { _id: '$type', count: { $sum: 1 } } },
+  ]);
+  let epic = 0;
+  let feature = 0;
+  for (const row of rows || []) {
+    const t = String(row?._id || '').toLowerCase();
+    if (t === 'epic') epic = Number(row.count) || 0;
+    else if (t === 'feature') feature = Number(row.count) || 0;
+  }
+  return { epic, feature };
+}
+
 async function getProjectOverview({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const boardIds = (project.boards || []).map((b) => b._id);
-  const cards = boardIds.length
-    ? await Task.find({ boardId: { $in: boardIds }, isActive: true, parentTaskId: null })
-        .select('title status dueDate assigneeId listId boardId completedAt')
-        .lean()
-    : [];
-  const now = Date.now();
-  let done = 0;
-  let overdue = 0;
-  for (const c of cards) {
-    const st = String(c.status || '').toLowerCase();
-    if (st.includes('done') || st.includes('complete') || c.completedAt) done += 1;
-    else if (c.dueDate && new Date(c.dueDate).getTime() < now) overdue += 1;
+  const informationLevel = String(project.access?.informationLevel || 'details').toLowerCase();
+  const {
+    buildProjectOverviewAggregate,
+    slimOverviewProject,
+  } = require('../utils/projectOverviewAggregate');
+  const { resolveFeatureBoardListId } = require('../utils/planningBoardStatus');
+  const { serializePriorityConfig } = require('../utils/priorityConfig');
+
+  const defaultBoardId = String(
+    project.defaultBoardId || project.boards?.[0]?._id || ''
+  ).trim();
+  let lists = [];
+  let cards = [];
+  let sprints = [];
+  let planningPulse = { epic: 0, feature: 0 };
+
+  if (informationLevel !== 'summary') {
+    planningPulse = await countPlanningByType({ projectId });
+    sprints = await Sprint.find({ projectId }).sort({ createdAt: -1 }).lean();
+
+    if (defaultBoardId && mongoose.Types.ObjectId.isValid(defaultBoardId)) {
+      const boardOid = new mongoose.Types.ObjectId(defaultBoardId);
+      lists = await TaskBoardList.find({ boardId: boardOid, isActive: true })
+        .sort({ order: 1 })
+        .lean();
+      const listsWithStatusKey = lists.map((l) => ({
+        ...l,
+        statusKey:
+          String(l.statusKey || '').trim() ||
+          require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
+          '',
+      }));
+
+      const tasks = await Task.find({ boardId: boardOid, isActive: true })
+        .select(
+          'title status dueDate assigneeId listId priority issueType sprintId estimateHours targetDate completedAt type'
+        )
+        .sort({ listId: 1, position: 1, createdAt: 1 })
+        .lean();
+
+      const PlanningItem = require('../models/PlanningItem');
+      const featureItems = await PlanningItem.find({
+        projectId,
+        type: 'feature',
+        isActive: true,
+      })
+        .select('title status assigneeId priority dueDate targetDate sprintId')
+        .lean();
+
+      const featureCards = featureItems.map((f) => ({
+        _id: f._id,
+        kind: 'planning',
+        issueType: 'feature',
+        listId: resolveFeatureBoardListId(f.status, listsWithStatusKey),
+        title: f.title,
+        status: f.status,
+        assigneeId: f.assigneeId,
+        priority: f.priority,
+        dueDate: f.dueDate || f.targetDate || null,
+        sprintId: f.sprintId || null,
+      }));
+
+      cards = [
+        ...tasks.map((t) => ({
+          ...t,
+          issueType: t.issueType || t.type || 'task',
+        })),
+        ...featureCards,
+      ];
+    }
   }
+
+  const priorityConfig = serializePriorityConfig(project.priorityConfig);
+  const aggregate = buildProjectOverviewAggregate({
+    cards,
+    lists,
+    priorityConfig,
+    members: [],
+    projectCode: project.projectCode || '',
+    sprints,
+    planningRows: [],
+    informationLevel,
+  });
+  aggregate.planningPulse = planningPulse;
+
   return {
-    project,
-    summary: {
-      total: cards.length,
-      done,
-      overdue,
-      donePercent: cards.length ? Math.round((done / cards.length) * 100) : 0,
-    },
+    project: slimOverviewProject({ ...project, priorityConfig }),
+    ...aggregate,
   };
 }
 

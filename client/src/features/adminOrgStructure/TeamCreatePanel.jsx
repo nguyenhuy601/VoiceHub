@@ -22,9 +22,9 @@ export default function TeamCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, divisions, loadStructure } = useAdminOrgStructure(orgId);
   const { ready, createParents } = useOrgStructureLevels(orgId);
-  const { isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const teamParent = createParents.teamParent;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', parentId: '' });

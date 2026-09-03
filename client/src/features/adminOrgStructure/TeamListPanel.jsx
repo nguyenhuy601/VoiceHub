@@ -15,24 +15,23 @@ import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const TEAM_MANAGE_HUB = '/app/admin/org-structure/teams/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
-  { path: '/app/admin/org-structure/teams/members', labelKey: 'adminDomains.orgStructure.teamMembers' },
-  { path: '/app/admin/org-structure/teams/leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_DELETE },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_UPDATE },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { teams, loading } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
-  const { isFullAccess, isOrgOwnerOrAdmin } = useCompanyAdminAccess();
+  const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateTeam = canActWithGrant(isOrgOwnerOrAdmin, hasGrant, RBAC_GRANT.TEAM_CREATE);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -81,6 +80,13 @@ export default function TeamListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : structureError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{structureError}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -125,8 +131,8 @@ export default function TeamListPanel({ orgId }) {
                             canActWithGrant(isFullAccess, hasGrant, link.grant)
                           ).map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(TEAM_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

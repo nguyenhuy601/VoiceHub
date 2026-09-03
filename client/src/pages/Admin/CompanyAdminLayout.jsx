@@ -2,16 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import AdminCompanyRealtimeSync from '../../components/admin/AdminCompanyRealtimeSync';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import useOrganizationDetail from '../../hooks/useOrganizationDetail';
 import { useAppStrings } from '../../locales/appStrings';
 import {
   fetchAdminMembers,
   getAdminMembersCount,
   subscribeAdminMembers,
 } from '../../stores/adminMembersStore';
-
-const unwrap = (payload) => payload?.data ?? payload;
 
 const CompanyAdminContext = createContext(null);
 
@@ -28,46 +26,19 @@ export default function CompanyAdminLayout() {
   const navigate = useNavigate();
   const { canAccessHub, isFullAccess, orgId } = useCompanyAdminAccess();
 
-  const [organization, setOrganization] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [memberCount, setMemberCount] = useState(0);
+  const {
+    organization,
+    loading,
+    reload: refreshOrganization,
+  } = useOrganizationDetail(orgId, { enabled: Boolean(orgId) });
 
-  const refreshOrganization = useCallback(async () => {
-    if (!orgId) return null;
-    const payload = await organizationAPI.getOrganization(orgId);
-    const data = unwrap(payload);
-    const org = data?.data ?? data;
-    if (org) setOrganization(org);
-    return org || null;
-  }, [orgId]);
+  const [memberCount, setMemberCount] = useState(0);
 
   const refreshStats = useCallback(async () => {
     if (!orgId) return;
     await fetchAdminMembers(orgId, { showError: false }).catch(() => null);
     setMemberCount(getAdminMembersCount(orgId));
   }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId) {
-      setLoading(false);
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const org = await refreshOrganization();
-        if (!cancelled && !org) setOrganization(null);
-      } catch {
-        if (!cancelled) setOrganization(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, refreshOrganization]);
 
   useEffect(() => {
     if (!orgId || !canAccessHub) return undefined;

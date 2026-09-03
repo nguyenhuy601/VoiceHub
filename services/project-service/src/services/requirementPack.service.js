@@ -3,15 +3,29 @@ const RequirementPack = require('../models/RequirementPack');
 const { VALID_STATUS_TRANSITIONS } = require('../constants/requirementLifecycle');
 const {
   attachPlanningReadiness,
-  attachPlanningReadinessList,
   assertPackReadyForSubmit,
+  pickPlanningReadinessSummary,
 } = require('../utils/requirementPlanningReadiness');
+const {
+  queryRequirementPackList,
+  mapRequirementPackList,
+  ensurePlanningReadinessOnListRows,
+  PACK_WIZARD_SELECT,
+  hasStoredReadiness,
+  toRequirementPackWizardItem,
+} = require('../utils/requirementPackList');
 const { mapPackConstraintsToProject } = require('../utils/mapPackConstraintsToProject');
 const { assertRequirementPermission } = require('./requirementAccess.service');
 const { createProject } = require('./project.service');
 const objectStorage = require('../utils/objectStorage');
 const { XLSX_MIME } = require('../utils/requirementExcelPreview');
 const { ensurePackPreviewViews } = require('../utils/requirementPackPreviewFallback');
+const { assertCanSoftDeleteRequirementPack } = require('../utils/requirementPackDelete');
+const {
+  importRequirementPackWorkItems,
+  seedProjectMembersFromAssignees,
+} = require('./requirementPackWorkImport.service');
+const { normalizeCreatePackLeafAssignments } = require('../utils/requirementPackWorkImport.utils');
 
 /** Minimal 3-band roster so createProject assertDeliveryRoster passes (edit later in Hub). */
 const CREATE_FROM_PACK_ROSTER_KEYS = Object.freeze([
@@ -24,12 +38,58 @@ async function listRequirementPacks({ userId, organizationId, status }) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:view' });
   const filter = { organizationId, isActive: true };
   if (status) filter.status = String(status);
-  const rows = await RequirementPack.find(filter).sort({ updatedAt: -1 }).limit(100).lean();
-  return attachPlanningReadinessList(rows);
+  const rows = await queryRequirementPackList(RequirementPack, filter);
+  const ensured = await ensurePlanningReadinessOnListRows(RequirementPack, rows);
+  return mapRequirementPackList(ensured);
 }
 
-async function getRequirementPack({ userId, organizationId, packId }) {
+function normalizePackView(view) {
+  const v = String(view || 'full').trim().toLowerCase();
+  return v === 'wizard' ? 'wizard' : 'full';
+}
+
+/**
+ * Wizard projection: overview + aiPlanning (+ stored readiness). No FR / excelPreview.
+ * Backfills planningReadiness from FR once if legacy pack thiếu field.
+ */
+async function getRequirementPackWizard({ packId, organizationId }) {
+  const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true })
+    .select(PACK_WIZARD_SELECT)
+    .lean();
+  if (!pack) {
+    const err = new Error('Requirement pack không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (!hasStoredReadiness(pack)) {
+    const frDoc = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true })
+      .select('functionalRequirements staffingPlan overview.deadline overview.platform')
+      .lean();
+    const summary = pickPlanningReadinessSummary({
+      overview: { ...(pack.overview || {}), ...(frDoc?.overview || {}) },
+      functionalRequirements: frDoc?.functionalRequirements || [],
+      staffingPlan: frDoc?.staffingPlan || {},
+    });
+    pack.planningReadiness = summary;
+    RequirementPack.updateOne(
+      { _id: packId },
+      { $set: { planningReadiness: summary } }
+    ).catch(() => {});
+  }
+
+  return toRequirementPackWizardItem(pack);
+}
+
+/**
+ * @param {{ userId: string, organizationId: string, packId: string, view?: string }} args
+ * @param {string} [args.view='full'] `full` (default) | `wizard`
+ */
+async function getRequirementPack({ userId, organizationId, packId, view = 'full' }) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:view' });
+  if (normalizePackView(view) === 'wizard') {
+    return getRequirementPackWizard({ packId, organizationId });
+  }
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true }).lean();
   if (!pack) {
     const err = new Error('Requirement pack không tồn tại');
@@ -153,6 +213,8 @@ async function createProjectFromRequirementPack({
   organizationId,
   packId,
   title: titleOverride = '',
+  importWorkItems = false,
+  leafAssignments = [],
 }) {
   await assertRequirementPermission({
     userId,
@@ -192,6 +254,30 @@ async function createProjectFromRequirementPack({
   });
 
   const projectId = project?._id || project?.projectId;
+  const boardId = project?.defaultBoardId || project?.board?._id;
+
+  const normalizedLeafAssignments = normalizeCreatePackLeafAssignments(leafAssignments);
+  const shouldImport = Boolean(importWorkItems);
+
+  let importStats = null;
+  if (shouldImport) {
+    importStats = await importRequirementPackWorkItems({
+      userId,
+      organizationId,
+      pack: pack.toObject(),
+      project,
+      boardId,
+      leafAssignments: normalizedLeafAssignments,
+    });
+    await seedProjectMembersFromAssignees({
+      userId,
+      projectId,
+      boardId,
+      pack: pack.toObject(),
+      leafAssignments: normalizedLeafAssignments,
+    });
+  }
+
   const linked = await RequirementPack.findOneAndUpdate(
     {
       _id: packId,
@@ -224,7 +310,28 @@ async function createProjectFromRequirementPack({
   return {
     pack: attachPlanningReadiness(linked.toObject()),
     project,
+    importStats,
   };
+}
+
+/**
+ * Soft-delete an approved pack (not yet linked to a project).
+ */
+async function deleteRequirementPack({ userId, organizationId, packId }) {
+  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:approve' });
+  const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
+  const gate = assertCanSoftDeleteRequirementPack(pack);
+  if (!gate.ok) {
+    const err = new Error(gate.message);
+    err.statusCode = gate.statusCode;
+    err.errorCode = gate.errorCode;
+    throw err;
+  }
+  pack.isActive = false;
+  pack.deletedBy = userId;
+  pack.deletedAt = new Date();
+  await pack.save();
+  return { deleted: true, packId: String(pack._id) };
 }
 
 module.exports = {
@@ -235,4 +342,5 @@ module.exports = {
   approveRequirementPack,
   rejectRequirementPack,
   createProjectFromRequirementPack,
+  deleteRequirementPack,
 };

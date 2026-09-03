@@ -61,4 +61,27 @@ describe('resolveAuthorizeOrGrant', () => {
     assert.equal(r.allow, true);
     assert.equal(r.via, 'grant');
   });
+
+  it('grant-only: member + grant pass', () => {
+    const r = resolveAuthorizeOrGrant({
+      membership: { role: 'member' },
+      normalizedRole: 'member',
+      roles: [],
+      grantAllowed: true,
+      orgAccessOk: true,
+    });
+    assert.equal(r.allow, true);
+    assert.equal(r.via, 'grant');
+  });
+
+  it('grant-only: owner without grant deny', () => {
+    const r = resolveAuthorizeOrGrant({
+      membership: { role: 'owner' },
+      normalizedRole: 'owner',
+      roles: [],
+      grantAllowed: false,
+      orgAccessOk: true,
+    });
+    assert.equal(r.allow, false);
+  });
 });

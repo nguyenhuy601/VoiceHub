@@ -277,6 +277,18 @@ export const organizationAPI = {
     return response;
   },
 
+  getRequirementAccessPolicy: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/requirement-access-policy`);
+    return response;
+  },
+
+  putRequirementAccessPolicy: async (orgId, policy) => {
+    const response = await apiClient.put(`/organizations/${orgId}/requirement-access-policy`, {
+      policy,
+    });
+    return response;
+  },
+
   getMasterData: async (orgId) => {
     const response = await apiClient.get(`/organizations/${orgId}/master-data`);
     return response;
@@ -498,6 +510,21 @@ export const organizationAPI = {
 
   createHrPosition: async (orgId, { title } = {}) => {
     const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, { title });
+    return response;
+  },
+
+  listSkills: async (orgId, params = {}) => {
+    const response = await apiClient.get(`/organizations/${encodeURIComponent(orgId)}/skills`, {
+      params,
+    });
+    return response;
+  },
+
+  reviewSkill: async (orgId, skillId, body = {}) => {
+    const response = await apiClient.patch(
+      `/organizations/${encodeURIComponent(orgId)}/skills/${encodeURIComponent(skillId)}/review`,
+      body
+    );
     return response;
   },
 };

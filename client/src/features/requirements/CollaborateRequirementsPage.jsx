@@ -1,10 +1,5 @@
-import {
-  FIGMA_PAGE_INNER,
-  FIGMA_PAGE_SHELL,
-  FIGMA_PAGE_SUBTITLE,
-  FIGMA_PAGE_TITLE,
-} from '../../components/Layout/figmaPageClasses';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
+import { FIGMA_PAGE_INNER, FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -46,7 +41,9 @@ export default function CollaborateRequirementsPage() {
     );
   }
 
-  const canUsePage = access.showCollaborateNav || access.canImport || access.canApprove;
+  const canUsePage =
+    access.canView &&
+    (access.showCollaborateNav || access.canImport || access.canApprove || access.canSubmit);
 
   if (!canUsePage) {
     return (
@@ -61,10 +58,6 @@ export default function CollaborateRequirementsPage() {
   return (
     <div className={FIGMA_PAGE_SHELL}>
       <div className={FIGMA_PAGE_INNER}>
-        <header>
-          <h1 className={FIGMA_PAGE_TITLE}>{t('requirements.title')}</h1>
-          <p className={FIGMA_PAGE_SUBTITLE}>{t('requirements.subtitle')}</p>
-        </header>
         <RequirementImportWorkspace
           orgId={orgId}
           variant="collaborate"

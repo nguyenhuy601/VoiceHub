@@ -1,16 +1,12 @@
 /** Huy: Organizational Levels — deep-link read-only sau setup một lần (modal). */
-import { useCallback, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { ORG_STRUCTURE_TEMPLATE_META } from '../../config/orgStructureTemplates';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
-import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
 
 function resolveLevelLabel(level, t) {
   const key = String(level?.key || '').trim().toLowerCase();
@@ -36,31 +32,7 @@ function resolveTemplateLabel(templateId, t) {
 
 export default function OrgLevelsPanel({ orgId }) {
   const { t } = useAppStrings();
-  const [levels, setLevels] = useState([]);
-  const [templateId, setTemplateId] = useState('');
-  const [setupCompleted, setSetupCompleted] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!orgId) return;
-    setLoading(true);
-    try {
-      const lvlRes = await organizationAPI.getStructureLevels(orgId);
-      const schema = unwrapOrgApi(lvlRes);
-      setLevels(Array.isArray(schema?.levels) ? schema.levels : []);
-      setTemplateId(schema?.templateId || '');
-      setSetupCompleted(Boolean(schema?.setupCompleted));
-    } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
-      setSetupCompleted(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { schemaLevels: levels, templateId, setupCompleted, loading } = useOrgStructureLevels(orgId);
 
   if (setupCompleted === false) {
     return <Navigate to="/app/admin/org-structure" replace />;

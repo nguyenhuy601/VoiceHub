@@ -12,8 +12,13 @@ import {
   unwrapTaskApiPayload,
   unwrapTaskBoardDetailPayload,
 } from '../../services/api/taskAPI';
-import { projectAPI, mapProjectsToBoardPickerRows } from '../../services/api/projectAPI';
+import {
+  projectAPI,
+  mapProjectsToBoardPickerRows,
+  mapBoardsToPickerRows,
+} from '../../services/api/projectAPI';
 import ProjectHubShell from '../../features/projects/hub/ProjectHubShell';
+import { useInvalidateProjectHub } from '../../features/projects/hub/useProjectHubQueries';
 import ProjectBoardPanel from '../../features/projects/board/ProjectBoardPanel';
 import { kanbanCardSyncedExtra } from '../../features/projects/board/kanbanCardSyncedExtra';
 import {
@@ -42,6 +47,7 @@ export default function ProjectHubPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const invalidateProjectHub = useInvalidateProjectHub();
   const { projectId: projectIdParam } = useParams();
   const [searchParams] = useSearchParams();
   const projectId = String(projectIdParam || '').trim();
@@ -89,7 +95,19 @@ export default function ProjectHubPage() {
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
 
-  const loadTaskBoards = useCallback(async () => {
+  const resolveSelectedBoardId = useCallback((list) => {
+    const preferred = String(boardIdFromQuery || '').trim();
+    if (preferred && list.some((b) => String(b._id) === preferred)) {
+      return preferred;
+    }
+    if (projectId && list.some((b) => String(b.projectId || '') === projectId)) {
+      const hit = list.find((b) => String(b.projectId || '') === projectId);
+      return hit?._id ? String(hit._id) : '';
+    }
+    return list[0]?._id ? String(list[0]._id) : '';
+  }, [boardIdFromQuery, projectId]);
+
+  const loadOrgTaskBoards = useCallback(async () => {
     if (!orgId) {
       setTaskBoards([]);
       setSelectedTaskBoardId('');
@@ -104,33 +122,71 @@ export default function ProjectHubPage() {
       const list = mapProjectsToBoardPickerRows(raw);
       setTaskBoards(list);
       setAccessibleTaskBoards(list);
-      const preferred = String(boardIdFromQuery || '').trim();
-      if (preferred && list.some((b) => String(b._id) === preferred)) {
-        setSelectedTaskBoardId(preferred);
-      } else if (projectId && list.some((b) => String(b.projectId || '') === projectId)) {
-        const hit = list.find((b) => String(b.projectId || '') === projectId);
-        setSelectedTaskBoardId(hit?._id ? String(hit._id) : '');
-      } else {
-        setSelectedTaskBoardId(list[0]?._id ? String(list[0]._id) : '');
-      }
+      setSelectedTaskBoardId((prev) => {
+        const next = resolveSelectedBoardId(list);
+        return next || prev;
+      });
     } catch (err) {
       setTaskBoards([]);
       toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
     } finally {
       setLoadingTaskBoards(false);
     }
-  }, [orgId, boardIdFromQuery, projectId, t]);
+  }, [orgId, resolveSelectedBoardId, t]);
+
+  const loadProjectBoardsFast = useCallback(async () => {
+    if (!orgId || !projectId) return false;
+    setLoadingTaskBoards(true);
+    try {
+      const [boardsRes, projectRes] = await Promise.all([
+        projectAPI.listBoards(projectId, orgId),
+        projectAPI.get(projectId).catch(() => null),
+      ]);
+      const boardsPayload = boardsRes?.data?.data ?? boardsRes?.data ?? boardsRes;
+      const boards = Array.isArray(boardsPayload)
+        ? boardsPayload
+        : boardsPayload?.items || [];
+      const projectRow = projectRes?.data?.data ?? projectRes?.data ?? projectRes ?? {};
+      const list = mapBoardsToPickerRows(boards, {
+        projectId,
+        title: projectRow?.title,
+        projectCode: projectRow?.projectCode,
+        description: projectRow?.description,
+        dueDate: projectRow?.dueDate,
+        visibility: projectRow?.visibility,
+        background: projectRow?.background,
+        status: projectRow?.status,
+      });
+      if (!list.length) return false;
+      setTaskBoards(list);
+      setAccessibleTaskBoards(list);
+      setSelectedTaskBoardId(resolveSelectedBoardId(list));
+      return true;
+    } catch (err) {
+      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      return false;
+    } finally {
+      setLoadingTaskBoards(false);
+    }
+  }, [orgId, projectId, resolveSelectedBoardId, t]);
+
+  const [needsFullBoardCards, setNeedsFullBoardCards] = useState(false);
 
   const loadTaskBoardDetail = useCallback(
     async (boardId, options = {}) => {
       const silent = Boolean(options?.silent);
+      const forceFull = Boolean(options?.forceFull);
+      const wantFullCards = forceFull || needsFullBoardCards;
       if (!boardId) {
         setTaskBoardDetail(null);
         return;
       }
       if (!silent) setLoadingTaskBoardDetail(true);
       try {
-        const res = await taskAPI.getBoardDetail(String(boardId), apiCtx);
+        const res = await taskAPI.getBoardDetail(String(boardId), {
+          ...apiCtx,
+          ...(wantFullCards ? {} : { includeCards: false }),
+        });
         setTaskBoardDetail(unwrapTaskBoardDetailPayload(res));
       } catch (err) {
         if (!silent) setTaskBoardDetail(null);
@@ -139,12 +195,50 @@ export default function ProjectHubPage() {
         if (!silent) setLoadingTaskBoardDetail(false);
       }
     },
-    [apiCtx, t]
+    [apiCtx, t, needsFullBoardCards]
   );
 
   useEffect(() => {
-    loadTaskBoards();
-  }, [loadTaskBoards]);
+    if (!orgId) {
+      setTaskBoards([]);
+      setSelectedTaskBoardId('');
+      setTaskBoardDetail(null);
+      return undefined;
+    }
+    const pid = String(projectId || '').trim();
+    const bid = String(boardIdFromQuery || '').trim();
+    let cancelled = false;
+    let idleHandle = null;
+    let deferTimer = null;
+
+    (async () => {
+      if (pid && bid) {
+        const ok = await loadProjectBoardsFast();
+        if (cancelled) return;
+        if (ok) {
+          const scheduleOrgList = () => {
+            if (cancelled) return;
+            void loadOrgTaskBoards();
+          };
+          if (typeof requestIdleCallback === 'function') {
+            idleHandle = requestIdleCallback(scheduleOrgList, { timeout: 3000 });
+          } else {
+            deferTimer = setTimeout(scheduleOrgList, 2000);
+          }
+          return;
+        }
+      }
+      await loadOrgTaskBoards();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (idleHandle != null && typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(idleHandle);
+      }
+      if (deferTimer) clearTimeout(deferTimer);
+    };
+  }, [orgId, projectId, boardIdFromQuery, loadProjectBoardsFast, loadOrgTaskBoards]);
 
   useEffect(() => {
     if (!orgId) {
@@ -251,10 +345,35 @@ export default function ProjectHubPage() {
     loadTaskBoardDetail(selectedTaskBoardId);
   }, [selectedTaskBoardId, loadTaskBoardDetail]);
 
+  useEffect(() => {
+    if (!needsFullBoardCards || !selectedTaskBoardId) return undefined;
+    loadTaskBoardDetail(selectedTaskBoardId, { forceFull: true, silent: true });
+  }, [needsFullBoardCards, selectedTaskBoardId, loadTaskBoardDetail]);
+
+  const handleNeedFullBoardCards = useCallback(() => {
+    setNeedsFullBoardCards(true);
+  }, []);
+
   const refreshTaskBoardView = useCallback(async () => {
     if (!selectedTaskBoardId) return;
-    await loadTaskBoardDetail(selectedTaskBoardId, { silent: true });
-  }, [selectedTaskBoardId, loadTaskBoardDetail]);
+    await loadTaskBoardDetail(selectedTaskBoardId, { silent: true, forceFull: needsFullBoardCards });
+    invalidateProjectHub(
+      projectId ||
+        String(
+          taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.projectId || ''
+        ).trim(),
+      selectedTaskBoardId
+    );
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+  }, [
+    selectedTaskBoardId,
+    loadTaskBoardDetail,
+    needsFullBoardCards,
+    invalidateProjectHub,
+    projectId,
+    taskBoards,
+    queryClient,
+  ]);
 
   const isSelectedProjectCompleted = ['closed', 'completed'].includes(
     String(
@@ -614,6 +733,7 @@ export default function ProjectHubPage() {
         organizationId={orgId || ''}
         apiCtx={apiCtx}
         onRefresh={refreshTaskBoardView}
+        onNeedFullBoardCards={handleNeedFullBoardCards}
         onUpdateCard={handleUpdateBoardCard}
         onPatchBoardCards={applyBoardCardsPatch}
         workspaceSlug=""

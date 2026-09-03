@@ -559,6 +559,8 @@ exports.createOrganization = async (req, res, next) => {
     await ensureOrgMasterDataSeed(organization._id, {
       companySize: mapTeamSizeToCompanySize(teamSize),
     }).catch(() => null);
+    const { seedOrgRegistry } = require('../services/skillRegistry.service');
+    await seedOrgRegistry(organization._id).catch(() => null);
     if (!skipStructureSeed) {
       runStructureSeedInBackground({
         organizationId: organization._id,

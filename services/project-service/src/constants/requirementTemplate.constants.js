@@ -1,13 +1,13 @@
 /**
- * Requirement Template — canonical schema (v1.1).
+ * Requirement Template — canonical schema (v1.2).
  * Org-scoped RequirementPack lives in project-service.
- * v1.0 files remain importable (optional staffing columns).
+ * v1.0/v1.1 files remain importable via legacy level alias.
  */
 
-const TEMPLATE_VERSION = '1.1';
-const TEMPLATE_FILE_NAME = 'Requirement_Template_v1.1.xlsx';
+const TEMPLATE_VERSION = '1.2';
+const TEMPLATE_FILE_NAME = 'Requirement_Template_v1.2.xlsx';
 /** Uploaded Meta versions accepted without error */
-const COMPATIBLE_TEMPLATE_VERSIONS = Object.freeze(['1.0', '1.1']);
+const COMPATIBLE_TEMPLATE_VERSIONS = Object.freeze(['1.0', '1.1', '1.2']);
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_FR_ROWS = 2000;
 const FR_ROW_WARN_THRESHOLD = 500;
@@ -48,14 +48,15 @@ const ALL_SHEETS = Object.freeze([...REQUIRED_SHEETS, ...OPTIONAL_SHEETS, SHEETS
 
 const PRIORITIES = Object.freeze(['Critical', 'High', 'Medium', 'Low']);
 
-const FR_LEVELS = Object.freeze(['Module', 'Capability', 'Feature', 'Requirement']);
+const FR_LEVELS = Object.freeze(['Epic', 'Feature', 'Story', 'Task', 'Subtask']);
 
-/** Valid parent levels for each FR level (Parent ID may be empty only for Module). */
+/** Valid parent levels for each FR level (Parent ID may be empty only for Epic). */
 const FR_VALID_PARENT_LEVELS = Object.freeze({
-  Module: [],
-  Capability: ['Module'],
-  Feature: ['Capability', 'Module'],
-  Requirement: ['Feature', 'Capability'],
+  Epic: [],
+  Feature: ['Epic'],
+  Story: ['Feature', 'Epic'],
+  Task: ['Story', 'Feature'],
+  Subtask: ['Task', 'Story'],
 });
 
 const FR_REQUIRED_COLUMNS = Object.freeze([
@@ -68,7 +69,7 @@ const FR_REQUIRED_COLUMNS = Object.freeze([
   'Acceptance Criteria',
 ]);
 
-/** v1.1 — columns optional in header (v1.0 compat); values required on each Requirement leaf */
+/** v1.2 — columns optional in header (v1.0 compat); staffing required on execution leaves */
 const FR_OPTIONAL_COLUMNS = Object.freeze([
   'Suggested Skills',
   'Effort Hours',

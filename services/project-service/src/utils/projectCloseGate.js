@@ -123,6 +123,18 @@ function assertMustCompleteBeforeArchive(project) {
   }
 }
 
+/** Archive sớm: org elevated hoặc project:delete; ngược lại cần status=closed. */
+function canSkipCompleteGateBeforeArchive({
+  isOrgAdmin = false,
+  isCreator = false,
+  permissions = [],
+  legacyOrgAdmin = false,
+} = {}) {
+  if (legacyOrgAdmin || isOrgAdmin || isCreator) return true;
+  const { hasPermission } = require('./projectPermissionMatrix');
+  return hasPermission(permissions, 'project:delete');
+}
+
 /** PATCH project status=closed phải đi Hoàn thành dự án. */
 function assertPatchDoesNotCloseProject(currentStatus, nextStatus) {
   const cur = String(currentStatus || '').toLowerCase();
@@ -161,6 +173,7 @@ module.exports = {
   assertProjectWritable,
   assertProjectNotAlreadyClosed,
   assertMustCompleteBeforeArchive,
+  canSkipCompleteGateBeforeArchive,
   assertPatchDoesNotCloseProject,
   assertPatchDoesNotCloseActiveSprint,
 };

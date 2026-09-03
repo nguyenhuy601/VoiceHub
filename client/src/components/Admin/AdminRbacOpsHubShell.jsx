@@ -31,8 +31,8 @@ export default function AdminRbacOpsHubShell({
 
   return (
     <AdminUserPanelShell title={title} hint={hint} wide>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-start">
-        <div className="min-w-0">{renderPicker?.(activeTab)}</div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
+        <div className="flex min-h-0 min-w-0 flex-col">{renderPicker?.(activeTab)}</div>
         <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label={title}>
             {tabs.map((tab) => {

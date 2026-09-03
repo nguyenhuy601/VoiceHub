@@ -36,9 +36,8 @@ import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
 import { filterAdminDomainByGrant } from '../../config/rbacUiGrantMap';
-import { organizationAPI } from '../../services/api/organizationAPI';
-import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
 import {
   FIGMA_SIDEBAR,
@@ -377,9 +376,6 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     }
   });
   const [expandedSectionByDomain, setExpandedSectionByDomain] = useState({});
-  const [orgStructureLevels, setOrgStructureLevels] = useState([]);
-  /** null = chưa load; true/false sau GET levels */
-  const [orgStructureSetupCompleted, setOrgStructureSetupCompleted] = useState(null);
 
   const visibleDomains = useMemo(
     () => getVisibleAdminDomains(isFullAccess),
@@ -396,6 +392,14 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     } catch {
       return visibleDomains[0]?.id || 'users';
     }
+  });
+
+  const {
+    schemaLevels: orgStructureLevels,
+    setupCompleted: orgStructureSetupCompleted,
+    reload: reloadOrgStructureLevels,
+  } = useOrgStructureLevels(orgId, {
+    enabled: Boolean(orgId) && selectedDomainId === 'org-structure',
   });
 
   useEffect(() => {
@@ -423,42 +427,6 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     isFullAccess,
     hasGrant,
   ]);
-
-  const reloadOrgStructureLevels = async () => {
-    if (!orgId) return;
-    try {
-      const res = await organizationAPI.getStructureLevels(orgId);
-      const schema = unwrapOrgApi(res);
-      setOrgStructureLevels(Array.isArray(schema?.levels) ? schema.levels : []);
-      setOrgStructureSetupCompleted(Boolean(schema?.setupCompleted));
-    } catch {
-      setOrgStructureLevels([]);
-      setOrgStructureSetupCompleted(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!orgId || selectedDomainId !== 'org-structure') return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await organizationAPI.getStructureLevels(orgId);
-        const schema = unwrapOrgApi(res);
-        if (!cancelled) {
-          setOrgStructureLevels(Array.isArray(schema?.levels) ? schema.levels : []);
-          setOrgStructureSetupCompleted(Boolean(schema?.setupCompleted));
-        }
-      } catch {
-        if (!cancelled) {
-          setOrgStructureLevels([]);
-          setOrgStructureSetupCompleted(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, selectedDomainId, location.pathname]);
 
   const isActivePath = (item) => {
     const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');

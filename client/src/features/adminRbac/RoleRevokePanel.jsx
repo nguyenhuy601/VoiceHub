@@ -7,6 +7,7 @@ import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { notifyRbacGrantsChanged } from '../../utils/rbacV2Ui';
 import {
   assignedRoleIdFromRow,
   isStructuralRole,
@@ -97,6 +98,7 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
         hierarchy ? t('adminRbac.revokedHierarchy') : t('adminRbac.revoked')
       );
       await loadAssigned();
+      notifyRbacGrantsChanged();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.revokeFail') }));
     } finally {

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   resolvePositionKeyFromJobTitle,
   preferredPositionsForProjectRole,
+  inferProjectRoleKeysFromJobTitle,
   scorePositionMatch,
 } = require('../src/utils/positionCandidateMatch');
 
@@ -56,5 +57,12 @@ describe('positionCandidateMatch', () => {
     });
     assert.equal(empty.boost, 0);
     assert.equal(empty.reason, null);
+  });
+
+  it('inferProjectRoleKeysFromJobTitle reverse-maps position to project roles', () => {
+    const roles = inferProjectRoleKeysFromJobTitle('Software Developer');
+    assert.ok(roles.includes('frontend_developer'));
+    assert.ok(roles.includes('backend_developer'));
+    assert.deepEqual(inferProjectRoleKeysFromJobTitle(''), []);
   });
 });

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { organizationAPI } from '../../services/api/organizationAPI';
 import projectAPI from '../../services/api/projectAPI';
-import userService from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { unwrapApiData, formatDateTime } from '../../utils/helpers';
 import { coalesceJobTitle } from '../../utils/jobTitleProfile';
+import { useOrganizationsMy } from '../../hooks/queries/useOrganizationsMy';
+import useUserMe from '../../hooks/useUserMe';
 import { FIGMA_SETTINGS_CARD } from './figmaSettingsClasses';
 import {
   capabilityFromApi,
@@ -19,10 +19,9 @@ const ACTIVITY_PROJECT_CAP = 5;
 const ACTIVITY_PER_PROJECT = 8;
 const ACTIVITY_FEED_MAX = 20;
 
-function firstOrgId(orgPayload) {
-  const raw = orgPayload?.data ?? orgPayload;
-  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
-  const first = list[0];
+function firstOrgIdFromList(list) {
+  const rows = Array.isArray(list) ? list : [];
+  const first = rows[0];
   const oid = first?._id ?? first?.id;
   const idStr = oid != null ? String(oid) : '';
   return isValidMongoObjectId(idStr) ? idStr : '';
@@ -59,10 +58,11 @@ export default function ProfileOverviewPanel({ onEditCapability }) {
   const { t, locale } = useAppStrings();
   const { user } = useAuth();
   const userId = String(user?.id || user?._id || '').trim();
+  const { me, loading: meLoading } = useUserMe({ enabled: Boolean(userId) });
+  const orgsQuery = useOrganizationsMy({ enabled: Boolean(userId) });
+  const orgId = firstOrgIdFromList(orgsQuery.data);
+  const loading = meLoading || orgsQuery.isPending;
 
-  const [loading, setLoading] = useState(true);
-  const [me, setMe] = useState(null);
-  const [orgId, setOrgId] = useState('');
   const [erp, setErp] = useState(null);
   const [erpError, setErpError] = useState('');
   const [activity, setActivity] = useState([]);
@@ -71,48 +71,28 @@ export default function ProfileOverviewPanel({ onEditCapability }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
       setErpError('');
+      if (!orgId || !userId || !isValidMongoObjectId(userId)) {
+        if (!cancelled) setErp(null);
+        return;
+      }
       try {
-        const [meRes, orgRes] = await Promise.all([
-          userService.getMe(),
-          organizationAPI.getOrganizations().catch(() => null),
-        ]);
-        const profile = unwrapApiData(meRes) || meRes;
-        const oid = firstOrgId(orgRes);
+        const erpRes = await projectAPI.getEmployeeResourceProfile(orgId, userId, {}, {
+          skipPermissionDeniedToast: true,
+        });
         if (cancelled) return;
-        setMe(profile && typeof profile === 'object' ? profile : null);
-        setOrgId(oid);
-
-        if (oid && userId && isValidMongoObjectId(userId)) {
-          try {
-            const erpRes = await projectAPI.getEmployeeResourceProfile(oid, userId, {}, {
-              skipPermissionDeniedToast: true,
-            });
-            if (cancelled) return;
-            const data = unwrapApiData(erpRes) || erpRes?.data || erpRes;
-            setErp(data && typeof data === 'object' ? data : null);
-          } catch (err) {
-            if (cancelled) return;
-            setErp(null);
-            setErpError(err?.response?.status === 403 ? 'forbidden' : 'failed');
-          }
-        } else {
-          setErp(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setMe(null);
-          setErp(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        const data = unwrapApiData(erpRes) || erpRes?.data || erpRes;
+        setErp(data && typeof data === 'object' ? data : null);
+      } catch (err) {
+        if (cancelled) return;
+        setErp(null);
+        setErpError(err?.response?.status === 403 ? 'forbidden' : 'failed');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [orgId, userId]);
 
   const projectIds = useMemo(() => {
     const fromAlloc = Array.isArray(erp?.capacity?.projectAllocations)

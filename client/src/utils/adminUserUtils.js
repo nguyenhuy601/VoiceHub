@@ -174,6 +174,18 @@ export function memberIsWithoutRbacRole(member, assignmentsByUserId) {
   return false;
 }
 
+/** Đã có ít nhất một UserRole RBAC trong org (cần assignmentsByUserId đã load). */
+export function memberHasRbacRole(member, assignmentsByUserId) {
+  const uid = memberUserId(member);
+  if (!uid || assignmentsByUserId == null) return false;
+  const roles =
+    typeof assignmentsByUserId.get === 'function'
+      ? assignmentsByUserId.get(uid)
+      : assignmentsByUserId[uid];
+  if (roles === undefined) return false;
+  return Array.isArray(roles) && roles.length > 0;
+}
+
 /** Huy: chuẩn hoá chuỗi tìm kiếm (bỏ dấu) — tìm «Lan» khớp «Trần Lan». */
 export function normalizeSearchText(value) {
   return String(value || '')

@@ -69,6 +69,24 @@ function preferredPositionsForProjectRole(projectRoleKey) {
 }
 
 /**
+ * Reverse map: jobTitle → project role keys whose preferred positions include resolved position.
+ * @param {string} jobTitle
+ * @param {string[]|null} enabledPositionKeys
+ * @returns {string[]}
+ */
+function inferProjectRoleKeysFromJobTitle(jobTitle, enabledPositionKeys = null) {
+  const positionKey = resolvePositionKeyFromJobTitle(jobTitle, enabledPositionKeys);
+  if (!positionKey) return [];
+  const roles = [];
+  for (const [roleKey, preferred] of Object.entries(PROJECT_ROLE_PREFERRED_POSITIONS)) {
+    if ((preferred || []).includes(positionKey)) {
+      roles.push(roleKey);
+    }
+  }
+  return roles;
+}
+
+/**
  * Soft boost for candidate scoring.
  * @returns {{ matchKey: string, preferred: boolean, boost: number, reason: string|null }}
  */
@@ -90,5 +108,6 @@ module.exports = {
   PROJECT_ROLE_PREFERRED_POSITIONS,
   resolvePositionKeyFromJobTitle,
   preferredPositionsForProjectRole,
+  inferProjectRoleKeysFromJobTitle,
   scorePositionMatch,
 };

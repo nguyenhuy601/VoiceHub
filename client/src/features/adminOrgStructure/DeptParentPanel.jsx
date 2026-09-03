@@ -21,7 +21,7 @@ export default function DeptParentPanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, divisions, loading, error: structureError, loadStructure } =
-    useAdminOrgStructure(orgId);
+    useAdminOrgStructure(orgId, { includeInactive: embedded });
   const [selectedId, setSelectedId] = useState(unitParam);
   const [divisionId, setDivisionId] = useState('');
   const [saving, setSaving] = useState(false);

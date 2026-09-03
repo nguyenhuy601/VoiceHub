@@ -92,10 +92,52 @@ function inferRequirementsFromProjectRole(projectRoleKey) {
   return { skills: [...new Set(skills)], domains };
 }
 
-function scoreVerifiedCapability({ verifiedCapability, projectRoleKey, requiredSkills, requiredDomains }) {
+function scoreVerifiedCapability({
+  verifiedCapability,
+  projectRoleKey,
+  requiredSkills,
+  requiredDomains,
+  registrySkills,
+  requirementSkillObjects,
+}) {
   if (!verifiedCapability || verifiedCapability.verificationStatus !== 'verified') {
     return { boost: 0, skillMatch: { boost: 0, matched: [] }, domainMatch: { boost: 0, matched: [] }, reasons: [] };
   }
+
+  const { scoreRegistrySkillMatch } = require('./skillRegistryMatch');
+  if (
+    Array.isArray(registrySkills) &&
+    registrySkills.length &&
+    Array.isArray(requirementSkillObjects) &&
+    requirementSkillObjects.length
+  ) {
+    const registryMatch = scoreRegistrySkillMatch(
+      requirementSkillObjects,
+      verifiedCapability,
+      registrySkills
+    );
+    const domainReq = (requiredDomains || []).map(normalizeKey);
+    const domainMatch = scoreBusinessDomains(verifiedCapability, domainReq);
+    let seniorityBoost = 0;
+    const band = String(verifiedCapability.seniorityBand || '').trim();
+    if (band === 'senior' || band === 'lead' || band === 'principal') seniorityBoost = 5;
+    else if (band === 'mid') seniorityBoost = 2;
+    const reasons = [...registryMatch.reasons, ...domainMatch.reasons];
+    if (seniorityBoost) reasons.push(`seniority_${band}`);
+    return {
+      boost: registryMatch.boost + domainMatch.boost + seniorityBoost,
+      skillMatch: {
+        boost: registryMatch.boost,
+        matched: registryMatch.matched,
+        relatedMatched: registryMatch.relatedMatched,
+        levelGaps: registryMatch.levelGaps,
+      },
+      domainMatch,
+      reasons,
+      registryScore: registryMatch.score,
+    };
+  }
+
   const inferred = inferRequirementsFromProjectRole(projectRoleKey);
   const skillReq = (requiredSkills && requiredSkills.length ? requiredSkills : inferred.skills).map(normalizeKey);
   const domainReq = (requiredDomains && requiredDomains.length ? requiredDomains : inferred.domains).map(normalizeKey);

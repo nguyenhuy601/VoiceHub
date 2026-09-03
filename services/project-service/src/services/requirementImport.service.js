@@ -14,8 +14,14 @@ const {
   buildRequirementSourceStoragePath,
   XLSX_MIME,
 } = require('../utils/requirementExcelPreview');
+const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirementPackPreviewFallback');
 const objectStorage = require('../utils/objectStorage');
 const { assertRequirementPermission } = require('./requirementAccess.service');
+const { enrichParsedWithSkillRegistry } = require('../utils/requirementSkillRegistry');
+const {
+  pickPlanningReadinessSummary,
+  assertPreviewReadyForImport,
+} = require('../utils/requirementPlanningReadiness');
 
 function splitPlatforms(raw) {
   return String(raw || '')
@@ -40,13 +46,16 @@ function mapFunctionalRow(row) {
   };
 }
 
-function mapParsedToPackPayload(parsed) {
+function mapParsedToPackPayload(parsed, registryExtras = {}) {
   const overview = parsed.overview || {};
   const functionalRequirements = (parsed.functionalRequirements || []).map(mapFunctionalRow);
-  const staffingPlan = buildStaffingPlanFromParsed({
-    ...parsed,
-    functionalRequirements,
-  });
+  const staffingPlan = buildStaffingPlanFromParsed(
+    {
+      ...parsed,
+      functionalRequirements,
+    },
+    { resolvedStaffingSkills: registryExtras.staffingSkillsResolved }
+  );
 
   return {
     templateVersion: parsed.templateVersion || TEMPLATE_VERSION,
@@ -112,6 +121,11 @@ function mapParsedToPackPayload(parsed) {
       assumption: row.assumption,
       impactIfInvalid: row.impactIfInvalid,
     })),
+    requirementSkills: registryExtras.requirementSkillRefs || [],
+    importSkillMeta: {
+      newSkillsDetected: registryExtras.newSkillsDetected || [],
+      resolvedAt: registryExtras.resolvedAt || null,
+    },
   };
 }
 
@@ -126,8 +140,21 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parsed,
   });
 
+  let registryEnriched = null;
+  let previewPayload = null;
+  if (validation.valid) {
+    registryEnriched = await enrichParsedWithSkillRegistry(organizationId, parsed);
+    previewPayload = mapParsedToPackPayload(registryEnriched.parsed, {
+      requirementSkillRefs: registryEnriched.parsed._requirementSkillRefs,
+      staffingSkillsResolved: registryEnriched.parsed._staffingSkillsResolved,
+      newSkillsDetected: registryEnriched.newSkills,
+      resolvedAt: registryEnriched.resolveEnabled ? new Date() : null,
+    });
+  }
+
   const excelPreview = buildExcelPreviewFromBuffer(buffer, {
     fileName: String(fileName || '').slice(0, 255),
+    functionalRequirements: parsed.functionalRequirements || [],
   });
 
   const expiresAt = new Date(Date.now() + IMPORT_SESSION_TTL_HOURS * 60 * 60 * 1000);
@@ -142,11 +169,13 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     warningCount: validation.warningCount,
     issues: validation.issues,
     summary: validation.summary,
-    previewPayload: validation.valid ? mapParsedToPackPayload(parsed) : null,
+    previewPayload: previewPayload,
     previewTree: validation.previewTree,
     excelPreview,
     fileBuffer: buffer.length <= 5 * 1024 * 1024 ? buffer : undefined,
     fileContentType: XLSX_MIME,
+    newSkillsDetected: registryEnriched?.newSkills || [],
+    skillResolveEnabled: Boolean(registryEnriched?.resolveEnabled),
   });
 
   return {
@@ -161,6 +190,10 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     previewTree: validation.previewTree,
     excelPreview,
     expiresAt: session.expiresAt,
+    newSkillsDetected: session.newSkillsDetected || [],
+    newSkillsCount: (session.newSkillsDetected || []).length,
+    skillResolveEnabled: session.skillResolveEnabled,
+    planningReadiness: previewPayload ? pickPlanningReadinessSummary(previewPayload) : null,
   };
 }
 
@@ -193,17 +226,22 @@ async function confirmRequirementImport({ userId, organizationId, sessionId }) {
   }
 
   const payload = session.previewPayload;
-  const pack = await RequirementPack.create({
+  assertPreviewReadyForImport(payload);
+
+  const packSeed = {
     organizationId,
     createdBy: userId,
     status: 'draft',
     importSessionId: session._id,
     sourceFileName: session.fileName,
-    excelPreview: session.excelPreview || null,
     previewTree: session.previewTree || null,
     importIssues: session.issues || [],
     ...payload,
-  });
+  };
+  packSeed.excelPreview = buildSyntheticExcelPreviewFromPack(packSeed);
+  packSeed.planningReadiness = pickPlanningReadinessSummary(packSeed);
+
+  const pack = await RequirementPack.create(packSeed);
 
   let sourceFileId = '';
   const stashBuffer = session.fileBuffer;

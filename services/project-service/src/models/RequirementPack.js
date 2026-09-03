@@ -20,8 +20,24 @@ const requirementNodeSchema = new mongoose.Schema(
 
 const staffingSkillSchema = new mongoose.Schema(
   {
+    skillId: { type: mongoose.Schema.Types.ObjectId, default: null },
     name: { type: String, trim: true, required: true, maxlength: 128 },
+    registryStatus: { type: String, trim: true, default: '', maxlength: 16 },
+    requiredLevel: { type: Number, default: null, min: 1, max: 5 },
     source: { type: String, enum: ['excel', 'rollup', 'ai'], default: 'rollup' },
+  },
+  { _id: false }
+);
+
+const requirementSkillRefSchema = new mongoose.Schema(
+  {
+    externalId: { type: String, trim: true, required: true, maxlength: 64 },
+    skillId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    skillNameSnapshot: { type: String, trim: true, default: '', maxlength: 128 },
+    rawInput: { type: String, trim: true, default: '', maxlength: 128 },
+    requiredLevel: { type: Number, default: null, min: 1, max: 5 },
+    importance: { type: String, trim: true, default: 'required', maxlength: 32 },
+    registryStatus: { type: String, trim: true, default: '', maxlength: 16 },
   },
   { _id: false }
 );
@@ -97,6 +113,11 @@ const requirementPackSchema = new mongoose.Schema(
       },
     ],
     functionalRequirements: { type: [requirementNodeSchema], default: [] },
+    requirementSkills: { type: [requirementSkillRefSchema], default: [] },
+    importSkillMeta: {
+      newSkillsDetected: { type: [mongoose.Schema.Types.Mixed], default: [] },
+      resolvedAt: { type: Date, default: null },
+    },
     nonFunctionalRequirements: [
       {
         externalId: { type: String, trim: true, maxlength: 64 },
@@ -161,12 +182,30 @@ const requirementPackSchema = new mongoose.Schema(
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     rejectedAt: { type: Date, default: null },
     rejectionReason: { type: String, trim: true, default: '', maxlength: 2000 },
+    /** Denormalized list summary — tránh hydrate FR trên GET /requirements */
+    planningReadiness: { type: mongoose.Schema.Types.Mixed, default: null },
     isActive: { type: Boolean, default: true, index: true },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
+// Mongoose 9: pre hooks no longer receive `next` — sync/throw or async/Promise only.
+requirementPackSchema.pre('save', function requirementPackPlanningReadinessPreSave() {
+  if (
+    this.isNew ||
+    this.isModified('functionalRequirements') ||
+    this.isModified('staffingPlan') ||
+    this.isModified('overview')
+  ) {
+    const { pickPlanningReadinessSummary } = require('../utils/requirementPlanningReadiness');
+    this.planningReadiness = pickPlanningReadinessSummary(this);
+  }
+});
+
 requirementPackSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
 requirementPackSchema.index({ organizationId: 1, 'overview.requirementName': 1 });
+requirementPackSchema.index({ organizationId: 1, isActive: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('RequirementPack', requirementPackSchema);

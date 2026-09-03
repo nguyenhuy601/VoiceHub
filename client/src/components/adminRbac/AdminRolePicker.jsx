@@ -3,21 +3,23 @@ import { useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
 import { adminPrimaryBtnClass } from '../adminUsers/adminUserPanelUi';
 import useAdminRoles from '../../hooks/useAdminRoles';
+import useRoleMasterGrantsMap from '../../hooks/useRoleMasterGrantsMap';
 import {
-  grantedPermissionCount,
   isProtectedDefaultRole,
   normalizeRoleDisplayName,
   normalizeRoleId,
 } from '../../utils/adminRbacUtils';
+import { countMasterGrants } from '../../utils/rbacV2Ui';
 
 export default function AdminRolePicker({ orgId, selectedRoleId, onSelect, hint, systemOnly = true }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const { roles, systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
+  const source = systemOnly ? systemRoles : roles;
+  const { grantsByRoleId } = useRoleMasterGrantsMap(orgId, source);
 
   const activeId = String(selectedRoleId || searchParams.get('roleId') || '').trim();
-  const source = systemOnly ? systemRoles : roles;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -87,7 +89,7 @@ export default function AdminRolePicker({ orgId, selectedRoleId, onSelect, hint,
                         <span className="ml-2 text-[10px] text-muted-foreground">({t('adminRbac.systemBadge')})</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 text-muted-foreground">{grantedPermissionCount(role.permissions)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{countMasterGrants(grantsByRoleId[id])}</td>
                   </tr>
                 );
               })}

@@ -209,7 +209,7 @@ describe('resourceImportValidator skills catalog', () => {
     assert.deepEqual([...SKILL_WHITELIST], [...userCat.SKILL_WHITELIST]);
   });
 
-  it('accepts Frontend + Node.js, mongo and rejects unknown skill', () => {
+  it('accepts Frontend + Node.js, mongo; unknown skill allowed when registry enabled', () => {
     const ok = validateResourceImportRows([
       baseRow({ primaryDomain: 'Frontend', skills: 'Node.js, mongo, REST API' }),
     ]);
@@ -217,9 +217,22 @@ describe('resourceImportValidator skills catalog', () => {
     assert.equal(ok.normalizedRows[0].primaryDomain, 'fe');
     assert.deepEqual(ok.normalizedRows[0].skills, ['Node.js', 'MongoDB', 'REST API']);
 
-    const bad = validateResourceImportRows([baseRow({ skills: 'Jira, FooLang' })]);
-    assert.equal(bad.ok, false);
-    assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILL_NOT_IN_CATALOG');
+    const withNew = validateResourceImportRows([baseRow({ skills: 'Jira, FooLang' })]);
+    assert.equal(withNew.ok, true, JSON.stringify(withNew.details || []));
+    assert.deepEqual(withNew.normalizedRows[0].skills, ['Jira', 'Foolang']);
+  });
+
+  it('rejects unknown skill when SKILL_REGISTRY_ENABLED=false', () => {
+    const prev = process.env.SKILL_REGISTRY_ENABLED;
+    process.env.SKILL_REGISTRY_ENABLED = 'false';
+    try {
+      const bad = validateResourceImportRows([baseRow({ skills: 'Jira, FooLang' })]);
+      assert.equal(bad.ok, false);
+      assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILL_NOT_IN_CATALOG');
+    } finally {
+      if (prev === undefined) delete process.env.SKILL_REGISTRY_ENABLED;
+      else process.env.SKILL_REGISTRY_ENABLED = prev;
+    }
   });
 
   it('rejects hire skills above HIRE_SKILLS_MAX without silent truncate', () => {

@@ -8,6 +8,7 @@ const {
   MAX_PREVIEW_COLS,
 } = require('../src/utils/requirementExcelPreview');
 const { buildRequirementTemplateBuffer } = require('../src/utils/requirementTemplateBuilder');
+const { parseRequirementWorkbook } = require('../src/utils/requirementTemplateParse');
 
 describe('requirementExcelPreview', () => {
   it('matrixToPreviewRows caps rows and cols with truncated flag', () => {
@@ -40,6 +41,32 @@ describe('requirementExcelPreview', () => {
     assert.ok(fr.rows.length >= 2);
     assert.equal(fr.rows[0].rowNumber, 1);
     assert.ok(fr.rows[0].cells.length >= 1);
+  });
+
+  it('buildExcelPreviewFromBuffer overlays rolled-up Effort Hours on non-leaf rows', async () => {
+    const buf = Buffer.from(await buildRequirementTemplateBuffer());
+    const parsed = parseRequirementWorkbook(buf);
+    const preview = buildExcelPreviewFromBuffer(buf, {
+      fileName: 'Requirement_Template.xlsx',
+      functionalRequirements: parsed.functionalRequirements || [],
+    });
+
+    const fr = preview.sheets.find((s) => /functional/i.test(s.name));
+    assert.ok(fr, 'Functional Requirement sheet present');
+
+    const header = fr.rows[0].cells;
+    const idIdx = header.findIndex((h) => String(h).toLowerCase() === 'id');
+    const hoursIdx = header.findIndex((h) => String(h).toLowerCase() === 'effort hours');
+    assert.ok(idIdx >= 0);
+    assert.ok(hoursIdx >= 0);
+
+    const byId = new Map(
+      fr.rows.slice(1).map((row) => [String(row.cells[idIdx] || '').trim(), row.cells[hoursIdx]])
+    );
+    assert.equal(byId.get('FR-001'), '40');
+    assert.equal(byId.get('FR-002'), '40');
+    assert.equal(byId.get('FR-003'), '40');
+    assert.equal(byId.get('FR-004'), '40');
   });
 
   it('buildExcelPreviewFromBuffer handles empty buffer', () => {

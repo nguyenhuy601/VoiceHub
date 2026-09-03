@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import CreateProjectWizard from '../../features/projects/CreateProjectWizard';
 import { taskAPI } from '../../services/api/taskAPI';
 import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { wizardUi } from '../../features/projects/wizard/projectWizardUi';
+import { queryKeys } from '../../lib/queryKeys';
 
 /**
  * Full-viewport create-project page (no suite sidebar).
@@ -17,6 +19,7 @@ export default function CreateProjectWizardPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
+  const queryClient = useQueryClient();
 
   const organizationId = String(params.get('organizationId') || params.get('orgId') || '').trim();
   const briefId = String(params.get('briefId') || '').trim();
@@ -43,6 +46,12 @@ export default function CreateProjectWizardPage() {
   const onCreated = async (result) => {
     const boardId = String(result?.defaultBoardId || result?.board?._id || result?._id || '').trim();
     const projectId = String(result?.projectId || result?._id || '').trim();
+
+    if (organizationId) {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.projects.listAll(organizationId),
+      });
+    }
 
     if (briefId && boardId) {
       try {
