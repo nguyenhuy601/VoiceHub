@@ -1,93 +1,87 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+    AlertCircle,
+    AtSign,
+    Bell,
+    Calendar,
+    ChevronsDown,
+    ClipboardList,
+    FileText,
+    Hash,
+    Image as ImageIcon,
+    MessageSquare,
+    Mic,
+    Paperclip,
+    Plus,
+    Search,
+    Send,
+    Settings,
+    Smile,
+    Users,
+    Video,
+    X
+} from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
-import { useAppStrings } from '../../locales/appStrings';
-import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
-import { getAiTaskEligibility, getAiTaskTooltipShort, AI_TASK_SOFT_BLOCK_CODES } from '../../utils/aiTaskEligibility';
-import { shellNavRailBackdrop } from '../../theme/shellTheme';
-import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
 import OrganizationDocumentsWorkspacePanel from '../../features/orgDocuments/OrganizationDocumentsWorkspacePanel';
 import OrganizationNotificationsWorkspacePanel from '../../features/orgNotifications/OrganizationNotificationsWorkspacePanel';
-import DepartmentMembersPanel from './DepartmentMembersPanel';
-import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
+import { useAppStrings } from '../../locales/appStrings';
+import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
+import { AI_TASK_SOFT_BLOCK_CODES, getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
-import {
-  Bell,
-  ChevronsDown,
-  AlertCircle,
-  AtSign,
-  ClipboardList,
-  Filter,
-  FileText,
-  Hash,
-  Home,
-  Image as ImageIcon,
-  LayoutGrid,
-  List,
-  MessageSquare,
-  Mic,
-  Paperclip,
-  Plus,
-  Search,
-  Send,
-  Settings,
-  Smile,
-  Sparkles,
-  Users,
-  Video,
-  Calendar,
-  X,
-  Zap,
-} from 'lucide-react';
+import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
+import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
+import DepartmentMembersPanel from './DepartmentMembersPanel';
 
-import { Modal } from '../Shared';
-import UserAvatar from '../Shared/UserAvatar';
-import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
-import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
-import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
+import ProjectHubChangeRequestDetailDrawer from '../../features/projects/hub/ProjectHubChangeRequestDetailDrawer';
+import WorkItemDetail from '../../features/projects/hub/WorkItemDetail/WorkItemDetail';
+import { queryKeys } from '../../lib/queryKeys';
+import { fetchChatMediaFile } from '../../utils/chatGifStickerSend';
+import { normalizeComposerFile } from '../../utils/composerAttachmentUtils';
+import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
+import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
+import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
+import { channelNameToDisplaySlug, displayDepartmentName } from '../../utils/orgEntityDisplay';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import ChatContextPicker from '../Chat/ChatContextPicker';
 import ChatContextPreview from '../Chat/ChatContextPreview';
-import { normalizeMessageRefs, contextCallTargetFromMessage } from '../Chat/chatContextRefs';
-import WorkItemDetail from '../../features/projects/hub/WorkItemDetail/WorkItemDetail';
-import ProjectHubChangeRequestDetailDrawer from '../../features/projects/hub/ProjectHubChangeRequestDetailDrawer';
+import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
+import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
+import ComposerEmojiPicker from '../Chat/ComposerEmojiPicker';
+import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
+import { contextCallTargetFromMessage, normalizeMessageRefs } from '../Chat/chatContextRefs';
+import { Modal } from '../Shared';
+import UserAvatar from '../Shared/UserAvatar';
+import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
 import OrgMessageInlineEditor from './OrgMessageInlineEditor';
-import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
-import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
-import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
-import { displayDepartmentName, channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
-import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
-import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
-import { queryKeys } from '../../lib/queryKeys';
 
-import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
-import OrganizationWorkspaceStructureSidebar from './OrganizationWorkspaceStructureSidebar';
-import OrganizationSidebarAudioBar from './OrganizationSidebarAudioBar';
-import OrganizationVoiceConnectionPanel from './OrganizationVoiceConnectionPanel';
 import VoiceAudioSettingsPanel from '../../pages/Voice/VoiceAudioSettingsPanel';
 import { loadVoiceAudioPrefs } from '../../pages/Voice/voiceAudioPrefs';
+import { mapProjectsToBoardPickerRows, projectAPI } from '../../services/api/projectAPI';
 import {
-  FIGMA_ORG_CHANNEL_HEADER,
-  FIGMA_ORG_CHANNEL_HEADER_DESC,
-  FIGMA_ORG_CHANNEL_HEADER_TITLE,
-  FIGMA_ORG_CHANNEL_ICON_BTN,
-} from './figmaOrganizationClasses';
-import { parseMessageMentions } from '../../utils/parseMessageMentions';
-import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
-import {
-  taskAPI,
-  unwrapTaskApiPayload,
-  unwrapTaskBoardDetailPayload,
-  unwrapTaskBoardListPayload,
+    taskAPI,
+    unwrapTaskApiPayload,
+    unwrapTaskBoardDetailPayload
 } from '../../services/api/taskAPI';
-import { projectAPI, mapProjectsToBoardPickerRows } from '../../services/api/projectAPI';
+import { parseMessageMentions } from '../../utils/parseMessageMentions';
 import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
-import OrganizationChatView from './OrganizationChatView';
+import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
 import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
+import OrganizationChatView from './OrganizationChatView';
+import OrganizationSidebarAudioBar from './OrganizationSidebarAudioBar';
+import OrganizationVoiceChannelView from './OrganizationVoiceChannelView';
+import OrganizationVoiceConnectionPanel from './OrganizationVoiceConnectionPanel';
+import OrganizationWorkspaceStructureSidebar from './OrganizationWorkspaceStructureSidebar';
+import {
+    FIGMA_ORG_CHANNEL_HEADER,
+    FIGMA_ORG_CHANNEL_HEADER_DESC,
+    FIGMA_ORG_CHANNEL_HEADER_TITLE,
+    FIGMA_ORG_CHANNEL_ICON_BTN,
+} from './figmaOrganizationClasses';
 import { channelUnreadCount } from './organizationStructureTheme';
 
 function isContextCallMessage(message) {
@@ -691,6 +685,7 @@ const OrganizationMainPanel = ({
   }, [selectedChannelId]);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
+  const [mediaPickerSending, setMediaPickerSending] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const chatScrollRef = useRef(null);
@@ -1781,11 +1776,27 @@ const OrganizationMainPanel = ({
     return byCategory && bySearch;
   });
 
-  const filteredComposerEmojis = COMPOSER_EMOJI_LIST.filter((emoji) => {
-    const keyword = emojiSearch.trim().toLowerCase();
-    if (!keyword) return true;
-    return emoji.toLowerCase().includes(keyword);
-  });
+  const handlePickChatMedia = useCallback(
+    async (item) => {
+      if (!item?.url || !canWriteInChannel || sendingMessage) return false;
+      setMediaPickerSending(true);
+      try {
+        const rawFile = await fetchChatMediaFile(item);
+        const file = normalizeComposerFile(rawFile, t);
+        const kind = (file.type || '').startsWith('image/') ? 'image' : 'file';
+        await onSendChatOption?.({ kind, file });
+        setShowEmojiPicker(false);
+        setEmojiSearch('');
+        return true;
+      } catch (error) {
+        toast.error(resolveApiErrorMessage(error, { t, fallback: t('organizations.fileSendFail') }));
+        return false;
+      } finally {
+        setMediaPickerSending(false);
+      }
+    },
+    [canWriteInChannel, sendingMessage, onSendChatOption, t]
+  );
 
   const addPollOption = () => {
     if (pollOptions.length >= 6) return;
@@ -3189,80 +3200,17 @@ const OrganizationMainPanel = ({
         </div>
       </div>
 
-      {isChatLikeTab && showEmojiPicker && (
-        <>
-          <button
-            type="button"
-            aria-label={t('orgPanel.closeEmoji')}
-            onClick={() => setShowEmojiPicker(false)}
-            className={`${shellNavRailBackdrop} z-40 cursor-default bg-black/30`}
-          />
-          <div className="fixed bottom-24 right-4 z-50 h-[min(420px,calc(100vh-8rem))] w-[min(520px,calc(100vw-2rem))] max-w-[92vw] overflow-hidden rounded-2xl border border-border bg-[#0b1220] shadow-2xl">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-              {[
-                { id: 'gif', label: t('orgPanel.gifTab') },
-                { id: 'sticker', label: t('orgPanel.stickerTab') },
-                { id: 'emoji', label: t('orgPanel.emojiTab') },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setEmojiPickerTab(tab.id)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                    emojiPickerTab === tab.id
-                      ? 'bg-slate-700 text-white'
-                      : 'text-gray-300 hover:bg-slate-800/70'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="border-b border-border px-4 py-3">
-              <div className="flex items-center gap-2">
-                <input
-                  value={emojiSearch}
-                  onChange={(event) => setEmojiSearch(event.target.value)}
-                  placeholder={t('orgPanel.emojiSearchPh')}
-                  className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-muted-foreground"
-                />
-                <button
-                  type="button"
-                  onClick={() => onSendChatOption?.({ kind: 'add-emoji-beta' })}
-                  className="h-11 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white transition hover:bg-slate-600"
-                >
-                  {t('orgPanel.addEmojiBtn')}
-                </button>
-              </div>
-            </div>
-            <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
-              {emojiPickerTab !== 'emoji' ? (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  {t('orgPanel.emojiBetaMsg')}
-                </div>
-              ) : (
-                <div className="grid grid-cols-9 gap-2">
-                  {filteredComposerEmojis.map((emoji, idx) => (
-                    <button
-                      key={`${emoji}-${idx}`}
-                      type="button"
-                      onClick={() => appendEmoji(emoji)}
-                      className="h-11 rounded-lg bg-[#111a2c] text-2xl transition hover:bg-slate-700/80"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                  {filteredComposerEmojis.length === 0 && (
-                    <div className="col-span-9 rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-                      {t('orgPanel.emojiNoMatch')}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      <ComposerEmojiPicker
+        open={isChatLikeTab && showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+        onPick={appendEmoji}
+        onPickMedia={handlePickChatMedia}
+        mediaLoading={mediaPickerSending || sendingMessage}
+        activeTab={emojiPickerTab}
+        onTabChange={setEmojiPickerTab}
+        search={emojiSearch}
+        onSearchChange={setEmojiSearch}
+      />
 
       <ChannelMessageMoreMenu
         open={moreMenu.open}

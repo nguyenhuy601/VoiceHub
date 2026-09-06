@@ -30,6 +30,8 @@ export default function OrganizationDocumentsWorkspacePanel({
   onReload,
   isDarkMode,
   onOpenInWorkspace,
+  /** Tiêu đề panel (vd. Docs phòng). */
+  panelTitle = '',
   /** Gợi ý phạm vi phòng (dept workspace). */
   scopeHint = '',
   /** Filter theo phòng — giữ Shared Files (library/announcement) + file thuộc dept. */
@@ -54,6 +56,27 @@ export default function OrganizationDocumentsWorkspacePanel({
         ? memberChannelIds
         : new Set((memberChannelIds || []).map(String).filter(Boolean));
 
+    const deptId = String(departmentId || '').trim();
+    // Tab Docs trong phòng: ưu tiên phạm vi phòng đang mở (không để membership org nuốt filter).
+    if (deptId) {
+      const channelSet =
+        departmentChannelIds instanceof Set
+          ? departmentChannelIds
+          : new Set((departmentChannelIds || []).map(String).filter(Boolean));
+      return (files || []).filter((f) => {
+        if (String(f?.source || '') === 'project') {
+          const projDept = String(f?.departmentId || '').trim();
+          return !projDept || projDept === deptId;
+        }
+        if (isSharedFilesCategory(f?.category)) return true;
+        const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
+        if (fileDept && fileDept === deptId) return true;
+        const roomId = String(f?.roomId || '').trim();
+        if (roomId && channelSet.has(roomId)) return true;
+        return false;
+      });
+    }
+
     if (memberDepts.length || memberChannels.size) {
       const deptSet = new Set(memberDepts);
       return (files || []).filter((f) => {
@@ -66,24 +89,7 @@ export default function OrganizationDocumentsWorkspacePanel({
       });
     }
 
-    const deptId = String(departmentId || '').trim();
-    if (!deptId) return files;
-    const channelSet =
-      departmentChannelIds instanceof Set
-        ? departmentChannelIds
-        : new Set((departmentChannelIds || []).map(String).filter(Boolean));
-    return (files || []).filter((f) => {
-      if (String(f?.source || '') === 'project') {
-        const projDept = String(f?.departmentId || '').trim();
-        return !projDept || projDept === deptId;
-      }
-      if (isSharedFilesCategory(f?.category)) return true;
-      const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
-      if (fileDept && fileDept === deptId) return true;
-      const roomId = String(f?.roomId || '').trim();
-      if (roomId && channelSet.has(roomId)) return true;
-      return false;
-    });
+    return files;
   }, [files, departmentId, departmentChannelIds, memberDepartmentIds, memberChannelIds]);
 
   const { categoryMeta, countsByCategory, totalBytes } = useOrgDocumentCategoryMeta(scopedFiles);
@@ -141,7 +147,14 @@ export default function OrganizationDocumentsWorkspacePanel({
     <div className="flex h-full min-h-0 flex-col px-3 py-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className={`text-sm font-semibold ${title}`}>{t('documents.orgTitle')}</h3>
+          <div className="flex items-center gap-2">
+            {panelTitle ? (
+              <FileText size={16} className="shrink-0 text-cyan-600 dark:text-cyan-400" aria-hidden />
+            ) : null}
+            <h3 className={`text-sm font-semibold ${title}`}>
+              {panelTitle || t('documents.orgTitle')}
+            </h3>
+          </div>
           <p className={`text-[11px] ${muted}`}>
             {scopedFiles.length} {t('documents.orgStatTotal').toLowerCase()} · {formatFileSize(totalBytes)}
           </p>
@@ -192,7 +205,9 @@ export default function OrganizationDocumentsWorkspacePanel({
                 </button>
               </div>
             ) : filteredFiles.length === 0 ? (
-              <p className={`py-8 text-center text-xs ${muted}`}>{t('documents.orgEmpty')}</p>
+              <p className={`py-8 text-center text-xs ${muted}`}>
+                {panelTitle ? t('workspace.deptDocsEmpty') : t('documents.orgEmpty')}
+              </p>
             ) : (
               <ul className="space-y-1">
                 {filteredFiles.map((file) => {

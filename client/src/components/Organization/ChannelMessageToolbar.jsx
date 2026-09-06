@@ -154,7 +154,9 @@ export default function ChannelMessageToolbar({
                   className={`flex h-9 items-center justify-center rounded-lg text-lg ${
                     isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
                   }`}
-                  onClick={() => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     pushRecent(em);
                     onQuickReact?.(em);
                     onOpenEmojiPicker?.(em);
