@@ -77,6 +77,14 @@ export const queryKeys = {
       String(orgId || ''),
       String(role || ''),
     ],
+    /** Fallback khi BFF summary không có activeVoiceMeetings — dedupe in-flight */
+    meetingsActive: () => [...queryKeys.dashboard.all, 'meetings', 'active'],
+    messagesSummary: (userId = '') => [
+      ...queryKeys.dashboard.all,
+      'messages',
+      'summary',
+      String(userId || ''),
+    ],
   },
   dm: {
     all: ['dm'],

@@ -5,6 +5,8 @@ export { useFriendsList } from './useFriendsList';
 export { useNotificationsPreview } from './useNotificationsPreview';
 export { useNotificationsInfinite } from './useNotificationsInfinite';
 export { useDashboardSummary } from './useDashboardSummary';
+export { useDashboardActiveMeetings } from './useDashboardActiveMeetings';
+export { useDashboardMessagesSummary } from './useDashboardMessagesSummary';
 export { useOrgShell } from './useOrgShell';
 export { useOrganizationDocumentsOverview } from './useOrganizationDocumentsOverview';
 export { useOrgChannelMessages } from './useOrgChannelMessages';

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   Bot,
@@ -34,15 +35,16 @@ import { useAuth } from '../../context/AuthContext';
 import useUiRole from '../../hooks/useUiRole';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
-import api from '../../services/api';
-import { meetingAPI } from '../../services/api/meetingAPI';
 import {
+  useDashboardActiveMeetings,
+  useDashboardMessagesSummary,
   useDashboardSummary,
   useFriendPending,
   useFriendsList,
   useNotificationsPreview,
   useOrganizationsMy,
 } from '../../hooks/queries';
+import { queryKeys } from '../../lib/queryKeys';
 import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useLocation } from 'react-router-dom';
@@ -57,7 +59,6 @@ import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlob
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
-import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashPersonaShowsOrgHealth, resolveDashPersona } from '../../utils/dashboardPersona';
@@ -113,24 +114,6 @@ function dayKeyFromDate(value) {
   const d = value ? new Date(value) : null;
   if (!d || Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-async function fetchMessagesForDashboardPaged(api, { maxPages = 1, limit = 30 } = {}) {
-  const rows = [];
-  let pageToken;
-  for (let i = 0; i < maxPages; i += 1) {
-    const params = { limit, fields: 'summary' };
-    if (pageToken) params.pageToken = pageToken;
-    const msgRes = await api.get('/messages', { params, skipGlobalErrorHandling: true }).catch(() => null);
-    if (!msgRes) break;
-    const page = parseMessageListPage(msgRes);
-    const batch = page.messages || [];
-    if (!batch.length) break;
-    rows.push(...batch);
-    if (!page.hasMore || !page.nextPageToken) break;
-    pageToken = page.nextPageToken;
-  }
-  return rows;
 }
 
 /**
@@ -307,6 +290,16 @@ function DashboardPage({
     limit: 8,
     enabled: communicateEnabled,
   });
+  const summaryActiveVoice = summaryQuery.data?.activeVoiceMeetings;
+  const activeMeetingsQuery = useDashboardActiveMeetings({
+    enabled: communicateEnabled && summaryQuery.isSuccess,
+    summaryActiveVoiceMeetings: summaryActiveVoice,
+  });
+  const messagesQuery = useDashboardMessagesSummary({
+    enabled: communicateEnabled,
+    userId: currentUserKey,
+  });
+  const queryClient = useQueryClient();
   const refetchSummary = summaryQuery.refetch;
   const refetchFriends = friendsQuery.refetch;
   const refetchPending = pendingQuery.refetch;
@@ -362,6 +355,10 @@ function DashboardPage({
       refetchFriends?.();
       refetchPending?.();
       refetchNotifications?.();
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.meetingsActive() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard.messagesSummary(currentUserKey),
+      });
       setMetricsTick((v) => v + 1);
     };
 
@@ -412,6 +409,8 @@ function DashboardPage({
     refetchFriends,
     refetchPending,
     refetchNotifications,
+    queryClient,
+    currentUserKey,
   ]);
 
   const displayName =
@@ -575,75 +574,36 @@ function DashboardPage({
         });
         setPresenceFriends(presence);
 
-        let activeVoiceMeetings = summary?.activeVoiceMeetings ?? null;
-        if (activeVoiceMeetings == null) {
-          const activeMeetingRes = await meetingAPI
-            .getMeetings({ status: 'active', limit: 50 })
-            .catch(() => null);
-          const activeBody = activeMeetingRes?.data ?? activeMeetingRes;
-          const activeInner = activeBody?.data ?? activeBody;
-          const activeRows = activeInner?.meetings ?? activeInner?.data?.meetings ?? activeInner?.items;
-          activeVoiceMeetings = Array.isArray(activeRows) ? activeRows.length : 0;
-        }
+        const activeVoiceMeetings = Number.isFinite(Number(summary?.activeVoiceMeetings))
+          ? Number(summary.activeVoiceMeetings)
+          : Number.isFinite(Number(activeMeetingsQuery.data))
+            ? Number(activeMeetingsQuery.data)
+            : activeMeetingsQuery.isLoading
+              ? null
+              : 0;
 
         let meetingsUi = [];
+        // BFF luôn trả upcomingMeetings (có thể []); không fallback GET /meetings range → tránh trùng Network
         const summaryMeetings = Array.isArray(summary?.upcomingMeetings)
           ? summary.upcomingMeetings
           : [];
-        if (summaryMeetings.length > 0) {
-          meetingsUi = summaryMeetings.map((m) => {
-            const startDt = m.startTime ? new Date(m.startTime) : null;
-            const timeStr =
-              startDt && !Number.isNaN(startDt.getTime())
-                ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : '—';
-            return {
-              id: m.id || m._id,
-              title: m.title || t('dashboard.meetingFallback'),
-              time: timeStr,
-              attendees: Number(m.participants) || 1,
-              startTime: m.startTime,
-            };
-          });
-        } else {
-          const startFrom = new Date();
-          const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
-          const meetingRes = await meetingAPI
-            .getMeetings({
-              startFrom: startFrom.toISOString(),
-              startTo: startTo.toISOString(),
-              limit: 8,
-            })
-            .catch(() => null);
-          if (meetingRes) {
-            const body = meetingRes?.data ?? meetingRes;
-            const inner = body?.data ?? body;
-            const meetings = inner?.meetings ?? inner?.data?.meetings;
-            if (Array.isArray(meetings)) {
-              meetingsUi = meetings.slice(0, 5).map((m) => {
-                const startDt = m.startTime ? new Date(m.startTime) : null;
-                const timeStr =
-                  startDt && !Number.isNaN(startDt.getTime())
-                    ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : '—';
-                const parts = Array.isArray(m.participants) ? m.participants.length : 0;
-                return {
-                  id: m._id,
-                  title: m.title || t('dashboard.meetingFallback'),
-                  time: timeStr,
-                  attendees: parts || 1,
-                  startTime: m.startTime,
-                };
-              });
-            }
-          }
-        }
+        meetingsUi = summaryMeetings.map((m) => {
+          const startDt = m.startTime ? new Date(m.startTime) : null;
+          const timeStr =
+            startDt && !Number.isNaN(startDt.getTime())
+              ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—';
+          return {
+            id: m.id || m._id,
+            title: m.title || t('dashboard.meetingFallback'),
+            time: timeStr,
+            attendees: Number(m.participants) || 1,
+            startTime: m.startTime,
+          };
+        });
         const startFrom = new Date();
         startFrom.setHours(0, 0, 0, 0);
         const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -743,7 +703,7 @@ function DashboardPage({
             kind,
           });
         };
-        const msgRows = await fetchMessagesForDashboardPaged(api, { maxPages: 1, limit: 30 }).catch(() => []);
+        const msgRows = Array.isArray(messagesQuery.data) ? messagesQuery.data : [];
         msgRows.forEach((msg) => {
           const senderId = getRowId(msg.senderId);
           if (currentUserKey && senderId !== currentUserKey) return;
@@ -914,6 +874,9 @@ function DashboardPage({
     friendsQuery.data,
     pendingQuery.pendingCount,
     notificationsQuery.data,
+    activeMeetingsQuery.data,
+    activeMeetingsQuery.isLoading,
+    messagesQuery.data,
     company,
   ]);
 
@@ -1057,6 +1020,12 @@ function DashboardPage({
       company,
     ]
   );
+  const dashOrgId = useMemo(() => {
+    const fromSummary = String(summaryQuery.data?.primaryOrgId || '').trim();
+    if (fromSummary) return fromSummary;
+    const first = Array.isArray(orgsQuery.data) ? orgsQuery.data[0] : null;
+    return String(first?._id || first?.id || company?.id || company?._id || '').trim();
+  }, [summaryQuery.data?.primaryOrgId, orgsQuery.data, company]);
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
 
   const stats = useMemo(() => {

@@ -17,7 +17,8 @@ export function useDashboardSummary({
     queryFn: fetchDashboardSummary,
     staleTime: STALE_TIME_DASHBOARD_MS,
     refetchInterval: enabled ? 45_000 : false,
-    refetchOnWindowFocus: true,
+    // Tránh nhân bản meetings/messages khi focus lại tab (đã có interval + socket invalidate)
+    refetchOnWindowFocus: false,
     enabled,
   });
 }
