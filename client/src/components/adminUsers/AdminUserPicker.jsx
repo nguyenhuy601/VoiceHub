@@ -50,6 +50,7 @@ function StatusDot({ member, t }) {
  *   pageSize?: number,
  *   rbacAssignments?: { byUser?: Record<string, unknown[]>, ready?: boolean },
  *   showRbacRoleFilter?: boolean,
+ *   fillHeight?: boolean,
  * }} props
  */
 export default function AdminUserPicker({
@@ -63,13 +64,14 @@ export default function AdminUserPicker({
   pageSize = 0,
   rbacAssignments,
   showRbacRoleFilter = false,
+  fillHeight = false,
 }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [rbacRoleFilter, setRbacRoleFilter] = useState(RBAC_ROLE_FILTER_ALL);
-  const { members, loading, error, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, error, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   const activeId = String(selectedUserId || searchParams.get('userId') || '').trim();
   const errorMessage = error
@@ -158,8 +160,12 @@ export default function AdminUserPicker({
     );
   };
 
+  const shellClass = fillHeight
+    ? 'flex h-full max-h-[calc(100dvh-10rem)] min-h-[280px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm'
+    : 'flex h-full max-h-[min(72vh,680px)] min-h-[320px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm';
+
   return (
-    <div className="flex h-full max-h-[min(72vh,680px)] min-h-[320px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className={shellClass}>
       <div className="mb-3 shrink-0">
         <h3 className="text-sm font-semibold text-foreground">{t('adminUsers.pickerTitle')}</h3>
         {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
@@ -198,7 +204,7 @@ export default function AdminUserPicker({
         </div>
       ) : (
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70 scrollbar-overlay">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70">
             <ul className="divide-y divide-border/50">
               {paged.map((m) => {
                 const id = memberUserId(m);

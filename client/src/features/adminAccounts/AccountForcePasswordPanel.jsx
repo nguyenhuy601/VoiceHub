@@ -19,7 +19,7 @@ export default function AccountForcePasswordPanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [busy, setBusy] = useState(false);
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   const apply = async (mustChangePassword) => {
     if (!orgId || !userId || busy) return;

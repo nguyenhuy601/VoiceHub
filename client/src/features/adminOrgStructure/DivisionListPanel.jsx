@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
@@ -70,7 +72,7 @@ export default function DivisionListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : structureError ? (
@@ -81,10 +83,10 @@ export default function DivisionListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colBranch')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colStatus')}</th>
@@ -135,9 +137,9 @@ export default function DivisionListPanel({ orgId }) {
                 {t('adminOrg.noDivisions')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

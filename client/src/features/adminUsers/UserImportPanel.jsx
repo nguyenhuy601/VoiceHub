@@ -15,7 +15,7 @@ import {
 
 export default function UserImportPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
   const [text, setText] = useState('email,firstName,lastName,role\n');
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState([]);

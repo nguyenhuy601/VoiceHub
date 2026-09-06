@@ -19,7 +19,7 @@ export default function UserLockPanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { members, loadMembers } = useAdminMembers(orgId);
+  const { members, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
   const [summary, setSummary] = useState(null);
   const [busy, setBusy] = useState(false);
 

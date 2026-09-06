@@ -10,6 +10,8 @@ import {
 import CatalogKeyLabelEditor from '../projects/hub/CatalogKeyLabelEditor';
 import { normalizePriorityConfig } from '../projects/hub/projectPriorityConfig';
 import {
+  ensureAdjacentTransitions,
+  ensureReopenFromDone,
   filterTransitionsByStateKeys,
   mergeEditorItemsToStates,
   statesToEditorItems,
@@ -18,6 +20,7 @@ import projectAPI from '../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { repairUtf8Mojibake } from '../../utils/utf8Mojibake';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 
 function unwrap(res) {
@@ -128,12 +131,21 @@ export default function TasksStatusPriorityPanel({ orgId }) {
     setSaving(true);
     try {
       if (workflowDoc && workflowStates.length) {
-        const transitions = filterTransitionsByStateKeys(workflowDoc.transitions, workflowStates);
+        const transitions = ensureReopenFromDone(
+          ensureAdjacentTransitions(
+            filterTransitionsByStateKeys(workflowDoc.transitions, workflowStates),
+            workflowStates
+          ),
+          workflowStates
+        );
         const res = await taskAPI.putBoardWorkflow(
           boardId,
           {
             name: workflowDoc.name || 'Default',
-            states: workflowStates,
+            states: workflowStates.map((s) => ({
+              ...s,
+              label: repairUtf8Mojibake(s?.label),
+            })),
             transitions,
             templateKey: workflowDoc.templateKey,
             templateId: workflowDoc.templateId,

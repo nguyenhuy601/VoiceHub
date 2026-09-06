@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserFormCard,
   AdminUserPanelShell,
   adminInputClass,
@@ -32,7 +34,7 @@ const ACTION_LINKS = [
 
 export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const [query, setQuery] = useState('');
@@ -209,14 +211,14 @@ export default function PosListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading || hrPositionsLoading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colTitle')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colCount')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colActions')}</th>
@@ -261,9 +263,9 @@ export default function PosListPanel({ orgId }) {
                 {t('adminRbac.posCatalogEmptyEnable')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

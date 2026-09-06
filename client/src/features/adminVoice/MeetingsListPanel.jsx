@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
-import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import { adminPrimaryBtnClass, AdminDenseTableCard, AdminDenseTableScroll } from '../../components/adminUsers/adminUserPanelUi';
 import {
   formatMeetingWhen,
   isActiveMeeting,
@@ -60,7 +60,7 @@ export default function MeetingsListPanel({ orgId }) {
           <option value="ended">ended</option>
         </select>
       </div>
-      <div className="overflow-auto rounded-xl border border-border">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : error ? (
@@ -71,9 +71,9 @@ export default function MeetingsListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <>
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
-              <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-muted/95 text-left text-xs uppercase text-muted-foreground backdrop-blur">
                 <tr>
                   <th className="px-3 py-2">{t('adminVoice.colTitle')}</th>
                   <th className="px-3 py-2">{t('adminVoice.colStatus')}</th>
@@ -112,9 +112,9 @@ export default function MeetingsListPanel({ orgId }) {
             {!filtered.length ? (
               <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminVoice.noMeetings')}</p>
             ) : null}
-          </>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </div>
   );
 }

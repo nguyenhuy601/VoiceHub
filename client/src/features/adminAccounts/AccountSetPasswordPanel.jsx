@@ -20,7 +20,7 @@ export default function AccountSetPasswordPanel({ orgId, embedded = false }) {
   const [password, setPassword] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(true);
   const [busy, setBusy] = useState(false);
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   const submit = async () => {
     if (!orgId || !userId || busy || !password.trim()) return;

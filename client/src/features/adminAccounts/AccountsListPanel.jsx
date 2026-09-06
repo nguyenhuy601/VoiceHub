@@ -2,7 +2,11 @@ import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
-import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
+  AdminUserPanelShell,
+} from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useDebouncedValue } from '../search/useDebouncedValue';
 import { useAppStrings } from '../../locales/appStrings';
@@ -53,7 +57,9 @@ function AccountsTableSkeletonRows({ rows = ACCOUNTS_LIST_PAGE_SIZE }) {
 
 export default function AccountsListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
-  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
+    view: 'directory',
+  });
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 300);
   const [statusFilter, setStatusFilter] = useState('');
@@ -188,10 +194,10 @@ export default function AccountsListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/70">
-        <div className="overflow-x-auto">
+      <AdminDenseTableCard className="border-border/70">
+        <AdminDenseTableScroll>
           <table className="min-w-full text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <thead className="sticky top-0 z-10 bg-muted/95 text-left text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
               <tr>
                 <th className="px-3 py-2.5">{t('adminUsers.colUser')}</th>
                 <th className="px-3 py-2.5">{t('adminAccounts.colEmailVerified')}</th>
@@ -280,9 +286,9 @@ export default function AccountsListPanel({ orgId }) {
               )}
             </tbody>
           </table>
-        </div>
+        </AdminDenseTableScroll>
         {!showMembersError && !showMembersSkeleton && filtered.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-3">
             <button
               type="button"
               disabled={safePage <= 1}
@@ -308,7 +314,7 @@ export default function AccountsListPanel({ orgId }) {
             </button>
           </div>
         ) : null}
-      </div>
+      </AdminDenseTableCard>
 
       <p className="mt-3 text-xs text-muted-foreground">
         {t('adminAccounts.listFootnote')}{' '}

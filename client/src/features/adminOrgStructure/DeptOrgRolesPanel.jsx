@@ -30,7 +30,7 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
-  const { membersByIdAll, error: membersError, loadMembers } = useAdminMembers(orgId);
+  const { membersByIdAll, error: membersError, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   const [selectedId, setSelectedId] = useState(unitParam);
   const [catalog, setCatalog] = useState([]);

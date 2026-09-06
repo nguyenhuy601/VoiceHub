@@ -65,18 +65,21 @@ export default function AdminEntityOpsHubShell({
   };
 
   return (
-    <AdminUserPanelShell title={title} hint={hint} wide>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-start">
-        <AdminUserPicker
-          orgId={orgId}
-          selectedUserId={userId}
-          hint={resolvedPickerHint}
-          filterFn={resolvedPickerFilterFn}
-          subtitleFn={resolvedPickerSubtitleFn}
-          emptyLabel={resolvedPickerEmptyLabel}
-        />
-        <div className="min-w-0 space-y-4">
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label={title}>
+    <AdminUserPanelShell title={title} hint={hint} wide fillHeight>
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
+        <div className="min-h-0 self-stretch">
+          <AdminUserPicker
+            orgId={orgId}
+            selectedUserId={userId}
+            hint={resolvedPickerHint}
+            filterFn={resolvedPickerFilterFn}
+            subtitleFn={resolvedPickerSubtitleFn}
+            emptyLabel={resolvedPickerEmptyLabel}
+            fillHeight
+          />
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto">
+          <div className="flex shrink-0 flex-wrap gap-2" role="tablist" aria-label={title}>
             {tabs.map((tab) => {
               const active = activeTab === tab.id;
               return (
@@ -98,7 +101,9 @@ export default function AdminEntityOpsHubShell({
               );
             })}
           </div>
-          <div role="tabpanel">{children({ activeTab, userId })}</div>
+          <div role="tabpanel" className="min-h-0">
+            {children({ activeTab, userId })}
+          </div>
         </div>
       </div>
     </AdminUserPanelShell>

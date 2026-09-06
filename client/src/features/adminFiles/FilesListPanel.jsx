@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
@@ -49,7 +51,7 @@ export default function FilesListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : error ? (
@@ -60,10 +62,10 @@ export default function FilesListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminFiles.colName')}</th>
                   <th className="px-4 py-3">{t('adminFiles.colType')}</th>
                   <th className="px-4 py-3">{t('adminFiles.colActions')}</th>
@@ -94,9 +96,9 @@ export default function FilesListPanel({ orgId }) {
             {!filtered.length ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t('adminFiles.noFiles')}</p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

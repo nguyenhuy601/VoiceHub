@@ -26,7 +26,7 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
     loading: membersLoading,
     error: membersError,
     loadMembers,
-  } = useAdminMembers(orgId);
+  } = useAdminMembers(orgId, { view: 'directory' });
   const [selectedId, setSelectedId] = useState(unitParam);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [saving, setSaving] = useState(false);

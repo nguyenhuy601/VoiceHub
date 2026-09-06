@@ -1,58 +1,31 @@
-import { useCallback, useEffect, useState } from 'react';
-import roleAPI from '../services/api/roleAPI';
+import { useCallback, useMemo } from 'react';
 import { memberIsWithoutRbacRole, memberUserId } from '../utils/adminUserUtils';
-import { unwrapUserRoleList } from '../utils/adminRbacUtils';
 import { useAdminMembers } from './useAdminMembers';
 
+/**
+ * RBAC roleless queue — dùng rbacRoles từ with-roles?view=admin_table (store),
+ * không N× getUserRoles.
+ */
 export default function useRbacRolelessAssignments(orgId, { enabled = true } = {}) {
-  const { members } = useAdminMembers(orgId);
-  const [assignmentsByUser, setAssignmentsByUser] = useState({});
-  const [assignmentsReady, setAssignmentsReady] = useState(false);
+  const { members, loadMembers, loading } = useAdminMembers(orgId, { view: 'admin_table' });
+
+  const assignmentsByUser = useMemo(() => {
+    if (!enabled) return {};
+    const map = {};
+    for (const m of members) {
+      const uid = memberUserId(m);
+      if (!uid) continue;
+      map[uid] = Array.isArray(m.rbacRoles) ? m.rbacRoles : [];
+    }
+    return map;
+  }, [enabled, members]);
+
+  const assignmentsReady = Boolean(enabled && !loading);
 
   const reloadAssignments = useCallback(async () => {
-    if (!enabled || !orgId) {
-      setAssignmentsByUser({});
-      setAssignmentsReady(false);
-      return;
-    }
-    setAssignmentsReady(false);
-    const rows = Array.isArray(members) ? members : [];
-    if (!rows.length) {
-      setAssignmentsByUser({});
-      setAssignmentsReady(true);
-      return;
-    }
-    const entries = await Promise.all(
-      rows.map(async (m) => {
-        const uid = memberUserId(m);
-        if (!uid) return null;
-        try {
-          const res = await roleAPI.getUserRoles(uid, orgId);
-          return [uid, unwrapUserRoleList(res)];
-        } catch {
-          return null;
-        }
-      })
-    );
-    setAssignmentsByUser(Object.fromEntries(entries.filter(Boolean)));
-    setAssignmentsReady(true);
-  }, [enabled, orgId, members]);
-
-  useEffect(() => {
-    if (!enabled) {
-      setAssignmentsByUser({});
-      setAssignmentsReady(false);
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      await reloadAssignments();
-      if (cancelled) return;
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, reloadAssignments]);
+    if (!enabled || !orgId) return;
+    await loadMembers();
+  }, [enabled, orgId, loadMembers]);
 
   const rolelessFilter = useCallback(
     (m) => (assignmentsReady ? memberIsWithoutRbacRole(m, assignmentsByUser) : false),
