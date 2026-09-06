@@ -17,6 +17,23 @@ describe('chatGifStickerCatalog', () => {
     assert.ok(CHAT_GIF_ITEMS.every((item) => item.url.includes('fonts.gstatic.com')));
   });
 
+  it('gif dùng preview Twemoji nhẹ; url gửi vẫn Noto GIF', () => {
+    assert.ok(
+      CHAT_GIF_ITEMS.every(
+        (item) =>
+          item.previewUrl &&
+          item.previewUrl.includes('twemoji') &&
+          item.url.includes('fonts.gstatic.com') &&
+          item.mimeType === 'image/gif'
+      )
+    );
+    assert.ok(
+      CHAT_STICKER_ITEMS.filter((i) => !i.phrase).every(
+        (item) => item.previewUrl || item.url.includes('twemoji') || item.url.startsWith('data:')
+      )
+    );
+  });
+
   it('filterChatMediaItems tìm nhiều sticker cho "cảm ơn"', () => {
     const out = filterChatMediaItems(CHAT_STICKER_ITEMS, 'cảm ơn');
     assert.ok(out.length >= 10, `expected >=10, got ${out.length}`);

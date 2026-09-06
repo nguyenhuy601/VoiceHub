@@ -11,6 +11,7 @@ function hasFileMetaSignal(fm) {
 /**
  * Chuẩn hóa payload tin nhắn org (kênh chat / voice) để UI nhận diện file/ảnh đúng.
  * Sau F5, GET /messages (summary) có thể thiếu signed URL nhưng vẫn có fileMeta / messageType.
+ * Giữ nguyên reactions / reply / visibility khi chỉ chuẩn hóa file.
  */
 export function normalizeOrgChatMessage(msg) {
   if (!msg || typeof msg !== 'object') return msg;

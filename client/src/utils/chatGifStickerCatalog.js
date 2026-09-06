@@ -6,25 +6,38 @@
 
 import { CHAT_PHRASE_STICKER_ITEMS } from './chatDailyPhraseStickers.js';
 
-/** @typedef {{ id: string, label: string, tags: string[], url: string, fileName: string, mimeType: string, phrase?: { text: string, emoji: string, bg: string, color: string } }} ChatMediaItem */
+/** @typedef {{ id: string, label: string, tags: string[], url: string, previewUrl?: string, fileName: string, mimeType: string, phrase?: { text: string, emoji: string, bg: string, color: string } }} ChatMediaItem */
 
 const TWEMOJI = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72';
 const NOTO_GIF = 'https://fonts.gstatic.com/s/e/notoemoji/latest';
 
+/** Twemoji path từ codepoint Noto (`1f64f_1f3fb` / `263a_fe0f`). */
+function twemojiFileCp(codepoint) {
+  return String(codepoint || '')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/-fe0f$/g, '');
+}
+
 /** @param {string} cp @param {string} label @param {string[]} tags */
 function sticker(cp, label, tags) {
+  // Twemoji dùng dấu gạch ngang cho ZWJ/skin-tone (1f44f-1f3fb), không phải underscore.
+  const fileCp = twemojiFileCp(cp);
   return {
     id: `stk-${cp}`,
     label,
     tags,
-    url: `${TWEMOJI}/${cp}.png`,
-    fileName: `${cp}.png`,
+    url: `${TWEMOJI}/${fileCp}.png`,
+    previewUrl: `${TWEMOJI}/${fileCp}.png`,
+    fileName: `${fileCp}.png`,
     mimeType: 'image/png',
   };
 }
 
 /**
  * GIF động từ Noto Emoji Animation (Google Fonts CDN).
+ * Grid dùng Twemoji PNG nhỏ (previewUrl); gửi vẫn lấy GIF 512 từ url.
  * @param {string} id
  * @param {string} label
  * @param {string[]} tags
@@ -32,12 +45,14 @@ function sticker(cp, label, tags) {
  */
 function gif(id, label, tags, codepoint) {
   const cp = String(codepoint || '').trim().toLowerCase();
+  const fileCp = twemojiFileCp(cp);
   const slug = id.replace(/^gif-/, '');
   return {
     id,
     label,
     tags,
     url: `${NOTO_GIF}/${cp}/512.gif`,
+    previewUrl: `${TWEMOJI}/${fileCp}.png`,
     fileName: `${slug}.gif`,
     mimeType: 'image/gif',
   };

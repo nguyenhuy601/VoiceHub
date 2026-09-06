@@ -30,11 +30,26 @@ function guessMimeFromFileName(name) {
   return '';
 }
 
-function isProxyUploadFailure(err) {
-  const status = Number(err?.response?.status || err?.status || 0);
-  if (status >= 500 || status === 503) return true;
-  const msg = String(err?.message || '').toLowerCase();
-  return msg.includes('storage') && (msg.includes('minio') || msg.includes('503'));
+/**
+ * Proxy 5xx thường là MinIO down — vẫn thử signed URL (Firebase) trước khi fail.
+ * CORS signed URL có thể fail trên voicehub.local; khi đó ném lỗi gốc (messageUser).
+ */
+async function uploadWithProxyThenSignedFallback(
+  api,
+  file,
+  resolvedMime,
+  retentionContext,
+  onProgress
+) {
+  try {
+    return await uploadViaStorageProxy(api, file, resolvedMime, retentionContext, onProgress);
+  } catch (proxyErr) {
+    try {
+      return await uploadViaSignedUrl(api, file, resolvedMime, retentionContext, onProgress);
+    } catch {
+      throw proxyErr;
+    }
+  }
 }
 
 /**
@@ -74,7 +89,10 @@ async function uploadViaStorageProxy(api, file, resolvedMime, retentionContext, 
     },
     onUploadProgress: (event) => {
       if (event.total && typeof onProgress === 'function') {
-        onProgress(Math.round((event.loaded / event.total) * 85));
+        const pct = Math.round((event.loaded / event.total) * 85);
+        onProgress(pct);
+        // Body xong — chờ server ack (storagePath); tránh UI kẹt 85%.
+        if (event.loaded >= event.total) onProgress(86);
       }
     },
     transformRequest: [(data) => data],
@@ -146,28 +164,14 @@ export async function uploadChatFileAndCreateMessage(api, file, options, onProgr
     file.type || guessMimeFromFileName(file.name) || 'application/octet-stream';
 
   let storagePath;
-  try {
-    const uploaded = await uploadViaStorageProxy(
-      api,
-      file,
-      resolvedMime,
-      retentionContext,
-      onProgress
-    );
-    storagePath = uploaded.storagePath;
-  } catch (proxyErr) {
-    if (isProxyUploadFailure(proxyErr)) {
-      throw proxyErr;
-    }
-    const uploaded = await uploadViaSignedUrl(
-      api,
-      file,
-      resolvedMime,
-      retentionContext,
-      onProgress
-    );
-    storagePath = uploaded.storagePath;
-  }
+  const uploaded = await uploadWithProxyThenSignedFallback(
+    api,
+    file,
+    resolvedMime,
+    retentionContext,
+    onProgress
+  );
+  storagePath = uploaded.storagePath;
 
   const isImage = (file.type || resolvedMime || '').startsWith('image/');
   const messageType = isImage ? 'image' : 'file';
