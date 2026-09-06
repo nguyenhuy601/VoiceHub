@@ -329,10 +329,14 @@ export const organizationAPI = {
 
   getMembersWithRoles: async (orgId, params = {}) => {
     const departmentId = String(params.departmentId || '').trim();
+    const view = String(params.view || '').trim();
+    const query = {};
+    if (departmentId) query.departmentId = departmentId;
+    if (view) query.view = view;
     const response = await apiClient.get(`/organizations/${orgId}/members/with-roles`, {
       skipPermissionDeniedToast: true,
       skipGlobalErrorHandling: true,
-      params: departmentId ? { departmentId } : undefined,
+      params: Object.keys(query).length ? query : undefined,
     });
     return response;
   },

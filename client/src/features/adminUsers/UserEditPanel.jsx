@@ -13,10 +13,9 @@ import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberOrgRole, memberUserId, unwrapApi } from '../../utils/adminUserUtils';
+import { memberOrgRole, unwrapApi } from '../../utils/adminUserUtils';
 import { coalesceJobTitle } from '../../utils/jobTitleProfile';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS } from '../../utils/roleTaxonomy';
-import { unwrapOrgList } from '../../utils/userTaxonomyUtils';
 import useAdminMembers from '../../hooks/useAdminMembers';
 
 const MEMBERSHIP_ROLE_OPTIONS = ['member', 'hr', 'admin', 'owner'];
@@ -68,7 +67,9 @@ export default function UserEditPanel({ orgId, embedded = false }) {
     jobTitle: '',
     role: 'member',
   });
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers, membersById, loading: membersLoading } = useAdminMembers(orgId, {
+    view: 'directory',
+  });
 
   useEffect(() => {
     if (!orgId) return;
@@ -89,19 +90,15 @@ export default function UserEditPanel({ orgId, embedded = false }) {
   }, [orgId]);
 
   useEffect(() => {
-    if (!orgId || !userId) return;
+    if (!orgId || !userId || membersLoading) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setLoadError('');
       try {
-        const [profileRes, membersRes] = await Promise.all([
-          adminUserAPI.getProfile(orgId, userId),
-          organizationAPI.getMembers(orgId),
-        ]);
+        const profileRes = await adminUserAPI.getProfile(orgId, userId);
         const data = unwrapApi(profileRes)?.data ?? unwrapApi(profileRes);
-        const members = unwrapOrgList(membersRes);
-        const membership = members.find((m) => memberUserId(m) === userId);
+        const membership = membersById.get(userId);
         const role = normalizeMembershipRole(memberOrgRole(membership));
         if (cancelled) return;
         setInitialRole(role);
@@ -123,7 +120,7 @@ export default function UserEditPanel({ orgId, embedded = false }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, userId, t, loadTick]);
+  }, [orgId, userId, t, loadTick, membersById, membersLoading]);
 
   const selectOptions = useMemo(() => {
     const current = String(form.jobTitle || '').trim();

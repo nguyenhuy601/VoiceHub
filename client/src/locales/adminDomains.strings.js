@@ -1282,7 +1282,8 @@ export const adminDomainStrings = {
       catalogDelete: 'Xóa',
       catalogAddPriority: 'Thêm priority',
       catalogNeedOneStatus: 'Cần ít nhất một status.',
-      catalogStatusHint: 'Sửa nhãn, xóa hoặc thêm status. Key không đổi sau khi tạo. Cột board cập nhật khi lưu.',
+      catalogStatusHint:
+        'Sửa nhãn, kéo dọc sắp xếp, xóa hoặc thêm status. Key không đổi sau khi tạo. Lưu cập nhật cột board và nối cạnh liền kề.',
       catalogPriorityHint: 'Priority theo dự án đã chọn. Không nằm trong API Status của board.',
       openManage: 'Mở Sửa / Xóa Task',
       exportHint: 'Xuất CSV board và thẻ (client-side) theo org / board đã chọn.',
@@ -3160,7 +3161,8 @@ export const adminDomainStrings = {
       catalogDelete: 'Delete',
       catalogAddPriority: 'Add priority',
       catalogNeedOneStatus: 'At least one status is required.',
-      catalogStatusHint: 'Rename, delete, or add statuses. The key stays fixed after create. Board columns update on save.',
+      catalogStatusHint:
+        'Rename, drag to reorder, delete, or add statuses. The key stays fixed after create. Save updates board columns and adjacent transitions.',
       catalogPriorityHint: 'Priority belongs to the selected project. It is not part of the board Status API.',
       openManage: 'Open Edit / delete tasks',
       exportHint: 'Export boards and cards as CSV (client-side) for the org / selected board.',

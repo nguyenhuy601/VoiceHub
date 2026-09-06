@@ -19,7 +19,6 @@ import MasterPermissionTreeEditor from '../adminRbac/MasterPermissionTreeEditor'
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import api from '../../services/api';
-import userService from '../../services/userService';
 import {
   MEMBERSHIP_ROLE_LABEL,
   buildStructurePath,
@@ -137,7 +136,7 @@ export default function OrganizationRbacSettings({ orgId }) {
     try {
       const [rolesRes, bundleRes, structureRes] = await Promise.all([
         roleAPI.getRolesByOrganization(orgId),
-        organizationAPI.getMembersWithRoles(orgId),
+        organizationAPI.getMembersWithRoles(orgId, { view: 'admin_table' }),
         organizationAPI.getStructure(orgId).catch(() => null),
       ]);
 
@@ -151,40 +150,24 @@ export default function OrganizationRbacSettings({ orgId }) {
       const structureBody = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
       setStructureMaps(structureMapsFromPayload(structureBody || {}, t));
 
-      const assignmentEntries = await Promise.all(
-        memberRows.map(async (m) => {
-          const uid = String(m?.user?._id || m?.user || m?.userId || '');
-          if (!uid) return [uid, []];
-          try {
-            const res = await roleAPI.getUserRoles(uid, orgId);
-            return [uid, unwrapList(res)];
-          } catch {
-            return [uid, []];
-          }
-        })
-      );
-      setAssignmentsByUser(Object.fromEntries(assignmentEntries));
-
-      const profileEntries = await Promise.all(
-        memberRows.slice(0, 80).map(async (m) => {
-          const uid = String(m?.user?._id || m?.user || m?.userId || '');
-          if (!uid) return [uid, null];
-          try {
-            const res = await userService.getProfile(uid);
-            const p = res?.data?.data ?? res?.data ?? res;
-            return [
-              uid,
-              {
-                displayName: p?.displayName || p?.username || uid.slice(-6),
-                avatar: p?.avatar || null,
-              },
-            ];
-          } catch {
-            return [uid, { displayName: uid.slice(-6), avatar: null }];
-          }
-        })
-      );
-      setMemberProfiles(Object.fromEntries(profileEntries));
+      // Bulk rbacRoles từ with-roles?view=admin_table — không N× getUserRoles.
+      const assignmentMap = {};
+      const profileMap = {};
+      for (const m of memberRows) {
+        const uid = String(m?.user?._id || m?.user || m?.userId || '').trim();
+        if (!uid) continue;
+        assignmentMap[uid] = Array.isArray(m.rbacRoles) ? m.rbacRoles : [];
+        profileMap[uid] = {
+          displayName:
+            m.displayName ||
+            m.username ||
+            (typeof m.email === 'string' ? m.email.split('@')[0] : '') ||
+            uid.slice(-6),
+          avatar: m.avatar || null,
+        };
+      }
+      setAssignmentsByUser(assignmentMap);
+      setMemberProfiles(profileMap);
     } catch (e) {
       toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.rbacLoadFail') }));
     } finally {

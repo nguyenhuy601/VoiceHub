@@ -7,13 +7,11 @@ import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMe
 import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDrawer';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import roleAPI from '../../services/api/roleAPI';
-import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useDebouncedValue } from '../search/useDebouncedValue';
-import { normalizeRoleDisplayName, unwrapList } from '../../utils/adminRbacUtils';
+import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import {
   compareMembersForAdminList,
   formatRbacRoleLabels,
@@ -26,7 +24,6 @@ import {
   memberStatusLabel,
   memberTeamId,
   memberUserId,
-  unwrapApi,
 } from '../../utils/adminUserUtils';
 import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
@@ -52,20 +49,6 @@ function CapabilityStatusBadge({ status, t }) {
   );
 }
 
-async function mapPool(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let idx = 0;
-  async function worker() {
-    while (idx < items.length) {
-      const i = idx;
-      idx += 1;
-      results[i] = await mapper(items[i], i);
-    }
-  }
-  const n = Math.min(concurrency, Math.max(1, items.length));
-  await Promise.all(Array.from({ length: n }, () => worker()));
-  return results;
-}
 function StatusBadge({ member, t }) {
   const key = memberStatusKey(member);
   const styles = {
@@ -83,20 +66,12 @@ function StatusBadge({ member, t }) {
   );
 }
 
-function hasUserCache(map, userId) {
-  return Boolean(userId) && Object.prototype.hasOwnProperty.call(map, userId);
-}
-
 function accountRoleLabel(role, t) {
   const r = String(role || 'member').toLowerCase();
   if (r === 'owner') return t('organizations.roleOwner');
   if (r === 'admin') return t('adminUsers.roleAdmin');
   if (r === 'hr') return t('adminUsers.roleHr');
   return t('adminUsers.roleMember');
-}
-
-function CellPlaceholder() {
-  return <span className="inline-block h-4 w-16 animate-pulse rounded bg-muted" aria-hidden />;
 }
 
 function UsersTableSkeletonRows({ rows = USERS_LIST_PAGE_SIZE }) {
@@ -221,7 +196,9 @@ export default function UsersListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
   const navigate = useNavigate();
   const { organization } = useCompanyAdminContext();
-  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
+    view: 'admin_table',
+  });
 
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 300);
@@ -234,20 +211,35 @@ export default function UsersListPanel({ orgId }) {
   const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef(null);
-  const rbacByUserRef = useRef({});
-  const capabilityByUserRef = useRef({});
-  const pageItemsRef = useRef([]);
-  const membersRef = useRef([]);
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
-  const [rbacByUser, setRbacByUser] = useState({});
-  const [capabilityByUser, setCapabilityByUser] = useState({});
+  const [capabilityOverrides, setCapabilityOverrides] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
 
-  rbacByUserRef.current = rbacByUser;
-  capabilityByUserRef.current = capabilityByUser;
+  const rbacByUser = useMemo(() => {
+    const map = {};
+    for (const m of members) {
+      const id = memberUserId(m);
+      if (id) map[id] = Array.isArray(m.rbacRoles) ? m.rbacRoles : [];
+    }
+    return map;
+  }, [members]);
+
+  const capabilityByUser = useMemo(() => {
+    const map = {};
+    for (const m of members) {
+      const id = memberUserId(m);
+      if (!id) continue;
+      if (Object.prototype.hasOwnProperty.call(capabilityOverrides, id)) {
+        map[id] = capabilityOverrides[id];
+      } else {
+        map[id] = String(m.capabilityStatus || 'draft').trim() || 'draft';
+      }
+    }
+    return map;
+  }, [members, capabilityOverrides]);
 
   const activeFilterCount = [roleFilter, statusFilter, capabilityFilter, scopeFilter].filter(Boolean).length;
 
@@ -256,10 +248,7 @@ export default function UsersListPanel({ orgId }) {
   }, [orgId, debouncedQuery, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
 
   useEffect(() => {
-    setRbacByUser({});
-    setCapabilityByUser({});
-    rbacByUserRef.current = {};
-    capabilityByUserRef.current = {};
+    setCapabilityOverrides({});
   }, [orgId]);
 
   useEffect(() => {
@@ -336,19 +325,13 @@ export default function UsersListPanel({ orgId }) {
     return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [structureMaps]);
 
-  const capabilityHydrationPending = Boolean(capabilityFilter) && members.some((m) => {
-    const id = memberUserId(m);
-    return id && !hasUserCache(capabilityByUser, id);
-  });
-
   const filtered = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
     return members.filter((m) => {
       if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
       if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
-      if (capabilityFilter && !capabilityHydrationPending) {
+      if (capabilityFilter) {
         const id = memberUserId(m);
-        if (!hasUserCache(capabilityByUser, id)) return false;
         const cap = capabilityByUser[id] || 'draft';
         if (capabilityFilter === 'draft') {
           if (cap !== 'draft' && cap !== '') return false;
@@ -390,7 +373,6 @@ export default function UsersListPanel({ orgId }) {
     roleFilter,
     statusFilter,
     capabilityFilter,
-    capabilityHydrationPending,
     scopeFilter,
     structureMaps,
     rbacByUser,
@@ -412,100 +394,6 @@ export default function UsersListPanel({ orgId }) {
     return sorted.slice(start, start + USERS_LIST_PAGE_SIZE);
   }, [sorted, safePage]);
 
-  const pageUserIdsKey = useMemo(
-    () => pageItems.map((m) => memberUserId(m)).filter(Boolean).join('|'),
-    [pageItems]
-  );
-  const memberIdsKey = useMemo(
-    () => members.map((m) => memberUserId(m)).filter(Boolean).join('|'),
-    [members]
-  );
-  pageItemsRef.current = pageItems;
-  membersRef.current = members;
-
-  useEffect(() => {
-    if (!orgId || !pageUserIdsKey) {
-      return undefined;
-    }
-    const rows = pageItemsRef.current;
-    let cancelled = false;
-    (async () => {
-      const missing = rows.filter((m) => {
-        const uid = memberUserId(m);
-        return uid && !hasUserCache(rbacByUserRef.current, uid);
-      });
-      if (!missing.length) return;
-      const entries = await Promise.all(
-        missing.map(async (m) => {
-          const uid = memberUserId(m);
-          if (!uid) return ['', []];
-          try {
-            const res = await roleAPI.getUserRoles(uid, orgId);
-            return [uid, unwrapList(res)];
-          } catch {
-            return [uid, []];
-          }
-        })
-      );
-      if (!cancelled) {
-        setRbacByUser((prev) => {
-          const next = { ...prev };
-          for (const [uid, roles] of entries) {
-            if (uid) next[uid] = roles;
-          }
-          rbacByUserRef.current = next;
-          return next;
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, pageUserIdsKey]);
-
-  useEffect(() => {
-    if (!orgId || !memberIdsKey) {
-      return undefined;
-    }
-    const allMembers = membersRef.current;
-    const rows = pageItemsRef.current;
-    const source = capabilityFilter ? allMembers : rows;
-    if (!source.length) return undefined;
-    let cancelled = false;
-    (async () => {
-      const missing = source.filter((m) => {
-        const uid = memberUserId(m);
-        return uid && !hasUserCache(capabilityByUserRef.current, uid);
-      });
-      if (!missing.length) return;
-      const poolRows = await mapPool(missing, 5, async (m) => {
-        const uid = memberUserId(m);
-        if (!uid) return ['', 'draft'];
-        try {
-          const res = await adminUserAPI.getProfile(orgId, uid);
-          const data = unwrapApi(res)?.data ?? unwrapApi(res);
-          const status = String(data?.capability?.verificationStatus || 'draft').trim() || 'draft';
-          return [uid, status];
-        } catch {
-          return [uid, 'draft'];
-        }
-      });
-      if (!cancelled) {
-        setCapabilityByUser((prev) => {
-          const next = { ...prev };
-          for (const [uid, status] of poolRows) {
-            if (uid) next[uid] = status;
-          }
-          capabilityByUserRef.current = next;
-          return next;
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, memberIdsKey, pageUserIdsKey, capabilityFilter]);
-
   const handleSortColumn = (columnKey) => {
     if (sortKey === columnKey) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -524,8 +412,7 @@ export default function UsersListPanel({ orgId }) {
 
   const showMembersError = Boolean(membersError) && !members.length && !loading;
   const showMembersSkeleton = loading && !members.length;
-  const showCapabilityWait = Boolean(capabilityFilter) && capabilityHydrationPending && !showMembersSkeleton && !showMembersError;
-  const showTableBody = !showMembersError && !showMembersSkeleton && !showCapabilityWait;
+  const showTableBody = !showMembersError && !showMembersSkeleton;
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -540,8 +427,8 @@ export default function UsersListPanel({ orgId }) {
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="mx-auto flex max-h-[calc(100dvh-7.5rem)] min-h-0 max-w-[1400px] flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
             {t('adminDomains.users.list')}
@@ -564,7 +451,7 @@ export default function UsersListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="shrink-0 rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -678,7 +565,7 @@ export default function UsersListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {showMembersError ? (
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
             <p className="text-sm text-muted-foreground">{t('companyAdmin.loadMembersFail')}</p>
@@ -691,158 +578,150 @@ export default function UsersListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  <SortableTh
-                    label={t('adminUsers.colUser')}
-                    columnKey="name"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <SortableTh
-                    label={t('adminUsers.colEmployeeCode')}
-                    columnKey="employeeCode"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <SortableTh
-                    label={t('companyAdmin.colEmail')}
-                    columnKey="email"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
-                  <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
-                    {t('adminUsers.colUserRole')}
-                  </th>
-                  <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
-                  <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
-                    {t('adminUsers.colOrgRole')}
-                  </th>
-                  <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
-                  <th className="w-12 px-2 py-3 text-center">
-                    <span className="sr-only">{t('adminUsers.colActions')}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {showMembersSkeleton || showCapabilityWait ? <UsersTableSkeletonRows /> : null}
-                {showTableBody
-                  ? pageItems.map((m) => {
-                  const id = memberUserId(m);
-                  const name = memberDisplayName(m);
-                  const code = memberEmployeeCode(m);
-                  const isSystemAdmin = isSystemAdminMember(m);
-                  const depId = memberDepartmentId(m);
-                  const teamId = memberTeamId(m);
-                  const depName = structureMaps.departments.get(depId);
-                  const teamName = structureMaps.teams.get(teamId);
-                  const rbacReady = hasUserCache(rbacByUser, id);
-                  const capabilityReady = hasUserCache(capabilityByUser, id);
-                  const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
-                    normalizeRoleDisplayName(row?.name || row?.role?.name)
-                  );
-                  return (
-                    <tr
-                      key={id}
-                      className="border-b border-border/50 transition hover:bg-muted/20"
-                    >
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          className="flex max-w-[240px] items-center gap-3 text-left"
-                          onClick={() => setDetailMember(m)}
-                        >
-                          {m.avatar ? (
-                            <img src={m.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
-                          ) : (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[11px] font-bold text-white">
-                              {getInitials(name)}
-                            </div>
-                          )}
-                          <span className="min-w-0">
-                            <span className="truncate font-medium text-foreground hover:underline">{name}</span>
-                            {isSystemAdmin ? (
-                              <span className="mt-0.5 block text-[10px] font-semibold text-violet-600 dark:text-violet-300">
-                                {t('adminNav.systemRoleBadge')}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
-                        {code || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
-                      <td className="px-4 py-3">
-                        <AccountRoleBadge role={memberOrgRole(m)} t={t} />
-                      </td>
-                      <td className="px-4 py-3">
-                        {rbacReady ? (
+          <>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                    <SortableTh
+                      label={t('adminUsers.colUser')}
+                      columnKey="name"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <SortableTh
+                      label={t('adminUsers.colEmployeeCode')}
+                      columnKey="employeeCode"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <SortableTh
+                      label={t('companyAdmin.colEmail')}
+                      columnKey="email"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
+                    <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
+                      {t('adminUsers.colUserRole')}
+                    </th>
+                    <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
+                    <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
+                      {t('adminUsers.colOrgRole')}
+                    </th>
+                    <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
+                    <th className="w-12 px-2 py-3 text-center">
+                      <span className="sr-only">{t('adminUsers.colActions')}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {showMembersSkeleton ? <UsersTableSkeletonRows /> : null}
+                  {showTableBody
+                    ? pageItems.map((m) => {
+                    const id = memberUserId(m);
+                    const name = memberDisplayName(m);
+                    const code = memberEmployeeCode(m);
+                    const isSystemAdmin = isSystemAdminMember(m);
+                    const depId = memberDepartmentId(m);
+                    const teamId = memberTeamId(m);
+                    const depName = structureMaps.departments.get(depId);
+                    const teamName = structureMaps.teams.get(teamId);
+                    const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
+                      normalizeRoleDisplayName(row?.name || row?.role?.name)
+                    );
+                    return (
+                      <tr
+                        key={id}
+                        className="border-b border-border/50 transition hover:bg-muted/20"
+                      >
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            className="flex max-w-[240px] items-center gap-3 text-left"
+                            onClick={() => setDetailMember(m)}
+                          >
+                            {m.avatar ? (
+                              <img src={m.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[11px] font-bold text-white">
+                                {getInitials(name)}
+                              </div>
+                            )}
+                            <span className="min-w-0">
+                              <span className="truncate font-medium text-foreground hover:underline">{name}</span>
+                              {isSystemAdmin ? (
+                                <span className="mt-0.5 block text-[10px] font-semibold text-violet-600 dark:text-violet-300">
+                                  {t('adminNav.systemRoleBadge')}
+                                </span>
+                              ) : null}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {code || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
+                        <td className="px-4 py-3">
+                          <AccountRoleBadge role={memberOrgRole(m)} t={t} />
+                        </td>
+                        <td className="px-4 py-3">
                           <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
-                        ) : (
-                          <CellPlaceholder />
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <OrgRoleCell
-                          rows={orgRoleByUser[id]}
-                          emptyLabel={t('adminUsers.orgRoleNone')}
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div className="max-w-[160px] truncate">
-                          {depName || teamName || '—'}
-                          {depName && teamName ? (
-                            <span className="block truncate text-[11px] opacity-70">{teamName}</span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge member={m} t={t} />
-                      </td>
-                      <td className="px-4 py-3">
-                        {capabilityReady ? (
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <OrgRoleCell
+                            rows={orgRoleByUser[id]}
+                            emptyLabel={t('adminUsers.orgRoleNone')}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <div className="max-w-[160px] truncate">
+                            {depName || teamName || '—'}
+                            {depName && teamName ? (
+                              <span className="block truncate text-[11px] opacity-70">{teamName}</span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge member={m} t={t} />
+                        </td>
+                        <td className="px-4 py-3">
                           <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
-                        ) : (
-                          <CellPlaceholder />
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {formatWhen(m.lastLoginAt)}
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <AdminUserActionsMenu
-                          member={m}
-                          onViewDetail={setDetailMember}
-                          onRequestDelete={setDeleteMember}
-                          disableDelete={isSystemAdmin}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
-                : null}
-              </tbody>
-            </table>
-            {showTableBody && !sorted.length ? (
-              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t('adminUsers.noUsers')}
-              </p>
-            ) : null}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {formatWhen(m.lastLoginAt)}
+                        </td>
+                        <td className="px-2 py-3 text-center">
+                          <AdminUserActionsMenu
+                            member={m}
+                            onViewDetail={setDetailMember}
+                            onRequestDelete={setDeleteMember}
+                            disableDelete={isSystemAdmin}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                  : null}
+                </tbody>
+              </table>
+              {showTableBody && !sorted.length ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {t('adminUsers.noUsers')}
+                </p>
+              ) : null}
+            </div>
             {showTableBody && sorted.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
                 <button
                   type="button"
                   disabled={safePage <= 1}
@@ -868,7 +747,7 @@ export default function UsersListPanel({ orgId }) {
                 </button>
               </div>
             ) : null}
-          </div>
+          </>
         )}
       </div>
 
@@ -890,11 +769,7 @@ export default function UsersListPanel({ orgId }) {
         }
         formatWhen={formatWhen}
         onCapabilityStatusChange={(userId, status) => {
-          setCapabilityByUser((prev) => {
-            const next = { ...prev, [userId]: status };
-            capabilityByUserRef.current = next;
-            return next;
-          });
+          setCapabilityOverrides((prev) => ({ ...prev, [userId]: status }));
         }}
       />
 

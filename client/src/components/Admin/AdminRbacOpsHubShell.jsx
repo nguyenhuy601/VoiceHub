@@ -30,10 +30,10 @@ export default function AdminRbacOpsHubShell({
   };
 
   return (
-    <AdminUserPanelShell title={title} hint={hint} wide>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
+    <AdminUserPanelShell title={title} hint={hint} wide fillHeight>
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
         <div className="flex min-h-0 min-w-0 flex-col">{renderPicker?.(activeTab)}</div>
-        <div className="min-w-0 space-y-4">
+        <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label={title}>
             {tabs.map((tab) => {
               const active = activeTab === tab.id;

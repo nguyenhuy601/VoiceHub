@@ -24,7 +24,7 @@ export default function AccountActivatePanel({ orgId, embedded = false }) {
   const [reloadTick, setReloadTick] = useState(0);
   const [summary, setSummary] = useState(null);
   const [issued, setIssued] = useState(null);
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   useEffect(() => {
     setIssued(null);

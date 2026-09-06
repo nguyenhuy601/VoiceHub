@@ -41,7 +41,7 @@ export default function AccountDetailPanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { members } = useAdminMembers(orgId);
+  const { members } = useAdminMembers(orgId, { view: 'directory' });
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
 

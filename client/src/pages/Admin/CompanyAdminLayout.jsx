@@ -8,7 +8,9 @@ import { useAppStrings } from '../../locales/appStrings';
 import {
   fetchAdminMembers,
   getAdminMembersCount,
+  getAdminMembersSnapshot,
   subscribeAdminMembers,
+  VIEW_DIRECTORY,
 } from '../../stores/adminMembersStore';
 
 const CompanyAdminContext = createContext(null);
@@ -36,13 +38,17 @@ export default function CompanyAdminLayout() {
 
   const refreshStats = useCallback(async () => {
     if (!orgId) return;
-    await fetchAdminMembers(orgId, { showError: false }).catch(() => null);
+    // Count-only — giữ rank đã hydrate; cold thì directory.
+    const snap = getAdminMembersSnapshot(orgId);
+    const view =
+      snap?.hydratedView === 'admin_table' ? 'admin_table' : VIEW_DIRECTORY;
+    await fetchAdminMembers(orgId, { showError: false, force: true, view }).catch(() => null);
     setMemberCount(getAdminMembersCount(orgId));
   }, [orgId]);
 
   useEffect(() => {
     if (!orgId || !canAccessHub) return undefined;
-    fetchAdminMembers(orgId, { showError: false }).catch(() => null);
+    // Không prefetch members ở layout — mỗi trang gọi view đúng (directory|admin_table).
     const syncCount = () => {
       const next = getAdminMembersCount(orgId);
       setMemberCount((prev) => (prev === next ? prev : next));
@@ -70,7 +76,7 @@ export default function CompanyAdminLayout() {
 
   if (!orgId) {
     return (
-      <div className={`flex h-[100dvh] items-center justify-center ${FIGMA_PAGE_SHELL}`}>
+      <div className={`flex h-full min-h-0 items-center justify-center ${FIGMA_PAGE_SHELL}`}>
         <p className="text-muted-foreground">{t('companyAdmin.missingCompany')}</p>
       </div>
     );
@@ -78,7 +84,7 @@ export default function CompanyAdminLayout() {
 
   if (loading) {
     return (
-      <div className={`flex h-[100dvh] items-center justify-center ${FIGMA_PAGE_SHELL}`}>
+      <div className={`flex h-full min-h-0 items-center justify-center ${FIGMA_PAGE_SHELL}`}>
         <p className="text-muted-foreground">{t('common.loading')}</p>
       </div>
     );
@@ -86,7 +92,7 @@ export default function CompanyAdminLayout() {
 
   if (!organization) {
     return (
-      <div className={`flex h-[100dvh] flex-col items-center justify-center gap-3 ${FIGMA_PAGE_SHELL}`}>
+      <div className={`flex h-full min-h-0 flex-col items-center justify-center gap-3 ${FIGMA_PAGE_SHELL}`}>
         <p className="text-muted-foreground">{t('organizationSettings.notFound')}</p>
         <button type="button" className="text-primary hover:underline" onClick={() => navigate('/app/collaborate/workspaces')}>
           {t('companyAdmin.backToWork')}
@@ -98,12 +104,12 @@ export default function CompanyAdminLayout() {
   return (
     <CompanyAdminContext.Provider value={contextValue}>
       <AdminCompanyRealtimeSync />
-      <div className={`flex h-[100dvh] flex-col overflow-hidden ${FIGMA_PAGE_SHELL} text-foreground`}>
+      <div className={`flex h-full min-h-0 flex-1 flex-col overflow-hidden ${FIGMA_PAGE_SHELL} text-foreground`}>
         <header className="shrink-0 border-b border-border bg-card/40 px-4 py-4 md:px-8">
           <h1 className="text-xl font-bold">{t('companyAdmin.title')}</h1>
           <p className="text-sm text-muted-foreground">{organization.name}</p>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>

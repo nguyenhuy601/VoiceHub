@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
@@ -110,7 +112,7 @@ export default function BranchListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {busy ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : listError ? (
@@ -128,10 +130,10 @@ export default function BranchListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colLocation')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colStatus')}</th>
@@ -182,9 +184,9 @@ export default function BranchListPanel({ orgId }) {
                 {t('adminOrg.noBranches')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

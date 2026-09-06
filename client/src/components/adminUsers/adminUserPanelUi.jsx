@@ -1,17 +1,39 @@
 /**
+ * Khung bảng/list admin dày — scroll trong card (sticky thead bên trong children).
+ */
+export function AdminDenseTableCard({ children, className = '' }) {
+  return (
+    <div
+      className={`flex max-h-[calc(100dvh-12rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm ${className}`.trim()}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Vùng cuộn dọc (+ ngang nếu bảng rộng) trong AdminDenseTableCard. */
+export function AdminDenseTableScroll({ children, className = '' }) {
+  return <div className={`min-h-0 flex-1 overflow-auto ${className}`.trim()}>{children}</div>;
+}
+
+/**
  * Shell + form card dùng chung cho các màn admin Users (enterprise).
  */
-export function AdminUserPanelShell({ title, hint, actions, children, wide = false }) {
+export function AdminUserPanelShell({ title, hint, actions, children, wide = false, fillHeight = false }) {
   return (
-    <div className={`mx-auto space-y-5 ${wide ? 'max-w-[1400px]' : 'max-w-5xl'}`}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div
+      className={`mx-auto flex w-full flex-col ${fillHeight ? 'min-h-0 flex-1' : ''} ${
+        wide ? 'max-w-[1400px]' : 'max-w-5xl'
+      } ${fillHeight ? 'gap-4' : 'space-y-5'}`}
+    >
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
           {hint ? <p className="mt-1 text-sm text-muted-foreground">{hint}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>
-      {children}
+      <div className={fillHeight ? 'min-h-0 flex-1' : undefined}>{children}</div>
     </div>
   );
 }

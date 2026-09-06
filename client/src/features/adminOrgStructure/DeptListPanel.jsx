@@ -1,22 +1,24 @@
 /** Huy: Domain Cơ cấu tổ chức — admin org-structure */
-import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  AdminUserPanelShell,
-  adminInputClass,
-  adminPrimaryBtnClass,
-  adminSecondaryBtnClass,
+    AdminDenseTableCard,
+    AdminDenseTableScroll,
+    AdminUserPanelShell,
+    adminInputClass,
+    adminPrimaryBtnClass,
+    adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
-import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
 const DEPT_MANAGE_HUB = '/app/admin/org-structure/departments/manage';
 const ACTION_LINKS = [
@@ -30,7 +32,7 @@ const ACTION_LINKS = [
 export default function DeptListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
-  const { membersByIdAll } = useAdminMembers(orgId);
+  const { membersByIdAll } = useAdminMembers(orgId, { view: 'directory' });
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const canCreateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
@@ -106,14 +108,14 @@ export default function DeptListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colDivision')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colBranch')}</th>
@@ -161,9 +163,9 @@ export default function DeptListPanel({ orgId }) {
                 {t('adminOrg.noDepartments')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }
