@@ -229,6 +229,17 @@ class RoleController {
       return sendError(res, error, 500, 'Không thể backfill quyền role:read', 'ROLE_BACKFILL_FAILED');
     }
   }
+
+  async listAssignmentsByServer(req, res) {
+    try {
+      const { serverId } = req.params;
+      const byUser = await roleService.listAssignmentsByServer(serverId);
+      res.json({ success: true, data: { byUser } });
+    } catch (error) {
+      logger.error('listAssignmentsByServer error:', error);
+      return sendError(res, error, 400, 'Không thể tải assignment vai trò', 'ROLE_ASSIGNMENTS_LIST_FAILED');
+    }
+  }
 }
 
 module.exports = new RoleController();

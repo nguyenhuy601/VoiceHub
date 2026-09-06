@@ -6,7 +6,7 @@ const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
 const { isHierarchyRoleName, coercePermissionPackScope } = require('../utils/permissionPackScope');
-const { activeUserRoleQuery, mapPopulatedUserRoles } = require('../utils/assignedUserRoles');
+const { activeUserRoleQuery, mapPopulatedUserRoles, parseObjectId, serializeAssignedRole } = require('../utils/assignedUserRoles');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -424,6 +424,32 @@ class RoleService {
       logger.error('Error getting user roles:', error);
       throw error;
     }
+  }
+
+  /**
+   * S2S — mọi assignment active theo server (org). Trả map userId → roles[].
+   * Dùng org-service enrich admin list (tránh N+1 getUserRoles).
+   */
+  async listAssignmentsByServer(serverId) {
+    const sid = parseObjectId(serverId, 'serverId');
+    const rows = await UserRole.find({
+      serverId: sid,
+      isActive: true,
+      $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+    })
+      .populate('roleId')
+      .lean();
+
+    /** @type {Record<string, object[]>} */
+    const byUser = {};
+    for (const row of rows) {
+      const uid = String(row.userId || '').trim();
+      const role = serializeAssignedRole(row?.roleId);
+      if (!uid || !role) continue;
+      if (!byUser[uid]) byUser[uid] = [];
+      byUser[uid].push(role);
+    }
+    return byUser;
   }
 
   // Cập nhật role

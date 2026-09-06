@@ -21,4 +21,11 @@ router.post(
   roleController.backfillRoleRead.bind(roleController)
 );
 
+/** Org-service S2S — bulk UserRole theo server (admin list enrich). */
+router.get(
+  '/server/:serverId/assignments',
+  internalGatewayAuth,
+  roleController.listAssignmentsByServer.bind(roleController)
+);
+
 module.exports = router;
