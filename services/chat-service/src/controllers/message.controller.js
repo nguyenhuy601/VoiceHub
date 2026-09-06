@@ -1388,13 +1388,27 @@ class MessageController {
       const { emoji } = req.body || {};
       const userId = req.user?.id || req.user?._id;
 
+      const existing = await messageService.getMessageById(messageId);
+      if (!existing || existing.isDeleted || existing.isRecalled) {
+        return chatMessageNotFound(res);
+      }
+      await assertCanAccessMessage(existing, userId, req);
+
       const message = await messageService.addReaction(messageId, userId, emoji);
       if (!message) {
         return chatMessageNotFound(res);
       }
 
       const data = (await attachSignedReadUrlToMessage(message)) || message;
-      await emitDmToParticipants('friend:message_reaction', data);
+      if (data?.roomId) {
+        await emitRealtimeEvent({
+          event: 'room:message_reaction',
+          roomId: String(data.roomId),
+          payload: data,
+        });
+      } else {
+        await emitDmToParticipants('friend:message_reaction', data);
+      }
 
       res.json({ success: true, data });
     } catch (error) {
@@ -1407,6 +1421,12 @@ class MessageController {
       const { messageId, emoji } = req.params;
       const userId = req.user?.id || req.user?._id;
 
+      const existing = await messageService.getMessageById(messageId);
+      if (!existing) {
+        return chatMessageNotFound(res);
+      }
+      await assertCanAccessMessage(existing, userId, req);
+
       const message = await messageService.removeReaction(
         messageId,
         userId,
@@ -1417,7 +1437,15 @@ class MessageController {
       }
 
       const data = (await attachSignedReadUrlToMessage(message)) || message;
-      await emitDmToParticipants('friend:message_reaction', data);
+      if (data?.roomId) {
+        await emitRealtimeEvent({
+          event: 'room:message_reaction',
+          roomId: String(data.roomId),
+          payload: data,
+        });
+      } else {
+        await emitDmToParticipants('friend:message_reaction', data);
+      }
 
       res.json({ success: true, data });
     } catch (error) {

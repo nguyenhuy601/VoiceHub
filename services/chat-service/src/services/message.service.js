@@ -527,11 +527,15 @@ class MessageService {
       const msg = await Message.findById(messageId);
       if (!msg || msg.isDeleted || msg.isRecalled) return null;
 
+      const me = String(uid);
       const sender = String(msg.senderId);
       const receiver = String(msg.receiverId || '');
-      const me = String(uid);
-      if (me !== sender && me !== receiver) {
-        throw new Error('Unauthorized');
+      const isOrgRoom = Boolean(msg.roomId && msg.organizationId);
+      // DM: chỉ sender/receiver. Kênh org: controller đã assertCanAccessMessage (canRead).
+      if (!isOrgRoom && me !== sender && me !== receiver) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
 
       const reactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
@@ -575,8 +579,11 @@ class MessageService {
 
       const sender = String(msg.senderId);
       const receiver = String(msg.receiverId || '');
-      if (me !== sender && me !== receiver) {
-        throw new Error('Unauthorized');
+      const isOrgRoom = Boolean(msg.roomId && msg.organizationId);
+      if (!isOrgRoom && me !== sender && me !== receiver) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
 
       const reactions = (Array.isArray(msg.reactions) ? msg.reactions : []).filter(
