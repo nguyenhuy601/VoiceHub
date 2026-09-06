@@ -46,4 +46,22 @@ describe('normalizeOrgChatMessage — file after F5', () => {
     assert.equal(list[0].messageType, 'text');
     assert.equal(list[1].messageType, 'file');
   });
+
+  it('giữ reactions khi chuẩn hóa text/file', () => {
+    const reactions = [{ emoji: '👍', userId: 'u1' }];
+    const text = normalizeOrgChatMessage({
+      content: 'hello',
+      messageType: 'text',
+      reactions,
+    });
+    assert.deepEqual(text.reactions, reactions);
+    const file = normalizeOrgChatMessage({
+      content: 'x.png',
+      messageType: 'image',
+      reactions,
+      fileMeta: { storagePath: 'temp/a', mimeType: 'image/png', byteSize: 2 },
+    });
+    assert.equal(file.messageType, 'image');
+    assert.deepEqual(file.reactions, reactions);
+  });
 });

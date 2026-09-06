@@ -1,24 +1,75 @@
 /**
  * Tải GIF/sticker từ catalog CDN → File để upload qua chatFileUpload.
  * Sticker cụm từ VN (phrase) render canvas PNG trong browser.
- * @param {{ url: string, fileName?: string, mimeType?: string, phrase?: { text: string, emoji: string, bg: string, color: string } }} item
+ * Cache trong session để chọn lại / hover prefetch không tải CDN lần 2.
+ */
+
+/** @type {Map<string, Promise<File>>} */
+const mediaFileCache = new Map();
+const MEDIA_CACHE_MAX = 48;
+
+function cacheKeyForItem(item) {
+  if (item?.phrase) return `phrase:${String(item.id || item.fileName || '')}`;
+  return String(item?.url || '').trim();
+}
+
+function rememberCache(key, promise) {
+  if (!key) return promise;
+  mediaFileCache.set(key, promise);
+  if (mediaFileCache.size > MEDIA_CACHE_MAX) {
+    const oldest = mediaFileCache.keys().next().value;
+    mediaFileCache.delete(oldest);
+  }
+  return promise;
+}
+
+/**
+ * @param {{ url: string, fileName?: string, mimeType?: string, phrase?: { text: string, emoji: string, bg: string, color: string }, id?: string }} item
  * @returns {Promise<File>}
  */
 export async function fetchChatMediaFile(item) {
-  if (item?.phrase) {
-    return renderPhraseStickerFile(item);
+  const key = cacheKeyForItem(item);
+  if (key && mediaFileCache.has(key)) {
+    return mediaFileCache.get(key);
   }
 
-  const url = String(item?.url || '').trim();
-  if (!url) throw new Error('Missing media url');
+  const pending = (async () => {
+    if (item?.phrase) {
+      return renderPhraseStickerFile(item);
+    }
 
-  const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-  if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
+    const url = String(item?.url || '').trim();
+    if (!url) throw new Error('Missing media url');
 
-  const blob = await res.blob();
-  const type = item.mimeType || blob.type || 'application/octet-stream';
-  const name = String(item.fileName || 'media.bin').trim() || 'media.bin';
-  return new File([blob], name, { type });
+    // data: URL (preview SVG) — không fetch mạng
+    if (url.startsWith('data:')) {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const type = item.mimeType || blob.type || 'application/octet-stream';
+      const name = String(item.fileName || 'media.bin').trim() || 'media.bin';
+      return new File([blob], name, { type });
+    }
+
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
+
+    const blob = await res.blob();
+    const type = item.mimeType || blob.type || 'application/octet-stream';
+    const name = String(item.fileName || 'media.bin').trim() || 'media.bin';
+    return new File([blob], name, { type });
+  })();
+
+  return rememberCache(key, pending.catch((err) => {
+    mediaFileCache.delete(key);
+    throw err;
+  }));
+}
+
+/** Prefetch khi hover ô media — ấm cache trước khi bấm gửi. */
+export function prefetchChatMediaFile(item) {
+  if (!item?.url && !item?.phrase) return;
+  if (mediaFileCache.has(cacheKeyForItem(item))) return;
+  void fetchChatMediaFile(item).catch(() => {});
 }
 
 /**
@@ -34,13 +85,11 @@ async function renderPhraseStickerFile(item) {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas unavailable');
 
-  // Nền bo góc
   const radius = 96;
   ctx.fillStyle = bg || '#1e3a5f';
   roundRect(ctx, 0, 0, size, size, radius);
   ctx.fill();
 
-  // Viền nhẹ
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 6;
   roundRect(ctx, 28, 28, size - 56, size - 56, 80);

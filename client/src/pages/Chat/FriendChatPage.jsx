@@ -70,10 +70,12 @@ import api from '../../services/api';
 import { uploadChatFileAndCreateMessage } from '../../services/chatFileUpload';
 import ChatUploadProgressBar from '../../components/Chat/ChatUploadProgressBar';
 import ChatUploadPreviewModal from '../../components/Chat/ChatUploadPreviewModal';
+import ComposerEmojiPicker from '../../components/Chat/ComposerEmojiPicker';
 import { useAuth } from '../../context/AuthContext';
 import { getUserDisplayName } from '../../utils/helpers';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
-import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
+import { fetchChatMediaFile } from '../../utils/chatGifStickerSend';
+import { normalizeComposerFile } from '../../utils/composerAttachmentUtils';
 import { useSocket } from '../../context/SocketContext';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useFriendCallSession } from '../../context/FriendCallSessionContext';
@@ -233,6 +235,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiSearch, setEmojiSearch] = useState('');
   const [emojiPickerTab, setEmojiPickerTab] = useState('emoji');
+  const [mediaPickerSending, setMediaPickerSending] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   /** Snippet tin DM cuối theo bạn: { at, preview, isMine } */
@@ -1464,12 +1467,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     return null;
   }, [sortedChatMessages, currentUserId]);
 
-  const filteredComposerEmojis = useMemo(() => {
-    const keyword = emojiSearch.trim().toLowerCase();
-    if (!keyword) return COMPOSER_EMOJI_LIST;
-    return COMPOSER_EMOJI_LIST.filter((emoji) => emoji.toLowerCase().includes(keyword));
-  }, [emojiSearch]);
-
   const appendEmoji = (emoji) => {
     setMessage((prev) => `${prev || ''}${emoji}`);
     setShowEmojiPicker(false);
@@ -1519,6 +1516,27 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
       }
     },
     [selectedFriendId, currentUserId, t, setBlockedByPeer]
+  );
+
+  const handlePickChatMedia = useCallback(
+    async (item) => {
+      if (!item?.url || !selectedFriendId || uploadProgress != null) return false;
+      setShowEmojiPicker(false);
+      setEmojiSearch('');
+      setMediaPickerSending(true);
+      try {
+        const rawFile = await fetchChatMediaFile(item);
+        const file = normalizeComposerFile(rawFile, t);
+        await performFileUpload(file);
+        return true;
+      } catch (error) {
+        toast.error(resolveApiErrorMessage(error, { t, fallback: t('friendChat.fileFail') }));
+        return false;
+      } finally {
+        setMediaPickerSending(false);
+      }
+    },
+    [selectedFriendId, uploadProgress, performFileUpload, t]
   );
 
   const queueFileForPreview = useCallback(
@@ -1911,9 +1929,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     'w-8 text-muted-foreground hover:bg-muted hover:text-primary';
   const composerSendBtn =
     'h-10 w-10 rounded-xl bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50';
-  const emojiModalPanel = isDarkMode
-    ? 'fixed bottom-24 right-8 z-50 h-[420px] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-surface-overlay shadow-2xl'
-    : 'fixed bottom-24 right-8 z-50 h-[420px] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl';
 
   const chatSidebar = (
         <aside className={FIGMA_CHAT_SIDEBAR}>
@@ -2754,88 +2769,22 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                 <p className="mt-2 text-center text-[11px] font-medium text-muted-foreground">
                   Enter để gửi · Shift+Enter xuống dòng
                 </p>
-
-                {showEmojiPicker && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label={t('friendChat.closeEmoji')}
-                      onClick={() => setShowEmojiPicker(false)}
-                      className="fixed top-0 right-0 bottom-0 left-[var(--vh-nav-rail-width,3.5rem)] z-40 cursor-default bg-black/30"
-                    />
-                    <div className={emojiModalPanel}>
-                      <div
-                        className={`flex items-center gap-2 border-b px-4 py-3 ${
-                          isDarkMode ? 'border-slate-700' : 'border-slate-200'
-                        }`}
-                      >
-                        {[
-                          { id: 'gif', label: t('friendChat.gif') },
-                          { id: 'sticker', label: t('friendChat.stickerTab') },
-                          { id: 'emoji', label: t('friendChat.emojiTab') },
-                        ].map((tab) => (
-                          <button
-                            key={tab.id}
-                            type="button"
-                            onClick={() => setEmojiPickerTab(tab.id)}
-                            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                              emojiPickerTab === tab.id
-                                ? isDarkMode
-                                  ? 'bg-slate-700 text-white'
-                                  : 'bg-cyan-600 text-white'
-                                : isDarkMode
-                                  ? 'text-gray-300 hover:bg-slate-800/70'
-                                  : 'text-slate-600 hover:bg-slate-100'
-                            }`}
-                          >
-                            {tab.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="border-b border-slate-700 px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            value={emojiSearch}
-                            onChange={(e) => setEmojiSearch(e.target.value)}
-                            placeholder={t('friendChat.emojiSearchPh')}
-                            className="h-11 flex-1 rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-gray-400"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
-                        {emojiPickerTab !== 'emoji' ? (
-                          <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                            {t('friendChat.emojiBetaMsg')}
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-9 gap-2">
-                            {filteredComposerEmojis.map((emoji, idx) => (
-                              <button
-                                key={`${emoji}-${idx}`}
-                                type="button"
-                                onClick={() => appendEmoji(emoji)}
-                                className="h-11 rounded-lg bg-[#111a2c] text-2xl transition hover:bg-slate-700/80"
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                            {filteredComposerEmojis.length === 0 && (
-                              <div className="col-span-9 rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-gray-400">
-                                {t('friendChat.emojiNoMatch')}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
             </>
           )}
           </div>
+
+          <ComposerEmojiPicker
+            open={showEmojiPicker && Boolean(selectedFriendId)}
+            onClose={() => setShowEmojiPicker(false)}
+            onPick={appendEmoji}
+            onPickMedia={handlePickChatMedia}
+            mediaLoading={mediaPickerSending || uploadProgress != null}
+            activeTab={emojiPickerTab}
+            onTabChange={setEmojiPickerTab}
+            search={emojiSearch}
+            onSearchChange={setEmojiSearch}
+          />
 
           <ChannelMessageMoreMenu
             open={moreMenu.open}
