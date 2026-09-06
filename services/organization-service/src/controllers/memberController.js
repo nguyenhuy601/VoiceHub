@@ -36,6 +36,8 @@ const { searchUserByEmail } = require('../clients/userLookup.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
+const { fetchRbacAssignmentsByOrg } = require('../clients/rbacAssignmentsBatch.client');
+const { projectMembersForView } = require('../services/projectAdminMemberView');
 const {
   assertEmailDomainAllowed,
   resolveAllowedEmailDomains,
@@ -357,7 +359,9 @@ async function listMembersForDepartmentRoster(orgId, lookupOrRaw) {
 exports.getMembers = async (req, res, next) => {
   try {
     const members = await listMembersForOrg(req);
-    return res.json({ status: 'success', data: members });
+    // Additive: displayName/email/avatar — FE directory không còn fallback "Thành viên"/id.slice(-6).
+    const enriched = await enrichMembersForAdminList(members);
+    return res.json({ status: 'success', data: enriched });
   } catch (error) {
     const handled = orgOperationalError(res, error);
     if (handled) return handled;
@@ -365,13 +369,16 @@ exports.getMembers = async (req, res, next) => {
   }
 };
 
-async function enrichMembersForAdminList(members) {
+async function enrichMembersForAdminList(members, { includeRbac = false, organizationId = '' } = {}) {
   const userIds = members
     .map((m) => String(m.user?._id || m.user || m.userId || '').trim())
     .filter(Boolean);
-  const [profileMap, authMap] = await Promise.all([
+  const [profileMap, authMap, rbacMap] = await Promise.all([
     fetchProfilesByUserIds(userIds),
     fetchAuthSummaryByUserIds(userIds),
+    includeRbac && organizationId
+      ? fetchRbacAssignmentsByOrg(organizationId)
+      : Promise.resolve(new Map()),
   ]);
 
   return members.map((member) => {
@@ -388,6 +395,8 @@ async function enrichMembersForAdminList(members) {
       emailLocal ||
       null;
     const employeeCode = String(profile.employeeCode || '').trim().toUpperCase() || null;
+    const capStatus = String(profile?.capability?.verificationStatus || '').trim() || 'draft';
+    const rbacRoles = includeRbac ? rbacMap.get(userId) || [] : undefined;
     return {
       ...member,
       userId,
@@ -403,21 +412,35 @@ async function enrichMembersForAdminList(members) {
       lastLoginAt: auth.lastLoginAt || null,
       // Huy: gắn systemRole để FE/BE lọc tài khoản admin hệ thống khỏi danh sách user
       systemRole: String(auth.systemRole || 'employee').toLowerCase() === 'admin' ? 'admin' : 'employee',
+      /** Additive — admin list / filter (Wave B). */
+      capabilityStatus: capStatus,
+      ...(includeRbac ? { rbacRoles } : {}),
     };
   });
 }
 
-/** Gom members + roles RBAC — một request cho sidebar (wave-2d). */
+/** Gom members + roles RBAC — một request cho sidebar (wave-2d).
+ * Query `view`:
+ * - (mặc định) — enrich hiện tại + capabilityStatus (additive), không project
+ * - directory — allowlist DTO, không bulk UserRole
+ * - admin_table — allowlist DTO + rbacRoles[] (1 S2S bulk)
+ */
 exports.getMembersWithRoles = async (req, res, next) => {
   try {
     const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
+    const view = String(req.query?.view || '').trim().toLowerCase();
+    const includeRbac = view === 'admin_table';
     const [members, roles] = await Promise.all([
       listMembersForOrg(req),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
-    const enriched = await enrichMembersForAdminList(members);
+    const enriched = await enrichMembersForAdminList(members, {
+      includeRbac,
+      organizationId: req.params.orgId,
+    });
     const withPlacement = await attachPlacementFromStructure(req.params.orgId, enriched);
-    return res.json({ status: 'success', data: { members: withPlacement, roles } });
+    const projected = projectMembersForView(withPlacement, view);
+    return res.json({ status: 'success', data: { members: projected, roles } });
   } catch (error) {
     const handled = orgOperationalError(res, error);
     if (handled) return handled;
