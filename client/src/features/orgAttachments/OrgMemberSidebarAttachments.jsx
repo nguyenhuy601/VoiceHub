@@ -308,7 +308,10 @@ export default function OrgMemberSidebarAttachments({
                 {item.name}
               </button>
               <p className={`truncate text-[10px] ${sub}`}>
-                #{item.channelName} · {formatRelativeTime(item.createdAt, locale)}
+                {t('organizations.memberSidebarFilesChannelMeta', {
+                  channel: item.channelName || t('organizations.memberSidebarFilesUnknownChannel'),
+                  when: formatRelativeTime(item.createdAt, locale),
+                })}
               </p>
             </div>
             {item.url ? (

@@ -1,8 +1,20 @@
-import { Building2, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Building2,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Megaphone,
+  Users,
+  Video,
+} from 'lucide-react';
 import {
   FIGMA_WS_SHELL_CONTENT,
   FIGMA_WS_SHELL_ROOT,
   FIGMA_WS_SHELL_SUB_HEADER,
+  FIGMA_WS_SHELL_VIEWS_BAR,
+  FIGMA_WS_SHELL_VIEW_BTN,
+  FIGMA_WS_SHELL_VIEW_BTN_ACTIVE,
 } from './figmaOrganizationClasses';
 import { useAppStrings } from '../../locales/appStrings';
 
@@ -14,12 +26,11 @@ const TEAM_TAB_IDS = [
 ];
 
 const DEPT_TAB_IDS = [
-  { id: 'announcement', labelKey: 'workspace.moduleAnnouncement' },
-  { id: 'tasks', labelKey: 'workspace.moduleTask' },
-  { id: 'members', labelKey: 'workspace.moduleMembers' },
-  { id: 'documents', labelKey: 'workspace.moduleDocs' },
-  { id: 'calendar', labelKey: 'workspace.moduleCalendar' },
-  { id: 'meetings', labelKey: 'workspace.moduleMeetings' },
+  { id: 'announcement', labelKey: 'workspace.moduleAnnouncement', Icon: Megaphone },
+  { id: 'members', labelKey: 'workspace.moduleMembers', Icon: Users },
+  { id: 'documents', labelKey: 'workspace.moduleDocs', Icon: FileText },
+  { id: 'calendar', labelKey: 'workspace.moduleCalendar', Icon: Calendar },
+  { id: 'meetings', labelKey: 'workspace.moduleMeetings', Icon: Video },
 ];
 
 function orgInitial(name) {
@@ -36,7 +47,7 @@ function scopeAccent(scope) {
 }
 
 /**
- * Org hub shell — breadcrumb + back; module chọn từ card team/dept, không dùng tab bar.
+ * Org hub shell — breadcrumb + Views bar (dept) kiểu ClickUp location + views.
  */
 export default function OrganizationHubShell({
   organizationName = '',
@@ -44,13 +55,14 @@ export default function OrganizationHubShell({
   showLanding = false,
   selectedTeam = null,
   selectedDepartment = null,
-  /** Khi true (dept workspace, không team): dùng DEPT_TAB_IDS */
+  /** Khi true (dept workspace, không team): dùng DEPT_TAB_IDS + Views bar */
   departmentMode = false,
   /** Ẩn breadcrumb (vd. tasks — ProjectHub tự có chrome) */
   hideChrome = false,
   locale = 'vi',
   onBackFromSubView,
-  onModuleClick,
+  /** (departmentId, moduleId) — đổi tab trong dept workspace */
+  onDeptTabChange,
   teamGrid = null,
   children,
   className = '',
@@ -73,6 +85,8 @@ export default function OrganizationHubShell({
   const inSubContext = inTeamContext || inDepartmentContext;
   const subScope = inTeamContext ? selectedTeam : selectedDepartment;
   const subAccent = inTeamContext ? teamAccentInfo : deptAccentInfo;
+  const showDeptViewsBar =
+    departmentMode && inDepartmentContext && !inTeamContext && Boolean(selectedDepartment?.id);
 
   const deptContextLabelKey = (() => {
     if (activeTab === 'tasks') return 'workspace.moduleTask';
@@ -111,7 +125,7 @@ export default function OrganizationHubShell({
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[0.6rem] font-bold text-white"
             style={{ background: subAccent.color }}
           >
-            {inDepartmentContext ? (
+            {inDepartmentContext && !inTeamContext ? (
               <Building2 size={13} className="text-white" />
             ) : (
               subAccent.initial
@@ -138,6 +152,32 @@ export default function OrganizationHubShell({
           </div>
         </div>
       )}
+
+      {showDeptViewsBar ? (
+        <div
+          className={FIGMA_WS_SHELL_VIEWS_BAR}
+          role="tablist"
+          aria-label={t('workspace.deptViewsBarAria')}
+        >
+          {DEPT_TAB_IDS.map((tab) => {
+            const active = String(activeTab || '') === tab.id;
+            const Icon = tab.Icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => onDeptTabChange?.(selectedDepartment.id, tab.id)}
+                className={`${FIGMA_WS_SHELL_VIEW_BTN} ${active ? FIGMA_WS_SHELL_VIEW_BTN_ACTIVE : ''}`}
+              >
+                <Icon size={14} className="shrink-0" aria-hidden />
+                <span className="truncate">{t(tab.labelKey)}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className={FIGMA_WS_SHELL_CONTENT}>
         <div className="flex min-h-0 w-full flex-1 overflow-hidden">{children}</div>

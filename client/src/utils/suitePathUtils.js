@@ -171,6 +171,30 @@ export function buildCollaborateDocumentsPath(orgId = '') {
   return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
 }
 
+/**
+ * Không gian công ty — phòng + tab (announcement|members|documents|calendar|meetings).
+ * Giữ context Collaborate; không nhảy Communicate channels.
+ */
+export function buildCollaborateWorkspacePath({
+  organizationId = '',
+  departmentId = '',
+  tab = '',
+  channelId = '',
+} = {}) {
+  const base = '/app/collaborate/workspaces';
+  const params = new URLSearchParams();
+  const orgId = String(organizationId || '').trim();
+  const deptId = String(departmentId || '').trim();
+  const tabId = String(tab || '').trim().toLowerCase();
+  const chId = String(channelId || '').trim();
+  if (orgId) params.set('organizationId', orgId);
+  if (deptId) params.set('departmentId', deptId);
+  if (tabId) params.set('tab', tabId);
+  if (chId) params.set('channelId', chId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 export function buildCollaborateRequirementsPath(orgId = '') {
   const base = '/app/collaborate/requirements';
   const id = String(orgId || '').trim();
@@ -248,6 +272,12 @@ export function projectQueryFromSearch(search) {
 export function channelQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('channelId') || '').trim();
+}
+
+/** Tab module phòng trên /app/collaborate/workspaces?tab= */
+export function workspaceTabQueryFromSearch(search) {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
+  return String(params.get('tab') || '').trim().toLowerCase();
 }
 
 /** Legacy /w/:slug/:tab → suite route (tab: chat|tasks|documents|notifications). */

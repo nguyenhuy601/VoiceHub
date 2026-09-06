@@ -97,9 +97,19 @@ export const FIGMA_WS_SHELL_ROOT =
   'flex h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
 export const FIGMA_WS_SHELL_SUB_HEADER =
-  'flex w-full shrink-0 items-center gap-2.5 border-b border-border bg-surface px-4 py-3';
+  'flex w-full shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2 sm:px-4';
 
 export const FIGMA_WS_SHELL_CONTENT = 'flex min-h-0 w-full flex-1 flex-col overflow-hidden';
+
+/** Views bar — module phòng (ClickUp-like, trong dept workspace) */
+export const FIGMA_WS_SHELL_VIEWS_BAR =
+  'flex w-full shrink-0 gap-1 overflow-x-auto border-b border-border bg-muted/25 px-2 py-1 scrollbar-overlay sm:px-3';
+
+export const FIGMA_WS_SHELL_VIEW_BTN =
+  'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground sm:text-[0.75rem]';
+
+export const FIGMA_WS_SHELL_VIEW_BTN_ACTIVE =
+  'bg-surface text-primary shadow-xs ring-1 ring-primary/25';
 
 /** Org settings shell (ex-figmaOrgSettingsClasses) */
 export const FIGMA_ORG_SETTINGS_ROOT =
@@ -129,12 +139,12 @@ export const FIGMA_ORG_SETTINGS_MOBILE_TABS =
   'shrink-0 border-b border-border bg-muted/30 px-2 py-2 md:hidden';
 
 export const FIGMA_ORG_CHANNEL_HEADER =
-  'flex h-[52px] shrink-0 items-center gap-2.5 border-b border-border bg-surface px-4';
+  'flex h-11 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 sm:px-4';
 
-export const FIGMA_ORG_CHANNEL_HEADER_TITLE = 'truncate text-[0.9375rem] font-bold text-foreground';
+export const FIGMA_ORG_CHANNEL_HEADER_TITLE = 'truncate text-[0.875rem] font-bold text-foreground';
 
 export const FIGMA_ORG_CHANNEL_HEADER_DESC =
-  'min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground';
+  'min-w-0 flex-1 truncate text-[0.75rem] text-muted-foreground';
 
 export const FIGMA_ORG_CHANNEL_ICON_BTN =
-  'flex h-[30px] w-[30px] items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-primary';
+  'flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-primary';
