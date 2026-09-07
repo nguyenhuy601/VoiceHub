@@ -100,7 +100,7 @@ export default function ProjectHubSprintSection({
         <span className="text-[11px] text-muted-foreground">
           ({t('workspace.projectHubBacklogWorkItems', { n })})
         </span>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
           {badge(counts.todo, 'bg-muted text-muted-foreground')}
           {badge(counts.progress, 'bg-primary/15 text-primary')}
           {badge(counts.done, 'bg-primary/25 text-primary')}

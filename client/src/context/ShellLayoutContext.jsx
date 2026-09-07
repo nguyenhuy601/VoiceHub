@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const ShellLayoutContext = createContext({
   joinModalOpen: false,
@@ -23,6 +23,20 @@ export function ShellLayoutProvider({ children }) {
   const setImmersiveChromeSafe = useCallback((next) => {
     setImmersiveChrome(Boolean(next));
   }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') closeMobileNav();
+    };
+    document.addEventListener('keydown', onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen, closeMobileNav]);
 
   const value = useMemo(
     () => ({

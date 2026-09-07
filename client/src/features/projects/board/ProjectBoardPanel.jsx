@@ -1476,7 +1476,7 @@ export default function TaskBoardWorkspacePanel({
                 isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-white/80'
               }`}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
                 {!hideIdentityHeader ? (
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1555,10 +1555,10 @@ export default function TaskBoardWorkspacePanel({
                 ) : (
                   <div className="min-w-0 flex-1" />
                 )}
-                <div className={`flex flex-wrap items-center gap-2 ${hideIdentityHeader ? 'w-full justify-end' : ''}`}>
+                <div className={`flex flex-wrap items-center gap-2 ${hideIdentityHeader ? 'w-full justify-end' : 'w-full sm:w-auto'}`}>
                   {boardSearchOpen ? (
                     <div
-                      className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
+                      className={`flex min-w-0 flex-1 items-center gap-1 rounded-lg border px-2 py-1 sm:flex-none ${
                         isDarkMode ? 'border-white/15 bg-black/20' : 'border-slate-200 bg-white'
                       }`}
                     >
@@ -1568,7 +1568,7 @@ export default function TaskBoardWorkspacePanel({
                         value={boardSearchQuery}
                         onChange={(e) => setBoardSearchQuery(e.target.value)}
                         placeholder={t('taskBoard.searchCardsPh')}
-                        className={`w-[160px] bg-transparent text-xs outline-none sm:w-[200px] ${
+                        className={`min-w-0 flex-1 bg-transparent text-xs outline-none sm:w-[200px] sm:flex-none ${
                           isDarkMode ? 'text-white placeholder:text-slate-500' : 'text-slate-900 placeholder:text-slate-400'
                         }`}
                       />

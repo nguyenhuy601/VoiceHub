@@ -511,8 +511,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (showAdminSuite) return ['communicate', 'collaborate', 'admin', 'me'];
     return base;
   }, [showAdminSuite]);
-  const widthClass =
-    mobileNavOpen || !collapsed ? FIGMA_SIDEBAR_EXPANDED : FIGMA_SIDEBAR_COLLAPSED;
+  const railCollapsed = collapsed && !mobileNavOpen;
+  const widthClass = railCollapsed ? FIGMA_SIDEBAR_COLLAPSED : FIGMA_SIDEBAR_EXPANDED;
   const sidebarTranslate = mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0';
 
   return (
@@ -526,13 +526,17 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         />
       ) : null}
       <div
+        id="voicehub-mobile-nav"
+        role={mobileNavOpen ? 'dialog' : undefined}
+        aria-modal={mobileNavOpen ? true : undefined}
+        aria-label={t('nav.mainMenu')}
         className={`${FIGMA_SIDEBAR} ${widthClass} fixed inset-y-0 left-0 z-[250] transform transition-transform duration-200 ease-enterprise lg:relative lg:z-30 lg:translate-x-0 ${sidebarTranslate}`}
       >
       <div className={`relative ${FIGMA_SIDEBAR_SUITE_STRIP}`}>
         <div
-          className={`flex w-full items-center gap-1.5 ${collapsed ? 'justify-center px-0 py-2.5' : 'px-2.5 py-2'}`}
+          className={`flex w-full items-center gap-1.5 ${railCollapsed ? 'justify-center px-0 py-2.5' : 'px-2.5 py-2'}`}
         >
-          {!collapsed ? (
+          {!railCollapsed ? (
             <>
               <button
                 type="button"
@@ -560,7 +564,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="shrink-0 rounded-[5px] border-none bg-transparent p-0.5 text-white/30 transition hover:text-white/70"
+                className="hidden shrink-0 rounded-[5px] border-none bg-transparent p-0.5 text-white/30 transition hover:text-white/70 lg:inline-flex"
                 title={t('nav.collapseSidebar')}
                 aria-label={t('nav.collapseSidebar')}
               >
@@ -585,7 +589,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           )}
         </div>
 
-        {showSuitePicker && !collapsed && (
+        {showSuitePicker && !railCollapsed && (
           <div className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] animate-scale-in overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl">
             <div className="px-2.5 pb-1 pt-2 text-[0.575rem] font-bold uppercase tracking-widest text-white/25">
               {t('nav.chooseSpace')}
@@ -642,20 +646,20 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         )}
       </div>
 
-      {!collapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
+      {!railCollapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
 
       <nav className={FIGMA_SIDEBAR_NAV}>
         {visibleNavItems.map((item) => (
           <NavItem
             key={item.key}
             item={item}
-            collapsed={collapsed}
+            collapsed={railCollapsed}
             suiteColor={suiteColor}
             isActive={isActiveNavItem(item)}
           />
         ))}
 
-        {suiteProp === 'communicate' && !collapsed && (
+        {suiteProp === 'communicate' && !railCollapsed && (
           <div className="mt-2.5">
             <div className="px-1 pb-1 text-[0.5875rem] font-bold uppercase tracking-[0.1em] text-white/20">
               {t('nav.aiAssistant')}
@@ -691,7 +695,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         <VoiceHubAIPanel
           onClose={() => setShowAIPanel(false)}
           anchorRef={aiButtonRef}
-          collapsed={collapsed}
+          collapsed={railCollapsed}
         />
       ) : null}
     </div>

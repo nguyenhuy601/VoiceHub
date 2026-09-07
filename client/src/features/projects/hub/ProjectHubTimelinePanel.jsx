@@ -714,7 +714,7 @@ export default function ProjectHubTimelinePanel({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy={planningLoading || undefined}>
       <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:px-4">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[10rem] flex-1">
+          <label className="relative min-w-0 flex-1">
             <Search
               size={14}
               className={`pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 ${muted}`}

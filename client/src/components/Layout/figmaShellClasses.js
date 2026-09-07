@@ -21,10 +21,10 @@ export const FIGMA_SHELL_BODY = 'flex min-h-0 flex-1 overflow-hidden';
 export const FIGMA_SHELL_MAIN = 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden';
 
 export const FIGMA_TOP_HEADER =
-  'relative z-[200] flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-5 shadow-xs';
+  'relative z-[200] flex h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 shadow-xs sm:gap-3 sm:px-5';
 
 export const FIGMA_SIDEBAR =
-  'relative z-30 flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-[220ms] ease-enterprise';
+  'z-30 flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-[220ms] ease-enterprise lg:relative';
 
 export const FIGMA_SIDEBAR_EXPANDED = 'w-[210px]';
 export const FIGMA_SIDEBAR_COLLAPSED = 'w-14';

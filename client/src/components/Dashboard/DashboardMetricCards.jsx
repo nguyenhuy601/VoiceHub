@@ -8,12 +8,20 @@ import {
   FIGMA_DASH_METRIC_VALUE,
 } from './figmaDashboardClasses';
 
+function metricGridExtra(count) {
+  if (count === 3) return 'grid-cols-1 sm:grid-cols-3 lg:grid-cols-3';
+  if (count === 4) return 'grid-cols-2 lg:grid-cols-4';
+  return '';
+}
+
 export default function DashboardMetricCards({ cards, onCardClick }) {
+  const clickable = Boolean(onCardClick);
+
   return (
-    <div className={`${FIGMA_DASH_METRIC_GRID} ${cards.length === 3 ? 'xl:grid-cols-3' : ''}`}>
+    <div className={`${FIGMA_DASH_METRIC_GRID} ${metricGridExtra(cards.length)}`}>
       {cards.map((card2) => {
         const Icon = card2.icon && typeof card2.icon !== 'string' ? card2.icon : Building2;
-        const Wrapper = onCardClick ? 'button' : 'div';
+        const Wrapper = clickable ? 'button' : 'div';
         const trendText = card2.change ?? card2.trend;
         const detailText = card2.detail ?? card2.sub;
         const trendDirection =
@@ -27,19 +35,13 @@ export default function DashboardMetricCards({ cards, onCardClick }) {
         return (
           <Wrapper
             key={card2.key}
-            type={onCardClick ? 'button' : undefined}
-            onClick={onCardClick ? () => onCardClick(card2.key) : undefined}
-            className={`${FIGMA_DASH_METRIC_CARD} group w-full text-left`}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-              e.currentTarget.style.borderColor = `${card2.color}30`;
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-              e.currentTarget.style.borderColor = 'var(--border)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
+            type={clickable ? 'button' : undefined}
+            onClick={clickable ? () => onCardClick(card2.key) : undefined}
+            className={`${FIGMA_DASH_METRIC_CARD} group w-full text-left ${
+              clickable
+                ? 'cursor-pointer hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35'
+                : 'cursor-default'
+            }`}
           >
             <div className={FIGMA_DASH_METRIC_ICON}>
               <div
@@ -50,10 +52,12 @@ export default function DashboardMetricCards({ cards, onCardClick }) {
                   <Icon size={18} strokeWidth={2.2} />
                 </span>
               </div>
-              <ArrowUpRight
-                size={14}
-                className="mt-0.5 text-muted-foreground/40 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-              />
+              {clickable ? (
+                <ArrowUpRight
+                  size={14}
+                  className="mt-0.5 text-muted-foreground/40 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                />
+              ) : null}
             </div>
             <div className={FIGMA_DASH_METRIC_VALUE}>{card2.value}</div>
             <div className={FIGMA_DASH_METRIC_LABEL}>{card2.label}</div>

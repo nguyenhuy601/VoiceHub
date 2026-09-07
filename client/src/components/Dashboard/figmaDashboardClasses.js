@@ -23,25 +23,25 @@ export const FIGMA_DASH_ROLE_ICON =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg';
 
 export const FIGMA_DASH_AI_HERO =
-  'relative overflow-hidden rounded-[14px] border border-ai/20 bg-gradient-to-br from-ai/[0.06] via-primary/[0.04] to-ai/[0.03] px-7 py-6 shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-ai/30 hover:shadow-md';
+  'relative overflow-hidden rounded-[14px] border border-ai/20 bg-gradient-to-br from-ai/[0.06] via-primary/[0.04] to-ai/[0.03] px-4 py-4 shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-ai/30 hover:shadow-md lg:px-7 lg:py-6';
 
 export const FIGMA_DASH_AI_HERO_GRID =
-  'relative z-[1] grid min-w-0 grid-cols-1 items-center gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-6';
+  'relative z-[1] grid min-w-0 grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6';
 
 export const FIGMA_DASH_AI_HERO_TITLE =
-  'm-0 font-display text-2xl font-bold tracking-[-0.025em] text-foreground';
+  'm-0 font-display text-xl font-bold tracking-[-0.025em] text-foreground lg:text-2xl';
 
 export const FIGMA_DASH_AI_HERO_GRADIENT =
-  'bg-gradient-to-br from-ai to-[#FB923C] bg-clip-text text-transparent';
+  'bg-gradient-to-br from-ai to-ai-hover bg-clip-text text-transparent';
 
 export const FIGMA_DASH_AI_HERO_SUB =
-  'mb-[18px] text-sm leading-relaxed text-muted-foreground';
+  'mb-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground lg:mb-[18px] lg:line-clamp-none';
 
 export const FIGMA_DASH_AI_INSIGHT_BOX =
-  'inline-flex max-w-full items-start gap-3 rounded-[10px] border border-ai/20 bg-surface px-4 py-3 shadow-xs transition-[box-shadow,border-color] duration-150 hover:border-ai/30 hover:shadow-sm sm:max-w-[560px]';
+  'inline-flex w-full max-w-full min-w-0 items-start gap-3 rounded-[10px] border border-ai/20 bg-surface px-3 py-2.5 shadow-xs transition-[box-shadow,border-color] duration-150 hover:border-ai/30 hover:shadow-sm sm:max-w-[560px] lg:px-4 lg:py-3';
 
 export const FIGMA_DASH_AI_INSIGHT_ICON =
-  'flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-ai to-[#FB923C] shadow-[0_3px_10px_rgba(249,115,22,0.35)]';
+  'flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-ai to-ai-hover shadow-sm';
 
 export const FIGMA_DASH_AI_INSIGHT_LABEL =
   'mb-[5px] text-[0.625rem] font-bold uppercase tracking-[0.06em] text-ai';
@@ -49,16 +49,19 @@ export const FIGMA_DASH_AI_INSIGHT_LABEL =
 export const FIGMA_DASH_AI_INSIGHT_TEXT =
   'm-0 min-h-[1.3em] text-[0.8125rem] leading-relaxed text-foreground';
 
+export const FIGMA_DASH_AI_STAT_STACK =
+  'grid w-full min-w-0 grid-cols-3 gap-2 lg:flex lg:w-auto lg:shrink-0 lg:flex-col lg:gap-2.5';
+
 export const FIGMA_DASH_AI_STAT =
-  'flex min-w-0 items-center gap-2.5 rounded-[10px] border border-border bg-surface px-3.5 py-2 shadow-xs transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm xl:min-w-[150px]';
+  'flex min-w-0 flex-col items-center gap-1 rounded-[10px] border border-border bg-surface px-1.5 py-2 text-center shadow-xs transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm lg:min-w-[150px] lg:flex-row lg:items-center lg:gap-2.5 lg:px-3.5 lg:text-left';
 
 export const FIGMA_DASH_AI_STAT_ICON =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px]';
 
-export const FIGMA_DASH_METRIC_GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4';
+export const FIGMA_DASH_METRIC_GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4';
 
 export const FIGMA_DASH_METRIC_CARD =
-  'min-w-0 cursor-pointer rounded-xl border border-border bg-surface p-5 shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+  'min-w-0 rounded-xl border border-border bg-surface p-3 shadow-sm transition-[box-shadow,border-color,transform] duration-150 sm:p-5';
 
 export const FIGMA_DASH_METRIC_ICON =
   'mb-3.5 flex items-start justify-between';
@@ -84,7 +87,7 @@ export const FIGMA_DASH_CHART_BADGE =
 
 export const FIGMA_DASH_CHART_SUB = 'm-0 text-[0.8125rem] text-muted-foreground';
 
-export const FIGMA_DASH_SPLIT_GRID = 'grid min-w-0 grid-cols-1 gap-3.5 xl:grid-cols-2';
+export const FIGMA_DASH_SPLIT_GRID = 'grid min-w-0 grid-cols-1 gap-3.5 lg:grid-cols-2';
 
 export const FIGMA_DASH_SECTION_TITLE_ROW = 'mb-3.5 flex items-center justify-between';
 
@@ -119,8 +122,8 @@ export const FIGMA_DASH_QUICK_NAV_BTN =
 export const FIGMA_DASH_QUICK_NAV_ICON =
   'flex h-[38px] w-[38px] items-center justify-center rounded-[10px]';
 
-export const FIGMA_DASH_THREE_COL = 'grid min-w-0 grid-cols-1 gap-3.5 xl:grid-cols-3';
-export const FIGMA_DASH_TWO_COL = 'grid min-w-0 grid-cols-1 gap-3.5 xl:grid-cols-2';
+export const FIGMA_DASH_THREE_COL = 'grid min-w-0 grid-cols-1 gap-3.5 lg:grid-cols-3';
+export const FIGMA_DASH_TWO_COL = 'grid min-w-0 grid-cols-1 gap-3.5 lg:grid-cols-2';
 
 export const FIGMA_DASH_PANEL = 'min-w-0 rounded-xl border border-border bg-surface p-[18px] shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/15 hover:shadow-md';
 

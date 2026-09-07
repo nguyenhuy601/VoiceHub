@@ -204,7 +204,7 @@ export default function ProjectsLandingGrid({
         ) : null}
         {card.isSummaryOnly ? (
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
-            Summary
+            {t('workspace.projectHubSummaryOnlyBadge')}
           </span>
         ) : null}
         {card.online > 0 ? (
@@ -309,7 +309,7 @@ export default function ProjectsLandingGrid({
       className="flex h-full min-h-0 flex-col overflow-y-auto bg-background/75 backdrop-blur-sm dark:bg-background/65"
       aria-label={t('workspace.projectsLandingAria')}
     >
-      <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 shadow-xs backdrop-blur-sm">
+      <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-4 shadow-xs backdrop-blur-sm sm:px-6">
         <div className="flex items-center gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {onBack ? (
@@ -327,11 +327,11 @@ export default function ProjectsLandingGrid({
               </div>
             )}
             <div className="min-w-0">
-              <h2 className="truncate font-display text-xl font-bold text-foreground">
+              <h2 className="break-words font-display text-xl font-bold leading-snug text-foreground">
                 {departmentName ||
                   (useProjects ? t('workspace.projectsPageTitle') : organizationName || t('workspace.organization'))}
               </h2>
-              <p className="mt-0.5 truncate text-sm text-muted-foreground">
+              <p className="mt-0.5 text-sm leading-snug text-muted-foreground sm:truncate">
                 {departmentName
                   ? t('workspace.teamHubSubtitle', {
                       org: organizationName || t('workspace.organization'),
@@ -381,7 +381,7 @@ export default function ProjectsLandingGrid({
           ) : null}
         </div>
       </div>
-      <div className="px-6 py-6">
+      <div className="px-4 py-5 sm:px-6 sm:py-6">
         {activeCards.length === 0 ? (
           <div
             className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center"

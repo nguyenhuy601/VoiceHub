@@ -1346,13 +1346,26 @@ function DashboardPage({
   const heroStats = useMemo(() => {
     const fmt = (n) => (metrics.loading ? '…' : n == null ? '—' : String(n));
     return [
-      { label: t('dashboard.statMyOpen'), value: fmt(metrics.myOpen), icon: CheckCircle2, color: '#10B981' },
-      { label: t('dashboard.statMyOverdue'), value: fmt(metrics.myOverdue), icon: Timer, color: '#EF4444' },
+      {
+        label: t('dashboard.statMyOpen'),
+        shortLabel: t('dashboard.statMyOpenShort'),
+        value: fmt(metrics.myOpen),
+        icon: CheckCircle2,
+        tone: 'success',
+      },
+      {
+        label: t('dashboard.statMyOverdue'),
+        shortLabel: t('dashboard.statMyOverdueShort'),
+        value: fmt(metrics.myOverdue),
+        icon: Timer,
+        tone: 'danger',
+      },
       {
         label: t('dashboard.heroMeetingsWeek'),
+        shortLabel: t('dashboard.heroMeetingsWeekShort'),
         value: fmt(upcomingMeetings.length),
         icon: Zap,
-        color: '#2563EB',
+        tone: 'primary',
       },
     ];
   }, [metrics.loading, metrics.myOpen, metrics.myOverdue, upcomingMeetings.length, t]);
