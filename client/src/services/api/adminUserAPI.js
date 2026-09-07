@@ -17,22 +17,22 @@ function withOrg(organizationId, config = {}) {
 
 export const adminUserAPI = {
   getProfile: (organizationId, userId) =>
-    apiClient.get(`/users/admin/${userId}`, withOrg(organizationId)),
+    apiClient.get(`/users/${userId}`, withOrg(organizationId)),
 
   patchProfile: (organizationId, userId, body) =>
-    apiClient.patch(`/users/admin/${userId}`, { ...body, organizationId }, withOrg(organizationId)),
+    apiClient.patch(`/users/${userId}`, { ...body, organizationId }, withOrg(organizationId)),
 
   /** C1 — HR verify hồ sơ năng lực */
   verifyCapability: (organizationId, userId) =>
     apiClient.patch(
-      `/users/admin/${userId}`,
+      `/users/${userId}`,
       { organizationId, capabilityAction: 'verify' },
       withOrg(organizationId)
     ),
 
   confirmExperience: (organizationId, userId, evidenceBoardId) =>
     apiClient.patch(
-      `/users/admin/${userId}`,
+      `/users/${userId}`,
       { organizationId, capabilityAction: 'confirm_experience', evidenceBoardId },
       withOrg(organizationId)
     ),
@@ -40,7 +40,7 @@ export const adminUserAPI = {
   /** C1 — HR reject hồ sơ năng lực */
   rejectCapability: (organizationId, userId, rejectReason) =>
     apiClient.patch(
-      `/users/admin/${userId}`,
+      `/users/${userId}`,
       { organizationId, capabilityAction: 'reject', rejectReason },
       withOrg(organizationId)
     ),
@@ -48,7 +48,7 @@ export const adminUserAPI = {
   /** Capacity — HR verify maxConcurrentProjects */
   verifyResourceConfig: (organizationId, userId) =>
     apiClient.patch(
-      `/users/admin/${userId}`,
+      `/users/${userId}`,
       { organizationId, resourceConfigAction: 'verify' },
       withOrg(organizationId)
     ),
@@ -56,62 +56,62 @@ export const adminUserAPI = {
   /** Capacity — HR reject maxConcurrentProjects */
   rejectResourceConfig: (organizationId, userId, rejectReason) =>
     apiClient.patch(
-      `/users/admin/${userId}`,
+      `/users/${userId}`,
       { organizationId, resourceConfigAction: 'reject', rejectReason },
       withOrg(organizationId)
     ),
 
   getAuthSummary: (organizationId, userId) =>
-    apiClient.get(`/auth/admin/users/${userId}/summary`, withOrg(organizationId)),
+    apiClient.get(`/auth/users/${userId}/summary`, withOrg(organizationId)),
 
   setLocked: (organizationId, userId, locked) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/lock`,
+      `/auth/users/${userId}/lock`,
       { locked, organizationId },
       withOrg(organizationId)
     ),
 
   forcePasswordChange: (organizationId, userId, mustChangePassword = true) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/force-password`,
+      `/auth/users/${userId}/force-password`,
       { mustChangePassword, organizationId },
       withOrg(organizationId)
     ),
 
   triggerPasswordReset: (organizationId, userId, frontendUrl) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/reset-password`,
+      `/auth/users/${userId}/reset-password`,
       { organizationId, frontendUrl: frontendUrl || window.location.origin },
       withOrg(organizationId)
     ),
 
   getLoginEvents: (organizationId, userId, params = {}) =>
-    apiClient.get(`/auth/admin/users/${userId}/login-events`, withOrg(organizationId, { params })),
+    apiClient.get(`/auth/users/${userId}/login-events`, withOrg(organizationId, { params })),
 
   revokeSessions: (organizationId, userId) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/revoke-sessions`,
+      `/auth/users/${userId}/revoke-sessions`,
       { organizationId },
       withOrg(organizationId)
     ),
 
   setPassword: (organizationId, userId, { password, mustChangePassword }) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/set-password`,
+      `/auth/users/${userId}/set-password`,
       { organizationId, password, mustChangePassword },
       withOrg(organizationId)
     ),
 
   activatePending: (organizationId, userId, { mustChangePassword = true } = {}) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/activate`,
+      `/auth/users/${userId}/activate`,
       { organizationId, mustChangePassword },
       withOrg(organizationId)
     ),
 
   resendVerification: (organizationId, userId, frontendUrl) =>
     apiClient.post(
-      `/auth/admin/users/${userId}/resend-verification`,
+      `/auth/users/${userId}/resend-verification`,
       { organizationId, frontendUrl: frontendUrl || window.location.origin },
       withOrg(organizationId)
     ),

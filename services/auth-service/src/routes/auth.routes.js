@@ -124,61 +124,53 @@ router.post('/change-password', authenticate, authController.changePassword.bind
 router.post('/change-email/request', authenticate, authController.requestEmailChange.bind(authController));
 router.get('/me', authenticate, authController.getMe.bind(authController));
 
-// Company admin — user account management (JWT + org admin check at service)
-router.get(
-  '/admin/users/:userId/summary',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: false }),
-  adminUserController.getSummary.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/lock',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.lockUser.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/force-password',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.forcePasswordChange.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/reset-password',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.triggerPasswordReset.bind(adminUserController)
-);
-router.get(
-  '/admin/users/:userId/login-events',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: false }),
-  adminUserController.listLoginEvents.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/revoke-sessions',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.revokeSessions.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/set-password',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.setPassword.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/activate',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.activatePending.bind(adminUserController)
-);
-router.post(
-  '/admin/users/:userId/resend-verification',
-  authenticate,
-  companyAdminAuth({ requireFullAccess: true }),
-  adminUserController.resendVerification.bind(adminUserController)
-);
+// Company admin — account actions (JWT + org admin at service).
+function mountCompanyUserAccountRoutes() {
+  const pathPrefix = '/users';
+  const hrAuth = [authenticate, companyAdminAuth({ requireFullAccess: false })];
+  const fullAuth = [authenticate, companyAdminAuth({ requireFullAccess: true })];
+  const bind = (fn) => fn.bind(adminUserController);
+
+  router.get(`${pathPrefix}/:userId/summary`, ...hrAuth, bind(adminUserController.getSummary));
+  router.post(`${pathPrefix}/:userId/lock`, ...fullAuth, bind(adminUserController.lockUser));
+  router.post(
+    `${pathPrefix}/:userId/force-password`,
+    ...fullAuth,
+    bind(adminUserController.forcePasswordChange)
+  );
+  router.post(
+    `${pathPrefix}/:userId/reset-password`,
+    ...fullAuth,
+    bind(adminUserController.triggerPasswordReset)
+  );
+  router.get(
+    `${pathPrefix}/:userId/login-events`,
+    ...hrAuth,
+    bind(adminUserController.listLoginEvents)
+  );
+  router.post(
+    `${pathPrefix}/:userId/revoke-sessions`,
+    ...fullAuth,
+    bind(adminUserController.revokeSessions)
+  );
+  router.post(
+    `${pathPrefix}/:userId/set-password`,
+    ...fullAuth,
+    bind(adminUserController.setPassword)
+  );
+  router.post(
+    `${pathPrefix}/:userId/activate`,
+    ...fullAuth,
+    bind(adminUserController.activatePending)
+  );
+  router.post(
+    `${pathPrefix}/:userId/resend-verification`,
+    ...fullAuth,
+    bind(adminUserController.resendVerification)
+  );
+}
+
+mountCompanyUserAccountRoutes();
 
 module.exports = router;
 

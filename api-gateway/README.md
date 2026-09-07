@@ -86,9 +86,9 @@ Authorization: Bearer <token>
 - `/api/friends/*` → Friend Service (không cần serverId)
 - `/api/organizations/*` → Organization Service
 - `/api/roles/*`, `/api/permissions/*` → Role & Permission Service
-- `/api/messages/*`, `/api/chat/*` → Chat Service (cần serverId)
+- `/api/messages/*` → Chat Service (DM không cần serverId; org chat kèm organizationId)
 - `/api/voice/*`, `/api/meetings/*` → Voice Service (cần serverId)
-- `/api/tasks/*`, `/api/work/*` → Task Service (cần serverId)
+- `/api/tasks/*` → Task Service / project-service (cần serverId)
 - `/api/documents/*` → Document Service (cần serverId)
 - `/api/notifications/*` → Notification Service
 - `/socket.io/*` (HTTP polling + WS upgrade) → Socket Service (realtime qua gateway)

@@ -17,6 +17,10 @@ const {
   assertHrOnlyCapabilityReview,
 } = require('../services/capabilityProfile.service');
 const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+const {
+  resolveProfileViewMode,
+  resolveProfilePatchMode,
+} = require('../utils/profileAccessMode');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -243,7 +247,7 @@ class UserController {
     }
   }
 
-  // Lấy user profile theo ID
+  // Lấy user profile theo ID — peer/self; company admin (org) → admin shape
   async getUserProfileById(req, res) {
     try {
       const { userId } = req.params;
@@ -254,6 +258,29 @@ class UserController {
         });
       }
       const uid = String(userId).trim();
+      const viewMode = resolveProfileViewMode({
+        actorId: actorUserId(req),
+        targetUserId: uid,
+        companyAdmin: req.companyAdmin,
+      });
+
+      if (viewMode === 'admin') {
+        const profile = await resolveAdminUserProfile(uid);
+        if (!profile) {
+          return res.status(404).json({
+            success: false,
+            message: 'User profile not found',
+            errorCode: 'USER_PROFILE_NOT_FOUND',
+          });
+        }
+        const authSummary = await fetchAuthSummaryByUserId(uid);
+        const payload = await enrichPayloadEmailFromAuth(
+          uid,
+          shapeProfilePayload(profile, { isCompanyAdmin: true }),
+          authSummary
+        );
+        return res.json({ success: true, data: payload });
+      }
 
       let userProfile =
         (await ensureSelfUserProfile(req, uid)) || (await userService.getUserProfileById(uid));
@@ -722,36 +749,41 @@ class UserController {
     }
   }
 
-  async adminGetProfile(req, res) {
+  /** PATCH /users/:userId — self hoặc company admin (HR capability gate). */
+  async patchUserById(req, res) {
     try {
       const userId = String(req.params.userId || '').trim();
-      const profile = await resolveAdminUserProfile(userId);
-      if (!profile) {
-        return res.status(404).json({
+      const actorId = actorUserId(req);
+      if (!actorId) {
+        return res.status(401).json({
           success: false,
-          message: 'User profile not found',
-          errorCode: 'USER_PROFILE_NOT_FOUND',
+          message: 'Unauthorized',
         });
       }
-      const authSummary = await fetchAuthSummaryByUserId(userId);
-      const payload = await enrichPayloadEmailFromAuth(
-        userId,
-        shapeProfilePayload(profile, { isCompanyAdmin: true }),
-        authSummary
-      );
-      return res.json({ success: true, data: payload });
-    } catch (error) {
-      logger.error('adminGetProfile error:', error);
-      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_GET_FAILED');
-    }
-  }
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId is required',
+        });
+      }
 
-  async adminPatchProfile(req, res) {
-    try {
-      const userId = String(req.params.userId || '').trim();
+      const mode = resolveProfilePatchMode({
+        actorId,
+        targetUserId: userId,
+        companyAdmin: req.companyAdmin,
+      });
+      if (mode === 'forbidden') {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+          errorCode: 'USER_PATCH_FORBIDDEN',
+        });
+      }
+      if (mode === 'self') {
+        return this.updateUserProfile(req, res);
+      }
+
       const body = req.body && typeof req.body === 'object' ? req.body : {};
-      const actorId = actorUserId(req);
-      // Chuẩn vàng (1)+(a): chỉ orgRole HR được verify/reject năng lực — Owner/Admin không.
       const capabilityAction = String(body.capabilityAction || '').trim();
       const hrGate = assertHrOnlyCapabilityReview(req.companyAdmin?.level, capabilityAction);
       if (!hrGate.ok) {
@@ -772,7 +804,7 @@ class UserController {
         data: shapeProfilePayload(userProfile, { isCompanyAdmin: true }),
       });
     } catch (error) {
-      logger.error('adminPatchProfile error:', error);
+      logger.error('patchUserById error:', error);
       return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');
     }
   }

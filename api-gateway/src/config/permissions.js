@@ -10,11 +10,6 @@ const routeActionMap = {
   'POST /api/messages/storage/signed-upload': 'chat:write',
   'PATCH /api/messages': 'chat:write',
   'DELETE /api/messages': 'chat:delete',
-  'GET /api/chat/messages': 'chat:read',
-  'POST /api/chat/messages': 'chat:write',
-  'POST /api/chat/messages/storage/signed-upload': 'chat:write',
-  'PATCH /api/chat/messages': 'chat:write',
-  'DELETE /api/chat/messages': 'chat:delete',
 
   // Task Service
   'GET /api/tasks': 'task:read',
@@ -27,8 +22,6 @@ const routeActionMap = {
   'GET /api/tasks/project-briefs/:briefId': 'task:read',
   'POST /api/tasks/project-briefs/:briefId/accept': 'task:write',
   'POST /api/tasks/project-briefs/:briefId/cancel': 'task:write',
-  'GET /api/work': 'task:read',
-  'POST /api/work': 'task:write',
 
   // AI Task Service
   'POST /api/ai/tasks/extract': 'task:write',
@@ -149,9 +142,7 @@ const DOWNSTREAM_AUTH_PREFIXES = [
   '/api/voice',
   '/api/meetings',
   '/api/organizations',
-  '/api/channels',
   '/api/tasks',
-  '/api/work',
   '/api/projects',
   '/api/ai/tasks',
   '/api/workspaces',
@@ -160,7 +151,6 @@ const DOWNSTREAM_AUTH_PREFIXES = [
 
 const TASK_AUTH_BYPASS_PREFIXES = [
   '/api/tasks',
-  '/api/work',
   '/api/projects',
   '/api/ai/tasks',
 ];
@@ -171,10 +161,7 @@ const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
  * Admin user management — auth/user-service tự `companyAdminAuth`; gateway chỉ cần JWT.
  */
 const ADMIN_SERVICE_AUTH_PREFIXES = [
-  '/api/auth/admin',
-  '/api/users/admin',
-  '/api/tasks/admin',
-  '/api/projects/admin',
+  '/api/auth/users',
 ];
 
 /**
@@ -205,11 +192,8 @@ const noPermissionRoutes = [
   '/api/organizations/company-invites',
   // Signed upload: JWT + chat-service authenticate; dùng cho chat và task attachment (không ép chat:write).
   '/api/messages/storage/signed-upload',
-  '/api/chat/messages/storage/signed-upload',
   '/api/messages/storage/upload',
-  '/api/chat/messages/storage/upload',
   '/api/messages/storage/object',
-  '/api/chat/messages/storage/object',
 ];
 
 /**
@@ -585,6 +569,7 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/shell'],
   ['GET', '/api/organizations/org1/structure'],
   ['GET', '/api/tasks'],
+  ['GET', '/api/projects/roles'],
   ['POST', '/api/ai/tasks/extract'],
   ['POST', '/api/ai/summaries'],
   ['GET', '/api/ai/summaries/sum1'],
@@ -603,17 +588,16 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/members/import/batch1'],
   ['DELETE', '/api/organizations/org1/members/user1'],
   ['PUT', '/api/organizations/org1/members/user1/role'],
-  ['GET', '/api/auth/admin/users/user1/summary'],
-  ['POST', '/api/auth/admin/users/user1/lock'],
-  ['POST', '/api/auth/admin/users/user1/force-password'],
-  ['POST', '/api/auth/admin/users/user1/reset-password'],
-  ['POST', '/api/auth/admin/users/user1/revoke-sessions'],
-  ['POST', '/api/auth/admin/users/user1/set-password'],
-  ['POST', '/api/auth/admin/users/user1/activate'],
-  ['POST', '/api/auth/admin/users/user1/resend-verification'],
-  ['GET', '/api/auth/admin/users/user1/login-events'],
-  ['GET', '/api/users/admin/user1'],
-  ['PATCH', '/api/users/admin/user1'],
+  ['GET', '/api/auth/users/user1/summary'],
+  ['POST', '/api/auth/users/user1/lock'],
+  ['POST', '/api/auth/users/user1/force-password'],
+  ['POST', '/api/auth/users/user1/reset-password'],
+  ['POST', '/api/auth/users/user1/revoke-sessions'],
+  ['POST', '/api/auth/users/user1/set-password'],
+  ['POST', '/api/auth/users/user1/activate'],
+  ['POST', '/api/auth/users/user1/resend-verification'],
+  ['GET', '/api/auth/users/user1/login-events'],
+  ['PATCH', '/api/users/user1'],
   ['POST', '/api/roles/assign'],
   ['POST', '/api/roles/remove'],
   ['POST', '/api/roles'],

@@ -58,7 +58,7 @@ const services = {
   },
   organization: {
     url: ORGANIZATION_SERVICE_URL,
-    routes: ['/api/organizations', '/api/channels'],
+    routes: ['/api/organizations'],
   },
   rolePermission: {
     url: ROLE_PERMISSION_SERVICE_URL,
@@ -66,7 +66,7 @@ const services = {
   },
   chat: {
     url: CHAT_SERVICE_URL,
-    routes: ['/api/messages', '/api/chat'],
+    routes: ['/api/messages'],
   },
   voice: {
     url: VOICE_SERVICE_URL,
@@ -79,7 +79,7 @@ const services = {
   task: {
     url: TASK_SERVICE_URL || PROJECT_SERVICE_URL,
     // /api/projects giữ để workspace boards (getServiceByPath ưu tiên project trước; boards workspace dùng isWorkspaceTaskBoardPath).
-    routes: ['/api/tasks', '/api/work', '/api/projects'],
+    routes: ['/api/tasks', '/api/projects'],
   },
   aiTask: {
     url: AI_TASK_SERVICE_URL,

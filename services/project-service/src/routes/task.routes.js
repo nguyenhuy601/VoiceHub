@@ -3,7 +3,6 @@ const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatew
 const router = express.Router();
 const taskController = require('../controllers/task.controller');
 const taskBoardRoutes = require('./taskBoard.routes');
-const projectRoleAdminRoutes = require('./projectRoleAdmin.routes');
 
 // Nội bộ: xóa toàn bộ task của tổ chức (organization-service khi owner xóa org)
 router.delete(
@@ -30,9 +29,6 @@ router.use('/boards', taskBoardRoutes);
 // Project briefs (BGĐ → PM) — trước /:taskId
 const projectBriefRoutes = require('./projectBrief.routes');
 router.use('/project-briefs', projectBriefRoutes);
-
-// Admin Project Roles catalog — trước /:taskId
-router.use('/admin/project-roles', projectRoleAdminRoutes);
 
 const worklog = require('../controllers/worklog.controller');
 const workHistory = require('../controllers/workHistory.controller');

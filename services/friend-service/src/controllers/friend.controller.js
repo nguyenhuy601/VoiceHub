@@ -1,6 +1,7 @@
 const friendService = require('../services/friend.service');
 const { logger } = require('@enterprise/shared');
 const { checkRateLimit } = require('@enterprise/shared/utils/redisRateLimit');
+const { fetchUserByPhoneInternal } = require('../clients/userService.client');
 
 /** Chuẩn hóa lỗi từ service: 503 khi MongoDB/service unavailable, 404 khi User not found */
 function errorToStatus(error, defaultMessage = 'An error occurred', defaultStatus = 400) {
@@ -247,6 +248,51 @@ class FriendController {
       logger.error('Unblock user error:', error);
       const { status, message } = errorToStatus(error, error.message);
       res.status(status).json({ success: false, message });
+    }
+  }
+
+  async searchByPhone(req, res) {
+    try {
+      const { phone } = req.query;
+      if (!phone) {
+        return res.status(400).json({ status: 'fail', message: 'Phone parameter is required' });
+      }
+
+      let response;
+      try {
+        response = await fetchUserByPhoneInternal(phone);
+      } catch (error) {
+        if (error?.code === 'NO_INTERNAL_TOKEN') {
+          return res.status(503).json({
+            status: 'fail',
+            message: 'User service internal lookup not configured',
+          });
+        }
+        if (error.response) {
+          return res.status(error.response.status).json(error.response.data);
+        }
+        throw error;
+      }
+
+      const userData = response.data?.data;
+      if (!userData) {
+        return res.status(404).json({ status: 'fail', message: 'User not found' });
+      }
+
+      const actorId = req.user?.id || req.user?._id;
+      const relationship = await friendService.getRelationship(actorId, userData.userId || userData._id);
+
+      return res.json({
+        status: 'success',
+        data: {
+          ...userData,
+          relationship,
+        },
+      });
+    } catch (error) {
+      logger.error('Search friend by phone error:', error);
+      const { status, message } = errorToStatus(error, error.message, 500);
+      return res.status(status).json({ success: false, message });
     }
   }
 

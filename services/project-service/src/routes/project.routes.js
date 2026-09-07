@@ -48,7 +48,7 @@ const router = express.Router();
  *         $ref: '#/components/responses/InternalError'
  */
 router.get('/role-catalog', catalog.listRoleCatalog);
-router.use('/admin/roles', projectRoleAdminRoutes);
+router.use('/roles', projectRoleAdminRoutes);
 
 /** Resource Management (Phase 3 / 3b) — trước /:projectId */
 router.get('/resources/capacity', resource.getCapacity);

@@ -134,15 +134,11 @@ const permissionMiddleware = async (req, res, next) => {
     // Extract serverId từ request
     const serverId = extractServerId(req);
 
-    // Phân biệt 2 loại chat:
-    // - Chat bạn bè (DM): dùng /api/messages (hoặc /messages) → KHÔNG cần serverId/organizationId
-    // - Chat doanh nghiệp: dùng /api/chat/... → cần serverId/organizationId để check role
-    // Dựa cả vào action mapping và path thực tế để tránh lệch config
+    // Phân biệt 2 loại chat trên /api/messages:
+    // - DM: không có serverId/organizationId → bỏ qua permission context
+    // - Org: có organizationId/serverId → check role
     const isMessagesPath =
-      req.path.startsWith('/api/messages') ||
-      req.path.startsWith('/messages') ||
-      req.path.startsWith('/api/chat/messages') ||
-      req.path.startsWith('/chat/messages');
+      req.path.startsWith('/api/messages') || req.path.startsWith('/messages');
     const isChatRoute = action.startsWith('chat:') || isMessagesPath;
     const hasOrgOrServer =
       req.query?.organizationId ||

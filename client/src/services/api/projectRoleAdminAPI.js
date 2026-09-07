@@ -16,8 +16,8 @@ function withOrg(organizationId, config = {}) {
   };
 }
 
-/** Admin CRUD Project Roles — canonical `/projects/admin/roles` (legacy `/tasks/admin/project-roles`). */
-const ADMIN_ROLES_BASE = '/projects/admin/roles';
+/** CRUD Project Roles catalog — `/projects/roles` (org-scoped; không gắn /admin). */
+const ADMIN_ROLES_BASE = '/projects/roles';
 
 export const projectRoleAdminAPI = {
   listRoles: (organizationId) => apiClient.get(ADMIN_ROLES_BASE, withOrg(organizationId)),

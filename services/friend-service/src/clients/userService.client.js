@@ -14,4 +14,18 @@ async function fetchUserProfileByIdInternal(userId) {
   });
 }
 
-module.exports = { fetchUserProfileByIdInternal };
+async function fetchUserByPhoneInternal(phone) {
+  const base = process.env.USER_SERVICE_URL;
+  const token = String(process.env.USER_SERVICE_INTERNAL_TOKEN || '').trim();
+  if (!token) {
+    const err = new Error('USER_SERVICE_INTERNAL_TOKEN is not set');
+    err.code = 'NO_INTERNAL_TOKEN';
+    throw err;
+  }
+  return axios.get(`${base}/api/users/internal/phone/${encodeURIComponent(String(phone))}`, {
+    headers: { 'x-internal-token': token },
+    timeout: 10000,
+  });
+}
+
+module.exports = { fetchUserProfileByIdInternal, fetchUserByPhoneInternal };

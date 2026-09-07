@@ -5,6 +5,24 @@
 const { buildOperation } = require('../components/op.helpers');
 
 module.exports = {
+  '/api/users/{userId}': {
+    get: buildOperation({
+      operationId: 'getUserProfileById',
+      tags: ['Users'],
+      summary: 'Get user profile by id',
+      description:
+        'Peer: capability công khai. Self: đầy đủ. Company admin/HR (organizationId query): shape admin.',
+      requireNotFound: true,
+    }),
+    patch: buildOperation({
+      operationId: 'patchUserProfileById',
+      tags: ['Users'],
+      summary: 'Patch user profile by id',
+      description:
+        'Self: capabilityMode self. Company admin/HR + organizationId: admin (HR-only verify/reject). Member sửa người khác = 403.',
+      requireNotFound: false,
+    }),
+  },
   '/api/users/me': {
     get: buildOperation({
       operationId: 'getCurrentUserProfile',
