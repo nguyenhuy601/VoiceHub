@@ -264,14 +264,13 @@ async function confirmRequirementImport({ userId, organizationId, sessionId }) {
       pack.sourceFileId = sourceFileId;
       await pack.save();
     } catch (uploadErr) {
-      await RequirementPack.deleteOne({ _id: pack._id });
+      // Best-effort: pack vẫn tạo được để Create Project / Hub seed không bị chặn bởi MinIO lệch key.
       logger.error(
-        `requirementImport MinIO putObject failed pack=${pack._id}: ${uploadErr.message}`
+        `requirementImport MinIO putObject failed pack=${pack._id}: ${uploadErr.message} — continuing without sourceFileId`
       );
-      const err = new Error('Không lưu được file gốc lên object storage — thử lại sau');
-      err.statusCode = 503;
-      err.errorCode = 'REQ_IMPORT_STORAGE_FAILED';
-      throw err;
+      logger.warn(
+        `requirementImport storage soft-fail pack=${pack._id} — source xlsx not persisted`
+      );
     }
   } else {
     logger.warn(
