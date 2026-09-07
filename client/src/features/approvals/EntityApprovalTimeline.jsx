@@ -17,19 +17,23 @@ export default function EntityApprovalTimeline({
   const { t } = useAppStrings();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     if (!entityId) {
       setRows([]);
+      setLoadError(false);
       return;
     }
     setLoading(true);
+    setLoadError(false);
     try {
       const res = await projectAPI.listEntityApprovals(entityType, entityId);
       const data = unwrap(res);
       setRows(Array.isArray(data) ? data : []);
     } catch {
       setRows([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -52,9 +56,23 @@ export default function EntityApprovalTimeline({
           {loading ? '…' : t('common.refresh') || 'Refresh'}
         </button>
       </div>
-      {!rows.length ? (
+      {loadError ? (
+        <div className="flex flex-col items-start gap-1">
+          <p className={`text-xs ${muted}`}>{t('approvals.historyFail')}</p>
+          <button type="button" className="text-xs font-semibold text-primary" onClick={load}>
+            {t('common.refresh')}
+          </button>
+        </div>
+      ) : null}
+      {!loadError && loading && !rows.length ? (
+        <p className={`text-xs ${muted}`} role="status">
+          {t('common.loading')}
+        </p>
+      ) : null}
+      {!loadError && !loading && !rows.length ? (
         <p className={`text-xs ${muted}`}>{t('approvals.historyEmpty')}</p>
-      ) : (
+      ) : null}
+      {rows.length ? (
         <ul className="space-y-3">
           {rows.map((req) => {
             const steps = Array.isArray(req.stepsSnapshot) ? req.stepsSnapshot : [];
@@ -92,7 +110,7 @@ export default function EntityApprovalTimeline({
             );
           })}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }
