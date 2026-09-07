@@ -4,29 +4,13 @@ const { logger } = require('@enterprise/shared');
 const { invalidateOrgReadCache } = require('./orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { postDepartmentWelcomeMessage } = require('../clients/chatDepartmentWelcome.client');
-
-const DEFAULT_DEPT_CHANNEL_DEFS = [
-  {
-    name: 'announcements',
-    description: 'Department official announcements',
-    type: 'announcement',
-  },
-];
-
-function buildDeptChannelSeed({ organizationId, branchId, divisionId, departmentId, leaderId }, def) {
-  return {
-    name: def.name,
-    description: def.description,
-    type: def.type,
-    organization: organizationId,
-    branch: branchId || null,
-    division: divisionId || null,
-    department: departmentId,
-    team: null,
-    leader: leaderId || null,
-    isActive: true,
-  };
-}
+const {
+  DEFAULT_DEPT_CHANNEL_DEFS,
+  buildDeptChannelSeed,
+  buildExistingDefaultChannelQuery,
+  isDepartmentDefaultAnnounceChannel,
+  selectDepartmentAnnounceKeepers,
+} = require('./departmentChannelProvision.logic');
 
 async function bumpOrgReadCache(orgId) {
   return invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -48,15 +32,45 @@ function scheduleDepartmentWelcome(organizationId, chatChannel, departmentName) 
 }
 
 /**
- * Idempotent: ensure department-scoped general (chat) + voice channels exist.
- * Khi tạo mới kênh chat → System Bot chào (D4), fail-soft.
- * @returns {Promise<{ created: object[], existing: object[] }>}
+ * Soft-deactivate announce trùng trong 1 org (giữ bản cũ nhất mỗi phòng).
+ * @returns {{ deactivatedIds: string[] }}
+ */
+async function deactivateDuplicateDepartmentAnnounceChannels(organizationId, channels) {
+  const orgId = String(organizationId || '').trim();
+  if (!orgId) return { deactivatedIds: [] };
+
+  const keepers = selectDepartmentAnnounceKeepers(channels);
+  const toDeactivate = (channels || []).filter((channel) => {
+    if (!isDepartmentDefaultAnnounceChannel(channel)) return false;
+    if (channel.isActive === false) return false;
+    const id = String(channel._id || '');
+    return id && !keepers.has(id);
+  });
+
+  if (!toDeactivate.length) return { deactivatedIds: [] };
+
+  const ids = toDeactivate.map((c) => c._id).filter(Boolean);
+  await Channel.updateMany(
+    { _id: { $in: ids }, organization: orgId },
+    { $set: { isActive: false } }
+  );
+  await bumpOrgReadCache(orgId);
+  logger.info(
+    `[departmentChannelProvision] deactivated ${ids.length} duplicate announce channel(s) org=${orgId}`
+  );
+  return { deactivatedIds: ids.map((id) => String(id)) };
+}
+
+/**
+ * Idempotent: ensure department-scoped announcement channel exists (1 / phòng).
+ * Soft-deactivate bản trùng name/type cùng phòng.
+ * @returns {Promise<{ created: object[], existing: object[], deactivatedIds: string[] }>}
  */
 async function ensureDepartmentDefaultChannels({ orgId, departmentId, department: departmentDoc, actorId }) {
   const organizationId = String(orgId || '').trim();
   const deptId = String(departmentId || departmentDoc?._id || '').trim();
   if (!organizationId || !deptId) {
-    return { created: [], existing: [] };
+    return { created: [], existing: [], deactivatedIds: [] };
   }
 
   let department = departmentDoc;
@@ -64,7 +78,7 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
     department = await Department.findOne({ _id: deptId, organization: organizationId }).lean();
   }
   if (!department) {
-    return { created: [], existing: [] };
+    return { created: [], existing: [], deactivatedIds: [] };
   }
 
   const leaderId = actorId || department.head || null;
@@ -80,13 +94,7 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
   const existing = [];
 
   for (const def of DEFAULT_DEPT_CHANNEL_DEFS) {
-    const found = await Channel.findOne({
-      organization: organizationId,
-      department: deptId,
-      team: null,
-      type: def.type,
-      isActive: true,
-    })
+    const found = await Channel.findOne(buildExistingDefaultChannelQuery(organizationId, deptId, def))
       .sort({ createdAt: 1 })
       .lean();
 
@@ -117,9 +125,21 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
     created.push(doc.toObject ? doc.toObject() : doc);
   }
 
+  const activeInDept = await Channel.find({
+    organization: organizationId,
+    department: deptId,
+    team: null,
+    isActive: true,
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+  const { deactivatedIds } = await deactivateDuplicateDepartmentAnnounceChannels(
+    organizationId,
+    activeInDept
+  );
+
   if (created.length) {
     await bumpOrgReadCache(organizationId);
-    // Branch hiện tại seed announcement-only; fallback chat / first created.
     const welcomeChannel =
       created.find((c) => String(c.type) === 'announcement') ||
       created.find((c) => String(c.type) === 'chat') ||
@@ -129,11 +149,15 @@ async function ensureDepartmentDefaultChannels({ orgId, departmentId, department
     }
   }
 
-  return { created, existing };
+  return { created, existing, deactivatedIds };
 }
 
 module.exports = {
   DEFAULT_DEPT_CHANNEL_DEFS,
   buildDeptChannelSeed,
+  buildExistingDefaultChannelQuery,
+  isDepartmentDefaultAnnounceChannel,
+  selectDepartmentAnnounceKeepers,
+  deactivateDuplicateDepartmentAnnounceChannels,
   ensureDepartmentDefaultChannels,
 };
