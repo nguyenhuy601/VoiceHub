@@ -170,7 +170,7 @@ export default function TopHeader() {
   const { locale, toggleLocale } = useLocale();
   const { isDarkMode, toggleTheme } = useTheme();
   const { t } = useAppStrings();
-  const { openMobileNav } = useShellLayout();
+  const { openMobileNav, mobileNavOpen } = useShellLayout();
   const { currentSuite, navigateToSuite } = useWorkspaceSuite();
   const { unreadCount } = useNotificationBadge({ scope: 'personal', enabled: Boolean(user) });
   const { allowedSuites: roleSuites } = useUiRole();
@@ -238,8 +238,10 @@ export default function TopHeader() {
           <button
             type="button"
             onClick={openMobileNav}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted lg:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 lg:hidden"
             aria-label={t('nav.openMenu')}
+            aria-expanded={mobileNavOpen}
+            aria-controls="voicehub-mobile-nav"
           >
             <PanelLeft size={18} strokeWidth={2} />
           </button>
@@ -268,7 +270,7 @@ export default function TopHeader() {
           </div>
         </div>
 
-        <div className="flex flex-1 justify-center px-6">
+        <div className="hidden min-w-0 flex-1 justify-center px-2 md:flex sm:px-6">
           <div className="relative w-full max-w-[480px]">
             <Search
               size={14}
@@ -305,16 +307,30 @@ export default function TopHeader() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="min-w-0 flex-1 md:hidden" aria-hidden />
+
+        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          <button
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground md:hidden"
+            aria-label={t('header.searchPlaceholder')}
+            onClick={() => {
+              window.dispatchEvent(
+                new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+              );
+            }}
+          >
+            <Search size={16} aria-hidden />
+          </button>
           <button
             type="button"
             onClick={handleLocaleToggle}
             title={locale === 'vi' ? t('header.switchLocaleEn') : t('header.switchLocaleVi')}
             aria-label={t('nav.ariaLang')}
-            className="flex h-8 items-center gap-1 rounded-[7px] border border-border bg-muted px-2.5 text-xs font-bold tracking-wide text-foreground transition hover:border-primary/35 hover:bg-primary/10 hover:text-primary"
+            className="flex h-8 w-8 items-center justify-center rounded-[7px] border border-border bg-muted text-xs font-bold tracking-wide text-foreground transition hover:border-primary/35 hover:bg-primary/10 hover:text-primary sm:w-auto sm:gap-1 sm:px-2.5"
           >
             <Languages size={13} aria-hidden />
-            {({ en: 'VI', vi: 'EN' }[locale] || 'EN')}
+            <span className="hidden sm:inline">{({ en: 'VI', vi: 'EN' }[locale] || 'EN')}</span>
           </button>
 
           <button
@@ -330,7 +346,7 @@ export default function TopHeader() {
             )}
           </button>
 
-          <div className="relative">
+          <div className="relative hidden lg:block">
             <button
               ref={switcherBtnRef}
               type="button"
@@ -361,7 +377,7 @@ export default function TopHeader() {
             )}
           </div>
 
-          <div className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+          <div className="mx-0.5 hidden h-5 w-px bg-border lg:block" aria-hidden />
 
           <div className="relative" ref={profileRef}>
             <button

@@ -129,15 +129,31 @@ function OverviewHealthTip({ items = [], totalCount = 0, heading, moreLabel, chi
   const [open, setOpen] = useState(false);
   const hasItems = items.length > 0;
   const hiddenMore = Math.max(0, Number(totalCount) - items.length);
+  const hoverUnavailable =
+    typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches;
 
   return (
     <div
       className={`relative ${className}`}
-      onMouseEnter={() => hasItems && setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={() => {
+        if (!hoverUnavailable && hasItems) setOpen(true);
+      }}
+      onMouseLeave={() => {
+        if (!hoverUnavailable) setOpen(false);
+      }}
       onFocus={() => hasItems && setOpen(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+      onClick={() => {
+        if (hoverUnavailable && hasItems) setOpen((v) => !v);
+      }}
+      onKeyDown={(e) => {
+        if (!hasItems) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setOpen((v) => !v);
+        }
       }}
     >
       {typeof children === 'function' ? children({ tipId, open, hasItems }) : children}
@@ -145,7 +161,7 @@ function OverviewHealthTip({ items = [], totalCount = 0, heading, moreLabel, chi
         <div
           id={tipId}
           role="tooltip"
-          className="absolute left-1/2 top-full z-20 mt-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md border border-border bg-surface px-2.5 py-2 text-left shadow-md"
+          className="absolute left-0 top-full z-20 mt-1.5 w-max max-w-[min(16rem,calc(100vw-2rem))] rounded-md border border-border bg-surface px-2.5 py-2 text-left shadow-md sm:left-1/2 sm:-translate-x-1/2"
         >
           {heading ? (
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -228,26 +244,26 @@ function OverviewPanel({
       : [];
 
   return (
-    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <header className={`mb-4 rounded-xl border border-border bg-surface p-4`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className={`text-base font-bold leading-tight ${titleCls}`}>
+    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+      <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 w-full">
+            <h2 className={`text-lg font-bold leading-snug break-words sm:text-xl ${titleCls}`}>
               {board?.title || t('workspace.projectHubUntitled')}
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {board?.projectCode ? (
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+                <span className="rounded bg-primary/20 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
                   {board.projectCode}
                 </span>
               ) : null}
               {board?.methodology ? (
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
                   {formatHubMethodology(board.methodology, t)}
                 </span>
               ) : null}
               {statusLabel ? (
-                <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
                   {statusLabel}
                 </span>
               ) : null}
@@ -258,23 +274,29 @@ function OverviewPanel({
                 {t('workspace.projectHubFieldDue')}: {formatHubDate(board?.dueDate, locale)}
               </span>
             </p>
-            <p className={`mt-1 text-xs ${muted}`}>{t('workspace.projectHubOverviewHint')}</p>
+            <p className={`mt-1 max-w-prose text-xs leading-relaxed ${muted}`}>
+              {t('workspace.projectHubOverviewHint')}
+            </p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:shrink-0">
             <button
               type="button"
               onClick={onOpenBacklog}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"
+              aria-label={t('workspace.projectHubOpenBacklog')}
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-center text-xs font-semibold text-foreground hover:bg-muted"
             >
-              {t('workspace.projectHubOpenBacklog')}
+              <span className="lg:hidden">{t('workspace.projectHubOpenBacklogShort')}</span>
+              <span className="hidden lg:inline">{t('workspace.projectHubOpenBacklog')}</span>
             </button>
             <button
               type="button"
               onClick={onOpenBoard}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+              aria-label={t('workspace.projectHubOpenBoard')}
+              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground"
             >
-              <LayoutGrid size={14} aria-hidden />
-              {t('workspace.projectHubOpenBoard')}
+              <LayoutGrid size={14} className="shrink-0" aria-hidden />
+              <span className="lg:hidden">{t('workspace.projectHubOpenBoardShort')}</span>
+              <span className="hidden lg:inline">{t('workspace.projectHubOpenBoard')}</span>
             </button>
           </div>
         </div>
@@ -343,7 +365,7 @@ function OverviewPanel({
               ].map(({ key, value, label, extra, tone, tipItems, tipTotal, tipHeading }) => {
                 const tile = (
                   <div
-                    className={`rounded-lg border bg-background px-2 py-3 text-center ${
+                    className={`rounded-lg border bg-background px-2.5 py-3 text-center ${
                       tone === 'destructive'
                         ? 'border-destructive/50'
                         : tone === 'warning'
@@ -354,7 +376,7 @@ function OverviewPanel({
                     } ${tipItems?.length ? 'cursor-help' : ''}`}
                   >
                     <div className={`text-lg font-bold ${titleCls}`}>{value}</div>
-                    <div className={`text-[10px] ${muted}`}>{label}</div>
+                    <div className={`text-[10px] leading-snug ${muted}`}>{label}</div>
                     {extra ? <div className={`mt-0.5 text-[10px] ${muted}`}>{extra}</div> : null}
                   </div>
                 );
@@ -1412,8 +1434,14 @@ export default function ProjectHubShell({
     Boolean(hubCaps.canArchiveProject) &&
     (isProjectCompleted || Boolean(hubCaps.canArchiveWithoutComplete));
 
-  const toolbar = (
-    <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+  const toolbarHasActions =
+    Boolean(hasBoard && isProjectCompleted) ||
+    showCompleteProjectButton ||
+    showArchiveProjectButton ||
+    Boolean(tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id);
+
+  const toolbar = toolbarHasActions ? (
+    <div className="flex w-full flex-wrap items-center gap-1.5 sm:ml-auto sm:w-auto sm:justify-end">
       {hasBoard && isProjectCompleted ? (
         <span className="inline-flex items-center rounded-md border border-success/30 bg-success/10 px-2 py-1 text-[11px] font-semibold text-success">
           {t('workspace.projectHubCompleteProjectBadge')}
@@ -1456,13 +1484,13 @@ export default function ProjectHubShell({
         </button>
       ) : null}
     </div>
-  );
+  ) : null;
 
   if (!hasBoard) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div
-          className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 ${
+          className={`flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 ${
             isDarkMode ? 'border-white/10' : 'border-border'
           }`}
         >
@@ -1496,66 +1524,70 @@ export default function ProjectHubShell({
         }`}
       >
         {/* Identity row */}
-        <div className="flex min-w-0 items-center gap-2.5 px-4 pt-2.5 pb-2">
-          {onBack ? (
-            <button
-              type="button"
-              onClick={() => onBack()}
-              className={`-ml-1 shrink-0 rounded-md p-1 transition ${
-                isDarkMode
-                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-              aria-label={t('taskBoard.backAria')}
-            >
-              <ChevronLeft size={18} />
-            </button>
-          ) : null}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-[10px] font-black text-primary-foreground">
-            {initials}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <h2 className={`truncate text-sm font-bold leading-tight ${titleCls}`}>
-              {resolvedBoard?.title || t('workspace.projectHubUntitled')}
-            </h2>
-            {resolvedBoard?.projectCode ? (
-              <span
-                className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
-                  isDarkMode ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+        <div className="flex min-w-0 flex-col gap-2 px-3 pt-2.5 pb-2 sm:flex-row sm:items-center sm:gap-2.5 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={() => onBack()}
+                className={`-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md p-1 transition sm:h-auto sm:w-auto ${
+                  isDarkMode
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
+                aria-label={t('taskBoard.backAria')}
               >
-                {resolvedBoard.projectCode}
-              </span>
+                <ChevronLeft size={18} />
+              </button>
             ) : null}
-            {resolvedBoard?.methodology ? (
-              <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {formatHubMethodology(resolvedBoard.methodology, t)}
-              </span>
-            ) : null}
-            <span className={`truncate text-[11px] leading-tight ${muted}`}>
-              {[
-                formatHubDate(resolvedBoard?.dueDate, locale) !== '—'
-                  ? formatHubDate(resolvedBoard?.dueDate, locale)
-                  : null,
-                resolvedBoard?.visibility === 'workspace'
-                  ? t('workspace.projectHubVisibilityWorkspace')
-                  : null,
-                t('workspace.projectHubStatDonePct', { pct: summary.donePercent }),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-[10px] font-black text-primary-foreground">
+              {initials}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <h2 className={`break-words text-sm font-bold leading-tight ${titleCls}`}>
+                {resolvedBoard?.title || t('workspace.projectHubUntitled')}
+              </h2>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                {resolvedBoard?.projectCode ? (
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
+                      isDarkMode ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+                    }`}
+                  >
+                    {resolvedBoard.projectCode}
+                  </span>
+                ) : null}
+                {resolvedBoard?.methodology ? (
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      isDarkMode ? 'bg-white/10 text-slate-200' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {formatHubMethodology(resolvedBoard.methodology, t)}
+                  </span>
+                ) : null}
+                <span className={`max-w-full text-[11px] leading-tight sm:truncate ${muted}`}>
+                  {[
+                    formatHubDate(resolvedBoard?.dueDate, locale) !== '—'
+                      ? formatHubDate(resolvedBoard?.dueDate, locale)
+                      : null,
+                    resolvedBoard?.visibility === 'workspace'
+                      ? t('workspace.projectHubVisibilityWorkspace')
+                      : null,
+                    t('workspace.projectHubStatDonePct', { pct: summary.donePercent }),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </div>
+            </div>
           </div>
           {toolbar}
         </div>
 
         {/* Tab bar — underline style */}
         <nav
-          className="flex gap-0 overflow-x-auto px-4"
+          className="flex gap-0 overflow-x-auto overscroll-x-contain px-3 sm:px-4"
           aria-label={t('workspace.projectHubNavAria')}
           style={{ scrollbarWidth: 'none' }}
         >
@@ -1568,7 +1600,7 @@ export default function ProjectHubShell({
                 type="button"
                 disabled={disabled}
                 onClick={() => !disabled && setTab(item.id)}
-                className={`whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-semibold transition-colors ${
+                className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-semibold transition-colors ${
                   disabled
                     ? 'cursor-not-allowed border-transparent text-muted-foreground/40'
                     : active

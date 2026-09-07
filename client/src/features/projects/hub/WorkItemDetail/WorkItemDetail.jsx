@@ -82,7 +82,7 @@ function WorkItemDetailHeader() {
       </div>
       <button
         type="button"
-        className="rounded p-1 text-muted-foreground hover:text-foreground"
+        className="rounded p-2 text-muted-foreground hover:text-foreground sm:p-1"
         onClick={onClose}
         aria-label={t('workspace.projectHubWorkDrawerClose')}
       >
@@ -109,7 +109,7 @@ function WorkItemDetailTabs() {
           role="tab"
           aria-selected={selectedId === item.id}
           onClick={() => setActiveTab(item.id)}
-          className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
+          className={`min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold ${
             selectedId === item.id
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground'

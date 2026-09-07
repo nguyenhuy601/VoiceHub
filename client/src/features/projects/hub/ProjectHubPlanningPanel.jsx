@@ -962,7 +962,7 @@ export default function ProjectHubPlanningPanel({
       <div className="shrink-0 border-b border-border px-4 pt-3">
         <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabPlanning')}</h3>
         <p className={`mb-2 text-xs ${muted}`}>{t('workspace.projectHubPlanHint')}</p>
-        <div className="flex gap-1 overflow-x-auto pb-2" role="tablist" aria-label={t('workspace.projectHubTabPlanning')}>
+        <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-2" role="tablist" aria-label={t('workspace.projectHubTabPlanning')}>
           {PLAN_VIEWS.map((tab) => (
             <button
               key={tab.id}
@@ -970,7 +970,7 @@ export default function ProjectHubPlanningPanel({
               role="tab"
               aria-selected={view === tab.id}
               onClick={() => setView(tab.id)}
-              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
+              className={`min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold ${
                 view === tab.id
                   ? 'bg-primary text-primary-foreground'
                   : isDarkMode
@@ -1016,7 +1016,7 @@ export default function ProjectHubPlanningPanel({
                   type="button"
                   onClick={createSprint}
                   disabled={busy}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                  className="min-h-11 rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50 sm:min-h-0"
                 >
                   {t('workspace.projectHubBacklogCreateSprint')}
                 </button>

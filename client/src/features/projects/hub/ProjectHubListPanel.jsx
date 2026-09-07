@@ -1244,7 +1244,7 @@ export default function ProjectHubListPanel({
               setCreatingUnderId('');
               setRootCreateOpen(true);
             }}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             {t('workspace.projectHubBacklogCreate')}
           </button>
