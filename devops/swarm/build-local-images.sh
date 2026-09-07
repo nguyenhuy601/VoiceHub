@@ -14,8 +14,13 @@ cd "$ROOT"
 
 if [[ -f "$ROOT/.env" ]]; then
   set -a
+  # Windows checkout có thể tạo CRLF -> khi bash source sẽ dính ký tự '\r' gây lỗi parse.
+  # Normalize sang LF tạm thời để build không fail.
+  tmp_env="$(mktemp)"
+  trap 'rm -f "$tmp_env"' EXIT
+  tr -d '\r' < "$ROOT/.env" > "$tmp_env"
   # shellcheck disable=SC1091
-  source "$ROOT/.env"
+  source "$tmp_env"
   set +a
 fi
 
