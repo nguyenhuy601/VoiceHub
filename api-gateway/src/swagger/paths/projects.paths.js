@@ -134,4 +134,18 @@ module.exports = {
       },
     }),
   },
+  '/api/projects/roles': {
+    get: buildOperation({
+      operationId: 'listOrgProjectRoles',
+      tags: ['Projects'],
+      summary: 'List org project roles (CRUD catalog)',
+      description:
+        'Catalog Project Role theo org. Yêu cầu owner/admin. Query organizationId. GET /role-catalog là catalog enabled (khác collection).',
+      requireNotFound: false,
+      successExample: {
+        success: true,
+        data: [{ _id: '507f1f77bcf86cd799439011', key: 'backend_developer', label: 'Backend' }],
+      },
+    }),
+  },
 };

@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const projectRoleAdminController = require('../controllers/projectRoleAdmin.controller');
 
-// Admin CRUD Project Roles (catalog) — per-organization.
+// Org Project Role catalog CRUD — mount at /api/projects/roles
 router.get('/', projectRoleAdminController.listProjectRoles.bind(projectRoleAdminController));
 router.post('/', projectRoleAdminController.createProjectRole.bind(projectRoleAdminController));
 router.put('/reorder', projectRoleAdminController.reorderProjectRoles.bind(projectRoleAdminController));

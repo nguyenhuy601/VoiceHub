@@ -138,12 +138,14 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
   };
 
   const acceptRequest = async (row) => {
-    const requestId = row?._id || row?.id;
     const friendId = pendingRequesterId(row);
+    if (!friendId) {
+      toast.error(t('friends.errUserUnknown'));
+      return;
+    }
     try {
-      if (friendId) await friendService.acceptFriend(friendId);
-      else await friendService.acceptRequest(requestId);
-      if (friendId) await markFriendNotificationsResolved(friendId);
+      await friendService.acceptFriend(friendId);
+      await markFriendNotificationsResolved(friendId);
       toast.success(t('friendChat.pendingAcceptOk'));
       onFriendlistChanged?.();
       await loadPending();
@@ -153,12 +155,14 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
   };
 
   const rejectRequest = async (row) => {
-    const requestId = row?._id || row?.id;
     const friendId = pendingRequesterId(row);
+    if (!friendId) {
+      toast.error(t('friends.errUserUnknown'));
+      return;
+    }
     try {
-      if (friendId) await friendService.rejectFriend(friendId);
-      else await friendService.rejectRequest(requestId);
-      if (friendId) await markFriendNotificationsResolved(friendId);
+      await friendService.rejectFriend(friendId);
+      await markFriendNotificationsResolved(friendId);
       toast.success(t('friendChat.pendingRejectOk'));
       onFriendlistChanged?.();
       await loadPending();

@@ -4,7 +4,7 @@ const userController = require('../controllers/user.controller');
 const userContext = require('../middlewares/userContext');
 const internalServiceAuth = require('../middlewares/internalServiceAuth');
 const { protect } = require('../middleware/auth');
-const { companyAdminAuth } = require('../middlewares/companyAdminAuth');
+const { attachCompanyAdminIfPresent } = require('../middlewares/companyAdminAuth');
 const upload = require('../middleware/upload');
 const { cvUpload } = require('../middleware/cvUpload');
 
@@ -79,18 +79,6 @@ router.post(
 router.use(protect);
 router.use(userContext);
 
-// Company admin profile management
-router.get(
-  '/admin/:userId',
-  companyAdminAuth({ requireFullAccess: false }),
-  userController.adminGetProfile.bind(userController)
-);
-router.patch(
-  '/admin/:userId',
-  companyAdminAuth({ requireFullAccess: false }),
-  userController.adminPatchProfile.bind(userController)
-);
-
 // Lấy thông tin user hiện tại
 router.get('/me', userController.getCurrentUser.bind(userController));
 
@@ -135,10 +123,19 @@ router.get('/username/:username', userController.getUserProfileByUsername.bind(u
 // Avatar có JWT (img tag dùng ?access_token= qua gateway)
 router.get('/:userId/avatar', userController.getUserAvatar.bind(userController));
 
-// Lấy user profile theo ID
-router.get('/:userId', userController.getUserProfileById.bind(userController));
+// Lấy / cập nhật profile theo ID — actor: peer GET, self PATCH, company admin (query/body org)
+router.get(
+  '/:userId',
+  attachCompanyAdminIfPresent,
+  userController.getUserProfileById.bind(userController)
+);
+router.patch(
+  '/:userId',
+  attachCompanyAdminIfPresent,
+  userController.patchUserById.bind(userController)
+);
 
-// Cập nhật user profile
+// PUT self-only (giữ contract cũ)
 router.put('/:userId', userController.updateUserProfile.bind(userController));
 
 // Xóa user profile

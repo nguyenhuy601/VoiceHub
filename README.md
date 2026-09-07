@@ -156,11 +156,11 @@ Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới c�
 | `/api/auth` | auth-service |
 | `/api/users` | user-service |
 | `/api/friends` | friend-service |
-| `/api/organizations`, `/api/channels` | organization-service |
+| `/api/organizations` | organization-service |
 | `/api/roles`, `/api/permissions` | role-permission-service |
-| `/api/messages`, `/api/chat` | chat-service |
+| `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
-| `/api/tasks`, `/api/work` | task-service |
+| `/api/tasks` | task-service (project-service) |
 | `/api/ai/tasks` | ai-task-service |
 | `/api/ai/summaries` | summary-service |
 | `/api/documents` | document-service |

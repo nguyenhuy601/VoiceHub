@@ -29,8 +29,9 @@ app.get('/health', (req, res) => {
 
 // Meeting routes
 const meetingRoutes = require('./routes/meeting.routes');
+const voiceRoutes = require('./routes/voice.routes');
 app.use('/api/meetings', meetingRoutes);
-app.use('/api/voice', meetingRoutes); // Alias
+app.use('/api/voice', voiceRoutes);
 
 module.exports = app;
 

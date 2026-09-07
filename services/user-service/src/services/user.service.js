@@ -259,7 +259,7 @@ class UserService {
   }
 
   // Cập nhật user profile
-  // options.capabilityMode: 'self' (PATCH /me) | 'admin' (PATCH /admin/:id)
+  // options.capabilityMode: 'self' (PATCH /me hoặc self /:id) | 'admin' (HR/company admin PATCH /:id)
   async updateUserProfile(userId, updateData, options = {}) {
     try {
       const allowedFields = ['displayName', 'avatar', 'isInvisible', 'status'];
