@@ -9,7 +9,9 @@ const {
 const {
   classifyProjectHealth,
   aggregateDirectorHealth,
+  withProgressPercents,
 } = require('../src/utils/directorHealth');
+const { summarizePortfolioCapacity } = require('../src/utils/projectHealthCapacity');
 const {
   hasDirectorOrAuditorRole,
   membershipIsOrgAdmin,
@@ -70,8 +72,87 @@ describe('Phase 6 governance T1–T6', () => {
     assert.equal(agg.counts.delayed, 1);
     assert.equal(agg.counts.onTrack, 1);
     assert.equal(agg.counts.completed, 2);
+    assert.equal(agg.counts.atRisk, 0);
+    assert.equal(agg.counts.paused, 0);
+    assert.equal(agg.counts.cancelled, 0);
     assert.equal(agg.counts.total, 4);
     assert.equal(agg.budget.enabled, false);
+  });
+
+  it('D5: cancelled / on_hold không giả on_track; RAG at_risk từ thẻ', () => {
+    const asOf = new Date('2026-07-01T00:00:00Z');
+    assert.equal(
+      classifyProjectHealth(
+        { status: 'cancelled', dueDate: '2026-12-01', isActive: true },
+        asOf
+      ),
+      'cancelled'
+    );
+    assert.equal(
+      classifyProjectHealth({ status: 'on_hold', dueDate: '2026-06-01', isActive: true }, asOf),
+      'paused'
+    );
+    assert.equal(
+      classifyProjectHealth(
+        { status: 'in_development', dueDate: '2026-12-01', isActive: true },
+        asOf,
+        { overdueCards: 2, doneCards: 1, openCards: 4 }
+      ),
+      'at_risk'
+    );
+    assert.equal(
+      classifyProjectHealth(
+        { status: 'ready_for_planning', dueDate: '2026-07-10', isActive: true },
+        asOf,
+        { doneCards: 1, openCards: 9, overdueCards: 0 }
+      ),
+      'at_risk'
+    );
+    assert.equal(
+      classifyProjectHealth(
+        { status: 'in_development', dueDate: '2026-07-10', isActive: true },
+        asOf,
+        { doneCards: 8, openCards: 2, overdueCards: 0 }
+      ),
+      'on_track'
+    );
+    assert.equal(
+      classifyProjectHealth({ status: 'cancelled', isActive: false }, asOf),
+      'cancelled'
+    );
+    assert.equal(
+      classifyProjectHealth(
+        { status: 'in_development', dueDate: '2026-07-10', isActive: true },
+        asOf,
+        {
+          doneCards: 8,
+          openCards: 2,
+          overdueCards: 0,
+          estimateHoursDone: 2,
+          estimateHoursOpen: 10,
+        }
+      ),
+      'at_risk'
+    );
+    const agg = aggregateDirectorHealth(
+      [
+        { _id: 'c1', title: 'Cafe', status: 'cancelled', dueDate: '2026-12-30', isActive: true },
+        {
+          _id: 'r1',
+          title: 'Risk',
+          status: 'in_development',
+          dueDate: '2026-12-01',
+          isActive: true,
+        },
+      ],
+      asOf,
+      { r1: { overdueCards: 1, doneCards: 0, openCards: 3 } }
+    );
+    assert.equal(agg.counts.cancelled, 1);
+    assert.equal(agg.counts.atRisk, 1);
+    assert.equal(agg.projects[0].health, 'at_risk');
+    assert.equal(agg.projects[0].progress.overdueCards, 1);
+    assert.equal(agg.portfolio.overdueCards, 1);
   });
 
   it('T5: auditor/director gate policy; member thường forbidden', () => {
@@ -90,6 +171,49 @@ describe('Phase 6 governance T1–T6', () => {
     const withArch = buildActiveProjectsFilter('org1', { includeArchived: true });
     assert.equal(withArch.isActive, undefined);
     assert.equal(classifyProjectHealth({ isActive: false, status: 'planning' }), 'completed');
+  });
+
+  it('D5b: cycle/commitment percents + planned allocation over-allocate', () => {
+    const cycle = withProgressPercents({
+      cycleTimeHoursSum: 96,
+      cycleTimeSample: 2,
+      sprintCommittedCards: 10,
+      sprintDoneCards: 4,
+      sprintCommittedHours: 40,
+      sprintCompletedHours: 16,
+    });
+    assert.equal(cycle.cycleTimeHours, 48);
+    assert.equal(cycle.cycleTimeUnavailableReason, null);
+    assert.equal(cycle.sprintCommitmentRatio, 0.4);
+    const cap = summarizePortfolioCapacity(
+      [
+        {
+          userId: 'u1',
+          projectId: 'p1',
+          allocations: [
+            { startDate: '2026-01-01', endDate: null, allocationPct: 60 },
+          ],
+        },
+        {
+          userId: 'u1',
+          projectId: 'p2',
+          allocations: [
+            { startDate: '2026-01-01', endDate: null, allocationPct: 60 },
+          ],
+        },
+        {
+          userId: 'u2',
+          projectId: 'p1',
+          allocations: [
+            { startDate: '2026-01-01', endDate: null, allocationPct: 40 },
+          ],
+        },
+      ],
+      { projectIds: ['p1', 'p2'], asOf: new Date('2026-07-01T00:00:00Z') }
+    );
+    assert.equal(cap.peopleOnListedProjects, 2);
+    assert.equal(cap.overallocatedPeople, 1);
+    assert.equal(cap.metric, 'planned_allocation');
   });
 
   it('audit flag is boolean', () => {

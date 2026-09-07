@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -171,14 +171,18 @@ export default function ProjectHubPage() {
   }, [orgId, projectId, resolveSelectedBoardId, t]);
 
   const [needsFullBoardCards, setNeedsFullBoardCards] = useState(false);
+  const [fullBoardCardsReady, setFullBoardCardsReady] = useState(false);
+  const boardDetailFetchGenRef = useRef(0);
 
   const loadTaskBoardDetail = useCallback(
     async (boardId, options = {}) => {
       const silent = Boolean(options?.silent);
       const forceFull = Boolean(options?.forceFull);
       const wantFullCards = forceFull || needsFullBoardCards;
+      const fetchGen = ++boardDetailFetchGenRef.current;
       if (!boardId) {
         setTaskBoardDetail(null);
+        setFullBoardCardsReady(false);
         return;
       }
       if (!silent) setLoadingTaskBoardDetail(true);
@@ -187,12 +191,18 @@ export default function ProjectHubPage() {
           ...apiCtx,
           ...(wantFullCards ? {} : { includeCards: false }),
         });
+        if (fetchGen !== boardDetailFetchGenRef.current) return;
         setTaskBoardDetail(unwrapTaskBoardDetailPayload(res));
+        if (wantFullCards) setFullBoardCardsReady(true);
       } catch (err) {
+        if (fetchGen !== boardDetailFetchGenRef.current) return;
+        if (wantFullCards) setFullBoardCardsReady(true);
         if (!silent) setTaskBoardDetail(null);
         toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail')));
       } finally {
-        if (!silent) setLoadingTaskBoardDetail(false);
+        if (!silent && fetchGen === boardDetailFetchGenRef.current) {
+          setLoadingTaskBoardDetail(false);
+        }
       }
     },
     [apiCtx, t, needsFullBoardCards]
@@ -203,6 +213,7 @@ export default function ProjectHubPage() {
       setTaskBoards([]);
       setSelectedTaskBoardId('');
       setTaskBoardDetail(null);
+      setFullBoardCardsReady(false);
       return undefined;
     }
     const pid = String(projectId || '').trim();
@@ -340,6 +351,10 @@ export default function ProjectHubPage() {
       { replace: true }
     );
   }, [projectId, selectedTaskBoardId, orgId, boardIdFromQuery, navigate]);
+
+  useEffect(() => {
+    setFullBoardCardsReady(false);
+  }, [selectedTaskBoardId]);
 
   useEffect(() => {
     loadTaskBoardDetail(selectedTaskBoardId);
@@ -734,6 +749,7 @@ export default function ProjectHubPage() {
         apiCtx={apiCtx}
         onRefresh={refreshTaskBoardView}
         onNeedFullBoardCards={handleNeedFullBoardCards}
+        boardCardsReady={fullBoardCardsReady}
         onUpdateCard={handleUpdateBoardCard}
         onPatchBoardCards={applyBoardCardsPatch}
         workspaceSlug=""

@@ -239,13 +239,14 @@ export const pageStrings = {
       deptDocsTitle: 'Tài liệu phòng',
       deptDocsScopeHint: 'Tài liệu chat phòng ban bạn thuộc và file đính kèm trên dự án.',
       projectHubTabOverview: 'Tổng quan',
+      projectHubTabReport: 'Báo cáo',
       projectHubTabList: 'Danh sách',
       projectHubTabPlanning: 'Backlog',
       projectHubTabBoard: 'Bảng',
       projectHubTabTimeline: 'Timeline',
       projectHubTabMembers: 'Thành viên',
       projectHubTabFiles: 'Tệp',
-      projectHubTabActivity: 'Báo cáo',
+      projectHubTabActivity: 'Hoạt động',
       projectHubTabSettings: 'Cài đặt',
       projectHubTabChangeRequests: 'Yêu cầu thay đổi',
       projectHubTimelineSearchPh: 'Tìm trên timeline',
@@ -411,6 +412,9 @@ export const pageStrings = {
       projectHubUntitled: 'Dự án',
       projectHubOverviewHint:
         'Cam kết board/sprint có đúng hạn không? Việc cần chú ý và tiến độ bên dưới.',
+      projectHubReportHint:
+        'Cùng số liệu với Tổng quan. Sprint commitment và cycle time khi có dữ liệu trên board.',
+      projectHubReportCycleTitle: 'Cycle time',
       projectHubOverviewActiveSprint: 'Sprint hiện tại',
       projectHubOverviewActiveSprintEmpty:
         'Chưa có sprint đang chạy. Mở Backlog để tạo hoặc start sprint.',
@@ -519,6 +523,7 @@ export const pageStrings = {
       projectHubOverviewAssigneeOpen: 'Đang mở',
       projectHubOverviewAssigneeEmpty: 'Không có công việc đang mở.',
       projectHubOverviewAssigneeOther: 'Khác',
+      projectHubOverviewAssigneeUnknown: 'Chưa rõ tên',
       projectHubOverviewAssigneeAria: 'Việc đang mở theo người nhận: {n}',
       projectHubOverviewTaskMetricsRestricted:
         'Bạn không có quyền xem chỉ số công việc trên dự án này.',
@@ -5126,13 +5131,14 @@ export const pageStrings = {
       deptDocsTitle: 'Department documents',
       deptDocsScopeHint: 'Documents from your department chats and project attachments.',
       projectHubTabOverview: 'Summary',
+      projectHubTabReport: 'Reports',
       projectHubTabList: 'List',
       projectHubTabPlanning: 'Backlog',
       projectHubTabBoard: 'Board',
       projectHubTabTimeline: 'Timeline',
       projectHubTabMembers: 'Members',
       projectHubTabFiles: 'Files',
-      projectHubTabActivity: 'Reports',
+      projectHubTabActivity: 'Activity',
       projectHubTabSettings: 'Settings',
       projectHubTabChangeRequests: 'Change Requests',
       projectHubTimelineSearchPh: 'Search timeline',
@@ -5297,6 +5303,9 @@ export const pageStrings = {
       projectHubNavAria: 'Project hub navigation',
       projectHubUntitled: 'Project',
       projectHubOverviewHint: 'Scrum summary: progress, issues, and what to do next.',
+      projectHubReportHint:
+        'Same figures as Summary. Sprint commitment and cycle time when the board has data.',
+      projectHubReportCycleTitle: 'Cycle time',
       projectHubOverviewActiveSprint: 'Active sprint',
       projectHubOverviewActiveSprintEmpty:
         'No active sprint. Open Backlog to create or start one.',
@@ -5405,6 +5414,7 @@ export const pageStrings = {
       projectHubOverviewAssigneeOpen: 'Open',
       projectHubOverviewAssigneeEmpty: 'No open work items.',
       projectHubOverviewAssigneeOther: 'Other',
+      projectHubOverviewAssigneeUnknown: 'Name unavailable',
       projectHubOverviewAssigneeAria: 'Open tasks by assignee: {n}',
       projectHubOverviewTaskMetricsRestricted:
         'You do not have permission to view work metrics on this project.',

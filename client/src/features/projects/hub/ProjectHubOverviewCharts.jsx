@@ -95,6 +95,7 @@ function HubDonutTooltip({ seg, valueMode, t, titleCls }) {
 function OverviewChartDrilldown({
   title,
   items = [],
+  loading = false,
   muted,
   titleCls,
   t,
@@ -106,12 +107,15 @@ function OverviewChartDrilldown({
       className="mt-3 rounded-lg border border-border bg-background p-3"
       role="region"
       aria-label={title}
+      aria-busy={loading ? 'true' : undefined}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className={`text-xs font-semibold ${titleCls}`}>{title}</p>
           <p className={`text-[10px] ${muted}`}>
-            {t('workspace.projectHubOverviewDrilldownCount', { n: items.length })}
+            {loading
+              ? t('common.loading')
+              : t('workspace.projectHubOverviewDrilldownCount', { n: items.length })}
           </p>
         </div>
         <button
@@ -123,7 +127,9 @@ function OverviewChartDrilldown({
           {t('workspace.projectHubOverviewDrilldownClose')}
         </button>
       </div>
-      {items.length === 0 ? (
+      {loading ? (
+        <p className={`text-xs ${muted}`}>{t('common.loading')}</p>
+      ) : items.length === 0 ? (
         <p className={`text-xs ${muted}`}>{t('workspace.projectHubOverviewDrilldownEmpty')}</p>
       ) : (
         <ul className="max-h-40 space-y-1 overflow-y-auto">
@@ -144,7 +150,7 @@ function OverviewChartDrilldown({
   );
 }
 
-function HubDonutChart({
+export function HubDonutChart({
   segments = [],
   total = 0,
   centerValue,
@@ -163,6 +169,7 @@ function HubDonutChart({
   const hasWork = Number(total) > 0;
   const tipKey = hoverKey || null;
   const tipSeg = hasWork ? segments.find((s) => s.key === tipKey) : null;
+  const canSelect = typeof onSelectSegment === 'function';
 
   useEffect(() => {
     if (!selectedKey) return undefined;
@@ -192,12 +199,14 @@ function HubDonutChart({
         <path
           key={seg.key}
           d={d}
-          tabIndex={0}
-          role="button"
+          tabIndex={canSelect ? 0 : undefined}
+          role={canSelect ? 'button' : undefined}
           aria-label={tipText}
           aria-pressed={selected}
           aria-describedby={tipKey === seg.key ? tipId : undefined}
-          className={`${seg.fillClass} stroke-surface cursor-pointer outline-none focus-visible:stroke-primary focus-visible:stroke-2 ${
+          className={`${seg.fillClass} stroke-surface outline-none focus-visible:stroke-primary focus-visible:stroke-2 ${
+            canSelect ? 'cursor-pointer' : ''
+          } ${
             selected ? 'opacity-100' : selectedKey ? 'opacity-55' : ''
           }`}
           strokeWidth="1.5"
@@ -206,13 +215,15 @@ function HubDonutChart({
           onFocus={() => setHoverKey(seg.key)}
           onBlur={() => setHoverKey(null)}
           onClick={(e) => {
+            if (!canSelect) return;
             e.preventDefault();
-            onSelectSegment?.(selected ? null : seg.key);
+            onSelectSegment(selected ? null : seg.key);
           }}
           onKeyDown={(e) => {
+            if (!canSelect) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              onSelectSegment?.(selected ? null : seg.key);
+              onSelectSegment(selected ? null : seg.key);
             }
           }}
         />
@@ -357,7 +368,9 @@ function HubDonutChart({
           titleCls={titleCls}
           t={t}
           activeKey={selectedKey}
-          onSelect={(key) => onSelectSegment?.(selectedKey === key ? null : key)}
+          onSelect={
+            canSelect ? (key) => onSelectSegment(selectedKey === key ? null : key) : undefined
+          }
         />
       )}
     </div>
@@ -476,6 +489,7 @@ export function ProjectHubOverviewCharts({
   cards = [],
   lists = [],
   members = [],
+  cardsLoading = false,
   showAssigneeChart = true,
   muted,
   titleCls,
@@ -487,12 +501,14 @@ export function ProjectHubOverviewCharts({
 
   const drillItems = useMemo(() => {
     if (!drill?.key) return [];
+    const limit = Math.max(40, Number(drill.count) || 0);
     return listOverviewChartSegmentCards({
       cards,
       lists,
       members,
       chart: drill.chart,
       segmentKey: drill.key,
+      limit,
     });
   }, [cards, lists, members, drill]);
 
@@ -510,11 +526,14 @@ export function ProjectHubOverviewCharts({
     const seg = (segments || []).find((s) => s.key === key);
     const label = seg ? hubBarLabel(seg, t) : key;
     setDrill((prev) =>
-      prev?.chart === chart && prev?.key === key ? null : { chart, key, label }
+      prev?.chart === chart && prev?.key === key
+        ? null
+        : { chart, key, label, count: Number(seg?.count) || 0 }
     );
   };
 
   const drillFor = (chart) => (drill?.chart === chart ? drill : null);
+  const drillLoading = Boolean(cardsLoading && drill);
 
   return (
     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -547,6 +566,7 @@ export function ProjectHubOverviewCharts({
               label: drillFor('status').label,
             })}
             items={drillItems}
+            loading={drillLoading}
             muted={muted}
             titleCls={titleCls}
             t={t}
@@ -578,6 +598,7 @@ export function ProjectHubOverviewCharts({
               label: drillFor('priority').label,
             })}
             items={drillItems}
+            loading={drillLoading}
             muted={muted}
             titleCls={titleCls}
             t={t}
@@ -620,6 +641,7 @@ export function ProjectHubOverviewCharts({
               label: drillFor('assignee').label,
             })}
             items={drillItems}
+            loading={drillLoading}
             muted={muted}
             titleCls={titleCls}
             t={t}

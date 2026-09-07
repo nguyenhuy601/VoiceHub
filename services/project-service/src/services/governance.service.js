@@ -1,7 +1,14 @@
 const mongoose = require('../db');
 const Project = require('../models/Project');
+const ProjectMember = require('../models/ProjectMember');
+const Sprint = require('../models/Sprint');
 const GovernanceSettings = require('../models/GovernanceSettings');
 const { aggregateDirectorHealth } = require('../utils/directorHealth');
+const { loadProjectCardProgress } = require('./projectHealthRollup.service');
+const {
+  emptyCapacitySummary,
+  summarizePortfolioCapacity,
+} = require('../utils/projectHealthCapacity');
 const {
   assertCanViewGovernanceReports,
   assertOrgAdminOnly,
@@ -44,19 +51,78 @@ async function getDirectorHealth({ userId, organizationId, includeArchived = fal
   const q = buildActiveProjectsFilter(organizationId, { includeArchived });
   const projects = await Project.find(q)
     .select(
-      'title status dueDate expectedEndDate isActive budgetStub archivedAt retentionUntil'
+      'title projectCode status dueDate expectedEndDate isActive budgetStub archivedAt retentionUntil'
     )
     .lean();
-  const health = aggregateDirectorHealth(projects);
+  const asOf = new Date();
+  const projectIds = projects.map((p) => p._id).filter(Boolean);
+
+  let activeSprints = [];
+  try {
+    if (projectIds.length && mongoose.isValidObjectId(organizationId)) {
+      activeSprints = await Sprint.find({
+        organizationId,
+        projectId: { $in: projectIds },
+        status: 'active',
+      })
+        .select('_id projectId name endDate')
+        .lean();
+    }
+  } catch (err) {
+    logger.warn('[director-health] active sprint lookup failed: %s', err?.message || err);
+  }
+
+  const sprintByProjectId = new Map();
+  for (const sp of activeSprints) {
+    const pid = String(sp.projectId || '');
+    if (!pid || sprintByProjectId.has(pid)) continue;
+    sprintByProjectId.set(pid, {
+      sprintId: String(sp._id),
+      name: String(sp.name || ''),
+      endDate: sp.endDate || null,
+    });
+  }
+
+  let progressByProjectId = new Map();
+  try {
+    progressByProjectId = await loadProjectCardProgress({
+      organizationId,
+      projectIds,
+      asOf,
+      activeSprintIds: activeSprints.map((s) => s._id),
+    });
+  } catch (err) {
+    logger.warn('[director-health] card rollup failed: %s', err?.message || err);
+  }
+
+  let capacity = emptyCapacitySummary();
+  try {
+    const members = await ProjectMember.find({
+      organizationId,
+      status: 'active',
+    })
+      .select('userId projectId allocations')
+      .lean();
+    capacity = summarizePortfolioCapacity(members, { projectIds, asOf });
+  } catch (err) {
+    logger.warn('[director-health] capacity summary failed: %s', err?.message || err);
+  }
+
+  const health = aggregateDirectorHealth(projects, asOf, progressByProjectId);
+  for (const row of health.projects) {
+    const sprint = sprintByProjectId.get(row.projectId);
+    if (sprint) row.sprint = sprint;
+  }
 
   return {
     ...health,
+    capacity,
     capacityHint: {
       endpoint: '/api/projects/resources/capacity',
-      note: 'Reuse Phase 3 capacity aggregates in UI widgets',
+      note: 'Planned allocation rollup on this payload; department FTE remains Phase 3 API',
     },
     burndownHint: {
-      note: 'Phase 4 workflow / sprint status — burndown stub (full chart out of scope)',
+      note: 'Active sprint commitment is on each project row; full burndown chart stays on hub',
       endpoint: '/api/projects/:projectId/sprints/:sprintId/time-summary',
     },
   };

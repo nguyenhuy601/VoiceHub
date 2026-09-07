@@ -5,6 +5,7 @@ import { normalizePriorityConfig, slugPriorityKey } from './projectPriorityConfi
 
 export const PROJECT_HUB_TABS = [
   { id: 'overview', labelKey: 'workspace.projectHubTabOverview' },
+  { id: 'report', labelKey: 'workspace.projectHubTabReport' },
   { id: 'list', labelKey: 'workspace.projectHubTabList' },
   { id: 'planning', labelKey: 'workspace.projectHubTabPlanning' },
   { id: 'board', labelKey: 'workspace.projectHubTabBoard' },
@@ -711,10 +712,15 @@ export function hubActionAttentionRank({ dueTone, isInReview, hasAssignee } = {}
 }
 
 function hubCardAssigneeName(card) {
+  const id = String(card?.assigneeId || '').trim();
   const named = String(card?.assigneeName || '').trim();
-  if (named) return named;
+  if (named && !isOpaqueAssigneeLabel(named, id)) return named;
   const first = Array.isArray(card?.assignees) ? card.assignees[0] : null;
-  return String(first?.displayName || first?.name || first?.username || '').trim();
+  const fromList = String(first?.displayName || first?.name || first?.username || '').trim();
+  const nestedId =
+    extractHubUserId(first?._id || first?.id || first?.userId) || id;
+  if (fromList && !isOpaqueAssigneeLabel(fromList, nestedId)) return fromList;
+  return '';
 }
 
 function hubCardHasAssignee(card) {
@@ -1056,6 +1062,45 @@ export function findMemberByUserId(members, userId) {
   const id = extractHubUserId(userId);
   if (!id) return null;
   return (members || []).find((m) => memberUserId(m) === id) || null;
+}
+
+const OPAQUE_ASSIGNEE_OBJECT_ID = /^[a-f0-9]{24}$/i;
+const OPAQUE_ASSIGNEE_HEX6 = /^[a-f0-9]{6}$/i;
+
+/** ObjectId / 6 ký tự cuối id — không dùng làm tên người trên chart. */
+export function isOpaqueAssigneeLabel(label, userId = '') {
+  const name = String(label || '').trim();
+  const id = extractHubUserId(userId) || String(userId || '').trim();
+  if (!name) return true;
+  if (id && name === id) return true;
+  if (OPAQUE_ASSIGNEE_OBJECT_ID.test(name)) return true;
+  if (id && name.toLowerCase() === id.slice(-6).toLowerCase()) return true;
+  if (OPAQUE_ASSIGNEE_HEX6.test(name) && id && id.toLowerCase().endsWith(name.toLowerCase())) {
+    return true;
+  }
+  return false;
+}
+
+/** Tên legend assignee: ưu tiên member, không cắt 6 ký tự id. */
+export function resolveAssigneeChartLabel({ assigneeId = '', assigneeName = '', members = [] } = {}) {
+  const id = extractHubUserId(assigneeId) || String(assigneeId || '').trim();
+  const memberName = id ? memberDisplayName(findMemberByUserId(members, id)) : '';
+  if (memberName) return { label: memberName, labelKey: '' };
+  const raw = String(assigneeName || '').trim();
+  if (raw && !isOpaqueAssigneeLabel(raw, id)) return { label: raw, labelKey: '' };
+  if (id) return { label: '', labelKey: 'workspace.projectHubOverviewAssigneeUnknown' };
+  return { label: '', labelKey: '' };
+}
+
+function assigneeDisplayNameByUserId(cards = []) {
+  const map = new Map();
+  for (const card of cards || []) {
+    const id = String(card?.assigneeId || '').trim();
+    if (!id || map.has(id)) continue;
+    const named = hubCardAssigneeName(card);
+    if (named) map.set(id, named);
+  }
+  return map;
 }
 
 /** Tên reporter / createdBy: field API, rồi members, rồi 6 ký tự cuối id. */
@@ -1697,9 +1742,86 @@ function attachDonutAngles(segments = []) {
   });
 }
 
+const DIRECTOR_HEALTH_CHART_META = [
+  {
+    key: 'delayed',
+    countKey: 'delayed',
+    labelKey: 'adminTasks.directorHealth_delayed',
+    barClass: 'bg-destructive',
+    fillClass: 'fill-destructive',
+  },
+  {
+    key: 'at_risk',
+    countKey: 'atRisk',
+    labelKey: 'adminTasks.directorHealth_at_risk',
+    barClass: 'bg-warning',
+    fillClass: 'fill-warning',
+  },
+  {
+    key: 'on_track',
+    countKey: 'onTrack',
+    labelKey: 'adminTasks.directorHealth_on_track',
+    barClass: 'bg-success',
+    fillClass: 'fill-success',
+  },
+  {
+    key: 'paused',
+    countKey: 'paused',
+    labelKey: 'adminTasks.directorHealth_paused',
+    barClass: 'bg-muted-foreground/60',
+    fillClass: 'fill-muted-foreground/60',
+  },
+  {
+    key: 'completed',
+    countKey: 'completed',
+    labelKey: 'adminTasks.directorHealth_completed',
+    barClass: 'bg-primary/50',
+    fillClass: 'fill-primary/50',
+  },
+  {
+    key: 'cancelled',
+    countKey: 'cancelled',
+    labelKey: 'adminTasks.directorHealth_cancelled',
+    barClass: 'bg-muted-foreground/30',
+    fillClass: 'fill-muted-foreground/30',
+  },
+];
+
+/** Donut RAG Admin từ `counts` director-health — không API mới. */
+export function buildDirectorHealthChartSegments(counts = {}) {
+  const rows = DIRECTOR_HEALTH_CHART_META.map((meta) => ({
+    key: meta.key,
+    labelKey: meta.labelKey,
+    barClass: meta.barClass,
+    fillClass: meta.fillClass,
+    count: Math.max(0, Number(counts[meta.countKey]) || 0),
+  })).filter((row) => row.count > 0);
+  return attachDonutAngles(rows);
+}
+
+/** Donut giờ mở / đã xong từ `portfolio` director-health. */
+export function buildDirectorHoursChartSegments(portfolio = {}) {
+  return attachDonutAngles([
+    {
+      key: 'open',
+      labelKey: 'adminTasks.directorHoursOpenSlice',
+      barClass: 'bg-primary',
+      fillClass: 'fill-primary',
+      count: Math.max(0, Number(portfolio.estimateHoursOpen) || 0),
+    },
+    {
+      key: 'done',
+      labelKey: 'adminTasks.directorHoursDoneSlice',
+      barClass: 'bg-success',
+      fillClass: 'fill-success',
+      count: Math.max(0, Number(portfolio.estimateHoursDone) || 0),
+    },
+  ]);
+}
+
 /**
  * Open work theo assignee (+ Unassigned). Top N; phần còn lại gộp "other".
- * Tên từ card; members chỉ bổ sung khi card thiếu tên.
+ * Tên: memberDisplayName trước; không dùng 6 ký tự cuối ObjectId.
  */
 export function countOpenCardsByAssignee(cards = [], lists = [], members = [], { topN = OVERVIEW_ASSIGNEE_TOP_N } = {}) {
   const listById = hubListById(lists);
@@ -1709,10 +1831,12 @@ export function countOpenCardsByAssignee(cards = [], lists = [], members = [], {
   for (const card of cards || []) {
     if (!isHubCardOpen(card, listById)) continue;
     const id = String(card?.assigneeId || '').trim();
-    let name = hubCardAssigneeName(card);
-    if (!name && id) {
-      name = memberDisplayName(findMemberByUserId(members, id)) || '';
-    }
+    const resolved = resolveAssigneeChartLabel({
+      assigneeId: id,
+      assigneeName: hubCardAssigneeName(card),
+      members,
+    });
+    const name = resolved.label;
     if (!id && !name) {
       unassigned += 1;
       continue;
@@ -1721,12 +1845,15 @@ export function countOpenCardsByAssignee(cards = [], lists = [], members = [], {
     const prev = byKey.get(key);
     if (prev) {
       prev.count += 1;
-      if (!prev.label && name) prev.label = name;
+      if (!prev.label && name) {
+        prev.label = name;
+        prev.labelKey = '';
+      }
     } else {
       byKey.set(key, {
         key,
-        label: name || (id ? id.slice(-6) : ''),
-        labelKey: '',
+        label: name,
+        labelKey: name ? '' : resolved.labelKey,
         count: 1,
       });
     }
@@ -1847,7 +1974,7 @@ export function buildOverviewDashboardCharts({
 }
 
 /** Map GET /projects/:id/overview `charts` → shape OverviewPanel (parity buildOverviewDashboardCharts). */
-export function chartsFromOverviewApi(charts = {}, priorityConfig) {
+export function chartsFromOverviewApi(charts = {}, priorityConfig, members = [], cards = []) {
   const byStatus = charts?.byStatus || {};
   const statusTotal =
     (Number(byStatus.todo) || 0) +
@@ -1926,6 +2053,7 @@ export function chartsFromOverviewApi(charts = {}, priorityConfig) {
   }
 
   const assigneeRows = Array.isArray(charts?.byAssignee) ? charts.byAssignee : [];
+  const namesFromCards = assigneeDisplayNameByUserId(cards);
   const assigneeSegmentRows = [];
   let colorIdx = 0;
   for (const row of assigneeRows) {
@@ -1951,10 +2079,16 @@ export function chartsFromOverviewApi(charts = {}, priorityConfig) {
       });
       continue;
     }
+    const userId = String(row.userId || '').trim();
+    const resolved = resolveAssigneeChartLabel({
+      assigneeId: userId,
+      assigneeName: namesFromCards.get(userId) || row.displayName,
+      members,
+    });
     assigneeSegmentRows.push({
-      key: String(row.userId || row.displayName || colorIdx),
-      label: String(row.displayName || '').trim() || String(row.userId || '').slice(-6),
-      labelKey: '',
+      key: userId || String(row.displayName || colorIdx),
+      label: resolved.label,
+      labelKey: resolved.labelKey,
       count: Number(row.count) || 0,
       fillClass: OVERVIEW_ASSIGNEE_FILL[colorIdx % OVERVIEW_ASSIGNEE_FILL.length],
       barClass: OVERVIEW_ASSIGNEE_BAR[colorIdx % OVERVIEW_ASSIGNEE_BAR.length],
@@ -2013,25 +2147,25 @@ export function listOverviewChartSegmentCards({
       const list = listById.get(String(card?.listId || card?.list || ''));
       const bucket = classifyListStatusBucket(card?.status || list);
       if (bucket !== key) continue;
-      out.push(overviewChartCardRow(card));
+      out.push(overviewChartCardRow(card, members));
     }
   } else if (kind === 'priority') {
     for (const card of cards || []) {
       if (!Object.prototype.hasOwnProperty.call(card || {}, 'priority')) {
-        if (key === 'none') out.push(overviewChartCardRow(card));
+        if (key === 'none') out.push(overviewChartCardRow(card, members));
         continue;
       }
       const raw = card.priority;
       if (raw == null || String(raw).trim() === '') {
-        if (key === 'none') out.push(overviewChartCardRow(card));
+        if (key === 'none') out.push(overviewChartCardRow(card, members));
         continue;
       }
       const pKey = slugPriorityKey(raw);
       if (!pKey) {
-        if (key === 'none') out.push(overviewChartCardRow(card));
+        if (key === 'none') out.push(overviewChartCardRow(card, members));
         continue;
       }
-      if (pKey === key) out.push(overviewChartCardRow(card));
+      if (pKey === key) out.push(overviewChartCardRow(card, members));
     }
   } else if (kind === 'assignee') {
     const openCards = (cards || []).filter((c) => isHubCardOpen(c, listById));
@@ -2039,10 +2173,12 @@ export function listOverviewChartSegmentCards({
     const byKey = new Map();
     for (const card of openCards) {
       const id = String(card?.assigneeId || '').trim();
-      let name = hubCardAssigneeName(card);
-      if (!name && id) {
-        name = memberDisplayName(findMemberByUserId(members, id)) || '';
-      }
+      const resolved = resolveAssigneeChartLabel({
+        assigneeId: id,
+        assigneeName: hubCardAssigneeName(card),
+        members,
+      });
+      const name = resolved.label;
       if (!id && !name) {
         const prev = byKey.get('unassigned') || [];
         prev.push(card);
@@ -2073,7 +2209,7 @@ export function listOverviewChartSegmentCards({
     } else if (headKeys.has(key)) {
       match = byKey.get(key) || [];
     }
-    for (const card of match) out.push(overviewChartCardRow(card));
+    for (const card of match) out.push(overviewChartCardRow(card, members));
   }
 
   out.sort((a, b) => a.title.localeCompare(b.title));
@@ -2081,12 +2217,17 @@ export function listOverviewChartSegmentCards({
   return out.slice(0, cap);
 }
 
-function overviewChartCardRow(card) {
+function overviewChartCardRow(card, members = []) {
+  const resolved = resolveAssigneeChartLabel({
+    assigneeId: card?.assigneeId,
+    assigneeName: hubCardAssigneeName(card),
+    members,
+  });
   return {
     id: String(card?._id || card?.id || ''),
     title: String(card?.title || '').trim() || '—',
     priority: card?.priority != null ? String(card.priority) : '',
-    assigneeName: hubCardAssigneeName(card) || '',
+    assigneeName: resolved.label,
   };
 }
 
@@ -2389,4 +2530,52 @@ export function isCardInSprint(card, sprintId, { allCards = [] } = {}) {
     if (String(child?.featureId || '').trim() !== featureId) return false;
     return String(child?.sprintId || '').trim() === sid;
   });
+}
+
+function roundHubHours(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Sprint commitment + cycle time trên board đã load (tab Báo cáo, không fetch lần 2).
+ */
+export function summarizeHubDeliveryMetrics(cards = [], lists = [], sprintId = '') {
+  const listById = hubListById(lists);
+  const sid = String(sprintId || '').trim();
+  let sprintCommittedCards = 0;
+  let sprintDoneCards = 0;
+  let committedHours = 0;
+  let doneHours = 0;
+  let cycleSumHours = 0;
+  let cycleTimeSample = 0;
+
+  for (const card of cards || []) {
+    const rawH = Number(card?.estimateHours);
+    const hours = Number.isFinite(rawH) && rawH > 0 ? rawH : 0;
+    if (sid && isCardInSprint(card, sid, { allCards: cards })) {
+      sprintCommittedCards += 1;
+      committedHours += hours;
+      if (!isHubCardOpen(card, listById)) {
+        sprintDoneCards += 1;
+        doneHours += hours;
+      }
+    }
+    const startMs = card?.firstInProgressAt ? new Date(card.firstInProgressAt).getTime() : NaN;
+    const endMs = card?.completedAt ? new Date(card.completedAt).getTime() : NaN;
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+      cycleSumHours += (endMs - startMs) / 3600000;
+      cycleTimeSample += 1;
+    }
+  }
+
+  return {
+    sprintCommittedCards,
+    sprintDoneCards,
+    sprintCommittedHours: roundHubHours(committedHours),
+    sprintCompletedHours: roundHubHours(doneHours),
+    cycleTimeHours: cycleTimeSample > 0 ? roundHubHours(cycleSumHours / cycleTimeSample) : 0,
+    cycleTimeSample,
+  };
 }
