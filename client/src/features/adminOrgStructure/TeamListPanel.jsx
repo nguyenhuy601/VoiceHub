@@ -3,8 +3,6 @@ import { Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-    AdminDenseTableCard,
-    AdminDenseTableScroll,
     AdminUserPanelShell,
     adminInputClass,
     adminPrimaryBtnClass,
@@ -30,7 +28,7 @@ const ACTION_LINKS = [
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
-  const { membersByIdAll } = useAdminMembers(orgId, { view: 'directory' });
+  const { membersByIdAll } = useAdminMembers(orgId);
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
@@ -79,7 +77,7 @@ export default function TeamListPanel({ orgId }) {
         </div>
       </div>
 
-      <AdminDenseTableCard>
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : structureError ? (
@@ -90,10 +88,10 @@ export default function TeamListPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <AdminDenseTableScroll>
+          <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colDepartment')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colLeader')}</th>
@@ -152,9 +150,9 @@ export default function TeamListPanel({ orgId }) {
                 {t('adminOrg.noTeams')}
               </p>
             ) : null}
-          </AdminDenseTableScroll>
+          </div>
         )}
-      </AdminDenseTableCard>
+      </div>
     </AdminUserPanelShell>
   );
 }
