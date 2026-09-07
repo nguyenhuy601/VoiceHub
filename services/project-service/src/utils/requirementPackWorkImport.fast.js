@@ -391,8 +391,7 @@ async function importRequirementPackWorkItemsFast(input) {
     projectId,
   });
 
-  const overlayLeaves = pack?.aiPlanning?.overlay?.leafAssignments || [];
-  const assigneeMap = buildLeafAssigneeMap(leafAssignments, overlayLeaves);
+  const assigneeMap = buildLeafAssigneeMap(leafAssignments, []);
 
   const idMap = new Map();
   const stats = {

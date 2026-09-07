@@ -26,7 +26,7 @@ export function allowedIssueTypesFromCaps(caps) {
 
 export function isProjectCompletedStatus(status) {
   const st = String(status || '').trim().toLowerCase();
-  return st === 'closed' || st === 'completed';
+  return st === 'closed' || st === 'completed' || st === 'cancelled' || st === 'canceled' || st === 'archived';
 }
 
 function applyReadOnly(caps, readOnly) {

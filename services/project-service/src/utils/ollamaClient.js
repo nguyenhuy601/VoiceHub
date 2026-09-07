@@ -1,5 +1,6 @@
 /**
- * Shared Ollama generate helper for planning (longer timeout than rewriteExperience).
+ * Shared Ollama generate helper for AI Analysis (and historical Planning timeouts).
+ * Env AI_PLANNING_LLM gates LLM for Analysis jobs — keep name for backward compat.
  */
 
 const axios = require('axios');

@@ -9,9 +9,7 @@ import {
   Eye,
   FileDown,
   FolderPlus,
-  Loader2,
   Send,
-  Sparkles,
   Trash2,
   Upload,
   X,
@@ -37,7 +35,7 @@ import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
 import SkillReviewPanel from '../skills/SkillReviewPanel';
-import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady, isLegacyAiPlanningEnabled } from '../../utils/requirementImportReadiness';
+import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
 import useEffectiveMasterGrants from '../../hooks/useEffectiveMasterGrants';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import useRequirementPacks from '../../hooks/useRequirementPacks';
@@ -68,10 +66,6 @@ function PlanningScoreBadge({ readiness, t }) {
 
 function canSubmitPackForReview(pack) {
   return isPackWhatReady(pack?.planningReadiness);
-}
-
-function canRunAiOnPack() {
-  return isLegacyAiPlanningEnabled();
 }
 
 const PACK_ROW_ACTION_BASE =
@@ -365,22 +359,6 @@ export default function RequirementImportWorkspace({
     } catch (error) {
       toast.error(
         resolveApiErrorMessage(error, { t, fallback: t('requirements.createProjectFail') })
-      );
-    } finally {
-      setActionPackId('');
-    }
-  };
-
-  const runAiPlanning = async (packId) => {
-    if (!orgId || !packId || actionPackId) return;
-    setActionPackId(packId);
-    try {
-      await requirementAPI.runAiPlanning(orgId, packId);
-      toast.success(t('requirements.aiPlanningSuccess'));
-      await loadPacks();
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.aiPlanningFail') })
       );
     } finally {
       setActionPackId('');
@@ -707,27 +685,6 @@ export default function RequirementImportWorkspace({
           >
             <Trash2 className="h-3 w-3 shrink-0" aria-hidden />
             {t('requirements.deletePack')}
-          </PackRowActionButton>
-        ) : null}
-        {canRunAiPlanning && canRunAiOnPack(pack) ? (
-          <PackRowActionButton
-            disabled={actionPackId === pack._id}
-            onClick={() => runAiPlanning(pack._id)}
-            title={
-              pack.aiPlanning?.status === 'ready'
-                ? t('requirements.aiPlanningRerunHint')
-                : t('requirements.aiPlanningRun')
-            }
-            aria-busy={actionPackId === pack._id || undefined}
-          >
-            {actionPackId === pack._id ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-            )}
-            {actionPackId === pack._id
-              ? t('requirements.aiPlanningStatus.pending')
-              : t('requirements.aiPlanningRun')}
           </PackRowActionButton>
         ) : null}
       </div>

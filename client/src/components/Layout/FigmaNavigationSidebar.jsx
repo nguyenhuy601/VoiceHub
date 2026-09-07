@@ -36,7 +36,8 @@ import {
   buildCollaborateTasksPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
-import useRequirementAccess from '../../hooks/useRequirementAccess';
+import { useAuth } from '../../context/AuthContext';
+import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
 import {
   FIGMA_SIDEBAR,
@@ -263,6 +264,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (next) setShowSuitePicker(false);
   };
 
+  const { user } = useAuth();
   const { role, meta } = useUiRole();
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
   const { canAccessHub, isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
@@ -270,13 +272,9 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate';
-  const { access: requirementAccess, loaded: requirementAccessLoaded } = useRequirementAccess(
-    suiteProp === 'collaborate' ? activeOrgId : ''
-  );
+  // Menu theo Position (jobTitle); quyền thao tác vẫn qua access API trên trang.
   const showRequirementsNav =
-    suiteProp === 'collaborate' &&
-    requirementAccessLoaded &&
-    requirementAccess.showCollaborateNav;
+    suiteProp === 'collaborate' && shouldShowCollaborateRequirementsNavForUser(user);
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();

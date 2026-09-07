@@ -49,7 +49,7 @@ function normalizePackView(view) {
 }
 
 /**
- * Wizard projection: overview + aiPlanning (+ stored readiness). No FR / excelPreview.
+ * Wizard projection: overview + readiness. No FR / excelPreview.
  * Backfills planningReadiness from FR once if legacy pack thiếu field.
  */
 async function getRequirementPackWizard({ packId, organizationId }) {

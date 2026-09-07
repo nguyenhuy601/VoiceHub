@@ -1,9 +1,18 @@
 /**
  * Org-level Requirement Access Policy — SSOT normalize + defaults.
  * Job title / org membership → persona; persona → visibility + actions.
+ * Collaborate Requirements **menu** = Position only (not action grants).
  */
 
+const {
+  MASTER_POSITIONS,
+  resolveCanonicalPositionKey,
+} = require('./masterData/positions');
+
 const REQUIREMENT_PERSONAS = Object.freeze(['submitter', 'approver', 'operator', 'member']);
+
+/** Personas whose Position mapping can drive Collaborate Requirements nav. */
+const COLLABORATE_REQUIREMENTS_NAV_PERSONAS = Object.freeze(['submitter', 'approver']);
 
 const REQUIREMENT_ACTION_KEYS = Object.freeze([
   'view',
@@ -255,10 +264,81 @@ function mergePersonaVisibility(personas = [], policy) {
   return merged;
 }
 
+function normalizeJobTitleForPosition(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Resolve HR jobTitle string → master Position key (catalog / label / slug).
+ * @param {string} jobTitle
+ * @returns {string}
+ */
+function resolvePositionKeyFromJobTitle(jobTitle) {
+  const raw = normalizeJobTitleForPosition(jobTitle);
+  if (!raw) return '';
+
+  const canonical = resolveCanonicalPositionKey(raw.replace(/\s+/g, '_'));
+  if (MASTER_POSITIONS.some((p) => p.key === canonical)) return canonical;
+
+  for (const p of MASTER_POSITIONS) {
+    if (normalizeJobTitleForPosition(p.label) === raw) return p.key;
+  }
+  for (const p of MASTER_POSITIONS) {
+    const label = normalizeJobTitleForPosition(p.label);
+    if (raw.includes(label) || label.includes(raw) || raw.includes(p.key.replace(/_/g, ' '))) {
+      return p.key;
+    }
+  }
+  return '';
+}
+
+function jobTitleMatchesPersonaPositionMapping(jobTitle, mapping = {}) {
+  const positionKeys = new Set(
+    (mapping.positionKeys || []).map((k) => String(k || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const aliases = new Set(
+    (mapping.aliases || []).map((a) => String(a || '').trim().toLowerCase()).filter(Boolean)
+  );
+
+  const positionKey = resolvePositionKeyFromJobTitle(jobTitle);
+  if (positionKey && positionKeys.has(positionKey.toLowerCase())) return true;
+
+  const alias = normalizeJobTitleForPosition(jobTitle);
+  if (!alias) return false;
+  if (aliases.has(alias)) return true;
+  if (aliases.has(alias.replace(/\s+/g, '_'))) return true;
+  return false;
+}
+
+/**
+ * Collaborate Requirements **menu** visibility from account Position (jobTitle).
+ * Does not use action grants (canImport / canApprove / …) or project roles.
+ *
+ * @param {{ jobTitle?: string, policy?: object }} [input]
+ * @returns {boolean}
+ */
+function shouldShowCollaborateRequirementsNav(input = {}) {
+  const jobTitle = String(input.jobTitle || '').trim();
+  if (!jobTitle) return false;
+
+  const normalized = normalizeRequirementAccessPolicy(input.policy || {});
+
+  for (const persona of COLLABORATE_REQUIREMENTS_NAV_PERSONAS) {
+    if (!normalized.visibility?.[persona]?.collaborateRequirements) continue;
+    const mapping = normalized.personaByPosition?.[persona] || {};
+    if (jobTitleMatchesPersonaPositionMapping(jobTitle, mapping)) return true;
+  }
+  return false;
+}
+
 module.exports = {
   REQUIREMENT_PERSONAS,
   REQUIREMENT_ACTION_KEYS,
   REQUIREMENT_VISIBILITY_KEYS,
+  COLLABORATE_REQUIREMENTS_NAV_PERSONAS,
   DEFAULT_PERSONA_BY_POSITION,
   DEFAULT_PERSONA_BY_ORG_ROLE,
   DEFAULT_VISIBILITY,
@@ -268,4 +348,6 @@ module.exports = {
   validateRequirementAccessPolicy,
   mergePersonaActions,
   mergePersonaVisibility,
+  resolvePositionKeyFromJobTitle,
+  shouldShowCollaborateRequirementsNav,
 };

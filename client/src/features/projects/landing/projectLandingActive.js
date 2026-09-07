@@ -3,7 +3,7 @@
  * Matches prior ProjectsLandingGrid definition (not soft-archive alone).
  */
 export const PROJECT_COMPLETED_STATUSES = Object.freeze(
-  new Set(['closed', 'completed', 'archived'])
+  new Set(['closed', 'completed', 'archived', 'cancelled', 'canceled'])
 );
 
 export function isProjectCompletedForUi(projectRaw = null) {

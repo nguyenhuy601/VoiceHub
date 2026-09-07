@@ -90,7 +90,8 @@ function throwIfProjectNotCloseable(evaluation) {
 }
 
 function isProjectClosedStatus(status) {
-  return String(status || '').trim().toLowerCase() === 'closed';
+  const { coerceProjectLifecycleStatus } = require('./projectInitFields');
+  return coerceProjectLifecycleStatus(status) === 'closed';
 }
 
 function assertProjectWritable(project) {

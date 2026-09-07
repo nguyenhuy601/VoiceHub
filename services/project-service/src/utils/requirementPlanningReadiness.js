@@ -1,6 +1,7 @@
 /**
  * Requirement pack readiness — WHAT-only gate (W1).
- * Analysis/submit/AI Planning = 0 validation errors. No FR Role/Skill/Hours enforce.
+ * Analysis/submit = 0 validation errors. No FR Role/Skill/Hours enforce.
+ * (Legacy AI Planning staffing overlay removed — gate still used by AI Analysis.)
  */
 
 const { listRequirementRows } = require('./requirementFrLevel');
@@ -144,12 +145,12 @@ function assertPackReadyForAiAnalysis(pack) {
 }
 
 /**
- * Gate for AI Planning (staffing/assign) — same WHAT validation as Analysis.
+ * Gate for AI run (Analysis) — same WHAT validation as Analysis helper.
  */
 function assertPackReadyForAiRun(pack) {
   const err = buildWhatNotReadyError(pack, {
     errorCode: 'REQ_NOT_READY_FOR_AI_RUN',
-    messagePrefix: 'Requirement pack chưa sẵn sàng chạy AI Planning',
+    messagePrefix: 'Requirement pack chưa sẵn sàng chạy AI Analysis',
   });
   if (err) throw err;
   return computePlanningReadiness(pack);

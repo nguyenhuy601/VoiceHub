@@ -4,6 +4,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
+import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import RequirementImportWorkspace from './RequirementImportWorkspace';
 
 export default function CollaborateRequirementsPage() {
@@ -21,7 +22,9 @@ export default function CollaborateRequirementsPage() {
       ''
   ).trim();
 
-  const { access, loading, loaded } = useRequirementAccess(orgId);
+  // UI entry by Position; action flags from access API (permission).
+  const allowedByPosition = shouldShowCollaborateRequirementsNavForUser(user);
+  const { access, loading, loaded } = useRequirementAccess(allowedByPosition ? orgId : '');
 
   if (!orgId) {
     return (
@@ -29,6 +32,16 @@ export default function CollaborateRequirementsPage() {
         className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}
       >
         <p className="text-muted-foreground">{t('requirements.noOrg')}</p>
+      </div>
+    );
+  }
+
+  if (!allowedByPosition) {
+    return (
+      <div
+        className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}
+      >
+        <p className="text-muted-foreground">{t('requirements.noAccess')}</p>
       </div>
     );
   }
@@ -41,11 +54,8 @@ export default function CollaborateRequirementsPage() {
     );
   }
 
-  const canUsePage =
-    access.canView &&
-    (access.showCollaborateNav || access.canImport || access.canApprove || access.canSubmit);
-
-  if (!canUsePage) {
+  // Deep-link / Position OK nhưng không có quyền xem dữ liệu → empty.
+  if (!access.canView) {
     return (
       <div
         className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}

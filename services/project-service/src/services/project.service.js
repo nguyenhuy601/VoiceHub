@@ -29,7 +29,7 @@ const {
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/boardIdentityPatch');
-const { buildProjectInitFields } = require('../utils/projectInitFields');
+const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/projectInitFields');
 const {
   assertPatchDoesNotCloseActiveSprint,
   assertProjectWritable,
@@ -530,7 +530,7 @@ async function listProjects({
   const base = { organizationId: orgOid };
   if (!allowArchived) base.isActive = true;
   if (excludeClosed) {
-    base.status = { $nin: ['closed'] };
+    base.status = { $nin: ['closed', 'cancelled', 'canceled', 'completed', 'archived'] };
   }
   const st = String(scopeType || '').toLowerCase();
   if (st === 'organization' && scopeId && mongoose.Types.ObjectId.isValid(scopeId)) {
@@ -1111,6 +1111,11 @@ async function archiveProject({ userId, projectId }) {
   }
   const beforeSnap = project.toObject();
   const now = new Date();
+  // Legacy docs may still have status=cancelled (pre-enum); coerce so save() validates.
+  const coercedStatus = coerceProjectLifecycleStatus(project.status);
+  if (coercedStatus && coercedStatus !== project.status) {
+    project.status = coercedStatus;
+  }
   project.isActive = false;
   project.archivedAt = now;
   let retentionDays = project.retentionDays;

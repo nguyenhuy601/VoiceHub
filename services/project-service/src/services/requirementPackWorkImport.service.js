@@ -90,9 +90,9 @@ async function seedProjectMembersFromAssignees({
       if (!roleByUser.has(uid)) roleByUser.set(uid, new Set());
       roleByUser.get(uid).add(roleKey);
     }
-  } else {
-    const overlayLeaves = pack?.aiPlanning?.overlay?.leafAssignments || [];
-    const assigneeMap = buildLeafAssigneeMap(leafAssignments, overlayLeaves);
+  } else if (Array.isArray(leafAssignments) && leafAssignments.length) {
+    // Request-body leaf overrides only — no legacy aiPlanning.overlay
+    const assigneeMap = buildLeafAssigneeMap(leafAssignments, []);
     const frList = pack?.functionalRequirements || [];
 
     for (const row of frList) {

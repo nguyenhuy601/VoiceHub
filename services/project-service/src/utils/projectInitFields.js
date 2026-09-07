@@ -10,6 +10,14 @@ const PROJECT_STATUSES = Object.freeze([
   'closed',
 ]);
 
+/** Legacy terminal statuses written before enum chỉ còn `closed`. */
+const LEGACY_TERMINAL_PROJECT_STATUSES = Object.freeze([
+  'cancelled',
+  'canceled',
+  'completed',
+  'archived',
+]);
+
 const PROJECT_CATEGORIES = Object.freeze(['internal', 'customer']);
 const PROJECT_PRIORITIES = Object.freeze(['low', 'medium', 'high', 'urgent']);
 const PROJECT_METHODOLOGIES = Object.freeze(['scrum', 'kanban', 'waterfall']);
@@ -31,6 +39,20 @@ const WEEKDAYS = Object.freeze([
   'sunday',
 ]);
 
+/**
+ * Map status legacy / typo → giá trị enum hiện tại.
+ * Trả về null nếu không coerce được (caller giữ nguyên hoặc reject).
+ */
+function coerceProjectLifecycleStatus(raw) {
+  const st = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!st) return null;
+  if (PROJECT_STATUSES.includes(st)) return st;
+  if (LEGACY_TERMINAL_PROJECT_STATUSES.includes(st)) return 'closed';
+  return null;
+}
+
 function parseOptionalDate(raw) {
   if (raw === undefined) return { skip: true };
   if (raw === null || raw === '') return { ok: true, value: null };
@@ -48,11 +70,11 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   const fields = {};
 
   if (body.status !== undefined) {
-    const st = String(body.status || '').trim().toLowerCase();
-    if (!PROJECT_STATUSES.includes(st)) {
+    const coerced = coerceProjectLifecycleStatus(body.status);
+    if (!coerced) {
       return { ok: false, message: 'status dự án không hợp lệ' };
     }
-    fields.status = st;
+    fields.status = coerced;
   } else if (!partial) {
     fields.status = 'ready_for_planning';
   }
@@ -191,10 +213,12 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
 
 module.exports = {
   PROJECT_STATUSES,
+  LEGACY_TERMINAL_PROJECT_STATUSES,
   PROJECT_CATEGORIES,
   PROJECT_PRIORITIES,
   PROJECT_METHODOLOGIES,
   PROJECT_TYPES,
   WEEKDAYS,
+  coerceProjectLifecycleStatus,
   buildProjectInitFields,
 };

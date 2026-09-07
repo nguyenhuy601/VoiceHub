@@ -12,7 +12,9 @@ function resolveDueDate(project) {
 function classifyProjectHealth(project, asOf = new Date()) {
   const p = project || {};
   const status = String(p.status || '').toLowerCase();
-  if (p.isActive === false || status === 'closed') return 'completed';
+  if (p.isActive === false || status === 'closed' || status === 'cancelled' || status === 'canceled' || status === 'completed' || status === 'archived') {
+    return 'completed';
+  }
   const due = resolveDueDate(p);
   if (due) {
     const dueMs = new Date(due).getTime();

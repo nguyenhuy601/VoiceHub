@@ -16,7 +16,6 @@ const {
   createProjectFromRequirementPack,
   deleteRequirementPack,
 } = require('../services/requirementPack.service');
-const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
   getAiAnalysisSummary,
   getAiAnalysisWizardJob,
@@ -257,74 +256,6 @@ async function createProjectFromPack(req, res) {
   }
 }
 
-async function runAiPlanning(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId và packId bắt buộc',
-      });
-    }
-    const phase = req.body?.phase;
-    const pack = await runAiPlanningHeuristic({
-      userId,
-      organizationId,
-      packId,
-      phase,
-    });
-    return res.json({ success: true, data: pack });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function approveAiStaffing(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId và packId bắt buộc',
-      });
-    }
-    const pack = await approveStaffingProposal({
-      userId,
-      organizationId,
-      packId,
-    });
-    return res.json({ success: true, data: pack });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function discardAiStaffing(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId và packId bắt buộc',
-      });
-    }
-    const pack = await discardStaffingProposal({
-      userId,
-      organizationId,
-      packId,
-    });
-    return res.json({ success: true, data: pack });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
 async function deletePack(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -464,7 +395,4 @@ module.exports = {
   runAiAnalysis,
   confirmAiAnalysis,
   exportAiAnalysisSheet11: exportAiAnalysisSheet11Ctrl,
-  runAiPlanning,
-  approveAiStaffing,
-  discardAiStaffing,
 };

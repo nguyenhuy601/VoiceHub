@@ -105,33 +105,6 @@ export const requirementAPI = {
       }
     ),
 
-  runAiPlanning: (organizationId, packId, options = {}) => {
-    const phase = options.phase;
-    const body = phase ? { phase } : {};
-    return apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/run`,
-      body,
-      {
-        ...withOrg(organizationId),
-        timeout: options.timeout ?? 300000,
-      }
-    );
-  },
-
-  approveAiStaffing: (organizationId, packId) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/approve-staffing`,
-      {},
-      withOrg(organizationId)
-    ),
-
-  discardAiStaffing: (organizationId, packId) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/discard-staffing`,
-      {},
-      withOrg(organizationId)
-    ),
-
   getAiAnalysis: (organizationId, packId, params = {}) =>
     apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,

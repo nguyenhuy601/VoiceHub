@@ -39,7 +39,7 @@ export function resolvePlanningReadinessFromPack(pack) {
   return pack?.planningReadiness || null;
 }
 
-/** AI Planning (staffing/assign) CTA — enabled alongside Blueprint Analysis. */
+/** @deprecated Legacy AI Planning removed — always false. Prefer AI Analysis Blueprint. */
 export function isLegacyAiPlanningEnabled() {
-  return true;
+  return false;
 }

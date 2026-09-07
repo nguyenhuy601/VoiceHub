@@ -20,13 +20,11 @@ const PACK_LIST_SELECT = [
   'overview.platform',
   'overview.startDate',
   'overview.priority',
-  'aiPlanning.status',
-  'aiPlanning.generatedAt',
   'planningReadiness',
 ].join(' ');
 
 /**
- * AI Create Project Wizard projection — overview + aiPlanning.overlay, không FR / excelPreview.
+ * AI Create Project Wizard projection — overview + readiness, không FR / excelPreview.
  * @see GET /requirements/:packId?view=wizard
  */
 const PACK_WIZARD_SELECT = [
@@ -42,7 +40,6 @@ const PACK_WIZARD_SELECT = [
   'approvedBy',
   'approvedAt',
   'overview',
-  'aiPlanning',
   'planningReadiness',
 ].join(' ');
 
@@ -119,7 +116,6 @@ async function ensurePlanningReadinessOnListRows(model, rows) {
 
 function toRequirementPackListItem(row) {
   const overview = row?.overview || {};
-  const planning = row?.aiPlanning || {};
   const readiness =
     normalizeStoredReadiness(row?.planningReadiness) || pickPlanningReadinessSummary(row);
   return {
@@ -138,9 +134,10 @@ function toRequirementPackListItem(row) {
       platform: Array.isArray(overview.platform) ? overview.platform : [],
       priority: overview.priority || '',
     },
+    // Legacy AI Planning removed — stub for older clients
     aiPlanning: {
-      status: planning.status || 'none',
-      generatedAt: planning.generatedAt || null,
+      status: 'none',
+      generatedAt: null,
     },
     planningReadiness: readiness,
   };
@@ -157,7 +154,6 @@ function mapRequirementPackList(rows) {
 function toRequirementPackWizardItem(row) {
   if (!row || typeof row !== 'object') return null;
   const overview = row.overview || {};
-  const planning = row.aiPlanning || {};
   const readiness =
     normalizeStoredReadiness(row.planningReadiness) ||
     (Array.isArray(row.functionalRequirements) && row.functionalRequirements.length
@@ -189,11 +185,12 @@ function toRequirementPackWizardItem(row) {
       budgetCurrency: overview.budgetCurrency || '',
       priority: overview.priority || '',
     },
+    // Legacy AI Planning removed — stub for older clients
     aiPlanning: {
-      status: planning.status || 'none',
-      overlay: planning.overlay || null,
-      generatedAt: planning.generatedAt || null,
-      sourcePackVersion: planning.sourcePackVersion ?? null,
+      status: 'none',
+      overlay: null,
+      generatedAt: null,
+      sourcePackVersion: null,
     },
     planningReadiness: readiness,
   };
