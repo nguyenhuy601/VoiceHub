@@ -41,13 +41,18 @@ const connectDB = async (mongoUri = null, options = {}) => {
 
     // Kiểm tra xem có phải Atlas connection string không
     const isAtlas = uri.includes('mongodb+srv://') || uri.includes('mongodb.net');
+
+    // M0 Atlas giới hạn 500 connection. Pool lớn × nhiều microservice dễ đầy slot
+    // → login 503 / TLS alert 80. Local Swarm Mongo không bị limit này.
+    const maxPoolSize = Number(process.env.MONGO_MAX_POOL_SIZE) || (isAtlas ? 2 : 10);
+    const minPoolSize = Number(process.env.MONGO_MIN_POOL_SIZE) || (isAtlas ? 0 : 2);
     
     const defaultOptions = {
       serverSelectionTimeoutMS: 60000, // 60 seconds (tăng cho Atlas)
       socketTimeoutMS: 90000, // 90 seconds (tăng cho Atlas)
       connectTimeoutMS: 60000, // 60 seconds (tăng cho Atlas)
-      maxPoolSize: 10, // Maintain up to 10 socket connections
-      minPoolSize: 2, // Maintain at least 2 socket connections
+      maxPoolSize,
+      minPoolSize,
       // Giữ connection sống
       heartbeatFrequencyMS: 10000, // Ping server mỗi 10 giây
       // Retry options cho Atlas
@@ -59,7 +64,7 @@ const connectDB = async (mongoUri = null, options = {}) => {
     if (isAtlas) {
       logger.info('Connecting to MongoDB Atlas...');
       console.log('[MongoDB] Using Atlas connection (mongodb+srv://)');
-      console.log('[MongoDB] SSL/TLS will be automatically enabled for Atlas');
+      console.log(`[MongoDB] SSL/TLS will be automatically enabled for Atlas (pool min=${minPoolSize} max=${maxPoolSize})`);
     } else {
       logger.info('Connecting to local MongoDB...');
       console.log('[MongoDB] Using local MongoDB connection');
