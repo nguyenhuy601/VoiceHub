@@ -132,6 +132,39 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
+  getAiAnalysis: (organizationId, packId, params = {}) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
+      withOrg(organizationId, { params })
+    ),
+
+  runAiAnalysis: (organizationId, packId, job, options = {}) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/run`,
+      { job, ...(options.force ? { force: true } : {}) },
+      {
+        ...withOrg(organizationId),
+        timeout: options.timeout ?? 300000,
+      }
+    ),
+
+  confirmAiAnalysis: (organizationId, packId, job, edits = null) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
+      edits != null ? { job, edits } : { job },
+      withOrg(organizationId)
+    ),
+
+  exportAiAnalysisSheet11: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/export-sheet11`,
+      {
+        ...withOrg(organizationId),
+        responseType: 'blob',
+        skipGlobalErrorHandling: true,
+      }
+    ),
+
   listSkills: (organizationId, params = {}) =>
     organizationAPI.listSkills(organizationId, params),
 

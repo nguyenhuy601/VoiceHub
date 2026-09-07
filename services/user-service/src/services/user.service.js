@@ -419,6 +419,57 @@ class UserService {
   }
 
   /**
+   * Internal — SĐT nào trong danh sách đã gắn UserProfile (kể cả isActive:false).
+   * Precheck Excel import; chỉ trả SĐT đã chuẩn hóa đã tồn tại (không trả profile).
+   * @param {string[]} phones
+   * @returns {Promise<string[]>}
+   */
+  async findTakenPhones(phones) {
+    const normalized = [
+      ...new Set(
+        (Array.isArray(phones) ? phones : [])
+          .map((p) => String(p || '').trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (!normalized.length) return [];
+
+    const blindToPhone = new Map();
+    const blinds = [];
+    for (const phone of normalized) {
+      const blind = phoneBlindIndex(phone);
+      if (blind) {
+        blinds.push(blind);
+        blindToPhone.set(blind, phone);
+      }
+    }
+
+    const orClauses = [];
+    if (blinds.length) {
+      orClauses.push({ phoneBlindIndex: { $in: blinds } });
+    }
+    // Legacy plaintext (chưa có phoneBlindIndex)
+    orClauses.push({ phone: { $in: normalized } });
+
+    const rows = await UserProfile.find({ $or: orClauses })
+      .select('phone phoneBlindIndex')
+      .lean();
+
+    const taken = new Set();
+    for (const row of rows) {
+      const blind = String(row.phoneBlindIndex || '').trim();
+      if (blind && blindToPhone.has(blind)) {
+        taken.add(blindToPhone.get(blind));
+      }
+      const plain = String(row.phone || '').trim();
+      if (plain && !plain.startsWith('enc:v1:') && normalized.includes(plain)) {
+        taken.add(plain);
+      }
+    }
+    return [...taken];
+  }
+
+  /**
    * Internal — max số thứ tự employeeCode theo prefix (VD VH- → 1 từ VH-001).
    * Dùng bootstrap counter org-service (invite + Excel cùng sequence).
    */

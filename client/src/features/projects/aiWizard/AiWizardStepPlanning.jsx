@@ -70,6 +70,10 @@ export default function AiWizardStepPlanning({
 
         <p className={wizardUi.subtitle}>{t('aiCreateWizard.planningSubtitle')}</p>
 
+        <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+          {t('requirements.aiPlanningPaused')}
+        </p>
+
       </div>
 
 

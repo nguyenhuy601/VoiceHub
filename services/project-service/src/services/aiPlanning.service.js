@@ -5,12 +5,10 @@ const {
   assertPackReadyForAiRun,
   attachPlanningReadiness,
 } = require('../utils/requirementPlanningReadiness');
+const { listFrExecutionLeaves } = require('../utils/requirementFrLevel');
 const { buildHeuristicOverlay } = require('../utils/aiPlanningHeuristic');
 const { buildLeafAssignments } = require('../utils/aiPlanningLeafAssign');
-const {
-  proposeStaffingFromPack,
-  enrichRankingRationales,
-} = require('../utils/aiPlanningLlm');
+const { proposeStaffingFromPack } = require('../utils/aiPlanningLlm');
 const { ollamaModel } = require('../utils/ollamaClient');
 const { buildStaffingBaselineFromPack } = require('../utils/aiPlanningStaffingBaseline');
 const {
@@ -25,10 +23,43 @@ const {
   appendStaffingAuditEvent,
   buildAuditEventFromOverlay,
 } = require('../utils/aiPlanningStaffingAudit');
-const { normalizeAiPlanningPhase } = require('../utils/aiPlanningPhase');
+const { normalizeAiPlanningPhase, resolveAiPlanningPhase } = require('../utils/aiPlanningPhase');
 const { assertRequirementPermission } = require('./requirementAccess.service');
 const { listOrgResourcePool } = require('./orgResourcePool.service');
 const { fetchSkillsByIds, isRegistryEnabled } = require('../clients/skillRegistry.client');
+const {
+  buildForUserIds,
+  attachHistoryToPoolItems,
+} = require('../utils/employeeSuggestContext');
+const { runLeafAssignLlm } = require('../utils/aiPlanningLeafAssignLlm');
+
+const ASSIGN_PENDING_STALE_MS = 15 * 60 * 1000;
+
+function dualLlmPeopleStatus(status, error = null) {
+  return {
+    assignStatus: status,
+    enrichStatus: status,
+    assignError: error,
+    enrichError: error,
+  };
+}
+
+function readPeopleStatus(llm = {}) {
+  return String(llm.assignStatus || llm.enrichStatus || '');
+}
+
+function skillsByExternalIdFromPack(packObj) {
+  const map = new Map();
+  for (const leaf of listFrExecutionLeaves(packObj?.functionalRequirements || [])) {
+    const id = String(leaf.externalId || '').trim();
+    if (!id) continue;
+    map.set(
+      id,
+      [...new Set((leaf.suggestedSkills || []).map(String).filter(Boolean))]
+    );
+  }
+  return map;
+}
 
 function collectRegistrySkillIds(packObj) {
   const ids = new Set();
@@ -96,9 +127,10 @@ async function loadPackForAi({ packId, organizationId }) {
 }
 
 /**
- * Staffing (+ optional enrich when runEnrich=true). Sets aiPlanning.status pending→ready/failed.
+ * Staffing only. Sets aiPlanning.status pending→ready/failed.
+ * Does not run leaf LLM assign (opt-in via phase=assign).
  */
-async function runStaffingPipeline({ pack, userId, organizationId, packId, runEnrich }) {
+async function runStaffingPipeline({ pack, userId, organizationId, packId }) {
   assertPackReadyForAiRun(pack.toObject());
 
   pack.aiPlanning = {
@@ -161,47 +193,23 @@ async function runStaffingPipeline({ pack, userId, organizationId, packId, runEn
       logger.warn('[aiPlanning] pack=%s fteRoles empty — fallback staffingPlan roles', String(packId));
     }
 
-    let overlay = buildHeuristicOverlay({
+    const historyByUserId = await buildForUserIds({
+      organizationId,
+      userIds: (pool?.items || []).map((i) => i.userId),
+    });
+    const poolWithHistory = attachHistoryToPoolItems(pool?.items || [], historyByUserId);
+
+    const overlay = buildHeuristicOverlay({
       pack: packObj,
-      poolItems: pool?.items || [],
+      poolItems: poolWithHistory,
       window: pool?.window || null,
       staffingRoles,
       registrySkills,
     });
 
-    let llmEnrich = {
-      status: 'skipped',
-      roles: overlay.roles,
-      model: ollamaModel(),
-      error: llmStaff.status === 'failed' ? 'staffing_failed' : null,
-    };
-
-    if (llmStaff.status === 'failed') {
-      llmEnrich = {
-        status: 'skipped',
-        roles: overlay.roles,
-        model: ollamaModel(),
-        error: 'staffing_failed',
-      };
-    } else if (runEnrich) {
-      llmEnrich = await enrichRankingRationales(overlay.roles, {
-        poolItems: pool?.items || [],
-      });
-      if (llmEnrich.status === 'ready') {
-        overlay = { ...overlay, roles: llmEnrich.roles };
-      }
-    } else {
-      llmEnrich = {
-        status: 'pending',
-        roles: overlay.roles,
-        model: ollamaModel(),
-        error: null,
-      };
-    }
-
     overlay.leafAssignments = buildLeafAssignments({
       pack: packObj,
-      poolItems: pool?.items || [],
+      poolItems: poolWithHistory,
       registrySkills,
     });
 
@@ -211,15 +219,19 @@ async function runStaffingPipeline({ pack, userId, organizationId, packId, runEn
         : null;
     const hadAcceptedProposal = Boolean(previousOverlay?.staffingProposalAcceptedAt);
 
+    const peoplePending =
+      llmStaff.status === 'failed'
+        ? dualLlmPeopleStatus('skipped', 'staffing_failed')
+        : dualLlmPeopleStatus('pending', null);
+
     overlay.baselineStaffing = baseline;
     overlay.proposalValidation = proposalValidation;
     overlay.llm = {
-      model: llmStaff.model || llmEnrich.model || ollamaModel(),
+      model: llmStaff.model || ollamaModel(),
       staffingStatus: deriveStaffingStatus(llmStaff, proposalValidation),
-      enrichStatus: llmEnrich.status,
       staffingError: llmStaff.error || null,
-      enrichError: llmEnrich.error || null,
       dropped: llmStaff.dropped || [],
+      ...peoplePending,
     };
     overlay.staffingProposal = staffingProposalForOverlay;
     if (staffingProposalForOverlay) {
@@ -269,33 +281,54 @@ async function runStaffingPipeline({ pack, userId, organizationId, packId, runEn
 }
 
 /**
- * Enrich-only: does not flip aiPlanning.status to pending.
+ * Leaf LLM assign (enrich alias). Does not flip aiPlanning.status to pending.
  */
-async function runEnrichPipeline({ pack, userId, organizationId }) {
+async function runAssignPipeline({ pack, userId, organizationId }) {
   const overlay =
     pack.aiPlanning?.overlay && typeof pack.aiPlanning.overlay === 'object'
       ? pack.aiPlanning.overlay
       : null;
-  const roles = Array.isArray(overlay?.roles) ? overlay.roles : null;
+  const leafAssignments = Array.isArray(overlay?.leafAssignments) ? overlay.leafAssignments : null;
   const planningStatus = String(pack.aiPlanning?.status || '');
+  const prevLlm = overlay?.llm && typeof overlay.llm === 'object' ? overlay.llm : {};
 
-  if (planningStatus !== 'ready' || !roles) {
-    const err = new Error('Cần chạy AI staffing trước khi enrich (status ready + overlay.roles)');
+  if (planningStatus !== 'ready' || !leafAssignments) {
+    const err = new Error(
+      'Cần chạy AI staffing trước khi assign (status ready + overlay.leafAssignments)'
+    );
     err.statusCode = 422;
-    err.errorCode = 'REQ_AI_ENRICH_NOT_READY';
-    err.details = { aiPlanningStatus: planningStatus, hasRoles: Boolean(roles) };
+    err.errorCode = 'REQ_AI_ASSIGN_NOT_READY';
+    err.details = {
+      aiPlanningStatus: planningStatus,
+      hasLeafAssignments: Boolean(leafAssignments),
+    };
     throw err;
   }
 
-  const prevLlm = overlay.llm && typeof overlay.llm === 'object' ? overlay.llm : {};
+  const peopleStatus = readPeopleStatus(prevLlm);
+  const pendingAt = prevLlm.assignPendingAt ? new Date(prevLlm.assignPendingAt).getTime() : 0;
+  const pendingStale =
+    (peopleStatus === 'pending' || peopleStatus === 'running') &&
+    pendingAt > 0 &&
+    Date.now() - pendingAt > ASSIGN_PENDING_STALE_MS;
+
+  if ((peopleStatus === 'pending' || peopleStatus === 'running') && !pendingStale) {
+    const err = new Error('AI leaf assign đang chạy');
+    err.statusCode = 409;
+    err.errorCode = 'REQ_AI_ASSIGN_IN_PROGRESS';
+    throw err;
+  }
+
+  const snapshotLeaves = JSON.parse(JSON.stringify(leafAssignments));
+
   pack.aiPlanning = {
     status: pack.aiPlanning.status || 'ready',
     overlay: {
       ...overlay,
       llm: {
         ...prevLlm,
-        enrichStatus: 'pending',
-        enrichError: null,
+        ...dualLlmPeopleStatus('pending', null),
+        assignPendingAt: new Date().toISOString(),
       },
     },
     generatedAt: pack.aiPlanning.generatedAt || new Date(),
@@ -304,25 +337,61 @@ async function runEnrichPipeline({ pack, userId, organizationId }) {
   await pack.save();
 
   try {
+    const packObj = pack.toObject();
     const pool = await loadPoolForPack({
       organizationId,
       userId,
       packId: pack._id,
     });
 
-    const llmEnrich = await enrichRankingRationales(roles, {
-      poolItems: pool?.items || [],
+    let registrySkills = [];
+    if (isRegistryEnabled()) {
+      registrySkills = await fetchSkillsByIds(organizationId, collectRegistrySkillIds(packObj));
+    }
+
+    const historyByUserId = await buildForUserIds({
+      organizationId,
+      userIds: (pool?.items || []).map((i) => i.userId),
+    });
+    const poolWithHistory = attachHistoryToPoolItems(pool?.items || [], historyByUserId);
+
+    // Refresh shortlist with history before LLM (keeps capacity greedy base).
+    const refreshedLeaves = buildLeafAssignments({
+      pack: packObj,
+      poolItems: poolWithHistory,
+      registrySkills,
+    });
+
+    const llmAssign = await runLeafAssignLlm({
+      leafAssignments: refreshedLeaves,
+      skillsByExternalId: skillsByExternalIdFromPack(packObj),
     });
 
     const nextOverlay = { ...pack.aiPlanning.overlay };
-    if (llmEnrich.status === 'ready') {
-      nextOverlay.roles = llmEnrich.roles;
+    if (llmAssign.status === 'failed') {
+      nextOverlay.leafAssignments = snapshotLeaves;
+    } else {
+      nextOverlay.leafAssignments = llmAssign.leafAssignments || snapshotLeaves;
     }
+
+    const status =
+      llmAssign.status === 'ready'
+        ? 'ready'
+        : llmAssign.status === 'partial'
+          ? 'partial'
+          : llmAssign.status === 'skipped'
+            ? 'skipped'
+            : 'failed';
+
     nextOverlay.llm = {
       ...(nextOverlay.llm || {}),
-      model: llmEnrich.model || nextOverlay.llm?.model || ollamaModel(),
-      enrichStatus: llmEnrich.status === 'ready' ? 'ready' : llmEnrich.status || 'failed',
-      enrichError: llmEnrich.error || null,
+      model: llmAssign.model || nextOverlay.llm?.model || ollamaModel(),
+      ...dualLlmPeopleStatus(status, llmAssign.error || null),
+      assignPendingAt: null,
+      assignProgress: {
+        chunksMerged: llmAssign.chunksMerged || 0,
+        chunksAttempted: llmAssign.chunksAttempted || 0,
+      },
     };
 
     pack.aiPlanning = {
@@ -335,7 +404,7 @@ async function runEnrichPipeline({ pack, userId, organizationId }) {
     return attachPlanningReadiness(pack.toObject());
   } catch (err) {
     logger.error(
-      '[aiPlanning] enrich failed pack=%s org=%s: %s',
+      '[aiPlanning] assign failed pack=%s org=%s: %s',
       String(pack._id),
       String(organizationId),
       err.message
@@ -345,10 +414,11 @@ async function runEnrichPipeline({ pack, userId, organizationId }) {
         ? pack.aiPlanning.overlay
         : overlay),
     };
+    failedOverlay.leafAssignments = snapshotLeaves;
     failedOverlay.llm = {
       ...(failedOverlay.llm || {}),
-      enrichStatus: 'failed',
-      enrichError: err.errorCode || err.message || 'enrich_failed',
+      ...dualLlmPeopleStatus('failed', err.errorCode || err.message || 'assign_failed'),
+      assignPendingAt: null,
     };
     pack.aiPlanning = {
       status: 'ready',
@@ -360,15 +430,15 @@ async function runEnrichPipeline({ pack, userId, organizationId }) {
 
     if (err.statusCode && err.errorCode) throw err;
 
-    const wrap = new Error(err.message || 'AI enrich failed');
+    const wrap = new Error(err.message || 'AI assign failed');
     wrap.statusCode = err.statusCode || 500;
-    wrap.errorCode = err.errorCode || 'AI_PLANNING_ENRICH_FAILED';
+    wrap.errorCode = err.errorCode || 'AI_PLANNING_ASSIGN_FAILED';
     throw wrap;
   }
 }
 
 /**
- * Pipeline by phase: staffing | enrich | full (default).
+ * Pipeline by phase: staffing | assign | enrich(=assign) | full(=staffing only).
  * Does not mutate staffingPlan until approveStaffingProposal.
  */
 async function runAiPlanningHeuristic({ userId, organizationId, packId, phase: phaseRaw } = {}) {
@@ -378,11 +448,11 @@ async function runAiPlanningHeuristic({ userId, organizationId, packId, phase: p
     permission: 'requirement:run-ai-planning',
   });
 
-  const phase = normalizeAiPlanningPhase(phaseRaw);
+  const phase = resolveAiPlanningPhase(normalizeAiPlanningPhase(phaseRaw));
   const pack = await loadPackForAi({ packId, organizationId });
 
-  if (phase === 'enrich') {
-    return runEnrichPipeline({ pack, userId, organizationId });
+  if (phase === 'assign') {
+    return runAssignPipeline({ pack, userId, organizationId });
   }
 
   return runStaffingPipeline({
@@ -390,7 +460,6 @@ async function runAiPlanningHeuristic({ userId, organizationId, packId, phase: p
     userId,
     organizationId,
     packId,
-    runEnrich: phase === 'full',
   });
 }
 

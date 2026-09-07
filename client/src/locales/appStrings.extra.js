@@ -103,9 +103,17 @@ export const extraStrings = {
       sessionExpired: 'Vui lòng đăng nhập lại.',
       noServerResponse: 'Không nhận được phản hồi từ server',
       registerFailed: 'Đăng ký thất bại',
-      registerSuccessEmail: '✅ Đăng ký thành công! Email xác thực đã được gửi thành công. Vui lòng kiểm tra hộp thư của bạn.',
-      registerSuccessNoEmail: '✅ Đăng ký thành công! Email service chưa được cấu hình.',
-      registerSuccess: '✅ Đăng ký thành công!',
+      registerSuccessEmail:
+        'Đăng ký thành công. Dùng nút gửi lại email xác thực để nhận liên kết kích hoạt tài khoản.',
+      registerSuccessNoEmail:
+        'Đăng ký thành công. Dùng nút gửi lại email xác thực để nhận liên kết kích hoạt tài khoản.',
+      registerSuccess:
+        'Đăng ký thành công. Dùng nút gửi lại email xác thực để nhận liên kết kích hoạt tài khoản.',
+      resendVerificationSuccess:
+        'Nếu tài khoản tồn tại và chưa xác thực, email xác thực đã được gửi. Kiểm tra hộp thư / Thư rác.',
+      resendVerificationAlreadyVerified: 'Email đã được xác thực. Bạn có thể đăng nhập.',
+      resendVerificationFail: 'Không thể gửi lại email xác thực. Vui lòng thử lại sau.',
+      resendVerificationCooldown: 'Vui lòng đợi {seconds}s trước khi gửi lại.',
       serverNoResponseDetail:
         'Server không phản hồi. Vui lòng kiểm tra:\n- Backend service có đang chạy không\n- API Gateway có hoạt động không\n- Kết nối mạng có ổn định không',
       registerTimeout: 'Yêu cầu quá thời gian chờ (60s). Backend không phản hồi.\n\nVui lòng kiểm tra:\n1. API Gateway có đang chạy tại {url}?\n2. Auth Service có đang chạy không?\n3. Kiểm tra logs backend để xem có lỗi không',
@@ -154,6 +162,11 @@ export const extraStrings = {
       gatewayAlertFallback:
         'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với các microservice (xem .env.example ở root repo).',
       demoToast: 'Đây là bản demo trên trang chủ — đăng nhập thật từ trang Đăng nhập.',
+      resendVerificationHint:
+        'Tài khoản chưa xác thực email. Nhập đúng email và nhấn gửi lại để nhận liên kết kích hoạt.',
+      resendCta: 'Gửi lại email xác thực',
+      resendSending: 'Đang gửi…',
+      resendCooldown: 'Gửi lại sau {seconds}s',
     },
     register: {
       title: 'Tạo tài khoản mới',
@@ -200,9 +213,17 @@ export const extraStrings = {
       termsAnd: 'và',
       privacyLink: 'Chính sách bảo mật',
       termsSuffix: '.',
-      submitting: 'Đang gửi email xác thực…',
+      submitting: 'Đang tạo tài khoản…',
       submit: 'Tạo tài khoản',
-      successMessage: 'Đăng ký thành công! Vui lòng kiểm tra email để xác thực tài khoản.',
+      successMessage:
+        'Đăng ký thành công. Nhấn gửi lại email xác thực để nhận liên kết kích hoạt, rồi đăng nhập sau khi xác thực.',
+      successTitle: 'Đăng ký thành công',
+      successBody:
+        'Tài khoản đã được tạo nhưng chưa gửi email xác thực tự động. Nhấn nút bên dưới để yêu cầu gửi liên kết kích hoạt.',
+      resendCta: 'Gửi lại email xác thực',
+      resendSending: 'Đang gửi…',
+      resendCooldown: 'Gửi lại sau {seconds}s',
+      goToLogin: 'Đến trang đăng nhập',
     },
     forgotPassword: {
       loginLink: 'Đăng nhập',
@@ -604,9 +625,16 @@ export const extraStrings = {
       noServerResponse: 'No response from server',
       registerFailed: 'Registration failed',
       registerSuccessEmail:
-        '✅ Registration successful! A verification email was sent. Please check your inbox.',
-      registerSuccessNoEmail: '✅ Registration successful! Email service is not configured.',
-      registerSuccess: '✅ Registration successful!',
+        'Registration successful. Use resend verification email to receive your activation link.',
+      registerSuccessNoEmail:
+        'Registration successful. Use resend verification email to receive your activation link.',
+      registerSuccess:
+        'Registration successful. Use resend verification email to receive your activation link.',
+      resendVerificationSuccess:
+        'If the account exists and is unverified, a verification email was sent. Check inbox / Spam.',
+      resendVerificationAlreadyVerified: 'Email is already verified. You can sign in.',
+      resendVerificationFail: 'Could not resend the verification email. Please try again later.',
+      resendVerificationCooldown: 'Please wait {seconds}s before resending.',
       serverNoResponseDetail:
         'Server did not respond. Please check:\n- Backend services are running\n- API Gateway is up\n- Network connection is stable',
       registerTimeout:
@@ -656,6 +684,11 @@ export const extraStrings = {
       gatewayAlertFallback:
         'API Gateway is missing GATEWAY_INTERNAL_TOKEN. Add it to api-gateway/.env and keep the same value across all microservices (see .env.example at the repo root).',
       demoToast: 'This is the home preview — sign in from the Log in page for real auth.',
+      resendVerificationHint:
+        'Your email is not verified yet. Enter the correct email and tap resend to get an activation link.',
+      resendCta: 'Resend verification email',
+      resendSending: 'Sending…',
+      resendCooldown: 'Resend in {seconds}s',
     },
     register: {
       title: 'Create an account',
@@ -703,9 +736,17 @@ export const extraStrings = {
       termsAnd: 'and',
       privacyLink: 'Privacy Policy',
       termsSuffix: '.',
-      submitting: 'Sending verification email…',
+      submitting: 'Creating account…',
       submit: 'Create account',
-      successMessage: 'Sign-up successful! Check your email to verify your account.',
+      successMessage:
+        'Sign-up successful. Tap resend verification email to get your activation link, then sign in after verifying.',
+      successTitle: 'Registration successful',
+      successBody:
+        'Your account was created, but a verification email was not sent automatically. Tap the button below to request an activation link.',
+      resendCta: 'Resend verification email',
+      resendSending: 'Sending…',
+      resendCooldown: 'Resend in {seconds}s',
+      goToLogin: 'Go to sign in',
     },
     forgotPassword: {
       loginLink: 'Log in',

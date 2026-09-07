@@ -12,19 +12,17 @@ import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import AiStaffingProposalPanel from './AiStaffingProposalPanel';
 import AiPlanningRunningBanner from './AiPlanningRunningBanner';
+import AiAnalysisBlueprintWizard from './AiAnalysisBlueprintWizard';
 import { formatAiPlanningSuggestionProfile } from '../../utils/aiPlanningSuggestionDisplay';
+
+import { isLegacyAiPlanningEnabled } from '../../utils/requirementImportReadiness';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function canRunAiOnPack(pack) {
-  const status = String(pack?.status || '');
-  if (!['under_review', 'approved', 'project_linked'].includes(status)) return false;
-  const readiness = pack?.planningReadiness;
-  if (!readiness) return false;
-  if (readiness.allLeavesStaffed !== true) return false;
-  return true;
+function canRunAiOnPack() {
+  return isLegacyAiPlanningEnabled();
 }
 
 function AiPlanningOverlaySummary({
@@ -138,10 +136,10 @@ function AiPlanningOverlaySummary({
           {t('requirements.aiPlanningGaps', { count: gaps.length })}
         </p>
       ) : null}
-      {(pack?.planningReadiness?.missingLeafIds || []).length > 0 ? (
+      {(pack?.planningReadiness?.blockingCodes || []).length > 0 ? (
         <p className="mt-2 text-xs text-destructive">
-          {t('requirements.missingLeafStaffing', {
-            ids: (pack.planningReadiness.missingLeafIds || []).slice(0, 8).join(', '),
+          {t('requirements.validationBlockingCodes', {
+            codes: (pack.planningReadiness.blockingCodes || []).slice(0, 8).join(', '),
           })}
         </p>
       ) : null}
@@ -224,7 +222,6 @@ export default function RequirementPackReviewDrawer({
     derivedFromPackHint: t('requirements.derivedFromPackHint'),
     planningScore: t('requirements.planningScore'),
     planningNotReady: t('requirements.planningNotReady'),
-    missingLeafStaffing: t('requirements.missingLeafStaffing'),
     previewPlanningLowScore: t('requirements.previewPlanningLowScore'),
     previewPackReady: t('requirements.previewPackReady'),
     previewPackProcessed: t('requirements.previewPackProcessed'),
@@ -304,11 +301,15 @@ export default function RequirementPackReviewDrawer({
     }
   };
 
-  const createProject = async () => {
+  const createProject = async (options = {}) => {
     if (!orgId || !packId || busy) return;
     setBusy(true);
     try {
-      const res = await requirementAPI.createProjectFromPack(orgId, packId);
+      const body = {
+        importWorkItems: Boolean(options.importWorkItems),
+        applyAssignees: options.applyAssignees !== false,
+      };
+      const res = await requirementAPI.createProjectFromPack(orgId, packId, body);
       const data = unwrap(res);
       toast.success(t('requirements.createProjectSuccess'));
       onChanged?.();
@@ -453,6 +454,19 @@ export default function RequirementPackReviewDrawer({
                 onApproveStaffing={approveAiStaffing}
                 onDiscardStaffing={discardAiStaffing}
               />
+              {canRunAiPlanning && orgId && packId ? (
+                <div className="mb-4">
+                  <AiAnalysisBlueprintWizard
+                    organizationId={orgId}
+                    packId={packId}
+                    onCreateProject={
+                      showCreateProject
+                        ? (opts) => createProject(opts || { importWorkItems: true, applyAssignees: true })
+                        : null
+                    }
+                  />
+                </div>
+              ) : null}
               <RequirementPreviewTabs
                 previewMode="pack"
                 fileName={pack.sourceFileName || pack.overview?.requirementName || ''}
@@ -528,7 +542,7 @@ export default function RequirementPackReviewDrawer({
               <GradientButton
                 variant="success"
                 disabled={busy}
-                onClick={createProject}
+                onClick={() => createProject({ importWorkItems: true, applyAssignees: true })}
                 className="px-4 py-2 text-sm"
               >
                 <FolderPlus className="h-4 w-4" />

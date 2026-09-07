@@ -110,8 +110,10 @@ const proxyMiddleware = (req, res, next) => {
         port: proxyPort,
       },
       changeOrigin: true,
-      timeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
-      proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000),
+      // http-proxy `timeout` = idle timeout trên socket Nginx→Gateway (không phải connect timeout).
+      // Phải 0: nếu = 60s sẽ cắt giữa lúc chờ AI/Ollama → browser 502 trong khi upstream vẫn save.
+      timeout: 0,
+      proxyTimeout: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 300000),
       ws: false, // Không cần WebSocket
       xfwd: true, // Forward X-Forwarded-* headers
       secure: false, // Tắt SSL verification cho localhost

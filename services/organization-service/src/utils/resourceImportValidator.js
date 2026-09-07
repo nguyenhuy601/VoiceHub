@@ -287,6 +287,7 @@ function validateResourceImportRows(rows, options = {}) {
 
   const emailSeen = new Set();
   const employeeCodeSeen = new Set();
+  const phoneSeen = new Set();
   const normalizedRows = [];
   const details = [];
 
@@ -389,6 +390,15 @@ function validateResourceImportRows(rows, options = {}) {
       continue;
     }
 
+    if (phoneParts.phone && phoneSeen.has(phoneParts.phone)) {
+      details.push({
+        rowNumber,
+        message: `phone bị trùng trong cùng file: ${phoneParts.phone}`,
+        errorCode: 'VALIDATION_PHONE_DUPLICATE',
+      });
+      continue;
+    }
+
     if (!jobTitle) {
       details.push({
         rowNumber,
@@ -487,6 +497,7 @@ function validateResourceImportRows(rows, options = {}) {
 
     emailSeen.add(email);
     if (codeParts.value) employeeCodeSeen.add(codeParts.value);
+    if (phoneParts.phone) phoneSeen.add(phoneParts.phone);
     normalizedRows.push({
       rowNumber,
       employeeCode: codeParts.value,

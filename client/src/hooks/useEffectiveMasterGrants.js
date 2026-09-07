@@ -6,6 +6,9 @@ import { parseUserPermissionsPayload } from '../config/rbacUiGrantMap';
 import { queryKeys } from '../lib/queryKeys';
 import { STALE_TIME_RBAC_GRANTS_MS } from '../lib/queryClient';
 
+/** Stable empty fallback — tránh `[]` mới mỗi render khi disabled/pending. */
+const EMPTY_GRANTS = Object.freeze([]);
+
 /**
  * Fetch master grants — throws on network/API failure so hook can surface `error: true`.
  */
@@ -36,7 +39,7 @@ export function useEffectiveMasterGrants(orgId) {
     retry: 1,
   });
 
-  const grants = enabled && Array.isArray(query.data) ? query.data : [];
+  const grants = enabled && Array.isArray(query.data) ? query.data : EMPTY_GRANTS;
   const loading = enabled && query.isPending;
   const error = Boolean(enabled && query.isError);
 

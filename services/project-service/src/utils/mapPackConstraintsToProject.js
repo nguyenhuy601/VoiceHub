@@ -8,7 +8,11 @@ const DEFAULT_BUDGET_CURRENCY = 'VND';
  * Pure helper — no DB / side effects.
  *
  * @param {object} pack
- * @param {{ titleOverride?: string }} [opts]
+ * @param {{
+ *   titleOverride?: string,
+ *   startDateOverride?: Date|string|null,
+ *   dueDateOverride?: Date|string|null,
+ * }} [opts]
  * @returns {{
  *   title: string,
  *   description: string,
@@ -45,8 +49,19 @@ function mapPackConstraintsToProject(pack = {}, opts = {}) {
     ? { amount: budgetAmount, currency: currency.slice(0, 8), note: '' }
     : null;
 
-  const startDate = overview.startDate || staffing.startDate || null;
-  const deadline = overview.deadline || null;
+  const startFromPack = overview.startDate || staffing.startDate || null;
+  const deadlineFromPack = overview.deadline || null;
+  const startOverride =
+    opts.startDateOverride !== undefined && opts.startDateOverride !== null && opts.startDateOverride !== ''
+      ? opts.startDateOverride
+      : undefined;
+  const dueOverride =
+    opts.dueDateOverride !== undefined && opts.dueDateOverride !== null && opts.dueDateOverride !== ''
+      ? opts.dueDateOverride
+      : undefined;
+
+  const startDate = startOverride !== undefined ? startOverride : startFromPack;
+  const deadline = dueOverride !== undefined ? dueOverride : deadlineFromPack;
 
   return {
     title,

@@ -40,7 +40,7 @@ app.get('/metrics', (req, res) => {
 });
 
 /** Timeout proxy REST API (không áp dụng Socket.IO long-polling). */
-const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000);
+const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 300000);
 /** Long-polling giữ request mở lâu — 0 = không cắt sớm (tránh reconnect loop). */
 const SOCKET_PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_SOCKET_PROXY_TIMEOUT_MS || 0);
 

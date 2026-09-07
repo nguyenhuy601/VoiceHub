@@ -23,7 +23,7 @@ function readinessStripClass(tone) {
 }
 
 /**
- * Import preview — issue-focused Excel rows (no requirement tree, no full-file browse).
+ * Import preview — issue-focused Excel rows (WHAT validation; no leaf staffing gate).
  */
 export default function RequirementPreviewTabs({
   fileName = '',
@@ -46,12 +46,15 @@ export default function RequirementPreviewTabs({
   const displayName = fileName || excelPreview?.fileName || '—';
   const readinessTone = getPlanningReadinessTone(planningReadiness);
   const planningScore = planningReadiness?.score;
-  const missingLeafIds = planningReadiness?.missingLeafIds || [];
+  const blockingCodes = planningReadiness?.blockingCodes || [];
+  const whatReady =
+    planningReadiness?.canRunAiAnalysis === true ||
+    planningReadiness?.allLeavesStaffed === true;
   const showReadinessStrip =
     planningReadiness &&
-    (missingLeafIds.length > 0 ||
-      planningReadiness.allLeavesStaffed !== true ||
-      (planningReadiness.allLeavesStaffed === true && planningScore != null && planningScore < 80));
+    (blockingCodes.length > 0 ||
+      !whatReady ||
+      (whatReady && planningScore != null && planningScore < 80));
 
   const severityFilter = resolveSeverityFilter(errorCount, warningCount, infoCount);
   const hasIssues = severityFilter != null;
@@ -119,17 +122,14 @@ export default function RequirementPreviewTabs({
         <div
           className={`shrink-0 border-b px-3 py-2 text-xs ${readinessStripClass(readinessTone)}`}
         >
-          {missingLeafIds.length > 0 ? (
+          {blockingCodes.length > 0 || !whatReady ? (
             <p>
-              {labels.missingLeafStaffing
-                ? labels.missingLeafStaffing.replace(
-                    '{ids}',
-                    missingLeafIds.slice(0, 8).join(', ')
-                  )
-                : `Hàng thực thi thiếu staffing: ${missingLeafIds.slice(0, 8).join(', ')}`}
+              {labels.planningNotReady ||
+                'Còn lỗi validation WHAT — sửa Excel trước khi gửi duyệt / AI Analysis.'}
+              {blockingCodes.length
+                ? ` (${blockingCodes.slice(0, 6).join(', ')})`
+                : ''}
             </p>
-          ) : planningReadiness?.allLeavesStaffed !== true ? (
-            <p>{labels.planningNotReady || 'Chưa đủ staffing trên hàng thực thi (Story/Task/Subtask).'}</p>
           ) : planningScore != null && planningScore < 80 ? (
             <p>
               {labels.previewPlanningLowScore

@@ -3,12 +3,17 @@
  */
 
 const axios = require('axios');
+const { logger } = require('@enterprise/shared');
 
 const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
 const DEFAULT_TIMEOUT_MS = 240000;
 const DEFAULT_ENRICH_TIMEOUT_MS = 120000;
+const DEFAULT_ASSIGN_TIMEOUT_MS = 60000;
+const DEFAULT_ANALYSIS_CHUNK_TIMEOUT_MS = 180000;
 const MAX_PLANNING_TIMEOUT_MS = 600000;
 const DEFAULT_NUM_PREDICT = 512;
+const DEFAULT_KEEP_ALIVE = '30m';
+const WARM_NUM_PREDICT = 8;
 
 function llmProvider() {
   return String(process.env.LLM_PROVIDER || 'ollama').trim().toLowerCase();
@@ -16,6 +21,12 @@ function llmProvider() {
 
 function isAiPlanningLlmEnabled() {
   const flag = String(process.env.AI_PLANNING_LLM ?? '1').trim().toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(flag)) return false;
+  return true;
+}
+
+function isOllamaWarmupEnabled() {
+  const flag = String(process.env.OLLAMA_WARMUP ?? '1').trim().toLowerCase();
   if (['0', 'false', 'off', 'no'].includes(flag)) return false;
   return true;
 }
@@ -30,6 +41,11 @@ function ollamaModel() {
   return String(process.env.OLLAMA_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
 }
 
+function ollamaKeepAlive() {
+  const raw = String(process.env.OLLAMA_KEEP_ALIVE ?? DEFAULT_KEEP_ALIVE).trim();
+  return raw || DEFAULT_KEEP_ALIVE;
+}
+
 function clampTimeoutMs(raw, fallback) {
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 5000) return Math.min(n, MAX_PLANNING_TIMEOUT_MS);
@@ -42,6 +58,18 @@ function planningTimeoutMs() {
 
 function enrichTimeoutMs() {
   return clampTimeoutMs(process.env.OLLAMA_PLANNING_ENRICH_TIMEOUT_MS, DEFAULT_ENRICH_TIMEOUT_MS);
+}
+
+function assignTimeoutMs() {
+  return clampTimeoutMs(process.env.OLLAMA_PLANNING_ASSIGN_TIMEOUT_MS, DEFAULT_ASSIGN_TIMEOUT_MS);
+}
+
+/** Per-chunk timeout for AI Analysis runners (default 180s; was hard-capped at 60s). */
+function analysisChunkTimeoutMs() {
+  return clampTimeoutMs(
+    process.env.OLLAMA_ANALYSIS_CHUNK_TIMEOUT_MS,
+    DEFAULT_ANALYSIS_CHUNK_TIMEOUT_MS
+  );
 }
 
 /**
@@ -100,6 +128,7 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict }
         model,
         prompt: String(prompt || ''),
         stream: false,
+        keep_alive: ollamaKeepAlive(),
         options: {
           temperature,
           num_predict: predict,
@@ -127,18 +156,77 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict }
   }
 }
 
+/**
+ * Load model into Ollama memory before analysis chunks (cold start ~70s+ on small hosts).
+ * Failures are non-fatal — callers continue with heuristic fallback paths.
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, error?: string, elapsedMs?: number }>}
+ */
+async function warmOllamaModel() {
+  const model = ollamaModel();
+  if (!isOllamaWarmupEnabled()) {
+    return { ok: false, skipped: true, error: 'warmup_disabled' };
+  }
+  if (!isAiPlanningLlmEnabled() || llmProvider() === 'mock') {
+    return { ok: false, skipped: true, error: 'llm_skipped' };
+  }
+  const baseUrl = ollamaBaseUrl();
+  if (!baseUrl) {
+    return { ok: false, skipped: true, error: 'ollama_base_url_missing' };
+  }
+
+  const timeout = analysisChunkTimeoutMs();
+  const started = Date.now();
+  try {
+    const res = await axios.post(
+      `${baseUrl}/api/generate`,
+      {
+        model,
+        prompt: '{"ping":1}',
+        stream: false,
+        keep_alive: ollamaKeepAlive(),
+        options: {
+          temperature: 0,
+          num_predict: WARM_NUM_PREDICT,
+        },
+      },
+      { timeout, validateStatus: () => true }
+    );
+    const elapsedMs = Date.now() - started;
+    if (!res || res.status < 200 || res.status >= 300) {
+      const error = `ollama_http_${res?.status || 0}`;
+      logger.warn('[ollama] warm failed model=%s error=%s elapsedMs=%s', model, error, elapsedMs);
+      return { ok: false, error, elapsedMs };
+    }
+    logger.info('[ollama] warm ok model=%s elapsedMs=%s', model, elapsedMs);
+    return { ok: true, elapsedMs };
+  } catch (err) {
+    const elapsedMs = Date.now() - started;
+    const error = err.code === 'ECONNABORTED' ? 'ollama_timeout' : 'ollama_error';
+    logger.warn('[ollama] warm failed model=%s error=%s elapsedMs=%s', model, error, elapsedMs);
+    return { ok: false, error, elapsedMs };
+  }
+}
+
 module.exports = {
   DEFAULT_MODEL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_ENRICH_TIMEOUT_MS,
+  DEFAULT_ASSIGN_TIMEOUT_MS,
+  DEFAULT_ANALYSIS_CHUNK_TIMEOUT_MS,
   MAX_PLANNING_TIMEOUT_MS,
   DEFAULT_NUM_PREDICT,
+  DEFAULT_KEEP_ALIVE,
   llmProvider,
   isAiPlanningLlmEnabled,
+  isOllamaWarmupEnabled,
   ollamaBaseUrl,
   ollamaModel,
+  ollamaKeepAlive,
   planningTimeoutMs,
   enrichTimeoutMs,
+  assignTimeoutMs,
+  analysisChunkTimeoutMs,
   extractJsonPayload,
   generateJson,
+  warmOllamaModel,
 };

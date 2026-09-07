@@ -103,6 +103,21 @@ describe('resourceImportValidator', () => {
     assert.equal(plus.normalizedRows[0].phone, '0901234567');
   });
 
+  it('rejects duplicate phone in same file (after normalize)', () => {
+    const out = validateResourceImportRows([
+      baseRow({ phone: '0901234567', email: 'a@voicehub.net', rowNumber: 2 }),
+      baseRow({
+        phone: '+84901234567',
+        email: 'b@voicehub.net',
+        rowNumber: 3,
+        fullName: 'Nguyễn An',
+        employeeCode: 'VH-002',
+      }),
+    ]);
+    assert.equal(out.ok, false);
+    assert.equal(out.details?.[0]?.errorCode, 'VALIDATION_PHONE_DUPLICATE');
+  });
+
   it('rejects when jobTitle is missing', () => {
     const out = validateResourceImportRows([baseRow({ jobTitle: '' })]);
     assert.equal(out.ok, false);

@@ -441,10 +441,13 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
       section.items.some((item) => isActivePath(item))
     );
     if (!activeSection) return;
-    setExpandedSectionByDomain((prev) => ({
-      ...prev,
-      [selectedDomain.id]: activeSection.id,
-    }));
+    const domainId = selectedDomain.id;
+    const sectionId = activeSection.id;
+    // Chỉ setState khi đổi section — tránh loop nếu selectedDomain reference đổi mỗi render.
+    setExpandedSectionByDomain((prev) => {
+      if (prev[domainId] === sectionId) return prev;
+      return { ...prev, [domainId]: sectionId };
+    });
   }, [selectedDomain, currentPath]);
 
   const toggleCollapsed = () => {

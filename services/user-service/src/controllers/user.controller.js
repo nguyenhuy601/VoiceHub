@@ -812,6 +812,30 @@ class UserController {
     }
   }
 
+  /**
+   * S2S — precheck Excel: SĐT nào đã tồn tại (chỉ trả taken[], không profile).
+   * Body: { phones: string[] }
+   */
+  async internalFindTakenPhones(req, res) {
+    try {
+      const phones = Array.isArray(req.body?.phones) ? req.body.phones : [];
+      const taken = await userService.findTakenPhones(phones);
+      return res.status(200).json({
+        success: true,
+        data: { taken },
+      });
+    } catch (error) {
+      logger.error('internalFindTakenPhones error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 500,
+        error.message || 'Phone lookup failed',
+        error.errorCode || 'PHONE_LOOKUP_FAILED'
+      );
+    }
+  }
+
   /** S2S — org Excel/HR bulk profile fields (trước protect JWT). */
   async internalBulkImportProfileFields(req, res) {
     try {

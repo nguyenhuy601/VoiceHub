@@ -8,7 +8,7 @@ const validationIssueSchema = new mongoose.Schema(
     row: { type: Number, default: null },
     column: { type: String, trim: true, default: '', maxlength: 64 },
     message: { type: String, required: true, trim: true, maxlength: 500 },
-    severity: { type: String, enum: ['error', 'warning'], required: true },
+    severity: { type: String, enum: ['error', 'warning', 'info'], required: true },
   },
   { _id: false }
 );

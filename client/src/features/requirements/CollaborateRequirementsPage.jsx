@@ -1,5 +1,5 @@
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
-import { FIGMA_PAGE_INNER, FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
+import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -56,8 +56,8 @@ export default function CollaborateRequirementsPage() {
   }
 
   return (
-    <div className={FIGMA_PAGE_SHELL}>
-      <div className={FIGMA_PAGE_INNER}>
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 px-6 py-5">
         <RequirementImportWorkspace
           orgId={orgId}
           variant="collaborate"

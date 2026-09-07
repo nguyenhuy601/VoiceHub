@@ -13,6 +13,9 @@ import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
 
+const RESEND_COOLDOWN_MS = 60_000;
+const UNVERIFIED_ERROR_CODES = new Set(['AUTH_EMAIL_NOT_VERIFIED', 'AUTH_PENDING_ACTIVATION']);
+
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,6 +31,10 @@ function LoginPage({ landingDemo = false } = {}) {
   const [oneTimeCreds, setOneTimeCreds] = useState(null);
   /** Sau invite: không có mk tạm → gợi ý quên mật khẩu */
   const [inviteForgotHint, setInviteForgotHint] = useState(null);
+  const [needsEmailVerification, setNeedsEmailVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   const inputBase = authInputSurface(isDarkMode);
   const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
@@ -43,6 +50,9 @@ function LoginPage({ landingDemo = false } = {}) {
   const btnPrimary = authPrimaryButtonClass(isDarkMode);
   const submitDisabled =
     loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
+  const hintPanelCls = isDarkMode
+    ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100'
+    : 'border-cyan-300 bg-cyan-50 text-cyan-950';
 
   useEffect(() => {
     const creds = consumeOneTimeLoginCredentials();
@@ -67,10 +77,19 @@ function LoginPage({ landingDemo = false } = {}) {
       setInviteForgotHint({ email: prefillEmail });
     }
 
+    if (location.state?.needsEmailVerification) {
+      setNeedsEmailVerification(true);
+    }
+
     if (location.state?.message) {
       toast.success(location.state.message, { id: 'company-invite-flash' });
     }
-    if (location.state?.message || location.state?.prefillEmail || fromInvite) {
+    if (
+      location.state?.message ||
+      location.state?.prefillEmail ||
+      fromInvite ||
+      location.state?.needsEmailVerification
+    ) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
@@ -104,6 +123,51 @@ function LoginPage({ landingDemo = false } = {}) {
     }
   }, [landingDemo, authLoading, isAuthenticated, navigate, oneTimeCreds, inviteForgotHint]);
 
+  useEffect(() => {
+    if (!cooldownUntil) {
+      setCooldownSeconds(0);
+      return undefined;
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+      setCooldownSeconds(left);
+      if (left <= 0) setCooldownUntil(0);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [cooldownUntil]);
+
+  const handleResendVerification = async () => {
+    const email = String(formData.email || '').trim();
+    if (!email) {
+      toast.error(t('forgotPassword.toastEmailRequired'));
+      return;
+    }
+    if (cooldownSeconds > 0) {
+      toast.error(t('authSession.resendVerificationCooldown', { seconds: cooldownSeconds }));
+      return;
+    }
+
+    setResendLoading(true);
+    try {
+      const response = await authService.resendVerification(email);
+      const payload = response?.data || response || {};
+      if (payload.alreadyVerified) {
+        toast.success(t('authSession.resendVerificationAlreadyVerified'));
+        setNeedsEmailVerification(false);
+      } else {
+        toast.success(t('authSession.resendVerificationSuccess'));
+      }
+      setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+    } catch (error) {
+      console.error('[LoginPage] Resend verification error:', error);
+      toast.error(t('authSession.resendVerificationFail'));
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -118,9 +182,14 @@ function LoginPage({ landingDemo = false } = {}) {
 
     setLoading(true);
     try {
-      const success = await login(formData.email, formData.password);
-      if (success) {
+      const result = await login(formData.email, formData.password);
+      if (result?.ok) {
+        setNeedsEmailVerification(false);
         navigate('/app');
+        return;
+      }
+      if (UNVERIFIED_ERROR_CODES.has(result?.errorCode)) {
+        setNeedsEmailVerification(true);
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -141,7 +210,9 @@ function LoginPage({ landingDemo = false } = {}) {
 
   return (
     <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>{t('login.title')}</h2>
+      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>
+        {t('login.title')}
+      </h2>
       <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
 
       {gatewayTrust && !gatewayTrust.ok && (
@@ -152,24 +223,44 @@ function LoginPage({ landingDemo = false } = {}) {
           }`}
         >
           <p className="font-semibold">{t('login.gatewayAlertTitle')}</p>
-          <p className="mt-1 opacity-95">
-            {gatewayTrust.message || t('login.gatewayAlertFallback')}
-          </p>
+          <p className="mt-1 opacity-95">{gatewayTrust.message || t('login.gatewayAlertFallback')}</p>
         </div>
       )}
 
       {inviteForgotHint ? (
         <div
           role="status"
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
-            isDarkMode ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-950'
-          }`}
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${hintPanelCls}`}
         >
           <p className="font-semibold">{t('acceptCompanyInvite.loginNoTempTitle')}</p>
           <p className="mt-1 opacity-95">{t('acceptCompanyInvite.loginNoTempBody')}</p>
-          <Link to={forgotHref} className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
+          <Link
+            to={forgotHref}
+            className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}
+          >
             {t('acceptCompanyInvite.loginNoTempCta')}
           </Link>
+        </div>
+      ) : null}
+
+      {needsEmailVerification ? (
+        <div
+          role="status"
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${hintPanelCls}`}
+        >
+          <p className="font-semibold">{t('login.resendVerificationHint')}</p>
+          <button
+            type="button"
+            onClick={handleResendVerification}
+            disabled={resendLoading || cooldownSeconds > 0 || !formData.email}
+            className={`mt-3 inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
+          >
+            {resendLoading
+              ? t('login.resendSending')
+              : cooldownSeconds > 0
+                ? t('login.resendCooldown', { seconds: cooldownSeconds })
+                : t('login.resendCta')}
+          </button>
         </div>
       ) : null}
 

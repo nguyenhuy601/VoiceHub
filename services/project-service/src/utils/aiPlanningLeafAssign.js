@@ -1,12 +1,21 @@
 /**
- * Per execution-leaf assignee suggestions (heuristic, no LLM).
+ * Per execution-leaf assignee suggestions (heuristic shortlist; LLM assign is separate).
  */
 
 const { scoreVerifiedCapability } = require('./capabilityMatch');
 const { scoreHistoricalPerformance } = require('./performanceMatch');
 const { listFrExecutionLeaves } = require('./requirementFrLevel');
+const { leafHistorySignals } = require('./employeeSuggestContext');
 
-const LEAF_SUGGESTION_TOP = 3;
+const LEAF_SUGGESTION_TOP = 5;
+const PRIOR_ROLE_BOOST = 10;
+
+function relevantTaskHoursBoost(hours) {
+  const n = Number(hours) || 0;
+  if (n >= 40) return 8;
+  if (n >= 10) return 4;
+  return 0;
+}
 
 function normalizeRoleKey(roleKey) {
   return String(roleKey || '')
@@ -110,16 +119,42 @@ function scorePoolItemForLeaf({ item, leaf, pack, registrySkills }) {
   });
   const perfMatch = scoreHistoricalPerformance(rollupFromSlimPerformance(item?.performance));
   const cap = capacityBoost(item);
-  const score = clampScore(40 + capMatch.boost + perfMatch.boost + cap.boost);
-  const reasons = [...(capMatch.reasons || []), ...(perfMatch.reasons || []), ...(cap.reasons || [])];
+  const history = leafHistorySignals(item?.suggestContext, roleKey);
+  let historyBoost = 0;
+  const historyReasons = [];
+  if (history.priorRoleMatch) {
+    historyBoost += PRIOR_ROLE_BOOST;
+    historyReasons.push('prior_role');
+  }
+  const hoursBoost = relevantTaskHoursBoost(history.relevantTaskHours);
+  if (hoursBoost) {
+    historyBoost += hoursBoost;
+    historyReasons.push(`relevant_hours_${hoursBoost}`);
+  }
+  const score = clampScore(
+    40 + capMatch.boost + perfMatch.boost + cap.boost + historyBoost
+  );
+  const reasons = [
+    ...(capMatch.reasons || []),
+    ...(perfMatch.reasons || []),
+    ...(cap.reasons || []),
+    ...historyReasons,
+  ];
   return {
     userId: String(item.userId || ''),
     displayName: item.displayName || '',
     jobTitle: item.jobTitle || '',
+    seniorityBand: capability?.seniorityBand || item?.capability?.seniorityBand || '',
     score,
     reasons,
     availableHours: cap.availableHours ?? null,
     matchedSkills: capMatch.skillMatch?.matched || [],
+    priorRoleMatch: history.priorRoleMatch,
+    priorRoleProjects: history.priorRoleProjects,
+    relevantTaskHours: history.relevantTaskHours,
+    perfConfidence: item?.performance?.confidence || null,
+    accuracyPct: item?.performance?.estimationAccuracyPct ?? null,
+    reworkRate: item?.performance?.reworkRate ?? null,
   };
 }
 
@@ -180,6 +215,7 @@ function buildLeafAssignments({ pack, poolItems = [], registrySkills = [] } = {}
       name: String(leaf.name || '').trim(),
       roleKey,
       estimateHours: leaf.estimateHours ?? null,
+      requiredSkills: skillsForLeaf(leaf),
       suggestions,
       suggestedUserId,
       suggestedScore,

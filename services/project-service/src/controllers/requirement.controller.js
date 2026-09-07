@@ -18,6 +18,13 @@ const {
 } = require('../services/requirementPack.service');
 const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
+  getAiAnalysisSummary,
+  getAiAnalysisWizardJob,
+  runAiAnalysisJob,
+  confirmAiAnalysisJob,
+  exportAiAnalysisSheet11,
+} = require('../services/aiAnalysis.service');
+const {
   assertRequirementPermission,
   resolveRequirementAccess,
 } = require('../services/requirementAccess.service');
@@ -237,8 +244,12 @@ async function createProjectFromPack(req, res) {
       organizationId,
       packId,
       title: req.body?.title,
+      startDate: req.body?.startDate,
+      dueDate: req.body?.dueDate ?? req.body?.deadline,
       importWorkItems: Boolean(req.body?.importWorkItems),
       leafAssignments: req.body?.leafAssignments,
+      applyAssignees: req.body?.applyAssignees !== false,
+      taskIds: Array.isArray(req.body?.taskIds) ? req.body.taskIds : null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -332,6 +343,110 @@ async function deletePack(req, res) {
   }
 }
 
+async function getAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const view = String(req.query?.view || 'summary').trim().toLowerCase();
+    if (view === 'wizard') {
+      const job = String(req.query?.job || '').trim();
+      const data = await getAiAnalysisWizardJob({
+        userId,
+        organizationId,
+        packId,
+        job,
+      });
+      return res.json({ success: true, data });
+    }
+    const data = await getAiAnalysisSummary({ userId, organizationId, packId });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function runAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await runAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      job: req.body?.job,
+      force: Boolean(req.body?.force),
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function confirmAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await confirmAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      job: req.body?.job,
+      edits: req.body?.edits ?? null,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function exportAiAnalysisSheet11Ctrl(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const { buffer, fileName } = await exportAiAnalysisSheet11({
+      userId,
+      organizationId,
+      packId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return res.send(buffer);
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 module.exports = {
   downloadTemplate,
   previewImport,
@@ -345,6 +460,10 @@ module.exports = {
   rejectPack,
   deletePack,
   createProjectFromPack,
+  getAiAnalysis,
+  runAiAnalysis,
+  confirmAiAnalysis,
+  exportAiAnalysisSheet11: exportAiAnalysisSheet11Ctrl,
   runAiPlanning,
   approveAiStaffing,
   discardAiStaffing,

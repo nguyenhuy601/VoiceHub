@@ -1,43 +1,23 @@
-import { useState } from 'react';
-import { Check, X, Sparkles } from 'lucide-react';
 import { wizardUi } from '../wizard/projectWizardUi';
 import AiStaffingProposalPanel from '../../requirements/AiStaffingProposalPanel';
-import ConfirmDialog from '../../../components/Shared/ConfirmDialog';
 import { formatAiPlanningSuggestionProfile } from '../../../utils/aiPlanningSuggestionDisplay';
-import AiPlanningRunningBanner from '../../requirements/AiPlanningRunningBanner';
+import { Check, X } from 'lucide-react';
 
 /**
- * Step 3 — review AI staffing proposal + suggestions (no auto-assign).
- * Enrich ranking runs only after explicit ConfirmDialog (no auto-run).
+ * Step 3 — review AI staffing proposal + role shortlists (advisory).
+ * Leaf LLM assign lives on the Assign step.
  */
 export default function AiWizardStepReview({
   pack,
   busy,
-  enrichBusy = false,
   canApproveStaffing = false,
-  canRunEnrich = false,
   onApproveStaffing,
   onDiscardStaffing,
-  onRunEnrich,
   t,
 }) {
-  const [enrichConfirmOpen, setEnrichConfirmOpen] = useState(false);
   const overlay = pack?.aiPlanning?.overlay || {};
   const roles = Array.isArray(overlay.roles) ? overlay.roles : [];
   const gaps = Array.isArray(overlay.gaps) ? overlay.gaps : [];
-  const enrichStatus = String(overlay?.llm?.enrichStatus || '');
-  const planningReady = String(pack?.aiPlanning?.status || '') === 'ready';
-  const showEnrichCta =
-    canRunEnrich &&
-    planningReady &&
-    roles.length > 0 &&
-    (enrichStatus === 'pending' || enrichStatus === 'failed' || enrichStatus === 'ready');
-  const enrichCtaLabel =
-    enrichStatus === 'ready' && !enrichBusy
-      ? t('aiCreateWizard.enrichRerun')
-      : enrichBusy
-        ? t('aiCreateWizard.enrichRunning')
-        : t('aiCreateWizard.enrichRun');
 
   return (
     <div className="space-y-6">
@@ -78,39 +58,6 @@ export default function AiWizardStepReview({
         discardButtonClassName=""
         renderApproveIcon={() => <Check className="h-3.5 w-3.5" />}
         renderDiscardIcon={() => <X className="h-3.5 w-3.5" />}
-      />
-
-      {showEnrichCta ? (
-        <div className="space-y-2 rounded-lg border border-border bg-card p-3">
-          <p className="text-xs text-muted-foreground">{t('aiCreateWizard.enrichHint')}</p>
-          {enrichBusy ? <AiPlanningRunningBanner t={t} /> : null}
-          <button
-            type="button"
-            className={`${wizardUi.secondaryBtn} inline-flex items-center gap-1.5`}
-            disabled={busy}
-            onClick={() => setEnrichConfirmOpen(true)}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            {enrichCtaLabel}
-          </button>
-          {enrichStatus === 'failed' && overlay?.llm?.enrichError ? (
-            <p className="text-xs text-destructive">{String(overlay.llm.enrichError)}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <ConfirmDialog
-        isOpen={enrichConfirmOpen}
-        onClose={() => setEnrichConfirmOpen(false)}
-        onConfirm={() => {
-          if (typeof onRunEnrich === 'function') {
-            void onRunEnrich();
-          }
-        }}
-        title={t('aiCreateWizard.enrichConfirmTitle')}
-        message={t('aiCreateWizard.enrichConfirmMessage')}
-        confirmText={t('aiCreateWizard.enrichConfirm')}
-        cancelText={t('common.cancel')}
       />
 
       {roles.length === 0 ? (

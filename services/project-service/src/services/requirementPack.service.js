@@ -213,8 +213,12 @@ async function createProjectFromRequirementPack({
   organizationId,
   packId,
   title: titleOverride = '',
+  startDate: startDateOverride,
+  dueDate: dueDateOverride,
   importWorkItems = false,
   leafAssignments = [],
+  applyAssignees = true,
+  taskIds = null,
 }) {
   await assertRequirementPermission({
     userId,
@@ -233,6 +237,9 @@ async function createProjectFromRequirementPack({
 
   const mapped = mapPackConstraintsToProject(pack.toObject(), {
     titleOverride: String(titleOverride || '').trim(),
+    startDateOverride:
+      startDateOverride !== undefined ? startDateOverride : undefined,
+    dueDateOverride: dueDateOverride !== undefined ? dueDateOverride : undefined,
   });
 
   const project = await createProject({
@@ -268,6 +275,8 @@ async function createProjectFromRequirementPack({
       project,
       boardId,
       leafAssignments: normalizedLeafAssignments,
+      applyAssignees,
+      taskIds,
     });
     await seedProjectMembersFromAssignees({
       userId,

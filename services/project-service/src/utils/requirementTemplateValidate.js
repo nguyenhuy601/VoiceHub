@@ -12,21 +12,16 @@ const {
   FR_VALID_PARENT_LEVELS,
   NFR_CATEGORIES,
   OVERVIEW_FIELDS,
+  INTEGRATION_DIRECTIONS,
 } = require('../constants/requirementTemplate.constants');
 const {
   isFrDescRequiredLevel,
-  isFrRoleRequiredLevel,
-  isFrExecutionLeaf,
-  isFrExecutionLeafLevel,
-  buildFrChildrenByParent,
-  storyHasTaskOrSubtaskChildren,
   normalizeFunctionalRequirementsLevels,
-  isLegacyGroupingStoryRow,
+  isKnownFrLevel,
 } = require('./requirementFrLevel');
-const { normalizeHeader } = require('./requirementTemplateParse');
 const { parseDateValue } = require('./requirementDateUtils');
-const { isKnownSkill, isKnownProjectRole } = require('./requirementStaffingParse');
-const { rollupFrEstimateHours } = require('./requirementStaffingRollup');
+const { runRequirementQualityCheck } = require('./requirementQualityCheck');
+const { normId } = require('./requirementTemplateTextNorm');
 
 function issue({ code, sheet = '', row = null, column = '', message, severity = 'error' }) {
   return { code, sheet, row, column, message, severity };
@@ -36,14 +31,9 @@ function validateFileLayer({ fileName, fileSize, templateVersion }) {
   const issues = [];
   const name = String(fileName || '').toLowerCase();
   if (!name.endsWith('.xlsx')) {
-    issues.push(
-      issue({
-        code: 'REQ_FILE_INVALID_EXT',
-        message: 'Chỉ chấp nhận file .xlsx',
-      })
-    );
+    issues.push(issue({ code: 'REQ_FILE_INVALID_EXT', message: 'Chỉ chấp nhận file .xlsx' }));
   }
-  if (templateVersion && !COMPATIBLE_TEMPLATE_VERSIONS.includes(templateVersion)) {
+  if (templateVersion && !COMPATIBLE_TEMPLATE_VERSIONS.includes(String(templateVersion).trim())) {
     issues.push(
       issue({
         code: 'REQ_TEMPLATE_VERSION_MISMATCH',
@@ -53,12 +43,7 @@ function validateFileLayer({ fileName, fileSize, templateVersion }) {
     );
   }
   if (Number(fileSize) > 5 * 1024 * 1024) {
-    issues.push(
-      issue({
-        code: 'REQ_FILE_TOO_LARGE',
-        message: 'File vượt quá 5MB',
-      })
-    );
+    issues.push(issue({ code: 'REQ_FILE_TOO_LARGE', message: 'File vượt quá 5MB' }));
   }
   return issues;
 }
@@ -95,27 +80,59 @@ function validateStructureLayer({ sheetNames, columnMaps = {} }) {
     }
   };
 
-  checkSheetColumns(SHEETS.OVERVIEW, columnMaps.overview);
-  checkSheetColumns(SHEETS.SCOPE, columnMaps.scope);
+  checkSheetColumns(SHEETS.CONTEXT, columnMaps.overview);
   checkSheetColumns(SHEETS.FUNCTIONAL, columnMaps.functional);
   checkSheetColumns(SHEETS.NFR, columnMaps.nfr);
 
   return issues;
 }
 
+function detectFrCycles(frList) {
+  const byId = new Map(frList.map((r) => [String(r.externalId || '').trim(), r]));
+  const issues = [];
+  for (const row of frList) {
+    const start = String(row.externalId || '').trim();
+    if (!start) continue;
+    const seen = new Set();
+    let cur = start;
+    let hops = 0;
+    while (cur && hops < frList.length + 2) {
+      if (seen.has(cur)) {
+        issues.push(
+          issue({
+            code: 'REQ_FR_CYCLE',
+            sheet: SHEETS.FUNCTIONAL,
+            row: row._rowNumber,
+            column: 'Parent ID',
+            message: `Parent cycle detected involving ${start}`,
+          })
+        );
+        break;
+      }
+      seen.add(cur);
+      const node = byId.get(cur);
+      cur = node ? String(node.parentExternalId || '').trim() : '';
+      hops += 1;
+    }
+  }
+  return issues;
+}
+
 function validateBusinessLayer(parsed) {
   const issues = [];
   const overview = parsed?.overview || {};
-  const templateVersion = parsed?.templateVersion || TEMPLATE_VERSION;
 
+  const seenRequiredKeys = new Set();
   for (const field of OVERVIEW_FIELDS) {
     if (!field.required) continue;
+    if (seenRequiredKeys.has(field.key)) continue;
+    seenRequiredKeys.add(field.key);
     const val = overview[field.key];
     if (!String(val || '').trim()) {
       issues.push(
         issue({
           code: 'REQ_OVERVIEW_REQUIRED',
-          sheet: SHEETS.OVERVIEW,
+          sheet: SHEETS.CONTEXT,
           column: field.label,
           message: `${field.label} is required`,
         })
@@ -127,7 +144,7 @@ function validateBusinessLayer(parsed) {
     issues.push(
       issue({
         code: 'REQ_OVERVIEW_INVALID_PRIORITY',
-        sheet: SHEETS.OVERVIEW,
+        sheet: SHEETS.CONTEXT,
         column: 'Priority',
         message: `Priority must be one of: ${PRIORITIES.join(', ')}`,
       })
@@ -138,7 +155,7 @@ function validateBusinessLayer(parsed) {
     issues.push(
       issue({
         code: 'REQ_OVERVIEW_INVALID_DATE',
-        sheet: SHEETS.OVERVIEW,
+        sheet: SHEETS.CONTEXT,
         column: 'Deadline',
         message: 'Deadline must be YYYY-MM-DD',
       })
@@ -149,7 +166,7 @@ function validateBusinessLayer(parsed) {
     issues.push(
       issue({
         code: 'REQ_OVERVIEW_INVALID_START_DATE',
-        sheet: SHEETS.OVERVIEW,
+        sheet: SHEETS.CONTEXT,
         column: 'Start Date',
         message: 'Start Date must be YYYY-MM-DD',
         severity: 'warning',
@@ -157,11 +174,7 @@ function validateBusinessLayer(parsed) {
     );
   }
 
-  const frList = normalizeFunctionalRequirementsLevels(parsed?.functionalRequirements || [], {
-    templateVersion,
-  });
-  const childrenByParent = buildFrChildrenByParent(frList);
-
+  const frList = normalizeFunctionalRequirementsLevels(parsed?.functionalRequirements || []);
   if (frList.length > MAX_FR_ROWS) {
     issues.push(
       issue({
@@ -185,8 +198,19 @@ function validateBusinessLayer(parsed) {
   const seenIds = new Set();
 
   for (const row of frList) {
-    const { externalId, level, parentExternalId, name, description, priority, _rowNumber } = row;
-    const legacyGroupingStory = isLegacyGroupingStoryRow(row, frList, templateVersion);
+    const {
+      externalId,
+      level,
+      parentExternalId,
+      name,
+      description,
+      priority,
+      actor,
+      acceptanceCriteria,
+      moduleLabel,
+      featureLabel,
+      _rowNumber,
+    } = row;
 
     if (!externalId) {
       issues.push(
@@ -213,17 +237,29 @@ function validateBusinessLayer(parsed) {
     }
     seenIds.add(externalId);
 
-    if (!FR_LEVELS.includes(level)) {
+    if (!isKnownFrLevel(level) || !FR_LEVELS.includes(level)) {
       issues.push(
         issue({
           code: 'REQ_FR_INVALID_LEVEL',
           sheet: SHEETS.FUNCTIONAL,
           row: _rowNumber,
           column: 'Level',
-          message: `Level must be one of: ${FR_LEVELS.join(', ')}`,
+          message: `Level must be one of: ${FR_LEVELS.join(', ')} (Epic/Story/Task not allowed)`,
         })
       );
       continue;
+    }
+
+    if (!String(moduleLabel || name || '').trim()) {
+      issues.push(
+        issue({
+          code: 'REQ_FR_MODULE_REQUIRED',
+          sheet: SHEETS.FUNCTIONAL,
+          row: _rowNumber,
+          column: 'Module',
+          message: 'Module is required',
+        })
+      );
     }
 
     if (!String(name || '').trim()) {
@@ -232,35 +268,8 @@ function validateBusinessLayer(parsed) {
           code: 'REQ_FR_NAME_REQUIRED',
           sheet: SHEETS.FUNCTIONAL,
           row: _rowNumber,
-          column: 'Name',
-          message: 'Name is required',
-        })
-      );
-    }
-
-    if (
-      isFrDescRequiredLevel(level) &&
-      !legacyGroupingStory &&
-      !String(description || '').trim()
-    ) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_DESC_REQUIRED',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Description',
-          message: `Description is required for Level=${level}`,
-        })
-      );
-    } else if (level === 'Feature' && !String(description || '').trim()) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_DESC_EMPTY',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Description',
-          message: 'Description empty at Feature level',
-          severity: 'warning',
+          column: level === 'Requirement' ? 'Requirement' : level === 'Feature' ? 'Feature' : 'Module',
+          message: `${level} title is required`,
         })
       );
     }
@@ -278,139 +287,108 @@ function validateBusinessLayer(parsed) {
     }
 
     const parent = String(parentExternalId || '').trim();
-    if (level === 'Epic') {
+    const hasFlatLabels =
+      Boolean(String(moduleLabel || '').trim()) && Boolean(String(featureLabel || '').trim());
+
+    if (level === 'Module') {
       if (parent) {
         issues.push(
           issue({
-            code: 'REQ_FR_EPIC_PARENT',
+            code: 'REQ_FR_MODULE_PARENT',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
             column: 'Parent ID',
-            message: 'Epic must not have Parent ID',
+            message: 'Module must not have Parent ID',
           })
         );
       }
-    } else if (!parent) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_PARENT_REQUIRED',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Parent ID',
-          message: `${level} requires Parent ID`,
-        })
-      );
-    }
-
-    idToLevel.set(externalId, level);
-
-    const executionLeaf = isFrExecutionLeaf(row, frList);
-
-    if (executionLeaf) {
-      const skills = row.suggestedSkills || [];
-      if (skills.length === 0) {
+    } else if (level === 'Feature') {
+      if (!parent) {
         issues.push(
           issue({
-            code: 'REQ_FR_LEAF_SKILLS_REQUIRED',
+            code: 'REQ_FR_PARENT_REQUIRED',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
-            column: 'Suggested Skills',
-            message: `${level} execution row requires Suggested Skills`,
+            column: 'Parent ID',
+            message: 'Feature requires Parent ID (Module)',
           })
         );
       }
-      if (row.estimateHours == null || Number(row.estimateHours) <= 0) {
+    } else if (level === 'Requirement') {
+      // Flat Standard Format: Requirement without Parent OK when Module+Feature columns filled
+      if (!parent && !hasFlatLabels) {
         issues.push(
           issue({
-            code: 'REQ_FR_LEAF_HOURS_REQUIRED',
+            code: 'REQ_FR_PARENT_REQUIRED',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
-            column: 'Effort Hours',
-            message: `${level} execution row requires Effort Hours > 0`,
+            column: 'Parent ID',
+            message:
+              'Requirement requires Parent ID (Feature) or Module + Feature columns filled',
           })
         );
       }
     }
 
-    if (
-      isFrRoleRequiredLevel(level) &&
-      !legacyGroupingStory &&
-      !String(row.suggestedRoleKey || '').trim()
-    ) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_LEAF_ROLE_REQUIRED',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Suggested Role',
-          message: `${level} requires Suggested Role`,
-        })
-      );
-    }
-
-    if (
-      level === 'Story' &&
-      storyHasTaskOrSubtaskChildren(row, childrenByParent) &&
-      row.estimateHours != null &&
-      Number(row.estimateHours) > 0
-    ) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_STORY_HOURS_WITH_TASK_CHILDREN',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Effort Hours',
-          message: 'Story with Task/Subtask children should not declare Effort Hours (use child rows)',
-          severity: 'warning',
-        })
-      );
-    }
-
-    if (row.estimateHours != null && Number(row.estimateHours) > 0 && !executionLeaf) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_EFFORT_NON_LEAF',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Effort Hours',
-          message: 'Effort Hours is recommended only on Task, Subtask, or Story without Task children',
-          severity: 'warning',
-        })
-      );
-    }
-
-    for (const skill of row.suggestedSkills || []) {
-      if (!isKnownSkill(skill)) {
+    if (level === 'Requirement') {
+      // Soft WHAT quality — not Role/Skill/Hours; empty sample rows stay non-blocking
+      if (isFrDescRequiredLevel(level) && !String(description || '').trim()) {
         issues.push(
           issue({
-            code: 'REQ_FR_NEW_SKILL',
+            code: 'REQ_FR_DESC_REQUIRED',
             sheet: SHEETS.FUNCTIONAL,
             row: _rowNumber,
-            column: 'Suggested Skills',
-            message: `New skill detected (will register as PENDING): ${skill}`,
+            column: 'Description',
+            message: 'Description is empty for Level=Requirement',
+            severity: 'warning',
+          })
+        );
+      }
+      if (!String(actor || '').trim()) {
+        issues.push(
+          issue({
+            code: 'REQ_FR_ACTOR_REQUIRED',
+            sheet: SHEETS.FUNCTIONAL,
+            row: _rowNumber,
+            column: 'Actor',
+            message: 'Actor is empty for Level=Requirement',
+            severity: 'warning',
+          })
+        );
+      }
+      if (!String(acceptanceCriteria || '').trim()) {
+        issues.push(
+          issue({
+            code: 'REQ_FR_AC_REQUIRED',
+            sheet: SHEETS.FUNCTIONAL,
+            row: _rowNumber,
+            column: 'Acceptance Criteria',
+            message: 'Acceptance Criteria is empty for Level=Requirement',
+            severity: 'warning',
+          })
+        );
+      }
+      if (!String(row.mainFlow || '').trim()) {
+        issues.push(
+          issue({
+            code: 'REQ_FR_MAIN_FLOW_EMPTY',
+            sheet: SHEETS.FUNCTIONAL,
+            row: _rowNumber,
+            column: 'Main Flow',
+            message: 'Main Flow is empty',
             severity: 'warning',
           })
         );
       }
     }
 
-    if (row.suggestedRoleKey && !isKnownProjectRole(row.suggestedRoleKey)) {
-      issues.push(
-        issue({
-          code: 'REQ_FR_UNKNOWN_ROLE',
-          sheet: SHEETS.FUNCTIONAL,
-          row: _rowNumber,
-          column: 'Suggested Role',
-          message: `Unknown project role key: ${row.suggestedRoleKey}`,
-        })
-      );
-    }
+    idToLevel.set(externalId, level);
   }
 
   for (const row of frList) {
     const { level, parentExternalId, _rowNumber } = row;
     const parent = String(parentExternalId || '').trim();
-    if (!parent || level === 'Epic') continue;
+    if (!parent || level === 'Module') continue;
 
     const parentLevel = idToLevel.get(parent);
     if (!parentLevel) {
@@ -440,7 +418,42 @@ function validateBusinessLayer(parsed) {
     }
   }
 
-  for (const row of parsed?.nonFunctionalRequirements || []) {
+  issues.push(...detectFrCycles(frList));
+
+  const nfrList = parsed?.nonFunctionalRequirements || [];
+  if (!nfrList.length) {
+    issues.push(
+      issue({
+        code: 'REQ_NFR_SHEET_EMPTY',
+        sheet: SHEETS.NFR,
+        message: 'Non-functional sheet has no rows',
+        severity: 'warning',
+      })
+    );
+  }
+  for (const row of nfrList) {
+    if (!String(row.externalId || '').trim()) {
+      issues.push(
+        issue({
+          code: 'REQ_NFR_ID_REQUIRED',
+          sheet: SHEETS.NFR,
+          row: row._rowNumber,
+          column: 'ID',
+          message: 'NFR ID is required',
+        })
+      );
+    }
+    if (!String(row.requirement || '').trim()) {
+      issues.push(
+        issue({
+          code: 'REQ_NFR_REQUIREMENT_REQUIRED',
+          sheet: SHEETS.NFR,
+          row: row._rowNumber,
+          column: 'Requirement',
+          message: 'NFR Requirement is required',
+        })
+      );
+    }
     if (row.category && !NFR_CATEGORIES.includes(row.category)) {
       issues.push(
         issue({
@@ -455,19 +468,61 @@ function validateBusinessLayer(parsed) {
     }
   }
 
-  return issues;
-}
-
-function applyRollupHoursToTreeNodes(nodes, hoursById) {
-  for (const node of nodes) {
-    const externalId = String(node.externalId || '').trim();
-    if (!isFrExecutionLeafLevel(node.level) && externalId && hoursById.has(externalId)) {
-      node.estimateHours = hoursById.get(externalId);
+  for (const row of parsed?.integration || []) {
+    if (row.required && !String(row.system || '').trim()) {
+      issues.push(
+        issue({
+          code: 'REQ_INTEGRATION_SYSTEM_REQUIRED',
+          sheet: SHEETS.INTEGRATION,
+          row: row._rowNumber,
+          column: 'System',
+          message: 'System is required when Required=Yes',
+        })
+      );
     }
-    if ((node.children || []).length) {
-      applyRollupHoursToTreeNodes(node.children, hoursById);
+    if (row.direction && !INTEGRATION_DIRECTIONS.includes(row.direction)) {
+      issues.push(
+        issue({
+          code: 'REQ_INTEGRATION_INVALID_DIRECTION',
+          sheet: SHEETS.INTEGRATION,
+          row: row._rowNumber,
+          column: 'Direction',
+          message: `Direction must be one of: ${INTEGRATION_DIRECTIONS.join(', ')}`,
+          severity: 'warning',
+        })
+      );
     }
   }
+
+  const frIdSet = new Set(frList.map((r) => r.externalId).filter(Boolean));
+  for (const row of parsed?.requirementMetadata || []) {
+    const rid = normId(row.requirementId);
+    if (rid && !frIdSet.has(rid)) {
+      issues.push(
+        issue({
+          code: 'REQ_METADATA_ORPHAN_FR',
+          sheet: SHEETS.METADATA,
+          row: row._rowNumber,
+          column: 'Requirement ID',
+          message: `Metadata Requirement ID ${rid} not found in FR sheet`,
+          severity: 'warning',
+        })
+      );
+    }
+  }
+
+  if (Number(parsed?.aiOutputRowCount) > 0) {
+    issues.push(
+      issue({
+        code: 'REQ_AI_OUTPUT_SHEET_IGNORED',
+        sheet: SHEETS.AI_OUTPUT,
+        message: 'Sheet 11 AI Analysis Output has data — ignored on import (AI will overwrite)',
+        severity: 'info',
+      })
+    );
+  }
+
+  return issues;
 }
 
 function buildFunctionalPreviewTree(functionalRequirements = []) {
@@ -490,12 +545,11 @@ function buildFunctionalPreviewTree(functionalRequirements = []) {
     for (const n of list) sortChildren(n.children || []);
   };
   sortChildren(roots);
-  const hoursById = rollupFrEstimateHours(functionalRequirements);
-  applyRollupHoursToTreeNodes(roots, hoursById);
   return roots;
 }
 
 function validateRequirementWorkbook({ fileName, fileSize, parsed }) {
+  const frList = normalizeFunctionalRequirementsLevels(parsed?.functionalRequirements || []);
   const layer1 = validateFileLayer({
     fileName,
     fileSize,
@@ -505,19 +559,27 @@ function validateRequirementWorkbook({ fileName, fileSize, parsed }) {
     sheetNames: parsed?.sheetNames,
     columnMaps: parsed?.columnMaps || {},
   });
-  const layer3 = validateBusinessLayer(parsed);
-  const issues = [...layer1, ...layer2, ...layer3];
+  const layer3 = validateBusinessLayer({ ...parsed, functionalRequirements: frList });
+  const layer4 = runRequirementQualityCheck(frList, SHEETS.FUNCTIONAL);
+  const issues = [...layer1, ...layer2, ...layer3, ...layer4];
   const errorCount = issues.filter((i) => i.severity === 'error').length;
   const warningCount = issues.filter((i) => i.severity === 'warning').length;
-  const previewTree = buildFunctionalPreviewTree(parsed?.functionalRequirements || []);
+  const infoCount = issues.filter((i) => i.severity === 'info').length;
+  const previewTree = buildFunctionalPreviewTree(frList);
+  const canRunAiAnalysis = errorCount === 0;
   return {
     issues,
     errorCount,
     warningCount,
+    infoCount,
     valid: errorCount === 0,
+    canRunAiAnalysis,
     previewTree,
     summary: {
-      functionalCount: (parsed?.functionalRequirements || []).length,
+      functionalCount: frList.length,
+      modules: frList.filter((r) => r.level === 'Module').length,
+      features: frList.filter((r) => r.level === 'Feature').length,
+      requirements: frList.filter((r) => r.level === 'Requirement').length,
       nfrCount: (parsed?.nonFunctionalRequirements || []).length,
       scopeCount: (parsed?.scope || []).length,
     },

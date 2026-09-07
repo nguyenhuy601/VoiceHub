@@ -52,6 +52,12 @@ router.post(
 );
 
 router.post(
+  '/internal/phones/taken',
+  internalServiceAuth,
+  userController.internalFindTakenPhones.bind(userController)
+);
+
+router.post(
   '/internal/profile/:userId/bulk-fields',
   internalServiceAuth,
   userController.internalBulkImportProfileFields.bind(userController)

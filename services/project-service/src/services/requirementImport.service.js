@@ -22,6 +22,7 @@ const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
 } = require('../utils/requirementPlanningReadiness');
+const { createEmptyAiAnalysisContainer } = require('../utils/aiAnalysisContainer');
 
 function splitPlatforms(raw) {
   return String(raw || '')
@@ -37,6 +38,7 @@ function mapFunctionalRow(row) {
     parentExternalId: row.parentExternalId || '',
     name: row.name,
     description: row.description || '',
+    actor: row.actor || '',
     priority: row.priority || 'Medium',
     acceptanceCriteria: row.acceptanceCriteria || '',
     sortOrder: row.sortOrder ?? 0,
@@ -79,6 +81,7 @@ function mapParsedToPackPayload(parsed, registryExtras = {}) {
       generatedAt: null,
       sourcePackVersion: null,
     },
+    aiAnalysis: createEmptyAiAnalysisContainer(),
     scope: (parsed.scope || []).map((row) => ({
       type: row.type,
       description: row.description,
@@ -183,8 +186,10 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     fileName: session.fileName,
     templateVersion: session.templateVersion,
     valid: validation.valid,
+    canRunAiAnalysis: Boolean(validation.canRunAiAnalysis),
     errorCount: validation.errorCount,
     warningCount: validation.warningCount,
+    infoCount: validation.infoCount || 0,
     issues: validation.issues,
     summary: validation.summary,
     previewTree: validation.previewTree,

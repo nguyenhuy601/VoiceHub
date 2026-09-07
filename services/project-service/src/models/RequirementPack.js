@@ -9,6 +9,7 @@ const requirementNodeSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 500 },
     description: { type: String, trim: true, default: '', maxlength: 4000 },
     priority: { type: String, trim: true, default: 'Medium', maxlength: 32 },
+    actor: { type: String, trim: true, default: '', maxlength: 240 },
     acceptanceCriteria: { type: String, trim: true, default: '', maxlength: 4000 },
     sortOrder: { type: Number, default: 0 },
     suggestedSkills: { type: [String], default: [] },
@@ -106,6 +107,8 @@ const requirementPackSchema = new mongoose.Schema(
       generatedAt: { type: Date, default: null },
       sourcePackVersion: { type: Number, default: null },
     },
+    /** Blueprint HOW container — W2 jobs + analyses/planning/resource shells */
+    aiAnalysis: { type: mongoose.Schema.Types.Mixed, default: null },
     scope: [
       {
         type: { type: String, enum: ['in', 'out'], required: true },
