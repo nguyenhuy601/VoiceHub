@@ -188,7 +188,7 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
     teamFilter.isActive = true;
   }
 
-  const [branches, divisions, departments, teams, channels, organization] = await Promise.all([
+  const [branches, divisions, departments, teams, channelsRaw, organization] = await Promise.all([
     Branch.find(branchFilter).sort({ createdAt: 1 }).lean(),
     Division.find(divisionFilter).sort({ createdAt: 1 }).lean(),
     Department.find(departmentFilter).sort({ createdAt: 1 }).lean(),
@@ -196,6 +196,19 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
     Channel.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
     Organization.findById(orgId).select('provisioning.structure').lean(),
   ]);
+
+  // Soft-deactivate announce trùng (seed race / re-provision) — fail-soft.
+  let channels = channelsRaw;
+  try {
+    const { deactivateDuplicateDepartmentAnnounceChannels } = require('./departmentChannelProvision.service');
+    const { deactivatedIds } = await deactivateDuplicateDepartmentAnnounceChannels(orgId, channelsRaw);
+    if (deactivatedIds?.length) {
+      const drop = new Set(deactivatedIds.map(String));
+      channels = channelsRaw.filter((ch) => !drop.has(String(ch._id)));
+    }
+  } catch (e) {
+    console.warn('[orgShellData] deactivateDuplicateDepartmentAnnounceChannels:', e.message);
+  }
 
   // Huy: đơn vị tạo qua hierarchy trước khi có reverse DW — sync sang OU rồi đọc lại tree
   if (isDynamicStructureEnabled() && levels?.length) {
@@ -304,10 +317,10 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     ({
       role: 'member',
     });
-  const [channels, divisions, departments, teams, userProjectIds] = await Promise.all([
+  const [channelsRaw, divisions, departments, teams, userProjectIds] = await Promise.all([
     Channel.find({ organization: orgId, isActive: true })
       .select(
-        '_id members team division department type leader projectId projectChannelKind projectName projectTeamName name'
+        '_id members team division department type leader projectId projectChannelKind projectName projectTeamName name createdAt isActive'
       )
       .lean(),
     Division.find({ organization: orgId, isActive: true }).select('_id name branch').lean(),
@@ -317,6 +330,18 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       .lean(),
     listProjectIdsForUser(userId, orgId),
   ]);
+
+  let channels = channelsRaw;
+  try {
+    const { deactivateDuplicateDepartmentAnnounceChannels } = require('./departmentChannelProvision.service');
+    const { deactivatedIds } = await deactivateDuplicateDepartmentAnnounceChannels(orgId, channelsRaw);
+    if (deactivatedIds?.length) {
+      const drop = new Set(deactivatedIds.map(String));
+      channels = channelsRaw.filter((ch) => !drop.has(String(ch._id)));
+    }
+  } catch (e) {
+    console.warn('[orgShellData] accessible deactivateDuplicateAnnounce:', e.message);
+  }
   const userProjectIdSet = new Set(userProjectIds.map(String));
   const aclRows = await ChannelAccess.find({
     organization: orgId,
