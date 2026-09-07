@@ -46,10 +46,12 @@ import {
   projectInitials,
   resolveViewerActiveSprint,
   sumOpenCardEstimateHours,
+  summarizeHubDeliveryMetrics,
   unwrapPlanningList,
 } from './projectHubUtils';
 import {
   useInvalidateProjectHub,
+  useProjectHubMembers,
   useProjectHubOverview,
   useProjectHubProject,
 } from './useProjectHubQueries';
@@ -196,6 +198,7 @@ function OverviewPanel({
   overviewCards = [],
   overviewLists = [],
   overviewMembers = [],
+  chartWorkItemsLoading = false,
   activity,
   activityLoading = false,
   activityError = false,
@@ -478,6 +481,7 @@ function OverviewPanel({
           cards={overviewCards}
           lists={overviewLists}
           members={overviewMembers}
+          cardsLoading={chartWorkItemsLoading}
           showAssigneeChart={vis.canViewMemberBreakdown}
           muted={muted}
           titleCls={titleCls}
@@ -714,6 +718,146 @@ function OverviewPanel({
   );
 }
 
+function formatReportHours(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  return String(Math.round(n * 10) / 10);
+}
+
+function ProjectHubReportPanel({
+  dashboardCharts = null,
+  overviewCards = [],
+  overviewLists = [],
+  overviewMembers = [],
+  chartWorkItemsLoading = false,
+  deliveryExtras = { estimateHours: 0 },
+  deliveryMetrics = null,
+  activeSprint = null,
+  boardLoading = false,
+  sprintContextLoading = false,
+  overviewVisibility = null,
+  isDarkMode = false,
+  onOpenCard,
+  t,
+}) {
+  const vis = overviewVisibility || {
+    canViewTaskMetrics: false,
+    canViewMemberBreakdown: false,
+    canViewSprintContext: false,
+  };
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const cardCls = 'rounded-xl border border-border bg-surface p-4';
+  const estimateHours = Number(deliveryExtras.estimateHours) || 0;
+  const estimateLabel =
+    estimateHours % 1 === 0 ? String(estimateHours) : estimateHours.toFixed(1);
+  const metrics = deliveryMetrics || {};
+  const hasSprint =
+    Boolean(activeSprint?.name) || Number(metrics.sprintCommittedCards) > 0;
+  const hasCycle =
+    Number.isFinite(Number(metrics.cycleTimeHours)) &&
+    Number(metrics.cycleTimeHours) > 0 &&
+    Number(metrics.cycleTimeSample) > 0;
+
+  return (
+    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+      <header className="mb-4">
+        <h2 className={`text-lg font-bold sm:text-xl ${titleCls}`}>
+          {t('workspace.projectHubTabReport')}
+        </h2>
+        <p className={`mt-1 max-w-prose text-xs leading-relaxed ${muted}`}>
+          {t('workspace.projectHubReportHint')}
+        </p>
+      </header>
+
+      {estimateHours > 0 ? (
+        <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-dashed border-border bg-background px-2 py-2 text-center">
+            <div className={`text-sm font-bold ${titleCls}`}>{estimateLabel}</div>
+            <div className={`text-[10px] ${muted}`}>{t('workspace.projectHubStatEstimateTotal')}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {boardLoading ? (
+        <OverviewContextSkeleton isDarkMode={isDarkMode} />
+      ) : vis.canViewTaskMetrics && dashboardCharts ? (
+        <ProjectHubOverviewCharts
+          charts={dashboardCharts}
+          cards={overviewCards}
+          lists={overviewLists}
+          members={overviewMembers}
+          cardsLoading={chartWorkItemsLoading}
+          showAssigneeChart={vis.canViewMemberBreakdown}
+          muted={muted}
+          titleCls={titleCls}
+          cardCls={cardCls}
+          t={t}
+          onOpenCard={onOpenCard}
+        />
+      ) : !vis.canViewTaskMetrics ? (
+        <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewTaskMetricsRestricted')}</p>
+      ) : null}
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <section className={cardCls} aria-labelledby="hub-report-sprint">
+          <h3
+            id="hub-report-sprint"
+            className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}
+          >
+            {t('workspace.projectHubOverviewActiveSprint')}
+          </h3>
+          {!vis.canViewSprintContext ? (
+            <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewSprintRestricted')}</p>
+          ) : sprintContextLoading ? (
+            <div
+              className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
+                isDarkMode ? 'bg-white/10' : 'bg-muted'
+              }`}
+              aria-busy="true"
+              aria-label={t('common.loading')}
+            />
+          ) : hasSprint ? (
+            <div className="space-y-1">
+              {activeSprint?.name ? (
+                <p className={`text-sm font-semibold ${titleCls}`}>{activeSprint.name}</p>
+              ) : null}
+              <p className={`text-xs ${muted}`}>
+                {t('adminTasks.directorSprintCommit', {
+                  done: Number(metrics.sprintDoneCards) || 0,
+                  committed: Number(metrics.sprintCommittedCards) || 0,
+                  doneHours: formatReportHours(metrics.sprintCompletedHours),
+                  committedHours: formatReportHours(metrics.sprintCommittedHours),
+                })}
+              </p>
+            </div>
+          ) : (
+            <p className={`text-sm ${muted}`}>{t('adminTasks.directorNoSprint')}</p>
+          )}
+        </section>
+        <section className={cardCls} aria-labelledby="hub-report-cycle">
+          <h3
+            id="hub-report-cycle"
+            className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}
+          >
+            {t('workspace.projectHubReportCycleTitle')}
+          </h3>
+          {hasCycle ? (
+            <p className={`text-sm ${titleCls}`}>
+              {t('adminTasks.directorCycle', {
+                hours: formatReportHours(metrics.cycleTimeHours),
+                n: Number(metrics.cycleTimeSample) || 0,
+              })}
+            </p>
+          ) : (
+            <p className={`text-sm ${muted}`}>{t('adminTasks.directorCycleUnavailable')}</p>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function FilesPanel({ files, isDarkMode, t }) {
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -862,6 +1006,7 @@ export default function ProjectHubShell({
   onBoardChange: _onBoardChange = null,
   currentUserId = '',
   onNeedFullBoardCards = null,
+  boardCardsReady = true,
 }) {
   const { t } = useAppStrings();
   const [tab, setTab] = useState('overview');
@@ -916,6 +1061,7 @@ export default function ProjectHubShell({
     refetch: refetchOverview,
   } = useProjectHubOverview(projectId, { enabled: useOverviewAggregate });
   const { data: projectQueryData = null } = useProjectHubProject(projectId);
+  const { data: rosterMembers = [] } = useProjectHubMembers(projectId);
   const projectPayload = projectQueryData ?? overviewPayload?.project ?? null;
 
   const hubCaps = useMemo(
@@ -1001,11 +1147,17 @@ export default function ProjectHubShell({
     (capsReady &&
       (overviewVisibility.canViewSprintContext || Boolean(hubCaps.canCompleteProject)));
 
+  const needsChartWorkItems = tab === 'overview' || tab === 'report';
+  const chartWorkItemsLoading = needsChartWorkItems && !boardCardsReady;
+
   useEffect(() => {
-    if ((tab === 'board' || tab === 'list') && typeof onNeedFullBoardCards === 'function') {
+    if (
+      (tab === 'board' || tab === 'list' || needsChartWorkItems) &&
+      typeof onNeedFullBoardCards === 'function'
+    ) {
       onNeedFullBoardCards();
     }
-  }, [tab, onNeedFullBoardCards]);
+  }, [tab, needsChartWorkItems, onNeedFullBoardCards]);
 
   // Hydrate sprint khi Board / complete gate / sprint context overview cần.
   useEffect(() => {
@@ -1191,12 +1343,19 @@ export default function ProjectHubShell({
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
+  const chartMembers = useMemo(() => {
+    if (Array.isArray(rosterMembers) && rosterMembers.length) return rosterMembers;
+    return Array.isArray(projectPayload?.members) ? projectPayload.members : [];
+  }, [rosterMembers, projectPayload?.members]);
   const dashboardCharts = useMemo(() => {
     if (!overviewVisibility.canViewTaskMetrics) return null;
+    const membersForCharts = overviewVisibility.canViewMemberBreakdown ? chartMembers : [];
     if (overviewPayload?.charts) {
       return chartsFromOverviewApi(
         overviewPayload.charts,
-        projectPayload?.priorityConfig || overviewPayload?.project?.priorityConfig
+        projectPayload?.priorityConfig || overviewPayload?.project?.priorityConfig,
+        membersForCharts,
+        overviewVisibility.canViewMemberBreakdown ? cards : []
       );
     }
     return buildOverviewDashboardCharts({
@@ -1204,11 +1363,7 @@ export default function ProjectHubShell({
       lists,
       issueCounts,
       priorityConfig: projectPayload?.priorityConfig,
-      members: overviewVisibility.canViewMemberBreakdown
-        ? Array.isArray(projectPayload?.members)
-          ? projectPayload.members
-          : []
-        : [],
+      members: membersForCharts,
     });
   }, [
     cards,
@@ -1217,7 +1372,7 @@ export default function ProjectHubShell({
     overviewPayload?.charts,
     overviewPayload?.project?.priorityConfig,
     projectPayload?.priorityConfig,
-    projectPayload?.members,
+    chartMembers,
     overviewVisibility.canViewTaskMetrics,
     overviewVisibility.canViewMemberBreakdown,
   ]);
@@ -1247,6 +1402,15 @@ export default function ProjectHubShell({
     }
     return activeSprint;
   }, [overviewPayload?.activeSprint, activeSprint]);
+  const hubDeliveryMetrics = useMemo(
+    () =>
+      summarizeHubDeliveryMetrics(
+        cards,
+        lists,
+        overviewActiveSprint?._id || overviewActiveSprint?.id || ''
+      ),
+    [cards, lists, overviewActiveSprint]
+  );
   const nextActions = useMemo(() => {
     if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
       return overviewPayload.nextActions;
@@ -1256,7 +1420,7 @@ export default function ProjectHubShell({
   const sprintsHydrated = Boolean(projectId) && sprintsHydratedFor === projectId;
   const sprintContextLoading =
     overviewVisibility.canViewSprintContext &&
-    (tab === 'overview' || tab === 'board') &&
+    (tab === 'overview' || tab === 'board' || tab === 'report') &&
     (sprintsFetching || !sprintsHydrated);
   const planningContextLoading = tab === 'overview' && planningLoading;
   const defaultListId = String(lists[0]?._id || '').trim();
@@ -1638,7 +1802,8 @@ export default function ProjectHubShell({
             inReviewCards={inReviewHealthCards}
             overviewCards={cards}
             overviewLists={lists}
-            overviewMembers={Array.isArray(projectPayload?.members) ? projectPayload.members : []}
+            overviewMembers={chartMembers}
+            chartWorkItemsLoading={chartWorkItemsLoading}
             activity={activity}
             activityLoading={activityLoading}
             activityError={activityError}
@@ -1657,6 +1822,24 @@ export default function ProjectHubShell({
             onViewAllActivity={handleViewAllActivity}
             overviewVisibility={overviewVisibility}
             activityRestricted={activityRestricted}
+            t={t}
+          />
+        ) : null}
+        {tab === 'report' ? (
+          <ProjectHubReportPanel
+            dashboardCharts={dashboardCharts}
+            overviewCards={cards}
+            overviewLists={lists}
+            overviewMembers={chartMembers}
+            chartWorkItemsLoading={chartWorkItemsLoading}
+            deliveryExtras={deliveryExtras}
+            deliveryMetrics={hubDeliveryMetrics}
+            activeSprint={overviewActiveSprint}
+            boardLoading={loadingBoardDetail && !overviewPayload}
+            sprintContextLoading={sprintContextLoading}
+            overviewVisibility={overviewVisibility}
+            isDarkMode={isDarkMode}
+            onOpenCard={handleOpenNextAction}
             t={t}
           />
         ) : null}

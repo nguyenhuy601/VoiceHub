@@ -132,5 +132,6 @@ export const queryKeys = {
       scope,
     ],
     sprints: (projectId) => [...queryKeys.projectHub.all, 'sprints', String(projectId || '')],
+    members: (projectId) => [...queryKeys.projectHub.all, 'members', String(projectId || '')],
   },
 };

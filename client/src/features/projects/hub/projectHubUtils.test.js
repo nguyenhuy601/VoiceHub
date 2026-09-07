@@ -42,6 +42,12 @@ import {
   chartsFromOverviewApi,
   cardsHavePriorityField,
   countOpenCardsByAssignee,
+  isOpaqueAssigneeLabel,
+  resolveAssigneeChartLabel,
+  buildDirectorHealthChartSegments,
+  buildDirectorHoursChartSegments,
+  summarizeHubDeliveryMetrics,
+  PROJECT_HUB_TABS,
   overviewDonutAnnulusPath,
   overviewDonutCalloutPoints,
   resolveOverviewDonutCalloutCollisions,
@@ -714,6 +720,44 @@ test('listOverviewChartSegmentCards: status / priority / assignee', () => {
   );
 });
 
+test('listOverviewChartSegmentCards: cards rỗng → không có hạng mục', () => {
+  assert.deepEqual(
+    listOverviewChartSegmentCards({
+      cards: [],
+      lists: [{ _id: 'l1', statusKey: 'todo', title: 'To Do' }],
+      chart: 'status',
+      segmentKey: 'todo',
+    }),
+    []
+  );
+});
+
+test('listOverviewChartSegmentCards: feature planned cùng bucket todo với overview API', () => {
+  const lists = [{ _id: 'l1', statusKey: 'todo', title: 'To Do' }];
+  const cards = [
+    {
+      _id: 'f1',
+      kind: 'planning',
+      issueType: 'feature',
+      listId: 'l1',
+      title: 'Feature A',
+      status: 'planned',
+    },
+    {
+      _id: 't1',
+      listId: 'l1',
+      title: 'Task B',
+      status: 'todo',
+    },
+  ];
+  assert.deepEqual(
+    listOverviewChartSegmentCards({ cards, lists, chart: 'status', segmentKey: 'todo' }).map(
+      (r) => r.title
+    ),
+    ['Feature A', 'Task B']
+  );
+});
+
 test('buildOverviewDashboardCharts: status donut + type bars từ cards/lists', () => {
   const lists = [
     { _id: 'l1', title: 'Todo', statusKey: 'todo' },
@@ -951,4 +995,157 @@ test('overviewDonutCalloutPoints: lát nhỏ sát đỉnh không đè y', () => 
       );
     }
   }
+});
+
+test('PROJECT_HUB_TABS: Báo cáo ngay sau Tổng quan', () => {
+  assert.equal(PROJECT_HUB_TABS[0].id, 'overview');
+  assert.equal(PROJECT_HUB_TABS[1].id, 'report');
+});
+
+test('isOpaqueAssigneeLabel: ObjectId và 6 ký tự cuối', () => {
+  const userId = '507f1f77bcf86cd799439011';
+  assert.equal(isOpaqueAssigneeLabel('', userId), true);
+  assert.equal(isOpaqueAssigneeLabel(userId, userId), true);
+  assert.equal(isOpaqueAssigneeLabel('439011', userId), true);
+  assert.equal(isOpaqueAssigneeLabel('331DE8', 'abc331de8'), true);
+  assert.equal(isOpaqueAssigneeLabel('Lan Nguyen', userId), false);
+});
+
+test('resolveAssigneeChartLabel: ưu tiên member, không cắt id', () => {
+  const userId = '507f1f77bcf86cd799439011';
+  const named = resolveAssigneeChartLabel({
+    assigneeId: userId,
+    assigneeName: '439011',
+    members: [{ userId, displayName: 'Lan Nguyen' }],
+  });
+  assert.equal(named.label, 'Lan Nguyen');
+  assert.equal(named.labelKey, '');
+
+  const unknown = resolveAssigneeChartLabel({
+    assigneeId: userId,
+    assigneeName: '439011',
+    members: [],
+  });
+  assert.equal(unknown.label, '');
+  assert.equal(unknown.labelKey, 'workspace.projectHubOverviewAssigneeUnknown');
+});
+
+test('countOpenCardsByAssignee: hydrate member, không slice(-6)', () => {
+  const userId = '507f1f77bcf86cd799439011';
+  const lists = [{ _id: 'open', title: 'Todo' }];
+  const cards = [
+    { listId: 'open', assigneeId: userId, assigneeName: userId.slice(-6) },
+    { listId: 'open', assigneeId: userId, assigneeName: userId.slice(-6) },
+  ];
+  const withName = countOpenCardsByAssignee(cards, lists, [
+    { userId, displayName: 'Mai Pham' },
+  ]);
+  assert.equal(withName.segments[0].label, 'Mai Pham');
+  assert.equal(withName.segments[0].label.includes(userId.slice(-6)), false);
+
+  const withoutMembers = countOpenCardsByAssignee(cards, lists, []);
+  assert.equal(withoutMembers.segments[0].label, '');
+  assert.equal(
+    withoutMembers.segments[0].labelKey,
+    'workspace.projectHubOverviewAssigneeUnknown'
+  );
+  assert.notEqual(withoutMembers.segments[0].label, userId.slice(-6));
+});
+
+test('chartsFromOverviewApi: hydrate displayName từ members', () => {
+  const userId = '507f1f77bcf86cd799439011';
+  const charts = chartsFromOverviewApi(
+    {
+      byStatus: { todo: 1, progress: 0, done: 0 },
+      byType: { story: 0, task: 1, bug: 0, other: 0 },
+      byPriority: [],
+      byAssignee: [{ userId, displayName: userId.slice(-6), count: 2 }],
+    },
+    { items: [] },
+    [{ userId, displayName: 'Mai Pham' }]
+  );
+  assert.equal(charts.assigneeSegments[0].label, 'Mai Pham');
+  assert.notEqual(charts.assigneeSegments[0].label, userId.slice(-6));
+});
+
+test('chartsFromOverviewApi: hydrate tên từ cards khi members trống', () => {
+  const userId = '507f1f77bcf86cd799439011';
+  const charts = chartsFromOverviewApi(
+    {
+      byStatus: { todo: 1, progress: 0, done: 0 },
+      byType: { story: 0, task: 1, bug: 0, other: 0 },
+      byPriority: [],
+      byAssignee: [{ userId, displayName: userId.slice(-6), count: 2 }],
+    },
+    { items: [] },
+    [],
+    [{ assigneeId: userId, assigneeName: 'Mai Pham' }]
+  );
+  assert.equal(charts.assigneeSegments[0].label, 'Mai Pham');
+});
+
+test('buildDirectorHealthChartSegments: RAG từ counts, huỷ ẩn khi 0', () => {
+  const segs = buildDirectorHealthChartSegments({
+    delayed: 2,
+    atRisk: 1,
+    onTrack: 6,
+    paused: 0,
+    completed: 1,
+    cancelled: 0,
+    total: 10,
+  });
+  assert.equal(segs.find((s) => s.key === 'cancelled'), undefined);
+  assert.equal(segs.find((s) => s.key === 'paused'), undefined);
+  assert.equal(segs.find((s) => s.key === 'at_risk')?.count, 1);
+  assert.equal(segs.find((s) => s.key === 'delayed')?.fillClass, 'fill-destructive');
+  assert.equal(
+    segs.reduce((sum, s) => sum + s.sweepAngle, 0),
+    360
+  );
+
+  const withCancel = buildDirectorHealthChartSegments({ cancelled: 1, delayed: 1 });
+  assert.equal(withCancel.find((s) => s.key === 'cancelled')?.count, 1);
+});
+
+test('buildDirectorHoursChartSegments: giờ mở / xong', () => {
+  const segs = buildDirectorHoursChartSegments({
+    estimateHoursOpen: 10,
+    estimateHoursDone: 30,
+  });
+  assert.equal(segs.find((s) => s.key === 'open')?.count, 10);
+  assert.equal(segs.find((s) => s.key === 'done')?.count, 30);
+  assert.equal(segs.reduce((sum, s) => sum + s.sweepAngle, 0), 360);
+});
+
+test('summarizeHubDeliveryMetrics: sprint commitment + cycle', () => {
+  const lists = [
+    { _id: 'open', title: 'Todo' },
+    { _id: 'done', title: 'Done', statusKey: 'done' },
+  ];
+  const cards = [
+    {
+      listId: 'open',
+      sprintId: 's1',
+      estimateHours: 8,
+    },
+    {
+      listId: 'done',
+      sprintId: 's1',
+      estimateHours: 4,
+      firstInProgressAt: '2026-09-01T00:00:00.000Z',
+      completedAt: '2026-09-01T10:00:00.000Z',
+    },
+    {
+      listId: 'done',
+      firstInProgressAt: '2026-09-01T00:00:00.000Z',
+      completedAt: '2026-09-01T06:00:00.000Z',
+    },
+  ];
+  const out = summarizeHubDeliveryMetrics(cards, lists, 's1');
+  assert.equal(out.sprintCommittedCards, 2);
+  assert.equal(out.sprintDoneCards, 1);
+  assert.equal(out.sprintCommittedHours, 12);
+  assert.equal(out.sprintCompletedHours, 4);
+  assert.equal(out.cycleTimeSample, 2);
+  assert.equal(out.cycleTimeHours, 8);
 });

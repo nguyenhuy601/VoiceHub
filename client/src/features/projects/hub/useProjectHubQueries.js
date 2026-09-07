@@ -40,6 +40,23 @@ export function useProjectHubProject(projectId, { enabled = true } = {}) {
   });
 }
 
+export function useProjectHubMembers(projectId, { enabled = true } = {}) {
+  const pid = String(projectId || '').trim();
+  return useQuery({
+    queryKey: queryKeys.projectHub.members(pid),
+    enabled: Boolean(pid) && enabled,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await projectAPI.listMembers(pid, { skipPermissionDeniedToast: true });
+      const data = unwrapProjectPayload(res);
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.members)) return data.members;
+      if (Array.isArray(data?.items)) return data.items;
+      return [];
+    },
+  });
+}
+
 export function useProjectHubBoardDetail(boardId, apiCtx, { includeCards = true, enabled = true } = {}) {
   const bid = String(boardId || '').trim();
   const scope = includeCards ? 'full' : 'lists';
@@ -67,6 +84,7 @@ export function useInvalidateProjectHub() {
         queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.overview(pid) });
         queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(pid) });
         queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.sprints(pid) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.members(pid) });
       }
       if (bid) {
         queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.boardDetail(bid, 'full') });
