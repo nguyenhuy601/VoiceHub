@@ -246,10 +246,13 @@ async function notifyApprovers({ userIds, title, content, data }) {
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
       {
         userIds: ids,
-        type: 'project_approval',
+        type: 'system',
         title,
         content,
-        data: data || {},
+        data: { ...(data || {}), kind: 'project_approval' },
+        actionUrl: data?.projectId
+          ? `/app/collaborate/projects/${encodeURIComponent(String(data.projectId))}`
+          : '/app/collaborate/projects',
       },
       {
         headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },

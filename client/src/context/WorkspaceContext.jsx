@@ -13,6 +13,13 @@ import {
 
 const LAST_WORKSPACE_SLUG_KEY = 'voicehub:last-workspace-slug';
 
+/** Gọi từ AuthContext khi logout — không phụ thuộc React context (tránh vòng import). */
+export function notifyWorkspaceClearedOnLogout() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(LAST_WORKSPACE_SLUG_KEY);
+  writeStoredLastOrganizationId('');
+}
+
 function readStoredLastWorkspaceSlug() {
   if (typeof window === 'undefined') return '';
   return String(window.localStorage.getItem(LAST_WORKSPACE_SLUG_KEY) || '').trim();

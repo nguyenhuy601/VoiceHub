@@ -109,10 +109,13 @@ async function notifyCrWorkAssignees({ userIds, title, content, data }) {
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
       {
         userIds: ids,
-        type: 'change_request_work',
+        type: 'system',
         title,
         content,
-        data: data || {},
+        data: { ...(data || {}), kind: 'change_request_work' },
+        actionUrl: data?.projectId
+          ? `/app/collaborate/projects/${encodeURIComponent(String(data.projectId))}`
+          : '/app/collaborate/projects',
       },
       {
         headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },

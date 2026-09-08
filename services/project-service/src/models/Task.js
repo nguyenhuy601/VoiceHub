@@ -204,6 +204,15 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Job hạn: đã gửi bell sắp đến hạn / quá hạn (idempotent). */
+    dueSoonNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    overdueNotifiedAt: {
+      type: Date,
+      default: null,
+    },
     /** Ngày bắt đầu (calendar). Máy chia giờ T2–T6 từ startDate → dueDate. */
     startDate: {
       type: Date,
@@ -298,6 +307,7 @@ taskSchema.index({ parentTaskId: 1, isActive: 1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });
 taskSchema.index({ dueDate: 1 });
+taskSchema.index({ isActive: 1, status: 1, dueDate: 1, assigneeId: 1 });
 taskSchema.index({ priority: 1, status: 1 });
 
 const Task = mongoose.model('Task', taskSchema);

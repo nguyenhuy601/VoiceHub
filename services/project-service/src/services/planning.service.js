@@ -13,6 +13,10 @@ const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
 const { planningWritePermission } = require('../utils/projectIssueTypePerms');
 const { buildPlanningListFilter } = require('../utils/listLazyQuery');
 const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { logger } = require('@enterprise/shared');
+const { assigneeIdChanged, planningWorkLabel } = require('../utils/notificationTargets');
+const { notifyTaskAssigned } = require('../clients/notification.client');
+const TaskBoard = require('../models/TaskBoard');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -111,6 +115,37 @@ function withActorLabels(row, profileMap) {
     assigneeName: assigneeMeta.name,
     assigneeAvatar: assigneeMeta.avatar,
   };
+}
+
+async function resolveProjectBoardId(projectId) {
+  if (!validOid(projectId)) return '';
+  const board = await TaskBoard.findOne({ projectId, isActive: true })
+    .sort({ createdAt: 1 })
+    .select('_id')
+    .lean();
+  return board?._id ? String(board._id) : '';
+}
+
+function notifyPlanningAssignedBestEffort({ actorId, item }) {
+  const assigneeId = String(item?.assigneeId || '').trim();
+  if (!assigneeId) return;
+  void (async () => {
+    const boardId = await resolveProjectBoardId(item.projectId);
+    await notifyTaskAssigned({
+      actorId,
+      assigneeId,
+      task: item,
+      board: {
+        _id: boardId,
+        projectId: item.projectId,
+        organizationId: item.organizationId,
+      },
+      workLabel: planningWorkLabel(item.type),
+      extraData: { planningItemId: String(item._id || '') },
+    });
+  })().catch((err) =>
+    logger.warn('[planning] notify assignee failed: %s', err?.message || err)
+  );
 }
 
 function parseAssigneeId(raw) {
@@ -228,6 +263,9 @@ async function createPlanningItem({
     actorId: userId,
     changes: [{ field: 'issue', from: null, to: created.title }],
   });
+  if (assigneeIdChanged(null, created.assigneeId)) {
+    notifyPlanningAssignedBestEffort({ actorId: userId, item: created });
+  }
   return created;
 }
 
@@ -316,6 +354,9 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     changes: diffPlanningFields(beforeDoc, afterDoc),
   });
   const profileMap = await profileMapForRows([afterDoc], userId);
+  if (assigneeIdChanged(beforeDoc.assigneeId, afterDoc.assigneeId)) {
+    notifyPlanningAssignedBestEffort({ actorId: userId, item: afterDoc });
+  }
   return withActorLabels(afterDoc, profileMap);
 }
 

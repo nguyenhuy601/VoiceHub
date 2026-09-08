@@ -27,8 +27,9 @@ import {
 import {
   isVoiceRoomInviteNotification,
   resolveVoiceRoomInvitePath,
+  resolveNotificationAppPath,
 } from '../../utils/notificationNavigation';
-import { isP0Notification } from '../../utils/notificationP0Policy';
+import { isP0Notification, mapNotificationUiType } from '../../utils/notificationP0Policy';
 
 function getNotificationTimeGroup(createdAt) {
   if (!createdAt) return 'earlier';
@@ -218,7 +219,7 @@ function NotificationsPage({ orgScope = false } = {}) {
     if (r === 'org_join_application') return t('notifications.actionJoinApp');
     if (r === 'system') return t('notifications.actionDetail');
     const m = String(mappedType || '');
-    if (m === 'task') return t('notifications.actionTask');
+    if (m === 'task' || m === 'deadline') return t('notifications.actionTask');
     if (m === 'mention') return t('notifications.actionChat');
     if (m === 'friend') return t('notifications.actionFriend');
     return t('notifications.actionDetail');
@@ -228,18 +229,7 @@ function NotificationsPage({ orgScope = false } = {}) {
     const data = parseNotificationData(item);
     const id = item?._id || item?.id;
     const rawType = String(item?.type || 'system');
-    const type =
-      rawType === 'friend_request' || rawType === 'friend_accepted'
-        ? 'friend'
-        : rawType === 'task_assigned' || rawType === 'task_completed'
-          ? 'task'
-          : rawType === 'document'
-            ? 'file'
-            : rawType === 'message'
-              ? 'mention'
-              : rawType === 'org_join_application'
-                ? 'system'
-                : rawType;
+    const type = mapNotificationUiType(rawType, data?.kind);
     const orgLabel =
       data?.workspaceName ||
       data?.organizationName ||
@@ -265,7 +255,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       id,
       type,
       rawType,
-      icon: iconByType[rawType] || iconByType[type] || '🔔',
+      icon: iconByType[type] || iconByType[rawType] || '🔔',
       title: item?.title || t('notifications.defaultTitle'),
       message: item?.content || item?.message || '',
       time: getRelativeTime(item?.createdAt),
@@ -563,52 +553,64 @@ function NotificationsPage({ orgScope = false } = {}) {
       return;
     }
 
+    if (notif.type === 'friend') {
+      navigate('/app/communicate/chat/friends?tab=requests');
+      toast(t('notifications.toastOpenFriendReq'), { icon: '👥' });
+      return;
+    }
+
+    if (
+      isVoiceRoomInviteNotification(notif) ||
+      notif.data?.kind === 'voice_room_join_request'
+    ) {
+      if (isVoiceRoomInviteNotification(notif)) {
+        const invitePath = resolveVoiceRoomInvitePath(notif);
+        navigate(invitePath || '/app/communicate/voice');
+        toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
+        return;
+      }
+      const voiceUrl = String(notif.actionUrl || '').trim();
+      if (voiceUrl.startsWith('/app/communicate/voice')) {
+        navigate(voiceUrl);
+      } else if (voiceUrl.startsWith('/voice')) {
+        navigate(voiceUrl.replace(/^\/voice/, '/app/communicate/voice'));
+      } else if (notif.data?.roomId) {
+        navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}`);
+      } else {
+        navigate('/app/communicate/voice');
+      }
+      toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
+      return;
+    }
+
+    const appPath = resolveNotificationAppPath(notif);
+    if (appPath) {
+      navigate(appPath);
+      if (notif.type === 'file') {
+        toast(t('notifications.toastOpenDocs'), { icon: '📁' });
+      } else if (notif.type === 'task' || notif.type === 'deadline') {
+        toast(t('notifications.toastOpenTasks'), { icon: '✅' });
+      } else if (notif.type === 'mention') {
+        toast(t('notifications.toastOpenOrgChat'), { icon: '💬' });
+      } else {
+        toast(t('notifications.toastOpenDetail'), { icon: 'ℹ️' });
+      }
+      return;
+    }
+
     switch (notif.type) {
       case 'mention':
         navigate(targetWorkspacePath || '/app/communicate/channels');
         toast(t('notifications.toastOpenOrgChat'), { icon: '💬' });
         break;
-      case 'friend':
-        navigate('/app/communicate/chat/friends?tab=requests');
-        toast(t('notifications.toastOpenFriendReq'), { icon: '👥' });
-        break;
       case 'meeting':
-        if (
-          isVoiceRoomInviteNotification(notif) ||
-          notif.data?.kind === 'voice_room_join_request'
-        ) {
-          if (isVoiceRoomInviteNotification(notif)) {
-            const invitePath = resolveVoiceRoomInvitePath(notif);
-            navigate(invitePath || '/app/communicate/voice');
-            toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
-            break;
-          }
-          const voiceUrl = String(notif.actionUrl || '').trim();
-          if (voiceUrl.startsWith('/app/communicate/voice')) {
-            navigate(voiceUrl);
-          } else if (voiceUrl.startsWith('/voice')) {
-            navigate(voiceUrl.replace(/^\/voice/, '/app/communicate/voice'));
-          } else if (notif.data?.roomId) {
-            navigate(`/app/communicate/voice/${encodeURIComponent(notif.data.roomId)}`);
-          } else {
-            navigate('/app/communicate/voice');
-          }
-          toast(t('notifications.toastOpenVoiceRoom'), { icon: '🎙️' });
-        } else {
-          navigate('/app/me/calendar');
-          toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
-        }
+        navigate('/app/me/calendar');
+        toast(t('notifications.toastOpenCalendar'), { icon: '📅' });
         break;
-      case 'system': {
-        const url = String(notif.actionUrl || notif.data?.actionUrl || '').trim();
-        if (url.startsWith('/app/')) {
-          navigate(url);
-        } else {
-          navigate(targetWorkspacePath || '/app/me/settings');
-        }
+      case 'system':
+        navigate(targetWorkspacePath || '/app/me/settings');
         toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
         break;
-      }
       case 'task':
       case 'deadline':
         navigate(
@@ -661,6 +663,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       { id: 'mention', label: t('common.mentions') },
       { id: 'meeting', label: t('notifications.filterMeetings') },
       { id: 'task', label: t('notifications.filterTasks') },
+      { id: 'deadline', label: t('notifications.filterDeadline') },
     ],
     [t]
   );
@@ -680,14 +683,14 @@ function NotificationsPage({ orgScope = false } = {}) {
       .filter((group) => group.items.length > 0);
   }, [filteredNotifications, t]);
 
-  if (isOrgNotificationsPage && organizationIdFilter) {
-    return null;
-  }
-
   return (
     <>
       <NotificationsFigmaView
-        title={t('notifications.defaultTitle')}
+        title={
+          isOrgNotificationsPage
+            ? t('notifications.titleOrganization')
+            : t('notifications.title')
+        }
         unreadCount={unreadCount}
         search={notifSearch}
         onSearchChange={setNotifSearch}

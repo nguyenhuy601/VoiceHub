@@ -70,6 +70,12 @@ const {
   emitTaskFactBestEffort,
   emitStatusTransitionFactBestEffort,
 } = require('../clients/analyticsPublisher.client');
+const {
+  notifySystemKind,
+  notifyTaskAssigned,
+  notifyTaskCompletedToCreator,
+  projectHubActionUrl,
+} = require('../clients/notification.client');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -134,7 +140,6 @@ async function ensureUniqueProjectCode(organizationId, preferred) {
   const existing = rows.map((r) => String(r.projectCode || '').trim()).filter(Boolean);
   return allocateUniqueProjectCode(base, existing);
 }
-const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
 
 function hasScopeRolePermission(permissions) {
   const p = permissions || {};
@@ -219,7 +224,6 @@ async function reindexListOrders(boardOid, orderedIds) {
 }
 
 async function notifyListWatchers({ listId, board, actorId, title, content }) {
-  if (!NOTIFICATION_INTERNAL_TOKEN) return;
   const listOid = toOid(listId);
   if (!listOid) return;
   const rows = await TaskBoardListWatcher.find({ listId: listOid }).select('userId').lean();
@@ -232,29 +236,25 @@ async function notifyListWatchers({ listId, board, actorId, title, content }) {
   ];
   if (!userIds.length) return;
   const orgId = board?.organizationId ? String(board.organizationId) : '';
-  try {
-    await axios.post(
-      `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
-      {
-        userIds,
-        type: 'task_board_list',
-        title,
-        content,
-        data: {
-          organizationId: orgId,
-          boardId: String(board?._id || ''),
-          listId: String(listId),
-        },
-      },
-      {
-        headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },
-        timeout: 8000,
-        validateStatus: () => true,
-      }
-    );
-  } catch (err) {
-    logger.warn('[task-board] notify watchers failed: %s', err.message);
-  }
+  const projectId = board?.projectId ? String(board.projectId) : '';
+  await notifySystemKind({
+    userIds,
+    kind: 'task_board_list',
+    title,
+    content,
+    data: {
+      organizationId: orgId,
+      projectId,
+      boardId: String(board?._id || ''),
+      listId: String(listId),
+    },
+    actionUrl: projectHubActionUrl({
+      projectId,
+      boardId: board?._id,
+      organizationId: orgId,
+    }),
+    excludeUserId: actorId,
+  });
 }
 
 const PROJECT_BOARD_ADMIN_KEYS = new Set([
@@ -1391,6 +1391,14 @@ async function createCard({
     title: 'Thẻ mới trong danh sách',
     content: `Thẻ "${created.title}" vừa được thêm`,
   }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
+  if (nextAssigneeId) {
+    void notifyTaskAssigned({
+      actorId: userId,
+      assigneeId: nextAssigneeId,
+      task: created,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify assignee failed: %s', err.message));
+  }
   if (board.projectId) {
     const { logActivity } = require('./project.service');
     void logActivity({
@@ -1778,6 +1786,15 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
   }
   await card.save();
   const moved = card.toObject();
+  const becameDoneOnMove =
+    isDoneLikeStatus(moved.status) && !isDoneLikeStatus(fromStatusKey);
+  if (becameDoneOnMove) {
+    void notifyTaskCompletedToCreator({
+      actorId: userId,
+      task: moved,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify completed failed: %s', err.message));
+  }
   if (String(fromStatusKey) !== String(moved.status || '')) {
     const isReopen = isDoneLikeStatus(fromStatusKey) && !isDoneLikeStatus(moved.status);
     const isRework =
@@ -2151,6 +2168,14 @@ async function updateCard({
       throw err;
     }
   }
+  if (assigneeChanged && effectiveAssignee) {
+    void notifyTaskAssigned({
+      actorId: userId,
+      assigneeId: effectiveAssignee,
+      task: out || card,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify assignee failed: %s', err.message));
+  }
 
   if (board.projectId && next.ownerTeamId !== undefined) {
     const prevTeam = normalizeOwnerTeamId(card.ownerTeamId);
@@ -2186,6 +2211,13 @@ async function updateCard({
     });
     const becameDone = isDoneLikeStatus(to) && !isDoneLikeStatus(from);
     const leftDone = !isDoneLikeStatus(to) && isDoneLikeStatus(from);
+    if (becameDone) {
+      void notifyTaskCompletedToCreator({
+        actorId: userId,
+        task: out || card,
+        board,
+      }).catch((err) => logger.warn('[task-board] notify completed failed: %s', err.message));
+    }
     if (becameDone || leftDone) {
       emitTaskFactBestEffort({
         taskId: cardId,
