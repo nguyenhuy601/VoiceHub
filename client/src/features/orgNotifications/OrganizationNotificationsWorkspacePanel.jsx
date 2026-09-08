@@ -13,7 +13,8 @@ import { useNotificationsInfinite } from '../../hooks/queries';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import { resolveVoiceRoomInvitePath, isVoiceRoomInviteNotification } from '../../utils/notificationNavigation';
+import { resolveVoiceRoomInvitePath, isVoiceRoomInviteNotification, resolveNotificationAppPath } from '../../utils/notificationNavigation';
+import { mapNotificationUiType } from '../../utils/notificationP0Policy';
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -88,24 +89,18 @@ export default function OrganizationNotificationsWorkspacePanel({
       const data = parseNotificationDataField(item?.data);
       const id = item?._id || item?.id;
       const rawType = String(item?.type || 'system');
-      const type =
-        rawType === 'task_assigned' || rawType === 'task_completed'
-          ? 'task'
-          : rawType === 'document'
-            ? 'file'
-            : rawType === 'message'
-              ? 'mention'
-              : rawType;
+      const type = mapNotificationUiType(rawType, data?.kind);
       return {
         id,
         type,
         rawType,
-        icon: iconByType[rawType] || iconByType[type] || '🔔',
+        icon: iconByType[type] || iconByType[rawType] || '🔔',
         title: item?.title || t('notifications.defaultTitle'),
         message: item?.content || item?.message || '',
         time: getRelativeTime(item?.createdAt),
         read: Boolean(item?.isRead),
         createdAt: item?.createdAt,
+        actionUrl: String(item?.actionUrl || '').trim(),
         organizationSlug:
           data?.workspaceSlug || data?.organizationSlug || organizationSlug || '',
         organizationId:
@@ -127,6 +122,7 @@ export default function OrganizationNotificationsWorkspacePanel({
       { id: 'all', label: t('notifications.filterAll'), icon: '📋' },
       { id: 'unread', label: t('notifications.filterUnread'), icon: '⭐' },
       { id: 'task', label: t('notifications.filterTasks'), icon: '✅' },
+      { id: 'deadline', label: t('notifications.filterDeadline'), icon: '⏰' },
       { id: 'mention', label: t('common.mentions'), icon: '💬' },
     ],
     [t]
@@ -181,10 +177,17 @@ export default function OrganizationNotificationsWorkspacePanel({
       return;
     }
 
+    const appPath = resolveNotificationAppPath(notif);
+    if (appPath) {
+      navigate(appPath);
+      return;
+    }
+
     const orgId = String(notif.organizationId || organizationId || '').trim();
     if (orgId) {
       switch (notif.type) {
         case 'task':
+        case 'deadline':
           navigate(buildCollaborateTasksPath(orgId));
           break;
         case 'file':

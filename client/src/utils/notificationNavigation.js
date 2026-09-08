@@ -1,29 +1,17 @@
-/** @typedef {{ actionUrl?: string, data?: Record<string, unknown> }} NotificationLike */
+/** @typedef {{ actionUrl?: string, data?: Record<string, unknown>, organizationId?: string, projectId?: string }} NotificationLike */
 
-/**
- * Chuẩn hoá pathname legacy → `/app/...`.
- * @param {string} pathname
- * @param {string} [search]
- */
-export function normalizeLegacyAppPath(pathname, search = '') {
-  let path = String(pathname || '').trim();
-  if (!path) return null;
-  if (path.startsWith('/voice/')) {
-    path = path.replace(/^\/voice/, '/app/communicate/voice');
-  } else if (path === '/voice') {
-    path = '/app/communicate/voice';
-  } else if (path.startsWith('/chat/friends')) {
-    path = `/app/communicate${path}`;
-  } else if (path.startsWith('/documents')) {
-    path = `/app/collaborate/documents${path === '/documents' ? '' : path.slice('/documents'.length)}`;
-  } else if (path.startsWith('/organizations/')) {
-    path = `/app/collaborate${path}`;
-  } else if (path === '/organizations') {
-    path = '/app/collaborate/workspaces';
-  }
-  if (!path.startsWith('/app/')) return null;
-  const qs = search || '';
-  return `${path}${qs}`;
+function buildProjectHubPath(projectId, query = {}) {
+  const pid = String(projectId || '').trim();
+  const base = pid
+    ? `/app/collaborate/projects/${encodeURIComponent(pid)}`
+    : '/app/collaborate/projects';
+  const params = new URLSearchParams();
+  const orgId = String(query?.organizationId || query?.orgId || '').trim();
+  const boardId = String(query?.boardId || '').trim();
+  if (orgId) params.set('organizationId', orgId);
+  if (boardId) params.set('boardId', boardId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export function isVoiceRoomInviteNotification(notif) {
@@ -69,30 +57,30 @@ export function resolveVoiceRoomInvitePath(notif) {
 }
 
 /**
- * Chỉ nhận path in-app `/app/...` (kèm query). Cho phép absolute URL cùng path /app hoặc legacy đã map.
+ * Chỉ nhận path in-app `/app/...` (kèm query). Bỏ URL ngoài / legacy `/tasks/:id`.
  * @param {string} [actionUrl]
  * @returns {string | null}
  */
 export function parseSafeAppPath(actionUrl) {
   const raw = String(actionUrl || '').trim();
   if (!raw) return null;
+  if (/^[a-zA-Z][a-zA-Z+\-.]*:/.test(raw) || raw.startsWith('//')) return null;
   try {
-    const parsed =
-      raw.startsWith('http') || raw.startsWith('//')
-        ? new URL(raw)
-        : new URL(raw, 'https://voicehub.local');
-    return normalizeLegacyAppPath(parsed.pathname, parsed.search || '');
+    const parsed = new URL(raw, 'https://voicehub.local');
+    const path = String(parsed.pathname || '').trim();
+    if (!path.startsWith('/app/')) return null;
+    const qs = parsed.search || '';
+    return `${path}${qs}`;
   } catch {
     if (raw.startsWith('/app/') && !raw.includes('://')) {
       return raw.split('#')[0];
     }
-    const legacy = normalizeLegacyAppPath(raw.split('?')[0], raw.includes('?') ? `?${raw.split('?')[1]}` : '');
-    return legacy;
+    return null;
   }
 }
 
 /**
- * Ưu tiên actionUrl `/app/...`, không thì Hub Project theo projectId / room channel.
+ * Ưu tiên actionUrl `/app/...`, không thì Hub Project theo projectId.
  * @param {NotificationLike | null | undefined} notif
  * @returns {string | null}
  */
@@ -101,20 +89,10 @@ export function resolveNotificationAppPath(notif) {
   const fromAction = parseSafeAppPath(notif.actionUrl || notif.data?.actionUrl);
   if (fromAction) return fromAction;
   const data = notif.data && typeof notif.data === 'object' ? notif.data : {};
-  const kind = String(data.kind || '').trim();
-  const organizationId = String(data.organizationId || notif.organizationId || '').trim();
-  const roomId = String(data.roomId || '').trim();
-  if ((kind === 'project_mention' || kind === 'cross_team_work') && organizationId && roomId) {
-    const projectId = String(data.projectId || '').trim();
-    if (projectId) {
-      return buildProjectHubPath(projectId, { organizationId, boardId: data.boardId });
-    }
-    return `/app/collaborate/organizations/${encodeURIComponent(organizationId)}/channels?channelId=${encodeURIComponent(roomId)}`;
-  }
   const projectId = String(data.projectId || notif.projectId || '').trim();
   if (!projectId) return null;
   return buildProjectHubPath(projectId, {
-    organizationId,
+    organizationId: data.organizationId || notif.organizationId,
     boardId: data.boardId,
   });
 }

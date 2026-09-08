@@ -34,6 +34,7 @@ import { resolveApiErrorMessage, extractApiErrorMeta } from '../utils/resolveApi
 import { resolveApiBaseUrl } from '../utils/browserOrigin';
 import { applyUiRoleOverlay, clearStoredUiRole } from '../utils/uiRoleUtils';
 import { useAppStrings } from '../locales/appStrings';
+import { notifyWorkspaceClearedOnLogout } from './WorkspaceContext';
 /* ========================================
    CONTEXT: đối tượng React Context được tạo trong ./auth-context.js (tách file để HMR ổn định).
 ======================================== */

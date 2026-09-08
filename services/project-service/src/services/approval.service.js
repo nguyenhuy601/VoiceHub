@@ -252,7 +252,7 @@ async function notifyApprovers({ userIds, title, content, data }) {
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
       {
         userIds: ids,
-        type: 'project_approval',
+        type: 'system',
         title,
         content,
         data: { ...(data || {}), kind: 'project_approval' },

@@ -1,24 +1,19 @@
 /**
- * Nhắc assignee khi task gần hạn (≤ N ngày) hoặc quá hạn.
- * Idempotent qua Task.dueSoonNotifiedAt / overdueNotifiedAt.
+ * Nhắc hạn thẻ: sắp đến hạn (mặc định 24h) và quá hạn.
+ * Idempotent: dueSoonNotifiedAt / overdueNotifiedAt. Không đụng chat/voice.
  */
-const axios = require('axios');
 const { logger } = require('@enterprise/shared');
 const Task = require('../models/Task');
-const { collectTaskAssigneeIds } = require('../utils/task/taskAssignee');
-const {
-  DAY_MS,
-  classifyTaskDueReminder,
-  resolveDueSoonDays,
-  startOfUtcDay,
-} = require('../utils/task/taskDueReminder');
+const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
+const { classifyDue, DAY_MS } = require('../utils/taskDueClassify');
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
+const DONE_STATUSES = ['done', 'completed'];
 
-const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '')
-  .trim()
-  .replace(/\/+$/, '');
-const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
+function isJobEnabled() {
+  const raw = String(process.env.TASK_DUE_REMINDER_ENABLED ?? 'true').toLowerCase();
+  return raw !== 'false' && raw !== '0' && raw !== 'no' && raw !== 'off';
+}
 
 function resolveIntervalMs() {
   const raw = Number(process.env.TASK_DUE_REMINDER_INTERVAL_MS);
@@ -26,128 +21,111 @@ function resolveIntervalMs() {
   return DEFAULT_INTERVAL_MS;
 }
 
-function buildActionUrl(projectId, taskId) {
-  const pid = String(projectId || '').trim();
-  const tid = String(taskId || '').trim();
-  if (!pid) return '/app/collaborate/projects';
-  const base = `/app/collaborate/projects/${encodeURIComponent(pid)}`;
-  if (!tid) return base;
-  return `${base}?workItem=${encodeURIComponent(tid)}`;
+function resolveSoonMs() {
+  const hours = Number(process.env.TASK_DUE_SOON_HOURS);
+  if (Number.isFinite(hours) && hours > 0 && hours <= 168) return hours * 60 * 60 * 1000;
+  return DAY_MS;
 }
 
-async function notifyTaskDue({ userIds, task, kind, now }) {
-  if (!NOTIFICATION_INTERNAL_TOKEN || !NOTIFICATION_SERVICE_URL) return false;
-  const ids = [...new Set((userIds || []).map(String).filter(Boolean))];
-  if (!ids.length) return false;
+function openTaskFilter() {
+  return {
+    isActive: { $ne: false },
+    assigneeId: { $ne: null },
+    dueDate: { $ne: null },
+    status: { $nin: DONE_STATUSES },
+  };
+}
 
-  const titleText = String(task?.title || 'Work').trim() || 'Work';
-  const dueIso = task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : '';
+async function notifyDueCard(task, kind, now, soonMs) {
+  const titleText = String(task.title || 'Thẻ').trim() || 'Thẻ';
+  const projectId = task.projectId ? String(task.projectId) : '';
+  const boardId = task.boardId ? String(task.boardId) : '';
+  const organizationId = task.organizationId ? String(task.organizationId) : '';
   const isOverdue = kind === 'overdue';
-  const title = isOverdue ? 'Work đã quá hạn' : 'Work sắp đến hạn';
-  const content = isOverdue
-    ? `“${titleText}” đã quá hạn${dueIso ? ` (${dueIso})` : ''}. Hãy cập nhật tiến độ hoặc due date.`
-    : `“${titleText}” còn không quá ${resolveDueSoonDays()} ngày tới hạn${dueIso ? ` (${dueIso})` : ''}.`;
-
-  const res = await axios.post(
-    `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
-    {
-      userIds: ids,
-      type: 'system',
-      title,
-      content,
-      data: {
-        organizationId: task?.organizationId ? String(task.organizationId) : '',
-        projectId: task?.projectId ? String(task.projectId) : '',
-        taskId: task?._id ? String(task._id) : '',
-        dueDate: dueIso,
-        kind: isOverdue ? 'task_overdue' : 'task_due_soon',
-      },
-      actionUrl: buildActionUrl(task?.projectId, task?._id),
+  const hours = Math.max(1, Math.round(Number(soonMs || resolveSoonMs()) / (60 * 60 * 1000)));
+  const ok = await notifySystemKind({
+    userIds: [task.assigneeId],
+    kind: isOverdue ? 'task_overdue' : 'task_due_soon',
+    title: isOverdue ? 'Việc quá hạn' : 'Việc sắp đến hạn',
+    content: isOverdue
+      ? `Thẻ “${titleText}” đã quá hạn.`
+      : `Thẻ “${titleText}” sẽ đến hạn trong ${hours} giờ tới.`,
+    data: {
+      organizationId,
+      projectId,
+      boardId,
+      taskId: String(task._id),
     },
-    {
-      headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },
-      timeout: 8000,
-      validateStatus: () => true,
-    }
-  );
-  const ok = res.status >= 200 && res.status < 300;
-  if (!ok) {
-    logger.warn(
-      '[taskDueReminders] notify HTTP %s for task %s kind=%s',
-      res.status,
-      String(task?._id || ''),
-      kind
-    );
-  }
-  return ok;
+    actionUrl: projectHubActionUrl({ projectId, boardId, organizationId }),
+  });
+  if (!ok) return false;
+  const field = isOverdue ? 'overdueNotifiedAt' : 'dueSoonNotifiedAt';
+  const q = { _id: task._id, [field]: null };
+  const updated = await Task.updateOne(q, { $set: { [field]: now } });
+  return updated.modifiedCount > 0;
 }
 
 /**
- * @param {{ now?: Date }} [opts]
- * @returns {Promise<{ scanned: number, notified: number, skipped: number }>}
+ * @param {{ now?: Date, soonMs?: number }} [opts]
  */
 async function runTaskDueRemindersOnce(opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
-  const today = startOfUtcDay(now);
-  const dueSoonDays = resolveDueSoonDays();
-  const windowEnd = new Date(today.getTime() + dueSoonDays * DAY_MS);
+  const soonMs = Number.isFinite(opts.soonMs) ? opts.soonMs : resolveSoonMs();
+  const soonEnd = new Date(now.getTime() + soonMs);
 
-  const tasks = await Task.find({
-    isActive: { $ne: false },
-    dueDate: { $ne: null, $lte: windowEnd },
-    status: { $nin: ['done', 'cancelled'] },
-    $or: [{ assigneeId: { $ne: null } }, { 'assignments.0': { $exists: true } }],
+  const soonTasks = await Task.find({
+    ...openTaskFilter(),
+    dueSoonNotifiedAt: null,
+    dueDate: { $gte: now, $lte: soonEnd },
   })
-    .select(
-      '_id title organizationId projectId dueDate status assigneeId assignments.userId dueSoonNotifiedAt overdueNotifiedAt isActive'
-    )
+    .select('_id title assigneeId organizationId projectId boardId dueDate')
+    .lean();
+
+  const overdueTasks = await Task.find({
+    ...openTaskFilter(),
+    overdueNotifiedAt: null,
+    dueDate: { $lt: now },
+  })
+    .select('_id title assigneeId organizationId projectId boardId dueDate')
     .lean();
 
   let notified = 0;
   let skipped = 0;
 
-  for (const task of tasks) {
+  for (const task of soonTasks) {
     try {
-      const kind = classifyTaskDueReminder(task, { now, dueSoonDays });
-      if (!kind) {
-        skipped += 1;
-        continue;
-      }
-
-      const userIds = [...collectTaskAssigneeIds(task)];
-      if (!userIds.length) {
-        skipped += 1;
-        continue;
-      }
-
-      const ok = await notifyTaskDue({ userIds, task, kind, now });
-      if (!ok) {
-        skipped += 1;
-        continue;
-      }
-
-      const flagField = kind === 'overdue' ? 'overdueNotifiedAt' : 'dueSoonNotifiedAt';
-      const filter = { _id: task._id, [flagField]: null };
-      const updated = await Task.updateOne(filter, { $set: { [flagField]: now } });
-      if (updated.modifiedCount > 0) notified += 1;
+      const ok = await notifyDueCard(task, 'due_soon', now, soonMs);
+      if (ok) notified += 1;
       else skipped += 1;
     } catch (err) {
       skipped += 1;
-      logger.warn(
-        '[taskDueReminders] task %s failed: %s',
-        String(task?._id || ''),
-        err?.message || err
-      );
+      logger.warn('[taskDueReminders] due_soon %s: %s', String(task._id), err?.message || err);
     }
   }
 
-  return { scanned: tasks.length, notified, skipped };
+  for (const task of overdueTasks) {
+    try {
+      const ok = await notifyDueCard(task, 'overdue', now);
+      if (ok) notified += 1;
+      else skipped += 1;
+    } catch (err) {
+      skipped += 1;
+      logger.warn('[taskDueReminders] overdue %s: %s', String(task._id), err?.message || err);
+    }
+  }
+
+  return {
+    scanned: soonTasks.length + overdueTasks.length,
+    notified,
+    skipped,
+  };
 }
 
 let intervalHandle = null;
 let running = false;
 
 async function tick() {
+  if (!isJobEnabled()) return;
   if (running) return;
   running = true;
   try {
@@ -169,8 +147,12 @@ async function tick() {
 
 function startTaskDueRemindersJob() {
   if (intervalHandle) return;
+  if (!isJobEnabled()) {
+    logger.info('[taskDueReminders] disabled (TASK_DUE_REMINDER_ENABLED)');
+    return;
+  }
   const ms = resolveIntervalMs();
-  logger.info('[taskDueReminders] started interval=%sms dueSoonDays=%s', ms, resolveDueSoonDays());
+  logger.info('[taskDueReminders] started interval=%sms soonMs=%s', ms, resolveSoonMs());
   void tick();
   intervalHandle = setInterval(() => {
     void tick();
@@ -185,9 +167,10 @@ function stopTaskDueRemindersJob() {
 }
 
 module.exports = {
-  buildActionUrl,
+  classifyDue,
   runTaskDueRemindersOnce,
   startTaskDueRemindersJob,
   stopTaskDueRemindersJob,
-  classifyTaskDueReminder,
+  isJobEnabled,
+  resolveSoonMs,
 };

@@ -698,6 +698,28 @@ async function setUserProjectRoles({
     /* best-effort */
   }
 
+  if (!beforeKeys.length && String(userId) !== String(addedBy || userId)) {
+    const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
+    const titleDoc = await Project.findById(pid).select('title').lean();
+    const pname = String(titleDoc?.title || 'dự án').trim() || 'dự án';
+    void notifySystemKind({
+      userIds: [userId],
+      kind: 'project_member_added',
+      title: 'Bạn được thêm vào dự án',
+      content: `Bạn đã được thêm vào dự án “${pname}”.`,
+      data: {
+        organizationId: String(orgId || ''),
+        projectId: String(pid),
+        boardId: aclBoardId ? String(aclBoardId) : '',
+      },
+      actionUrl: projectHubActionUrl({
+        projectId: pid,
+        boardId: aclBoardId,
+        organizationId: orgId,
+      }),
+    });
+  }
+
   return {
     roles: roleRows,
     resource,

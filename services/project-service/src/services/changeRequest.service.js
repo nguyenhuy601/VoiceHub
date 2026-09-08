@@ -109,7 +109,7 @@ async function notifyCrWorkAssignees({ userIds, title, content, data }) {
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
       {
         userIds: ids,
-        type: 'change_request_work',
+        type: 'system',
         title,
         content,
         data: { ...(data || {}), kind: 'change_request_work' },
