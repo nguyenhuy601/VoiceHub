@@ -1149,6 +1149,9 @@ class MessageController {
         pageToken,
         fields,
         markConversationRead,
+        markRoomRead,
+        includeReadCursors,
+        lastReadMessageId,
         unreadByPeer,
         search,
       } = q;
@@ -1198,6 +1201,49 @@ class MessageController {
               readerId: String(userId),
               readAt: result.readAt,
               lastReadMessageId: result.lastReadMessageId,
+            },
+          });
+        }
+        return res.json({ success: true, data: result });
+      }
+
+      // Receipts kênh: watermark RoomReadCursor (không route mới).
+      if (roomId && (String(markRoomRead || '') === '1' || markRoomRead === true)) {
+        if (!userId) {
+          return chatUnauthorized(res);
+        }
+        if (!organizationId) {
+          return res.status(400).json({
+            success: false,
+            message: 'organizationId is required when roomId is provided',
+            code: 'ORG_ID_REQUIRED_FOR_ROOM',
+          });
+        }
+        try {
+          await assertCanReadInOrgChannel(organizationId, roomId, req);
+        } catch (permErr) {
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền đọc kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
+        }
+        const roomReadCursorService = require('../services/roomReadCursor.service');
+        const result = await roomReadCursorService.markRoomReadUpTo({
+          roomId,
+          userId,
+          lastReadMessageId: lastReadMessageId || null,
+        });
+        if (result.advanced) {
+          await emitRealtimeEvent({
+            event: 'room:read_up_to',
+            roomId: String(roomId),
+            payload: {
+              roomId: String(roomId),
+              organizationId: String(organizationId),
+              readerId: String(userId),
+              lastReadMessageId: result.lastReadMessageId,
+              readAt: result.readAt,
             },
           });
         }
@@ -1297,9 +1343,22 @@ class MessageController {
       const result = await messageService.getMessages(filter, options);
       const messages = await attachSignedReadUrlsToMessages(result.messages || []);
 
+      let readCursors = undefined;
+      if (
+        roomId &&
+        (String(includeReadCursors || '') === '1' || includeReadCursors === true)
+      ) {
+        const roomReadCursorService = require('../services/roomReadCursor.service');
+        readCursors = await roomReadCursorService.listCursorsForRoom(roomId);
+      }
+
       res.json({
         success: true,
-        data: { ...result, messages },
+        data: {
+          ...result,
+          messages,
+          ...(readCursors ? { readCursors } : {}),
+        },
       });
     } catch (error) {
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');

@@ -17,6 +17,9 @@ async function fetchOrgChannelMessages({ roomId, organizationId, pageParam }) {
   if (organizationId) params.organizationId = organizationId;
   if (pageParam && typeof pageParam === 'string') {
     params.pageToken = pageParam;
+  } else {
+    // Chỉ trang đầu: kèm watermark peers để hiện Đã gửi / Đã xem.
+    params.includeReadCursors = 1;
   }
   const resp = await api.get('/messages', {
     params,
@@ -49,6 +52,14 @@ export function useOrgChannelMessages(roomId, organizationId, { enabled = true }
       .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
   }, [query.data]);
 
+  const readCursors = useMemo(() => {
+    const pages = query.data?.pages || [];
+    for (const page of pages) {
+      if (Array.isArray(page?.readCursors)) return page.readCursors;
+    }
+    return [];
+  }, [query.data]);
+
   const messagesFingerprint = useMemo(() => {
     const pages = query.data?.pages || [];
     return pages
@@ -62,6 +73,7 @@ export function useOrgChannelMessages(roomId, organizationId, { enabled = true }
   return {
     ...query,
     messages: messagesChronological,
+    readCursors,
     messagesFingerprint,
     pageSize: ORG_MSG_PAGE_SIZE,
     hasMoreOlder: Boolean(query.hasNextPage),

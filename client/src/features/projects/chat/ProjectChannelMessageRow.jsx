@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import ChannelMessageToolbar from '../../../components/Organization/ChannelMessageToolbar';
 import ChannelMessageMoreMenu from '../../../components/Organization/ChannelMessageMoreMenu';
 import OrgMessageInlineEditor from '../../../components/Organization/OrgMessageInlineEditor';
 import ActivityMessageCard from '../../../components/Chat/ActivityMessageCard';
-import { shouldPlaceToolbarBelowBubble } from '../../../utils/messageToolbarPlacement';
+import {
+  EST_TOOLBAR_PX,
+  GAP_PX,
+  ensureMessageToolbarRoom,
+  shouldPlaceToolbarBelowBubble,
+} from '../../../utils/messageToolbarPlacement';
 import {
   canEditOrgMessage,
   canShowCopyTextInMenu,
@@ -25,6 +30,10 @@ export default function ProjectChannelMessageRow({
   editingMessageId = null,
   editDraft = '',
   savingEdit = false,
+  showDayDivider = false,
+  dayDividerLabel = '',
+  showReceipt = false,
+  receiptStatus = 'sent',
   onOpenRef,
   onQuickReact,
   onReply,
@@ -56,13 +65,36 @@ export default function ProjectChannelMessageRow({
   const handleMouseEnter = (event) => {
     const el = event?.currentTarget;
     if (!el) return;
-    setToolbarPlace(shouldPlaceToolbarBelowBubble(el) ? 'below' : 'above');
+    const needBelow = shouldPlaceToolbarBelowBubble(el);
+    const place = needBelow ? 'below' : 'above';
+    setToolbarPlace(place);
+    // List ngắn / tin sát mép: cuộn để toolbar không bị overflow cắt.
+    ensureMessageToolbarRoom(el, {
+      needPx: EST_TOOLBAR_PX + GAP_PX,
+      place,
+    });
   };
 
   const attachmentLabel = t('orgPanel.attachment');
+  const receiptLabel =
+    receiptStatus === 'seen' ? t('orgPanel.readReceipt') : t('orgPanel.sentReceipt');
 
   return (
-    <>
+    <Fragment>
+      {showDayDivider && dayDividerLabel ? (
+        <div className="flex justify-center py-2">
+          <span
+            className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold tracking-wide ${
+              isDarkMode
+                ? 'border-white/[0.08] bg-[#12151f] text-slate-300'
+                : 'border-slate-200 bg-white text-slate-500 shadow-sm'
+            }`}
+          >
+            {dayDividerLabel}
+          </span>
+        </div>
+      ) : null}
+
       <div
         className={`group/msg relative -mx-2 rounded-lg px-2 py-0.5 transition-colors ${
           isDarkMode ? 'hover:bg-white/[0.035]' : 'hover:bg-slate-100/90'
@@ -131,6 +163,21 @@ export default function ProjectChannelMessageRow({
           />
         )}
 
+        {isMine && showReceipt ? (
+          <div className="mt-1 flex justify-end">
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                isDarkMode
+                  ? 'bg-white/10 text-slate-300'
+                  : 'bg-slate-200/90 text-slate-600'
+              }`}
+            >
+              {receiptStatus === 'seen' ? '✓✓ ' : ''}
+              {receiptLabel}
+            </span>
+          </div>
+        ) : null}
+
         {Array.isArray(message?.reactions) && message.reactions.length > 0 ? (
           <div className={`mt-1 flex flex-wrap gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
             {message.reactions.map((r, idx) => (
@@ -170,6 +217,6 @@ export default function ProjectChannelMessageRow({
         onRecall={isMine ? () => onRecall?.(mid) : undefined}
         onDelete={() => onDelete?.(mid)}
       />
-    </>
+    </Fragment>
   );
 }

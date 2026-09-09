@@ -25,6 +25,10 @@ import { normalizeComposerFile } from '../../../utils/composerAttachmentUtils';
 import { fetchChatMediaFile } from '../../../utils/chatGifStickerSend';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { parseMessageMentions, sanitizeMentionsForApi } from '../../../utils/parseMessageMentions';
+import {
+  formatChatDateDividerLabel,
+  shouldShowChatDayDivider,
+} from '../../../utils/chatMessageTime';
 import useProjectOrgChat from '../../../hooks/useProjectOrgChat';
 import { useProjectRoomChatFocus } from '../../../hooks/useProjectRoomChatFocus';
 
@@ -54,6 +58,7 @@ export default function ProjectChatWorkspace({
     currentUserId,
     shellLoading,
     shellError,
+    shellQueryError,
     refetchShell,
     projectChannels,
     selectedChannel,
@@ -66,6 +71,8 @@ export default function ProjectChatWorkspace({
     hasMoreOlder,
     loadingOlder,
     loadOlderMessages,
+    lastOutgoingMessageId,
+    lastOutgoingReceipt,
     messageInput,
     setMessageInput,
     sending,
@@ -416,9 +423,16 @@ export default function ProjectChatWorkspace({
   }
 
   if (shellError) {
+    const status = shellQueryError?.response?.status ?? shellQueryError?.status;
+    const hint =
+      status === 401 || status === 403
+        ? t('organizations.loadFailAuth')
+        : status === 504 || status === 502
+          ? t('organizations.loadFailTimeout')
+          : t('organizations.loadFail');
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-muted-foreground">{t('organizations.loadFail')}</p>
+        <p className="text-sm text-muted-foreground">{hint}</p>
         <button
           type="button"
           className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"
@@ -474,7 +488,9 @@ export default function ProjectChatWorkspace({
                 </div>
               </div>
             </header>
-            <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+            <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden px-4 py-3 scroll-pt-16">
+              {/* Chỗ trống đầu list: tin sát mép vẫn kéo lên để lộ toolbar / panel emoji */}
+              <div className="h-12 shrink-0" aria-hidden />
               {hasMoreOlder && loadOlderMessages ? (
                 <div className="flex justify-center pb-1">
                   <button
@@ -542,7 +558,13 @@ export default function ProjectChatWorkspace({
                   )}
                 </div>
               ) : null}
-              {messages.map((message) => (
+              {messages.map((message, idx) => {
+                const prev = idx > 0 ? messages[idx - 1] : null;
+                const showDayDivider = shouldShowChatDayDivider(
+                  message?.createdAt,
+                  prev?.createdAt
+                );
+                return (
                 <ProjectChannelMessageRow
                   key={String(message._id || message.id)}
                   message={message}
@@ -555,6 +577,17 @@ export default function ProjectChatWorkspace({
                   editingMessageId={editingMessageId}
                   editDraft={editDraft}
                   savingEdit={savingEdit}
+                  showDayDivider={showDayDivider}
+                  dayDividerLabel={
+                    showDayDivider
+                      ? formatChatDateDividerLabel(message?.createdAt, locale)
+                      : ''
+                  }
+                  showReceipt={
+                    Boolean(lastOutgoingMessageId) &&
+                    String(message._id || message.id) === String(lastOutgoingMessageId)
+                  }
+                  receiptStatus={lastOutgoingReceipt}
                   onOpenRef={setPreviewTarget}
                   onQuickReact={toggleReaction}
                   onReply={(msg) => setReplyToMessage(msg)}
@@ -569,7 +602,8 @@ export default function ProjectChatWorkspace({
                   onDelete={(mid) => setDeleteConfirmId(mid)}
                   onRecall={recallMessage}
                 />
-              ))}
+                );
+              })}
             </div>
             <div className="relative z-10 shrink-0 border-t border-border bg-surface p-3">
               {isAnnouncement ? (
