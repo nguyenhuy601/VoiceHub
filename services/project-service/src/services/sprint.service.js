@@ -2,7 +2,7 @@ const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
 const PlanningItem = require('../models/PlanningItem');
 const TaskBoard = require('../models/TaskBoard');
-const { assertPatchDoesNotCloseActiveSprint } = require('../utils/projectCloseGate');
+const { assertPatchDoesNotCloseActiveSprint } = require('../utils/project/projectCloseGate');
 
 async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create' } = {}) {
   const board = await TaskBoard.findById(boardId).lean();
@@ -11,7 +11,7 @@ async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create'
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -120,7 +120,7 @@ async function updateSprint({
     } else if (st === 'active') {
       await requireBoardAdmin(boardId, userId, { permission: 'sprint:start' });
       if (String(sprint.status || '').toLowerCase() !== 'active' && sprint.projectId) {
-        const { assertNoMemberOverlapWithActiveSprints } = require('../utils/sprintMemberOverlap');
+        const { assertNoMemberOverlapWithActiveSprints } = require('../utils/task/sprintMemberOverlap');
         await assertNoMemberOverlapWithActiveSprints({
           projectId: sprint.projectId,
           sprintId,

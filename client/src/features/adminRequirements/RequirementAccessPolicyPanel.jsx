@@ -26,7 +26,6 @@ const ACTION_KEYS = [
   { key: 'approve', labelKey: 'actionApprove' },
   { key: 'runAiPlanning', labelKey: 'actionRunAi' },
   { key: 'createProject', labelKey: 'actionCreateProject' },
-  { key: 'reviewSkills', labelKey: 'actionReviewSkills' },
 ];
 
 const VISIBILITY_KEYS = [
@@ -62,7 +61,6 @@ function defaultPolicy() {
         approve: false,
         runAiPlanning: false,
         createProject: false,
-        reviewSkills: true,
       },
       approver: {
         view: true,
@@ -71,7 +69,6 @@ function defaultPolicy() {
         approve: true,
         runAiPlanning: true,
         createProject: true,
-        reviewSkills: true,
       },
       operator: {
         view: true,
@@ -80,7 +77,6 @@ function defaultPolicy() {
         approve: false,
         runAiPlanning: true,
         createProject: false,
-        reviewSkills: true,
       },
       member: {
         view: true,
@@ -89,7 +85,6 @@ function defaultPolicy() {
         approve: false,
         runAiPlanning: false,
         createProject: false,
-        reviewSkills: false,
       },
     },
   };

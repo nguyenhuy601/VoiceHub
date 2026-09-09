@@ -1,4 +1,4 @@
-/** Catalog priority — mirror BE `services/project-service/src/utils/priorityConfig.js`. */
+/** Catalog priority — mirror BE `services/project-service/src/utils/project/priorityConfig.js`. */
 
 export const DEFAULT_PRIORITY_ITEMS = Object.freeze([
   { key: 'low', label: 'Low', order: 1 },

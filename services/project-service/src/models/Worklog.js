@@ -1,5 +1,5 @@
 /**
- * Append-only worklog — Actual Hours (Phase 3b).
+ * Actual Hours worklog (Phase 3b) — one row per (taskId, userId, workDate); upsert on re-log.
  * Does not write ProjectMember.allocations (Planned Allocation stays P3-only).
  */
 const mongoose = require('../db');
@@ -66,6 +66,7 @@ const worklogSchema = new mongoose.Schema(
   { timestamps: { createdAt: true, updatedAt: false } }
 );
 
+worklogSchema.index({ taskId: 1, userId: 1, workDate: 1 }, { unique: true });
 worklogSchema.index({ taskId: 1, workDate: -1 });
 worklogSchema.index({ projectId: 1, userId: 1, workDate: 1 });
 worklogSchema.index({ sprintId: 1, workDate: 1 });

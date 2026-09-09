@@ -96,7 +96,7 @@ server.listen(PORT, () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   if (!String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim()) {
     console.warn(
-      '[API-Gateway] GATEWAY_INTERNAL_TOKEN chưa đặt — các service downstream có thể từ chối x-user-id. Thêm vào .env (trùng với user-service, task-service, …).'
+      '[API-Gateway] GATEWAY_INTERNAL_TOKEN chưa đặt — các service downstream có thể từ chối x-user-id. Thêm vào .env (trùng với user-service, project-service, …).'
     );
   }
   console.log(`Socket proxy upstream: ${services.socket.url}`);

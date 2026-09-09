@@ -131,10 +131,4 @@ export const requirementAPI = {
       {},
       withOrg(organizationId)
     ),
-
-  listSkills: (organizationId, params = {}) =>
-    organizationAPI.listSkills(organizationId, params),
-
-  reviewSkill: (organizationId, skillId, body = {}) =>
-    organizationAPI.reviewSkill(organizationId, skillId, body),
 };

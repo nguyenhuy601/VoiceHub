@@ -9,9 +9,7 @@ import {
   Eye,
   FileDown,
   FolderPlus,
-  Loader2,
   Send,
-  Sparkles,
   Trash2,
   Upload,
   X,
@@ -26,7 +24,7 @@ import GradientButton from '../../components/Shared/GradientButton';
 import Modal from '../../components/Shared/Modal';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import {
-  FIGMA_PAGE_CARD_PAD,
+  FIGMA_PAGE_CARD,
   FIGMA_PAGE_SUBTITLE,
   FIGMA_PAGE_TITLE,
 } from '../../components/Layout/figmaPageClasses';
@@ -36,12 +34,8 @@ import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
-import SkillReviewPanel from '../skills/SkillReviewPanel';
-import { canConfirmRequirementImport } from '../../utils/requirementImportReadiness';
-import useEffectiveMasterGrants from '../../hooks/useEffectiveMasterGrants';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
 import useRequirementPacks from '../../hooks/useRequirementPacks';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -50,7 +44,7 @@ function unwrap(res) {
 function PlanningScoreBadge({ readiness, t }) {
   const score = readiness?.score;
   if (score == null) return null;
-  const canSubmit = readiness?.allLeavesStaffed === true;
+  const canSubmit = isPackWhatReady(readiness);
   const tone = !canSubmit
     ? 'bg-destructive/15 text-destructive'
     : score >= 80
@@ -67,16 +61,7 @@ function PlanningScoreBadge({ readiness, t }) {
 }
 
 function canSubmitPackForReview(pack) {
-  const readiness = pack?.planningReadiness;
-  if (!readiness) return false;
-  if (readiness.allLeavesStaffed !== true) return false;
-  return true;
-}
-
-function canRunAiOnPack(pack) {
-  const status = String(pack?.status || '');
-  if (!['under_review', 'approved', 'project_linked'].includes(status)) return false;
-  return canSubmitPackForReview(pack);
+  return isPackWhatReady(pack?.planningReadiness);
 }
 
 const PACK_ROW_ACTION_BASE =
@@ -122,7 +107,7 @@ function stringKey(variant, suffix) {
   return variant === 'admin' ? `adminDomains.requirements.${suffix}` : `requirements.${suffix}`;
 }
 
-const PACK_LIST_PAGE_SIZE = 10;
+const PACK_LIST_PAGE_SIZE = 5;
 
 const PACK_STATUS_FILTERS = Object.freeze([
   '',
@@ -144,9 +129,6 @@ export default function RequirementImportWorkspace({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant, loading: grantsLoading } = useEffectiveMasterGrants(orgId);
-  const canReviewSkills = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.SKILL_REGISTRY_REVIEW);
   const isAdmin = variant === 'admin';
   const sk = (suffix) => stringKey(variant, suffix);
   const showImportSection = isAdmin || canSubmit;
@@ -158,7 +140,6 @@ export default function RequirementImportWorkspace({
   const [reviewPackId, setReviewPackId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [lastImportNewSkills, setLastImportNewSkills] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const { packs, invalidateAllForOrg } = useRequirementPacks(orgId);
@@ -176,7 +157,6 @@ export default function RequirementImportWorkspace({
     derivedFromPackHint: t('requirements.derivedFromPackHint'),
     planningScore: t('requirements.planningScore'),
     planningNotReady: t('requirements.planningNotReady'),
-    missingLeafStaffing: t('requirements.missingLeafStaffing'),
     previewPlanningLowScore: t('requirements.previewPlanningLowScore'),
   };
 
@@ -206,7 +186,7 @@ export default function RequirementImportWorkspace({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Requirement_Template_v1.2.xlsx';
+      a.download = 'Requirement_Template.xlsx';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -228,7 +208,6 @@ export default function RequirementImportWorkspace({
       const res = await requirementAPI.previewImport(orgId, target);
       const data = unwrap(res);
       setPreview(data);
-      setLastImportNewSkills([]);
       } catch (error) {
         toast.error(resolveApiErrorMessage(error, { t, fallback: t(sk('previewFail')) }));
       } finally {
@@ -274,13 +253,7 @@ export default function RequirementImportWorkspace({
     setBusy(true);
     try {
       await requirementAPI.confirmImport(orgId, preview.sessionId);
-      const newSkills = preview?.newSkillsDetected || [];
-      setLastImportNewSkills(newSkills);
-      toast.success(
-        newSkills.length
-          ? t('requirements.importSuccessWithNewSkills', { count: newSkills.length })
-          : t(sk('importSuccess'))
-      );
+      toast.success(t(sk('importSuccess')));
       setPreview(null);
       await loadPacks();
     } catch (error) {
@@ -355,7 +328,10 @@ export default function RequirementImportWorkspace({
     if (!orgId || !packId || actionPackId) return;
     setActionPackId(packId);
     try {
-      const res = await requirementAPI.createProjectFromPack(orgId, packId);
+      const res = await requirementAPI.createProjectFromPack(orgId, packId, {
+        importWorkItems: true,
+        applyAssignees: true,
+      });
       const data = unwrap(res);
       toast.success(t('requirements.createProjectSuccess'));
       await loadPacks();
@@ -374,23 +350,8 @@ export default function RequirementImportWorkspace({
     }
   };
 
-  const runAiPlanning = async (packId) => {
-    if (!orgId || !packId || actionPackId) return;
-    setActionPackId(packId);
-    try {
-      await requirementAPI.runAiPlanning(orgId, packId);
-      toast.success(t('requirements.aiPlanningSuccess'));
-      await loadPacks();
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.aiPlanningFail') })
-      );
-    } finally {
-      setActionPackId('');
-    }
-  };
-
   const canConfirmPreview = canConfirmRequirementImport(preview);
+  const confirmLabelKey = getConfirmImportLabelKey(preview);
 
   const closePreview = () => {
     if (busy) return;
@@ -409,7 +370,7 @@ export default function RequirementImportWorkspace({
             onClick={confirmImport}
           >
             <CheckCircle2 className="mr-2 inline h-4 w-4" />
-            {t(sk('confirmImport'))}
+            {t(sk(confirmLabelKey))}
           </button>
         ) : (
           <GradientButton
@@ -420,9 +381,23 @@ export default function RequirementImportWorkspace({
             className="px-4 py-2 text-sm"
           >
             <CheckCircle2 className="h-4 w-4" />
-            {t(sk('confirmImport'))}
+            {t(sk(confirmLabelKey))}
           </GradientButton>
         )
+      ) : null}
+      {!preview.valid || Number(preview.errorCount) > 0 ? (
+        <button
+          type="button"
+          className={
+            isAdmin
+              ? adminSecondaryBtnClass()
+              : 'inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/40'
+          }
+          disabled={busy}
+          onClick={closePreview}
+        >
+          {t(sk('fixExcel'))}
+        </button>
       ) : null}
       <button
         type="button"
@@ -452,17 +427,14 @@ export default function RequirementImportWorkspace({
     >
       {preview ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-          <div
-            className={`min-h-0 overflow-hidden ${
-              (preview.newSkillsDetected || []).length > 0 ? 'flex-[1.2]' : 'flex-1'
-            }`}
-          >
+          <div className="min-h-0 flex-1 overflow-hidden">
             <RequirementPreviewTabs
               fillParent
               fileName={preview.fileName}
               valid={preview.valid}
               errorCount={preview.errorCount}
               warningCount={preview.warningCount}
+              infoCount={preview.infoCount || 0}
               summary={preview.summary}
               excelPreview={preview.excelPreview}
               issues={preview.issues || []}
@@ -470,19 +442,21 @@ export default function RequirementImportWorkspace({
               planningReadiness={preview.planningReadiness || null}
             />
           </div>
-          {(preview.newSkillsDetected || []).length > 0 ? (
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <SkillReviewPanel
-                orgId={orgId}
-                skills={preview.newSkillsDetected}
-                compact
-                canReview={!grantsLoading && canReviewSkills}
-              />
-            </div>
-          ) : null}
           {preview.valid && !canConfirmPreview ? (
             <p className="shrink-0 text-xs text-destructive">
-              {t('requirements.confirmImportBlockedStaffing')}
+              {t('requirements.confirmImportBlockedValidation')}
+            </p>
+          ) : null}
+          {!preview.valid || Number(preview.errorCount) > 0 ? (
+            <p className="shrink-0 text-xs text-destructive">
+              {t('requirements.importBlockedByErrors')}
+            </p>
+          ) : null}
+          {preview.valid &&
+          Number(preview.warningCount) > 0 &&
+          Number(preview.errorCount || 0) === 0 ? (
+            <p className="shrink-0 text-xs text-amber-800 dark:text-amber-200">
+              {t('requirements.continueAnywayHint')}
             </p>
           ) : null}
         </div>
@@ -684,27 +658,6 @@ export default function RequirementImportWorkspace({
             {t('requirements.deletePack')}
           </PackRowActionButton>
         ) : null}
-        {canRunAiPlanning && canRunAiOnPack(pack) ? (
-          <PackRowActionButton
-            disabled={actionPackId === pack._id}
-            onClick={() => runAiPlanning(pack._id)}
-            title={
-              pack.aiPlanning?.status === 'ready'
-                ? t('requirements.aiPlanningRerunHint')
-                : t('requirements.aiPlanningRun')
-            }
-            aria-busy={actionPackId === pack._id || undefined}
-          >
-            {actionPackId === pack._id ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-            )}
-            {actionPackId === pack._id
-              ? t('requirements.aiPlanningStatus.pending')
-              : t('requirements.aiPlanningRun')}
-          </PackRowActionButton>
-        ) : null}
       </div>
     </li>
   );
@@ -727,20 +680,22 @@ export default function RequirementImportWorkspace({
   );
 
   const listBody = !filteredPacks.length ? (
-    <p className="text-sm text-muted-foreground">
+    <p className={`text-sm text-muted-foreground ${isAdmin ? '' : 'min-h-0 flex-1'}`}>
       {packs.length ? t('requirements.emptyFiltered') : t(sk('empty'))}
     </p>
   ) : (
     <>
-      <ul className={`space-y-2 ${isAdmin ? 'text-sm' : ''}`}>
-        {pagedPacks.map((pack) => (isAdmin ? renderAdminPackRow(pack) : renderCollaboratePackRow(pack)))}
-      </ul>
-      {paginationBar}
+      <div className={isAdmin ? undefined : 'min-h-0 flex-1 overflow-y-auto scrollbar-overlay'}>
+        <ul className={`space-y-2 ${isAdmin ? 'text-sm' : ''}`}>
+          {pagedPacks.map((pack) => (isAdmin ? renderAdminPackRow(pack) : renderCollaboratePackRow(pack)))}
+        </ul>
+      </div>
+      <div className={isAdmin ? undefined : 'shrink-0'}>{paginationBar}</div>
     </>
   );
 
   return (
-    <>
+    <div className={isAdmin ? undefined : 'flex min-h-0 flex-1 flex-col'}>
       {!isAdmin ? (
         <header className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0">
@@ -751,25 +706,16 @@ export default function RequirementImportWorkspace({
         </header>
       ) : null}
 
-      {lastImportNewSkills.length > 0 ? (
-        <div className="mb-6">
-          <SkillReviewPanel
-            orgId={orgId}
-            skills={lastImportNewSkills}
-            onChanged={loadPacks}
-            canReview={!grantsLoading && canReviewSkills}
-          />
-        </div>
-      ) : null}
-
       {isAdmin ? (
         <AdminUserFormCard title={t(sk('listTitle'))}>
           <div className="mb-4">{statusFilterBar}</div>
           {listBody}
         </AdminUserFormCard>
       ) : (
-        <div className={FIGMA_PAGE_CARD_PAD}>
-          <div className="mb-4">{statusFilterBar}</div>
+        <div
+          className={`${FIGMA_PAGE_CARD} flex min-h-0 flex-1 flex-col overflow-hidden p-4`}
+        >
+          <div className="mb-4 shrink-0">{statusFilterBar}</div>
           {listBody}
         </div>
       )}
@@ -803,6 +749,6 @@ export default function RequirementImportWorkspace({
         confirmText={t('requirements.deletePack')}
         cancelText={t('common.cancel')}
       />
-    </>
+    </div>
   );
 }

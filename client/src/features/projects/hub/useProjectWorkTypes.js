@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { ensureProjectHubProject } from './useProjectHubQueries';
 import {
   WORK_TYPE_CHANGE_EVENT,
   loadWorkTypeConfig,
@@ -8,19 +10,17 @@ import {
   workTypeStorageKey,
 } from './projectWorkTypes';
 
-function unwrapProject(res) {
-  return res?.data?.data ?? res?.data ?? res ?? null;
-}
-
 function hasServerConfig(raw) {
   return Boolean(raw && typeof raw === 'object');
 }
 
 /**
  * Work types theo projectId — SSOT Project.workTypeConfig (serverConfig từ Shell), cache localStorage.
+ * Thiếu serverConfig: đọc qua ensureProjectHubProject (share cache với Shell), không GET thẳng.
  */
 export function useProjectWorkTypes(projectId, { serverConfig } = {}) {
   const id = String(projectId || '').trim();
+  const queryClient = useQueryClient();
   const [config, setConfig] = useState(() =>
     hasServerConfig(serverConfig)
       ? normalizeWorkTypeConfig(serverConfig)
@@ -38,24 +38,23 @@ export function useProjectWorkTypes(projectId, { serverConfig } = {}) {
     }
     let cancelled = false;
     setConfig(loadWorkTypeConfig(id));
-    (async () => {
-      try {
-        const res = await projectAPI.get(id);
-        const raw = unwrapProject(res)?.workTypeConfig;
+    ensureProjectHubProject(queryClient, id)
+      .then((project) => {
         if (cancelled) return;
+        const raw = project?.workTypeConfig;
         if (raw && typeof raw === 'object') {
           setConfig(saveWorkTypeConfig(id, raw));
         } else {
           setConfig(loadWorkTypeConfig(id));
         }
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) setConfig(loadWorkTypeConfig(id));
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [id, serverConfig]);
+  }, [id, serverConfig, queryClient]);
 
   useEffect(() => {
     const onChange = (event) => {

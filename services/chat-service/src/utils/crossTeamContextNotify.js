@@ -3,7 +3,7 @@ const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/ga
 const UserProjectMembership = require('../models/UserProjectMembership');
 const { isFocusedOnProjectRoom } = require('./projectRoomFocus');
 
-const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '')
   .trim()
   .replace(/\/+$/, '');
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '')

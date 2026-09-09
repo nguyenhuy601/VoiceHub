@@ -57,40 +57,24 @@ Môi trường dev: máy khác trong WiFi truy cập qua **HTTPS + hostname** (N
 
 **Gateway BFF / bootstrap (1b, 3d):** client chỉ gọi `/api/...` relative; gọi nội bộ gateway → service vẫn dùng URL Docker (`http://*-service:port`), không đổi vì browser đổi IP.
 
-## Chuẩn lập plan (bắt buộc)
+## Chuẩn lập plan (bắt buộc) — Plan Standard
 
-Khi tạo/cập nhật plan, luôn trình bày đúng 6 phần theo thứ tự:
+Khi tạo/cập nhật plan (CreatePlan / `.cursor/plans/*`), **luôn đủ 6 mục** theo thứ tự. Template đầy đủ: Skill [`plan-authoring`](../skills/plan-authoring/SKILL.md) và [`references/plan-template.md`](../skills/plan-authoring/references/plan-template.md). Blast radius: Skill `change-impact-analysis`.
 
-1. **Mục tiêu & phạm vi**
-   - Định nghĩa rõ "done" (success criteria đo lường được).
-   - Nêu rõ `in-scope` và `out-of-scope`.
-2. **Files affected**
-   - Liệt kê file tạo mới, file chỉnh sửa, file cố ý không đụng tới (nếu dễ nhầm).
-3. **Thiết kế & trách nhiệm module**
-   - Tách rõ route/controller/service/model.
-   - Không nhét business logic vào controller/router nếu service layer phù hợp hơn.
-4. **Thứ tự triển khai**
-   - Nêu dependency giữa các bước (vì sao làm A trước B).
-   - Chia bước nhỏ review được; có thể yêu cầu "Implement step 1 only. Stop for review."
-5. **Test plan**
-   - Nêu unit/integration/smoke test.
-   - Ghi rõ mock/fixture cần dùng và command chạy.
-   - Có tiêu chí pass quan sát/đo được (ví dụ auth flow pass, health endpoint 200).
-6. **Risk & trade-off**
-   - Nêu tối thiểu 1-3 rủi ro và quyết định đã chọn.
-   - Giải thích vì sao chọn phương án này thay vì phương án khác.
-   - Có rollback path rõ ràng (feature flag, migration reversible, commit nhỏ).
+1. **Mục tiêu & phạm vi** — Objective (loại + business/technical reason + outcome); **Success Criteria đo được** (cấm “hoàn thành chức năng X”); In-Scope; **Out-of-Scope** (chống agent mở rộng).
+2. **Files Affected** — phân loại **CREATE / MODIFY / DELETE / DO NOT MODIFY** + **§2.5 Dependency/Impact** (blast radius).
+3. **Thiết kế & trách nhiệm module** — Architecture (Route→Controller→Service→Model); Responsibility từng layer; Data Flow (multi-module); Business Rules (`RULE-0n`); Constraints (API/schema/compat).
+4. **Thứ tự triển khai** — Steps có dependency + lý do; mỗi step: Objective/Files/Implementation/Expected/Validation; plan lớn: **Review Gate** (`Implement step N only. Stop for review.`).
+5. **Test plan** — Unit / Integration / Smoke / Regression; Mock/Fixture; **Commands cụ thể** (cấm chỉ “run tests”); Pass criteria checklist đo được. Đóng plan: Skill `regression-testing`.
+6. **Risk & trade-off** — Bảng Risk (Impact/Probability/Trigger/Mitigation/Fallback); Decision/Alternative/Reason; Security; Rollback; Observability khi đụng runtime nhạy cảm.
 
-Dấu hiệu plan đạt chuẩn:
-- Người review đọc xong biết sửa file nào, test nào, rủi ro nào.
-- Triển khai được theo bước nhỏ, dừng review giữa chừng.
-- Có success criteria cụ thể, không mô tả chung chung.
+Dấu hiệu đạt chuẩn: biết sửa/không sửa file nào, blast radius, lệnh test, rủi ro, rollback; step + STOP for review; DoD đo được.
 
-Sau khi vá rủi ro bảo mật: chạy `bash devops/scripts/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
+Sau khi vá rủi ro bảo mật: `bash devops/scripts/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
 
 ## Hoàn tất plan — bắt buộc kiểm thử trước khi kết thúc
 
-**Không** đánh dấu plan/task “done” hoặc báo hoàn thành cho user khi chưa chạy test plan (hoặc ghi rõ blocker nếu stack không lên được).
+**Không** đánh dấu plan/task “done” hoặc báo hoàn thành cho user khi chưa chạy test plan (hoặc ghi rõ blocker nếu stack không lên được). Dùng Skill `regression-testing` khi đóng plan.
 
 ### Trước khi kết thúc mọi plan (BE/FE/full-stack)
 

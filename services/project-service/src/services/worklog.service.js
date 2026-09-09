@@ -8,10 +8,11 @@ const {
   normalizeWorkDate,
   varianceHours,
   sumWorklogHours,
-} = require('../utils/timeTracking');
+} = require('../utils/task/timeTracking');
+const { isTaskAssignee } = require('../utils/task/taskAssignee');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { logActivity } = require('./project.service');
-const { assertProjectWritable } = require('../utils/projectCloseGate');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
 const { emitWorklogFactBestEffort } = require('../clients/analyticsPublisher.client');
 
 function asOid(id) {
@@ -52,17 +53,27 @@ async function assertTaskPermission({ task, actorUserId, permission, message }) 
 }
 
 /**
- * Sum hours from worklog rows — re-export for callers.
+ * Collapse legacy duplicate rows for (taskId, userId, workDate) before unique upsert.
+ * Keeps the newest document.
  */
+async function collapseDuplicateWorklogs({ taskId, userId, workDate }) {
+  const rows = await Worklog.find({ taskId, userId, workDate })
+    .sort({ createdAt: -1 })
+    .select('_id')
+    .lean();
+  if (rows.length <= 1) return rows[0] || null;
+  const keep = rows[0];
+  const dropIds = rows.slice(1).map((r) => r._id);
+  await Worklog.deleteMany({ _id: { $in: dropIds } });
+  return keep;
+}
 
-async function createWorklog({
-  taskId,
-  actorUserId,
-  userId,
-  workDate,
-  hours,
-  note,
-} = {}) {
+/**
+ * Assignee self-log: upsert one Worklog per (taskId, actor, workDate).
+ * Ignores proxy userId — always logs for the actor.
+ * @returns {Promise<{ worklog: object, created: boolean }>}
+ */
+async function createWorklog({ taskId, actorUserId, workDate, hours, note } = {}) {
   assertTimeTrackingEnabled();
   const task = await loadTaskOrThrow(taskId);
   if (task.projectId) {
@@ -77,25 +88,50 @@ async function createWorklog({
     message: 'Không có quyền log work (task:update)',
   });
 
-  const targetUserId = asOid(userId) || String(actorUserId);
-  if (!asOid(targetUserId)) {
+  const actorOid = asOid(actorUserId);
+  if (!actorOid) {
     const err = new Error('userId không hợp lệ');
     err.statusCode = 400;
     throw err;
   }
 
-  const doc = await Worklog.create({
-    organizationId: task.organizationId,
-    projectId: task.projectId,
+  if (!isTaskAssignee(task, actorOid)) {
+    const err = new Error('Chỉ người được gán công việc mới được ghi log giờ');
+    err.statusCode = 403;
+    err.errorCode = 'WORKLOG_ASSIGNEE_ONLY';
+    throw err;
+  }
+
+  const workDateNorm = normalizeWorkDate(workDate);
+  const hoursNorm = normalizeWorklogHours(hours);
+  const noteNorm = String(note || '').trim().slice(0, 2000);
+
+  const prev = await collapseDuplicateWorklogs({
     taskId: task._id,
-    boardId: task.boardId || null,
-    sprintId: task.sprintId || null,
-    userId: targetUserId,
-    workDate: normalizeWorkDate(workDate),
-    hours: normalizeWorklogHours(hours),
-    note: String(note || '').trim().slice(0, 2000),
-    createdBy: actorUserId,
+    userId: actorOid,
+    workDate: workDateNorm,
   });
+
+  const doc = await Worklog.findOneAndUpdate(
+    { taskId: task._id, userId: actorOid, workDate: workDateNorm },
+    {
+      $set: {
+        organizationId: task.organizationId,
+        projectId: task.projectId,
+        boardId: task.boardId || null,
+        sprintId: task.sprintId || null,
+        hours: hoursNorm,
+        note: noteNorm,
+      },
+      $setOnInsert: {
+        createdBy: actorOid,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  const created = !prev;
+  const plain = doc.toObject ? doc.toObject() : doc;
 
   await logActivity({
     organizationId: task.organizationId,
@@ -103,28 +139,29 @@ async function createWorklog({
     boardId: task.boardId || null,
     taskId: task._id,
     actorId: actorUserId,
-    type: 'worklog_added',
-    title: `Log ${doc.hours}h`,
+    type: created ? 'worklog_added' : 'worklog_updated',
+    title: created ? `Log ${plain.hours}h` : `Cập nhật log ${plain.hours}h`,
     payload: {
-      worklogId: String(doc._id),
-      hours: doc.hours,
-      workDate: doc.workDate,
-      userId: String(doc.userId),
+      worklogId: String(plain._id),
+      hours: plain.hours,
+      workDate: plain.workDate,
+      userId: String(plain.userId),
+      updated: !created,
     },
   });
 
   emitWorklogFactBestEffort({
-    worklogId: doc._id,
+    worklogId: plain._id,
     organizationId: task.organizationId,
     projectId: task.projectId,
     taskId: task._id,
-    userId: doc.userId,
-    hours: doc.hours,
-    workDate: doc.workDate,
-    sprintId: doc.sprintId || task.sprintId,
+    userId: plain.userId,
+    hours: plain.hours,
+    workDate: plain.workDate,
+    sprintId: plain.sprintId || task.sprintId,
   });
 
-  return doc.toObject ? doc.toObject() : doc;
+  return { worklog: plain, created };
 }
 
 async function listWorklogsForTask({ taskId, actorUserId } = {}) {
@@ -202,10 +239,12 @@ async function getSprintTimeSummary({ projectId, sprintId, actorUserId } = {}) {
     };
   });
 
-  const estimateSum = Math.round(
-    byTask.reduce((s, r) => s + (r.estimateHours == null ? 0 : Number(r.estimateHours)), 0) * 100
-  ) / 100;
-  const actualSum = Math.round(byTask.reduce((s, r) => s + (Number(r.actualHours) || 0), 0) * 100) / 100;
+  const estimateSum =
+    Math.round(
+      byTask.reduce((s, r) => s + (r.estimateHours == null ? 0 : Number(r.estimateHours)), 0) * 100
+    ) / 100;
+  const actualSum =
+    Math.round(byTask.reduce((s, r) => s + (Number(r.actualHours) || 0), 0) * 100) / 100;
 
   return {
     projectId: pid,
@@ -224,4 +263,5 @@ module.exports = {
   getSprintTimeSummary,
   sumWorklogHours,
   varianceHours,
+  isTaskAssignee,
 };

@@ -1283,6 +1283,10 @@ export default function ProjectHubTimelinePanel({
           Boolean(canManage) ||
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
         }
+        canUpdateTask={
+          Boolean(canManage) ||
+          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+        }
         canChangeStatus={
           Boolean(canManage) ||
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:change_status'))

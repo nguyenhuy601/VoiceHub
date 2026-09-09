@@ -2,7 +2,7 @@ const {
   REQUIREMENT_SKILL_WHITELIST,
   REQUIREMENT_SKILL_WHITELIST_LOWER,
   SUGGESTED_PROJECT_ROLE_SET,
-} = require('../constants/requirementStaffing.constants');
+} = require('../../constants/requirementStaffing.constants');
 
 function parseSkillsCsv(raw) {
   return String(raw || '')

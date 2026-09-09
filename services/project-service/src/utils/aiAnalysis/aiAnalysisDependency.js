@@ -9,12 +9,13 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
   buildProjectContextSlice,
   truncate,
 } = require('./aiAnalysisFrSlice');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const DEP_KINDS = Object.freeze([
   'requires',
@@ -33,7 +34,7 @@ const DEP_TYPES = Object.freeze([
 ]);
 
 const EVIDENCE_MAX = 200;
-const EDGE_WALL_MS = 120000;
+const EDGE_WALL_MS = resolveJobWallMs('dependencyAnalysis');
 const EDGE_NUM_PREDICT = 768;
 const SOFT_EDGE_MAX = 40;
 
@@ -594,7 +595,10 @@ async function runDependencyAnalysis(pack, container, opts = {}) {
 
   const llmEnabled = isAiPlanningLlmEnabled() && opts.forceHeuristic !== true;
   if (llmEnabled && input.capabilities.length) {
-    const timeoutMs = opts.timeoutMs ?? Math.min(planningTimeoutMs(), EDGE_WALL_MS);
+    const timeoutMs =
+      opts.timeoutMs ??
+      opts.wallMs ??
+      Math.min(planningTimeoutMs(), resolveJobWallMs('dependencyAnalysis'));
     const prompt = buildDependencyPrompt({
       context: input.context,
       capabilities: input.capabilities,

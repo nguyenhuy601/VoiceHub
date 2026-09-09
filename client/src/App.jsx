@@ -145,6 +145,7 @@ function App() {
           <Route path="projects/:projectId" element={<ProjectHubPage />} />
           <Route path="tasks" element={<LegacyTasksRedirect />} />
           <Route path="documents" element={<DocumentsPage suiteLayout />} />
+          <Route path="calendar" element={<CalendarPage suiteLayout />} />
           <Route path="requirements" element={<CollaborateRequirementsPage />} />
           <Route
             path="notifications"

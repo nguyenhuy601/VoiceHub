@@ -3,7 +3,7 @@
  * Field P2 thiếu schema → null + unavailableReason.
  */
 
-const { isDoneFromTask, normalizeEstimateHours } = require('./sprintCloseClassify');
+const { isDoneFromTask, normalizeEstimateHours } = require('../task/sprintCloseClassify');
 const { asStringOid } = require('./projectCloseGate');
 
 const SNAPSHOT_SCHEMA_VERSION = 1;

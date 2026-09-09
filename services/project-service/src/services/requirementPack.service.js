@@ -5,7 +5,7 @@ const {
   attachPlanningReadiness,
   assertPackReadyForSubmit,
   pickPlanningReadinessSummary,
-} = require('../utils/requirementPlanningReadiness');
+} = require('../utils/requirement/requirementPlanningReadiness');
 const {
   queryRequirementPackList,
   mapRequirementPackList,
@@ -13,19 +13,19 @@ const {
   PACK_WIZARD_SELECT,
   hasStoredReadiness,
   toRequirementPackWizardItem,
-} = require('../utils/requirementPackList');
-const { mapPackConstraintsToProject } = require('../utils/mapPackConstraintsToProject');
+} = require('../utils/requirement/requirementPackList');
+const { mapPackConstraintsToProject } = require('../utils/requirement/mapPackConstraintsToProject');
 const { assertRequirementPermission } = require('./requirementAccess.service');
 const { createProject } = require('./project.service');
-const objectStorage = require('../utils/objectStorage');
-const { XLSX_MIME } = require('../utils/requirementExcelPreview');
-const { ensurePackPreviewViews } = require('../utils/requirementPackPreviewFallback');
-const { assertCanSoftDeleteRequirementPack } = require('../utils/requirementPackDelete');
+const objectStorage = require('../utils/common/objectStorage');
+const { XLSX_MIME } = require('../utils/requirement/requirementExcelPreview');
+const { ensurePackPreviewViews } = require('../utils/requirement/requirementPackPreviewFallback');
+const { assertCanSoftDeleteRequirementPack } = require('../utils/requirement/requirementPackDelete');
 const {
   importRequirementPackWorkItems,
   seedProjectMembersFromAssignees,
 } = require('./requirementPackWorkImport.service');
-const { normalizeCreatePackLeafAssignments } = require('../utils/requirementPackWorkImport.utils');
+const { normalizeCreatePackLeafAssignments } = require('../utils/requirement/requirementPackWorkImport.utils');
 
 /** Minimal 3-band roster so createProject assertDeliveryRoster passes (edit later in Hub). */
 const CREATE_FROM_PACK_ROSTER_KEYS = Object.freeze([

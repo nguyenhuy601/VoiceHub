@@ -6,9 +6,9 @@ const Project = require('../models/Project');
 const TaskBoardList = require('../models/TaskBoardList');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { logger } = require('@enterprise/shared');
-const { serializeHistoryValue, expandLegacyUpdated } = require('../utils/workHistoryDiff');
-const { displayIssueKey } = require('../utils/displayIssueKey');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { serializeHistoryValue, expandLegacyUpdated } = require('../utils/work/workHistoryDiff');
+const { displayIssueKey } = require('../utils/work/displayIssueKey');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 const {
   selectAnnouncementChanges,
 } = require('@enterprise/shared/messaging/projectWorkActivity');
@@ -403,7 +403,7 @@ async function listPlanningItemHistory({ projectId, itemId, actorUserId, limit, 
   }
   const projectService = require('./project.service');
   await projectService.getProject({ userId: actorUserId, projectId: pid });
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     await assertUserProjectPermission({
       userId: actorUserId,

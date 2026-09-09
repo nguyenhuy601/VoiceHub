@@ -3,7 +3,7 @@ const {
   normalizeWorkTypeConfig,
   assertNestByDepth,
   defaultWorkTypeConfig,
-} = require('../utils/workTypeConfig');
+} = require('../utils/project/workTypeConfig');
 
 function nestDenied(message) {
   const err = new Error(message || 'Chỉ gắn vào nhóm trên đúng 1 cấp theo cấu hình Work types');

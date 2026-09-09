@@ -77,6 +77,34 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
     const canCreateChangeRequest = flagOrPerm(caps, 'canCreateChangeRequest', ['change_request:create']);
     const canUpdateChangeRequest = flagOrPerm(caps, 'canUpdateChangeRequest', ['change_request:update']);
     const canDeleteChangeRequest = flagOrPerm(caps, 'canDeleteChangeRequest', ['change_request:delete']);
+    const canViewBoard = Boolean(caps.canView ?? caps.canEditCards ?? true);
+    const canViewBacklog =
+      caps.canViewBacklog != null
+        ? Boolean(caps.canViewBacklog)
+        : permissions.includes('backlog:view');
+    const canViewWorkItems =
+      caps.canViewWorkItems != null
+        ? Boolean(caps.canViewWorkItems)
+        : canViewBoard &&
+          (permissions.includes('task:view') ||
+            permissions.includes('project:view') ||
+            permissions.length === 0);
+    const canViewReport =
+      caps.canViewReport != null
+        ? Boolean(caps.canViewReport)
+        : permissions.includes('report:view');
+    const canViewFiles =
+      caps.canViewFiles != null
+        ? Boolean(caps.canViewFiles)
+        : permissions.includes('files:view');
+    const canViewActivityTab =
+      caps.canViewActivityTab != null ? Boolean(caps.canViewActivityTab) : canViewWorkItems;
+    const canViewSprints =
+      caps.canViewSprints != null
+        ? Boolean(caps.canViewSprints)
+        : permissions.includes('sprint:view') ||
+          permissions.includes('project:view') ||
+          Boolean(caps.canManageSprints);
     return applyReadOnly(
       {
         canManagePlanning: Boolean(caps.canManagePlanning),
@@ -90,7 +118,13 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canManageSprints: Boolean(caps.canManageSprints),
         canDeleteSprint: flagOrPerm(caps, 'canDeleteSprint', ['sprint:delete']),
         canManageDelivery: flagOrPerm(caps, 'canManageDelivery', ['delivery:manage']),
-        canViewBoard: Boolean(caps.canView ?? caps.canEditCards ?? true),
+        canViewBoard,
+        canViewBacklog,
+        canViewWorkItems,
+        canViewReport,
+        canViewFiles,
+        canViewActivityTab,
+        canViewSprints,
         canCreateEpic: flagOrPerm(caps, 'canCreateEpic', ['epic:create']),
         canUpdateEpic: flagOrPerm(caps, 'canUpdateEpic', ['epic:update']),
         canDeleteEpic: flagOrPerm(caps, 'canDeleteEpic', ['epic:delete']),
@@ -125,6 +159,12 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canDeleteSprint: fallback,
       canManageDelivery: fallback,
       canViewBoard: true,
+      canViewBacklog: fallback,
+      canViewWorkItems: true,
+      canViewReport: fallback,
+      canViewFiles: fallback,
+      canViewActivityTab: true,
+      canViewSprints: fallback,
       canCreateEpic: fallback,
       canUpdateEpic: fallback,
       canDeleteEpic: fallback,

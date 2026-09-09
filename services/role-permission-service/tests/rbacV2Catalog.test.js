@@ -42,23 +42,23 @@ test('T1 catalog integrity — no duplicate keys, templates subset of master', (
   assert.ok(tree.some((c) => c.key === 'project'));
   assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.position')));
   assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.organization_role')));
-  assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.skill_registry')));
-  assert.equal(isValidMasterPermission('organization.skill_registry.review'), true);
+  assert.equal(
+    tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.skill_registry')),
+    false
+  );
+  assert.equal(isValidMasterPermission('organization.skill_registry.review'), false);
 });
 
-test('skill registry review grant on delivery templates', () => {
+test('skill registry grants removed from delivery templates', () => {
   const orgAdmin = getTemplateDefinition('organization_admin');
-  assert.ok(orgAdmin.grants.includes('organization.skill_registry.review'));
-  assert.ok(orgAdmin.grants.includes('organization.skill_registry.view'));
+  assert.equal(orgAdmin.grants.includes('organization.skill_registry.review'), false);
+  assert.equal(orgAdmin.grants.includes('organization.skill_registry.view'), false);
 
   const pm = getTemplateDefinition('project_manager');
-  assert.ok(pm.grants.includes('organization.skill_registry.review'));
+  assert.equal(pm.grants.includes('organization.skill_registry.review'), false);
 
   const po = getTemplateDefinition('product_owner');
-  assert.ok(po.grants.includes('organization.skill_registry.review'));
-
-  const dev = getTemplateDefinition('developer');
-  assert.equal(dev.grants.includes('organization.skill_registry.review'), false);
+  assert.equal(po.grants.includes('organization.skill_registry.review'), false);
 });
 
 test('T4b org permission pack templates omit project.*; project_admin keeps them', () => {

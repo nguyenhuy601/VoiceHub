@@ -1,5 +1,5 @@
 const XLSX = require('xlsx');
-const { SHEETS } = require('../constants/requirementTemplate.constants');
+const { SHEETS } = require('../../constants/requirementTemplate.constants');
 const { isFrExecutionLeaf } = require('./requirementFrLevel');
 const { sheetToMatrix, normalizeHeader } = require('./requirementTemplateParse');
 const { rollupFrEstimateHours } = require('./requirementStaffingRollup');

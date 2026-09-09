@@ -76,7 +76,7 @@ export default function AdminUserDetailDrawer({
   const { t } = useAppStrings();
   const { isFullAccess, canAccessHub } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canReviewCapability = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.SKILL_REGISTRY_REVIEW);
+  const canReviewCapability = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.EMPLOYEE_UPDATE);
   const canConfirmExperience = Boolean(canAccessHub);
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);

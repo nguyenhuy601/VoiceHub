@@ -29,8 +29,6 @@ import {
   proficiencyTierFromLevel,
   toCapabilityPayload,
 } from '../../constants/capabilityCatalog';
-import { useWorkspace } from '../../context/WorkspaceContext';
-import useOrgSkillCatalog from '../../hooks/useOrgSkillCatalog';
 
 const STATUS_BADGE = {
   draft: 'bg-muted text-muted-foreground',
@@ -50,10 +48,7 @@ function readJobTitle(profile) {
 export default function CapabilityProfilePanel() {
   const { t } = useAppStrings();
   const { user, updateUser } = useAuth();
-  const { company } = useWorkspace();
-  const orgId = String(company?._id || company?.id || '').trim();
-  const { skillNames, skillByName, loading: skillsCatalogLoading } = useOrgSkillCatalog(orgId);
-  const skillWhitelist = skillNames.length ? skillNames : [...SKILL_WHITELIST];
+  const skillWhitelist = SKILL_WHITELIST;
   const { me, loading: meLoading, setMeData, reload: reloadMe } = useUserMe({
     enabled: Boolean(user?.id || user?.userId || user?._id),
   });
@@ -203,14 +198,12 @@ export default function CapabilityProfilePanel() {
       toast.error(t('settingsCapability.maxTopSkills', { n: MAX_TOP_SKILLS }));
       return;
     }
-    const registrySkill = skillByName.get(name);
     setForm((prev) => ({
       ...prev,
       skills: [
         ...(prev.skills || []),
         {
           name,
-          skillId: registrySkill?.id || undefined,
           level: 3,
           rank: (prev.skills || []).length + 1,
         },

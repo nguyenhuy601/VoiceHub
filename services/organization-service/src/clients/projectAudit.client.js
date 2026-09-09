@@ -4,9 +4,7 @@
 const axios = require('axios');
 const { logger } = require('@enterprise/shared');
 
-const PROJECT_SERVICE_URL = String(
-  process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || ''
-)
+const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '')
   .trim()
   .replace(/\/+$/, '');
 const GATEWAY_INTERNAL_TOKEN = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();

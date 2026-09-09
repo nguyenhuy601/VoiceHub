@@ -3,7 +3,7 @@
  * Patches tasks with effortHours/requiredLevel; rollup planning.effort.
  */
 
-const { normalizeRoleKey } = require('./requirementStaffingParse');
+const { normalizeRoleKey } = require('../requirement/requirementStaffingParse');
 
 const MAX_EFFORT_HOURS = 80;
 const MIN_EFFORT_HOURS = 1;

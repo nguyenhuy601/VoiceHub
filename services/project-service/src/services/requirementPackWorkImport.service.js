@@ -4,9 +4,14 @@
 
 const { logger } = require('@enterprise/shared');
 const { setUserProjectRoles } = require('./projectTeam.service');
-const { isFrExecutionLeaf } = require('../utils/requirementFrLevel');
-const { buildLeafAssigneeMap } = require('../utils/requirementPackWorkImport.utils');
-const { importRequirementPackWorkItemsFast } = require('../utils/requirementPackWorkImport.fast');
+const { isFrExecutionLeaf } = require('../utils/requirement/requirementFrLevel');
+const { buildLeafAssigneeMap } = require('../utils/requirement/requirementPackWorkImport.utils');
+const { importRequirementPackWorkItemsFast, importBlueprintWorkItemsFast } = require('../utils/requirement/requirementPackWorkImport.fast');
+const {
+  assertBlueprintReadyForProjectCreate,
+  mapBlueprintTasksToImportPlan,
+} = require('../utils/aiAnalysis/aiAnalysisBlueprintImport');
+const { getJobStatus, ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
 
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 
@@ -22,7 +27,37 @@ const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
  * }} input
  */
 async function importRequirementPackWorkItems(input) {
+  const pack = input?.pack;
+  const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
+  const jobPlan = getJobStatus(container, 'projectPlan');
+  if (jobPlan === 'confirmed' && (container.planning?.tasks || []).length) {
+    const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
+      applyAssignees: input.applyAssignees !== false,
+      taskIds: input.taskIds || null,
+    });
+    return importBlueprintWorkItemsFast({
+      ...input,
+      blueprintPlan,
+    });
+  }
+  // Legacy FR→Task only when Blueprint projectPlan not confirmed
   return importRequirementPackWorkItemsFast(input);
+}
+
+/**
+ * Require projectPlan confirmed then import blueprint tasks.
+ */
+async function importBlueprintFromPack(input) {
+  assertBlueprintReadyForProjectCreate(input.pack);
+  const container = ensureAiAnalysisContainer(input.pack.aiAnalysis);
+  const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
+    applyAssignees: input.applyAssignees !== false,
+    taskIds: input.taskIds || null,
+  });
+  return importBlueprintWorkItemsFast({
+    ...input,
+    blueprintPlan,
+  });
 }
 
 /**
@@ -35,22 +70,43 @@ async function seedProjectMembersFromAssignees({
   pack,
   leafAssignments = [],
 }) {
-  const overlayLeaves = pack?.aiPlanning?.overlay?.leafAssignments || [];
-  const assigneeMap = buildLeafAssigneeMap(leafAssignments, overlayLeaves);
-  const frList = pack?.functionalRequirements || [];
+  const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
+  const jobPlan = getJobStatus(container, 'projectPlan');
   const roleByUser = new Map();
 
-  for (const row of frList) {
-    const ext = String(row.externalId || '').trim();
-    if (!ext || !isFrExecutionLeaf(row, frList)) continue;
-    const uid = assigneeMap.get(ext);
-    if (!uid) continue;
-    const roleKey =
-      String(row.suggestedRoleKey || '')
-        .trim()
-        .toLowerCase() || 'developer';
-    if (!roleByUser.has(uid)) roleByUser.set(uid, new Set());
-    roleByUser.get(uid).add(roleKey);
+  if (jobPlan === 'confirmed' && (container.resource?.assignments || []).length) {
+    const roleByTask = new Map(
+      (container.planning?.tasks || []).map((t) => [
+        String(t.id),
+        String(t.suggestedRoleKey || '')
+          .trim()
+          .toLowerCase() || 'developer',
+      ])
+    );
+    for (const a of container.resource.assignments) {
+      const uid = String(a?.userId || '').trim();
+      if (!uid) continue;
+      const roleKey = roleByTask.get(String(a.taskId)) || 'developer';
+      if (!roleByUser.has(uid)) roleByUser.set(uid, new Set());
+      roleByUser.get(uid).add(roleKey);
+    }
+  } else if (Array.isArray(leafAssignments) && leafAssignments.length) {
+    // Request-body leaf overrides only — no legacy aiPlanning.overlay
+    const assigneeMap = buildLeafAssigneeMap(leafAssignments, []);
+    const frList = pack?.functionalRequirements || [];
+
+    for (const row of frList) {
+      const ext = String(row.externalId || '').trim();
+      if (!ext || !isFrExecutionLeaf(row, frList)) continue;
+      const uid = assigneeMap.get(ext);
+      if (!uid) continue;
+      const roleKey =
+        String(row.suggestedRoleKey || '')
+          .trim()
+          .toLowerCase() || 'developer';
+      if (!roleByUser.has(uid)) roleByUser.set(uid, new Set());
+      roleByUser.get(uid).add(roleKey);
+    }
   }
 
   let added = 0;
@@ -75,5 +131,6 @@ async function seedProjectMembersFromAssignees({
 module.exports = {
   IMPORT_HOURS_RATIONALE,
   importRequirementPackWorkItems,
+  importBlueprintFromPack,
   seedProjectMembersFromAssignees,
 };

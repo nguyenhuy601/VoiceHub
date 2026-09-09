@@ -181,9 +181,9 @@ export default function OverviewTab() {
 
   const boardMembers = (assignableMembers || [])
     .map((m) => ({
-      id: String(m.userId || ''),
-      name: String(m.displayName || m.username || t('common.member')),
-      avatar: String(m.displayName || m.username || '??')
+      id: String(m.userId || m.id || ''),
+      name: String(m.displayName || m.name || m.username || t('common.member')),
+      avatar: String(m.displayName || m.name || m.username || '??')
         .slice(0, 2)
         .toUpperCase(),
     }))
@@ -462,6 +462,7 @@ export default function OverviewTab() {
               {hintLoading ? t('common.loading') : t('taskBoard.estimateHintApply')}
             </button>
           </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">{t('taskBoard.estimateHint')}</p>
           {estimateHint?.userPerformanceHints ? (
             <p className="mt-1 text-[11px] text-muted-foreground">
               {t('taskBoard.estimateHintSummary', {

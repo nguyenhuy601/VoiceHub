@@ -1,18 +1,20 @@
-/**
- * Hydrate đủ context cho WorkItemDetail khi mở từ Chat/preview
- * (cùng shape props như ProjectHubShell).
- */
 import { projectAPI } from '../../../../services/api/projectAPI';
 import {
-  taskAPI,
   unwrapTaskApiPayload,
-  unwrapTaskBoardDetailPayload,
 } from '../../../../services/api/taskAPI';
-import { unwrapPlanningList } from '../projectHubUtils';
+import { queryKeys } from '../../../../lib/queryKeys';
 import {
   findBoardCardById,
   pickPlanningEpicsAndFeatures,
 } from './hydrateWorkItemDetailHelpers';
+import {
+  ensureProjectHubBoards,
+  fetchProjectHubBoardDetail,
+  fetchProjectHubPlanningItems,
+  fetchProjectHubSprints,
+  unwrapProjectPayload,
+} from '../useProjectHubQueries';
+import { resolveHubCapabilities } from '../hubCaps';
 
 function asList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -29,29 +31,24 @@ function relId(value) {
 
 /**
  * @param {object} opts
+ * @param {import('@tanstack/react-query').QueryClient} [opts.queryClient]
  * @param {string} opts.entityId - TaskBoardCard id
  * @param {string} [opts.projectId]
  * @param {string} [opts.boardId]
  * @param {object} [opts.stub] - preview stub (title/status…)
  * @param {object} [opts.apiCtx]
- * @returns {Promise<{
- *   workItem: object,
- *   boardCards: object[],
- *   lists: object[],
- *   epics: object[],
- *   features: object[],
- *   sprints: object[],
- *   boardId: string,
- *   projectId: string,
- *   projectCode: string,
- * }>}
+ * @param {boolean} [opts.canViewBacklog]
+ * @param {boolean} [opts.canViewSprints]
  */
 export async function hydrateWorkItemDetailFromHub({
+  queryClient = null,
   entityId,
   projectId = '',
   boardId = '',
   stub = null,
   apiCtx = null,
+  canViewBacklog,
+  canViewSprints,
 } = {}) {
   const id = relId(entityId);
   let pid = String(projectId || '').trim();
@@ -60,24 +57,62 @@ export async function hydrateWorkItemDetailFromHub({
 
   if (!bid && pid) {
     try {
-      const boardsRes = await projectAPI.listBoards(pid, ctx.organizationId || undefined);
-      const boards = asList(unwrapTaskApiPayload(boardsRes));
-      const main = boards.find((b) => b && b.isActive !== false) || boards[0];
+      const boards = queryClient
+        ? await ensureProjectHubBoards(queryClient, pid, ctx.organizationId || '')
+        : asList(
+            unwrapTaskApiPayload(
+              await projectAPI.listBoards(pid, ctx.organizationId || undefined)
+            )
+          );
+      const main =
+        (Array.isArray(boards) ? boards : []).find((b) => b && b.isActive !== false) ||
+        boards?.[0];
       bid = relId(main?._id || main?.id);
     } catch {
       /* keep empty */
     }
   }
 
-  const [boardRes, planningRes, sprintRes] = await Promise.all([
+  const ensure = async (queryKey, queryFn) => {
+    if (queryClient && typeof queryClient.ensureQueryData === 'function') {
+      return queryClient.ensureQueryData({ queryKey, queryFn, staleTime: 15_000 });
+    }
+    return queryFn();
+  };
+
+  let allowPlanning = canViewBacklog;
+  let allowSprints = canViewSprints;
+  if (pid && (allowPlanning === undefined || allowSprints === undefined)) {
+    try {
+      const projectPayload = await ensure(queryKeys.projectHub.project(pid), async () => {
+        const res = await projectAPI.get(pid);
+        return unwrapProjectPayload(res) || null;
+      });
+      const caps = resolveHubCapabilities(projectPayload);
+      if (allowPlanning === undefined) allowPlanning = Boolean(caps.canViewBacklog);
+      if (allowSprints === undefined) allowSprints = Boolean(caps.canViewSprints);
+    } catch {
+      if (allowPlanning === undefined) allowPlanning = false;
+      if (allowSprints === undefined) allowSprints = false;
+    }
+  }
+  if (allowPlanning !== true) allowPlanning = false;
+  if (allowSprints !== true) allowSprints = false;
+
+  const [detail, planningItems, sprints] = await Promise.all([
     bid
-      ? taskAPI.getBoardDetail(bid, { ...ctx, skipNotFoundToast: true })
+      ? ensure(queryKeys.projectHub.boardDetail(bid, 'full'), () =>
+          fetchProjectHubBoardDetail(bid, { ...ctx, skipNotFoundToast: true }, { includeCards: true })
+        )
       : Promise.resolve(null),
-    pid ? projectAPI.listPlanningItems(pid) : Promise.resolve(null),
-    pid ? projectAPI.listSprints(pid) : Promise.resolve(null),
+    pid && allowPlanning
+      ? ensure(queryKeys.projectHub.planningItems(pid), () => fetchProjectHubPlanningItems(pid))
+      : Promise.resolve([]),
+    pid && allowSprints
+      ? ensure(queryKeys.projectHub.sprints(pid), () => fetchProjectHubSprints(pid))
+      : Promise.resolve([]),
   ]);
 
-  const detail = boardRes ? unwrapTaskBoardDetailPayload(boardRes) : null;
   const board = detail?.board || detail || {};
   const lists = Array.isArray(detail?.lists)
     ? detail.lists
@@ -89,9 +124,9 @@ export async function hydrateWorkItemDetailFromHub({
   if (!bid) bid = relId(board?._id || board?.id || detail?.boardId);
   const projectCode = String(board?.projectCode || stub?.project?.projectCode || '').trim();
 
-  const planningItems = planningRes ? unwrapPlanningList(planningRes) : [];
-  const { epics, features } = pickPlanningEpicsAndFeatures(planningItems);
-  const sprints = sprintRes ? unwrapPlanningList(sprintRes) : [];
+  const { epics, features } = pickPlanningEpicsAndFeatures(
+    Array.isArray(planningItems) ? planningItems : []
+  );
 
   let workItem =
     findBoardCardById(boardCards, id) ||
@@ -123,7 +158,7 @@ export async function hydrateWorkItemDetailFromHub({
     lists,
     epics,
     features,
-    sprints,
+    sprints: Array.isArray(sprints) ? sprints : [],
     boardId: bid,
     projectId: pid,
     projectCode,

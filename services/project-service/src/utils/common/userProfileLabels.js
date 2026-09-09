@@ -28,10 +28,10 @@ async function loadProfileMap(userIds, deps = {}) {
 
   const fetchBatch =
     deps.fetchProfilesByUserIds ||
-    require('../clients/userProfilesBatch.client').fetchProfilesByUserIds;
+    require('../../clients/userProfilesBatch.client').fetchProfilesByUserIds;
   const fetchOne =
     deps.fetchUserProfileByIdInternal ||
-    require('../clients/userService.client').fetchUserProfileByIdInternal;
+    require('../../clients/userService.client').fetchUserProfileByIdInternal;
 
   const batched = await fetchBatch(unique);
   if (batched && typeof batched.forEach === 'function') {

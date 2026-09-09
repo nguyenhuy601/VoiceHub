@@ -9,7 +9,7 @@ const TaskBoardMember = require('../models/TaskBoardMember');
 const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
 const Project = require('../models/Project');
-const { buildClosedBoardExperiences } = require('../utils/boardCloseExperience');
+const { buildClosedBoardExperiences } = require('../utils/project/boardCloseExperience');
 const { appendClosedBoardExperience } = require('../clients/userService.client');
 
 const LEGACY_BOARD_ROLES = Object.freeze([

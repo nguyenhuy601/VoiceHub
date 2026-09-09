@@ -9,10 +9,12 @@ import {
 } from '@dnd-kit/core';
 import { RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload, unwrapTaskBoardDetailPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { queryKeys } from '../../../lib/queryKeys';
 import ConfirmDialog from '../../../components/Shared/ConfirmDialog';
 import WorkItemDetail from './WorkItemDetail';
 import {
@@ -32,7 +34,7 @@ import ResizableTableHeader from './ResizableTableHeader';
 import { useResizableTableColumns } from './useResizableTableColumns';
 import { childWorkStats } from './projectHubBacklogStats';
 import { canExpandListRow, flattenExpandedRows } from './projectHubListLazy';
-import { unwrapPlanningEntity, unwrapPlanningList } from './projectHubUtils';
+import { unwrapPlanningEntity } from './projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from './planningBoardStatus';
 import { buildWorkItemDatePatch } from './WorkItemDetail/workItemDetailUtils';
 import {
@@ -42,6 +44,10 @@ import {
   visibleCreateMenuTypes,
 } from './projectWorkTypes';
 import { useProjectWorkTypes } from './useProjectWorkTypes';
+import {
+  ensureProjectHubBoardDetail,
+  useProjectHubAssignableMembers,
+} from './useProjectHubQueries';
 
 function listCollisionDetection(args) {
   const hits = pointerWithin(args);
@@ -113,6 +119,9 @@ export default function ProjectHubListPanel({
   priorityConfig = null,
   workflowTransitionsByFrom = null,
   parentBoardCards = null,
+  planningItems: shellPlanningItems = null,
+  planningLoading: shellPlanningLoading = false,
+  planningError: shellPlanningError = false,
 }) {
   const { t } = useAppStrings();
   const listColumns = useMemo(
@@ -138,11 +147,12 @@ export default function ProjectHubListPanel({
   const [loadedIds, setLoadedIds] = useState(() => new Set());
   const [loadingIds, setLoadingIds] = useState(() => new Set());
   const [expandErrorIds, setExpandErrorIds] = useState(() => new Set());
-  const [epicsLoading, setEpicsLoading] = useState(false);
-  const [epicsError, setEpicsError] = useState(false);
-  const loading = epicsLoading;
-  const loadError = epicsError;
+  const [cardsLoading, setCardsLoading] = useState(false);
+  const [cardsError, setCardsError] = useState(false);
+  const loading = Boolean(shellPlanningLoading || cardsLoading);
+  const loadError = Boolean(shellPlanningError || cardsError);
   const [busy, setBusy] = useState(false);
+  const [busyIds, setBusyIds] = useState(() => new Set());
   const [creatingUnderId, setCreatingUnderId] = useState('');
   const [rootCreateOpen, setRootCreateOpen] = useState(false);
   const [detailIssueId, setDetailIssueId] = useState('');
@@ -157,11 +167,16 @@ export default function ProjectHubListPanel({
   }));
   const activeDragId = dragSession.id;
   const dragDeltaX = dragSession.deltaX;
-  const [assignableMembers, setAssignableMembers] = useState([]);
-  const [membersLoading, setMembersLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const {
+    data: assignableMembers = [],
+    isPending: membersLoading,
+  } = useProjectHubAssignableMembers(boardId, apiCtx, {
+    enabled: Boolean(boardId) && listActive,
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-  const epicsLoadedForRef = useRef('');
+  const cardsLoadedForRef = useRef('');
   const loadedIdsRef = useRef(loadedIds);
   const loadingIdsRef = useRef(loadingIds);
   loadedIdsRef.current = loadedIds;
@@ -208,89 +223,79 @@ export default function ProjectHubListPanel({
   );
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!boardId) {
-        setAssignableMembers([]);
-        return;
-      }
-      if (!listActive) return;
-      setMembersLoading(true);
+    if (!membersEpoch || !boardId) return;
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.projectHub.assignableMembers(boardId),
+    });
+  }, [membersEpoch, boardId, queryClient]);
+
+  const loadListCards = useCallback(
+    async (force = false) => {
+      if (!projectId || !listActive) return;
+      if (!force && cardsLoadedForRef.current === projectId) return;
+      setCardsLoading(true);
+      setCardsError(false);
       try {
-        const res = await taskAPI.getBoardAssignableMembers(boardId, apiCtx || {});
-        const payload = unwrapTaskApiPayload(res);
-        const rows = Array.isArray(payload?.members) ? payload.members : [];
-        if (!cancelled) {
-          setAssignableMembers(
-            rows
-              .map((m) => ({
-                id: String(m.userId || m.id || ''),
-                name: String(m.displayName || m.username || m.name || '').trim(),
-                username: String(m.username || '').trim(),
-                avatarUrl: m.avatar || m.avatarUrl || '',
-              }))
-              .filter((m) => m.id && m.name)
+        const seeded =
+          Array.isArray(parentBoardCards) && parentBoardCards.length > 0
+            ? parentBoardCards
+            : null;
+        if (seeded) {
+          setListCards(seeded);
+        } else if (boardId) {
+          const cachedFull = queryClient.getQueryData(
+            queryKeys.projectHub.boardDetail(boardId, 'full')
           );
+          const cachedCards = Array.isArray(cachedFull?.cards) ? cachedFull.cards : null;
+          if (cachedCards?.length) {
+            setListCards(cachedCards);
+          } else {
+            const detail = await ensureProjectHubBoardDetail(queryClient, boardId, {
+              ...(apiCtx || {}),
+              skipNotFoundToast: true,
+            });
+            const boardCards = detail?.cards;
+            setListCards(Array.isArray(boardCards) ? boardCards : []);
+          }
+        } else {
+          setListCards([]);
         }
+        cardsLoadedForRef.current = projectId;
       } catch {
-        if (!cancelled) setAssignableMembers([]);
-      } finally {
-        if (!cancelled) setMembersLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [boardId, workspaceSlug, listActive, membersEpoch]);
-
-  const loadListEpics = useCallback(async (force = false) => {
-    if (!projectId || !listActive) return;
-    if (!force && epicsLoadedForRef.current === projectId) return;
-    setEpicsLoading(true);
-    setEpicsError(false);
-    try {
-      const epicRes = await projectAPI.listPlanningItems(projectId, { type: 'epic' });
-      const rows = unwrapPlanningList(epicRes);
-      setListPlanningItems(Array.isArray(rows) ? rows : []);
-      epicsLoadedForRef.current = projectId;
-    } catch {
-      setListPlanningItems([]);
-      setEpicsError(true);
-      epicsLoadedForRef.current = '';
-    }
-
-    // Board cards riêng — orphan task hiện root dù không có Epic / epic API lỗi.
-    try {
-      const seeded =
-        Array.isArray(parentBoardCards) && parentBoardCards.length > 0
-          ? parentBoardCards
-          : null;
-      if (seeded) {
-        setListCards(seeded);
-      } else if (boardId) {
-        const boardRes = await taskAPI.getBoardDetail(boardId, {
-          ...(apiCtx || {}),
-          skipNotFoundToast: true,
-        });
-        const boardCards = unwrapTaskBoardDetailPayload(boardRes)?.cards;
-        setListCards(Array.isArray(boardCards) ? boardCards : []);
-      } else {
         setListCards([]);
+        setCardsError(true);
+        cardsLoadedForRef.current = '';
+      } finally {
+        setCardsLoading(false);
+        setExpandedIds(new Set());
+        setLoadedIds(new Set());
+        setLoadingIds(new Set());
+        setExpandErrorIds(new Set());
       }
-    } catch {
-      setListCards([]);
-    } finally {
-      setEpicsLoading(false);
-      setExpandedIds(new Set());
-      setLoadedIds(new Set());
-      setLoadingIds(new Set());
-      setExpandErrorIds(new Set());
-    }
-  }, [projectId, listActive, boardId, apiCtx, parentBoardCards]);
+    },
+    [projectId, listActive, boardId, apiCtx, parentBoardCards, queryClient]
+  );
 
   useEffect(() => {
-    void loadListEpics();
-  }, [loadListEpics]);
+    if (!listActive) return;
+    const rows = Array.isArray(shellPlanningItems) ? shellPlanningItems : [];
+    setListPlanningItems(rows);
+  }, [shellPlanningItems, listActive, projectId]);
+
+  useEffect(() => {
+    void loadListCards();
+  }, [loadListCards]);
+
+  // Khi Shell hydrate full board cards sau lần seed rỗng — bổ sung mà không reset expand.
+  useEffect(() => {
+    if (!listActive || !projectId) return;
+    if (!Array.isArray(parentBoardCards) || parentBoardCards.length === 0) return;
+    if (cardsLoadedForRef.current !== projectId) return;
+    setListCards((prev) => {
+      if (Array.isArray(prev) && prev.length > 0) return prev;
+      return parentBoardCards;
+    });
+  }, [parentBoardCards, listActive, projectId]);
 
   const epics = useMemo(
     () => listPlanningItems.filter((i) => String(i.type || '').toLowerCase() === 'epic'),
@@ -359,7 +364,7 @@ export default function ProjectHubListPanel({
     allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id));
 
   const refreshAll = () => {
-    void loadListEpics(true);
+    void loadListCards(true);
     onReloadPlanning?.();
     onRefresh?.();
   };
@@ -377,20 +382,16 @@ export default function ProjectHubListPanel({
       });
       try {
         if (node.workType === 'epic') {
-          const [featRes, cardRes] = await Promise.all([
-            projectAPI.listPlanningItems(projectId, { type: 'feature', parentId: rawId }),
-            boardId
-              ? taskAPI.getBoardDetail(boardId, { ...(apiCtx || {}), epicId: rawId, skipNotFoundToast: true })
-              : Promise.resolve(null),
-          ]);
-          const feats = unwrapPlanningList(featRes);
-          const detail = unwrapTaskBoardDetailPayload(cardRes);
-          const cards = Array.isArray(detail?.cards) ? detail.cards : [];
-          setListPlanningItems((prev) => {
-            let next = prev;
-            for (const f of feats) next = upsertById(next, { ...f, type: f.type || 'feature' });
-            return next;
+          if (!boardId) {
+            setLoadedIds((prev) => new Set(prev).add(id));
+            return;
+          }
+          const cardRes = await taskAPI.getBoardDetail(boardId, {
+            ...(apiCtx || {}),
+            epicId: rawId,
+            skipNotFoundToast: true,
           });
+          const cards = unwrapTaskBoardDetailPayload(cardRes)?.cards || [];
           setListCards((prev) => {
             let next = prev;
             for (const c of cards) next = upsertById(next, c);
@@ -436,7 +437,7 @@ export default function ProjectHubListPanel({
         });
       }
     },
-    [apiCtx, boardId, projectId]
+    [apiCtx, boardId]
   );
 
   const toggleExpand = useCallback(
@@ -580,10 +581,37 @@ export default function ProjectHubListPanel({
     }
   };
 
+  const markBusyId = useCallback((id) => {
+    const key = String(id || '');
+    if (!key) return;
+    setBusyIds((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, []);
+
+  const clearBusyId = useCallback((id) => {
+    const key = String(id || '');
+    if (!key) return;
+    setBusyIds((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const isRowBusy = useCallback(
+    (id) => busy || busyIds.has(String(id || '')),
+    [busy, busyIds]
+  );
+
   const assignMember = async (node, member) => {
-    if (!node || busy) return;
+    if (!node) return;
     const id = String(node.raw?._id || node.raw?.id || '');
-    if (!id) return;
+    if (!id || busy || busyIds.has(id)) return;
     const patch = member
       ? {
           assigneeId: member.id,
@@ -598,28 +626,30 @@ export default function ProjectHubListPanel({
           ],
         }
       : { assigneeId: null, assigneeName: '', assigneeAvatar: '', assignees: [] };
-    setBusy(true);
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
+    markBusyId(id);
     try {
       if (node.kind === 'planning') {
         if (!projectId) return;
-        await projectAPI.patchPlanningItem(projectId, id, { assigneeId: member?.id || null });
         patchPlanning((items) => items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row)));
+        await projectAPI.patchPlanningItem(projectId, id, { assigneeId: member?.id || null });
       } else if (node.kind === 'card') {
+        patchCards((cards) => cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c)));
         if (onUpdateCard) {
           await onUpdateCard(id, patch);
         } else {
           await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
-        patchCards((cards) =>
-          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
-        );
       }
     } catch (err) {
+      if (node.kind === 'planning') patchPlanning(() => planningSnapshot);
+      else if (node.kind === 'card') patchCards(() => cardsSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubListAssigneeFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(id);
     }
   };
 
@@ -764,140 +794,164 @@ export default function ProjectHubListPanel({
   const changeStatus = async (node, listId) => {
     if (!canChangeStatus || !listId || busy || node.kind !== 'card') return;
     const cardId = String(node.raw?._id || node.raw?.id || '');
-    if (!cardId) return;
-    setBusy(true);
+    if (!cardId || busyIds.has(cardId)) return;
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    markBusyId(cardId);
+    patchCards((cards) =>
+      cards.map((c) => (entityId(c) === cardId ? { ...c, listId } : c))
+    );
     try {
       const res = await taskAPI.moveBoardCard(cardId, { toListId: listId }, apiCtx || {});
       const moved = unwrapTaskApiPayload(res);
-      patchCards((cards) =>
-        cards.map((c) =>
-          entityId(c) === cardId
-            ? { ...c, ...(moved && typeof moved === 'object' ? moved : {}), listId }
-            : c
-        )
-      );
+      if (moved && typeof moved === 'object') {
+        patchCards((cards) =>
+          cards.map((c) =>
+            entityId(c) === cardId ? { ...c, ...moved, listId: moved.listId || listId } : c
+          )
+        );
+      }
+      if (projectId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.projectHub.overview(projectId),
+        });
+      }
     } catch (err) {
+      patchCards(() => cardsSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(cardId);
     }
   };
 
   const changePriority = async (node, priority) => {
     if (!canChangeStatus || busy) return;
     const id = String(node.raw?._id || node.raw?.id || '');
-    if (!id) return;
+    if (!id || busyIds.has(id)) return;
     const next = String(priority || 'medium').toLowerCase();
     const patch = { priority: next };
-    setBusy(true);
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
+    markBusyId(id);
     try {
       if (node.kind === 'planning') {
         if (!projectId) return;
-        await projectAPI.patchPlanningItem(projectId, id, patch);
         patchPlanning((items) => items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row)));
+        await projectAPI.patchPlanningItem(projectId, id, patch);
       } else if (node.kind === 'card') {
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, priority: next } : c))
+        );
         if (onUpdateCard) {
           await onUpdateCard(id, patch);
         } else {
           await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
-        patchCards((cards) =>
-          cards.map((c) => (entityId(c) === id ? { ...c, priority: next } : c))
-        );
       }
     } catch (err) {
+      if (node.kind === 'planning') patchPlanning(() => planningSnapshot);
+      else if (node.kind === 'card') patchCards(() => cardsSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(id);
     }
   };
 
   const changePlanningStatus = async (node, listId) => {
     if (!canChangeStatus || busy || node.kind !== 'planning') return;
     const itemId = String(node.raw?._id || node.raw?.id || '');
-    if (!itemId || !projectId) return;
+    if (!itemId || !projectId || busyIds.has(itemId)) return;
     const next = listIdToPlanningStatus(listId, lists) || String(listId || '').trim().toLowerCase();
     if (!next) return;
-    setBusy(true);
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
+    markBusyId(itemId);
+    patchPlanning((items) =>
+      items.map((row) => (entityId(row) === itemId ? { ...row, status: next } : row))
+    );
     try {
       await projectAPI.patchPlanningItem(projectId, itemId, { status: next });
-      patchPlanning((items) =>
-        items.map((row) => (entityId(row) === itemId ? { ...row, status: next } : row))
-      );
     } catch (err) {
+      patchPlanning(() => planningSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(itemId);
     }
   };
 
   const changeDueDate = async (node, dateValue) => {
     if (!canChangeStatus || busy) return;
     const id = entityId(node.raw);
-    if (!id) return;
+    if (!id || busyIds.has(id)) return;
     const isPlanning = node.kind === 'planning';
     const patch = buildWorkItemDatePatch({ isPlanning, dueDate: dateValue || null });
-    setBusy(true);
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
+    markBusyId(id);
     try {
       if (node.kind === 'card') {
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
+        );
         if (onUpdateCard) {
           await onUpdateCard(id, patch);
         } else {
           await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
-        patchCards((cards) =>
-          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
-        );
       } else if (isPlanning && projectId) {
-        await projectAPI.patchPlanningItem(projectId, id, patch);
         patchPlanning((items) =>
           items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
         );
+        await projectAPI.patchPlanningItem(projectId, id, patch);
       }
     } catch (err) {
+      if (node.kind === 'card') patchCards(() => cardsSnapshot);
+      else if (isPlanning) patchPlanning(() => planningSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(id);
     }
   };
 
   const changeStartDate = async (node, dateValue) => {
     if (!canChangeStatus || busy) return;
     const id = entityId(node.raw);
-    if (!id) return;
+    if (!id || busyIds.has(id)) return;
     const isPlanning = node.kind === 'planning';
     const patch = buildWorkItemDatePatch({ isPlanning, startDate: dateValue || null });
-    setBusy(true);
+    const cardsSnapshot = Array.isArray(listCards) ? listCards : [];
+    const planningSnapshot = Array.isArray(listPlanningItems) ? listPlanningItems : [];
+    markBusyId(id);
     try {
       if (node.kind === 'card') {
+        patchCards((cards) =>
+          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
+        );
         if (onUpdateCard) {
           await onUpdateCard(id, patch);
         } else {
           await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
-        patchCards((cards) =>
-          cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
-        );
       } else if (isPlanning && projectId) {
-        await projectAPI.patchPlanningItem(projectId, id, patch);
         patchPlanning((items) =>
           items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
         );
+        await projectAPI.patchPlanningItem(projectId, id, patch);
       }
     } catch (err) {
+      if (node.kind === 'card') patchCards(() => cardsSnapshot);
+      else if (isPlanning) patchPlanning(() => planningSnapshot);
       toast.error(
         resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })
       );
     } finally {
-      setBusy(false);
+      clearBusyId(id);
     }
   };
 
@@ -986,7 +1040,7 @@ export default function ProjectHubListPanel({
         <button
           type="button"
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-          onClick={() => void loadListEpics(true)}
+          onClick={refreshAll}
         >
           {t('workspace.projectHubListRetry')}
         </button>
@@ -1161,7 +1215,7 @@ export default function ProjectHubListPanel({
                   workflowTransitionsByFrom={workflowTransitionsByFrom}
                   priorityConfig={priorityConfig}
                   hasBoardColumn={hasBoardColumn}
-                  busy={busy}
+                  busy={isRowBusy(entityId(node.raw) || node.id)}
                   canChangeStatus={canChangeStatus}
                   canAssign={Boolean(canCreateTask || canManage)}
                   gridStyle={gridStyle}
@@ -1333,6 +1387,10 @@ export default function ProjectHubListPanel({
         canComment={
           Boolean(canManage) ||
           (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+        }
+        canUpdateTask={
+          Boolean(canManage) ||
+          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
         }
         canChangeStatus={canChangeStatus}
         canViewMembers={Boolean(hubCaps?.canViewMembers || canManage)}

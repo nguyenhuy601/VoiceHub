@@ -12,6 +12,11 @@ services:
     platform: linux/amd64
     volumes:
       - ollama_data:/root/.ollama
+    # AI Analysis Compact V2 (~8GB): keep 1 generate slot — do not raise OLLAMA_NUM_PARALLEL.
+    # Prefer OLLAMA_NUM_CTX=4096 via model Modelfile / client options (project-service).
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
     mem_limit: 3072m
     cpus: 4
     restart: unless-stopped

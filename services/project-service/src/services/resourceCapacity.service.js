@@ -14,8 +14,8 @@ const {
   classifyAvailability,
   computeDepartmentCapacityRow,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
-const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+} = require('../utils/staffing/allocationOverlap');
+const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -443,5 +443,5 @@ module.exports = {
   computeDepartmentCapacityRow,
   allocatedPctOnDay,
   classifyAvailability,
-  filterUsersToRelatedDepartments: require('../utils/allocationOverlap').filterUsersToRelatedDepartments,
+  filterUsersToRelatedDepartments: require('../utils/staffing/allocationOverlap').filterUsersToRelatedDepartments,
 };

@@ -14,7 +14,7 @@ import AdminSortableRoleList, {
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
-import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
+import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 import { hasLayerPrefix } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
 
@@ -35,7 +35,7 @@ export default function ProjectRoleListPanel({ orgId }) {
     if (!orgId) return;
     setLoading(true);
     try {
-      const res = await projectRoleAdminAPI.listRoles(orgId);
+      const res = await projectRolesAPI.listRoles(orgId);
       const list = res?.data?.data || res?.data?.roles || res?.data || [];
       setRoles(
         [...(Array.isArray(list) ? list : [])].sort(
@@ -61,7 +61,7 @@ export default function ProjectRoleListPanel({ orgId }) {
     setRoles(reorderItemsByIds(roles, orderedIds));
     setReordering(true);
     try {
-      const res = await projectRoleAdminAPI.reorderRoles(orgId, orderedIds);
+      const res = await projectRolesAPI.reorderRoles(orgId, orderedIds);
       const next = res?.data?.data || res?.data?.roles || res?.data || [];
       if (Array.isArray(next) && next.length) {
         setRoles(next);

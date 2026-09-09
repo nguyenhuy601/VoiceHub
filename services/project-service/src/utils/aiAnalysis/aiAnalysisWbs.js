@@ -9,12 +9,14 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const { buildFrIdSet, truncate } = require('./aiAnalysisFrSlice');
+const { FR_LANGUAGE_CUE, inferAreaLocale } = require('./aiAnalysisLocaleText');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const MAX_TASKS_PER_CAPABILITY = 6;
 const NAME_MAX = 160;
-const WBS_WALL_MS = 180000;
+const WBS_WALL_MS = resolveJobWallMs('wbsGeneration');
 const WBS_NUM_PREDICT = 768;
 const WBS_CHUNK_CAPS = 6;
 
@@ -46,16 +48,8 @@ function slugPart(raw) {
 function inferAreaFromCapability(cap) {
   const blob = `${cap.name || ''} ${cap.module || ''} ${(cap.requiredSkills || [])
     .map((s) => (typeof s === 'string' ? s : s.name || ''))
-    .join(' ')}`.toLowerCase();
-  if (/react|vue|angular|ui|frontend|screen|page/.test(blob)) return 'frontend';
-  if (/qa|test|selenium|cypress/.test(blob)) return 'qa';
-  if (/design|figma|ux|ui\/ux/.test(blob)) return 'design';
-  if (/docker|k8s|devops|ci\/cd|deploy/.test(blob)) return 'infrastructure';
-  if (/auth|oauth|jwt|login/.test(blob)) return 'auth';
-  if (/db|database|mongo|sql|persist/.test(blob)) return 'database';
-  if (/api|rest|graphql|endpoint/.test(blob)) return 'api';
-  if (/pm|manage|planning|scrum/.test(blob)) return 'management';
-  return 'backend';
+    .join(' ')}`;
+  return inferAreaLocale(blob);
 }
 
 function normalizeTaskId(raw, index = 0) {
@@ -316,6 +310,7 @@ function buildWbsChunks(capabilities, chunkSize = WBS_CHUNK_CAPS) {
 function buildWbsPrompt({ capsChunk, chunkIndex, chunkTotal, orderHint }) {
   return [
     'You are a tech lead. Generate WBS tasks grouped by capability (not per FR silo).',
+    FR_LANGUAGE_CUE,
     'Return ONLY JSON: {"tasks":[{id,parentId?,name,area,sourceCapabilityIds,sourceFrIds,suggestedRoleKey,sortOrder}]}',
     `Max ${MAX_TASKS_PER_CAPABILITY} tasks per capability. Unique ids (TASK-...). parentId must reference another task id.`,
     'suggestedRoleKey snake_case: frontend_developer, backend_developer, qa_engineer, devops_engineer, project_manager, business_analyst, ui_ux_designer.',
@@ -346,7 +341,7 @@ function buildCapabilityCompact(container) {
  * Run WBS generation after capability is on container (or from result items).
  */
 async function runWbsTaskGeneration(pack, container, opts = {}) {
-  const wallMs = opts.wallMs ?? WBS_WALL_MS;
+  const wallMs = opts.wallMs ?? resolveJobWallMs('wbsGeneration');
   const started = Date.now();
   const packFrIds = buildFrIdSet(pack?.functionalRequirements || []);
   const capabilities =

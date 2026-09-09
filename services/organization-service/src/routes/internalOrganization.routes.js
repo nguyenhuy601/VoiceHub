@@ -1,6 +1,5 @@
 const express = require('express');
 const controller = require('../controllers/internalOrganization.controller');
-const skillRegistryController = require('../controllers/skillRegistry.controller');
 const {
   getInternalProjectVisibilityContext,
 } = require('../controllers/projectVisibilityPolicy.controller');
@@ -112,16 +111,5 @@ router.get('/project-channel/:organizationId/:projectId', controller.getProjectC
 
 /** project-service S2S: update workgroup channel members */
 router.put('/project-workgroup-channel/:channelId/members', controller.updateProjectWorkgroupMembers);
-
-/** project-service / user-service S2S: resolve skills against org registry */
-router.post(
-  '/organizations/:organizationId/skills/resolve-batch',
-  skillRegistryController.resolveBatchInternal
-);
-router.post('/organizations/:organizationId/skills/seed', skillRegistryController.seedInternal);
-router.post(
-  '/organizations/:organizationId/skills/by-ids',
-  skillRegistryController.getSkillsByIdsInternal
-);
 
 module.exports = router;

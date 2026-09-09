@@ -2,7 +2,7 @@ const mongoose = require('../db');
 const {
   PLANNING_ITEM_TYPES,
   PLANNING_ITEM_STATUSES,
-} = require('../utils/planningItemTypes');
+} = require('../utils/work/planningItemTypes');
 
 const planningItemSchema = new mongoose.Schema(
   {

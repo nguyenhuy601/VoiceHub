@@ -100,8 +100,8 @@ async function assertNoMemberOverlapWithActiveSprints({
     throw err;
   }
 
-  const Sprint = SprintModel || require('../models/Sprint');
-  const Task = TaskModel || require('../models/Task');
+  const Sprint = SprintModel || require('../../models/Sprint');
+  const Task = TaskModel || require('../../models/Task');
 
   const candidate = await Sprint.findOne({ _id: sid, projectId: pid })
     .select('_id status')

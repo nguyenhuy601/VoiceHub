@@ -134,7 +134,7 @@ export default function RequirementPreviewTabs({
             <p>
               {labels.previewPlanningLowScore
                 ? labels.previewPlanningLowScore.replace('{score}', String(planningScore))
-                : `Planning ${planningScore}% — có thể thiếu deadline hoặc thông tin overview.`}
+                : `Planning ${planningScore}% — có thể thiếu Deadline, Platform hoặc cây FR (Module/Feature/Requirement).`}
             </p>
           ) : null}
         </div>

@@ -10,7 +10,7 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
+import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 
 export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
@@ -26,7 +26,7 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
     if (!orgId || !roleId) return;
     setLoading(true);
     try {
-      const res = await projectRoleAdminAPI.listRoles(orgId);
+      const res = await projectRolesAPI.listRoles(orgId);
       const list = res?.data?.data || res?.data?.roles || res?.data || [];
       setRole(list.find((r) => String(r._id || r.id) === roleId) || null);
     } catch (error) {
@@ -45,7 +45,7 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
     if (!orgId || !roleId || !role || role.isSystem || busy) return;
     setBusy(true);
     try {
-      await projectRoleAdminAPI.deleteRole(orgId, roleId);
+      await projectRolesAPI.deleteRole(orgId, roleId);
       toast.success(t('common.deleteSuccess'));
       navigate('/app/admin/rbac/project-roles');
     } catch (error) {

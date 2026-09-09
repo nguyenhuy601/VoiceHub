@@ -7,8 +7,8 @@ const ApprovalPolicy = require('../models/ApprovalPolicy');
 const ApprovalRequest = require('../models/ApprovalRequest');
 const projectService = require('./project.service');
 const { assertUserProjectPermission } = require('./projectAccess.service');
-const { assertProjectWritable } = require('../utils/projectCloseGate');
-const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
+const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
 const {
   normalizeChangeRequestType,
   normalizeChangeRequestPriority,
@@ -26,9 +26,9 @@ const {
   pickWorkItemsForIds,
   pickLowestLinkedWorkStatus,
   resolveChangeRequestWorkStatus,
-} = require('../utils/changeRequestTypes');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
-const { normalizePolicySteps } = require('../utils/approvalChain');
+} = require('../utils/work/changeRequestTypes');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
+const { normalizePolicySteps } = require('../utils/work/approvalChain');
 const { logger } = require('@enterprise/shared');
 
 const CODE_RETRY_MAX = 5;

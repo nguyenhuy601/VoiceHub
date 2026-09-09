@@ -2,7 +2,7 @@
  * Cổng đóng dự án / chặn PATCH đóng sprint — pure, reuse Done classifier.
  */
 
-const { classifySprintClosureTasks } = require('./sprintCloseClassify');
+const { classifySprintClosureTasks } = require('../task/sprintCloseClassify');
 
 function asStringOid(v) {
   return String(v || '').trim();

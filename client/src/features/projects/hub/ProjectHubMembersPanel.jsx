@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { organizationAPI } from '../../../services/api/organizationAPI';
-import projectDeliveryAPI from '../../../services/api/projectDeliveryAPI';
+import { projectDeliveryAPI } from '../../../services/api/projectDeliveryAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
 import {
@@ -13,7 +14,6 @@ import {
 } from '../../../utils/adminUserUtils';
 import { enrichMembershipsWithProfiles } from '../../../features/search/enrichOrgMembers';
 import UserAvatar from '../../../components/Shared/UserAvatar';
-import { tasksFilterTrigger } from '../../../theme/shellTheme';
 import AllocationSegmentsEditor, {
   segmentsFromApi,
   segmentsToPayload,
@@ -21,30 +21,11 @@ import AllocationSegmentsEditor, {
 } from './AllocationSegmentsEditor';
 import ResourcePlannerPanel from '../../adminTasks/ResourcePlannerPanel';
 import {
-  buildMemberWorkloadMap,
-  formatMemberEstimateHours,
-  filterMemberPulseRows,
-  sortMemberPulseRows,
-  annotateMemberPulseRows,
-  resolveMemberWorkOverloadBadge,
-} from './projectHubUtils';
-import { isTimeTrackingV1Enabled } from '../../../utils/timeTrackingFlag';
-import ProjectHubMemberDetailDrawer from './ProjectHubMemberDetailDrawer';
-
-const PULSE_FILTER_ALL = 'all';
-const PULSE_FILTER_OVER = 'overallocated';
-const PULSE_FILTER_NO_PLAN = 'noPlan';
-const PULSE_FILTER_HAS_WORK = 'hasWork';
-const PULSE_FILTER_WORK_OVERLOAD = 'workOverload';
-
-function utilizationRangeDefaults() {
-  const to = new Date();
-  const from = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-  };
-}
+  ensureProjectHubProject,
+  ensureProjectHubRoleCatalog,
+  useInvalidateProjectHub,
+  useProjectHubMembers,
+} from './useProjectHubQueries';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -96,6 +77,17 @@ const MEMBER_TAB_ADD = 'add';
 const MEMBER_TAB_PLANNER = 'planner';
 const MEMBER_TAB_BULK = 'bulk';
 
+function defaultAllocSegments() {
+  const start = new Date();
+  return [
+    {
+      startDate: toDateInput(start),
+      endDate: '',
+      allocationPct: 100,
+    },
+  ];
+}
+
 function summaryFromProjectData(data, projectIdStr = '') {
   if (!data || typeof data !== 'object') return null;
   const nextOrgId = String(data.organizationId || data.orgId || '').trim();
@@ -113,29 +105,35 @@ function summaryFromProjectData(data, projectIdStr = '') {
 }
 
 /**
- * Thành viên + project roles + Planned Allocation + Execution load (board)
- * + Actual hours (utilization) khi TIME_TRACKING + quyền cho phép.
+ * Thành viên + project roles + Resource Allocation (dated).
  */
 export default function ProjectHubMembersPanel({
   projectId = '',
   boardId = '',
   organizationId = '',
   projectPayload = null,
-  boardCards = [],
-  boardLists = [],
   membersActive = true,
   canManage = false,
   isDarkMode = false,
   onMembersChanged = null,
-  onOpenList = null,
-  onOpenWorkItem = null,
 }) {
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const projectIdStr = String(projectId || '').trim();
+  const invalidateProjectHub = useInvalidateProjectHub();
 
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(() => Boolean(String(projectId || boardId || '').trim()));
-  const [loadError, setLoadError] = useState(false);
+  const {
+    data: rqMembers = [],
+    isPending: rqMembersPending,
+    isError: rqMembersError,
+    refetch: refetchMembers,
+  } = useProjectHubMembers(projectIdStr, {
+    enabled: Boolean(projectIdStr),
+  });
+
+  const [boardOnlyMembers, setBoardOnlyMembers] = useState([]);
+  const [boardOnlyLoading, setBoardOnlyLoading] = useState(false);
+  const [boardOnlyError, setBoardOnlyError] = useState(false);
   const [orgMembers, setOrgMembers] = useState([]);
   const [orgLoading, setOrgLoading] = useState(false);
   const [deptMemberIds, setDeptMemberIds] = useState([]);
@@ -163,7 +161,7 @@ export default function ProjectHubMembersPanel({
   const [formMode, setFormMode] = useState('add');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
-  const [allocSegments, setAllocSegments] = useState(() => []);
+  const [allocSegments, setAllocSegments] = useState(defaultAllocSegments);
   const [billable, setBillable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -171,69 +169,68 @@ export default function ProjectHubMembersPanel({
   const [peerProjects, setPeerProjects] = useState([]);
   const [memberTab, setMemberTab] = useState(MEMBER_TAB_ROSTER);
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
-  /** Actual hours từ utilization — chỉ hiện khi GET 200 (soft-fail 403/flag off). */
-  const [actualByUserId, setActualByUserId] = useState(() => new Map());
-  const [actualVisible, setActualVisible] = useState(false);
-  const [pulseFilter, setPulseFilter] = useState(PULSE_FILTER_ALL);
-  const [detailMemberId, setDetailMemberId] = useState('');
   const tabMenuRef = useRef(null);
   const roleCatalogLoadedForRef = useRef('');
   const orgDirectoryLoadedForRef = useRef('');
   const plannerLoadedForRef = useRef('');
-  const utilizationLoadedForRef = useRef('');
 
-  // Hub dark dùng prop isDarkMode; token CSS (foreground/muted) có thể vẫn là màu sáng → chữ tối trên nền tối.
-  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-  const valueCls = isDarkMode ? 'text-slate-100' : 'text-foreground';
-  const chipCls = isDarkMode
-    ? 'rounded-md border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-100'
-    : 'rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground';
-  const ghostBtnCls = isDarkMode
-    ? 'shrink-0 rounded-lg border border-slate-600 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80 disabled:opacity-50'
-    : 'shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 disabled:opacity-50';
-  const filterIdleCls = isDarkMode
-    ? 'border-slate-600 bg-transparent text-slate-300 hover:border-slate-500 hover:text-white'
-    : 'border-border bg-background text-muted-foreground hover:border-primary/40';
+
+  const members = projectIdStr ? rqMembers : boardOnlyMembers;
+  const loading = projectIdStr
+    ? Boolean(projectIdStr) && rqMembersPending && !rqMembers.length
+    : boardOnlyLoading;
+  const loadError = projectIdStr ? rqMembersError : boardOnlyError;
 
   const load = useCallback(async () => {
     const pid = String(projectId || '').trim();
     const bid = String(boardId || '').trim();
-    const id = pid || bid;
-    if (!id) {
-      setMembers([]);
-      setLoadError(false);
-      setLoading(false);
+    if (pid) {
+      invalidateProjectHub(pid, bid, { organizationId: resolvedOrgId });
+      await refetchMembers();
       return;
     }
-    setLoading(true);
-    setLoadError(false);
+    if (!bid) {
+      setBoardOnlyMembers([]);
+      setBoardOnlyError(false);
+      setBoardOnlyLoading(false);
+      return;
+    }
+    setBoardOnlyLoading(true);
+    setBoardOnlyError(false);
     try {
-      const res = await projectDeliveryAPI.listProjectMembers(id, {
-        asProject: Boolean(pid),
+      const res = await projectDeliveryAPI.listProjectMembers(bid, {
+        asProject: false,
         skipPermissionDeniedToast: true,
       });
       const data = unwrap(res);
-      setMembers(Array.isArray(data) ? data : data?.items || []);
+      setBoardOnlyMembers(Array.isArray(data) ? data : data?.items || []);
     } catch (err) {
       const status = Number(err?.status || err?.response?.status || 0);
-      // 403 đã skip ở apiClient; không toast thêm khi thiếu quyền (stale caps).
       if (status !== 403) {
         toast.error(
           resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
         );
       }
-      setMembers([]);
-      setLoadError(true);
+      setBoardOnlyMembers([]);
+      setBoardOnlyError(true);
     } finally {
-      setLoading(false);
+      setBoardOnlyLoading(false);
     }
-  }, [projectId, boardId, t]);
+  }, [
+    projectId,
+    boardId,
+    invalidateProjectHub,
+    refetchMembers,
+    resolvedOrgId,
+    t,
+  ]);
 
   useEffect(() => {
-    if (!membersActive) return;
-    load();
-  }, [load, membersActive]);
+    if (!membersActive || projectIdStr) return;
+    void load();
+  }, [load, membersActive, projectIdStr]);
 
   const orgById = useMemo(() => {
     const map = new Map();
@@ -243,11 +240,6 @@ export default function ProjectHubMembersPanel({
     }
     return map;
   }, [orgMembers]);
-
-  const workloadByUserId = useMemo(
-    () => buildMemberWorkloadMap(boardCards, boardLists),
-    [boardCards, boardLists]
-  );
 
   const rows = useMemo(() => {
     const byUser = new Map();
@@ -284,57 +276,15 @@ export default function ProjectHubMembersPanel({
         }
       }
     }
-    return [...byUser.values()].map((row) => {
-      const load = workloadByUserId.get(String(row.id)) || {
-        openCount: 0,
-        estimateHours: 0,
-        unestimatedCount: 0,
-      };
-      const actualHours = actualVisible
-        ? actualByUserId.has(String(row.id))
-          ? actualByUserId.get(String(row.id))
-          : 0
-        : null;
-      return {
-        ...row,
-        openCount: load.openCount,
-        estimateHours: load.estimateHours,
-        unestimatedCount: load.unestimatedCount,
-        actualHours,
-      };
-    });
-  }, [members, orgById, workloadByUserId, actualByUserId, actualVisible]);
+    return [...byUser.values()];
+  }, [members, orgById]);
 
-  const pulseRows = useMemo(() => annotateMemberPulseRows(rows), [rows]);
-
-  const rosterRows = useMemo(
-    () => sortMemberPulseRows(filterMemberPulseRows(pulseRows, pulseFilter)),
-    [pulseRows, pulseFilter]
-  );
-
-  const detailMember = useMemo(() => {
-    const id = String(detailMemberId || '').trim();
-    if (!id) return null;
-    return pulseRows.find((r) => String(r.id) === id) || null;
-  }, [pulseRows, detailMemberId]);
-
-  const pulseFilterOptions = useMemo(
-    () => [
-      { id: PULSE_FILTER_ALL, label: t('workspace.projectHubPulseFilterAll') },
-      { id: PULSE_FILTER_OVER, label: t('workspace.projectHubPulseFilterOver') },
-      { id: PULSE_FILTER_NO_PLAN, label: t('workspace.projectHubPulseFilterNoPlan') },
-      { id: PULSE_FILTER_HAS_WORK, label: t('workspace.projectHubPulseFilterHasWork') },
-      { id: PULSE_FILTER_WORK_OVERLOAD, label: t('workspace.projectHubPulseFilterWorkOverload') },
-    ],
-    [t]
-  );
-
-  const existingUserIds = useMemo(() => new Set(pulseRows.map((r) => r.id)), [pulseRows]);
+  const existingUserIds = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
 
   const selectedMemberRow = useMemo(() => {
     if (!selectedUserId) return null;
-    return pulseRows.find((r) => String(r.id) === String(selectedUserId)) || null;
-  }, [pulseRows, selectedUserId]);
+    return rows.find((r) => String(r.id) === String(selectedUserId)) || null;
+  }, [rows, selectedUserId]);
 
   const deptCandidates = useMemo(() => {
     if (!bulkDeptId) return [];
@@ -358,8 +308,7 @@ export default function ProjectHubMembersPanel({
     setFormMode('add');
     setSelectedUserId('');
     setSelectedRoleKeys([]);
-    // Empty = chưa có kế hoạch trên form; user bấm «+ Khoảng thời gian» mới tạo segment.
-    setAllocSegments([]);
+    setAllocSegments(defaultAllocSegments());
     setBillable(false);
     setPeerProjects([]);
   };
@@ -370,8 +319,8 @@ export default function ProjectHubMembersPanel({
     setFormMode('edit');
     setSelectedUserId(String(row?.id || '').trim());
     setSelectedRoleKeys(Array.isArray(row?.roles) ? row.roles : []);
-    // Không pre-fill 100% khi member chưa có allocation đã lưu (tránh hiểu nhầm đã có kế hoạch).
-    setAllocSegments(segmentsFromApi(row?.allocations));
+    const segs = segmentsFromApi(row?.allocations);
+    setAllocSegments(segs.length ? segs : defaultAllocSegments());
     setBillable(Boolean(row?.billable));
   };
 
@@ -444,55 +393,7 @@ export default function ProjectHubMembersPanel({
     roleCatalogLoadedForRef.current = '';
     orgDirectoryLoadedForRef.current = '';
     plannerLoadedForRef.current = '';
-    utilizationLoadedForRef.current = '';
-    setActualByUserId(new Map());
-    setActualVisible(false);
   }, [projectIdStr]);
-
-  useEffect(() => {
-    if (!membersActive || !resolvedOrgId || !projectIdStr) return undefined;
-    if (!isTimeTrackingV1Enabled()) {
-      setActualVisible(false);
-      setActualByUserId(new Map());
-      return undefined;
-    }
-    const cacheKey = `${resolvedOrgId}:${projectIdStr}`;
-    if (utilizationLoadedForRef.current === cacheKey) return undefined;
-
-    let cancelled = false;
-    (async () => {
-      const { from, to } = utilizationRangeDefaults();
-      try {
-        const res = await projectAPI.getUtilization(
-          resolvedOrgId,
-          { from, to, projectId: projectIdStr },
-          { skipPermissionDeniedToast: true }
-        );
-        if (cancelled) return;
-        const data = unwrap(res);
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const next = new Map();
-        for (const item of items) {
-          const uid = String(item?.userId || '').trim();
-          if (!uid) continue;
-          const hours = Number(item?.actualHours);
-          next.set(uid, Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 100) / 100 : 0);
-        }
-        utilizationLoadedForRef.current = cacheKey;
-        setActualByUserId(next);
-        setActualVisible(true);
-      } catch {
-        if (cancelled) return;
-        utilizationLoadedForRef.current = cacheKey;
-        setActualByUserId(new Map());
-        setActualVisible(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [membersActive, resolvedOrgId, projectIdStr]);
 
   useEffect(() => {
     const next = summaryFromProjectData(projectPayload, projectIdStr);
@@ -504,8 +405,7 @@ export default function ProjectHubMembersPanel({
     let cancelled = false;
     (async () => {
       try {
-        const res = await projectAPI.get(projectIdStr);
-        const data = res?.data?.data ?? res?.data ?? res;
+        const data = await ensureProjectHubProject(queryClient, projectIdStr);
         if (cancelled) return;
         const next = summaryFromProjectData(data, projectIdStr);
         if (next) setProjectSummary(next);
@@ -518,29 +418,27 @@ export default function ProjectHubMembersPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t]);
+  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t, queryClient]);
 
   useEffect(() => {
-    if (!canManage || !membersActive || !resolvedOrgId || loading) return undefined;
-    if (roleCatalogLoadedForRef.current === resolvedOrgId) return undefined;
+    if (!canManage || !membersActive || !projectIdStr || loading) return undefined;
+    if (roleCatalogLoadedForRef.current === projectIdStr) return undefined;
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
       try {
-        const rolesRes = await projectAPI.listRoleCatalog(resolvedOrgId);
-        const roles = unwrap(rolesRes);
+        const roleList = await ensureProjectHubRoleCatalog(queryClient, projectIdStr);
         if (cancelled) return;
-        const roleList = Array.isArray(roles) ? roles : [];
-        roleCatalogLoadedForRef.current = resolvedOrgId;
-        setRoleCatalog(roleList);
+        roleCatalogLoadedForRef.current = projectIdStr;
+        setRoleCatalog(Array.isArray(roleList) ? roleList : []);
         setBulkRoleKeys((prev) => {
           if (prev.length) return prev;
-          const defaultKeys = roleList
+          const defaultKeys = (roleList || [])
             .filter((r) => r.canAssign && String(r.key) === 'developer')
             .map((r) => r.key);
           return defaultKeys.length
             ? defaultKeys
-            : roleList.filter((r) => r.canAssign).slice(0, 1).map((r) => r.key);
+            : (roleList || []).filter((r) => r.canAssign).slice(0, 1).map((r) => r.key);
         });
       } catch (err) {
         if (!cancelled) {
@@ -553,7 +451,7 @@ export default function ProjectHubMembersPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, membersActive, resolvedOrgId, loading, t]);
+  }, [canManage, membersActive, projectIdStr, loading, t, queryClient]);
 
   const needsOrgDirectory =
     canManage &&
@@ -855,155 +753,20 @@ export default function ProjectHubMembersPanel({
     keys.map((k) => roleLabelByKey.get(k) || shortRoleLabel('', k)).filter(Boolean).join(' · ') ||
     '—';
 
-  const formatAllocDateLabel = (value) => {
-    const raw = toDateInput(value);
-    if (!raw || raw === '?') return raw || '?';
-    const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return raw;
-    return `${m[3]}/${m[2]}/${m[1]}`;
-  };
-
   const formatAllocSummary = (allocations = []) => {
-    if (!allocations?.length) return '';
+    if (!allocations?.length) return '—';
     return allocations
       .map((s) => {
-        const a = formatAllocDateLabel(s.startDate);
-        const b = s.endDate ? formatAllocDateLabel(s.endDate) : '…';
+        const a = toDateInput(s.startDate) || '?';
+        const b = toDateInput(s.endDate) || '…';
         return `${s.allocationPct ?? '?'}% (${a}→${b})`;
       })
       .join('; ');
   };
 
-  const renderMemberPulse = (row) => {
-    const plannedSummary = formatAllocSummary(row.allocations);
-    const isOver = String(row.allocationStatus || '').toLowerCase() === 'overallocated';
-    const estimateLabel = formatMemberEstimateHours(row.estimateHours);
-    const openCount = Number(row.openCount) || 0;
-    const showActual = actualVisible && row.actualHours != null;
-    const actualLabel =
-      showActual && Number.isFinite(Number(row.actualHours))
-        ? formatMemberEstimateHours(row.actualHours) || '0'
-        : null;
-    const workBadge = resolveMemberWorkOverloadBadge(row);
-    const ceilingHours = row.sprintCeilingHours ?? 40;
-    const showCeilingCap = Boolean(row.overSprintCeiling) && estimateLabel;
-    let workBadgeTitle = '';
-    if (workBadge?.kind === 'ceiling') {
-      workBadgeTitle = t('workspace.projectHubPulseWorkOverloadCeilingHint', {
-        h: estimateLabel || '0',
-        ceiling: ceilingHours,
-        over: row.sprintCeilingOverBy ?? 0,
-      });
-      if (workBadge.skewedAlso) {
-        workBadgeTitle = `${workBadgeTitle} ${t('workspace.projectHubPulseWorkOverloadAlsoSkew')}`;
-      }
-    } else if (workBadge?.kind === 'skew') {
-      workBadgeTitle =
-        row.workloadShareHours != null || row.workloadShareOpen != null
-          ? t('workspace.projectHubPulseSkewHint', {
-              pctH:
-                row.workloadShareHours != null
-                  ? Math.round(row.workloadShareHours * 100)
-                  : '—',
-              pctN:
-                row.workloadShareOpen != null
-                  ? Math.round(row.workloadShareOpen * 100)
-                  : '—',
-              h: estimateLabel || '0',
-              teamH: row.workloadTeamHoursSum ?? 0,
-              n: openCount,
-              teamN: row.workloadTeamOpenSum ?? 0,
-            })
-          : t('workspace.projectHubPulseSkewBadgeHint');
-    }
-
-    return (
-      <div
-        className="mt-1 flex flex-col gap-0.5"
-        aria-label={t('workspace.projectHubPulseMetricsAria')}
-      >
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
-          <span className={`font-semibold uppercase tracking-wide ${muted}`}>
-            {t('workspace.projectHubPulsePlanned')}
-          </span>
-          {plannedSummary ? (
-            <span
-              className={`font-medium ${valueCls}`}
-              title={t('workspace.projectHubPulsePlannedHint')}
-            >
-              {plannedSummary}
-            </span>
-          ) : (
-            <span className={muted} title={t('workspace.projectHubPulsePlannedHint')}>
-              {t('workspace.projectHubPulsePlannedEmpty')}
-            </span>
-          )}
-          {isOver ? (
-            <span
-              className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-400"
-              title={t('workspace.projectHubPulseOverBadgeHint')}
-            >
-              {t('workspace.projectHubPulseOverBadge')}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
-          <span className={`font-semibold uppercase tracking-wide ${muted}`}>
-            {t('workspace.projectHubPulseWork')}
-          </span>
-          <span className={`font-medium ${valueCls}`} title={t('workspace.projectHubPulseWorkHint')}>
-            {t('workspace.projectHubPulseWorkOpen', { n: openCount })}
-          </span>
-          {estimateLabel ? (
-            <span className={valueCls} title={t('workspace.projectHubPulseEstimateHint')}>
-              {showCeilingCap
-                ? t('workspace.projectHubPulseEstimateVsCeiling', {
-                    h: estimateLabel,
-                    ceiling: ceilingHours,
-                  })
-                : t('workspace.projectHubPulseEstimate', { h: estimateLabel })}
-            </span>
-          ) : openCount > 0 ? (
-            <span className={muted} title={t('workspace.projectHubPulseEstimateHint')}>
-              {t('workspace.projectHubPulseEstimateEmpty')}
-            </span>
-          ) : null}
-          {workBadge ? (
-            <span
-              className={
-                workBadge.kind === 'ceiling'
-                  ? 'rounded bg-orange-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-300'
-                  : 'rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300'
-              }
-              title={workBadgeTitle}
-            >
-              {workBadge.kind === 'ceiling'
-                ? t('workspace.projectHubPulseWorkOverloadCeilingBadge')
-                : t('workspace.projectHubPulseSkewBadge')}
-            </span>
-          ) : null}
-        </div>
-        {showActual ? (
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
-            <span className={`font-semibold uppercase tracking-wide ${muted}`}>
-              {t('workspace.projectHubPulseActual')}
-            </span>
-            <span className={`font-medium ${valueCls}`} title={t('workspace.projectHubPulseActualHint')}>
-              {t('workspace.projectHubPulseActualHours', { h: actualLabel })}
-            </span>
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const fieldCls = isDarkMode
-    ? 'w-full rounded-lg border border-slate-600 bg-[#1A1A1C] px-3 py-2 text-sm text-slate-100 outline-none transition-colors focus:border-primary'
-    : 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary';
-  const tabTriggerCls = tasksFilterTrigger(isDarkMode);
-  const cardCls = isDarkMode
-    ? 'rounded-xl border border-slate-700/80 bg-[#11141C]'
-    : 'rounded-xl border border-border bg-surface';
+  const fieldCls =
+    'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary';
+  const cardCls = 'rounded-xl border border-border bg-surface';
   const activeTabMeta = memberTabs.find((tab) => tab.id === activeTab);
   const triggerLabel =
     activeTab === MEMBER_TAB_ADD && formMode === 'edit'
@@ -1036,12 +799,8 @@ export default function ProjectHubMembersPanel({
               className={[
                 'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors',
                 selected
-                  ? isDarkMode
-                    ? 'border-primary bg-primary/15 font-semibold text-white'
-                    : 'border-primary bg-primary/10 font-semibold text-foreground'
-                  : isDarkMode
-                    ? 'border-slate-600 bg-transparent text-slate-200 hover:border-slate-500 hover:text-white'
-                    : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground',
                 !canAssign ? 'cursor-not-allowed opacity-40' : '',
               ].join(' ')}
             >
@@ -1079,27 +838,19 @@ export default function ProjectHubMembersPanel({
           <div ref={tabMenuRef} className="relative w-full sm:w-64">
             <button
               type="button"
-              className={tabTriggerCls}
+              className={`${fieldCls} flex items-center justify-between gap-2 text-left`}
               aria-haspopup="menu"
               aria-expanded={tabMenuOpen}
               aria-label={t('workspace.projectHubMembersFunctionAria')}
               onClick={() => setTabMenuOpen((v) => !v)}
             >
               <span className="truncate">{triggerLabel}</span>
-              <ChevronDown
-                size={16}
-                className={`shrink-0 ${isDarkMode ? 'text-slate-300' : 'text-muted-foreground'}`}
-                aria-hidden
-              />
+              <ChevronDown size={16} className="shrink-0 text-muted-foreground" aria-hidden />
             </button>
             {tabMenuOpen ? (
               <div
                 role="menu"
-                className={
-                  isDarkMode
-                    ? 'absolute right-0 z-30 mt-1 w-full rounded-lg border border-slate-600 bg-[#151c2c] py-1 shadow-lg'
-                    : 'absolute right-0 z-30 mt-1 w-full rounded-lg border border-border bg-surface py-1 shadow-lg'
-                }
+                className="absolute right-0 z-30 mt-1 w-full rounded-lg border border-border bg-surface py-1 shadow-lg"
               >
                 {memberTabs.map((tab) => {
                   const selected = tab.id === activeTab;
@@ -1113,12 +864,8 @@ export default function ProjectHubMembersPanel({
                       className={[
                         'flex w-full px-3 py-2 text-left text-sm',
                         selected
-                          ? isDarkMode
-                            ? 'bg-primary/15 font-semibold text-white'
-                            : 'bg-primary/10 font-semibold text-foreground'
-                          : isDarkMode
-                            ? 'text-slate-200 hover:bg-white/10'
-                            : 'text-foreground hover:bg-muted/40',
+                          ? 'bg-primary/10 font-semibold text-foreground'
+                          : 'text-foreground hover:bg-muted/40',
                       ].join(' ')}
                     >
                       {tab.id === MEMBER_TAB_ADD && formMode === 'edit' && selected
@@ -1140,49 +887,13 @@ export default function ProjectHubMembersPanel({
             aria-label={t('workspace.projectHubMembersRoster')}
             aria-busy={loading || undefined}
           >
-            <div className="mb-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className={`text-sm font-semibold ${titleCls}`}>
-                  {t('workspace.projectHubMembersRoster')}
-                </h4>
-                <span className={`rounded-md bg-muted/50 px-2 py-0.5 text-[11px] tabular-nums ${muted}`}>
-                  {rosterRows.length}
-                  {pulseFilter !== PULSE_FILTER_ALL ? ` / ${rows.length}` : ''}
-                </span>
-              </div>
-              <div
-                className="flex flex-wrap gap-1"
-                role="group"
-                aria-label={t('workspace.projectHubPulseFilterAria')}
-              >
-                {pulseFilterOptions.map((opt) => {
-                  const selected = pulseFilter === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setPulseFilter(opt.id)}
-                      aria-pressed={selected}
-                      className={[
-                        'rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors',
-                        selected
-                          ? isDarkMode
-                            ? 'border-primary bg-primary/15 text-white'
-                            : 'border-primary bg-primary/10 text-foreground'
-                          : filterIdleCls,
-                      ].join(' ')}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p
-                className={`text-[10px] leading-snug ${muted}`}
-                title={t('workspace.projectHubPulseTimeBasesHint')}
-              >
-                {t('workspace.projectHubPulseTimeBasesHintShort')}
-              </p>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h4 className={`text-sm font-semibold ${titleCls}`}>
+                {t('workspace.projectHubMembersRoster')}
+              </h4>
+              <span className={`rounded-md bg-muted/50 px-2 py-0.5 text-[11px] tabular-nums ${muted}`}>
+                {rows.length}
+              </span>
             </div>
 
             {loadError && !rows.length ? (
@@ -1206,75 +917,66 @@ export default function ProjectHubMembersPanel({
               >
                 {t('workspace.projectHubMembersEmpty')}
               </p>
-            ) : rosterRows.length === 0 ? (
-              <p
-                className={`rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm ${muted}`}
-              >
-                {t('workspace.projectHubPulseFilterEmpty')}
-              </p>
             ) : (
               <ul className="space-y-2">
-                {rosterRows.map((row) => {
+                {rows.map((row) => {
                   const active = formMode === 'edit' && String(selectedUserId) === String(row.id);
-                  const detailOpen = String(detailMemberId) === String(row.id);
                   return (
                     <li
                       key={row.id}
                       className={[
                         'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors',
-                        active || detailOpen
+                        active
                           ? 'border-primary/50 bg-primary/5'
                           : 'border-border/80 bg-background hover:border-border',
                       ].join(' ')}
                     >
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                        onClick={() => setDetailMemberId(String(row.id))}
-                        aria-label={t('workspace.projectHubMemberDrawerOpenAria', {
-                          name: row.name,
-                        })}
-                      >
-                        <UserAvatar
-                          name={row.name}
-                          avatar={row.avatar || undefined}
-                          userId={row.id}
-                          size="sm"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className={`truncate text-sm font-semibold ${titleCls}`}>
-                              {row.name}
+                      <UserAvatar
+                        name={row.name}
+                        avatar={row.avatar || undefined}
+                        userId={row.id}
+                        size="sm"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`truncate text-sm font-semibold ${titleCls}`}>
+                            {row.name}
+                          </span>
+                          {row.allocationStatus === 'overallocated' ? (
+                            <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                              {t('workspace.projectHubAllocOverBadge')}
                             </span>
-                            {row.billable ? (
-                              <span
-                                className={`rounded bg-muted px-1.5 py-0.5 text-[10px] ${muted}`}
-                                title={t('workspace.projectHubAllocBillable')}
-                              >
-                                {t('workspace.projectHubAllocBillableShort')}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {(row.roles || []).length ? (
-                              row.roles.map((rk) => (
-                                <span key={rk} className={chipCls}>
-                                  {roleLabelByKey.get(rk) || shortRoleLabel('', rk)}
-                                </span>
-                              ))
-                            ) : (
-                              <span className={`text-[11px] ${muted}`}>{t('workspace.roleMemberVi')}</span>
-                            )}
-                          </div>
-                          {renderMemberPulse(row)}
+                          ) : null}
+                          {row.billable ? (
+                            <span className={`rounded bg-muted px-1.5 py-0.5 text-[10px] ${muted}`}>
+                              Billable
+                            </span>
+                          ) : null}
                         </div>
-                      </button>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(row.roles || []).length ? (
+                            row.roles.map((rk) => (
+                              <span
+                                key={rk}
+                                className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
+                              >
+                                {roleLabelByKey.get(rk) || shortRoleLabel('', rk)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className={`text-[11px] ${muted}`}>{t('workspace.roleMemberVi')}</span>
+                          )}
+                        </div>
+                        <p className={`mt-1 truncate text-[11px] ${muted}`}>
+                          {formatAllocSummary(row.allocations)}
+                        </p>
+                      </div>
                       {canManage ? (
                         <button
                           type="button"
                           onClick={() => startEdit(row)}
                           disabled={submitting}
-                          className={ghostBtnCls}
+                          className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 disabled:opacity-50"
                         >
                           {t('workspace.projectHubMembersSetRoles')}
                         </button>
@@ -1308,7 +1010,7 @@ export default function ProjectHubMembersPanel({
                         setMemberTab(MEMBER_TAB_ROSTER);
                       }}
                       disabled={submitting}
-                      className={ghostBtnCls}
+                      className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40"
                     >
                       {t('workspace.projectHubMembersCancel')}
                     </button>
@@ -1321,9 +1023,7 @@ export default function ProjectHubMembersPanel({
                       <p className={`text-[11px] font-semibold uppercase tracking-wide ${muted}`}>
                         {t('workspace.projectHubMembersPickFromDepts')}
                       </p>
-                      <div className={`max-h-56 overflow-y-auto rounded-lg border ${
-                        isDarkMode ? 'border-slate-600 bg-[#1A1A1C]' : 'border-border bg-background'
-                      }`}>
+                      <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background">
                         {rosterLoading ? (
                           <p className={`px-3 py-4 text-center text-xs ${muted}`}>…</p>
                         ) : relatedDeptsEmpty ? (
@@ -1369,7 +1069,7 @@ export default function ProjectHubMembersPanel({
                                           <span className="min-w-0 flex-1">
                                             <span
                                               className={`block truncate text-sm ${
-                                                selected ? `font-semibold ${valueCls}` : titleCls
+                                                selected ? 'font-semibold text-foreground' : titleCls
                                               }`}
                                             >
                                               {u.displayName || userId}
@@ -1422,11 +1122,7 @@ export default function ProjectHubMembersPanel({
                       </div>
                     </div>
                   ) : selectedMemberRow ? (
-                    <div
-                      className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
-                        isDarkMode ? 'border-slate-600 bg-[#1A1A1C]' : 'border-border bg-background'
-                      }`}
-                    >
+                    <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
                       <UserAvatar
                         name={selectedMemberRow.name}
                         avatar={selectedMemberRow.avatar || undefined}
@@ -1469,7 +1165,7 @@ export default function ProjectHubMembersPanel({
                     peerProjects={peerProjects}
                   />
 
-                  <label className={`flex items-center gap-2 text-xs ${valueCls}`}>
+                  <label className="flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"
                       checked={billable}
@@ -1577,39 +1273,6 @@ export default function ProjectHubMembersPanel({
               </section>
         ) : null}
       </div>
-
-      <ProjectHubMemberDetailDrawer
-        open={Boolean(detailMember)}
-        member={detailMember}
-        organizationId={resolvedOrgId}
-        projectId={projectIdStr}
-        projectTitle={projectSummary?.title || ''}
-        projectCode={projectSummary?.projectCode || ''}
-        boardCards={boardCards}
-        boardLists={boardLists}
-        roleLabelByKey={roleLabelByKey}
-        actualVisible={actualVisible}
-        canManage={canManage}
-        isDarkMode={isDarkMode}
-        onClose={() => setDetailMemberId('')}
-        onEdit={canManage ? startEdit : null}
-        onOpenList={
-          onOpenList
-            ? () => {
-                setDetailMemberId('');
-                onOpenList();
-              }
-            : null
-        }
-        onOpenWorkItem={
-          onOpenWorkItem
-            ? (card) => {
-                setDetailMemberId('');
-                onOpenWorkItem(card);
-              }
-            : null
-        }
-      />
     </div>
   );
 }

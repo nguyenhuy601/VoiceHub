@@ -1,7 +1,7 @@
 const { logger } = require('@enterprise/shared');
-const Project = require('../models/Project');
-const { emitProjectTeamChannelProvisionBestEffort } = require('../clients/projectChatPublisher.client');
-const { normalizeOwnerTeamId } = require('../services/ownerTeamId');
+const Project = require('../../models/Project');
+const { emitProjectTeamChannelProvisionBestEffort } = require('../../clients/projectChatPublisher.client');
+const { normalizeOwnerTeamId } = require('../../services/ownerTeamId');
 
 /**
  * Lazy-provision project team channel khi ownerTeamId lần đầu xuất hiện trên project.

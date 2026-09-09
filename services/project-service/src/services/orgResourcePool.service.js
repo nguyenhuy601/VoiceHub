@@ -15,8 +15,8 @@ const {
   availablePctOnDay,
   classifyAvailability,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
-const { stripVerifiedCapabilityForPool } = require('../utils/verifiedCapabilityStrip');
+} = require('../utils/staffing/allocationOverlap');
+const { stripVerifiedCapabilityForPool } = require('../utils/staffing/verifiedCapabilityStrip');
 const {
   emptyPlacement,
   buildPlacementByUser,
@@ -27,15 +27,15 @@ const {
   sortPoolItemsByRange,
   computePoolTotals,
   computePoolRangeTotals,
-} = require('../utils/orgResourcePoolMerge');
-const { coalesceJobTitle } = require('../utils/jobTitleProfile');
-const { resolvePlanningWindow } = require('../utils/resolvePlanningWindow');
+} = require('../utils/staffing/orgResourcePoolMerge');
+const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
+const { resolvePlanningWindow } = require('../utils/requirement/resolvePlanningWindow');
 const {
   computeUserRangeCapacity,
   buildWindowMeta,
-} = require('../utils/rangeCapacityMath');
+} = require('../utils/staffing/rangeCapacityMath');
 const { loadPerformanceByUserIds } = require('./userPerformance.service');
-const { toSlimPerformance } = require('../utils/performanceMatch');
+const { toSlimPerformance } = require('../utils/staffing/performanceMatch');
 
 function asOid(id) {
   const s = String(id || '').trim();

@@ -133,6 +133,13 @@ export const queryKeys = {
     all: ['projectHub'],
     overview: (projectId) => [...queryKeys.projectHub.all, 'overview', String(projectId || '')],
     project: (projectId) => [...queryKeys.projectHub.all, 'project', String(projectId || '')],
+    /** GET /projects/:id/boards — share page redirect + fast path + hydrate */
+    boards: (projectId, organizationId = '') => [
+      ...queryKeys.projectHub.all,
+      'boards',
+      String(projectId || ''),
+      String(organizationId || ''),
+    ],
     boardDetail: (boardId, scope = 'full') => [
       ...queryKeys.projectHub.all,
       'board',
@@ -140,6 +147,49 @@ export const queryKeys = {
       scope,
     ],
     sprints: (projectId) => [...queryKeys.projectHub.all, 'sprints', String(projectId || '')],
+    planningItems: (projectId) => [
+      ...queryKeys.projectHub.all,
+      'planningItems',
+      String(projectId || ''),
+    ],
     members: (projectId) => [...queryKeys.projectHub.all, 'members', String(projectId || '')],
+    assignableMembers: (boardId) => [
+      ...queryKeys.projectHub.all,
+      'assignable',
+      String(boardId || ''),
+    ],
+    roleCatalog: (projectId) => [
+      ...queryKeys.projectHub.all,
+      'roleCatalog',
+      String(projectId || ''),
+    ],
+    activity: (projectId, limit = 10) => [
+      ...queryKeys.projectHub.all,
+      'activity',
+      String(projectId || ''),
+      Number(limit) || 10,
+    ],
+    files: (projectId) => [...queryKeys.projectHub.all, 'files', String(projectId || '')],
+    /** filterKey: ổn định từ q|type|status|priority|sort|page|size */
+    changeRequests: (projectId, filterKey = '') => [
+      ...queryKeys.projectHub.all,
+      'changeRequests',
+      String(projectId || ''),
+      String(filterKey || ''),
+    ],
+    changeRequestsAll: (projectId) => [
+      ...queryKeys.projectHub.all,
+      'changeRequests',
+      String(projectId || ''),
+    ],
+  },
+  calendar: {
+    all: ['calendar'],
+    feed: (yearMonth = '', organizationId = '') => [
+      ...queryKeys.calendar.all,
+      'feed',
+      String(yearMonth || ''),
+      String(organizationId || ''),
+    ],
   },
 };

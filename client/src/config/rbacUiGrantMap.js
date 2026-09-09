@@ -46,8 +46,6 @@ export const RBAC_GRANT = {
   CHANNEL_CREATE: 'communication.channel.create',
   CHANNEL_UPDATE: 'communication.channel.update',
   CHANNEL_DELETE: 'communication.channel.delete',
-  SKILL_REGISTRY_REVIEW: 'organization.skill_registry.review',
-  SKILL_REGISTRY_VIEW: 'organization.skill_registry.view',
 };
 
 /** nav item id → master key (fallback nếu config chưa gắn requiredGrant). */

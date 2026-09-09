@@ -4,8 +4,8 @@ const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
 const TaskBoardList = require('../models/TaskBoardList');
 
-const { classifySprintClosureTasks } = require('../utils/sprintCloseClassify');
-const { isLastOpenSprint, throwCloseGateError, assertProjectWritable } = require('../utils/projectCloseGate');
+const { classifySprintClosureTasks } = require('../utils/task/sprintCloseClassify');
+const { isLastOpenSprint, throwCloseGateError, assertProjectWritable } = require('../utils/project/projectCloseGate');
 
 function asStringOid(v) {
   return String(v || '').trim();

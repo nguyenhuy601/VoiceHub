@@ -9,12 +9,14 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
   buildProjectContextSlice,
   truncate,
 } = require('./aiAnalysisFrSlice');
+const { FR_LANGUAGE_CUE, inferLayerLocale } = require('./aiAnalysisLocaleText');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const ARCH_LAYERS = Object.freeze([
   'frontend',
@@ -33,7 +35,7 @@ const IMPACT_LEVELS = Object.freeze(['low', 'medium', 'high']);
 const TOP_N_DEFAULT = 25;
 const LIST_MAX = 8;
 const NAME_MAX = 120;
-const ARCH_WALL_MS = 120000;
+const ARCH_WALL_MS = resolveJobWallMs('architectureRiskAnalysis');
 const ARCH_NUM_PREDICT = 768;
 
 function slugPart(raw) {
@@ -190,19 +192,8 @@ function buildArchitectureInputSlices(pack, container) {
 }
 
 function inferLayerFromText(text, skills = []) {
-  const blob = `${text} ${(skills || []).join(' ')}`.toLowerCase();
-  if (/auth|login|oauth|jwt|session|rbac|permission/.test(blob)) return 'auth';
-  if (/react|vue|angular|ui|frontend|screen|page|css/.test(blob)) return 'frontend';
-  if (/mongo|sql|postgres|database|persist|schema|entity/.test(blob)) return 'database';
-  if (/api|rest|graphql|endpoint|gateway/.test(blob)) return 'api';
-  if (/docker|k8s|kubernetes|ci\/cd|deploy|nginx|infra/.test(blob)) return 'infrastructure';
-  if (/encrypt|security|tls|cors|owasp/.test(blob)) return 'security';
-  if (/payment|external|third.?party|vendor|stripe|oauth provider/.test(blob)) {
-    return 'external';
-  }
-  if (/deploy|release|pipeline/.test(blob)) return 'deployment';
-  if (/node|express|service|backend|server/.test(blob)) return 'backend';
-  return 'backend';
+  const blob = `${text} ${(skills || []).join(' ')}`;
+  return inferLayerLocale(blob);
 }
 
 function techCategoryToLayer(category, name) {
@@ -506,6 +497,7 @@ function buildHeuristicChains(items = []) {
 function buildArchitecturePrompt({ context, inputCompact }) {
   return [
     'You are a software architect. Infer architecture impact components from inputs.',
+    FR_LANGUAGE_CUE,
     'Return ONLY valid JSON: {"items":[{...}],"chains":[{"chainId","nodes":[]}]} — no markdown.',
     'Each item: impactId, sourceFrIds, capabilityIds, component, layer',
     `(${ARCH_LAYERS.join('|')}), apis[], databases[], externalSystems[], impactLevel (low|medium|high).`,
@@ -571,7 +563,10 @@ async function runArchitectureImpactAnalysis(pack, container, opts = {}) {
   let collectedItems = [];
   let collectedChains = [];
 
-  const timeoutMs = opts.timeoutMs ?? Math.min(planningTimeoutMs(), ARCH_WALL_MS);
+  const timeoutMs =
+    opts.timeoutMs ??
+    opts.wallMs ??
+    Math.min(planningTimeoutMs(), resolveJobWallMs('architectureRiskAnalysis'));
   const inputCompact = {
     capabilities: input.capabilities,
     entities: input.entities,

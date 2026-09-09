@@ -6,14 +6,14 @@ const { ensureAiAnalysisContainer, getJobStatus } = require('./aiAnalysisContain
 
 function assertBlueprintReadyForProjectCreate(pack) {
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const job6 = getJobStatus(container, 'employeeAssignment');
-  if (job6 !== 'confirmed') {
+  const jobPlan = getJobStatus(container, 'projectPlan');
+  if (jobPlan !== 'confirmed') {
     const err = new Error(
-      'Job6 employeeAssignment must be confirmed before create project from Blueprint'
+      'projectPlan must be confirmed before create project from Blueprint'
     );
     err.statusCode = 409;
     err.errorCode = 'AI_ANALYSIS_BLUEPRINT_NOT_READY';
-    err.details = { employeeAssignment: job6 };
+    err.details = { projectPlan: jobPlan };
     throw err;
   }
   const tasks = container.planning?.tasks || [];

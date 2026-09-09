@@ -1,4 +1,4 @@
-const { normalizeRequiredProjectRoles } = require('./requiredProjectRoles');
+const { normalizeRequiredProjectRoles } = require('../project/requiredProjectRoles');
 
 const DEFAULT_TITLE = 'Requirement pack';
 const DEFAULT_BUDGET_CURRENCY = 'VND';

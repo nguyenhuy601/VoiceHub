@@ -3,7 +3,7 @@ const {
   CHANGE_REQUEST_TYPES,
   CHANGE_REQUEST_PRIORITIES,
   CHANGE_REQUEST_STATUSES,
-} = require('../utils/changeRequestTypes');
+} = require('../utils/work/changeRequestTypes');
 
 const changeRequestSchema = new mongoose.Schema(
   {

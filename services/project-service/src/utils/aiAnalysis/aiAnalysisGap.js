@@ -9,13 +9,22 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
-  buildRequirementFrSlices,
+  buildRequirementFrSlicesForAnalysis,
+  expandFrIdSetWithSlices,
   buildProjectContextSlice,
   truncate,
 } = require('./aiAnalysisFrSlice');
+const {
+  FR_LANGUAGE_CUE,
+  hasAmbiguousLanguage,
+  hasPossibleContradiction,
+  hasIntegrationHint,
+  hasDataHint,
+} = require('./aiAnalysisLocaleText');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const GAP_TYPES = Object.freeze([
   'missing_requirement',
@@ -32,7 +41,7 @@ const GAP_SEVERITY = Object.freeze(['low', 'medium', 'high', 'critical']);
 
 const ISSUE_MAX = 280;
 const REC_MAX = 240;
-const GAP_WALL_MS = 180000;
+const GAP_WALL_MS = resolveJobWallMs('requirementAnalysis');
 const GAP_NUM_PREDICT = 768;
 const GAP_CHUNK_SIZE = 16;
 const GAP_MAX_CHUNKS = 6;
@@ -200,9 +209,13 @@ function validateAndNormalizeGapPayload(data, packFrIds, packCapabilityIds) {
 
 /**
  * Compact presence flags — NFR/integration/FR quality signals (not W0 issues).
+ * @param {object} pack
+ * @param {{ hierarchy?: object, frSlices?: object[] }} [opts]
  */
-function buildGapInputHints(pack) {
-  const frSlices = buildRequirementFrSlices(pack);
+function buildGapInputHints(pack, opts = {}) {
+  const frSlices =
+    opts.frSlices ||
+    buildRequirementFrSlicesForAnalysis(pack, opts.hierarchy);
   const nfr = pack?.nonFunctionalRequirements || [];
   const integration = pack?.integration || [];
   const qualityFlags = [];
@@ -211,9 +224,9 @@ function buildGapInputHints(pack) {
     const flags = [];
     if (!slice.description || String(slice.description).length < 20) flags.push('desc_short_or_empty');
     if (!slice.ac || String(slice.ac).length < 15) flags.push('ac_short_or_empty');
-    const blob = `${slice.title || ''} ${slice.description || ''} ${slice.ac || ''}`.toLowerCase();
-    if (/\b(tbd|todo|unclear|maybe|etc\.?|…|\.\.\.)\b/.test(blob)) flags.push('ambiguous_language');
-    if (/\b(must|shall)\b/.test(blob) && /\b(must not|shall not)\b/.test(blob)) {
+    const blob = `${slice.title || ''} ${slice.description || ''} ${slice.ac || ''}`;
+    if (hasAmbiguousLanguage(blob)) flags.push('ambiguous_language');
+    if (hasPossibleContradiction(blob)) {
       flags.push('possible_contradiction');
     }
     if (flags.length) {
@@ -303,17 +316,11 @@ function buildHeuristicGapItems(hints = {}) {
 
   if (!hints.integrationPresent) {
     const needsIntegration = (hints.frSlices || []).some((s) =>
-      /\b(api|integration|external|payment|oauth|third.?party|gateway)\b/i.test(
-        `${s.title || ''} ${s.description || ''}`
-      )
+      hasIntegrationHint(`${s.title || ''} ${s.description || ''}`)
     );
     if (needsIntegration) {
       const frIds = (hints.frSlices || [])
-        .filter((s) =>
-          /\b(api|integration|external|payment|oauth|gateway)\b/i.test(
-            `${s.title || ''} ${s.description || ''}`
-          )
-        )
+        .filter((s) => hasIntegrationHint(`${s.title || ''} ${s.description || ''}`))
         .map((s) => s.id)
         .slice(0, 8);
       push({
@@ -327,9 +334,7 @@ function buildHeuristicGapItems(hints = {}) {
   }
 
   const dataHintFrs = (hints.frSlices || []).filter((s) =>
-    /\b(store|persist|database|data|record|entity|pii)\b/i.test(
-      `${s.title || ''} ${s.description || ''}`
-    )
+    hasDataHint(`${s.title || ''} ${s.description || ''}`)
   );
   // Soft signal only when many data FRs but no entity-ish clarity in AC
   for (const s of dataHintFrs.slice(0, 3)) {
@@ -418,6 +423,7 @@ function buildGapChunks(frSlices, chunkSize = GAP_CHUNK_SIZE) {
 function buildGapPrompt({ context, hintsMeta, frChunk, chunkIndex, chunkTotal }) {
   return [
     'You are a software BA. Find requirement gaps (not staffing gaps).',
+    FR_LANGUAGE_CUE,
     'Return ONLY valid JSON: {"items":[{...}]} — no markdown.',
     'Each item: gapId (GAP-xxx), type (missing_requirement|ambiguous|incomplete|contradiction|',
     'missing_business_rule|missing_data|missing_integration|missing_nfr),',
@@ -439,11 +445,17 @@ function canStartChunk(elapsedMs, wallMs, chunkTimeoutMs) {
  * Run gap analysis. Never mutates pack.importIssues / validation.issues.
  */
 async function runGapAnalysis(pack, opts = {}) {
-  const wallMs = opts.wallMs ?? GAP_WALL_MS;
+  const wallMs = opts.wallMs ?? resolveJobWallMs('requirementAnalysis');
   const started = Date.now();
-  const packFrIds = buildFrIdSet(pack?.functionalRequirements || []);
+  const frSlices =
+    opts.frSlices ||
+    buildRequirementFrSlicesForAnalysis(pack, opts.hierarchy);
+  const packFrIds = expandFrIdSetWithSlices(
+    buildFrIdSet(pack?.functionalRequirements || []),
+    frSlices
+  );
   const packCapabilityIds = opts.packCapabilityIds || null;
-  const hints = buildGapInputHints(pack);
+  const hints = buildGapInputHints(pack, { hierarchy: opts.hierarchy, frSlices });
   const model = ollamaModel();
   const heuristic = buildHeuristicGapItems(hints);
 

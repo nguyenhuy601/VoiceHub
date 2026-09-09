@@ -5,9 +5,9 @@ const Project = require('../models/Project');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { fetchEnabledPositionKeys } = require('../clients/orgMasterData.client');
-const { summarizeProjectRoleStaffing } = require('../utils/projectStaffingSummary');
-const { scorePositionMatch } = require('../utils/positionCandidateMatch');
-const { scoreVerifiedCapability } = require('../utils/capabilityMatch');
+const { summarizeProjectRoleStaffing } = require('../utils/project/projectStaffingSummary');
+const { scorePositionMatch } = require('../utils/staffing/positionCandidateMatch');
+const { scoreVerifiedCapability } = require('../utils/staffing/capabilityMatch');
 const {
   flattenSegments,
   allocatedPctOnDay,
@@ -16,11 +16,11 @@ const {
   computeAllocationStatus,
   toDayMs,
   filterUsersToRelatedDepartments,
-} = require('../utils/allocationOverlap');
+} = require('../utils/staffing/allocationOverlap');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
-const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
 const { loadPerformanceByUserIds } = require('./userPerformance.service');
-const { scoreHistoricalPerformance } = require('../utils/performanceMatch');
+const { scoreHistoricalPerformance } = require('../utils/staffing/performanceMatch');
 
 async function enrichProfiles(userIds = []) {
   const unique = [...new Set((userIds || []).map(String).filter(Boolean))];

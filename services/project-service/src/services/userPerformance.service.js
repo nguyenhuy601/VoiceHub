@@ -13,7 +13,7 @@ const {
   buildUserPerformanceRollup,
   calibrateEstimateHours,
 } = require('@enterprise/shared/analytics/performanceMetrics');
-const { isDoneLikeStatus } = require('../utils/taskCycleTime');
+const { isDoneLikeStatus } = require('../utils/task/taskCycleTime');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const { resolveCanonicalOrganizationRoleKey } = require('@enterprise/shared/config/masterData');

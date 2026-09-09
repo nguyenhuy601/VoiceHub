@@ -18,13 +18,13 @@ const ANALYTICS_EVENT_TYPES = {
 const CATALOG = [
   {
     type: ANALYTICS_EVENT_TYPES.TASK_FACT,
-    publisher: 'task-service',
+    publisher: 'project-service',
     consumers: ['report-etl'],
     description: 'Denormalized task fact cho warehouse.',
   },
   {
     type: ANALYTICS_EVENT_TYPES.WORKLOG_FACT,
-    publisher: 'task-service',
+    publisher: 'project-service',
     consumers: ['report-etl'],
     description: 'Worklog hours fact.',
   },

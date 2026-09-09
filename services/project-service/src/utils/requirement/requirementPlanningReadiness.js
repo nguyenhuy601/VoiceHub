@@ -1,97 +1,87 @@
-const {
-  isFrExecutionLeaf,
-  isFrRoleRequiredLevel,
-  listFrExecutionLeaves,
-} = require('./requirementFrLevel');
+/**
+ * Requirement pack readiness — WHAT-only gate (W1).
+ * Analysis/submit = 0 validation errors. No FR Role/Skill/Hours enforce.
+ * (Legacy AI Planning staffing overlay removed — gate still used by AI Analysis.)
+ */
+
+const { listRequirementRows } = require('./requirementFrLevel');
+const { isTemplateV2 } = require('../../constants/requirementTemplate.constants');
 
 const HEURISTIC_THRESHOLD = 40;
 const FULL_ENGINE_THRESHOLD = 80;
 
-function executionLeafMissingStaffingReasons(row) {
-  const missing = [];
-  if (!(row.suggestedSkills || []).length) missing.push('skills');
-  if (row.estimateHours == null || Number(row.estimateHours) <= 0) missing.push('hours');
-  if (!String(row.suggestedRoleKey || '').trim()) missing.push('role');
-  return missing;
+function listPackValidationIssues(pack) {
+  if (Array.isArray(pack?.importIssues)) return pack.importIssues;
+  if (Array.isArray(pack?.validation?.errors)) return pack.validation.errors;
+  if (Array.isArray(pack?.validation?.issues)) return pack.validation.issues;
+  return [];
 }
 
-function listMissingLeafStaffing(frList = []) {
-  const missingLeafIds = [];
+function listBlockingValidationCodes(pack) {
+  const codes = [];
   const seen = new Set();
-
-  for (const row of listFrExecutionLeaves(frList)) {
-    const reasons = executionLeafMissingStaffingReasons(row);
-    if (!reasons.length) continue;
-    const id =
-      String(row.externalId || row.name || '').trim() ||
-      `leaf#${frList.indexOf(row) + 1}`;
-    if (!seen.has(id)) {
-      seen.add(id);
-      missingLeafIds.push(id);
-    }
+  for (const issue of listPackValidationIssues(pack)) {
+    if (issue?.severity && issue.severity !== 'error') continue;
+    const code = String(issue?.code || '').trim() || 'REQ_VALIDATION_ERROR';
+    if (seen.has(code)) continue;
+    seen.add(code);
+    codes.push(code);
   }
-
-  frList.forEach((row, index) => {
-    if (!isFrRoleRequiredLevel(row.level)) return;
-    if (isFrExecutionLeaf(row, frList)) return;
-    if (String(row.suggestedRoleKey || '').trim()) return;
-    const id = String(row.externalId || row.name || '').trim() || `row#${index + 1}`;
-    if (!seen.has(id)) {
-      seen.add(id);
-      missingLeafIds.push(id);
-    }
-  });
-
-  return missingLeafIds;
+  return codes;
 }
 
+function countValidationErrors(pack) {
+  return listPackValidationIssues(pack).filter((issue) => !issue?.severity || issue.severity === 'error')
+    .length;
+}
+
+function hasPlatformValue(platform) {
+  if (Array.isArray(platform)) return platform.length > 0;
+  return Boolean(String(platform || '').trim());
+}
+
+/**
+ * WHAT readiness + canRunAiAnalysis from stored validation errors (no Excel re-parse).
+ */
 function computePlanningReadiness(pack) {
   const overview = pack?.overview || {};
-  const frList = pack?.functionalRequirements || [];
-  const staffing = pack?.staffingPlan || {};
-
-  const executionLeaves = listFrExecutionLeaves(frList);
-  const leavesWithHours = executionLeaves.filter(
-    (row) => row.estimateHours != null && Number(row.estimateHours) > 0
-  );
-  const hasAnySkills =
-    frList.some((row) => (row.suggestedSkills || []).length > 0) ||
-    (staffing.requiredSkills || []).length > 0;
-  const hasAnyRoles =
-    frList.some((row) => String(row.suggestedRoleKey || '').trim()) ||
-    (staffing.requiredRoles || []).length > 0;
+  const frList = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
+  /** Leaf Level=Requirement — diagnostic only; hierarchy Module/Feature also count as FR. */
+  const requirementLeaves = listRequirementRows(frList);
+  const errorCount = countValidationErrors(pack);
+  const blockingCodes = listBlockingValidationCodes(pack);
+  const canRunAiAnalysis = errorCount === 0;
 
   const hasDeadline = Boolean(overview.deadline);
-  const hasPlatform = Array.isArray(overview.platform) && overview.platform.length > 0;
-  const hasFrLeaves = executionLeaves.length > 0;
-  const hasAnyEffort =
-    leavesWithHours.length > 0 ||
-    (staffing.estimatedHoursTotal != null && Number(staffing.estimatedHoursTotal) > 0);
+  const hasPlatform = hasPlatformValue(overview.platform);
+  /** Any FR row (Module | Feature | Requirement) — larger levels are still requirements. */
+  const hasFrHierarchy = frList.length > 0;
 
   let score = 0;
-  if (hasDeadline) score += 15;
-  if (hasFrLeaves) score += 25;
-  if (hasAnyEffort) score += 25;
-  if (hasAnySkills) score += 20;
-  if (hasAnyRoles) score += 15;
-
-  const missingLeafIds = listMissingLeafStaffing(frList);
-  const allLeavesStaffed = executionLeaves.length > 0 && missingLeafIds.length === 0;
+  if (hasDeadline) score += 30;
+  if (hasPlatform) score += 20;
+  if (hasFrHierarchy) score += 50;
+  if (!canRunAiAnalysis) score = Math.min(score, HEURISTIC_THRESHOLD - 1);
 
   return {
     hasDeadline,
     hasPlatform,
-    hasFrLeaves,
-    hasAnyEffort,
-    hasAnySkills,
-    hasAnyRoles,
-    leafCount: executionLeaves.length,
-    leavesWithHours: leavesWithHours.length,
-    allLeavesStaffed,
-    missingLeafIds,
+    hasFrLeaves: hasFrHierarchy,
+    hasAnyEffort: false,
+    hasAnySkills: false,
+    hasAnyRoles: false,
+    leafCount: requirementLeaves.length,
+    leavesWithHours: 0,
+    /** @deprecated alias — FE submit used staffing; now mirrors WHAT gate */
+    allLeavesStaffed: canRunAiAnalysis,
+    missingLeafIds: [],
+    errorCount,
+    canRunAiAnalysis,
+    blockingCodes,
     score,
-    readyForHeuristic: score >= HEURISTIC_THRESHOLD,
-    readyForFullEngine: score >= FULL_ENGINE_THRESHOLD,
+    readyForHeuristic: canRunAiAnalysis && score >= HEURISTIC_THRESHOLD,
+    readyForFullEngine: canRunAiAnalysis && score >= FULL_ENGINE_THRESHOLD,
+    templateV2: isTemplateV2(pack?.templateVersion),
   };
 }
 
@@ -108,48 +98,35 @@ function attachPlanningReadinessList(rows) {
     const readiness = computePlanningReadiness(row);
     return {
       ...row,
-      planningReadiness: {
-        score: readiness.score,
-        readyForHeuristic: readiness.readyForHeuristic,
-        readyForFullEngine: readiness.readyForFullEngine,
-        leafCount: readiness.leafCount,
-        leavesWithHours: readiness.leavesWithHours,
-        allLeavesStaffed: readiness.allLeavesStaffed,
-        missingLeafIds: readiness.missingLeafIds,
-      },
+      planningReadiness: pickPlanningReadinessSummary(row),
     };
   });
 }
 
+/** @deprecated use canRunAiAnalysis — kept for callers */
 function allLeavesHaveStaffing(pack) {
-  return Boolean(computePlanningReadiness(pack).allLeavesStaffed);
+  return Boolean(computePlanningReadiness(pack).canRunAiAnalysis);
 }
 
-function buildNotReadyError(pack, { errorCode, messagePrefix }) {
+function buildWhatNotReadyError(pack, { errorCode, messagePrefix }) {
   const readiness = computePlanningReadiness(pack);
-  if (readiness.allLeavesStaffed) {
-    return null;
-  }
-  const missing = ['leafStaffingIncomplete'];
-  const err = new Error(`${messagePrefix} (${missing.join(', ')})`);
+  if (readiness.canRunAiAnalysis) return null;
+  const err = new Error(`${messagePrefix} (validationErrors)`);
   err.statusCode = 422;
   err.errorCode = errorCode;
   err.details = {
+    ok: false,
+    canRunAiAnalysis: false,
+    blockingCodes: readiness.blockingCodes,
+    errorCount: readiness.errorCount,
     score: readiness.score,
-    readyForHeuristic: readiness.readyForHeuristic,
-    allLeavesStaffed: readiness.allLeavesStaffed,
-    missingLeafIds: readiness.missingLeafIds,
-    hasDeadline: readiness.hasDeadline,
-    hasFrLeaves: readiness.hasFrLeaves,
-    hasAnyEffort: readiness.hasAnyEffort,
-    hasAnySkills: readiness.hasAnySkills,
-    hasAnyRoles: readiness.hasAnyRoles,
+    allLeavesStaffed: false,
   };
   return err;
 }
 
 function assertPackReadyForSubmit(pack) {
-  const err = buildNotReadyError(pack, {
+  const err = buildWhatNotReadyError(pack, {
     errorCode: 'REQ_NOT_READY_FOR_SUBMIT',
     messagePrefix: 'Requirement pack chưa sẵn sàng gửi duyệt',
   });
@@ -157,10 +134,25 @@ function assertPackReadyForSubmit(pack) {
   return computePlanningReadiness(pack);
 }
 
+/**
+ * Gate for future AI Analysis jobs (W2+) — WHAT validation only.
+ */
+function assertPackReadyForAiAnalysis(pack) {
+  const err = buildWhatNotReadyError(pack, {
+    errorCode: 'REQ_NOT_READY_FOR_AI_ANALYSIS',
+    messagePrefix: 'Requirement pack chưa sẵn sàng chạy AI Analysis',
+  });
+  if (err) throw err;
+  return computePlanningReadiness(pack);
+}
+
+/**
+ * Gate for AI run (Analysis) — same WHAT validation as Analysis helper.
+ */
 function assertPackReadyForAiRun(pack) {
-  const err = buildNotReadyError(pack, {
-    errorCode: 'REQ_NOT_READY_FOR_AI',
-    messagePrefix: 'Requirement pack chưa sẵn sàng chạy AI planning',
+  const err = buildWhatNotReadyError(pack, {
+    errorCode: 'REQ_NOT_READY_FOR_AI_RUN',
+    messagePrefix: 'Requirement pack chưa sẵn sàng chạy AI Analysis',
   });
   if (err) throw err;
   return computePlanningReadiness(pack);
@@ -176,16 +168,25 @@ function pickPlanningReadinessSummary(pack) {
     leavesWithHours: readiness.leavesWithHours,
     allLeavesStaffed: readiness.allLeavesStaffed,
     missingLeafIds: readiness.missingLeafIds,
+    canRunAiAnalysis: readiness.canRunAiAnalysis,
+    errorCount: readiness.errorCount,
+    blockingCodes: readiness.blockingCodes,
   };
 }
 
 function assertPreviewReadyForImport(packPayload) {
-  const err = buildNotReadyError(packPayload, {
-    errorCode: 'REQ_IMPORT_STAFFING_INCOMPLETE',
-    messagePrefix: 'Không thể import — FR execution row chưa đủ staffing',
-  });
-  if (err) throw err;
+  // Confirm already blocked session.errorCount > 0; no Role/Skill/Hours gate.
   return computePlanningReadiness(packPayload);
+}
+
+/** Compact gate payload for analysis callers */
+function resolveAiAnalysisGate(pack) {
+  const readiness = computePlanningReadiness(pack);
+  return {
+    ok: readiness.canRunAiAnalysis,
+    canRunAiAnalysis: readiness.canRunAiAnalysis,
+    blockingCodes: readiness.blockingCodes,
+  };
 }
 
 module.exports = {
@@ -194,10 +195,13 @@ module.exports = {
   attachPlanningReadinessList,
   pickPlanningReadinessSummary,
   allLeavesHaveStaffing,
-  listMissingLeafStaffing,
   assertPackReadyForSubmit,
   assertPackReadyForAiRun,
+  assertPackReadyForAiAnalysis,
   assertPreviewReadyForImport,
+  resolveAiAnalysisGate,
+  countValidationErrors,
+  listBlockingValidationCodes,
   HEURISTIC_THRESHOLD,
   FULL_ENGINE_THRESHOLD,
 };

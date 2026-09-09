@@ -288,7 +288,6 @@ export const adminDomainStrings = {
           actionApprove: 'Duyệt',
           actionRunAi: 'AI Planning',
           actionCreateProject: 'Tạo dự án',
-          actionReviewSkills: 'Review skills',
         },
       },
       requirements: {
@@ -1664,11 +1663,11 @@ export const adminDomainStrings = {
       projectRoleCatalogHint:
         'Project Role runtime đã sync từ Master Data. Gán trên Members / Planner (project-level).',
       projectRolePermissionsHint:
-        'Permission Matrix (resource:action). Gói Permission mặc định: chỉ sửa permissions. Custom: label + canAssign + permissions.',
+        'Mặc định org (resource:action) cho dự án mới / reset. Mỗi dự án có bản riêng chỉnh trong Hub → Cài đặt → Quyền Project Role.',
       projectRolePermAction: 'Quyền',
       permissionMatrixTitle: 'Permission Matrix',
       permissionMatrixHint:
-        'Tick quyền cho role. Enforce trên task/sprint/members/settings/repository (Phase 2).',
+        'Tick quyền mặc định cho role. Dự án đã tạo không tự đổi — chỉ ảnh hưởng khi tạo mới hoặc Reset trong Hub.',
       projectRolePermNotSaved:
         'Không lưu được quyền: {keys}. Cần cập nhật/deploy project-service (allowlist sprint:delete).',
       projectRoleCatalogEmpty: 'Chưa có Project Role — seed mặc định sẽ tạo khi tải danh sách thành công.',
@@ -2224,7 +2223,6 @@ export const adminDomainStrings = {
           actionApprove: 'Approve',
           actionRunAi: 'AI Planning',
           actionCreateProject: 'Create project',
-          actionReviewSkills: 'Review skills',
         },
       },
       files: {
@@ -3582,11 +3580,11 @@ export const adminDomainStrings = {
       projectRoleCatalogHint:
         'Runtime Project Roles synced from Master Data. Assign via Members / Planner (project-level).',
       projectRolePermissionsHint:
-        'Permission Matrix (resource:action). Default Permission packs: edit permissions only. Custom: label + canAssign + permissions.',
+        'Org defaults (resource:action) for new projects / reset. Each project has its own copy in Hub → Settings → Project Role permissions.',
       projectRolePermAction: 'Permission',
       permissionMatrixTitle: 'Permission Matrix',
       permissionMatrixHint:
-        'Toggle permissions for this role. Enforced on task/sprint/members/settings/repository (Phase 2).',
+        'Toggle default permissions. Existing projects are unchanged until create-new or Hub Reset.',
       projectRolePermNotSaved:
         'Could not save permissions: {keys}. Redeploy project-service (sprint:delete allowlist).',
       projectRoleCatalogEmpty: 'No Project Roles yet — defaults are seeded when the list loads successfully.',

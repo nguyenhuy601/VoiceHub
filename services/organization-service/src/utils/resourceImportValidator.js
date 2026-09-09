@@ -131,12 +131,7 @@ function normalizeSkillList(raw) {
   const out = [];
   const seen = new Set();
   for (const token of tokens) {
-    let name = normalizeSkillName(token);
-    if (!name && String(process.env.SKILL_REGISTRY_ENABLED || 'true').trim().toLowerCase() !== 'false') {
-      const { normalizeSkillInput, titleCaseSkill } = require('./skillNormalize');
-      const norm = normalizeSkillInput(token);
-      name = norm.suggestedCanonical || titleCaseSkill(token);
-    }
+    const name = normalizeSkillName(token);
     if (!name) return { ok: false, skills: [], unknown: token };
     const k = name.toLowerCase();
     if (seen.has(k)) continue;

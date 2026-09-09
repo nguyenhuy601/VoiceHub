@@ -1,8 +1,9 @@
-const Task = require('../models/Task');
+const Task = require('../../models/Task');
 const { readTaskFromStored, maybeMigrateTaskDoc } = require('./taskPii');
 
 const CLIENT_TASK_FIELDS = [
   '_id', 'id', 'title', 'summary', 'description', 'status', 'priority', 'dueDate',
+  'startDate', 'estimateHours', 'assignments', 'projectId',
   'assigneeId', 'createdBy', 'organizationId', 'serverId', 'departmentId', 'teamId',
   'departmentName', 'boardId', 'listId', 'position', 'tags', 'attachments', 'comments',
   'completedAt', 'createdAt', 'updatedAt', 'isActive', 'aiGenerated', 'sourceMessageId',

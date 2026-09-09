@@ -3,8 +3,8 @@
  * Matrix deterministic + union task.suggestedRoleKey; always include project_manager.
  */
 
-const { normalizeRoleKey, isKnownProjectRole } = require('./requirementStaffingParse');
-const { normProse } = require('./requirementTemplateTextNorm');
+const { normalizeRoleKey, isKnownProjectRole } = require('../requirement/requirementStaffingParse');
+const { normProse } = require('../requirement/requirementTemplateTextNorm');
 const { truncate } = require('./aiAnalysisFrSlice');
 const { AREA_ROLE_HINT } = require('./aiAnalysisWbs');
 

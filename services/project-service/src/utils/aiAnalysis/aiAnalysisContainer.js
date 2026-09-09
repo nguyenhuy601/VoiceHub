@@ -1,5 +1,5 @@
 /**
- * pack.aiAnalysis container helpers — empty shells + status gates (W2).
+ * pack.aiAnalysis container helpers — empty shells + status gates (schema v2).
  */
 
 const {
@@ -11,8 +11,12 @@ const {
   isAiAnalysisUserJob,
   previousUserJob,
   userJobsAfter,
-} = require('../constants/aiAnalysisJobs.constants');
+} = require('../../constants/aiAnalysisJobs.constants');
 const { buildRequirementAnalysisGapPreview } = require('./aiAnalysisGap');
+const {
+  migrateAiAnalysisJobsV1ToV2,
+  needsJobMigration,
+} = require('./aiAnalysisMigrateJobs');
 
 function emptyJobMeta() {
   return {
@@ -47,6 +51,82 @@ function emptyAnalysisSection() {
   };
 }
 
+function emptyHierarchySection() {
+  return {
+    status: 'empty',
+    model: null,
+    generatedAt: null,
+    proposedFeatures: [],
+    proposedRequirements: [],
+    items: [],
+    entities: [],
+    edges: [],
+    dataFlows: [],
+    orderHint: [],
+    chains: [],
+    meta: {
+      agileMap: {
+        Module: 'Epic',
+        Feature: 'Feature',
+        Requirement: 'Requirement',
+      },
+    },
+  };
+}
+
+function normalizeHierarchySection(src) {
+  const base = emptyHierarchySection();
+  if (!src || typeof src !== 'object') return base;
+  const metaSrc = src.meta && typeof src.meta === 'object' ? src.meta : {};
+  return {
+    status: String(src.status || 'empty'),
+    model: src.model ?? null,
+    generatedAt: src.generatedAt ?? null,
+    proposedFeatures: Array.isArray(src.proposedFeatures) ? src.proposedFeatures : [],
+    proposedRequirements: Array.isArray(src.proposedRequirements)
+      ? src.proposedRequirements
+      : [],
+    items: Array.isArray(src.items) ? src.items : [],
+    entities: Array.isArray(src.entities) ? src.entities : [],
+    edges: Array.isArray(src.edges) ? src.edges : [],
+    dataFlows: Array.isArray(src.dataFlows) ? src.dataFlows : [],
+    orderHint: Array.isArray(src.orderHint) ? src.orderHint : [],
+    chains: Array.isArray(src.chains) ? src.chains : [],
+    meta: {
+      ...base.meta,
+      ...metaSrc,
+      agileMap: {
+        ...base.meta.agileMap,
+        ...(metaSrc.agileMap && typeof metaSrc.agileMap === 'object' ? metaSrc.agileMap : {}),
+      },
+    },
+  };
+}
+
+function emptyPlanningShell() {
+  return {
+    wbs: null,
+    tasks: [],
+    roles: [],
+    skills: [],
+    effort: null,
+    sequence: null,
+    theoreticalCpm: null,
+    criticalWorkIds: [],
+    completion: null,
+    executionPlan: null,
+  };
+}
+
+function emptyResourceShell() {
+  return {
+    fte: [],
+    recommendations: [],
+    assignments: [],
+    schedule: [],
+  };
+}
+
 function createEmptyAiAnalysisContainer() {
   const jobs = {};
   for (const key of AI_ANALYSIS_ALL_JOB_KEYS) {
@@ -54,7 +134,7 @@ function createEmptyAiAnalysisContainer() {
   }
   const analyses = {};
   for (const key of AI_ANALYSIS_SECTION_KEYS) {
-    analyses[key] = emptyAnalysisSection();
+    analyses[key] = key === 'hierarchy' ? emptyHierarchySection() : emptyAnalysisSection();
   }
   return {
     schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
@@ -62,18 +142,20 @@ function createEmptyAiAnalysisContainer() {
     currentJob: null,
     jobs,
     analyses,
-    planning: {
-      wbs: null,
-      tasks: [],
-      roles: [],
-      skills: [],
-      effort: null,
-    },
-    resource: {
-      fte: [],
-      recommendations: [],
-      assignments: [],
-    },
+    planning: emptyPlanningShell(),
+    resource: emptyResourceShell(),
+  };
+}
+
+function normalizeJobMeta(src) {
+  if (!src || typeof src !== 'object') return emptyJobMeta();
+  return {
+    status: String(src.status || 'empty'),
+    model: src.model ?? null,
+    generatedAt: src.generatedAt ?? null,
+    confirmedAt: src.confirmedAt ?? null,
+    durationMs: normalizeDurationMs(src.durationMs),
+    error: src.error ?? null,
   };
 }
 
@@ -81,48 +163,50 @@ function ensureAiAnalysisContainer(raw) {
   const base = createEmptyAiAnalysisContainer();
   if (!raw || typeof raw !== 'object') return base;
 
-  const schemaVersion = Number(raw.schemaVersion) || AI_ANALYSIS_SCHEMA_VERSION;
+  let working = raw;
+  if (needsJobMigration(raw)) {
+    const { jobs: migratedJobs } = migrateAiAnalysisJobsV1ToV2(raw.jobs || {});
+    working = { ...raw, jobs: migratedJobs, schemaVersion: AI_ANALYSIS_SCHEMA_VERSION };
+  }
+
   const jobs = { ...base.jobs };
   for (const key of AI_ANALYSIS_ALL_JOB_KEYS) {
-    const src = raw.jobs?.[key];
+    const src = working.jobs?.[key];
     if (src && typeof src === 'object') {
-      jobs[key] = {
-        status: String(src.status || 'empty'),
-        model: src.model ?? null,
-        generatedAt: src.generatedAt ?? null,
-        confirmedAt: src.confirmedAt ?? null,
-        durationMs: normalizeDurationMs(src.durationMs),
-        error: src.error ?? null,
-      };
+      jobs[key] = normalizeJobMeta(src);
     }
   }
 
   const analyses = { ...base.analyses };
   for (const key of AI_ANALYSIS_SECTION_KEYS) {
-    const src = raw.analyses?.[key];
+    const src = working.analyses?.[key];
     if (src && typeof src === 'object') {
-      analyses[key] = {
-        status: String(src.status || 'empty'),
-        model: src.model ?? null,
-        generatedAt: src.generatedAt ?? null,
-        items: Array.isArray(src.items) ? src.items : [],
-        entities: Array.isArray(src.entities) ? src.entities : [],
-        edges: Array.isArray(src.edges) ? src.edges : [],
-        dataFlows: Array.isArray(src.dataFlows) ? src.dataFlows : [],
-        orderHint: Array.isArray(src.orderHint) ? src.orderHint : [],
-        chains: Array.isArray(src.chains) ? src.chains : [],
-        meta: src.meta && typeof src.meta === 'object' ? src.meta : {},
-      };
+      if (key === 'hierarchy') {
+        analyses[key] = normalizeHierarchySection(src);
+      } else {
+        analyses[key] = {
+          status: String(src.status || 'empty'),
+          model: src.model ?? null,
+          generatedAt: src.generatedAt ?? null,
+          items: Array.isArray(src.items) ? src.items : [],
+          entities: Array.isArray(src.entities) ? src.entities : [],
+          edges: Array.isArray(src.edges) ? src.edges : [],
+          dataFlows: Array.isArray(src.dataFlows) ? src.dataFlows : [],
+          orderHint: Array.isArray(src.orderHint) ? src.orderHint : [],
+          chains: Array.isArray(src.chains) ? src.chains : [],
+          meta: src.meta && typeof src.meta === 'object' ? src.meta : {},
+        };
+      }
     }
   }
 
-  const planningSrc = raw.planning && typeof raw.planning === 'object' ? raw.planning : {};
-  const resourceSrc = raw.resource && typeof raw.resource === 'object' ? raw.resource : {};
+  const planningSrc = working.planning && typeof working.planning === 'object' ? working.planning : {};
+  const resourceSrc = working.resource && typeof working.resource === 'object' ? working.resource : {};
 
   return {
-    schemaVersion,
-    generatedAt: raw.generatedAt ?? null,
-    currentJob: raw.currentJob ?? null,
+    schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
+    generatedAt: working.generatedAt ?? null,
+    currentJob: working.currentJob ?? null,
     jobs,
     analyses,
     planning: {
@@ -131,6 +215,13 @@ function ensureAiAnalysisContainer(raw) {
       roles: Array.isArray(planningSrc.roles) ? planningSrc.roles : [],
       skills: Array.isArray(planningSrc.skills) ? planningSrc.skills : [],
       effort: planningSrc.effort ?? null,
+      sequence: planningSrc.sequence ?? null,
+      theoreticalCpm: planningSrc.theoreticalCpm ?? null,
+      criticalWorkIds: Array.isArray(planningSrc.criticalWorkIds)
+        ? planningSrc.criticalWorkIds
+        : [],
+      completion: planningSrc.completion ?? null,
+      executionPlan: planningSrc.executionPlan ?? null,
     },
     resource: {
       fte: Array.isArray(resourceSrc.fte) ? resourceSrc.fte : [],
@@ -138,6 +229,7 @@ function ensureAiAnalysisContainer(raw) {
         ? resourceSrc.recommendations
         : [],
       assignments: Array.isArray(resourceSrc.assignments) ? resourceSrc.assignments : [],
+      schedule: Array.isArray(resourceSrc.schedule) ? resourceSrc.schedule : [],
     },
   };
 }
@@ -182,8 +274,8 @@ function markJobsStaleAfter(container, job) {
       error: null,
     };
   }
-  for (const key of ['projectPlan', 'final']) {
-    if (next.jobs[key].status !== 'empty') {
+  for (const key of ['final']) {
+    if (next.jobs[key] && next.jobs[key].status !== 'empty') {
       next.jobs[key] = { ...next.jobs[key], status: 'stale', error: null };
     }
   }
@@ -253,7 +345,6 @@ function buildWizardJobDto(container, job) {
     }
   }
 
-  // Job1 Preview: gaps + severity warnings + CTA bổ sung FR (W3d)
   if (job === 'requirementAnalysis') {
     dto.preview = buildRequirementAnalysisGapPreview(c.analyses.gap);
   }
@@ -262,24 +353,24 @@ function buildWizardJobDto(container, job) {
 }
 
 /**
- * Matching must not carry assignments; Assignment must not overwrite recommendations/fte via edits.
+ * Matching must not carry assignments; scheduleCapacity must not overwrite shortlist via edits.
  */
 function assertMatchingAssignmentSeparation(job, edits) {
   if (!edits || typeof edits !== 'object') return;
   if (job === 'employeeMatching') {
     if (edits.assignments != null || edits.resource?.assignments != null) {
       const err = new Error(
-        'employeeMatching cannot set assignments — use employeeAssignment (Job6)'
+        'employeeMatching cannot set assignments — use scheduleCapacity'
       );
       err.statusCode = 400;
       err.errorCode = 'AI_ANALYSIS_MATCHING_NO_ASSIGN';
       throw err;
     }
   }
-  if (job === 'employeeAssignment') {
+  if (job === 'scheduleCapacity') {
     if (edits.recommendations != null || edits.fte != null || edits.resource?.recommendations != null) {
       const err = new Error(
-        'employeeAssignment cannot edit matching shortlist — confirm Job5 separately'
+        'scheduleCapacity cannot edit matching shortlist — confirm employeeMatching separately'
       );
       err.statusCode = 400;
       err.errorCode = 'AI_ANALYSIS_ASSIGN_NO_MATCHING_EDIT';
@@ -322,7 +413,7 @@ function applyJobEdits(container, job, edits) {
   return next;
 }
 
-/** Mark job ready with empty stub shells (W2 — no LLM yet). */
+/** Mark job ready with empty stub shells. */
 function markJobReadyStub(container, job) {
   const next = markJobsStaleAfter(container, job);
   const now = new Date().toISOString();
@@ -364,6 +455,7 @@ function markJobConfirmed(container, job) {
 module.exports = {
   createEmptyAiAnalysisContainer,
   ensureAiAnalysisContainer,
+  emptyHierarchySection,
   assertSchemaVersionPresent,
   getJobStatus,
   assertPreviousJobConfirmed,

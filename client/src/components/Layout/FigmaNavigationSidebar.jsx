@@ -31,6 +31,7 @@ import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { useFriendPending, useNotificationBadge } from '../../hooks/queries';
 import {
+  buildCollaborateCalendarPath,
   buildCollaborateDocumentsPath,
   buildCollaborateRequirementsPath,
   buildCollaborateTasksPath,
@@ -389,7 +390,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           key: 'calendar',
           icon: Calendar,
           label: t('nav.calendar'),
-          path: '/app/me/calendar',
+          path: buildCollaborateCalendarPath(activeOrgId),
           badge: 0,
         }
       );
@@ -483,6 +484,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       }
       if (item.key === 'documents') return path === '/app/collaborate/documents';
       if (item.key === 'requirements') return path === '/app/collaborate/requirements';
+      if (item.key === 'calendar') return path === '/app/collaborate/calendar';
       return isActivePath(item.path);
     }
     return isActivePath(item.path);

@@ -45,6 +45,9 @@ export const STALE_TIME_ADMIN_MEETINGS_MS = 15_000;
 /** Current user profile — settings tabs share */
 export const STALE_TIME_USER_ME_MS = 60_000;
 
+/** Calendar feed — khớp Redis TTL calendar BE (~90s) */
+export const STALE_TIME_CALENDAR_MS = 45_000;
+
 export const GC_TIME_MS = 10 * 60_000;
 
 export const queryClient = new QueryClient({

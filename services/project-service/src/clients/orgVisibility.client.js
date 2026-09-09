@@ -3,16 +3,20 @@ const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/ga
 const {
   normalizeProjectVisibilityPolicy,
 } = require('@enterprise/shared/config/projectVisibilityPolicy');
+const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '')
   .trim()
   .replace(/\/+$/, '');
 
-/**
- * S2S: org visibility policy + actor department/roles for discover resolve.
- */
-async function fetchProjectVisibilityContext(organizationId, userId) {
-  const empty = {
+const VISIBILITY_CACHE_TTL_MS = 15_000;
+const visibilityCache = createTtlCoalesceCache({ ttlMs: VISIBILITY_CACHE_TTL_MS });
+
+/** @type {null | ((url: string, opts: object) => Promise<{ status: number, data?: unknown }>)} */
+let visibilityHttpGetForTests = null;
+
+function emptyVisibilityContext(userId) {
+  return {
     isOrgMember: false,
     membershipRole: null,
     organizationRoleKeys: [],
@@ -21,9 +25,17 @@ async function fetchProjectVisibilityContext(organizationId, userId) {
     policy: normalizeProjectVisibilityPolicy({}),
     userId: String(userId || ''),
   };
+}
+
+/**
+ * S2S: org visibility policy + actor department/roles for discover resolve.
+ */
+async function fetchProjectVisibilityContextUncached(organizationId, userId) {
+  const empty = emptyVisibilityContext(userId);
   if (!ORGANIZATION_SERVICE_URL || !organizationId || !userId) return empty;
   try {
-    const res = await axios.get(
+    const httpGet = visibilityHttpGetForTests || ((url, opts) => axios.get(url, opts));
+    const res = await httpGet(
       `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/organizations/${encodeURIComponent(
         String(organizationId)
       )}/users/${encodeURIComponent(String(userId))}/project-visibility-context`,
@@ -49,4 +61,29 @@ async function fetchProjectVisibilityContext(organizationId, userId) {
   }
 }
 
-module.exports = { fetchProjectVisibilityContext };
+async function fetchProjectVisibilityContext(organizationId, userId) {
+  if (!organizationId || !userId) return emptyVisibilityContext(userId);
+  const key = `${String(organizationId)}|${String(userId)}`;
+  return visibilityCache.getOrLoad(key, () =>
+    fetchProjectVisibilityContextUncached(organizationId, userId)
+  );
+}
+
+function _clearProjectVisibilityContextCacheForTests() {
+  visibilityCache.clear();
+}
+
+function _setProjectVisibilityContextCacheTtlForTests(ttlMs) {
+  visibilityCache.setTtlMs(ttlMs);
+}
+
+function _setProjectVisibilityContextHttpGetForTests(fn) {
+  visibilityHttpGetForTests = typeof fn === 'function' ? fn : null;
+}
+
+module.exports = {
+  fetchProjectVisibilityContext,
+  _clearProjectVisibilityContextCacheForTests,
+  _setProjectVisibilityContextCacheTtlForTests,
+  _setProjectVisibilityContextHttpGetForTests,
+};

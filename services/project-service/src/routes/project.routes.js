@@ -5,7 +5,7 @@
 const express = require('express');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const catalog = require('../controllers/projectRoleCatalog.controller');
-const projectRoleAdminRoutes = require('./projectRoleAdmin.routes');
+const projectRolesRoutes = require('./projectRoles.routes');
 const controller = require('../controllers/project.controller');
 const planning = require('../controllers/planning.controller');
 const changeRequest = require('../controllers/changeRequest.controller');
@@ -14,6 +14,7 @@ const workPreview = require('../controllers/workPreview.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
 const approval = require('../controllers/approval.controller');
 const governance = require('../controllers/governance.controller');
+const projectScopedRoles = require('../controllers/projectScopedRoles.controller');
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ const router = express.Router();
  *         $ref: '#/components/responses/InternalError'
  */
 router.get('/role-catalog', catalog.listRoleCatalog);
-router.use('/roles', projectRoleAdminRoutes);
+router.use('/roles', projectRolesRoutes);
 
 /** Resource Management (Phase 3 / 3b) — trước /:projectId */
 router.get('/resources/capacity', resource.getCapacity);
@@ -161,6 +162,12 @@ router.get('/:projectId/work-preview', workPreview.getWorkPreview);
  */
 router.get('/:projectId/members', controller.listMembers);
 router.get('/:projectId/member-candidates', controller.listMemberCandidatesController);
+router.get('/:projectId/roles', projectScopedRoles.listProjectScopedRoles);
+router.patch('/:projectId/roles/:roleId', projectScopedRoles.updateProjectScopedRole);
+router.post(
+  '/:projectId/roles/:roleId/reset-default',
+  projectScopedRoles.resetProjectScopedRoleDefault
+);
 router.get('/:projectId/resources/planner', resource.getPlanner);
 router.post('/:projectId/workflow/apply', workflowTemplates.applyToProject);
 router.put('/:projectId/approval-policy', approval.bindProjectPolicy);

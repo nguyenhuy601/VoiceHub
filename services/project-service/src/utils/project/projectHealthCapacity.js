@@ -7,7 +7,7 @@ const {
   allocatedPctOnDay,
   toDayMs,
   classifyAvailability,
-} = require('./allocationOverlap');
+} = require('../staffing/allocationOverlap');
 
 function emptyCapacitySummary() {
   return {

@@ -536,7 +536,11 @@ export function ProjectHubOverviewCharts({
   const drillLoading = Boolean(cardsLoading && drill);
 
   return (
-    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      className={`mt-3 grid gap-3 sm:grid-cols-2 ${
+        showAssigneeChart ? 'lg:grid-cols-3' : 'lg:grid-cols-2'
+      }`}
+    >
       <section className={cardCls} aria-labelledby="overview-status-donut">
         <h3
           id="overview-status-donut"
@@ -610,7 +614,7 @@ export function ProjectHubOverviewCharts({
 
       {showAssigneeChart ? (
       <section
-        className={`${cardCls} sm:col-span-2 lg:col-span-1`}
+        className={cardCls}
         aria-labelledby="overview-assignee-donut"
       >
         <h3

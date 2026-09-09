@@ -12,7 +12,7 @@ const {
   buildProjectChatEventEnvelope,
   routingKeyForProjectChatType,
 } = require('@enterprise/shared/messaging/projectChatEvents');
-const { isPublishEnabled } = require('../utils/projectChatPublishFlags');
+const { isPublishEnabled } = require('../utils/project/projectChatPublishFlags');
 
 async function publishProjectChatEventFireAndForget(partial) {
   if (!isPublishEnabled()) return false;

@@ -3,12 +3,12 @@ const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const Sprint = require('../models/Sprint');
 const GovernanceSettings = require('../models/GovernanceSettings');
-const { aggregateDirectorHealth } = require('../utils/directorHealth');
+const { aggregateDirectorHealth } = require('../utils/governance/directorHealth');
 const { loadProjectCardProgress } = require('./projectHealthRollup.service');
 const {
   emptyCapacitySummary,
   summarizePortfolioCapacity,
-} = require('../utils/projectHealthCapacity');
+} = require('../utils/project/projectHealthCapacity');
 const {
   assertCanViewGovernanceReports,
   assertOrgAdminOnly,
@@ -16,7 +16,7 @@ const {
 } = require('./governanceAccess.service');
 const auditService = require('./audit.service');
 const { logger } = require('@enterprise/shared');
-const { normalizeWorkingCalendar } = require('../utils/workingCalendar');
+const { normalizeWorkingCalendar } = require('../utils/staffing/workingCalendar');
 
 function sanitizeHolidayPatch(raw) {
   if (!Array.isArray(raw)) return null;

@@ -10,8 +10,9 @@ const {
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
 const { truncate } = require('./aiAnalysisFrSlice');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
-const ASSIGN_WALL_MS = 180000;
+const ASSIGN_WALL_MS = resolveJobWallMs('scheduleCapacity');
 const ASSIGN_NUM_PREDICT = 512;
 const ASSIGN_LLM_MIN_MS = 20000;
 const CHUNK_SIZE = 12;
@@ -222,7 +223,7 @@ async function runEmployeeAssignment(pack, container, opts = {}) {
   }
 
   const started = opts.nowMs != null ? Number(opts.nowMs) : Date.now();
-  const wallMs = opts.wallMs ?? ASSIGN_WALL_MS;
+  const wallMs = opts.wallMs ?? resolveJobWallMs('scheduleCapacity');
   const nowFn = typeof opts.nowFn === 'function' ? opts.nowFn : Date.now;
 
   const remainingAtStart = wallMs - (nowFn() - started);

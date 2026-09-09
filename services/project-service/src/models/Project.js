@@ -340,4 +340,16 @@ projectSchema.index(
   { unique: true, partialFilterExpression: { projectCode: { $gt: '' } } }
 );
 
+/** Dual-read: docs cũ status=cancelled/completed/… → closed trước khi validate enum. */
+projectSchema.pre('validate', function coerceLegacyStatus(next) {
+  try {
+    const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+    const coerced = coerceProjectLifecycleStatus(this.status);
+    if (coerced) this.status = coerced;
+  } catch {
+    /* keep raw — enum sẽ reject nếu vẫn invalid */
+  }
+  next();
+});
+
 module.exports = mongoose.model('Project', projectSchema);

@@ -3,7 +3,7 @@
  * No assignments. Gap not used for matching people.
  */
 
-const { normalizeRoleKey } = require('./requirementStaffingParse');
+const { normalizeRoleKey } = require('../requirement/requirementStaffingParse');
 
 const SHORTLIST_K = 5;
 const HOURS_PER_FTE = 40;
@@ -104,12 +104,29 @@ function normalizePoolItemsForMatching(items = []) {
       capacityRemaining,
       seniorityLevel,
       isActive: raw.isActive !== false,
+      maxConcurrentProjects:
+        raw.maxConcurrentProjects ?? raw.resourceConfig?.maxConcurrentProjects ?? null,
+      activeProjectCount:
+        raw.activeProjectCount ?? raw.activeProjects ?? raw.projectCount ?? null,
+      resourceConfig: raw.resourceConfig || null,
     });
   }
   return out;
 }
 
-function scorePoolItemForTask({ item, task, container, blockers }) {
+function isAtProjectCap(item) {
+  const max = Number(
+    item?.maxConcurrentProjects ?? item?.resourceConfig?.maxConcurrentProjects
+  );
+  if (!Number.isFinite(max) || max <= 0) return false;
+  const active = Number(
+    item?.activeProjectCount ?? item?.activeProjects ?? item?.projectCount
+  );
+  if (!Number.isFinite(active)) return false;
+  return active >= max;
+}
+
+function scorePoolItemForTask({ item, task, container, blockers, criticalIds }) {
   let score = 0.2;
   const roleKey = normalizeRoleKey(task.suggestedRoleKey);
   const itemRoles = [
@@ -164,6 +181,10 @@ function scorePoolItemForTask({ item, task, container, blockers }) {
     score -= 0.05;
   }
 
+  if (criticalIds && criticalIds.has(String(task.id || ''))) {
+    score += 0.08;
+  }
+
   return Math.max(0, Math.min(1, Math.round(score * 1000) / 1000));
 }
 
@@ -184,21 +205,37 @@ function blockingRoleKeys(container) {
 function buildTaskShortlists(container, poolItems = [], { shortlistK = SHORTLIST_K } = {}) {
   const tasks = (container?.planning?.tasks || []).filter((t) => t?.id);
   const blockers = blockingRoleKeys(container);
+  const criticalIds = new Set(
+    (container?.planning?.criticalWorkIds || []).map((id) => String(id))
+  );
   const recommendations = [];
   const normalized = normalizePoolItemsForMatching(poolItems);
+  let filteredProjectCap = 0;
 
   for (const task of tasks) {
-    // Skip pure parent coordination if children exist? Keep all leaf-ish: prefer with parentId or all
     const scored = normalized
       .map((item) => {
         const userId = String(item.userId || '').trim();
         if (!userId) return null;
-        const score = scorePoolItemForTask({ item, task, container, blockers });
+        if (isAtProjectCap(item)) {
+          filteredProjectCap += 1;
+          return null;
+        }
+        const score = scorePoolItemForTask({
+          item,
+          task,
+          container,
+          blockers,
+          criticalIds,
+        });
         const displayName = String(item.displayName || '').trim();
+        const reasons = [];
+        if (criticalIds.has(String(task.id))) reasons.push('critical_work');
         return {
           userId,
           score,
           ...(displayName ? { displayName } : {}),
+          ...(reasons.length ? { reasons } : {}),
         };
       })
       .filter(Boolean)
@@ -208,18 +245,19 @@ function buildTaskShortlists(container, poolItems = [], { shortlistK = SHORTLIST
     recommendations.push({
       taskId: task.id,
       shortlist: scored,
-      // intentionally no pickedUserId
     });
   }
-  return recommendations;
+  return { recommendations, filteredProjectCap };
 }
 
 async function runEmployeeMatching(pack, container, opts = {}) {
   const poolItems = normalizePoolItemsForMatching(opts.poolItems || []);
   const fte = buildFteFromPlanning(container);
-  const recommendations = buildTaskShortlists(container, poolItems, {
-    shortlistK: opts.shortlistK || SHORTLIST_K,
-  });
+  const { recommendations, filteredProjectCap } = buildTaskShortlists(
+    container,
+    poolItems,
+    { shortlistK: opts.shortlistK || SHORTLIST_K }
+  );
   const emptyPool = poolItems.length === 0;
 
   return {
@@ -233,6 +271,8 @@ async function runEmployeeMatching(pack, container, opts = {}) {
       llmCalls: 0,
       poolSize: poolItems.length,
       recommendationCount: recommendations.length,
+      filteredProjectCap,
+      criticalWorkCount: (container?.planning?.criticalWorkIds || []).length,
       hasAssignments: false,
       ...(emptyPool ? { error: 'empty_pool' } : {}),
     },
@@ -257,6 +297,7 @@ module.exports = {
   skillsFromPoolItem,
   normalizePoolItemsForMatching,
   scorePoolItemForTask,
+  isAtProjectCap,
   buildTaskShortlists,
   runEmployeeMatching,
   applyMatchingToContainer,

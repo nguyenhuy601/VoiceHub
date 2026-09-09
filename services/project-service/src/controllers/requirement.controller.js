@@ -1,7 +1,7 @@
 const {
   TEMPLATE_FILE_NAME,
 } = require('../constants/requirementTemplate.constants');
-const { buildRequirementTemplateBuffer } = require('../utils/requirementTemplateBuilder');
+const { buildRequirementTemplateBuffer } = require('../utils/requirement/requirementTemplateBuilder');
 const {
   previewRequirementImport,
   confirmRequirementImport,

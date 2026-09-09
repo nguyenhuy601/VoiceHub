@@ -104,8 +104,8 @@ export const WORK_ITEM_DETAIL_TAB_DEFS = [
   {
     id: 'worklog',
     labelKey: 'workspace.projectHubWorkTabWorklog',
-    visible: (ctx) =>
-      ctx.kind !== 'planning' && Boolean(ctx.timeTrackingEnabled) && Boolean(ctx.canEstimate),
+    // Visible whenever time tracking is on — not gated on task:estimate (that is Overview only).
+    visible: (ctx) => ctx.kind !== 'planning' && Boolean(ctx.timeTrackingEnabled),
   },
   {
     id: 'approvals',

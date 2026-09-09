@@ -44,7 +44,7 @@ async function requireDeliveryPermission(boardId, userId, permission, message) {
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { assertUserProjectPermission } = require('../services/projectAccess.service');
     await assertUserProjectPermission({
@@ -105,7 +105,7 @@ async function listMembers(req, res) {
       });
     }
     await migrateBoardMembersToProjectRoles(boardId, userId);
-    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserAnyProjectPermission } = require('../services/projectAccess.service');
       await assertUserAnyProjectPermission({

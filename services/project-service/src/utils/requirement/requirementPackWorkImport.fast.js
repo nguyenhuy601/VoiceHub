@@ -2,38 +2,38 @@
  * Fast FR → work import for create-from-pack (single auth setup, slim Task/PlanningItem create).
  */
 
-const mongoose = require('../db');
+const mongoose = require('../../db');
 const { logger } = require('@enterprise/shared');
-const TaskBoard = require('../models/TaskBoard');
-const TaskBoardList = require('../models/TaskBoardList');
-const PlanningItem = require('../models/PlanningItem');
-const Task = require('../models/Task');
-const Project = require('../models/Project');
-const TaskBoardMember = require('../models/TaskBoardMember');
-const ProjectMembership = require('../models/ProjectMembership');
-const TaskActivityLog = require('../models/TaskActivityLog');
+const TaskBoard = require('../../models/TaskBoard');
+const TaskBoardList = require('../../models/TaskBoardList');
+const PlanningItem = require('../../models/PlanningItem');
+const Task = require('../../models/Task');
+const Project = require('../../models/Project');
+const TaskBoardMember = require('../../models/TaskBoardMember');
+const ProjectMembership = require('../../models/ProjectMembership');
+const TaskActivityLog = require('../../models/TaskActivityLog');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
-const { assertProjectWritable } = require('../utils/projectCloseGate');
-const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
-const { resolveUserProjectPermissions } = require('../services/projectAccess.service');
-const { ensureProjectMembership } = require('../services/projectTeam.service');
+const { assertProjectWritable } = require('../project/projectCloseGate');
+const { isProjectRbacV2Enabled, hasPermission } = require('../project/projectPermissionMatrix');
+const { resolveUserProjectPermissions } = require('../../services/projectAccess.service');
+const { ensureProjectMembership } = require('../../services/projectTeam.service');
 const {
   loadWorkTypeConfigForProject,
   resolveCardWorkType,
   assertChildUnderParentType,
-} = require('../services/workTypeNest.service');
-const { assertNestByDepth } = require('../utils/workTypeConfig');
-const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
-const { normalizePlanningStatus, normalizePlanningPriority } = require('../utils/planningItemTypes');
-const { syncPrimaryAssignment } = require('../utils/taskAssignments');
-const { normalizeEstimateHours: normalizeHoursEstimate } = require('../services/hoursCapacityGuard.service');
-const { isFrExecutionLeaf } = require('../utils/requirementFrLevel');
+} = require('../../services/workTypeNest.service');
+const { assertNestByDepth } = require('../project/workTypeConfig');
+const { normalizeIssueType } = require('../project/projectIssueTypePerms');
+const { normalizePlanningStatus, normalizePlanningPriority } = require('../work/planningItemTypes');
+const { syncPrimaryAssignment } = require('../task/taskAssignments');
+const { normalizeEstimateHours: normalizeHoursEstimate } = require('../../services/hoursCapacityGuard.service');
+const { isFrExecutionLeaf } = require('./requirementFrLevel');
 const {
   buildLeafAssigneeMap,
   planningTypeForLevel,
   cardIssueTypeForLevel,
   isCardLevel,
-} = require('../utils/requirementPackWorkImport.utils');
+} = require('./requirementPackWorkImport.utils');
 
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 const LARGE_PACK_WARN_ROWS = 200;

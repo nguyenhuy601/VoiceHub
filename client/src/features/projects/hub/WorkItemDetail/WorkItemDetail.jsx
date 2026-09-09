@@ -150,7 +150,11 @@ function HoursOverrideHost() {
 
   const hoursAssigneeName =
     workItem?.assigneeName ||
-    (assignableMembers || []).find((m) => String(m.userId) === String(assigneeId))?.displayName ||
+    (assignableMembers || []).find(
+      (m) => String(m.userId || m.id) === String(assigneeId)
+    )?.displayName ||
+    (assignableMembers || []).find((m) => String(m.userId || m.id) === String(assigneeId))
+      ?.name ||
     '';
 
   return (

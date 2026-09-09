@@ -3,7 +3,7 @@
  */
 const mongoose = require('../db');
 const Task = require('../models/Task');
-const { withProgressPercents } = require('../utils/directorHealth');
+const { withProgressPercents } = require('../utils/governance/directorHealth');
 
 const CLOSED_CARD_STATUSES = ['done', 'cancelled'];
 

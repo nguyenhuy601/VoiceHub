@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../../context/AuthContext';
 import { projectAPI } from '../../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../../services/api/taskAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
@@ -13,6 +15,10 @@ import { isTimeTrackingV1Enabled } from '../../../../utils/timeTrackingFlag';
 import { parseCardLabelIds } from '../../board/taskBoardCardLabels';
 import { unwrapPlanningEntity } from '../projectHubUtils';
 import {
+  ensureProjectHubAssignableMembers,
+  ensureProjectHubMembers,
+} from '../useProjectHubQueries';
+import {
   buildTabVisibilityContext,
   listVisibleTabs,
   pickInitialVisibleTab,
@@ -22,11 +28,11 @@ import {
   dateInputValueFromIso,
   hoursInputValue,
   isPlanningIssue,
+  isWorkItemAssignee,
   mapInitialPanelToTab,
   relId,
   resolveWorkItemDueDate,
   resolveWorkItemStartDate,
-  unwrapList,
 } from './workItemDetailUtils';
 
 const WorkItemDetailContext = createContext(null);
@@ -70,6 +76,8 @@ export function WorkItemDetailProvider({
   canEstimate = true,
   canComment = true,
   canChangeStatus = true,
+  /** Permission task:update (or manage) — required with assignee for worklog form. */
+  canUpdateTask = false,
   canViewMembers = false,
   onClose,
   onUpdateCard = null,
@@ -87,6 +95,9 @@ export function WorkItemDetailProvider({
   const sprints = stableListProp(sprintsProp);
 
   const { t } = useAppStrings();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const currentUserId = String(user?.id || user?._id || '').trim();
   const boardApiOpts = useMemo(() => {
     if (apiCtx && typeof apiCtx === 'object') return apiCtx;
     return workspaceSlug ? { workspaceSlug } : {};
@@ -142,6 +153,15 @@ export function WorkItemDetailProvider({
   const [assignableMembers, setAssignableMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [projectMembers, setProjectMembers] = useState([]);
+
+  const isAssignee = useMemo(() => {
+    const itemForAssignee = workItem
+      ? { ...workItem, assigneeId: assigneeId || workItem.assigneeId }
+      : workItem;
+    return isWorkItemAssignee(itemForAssignee, currentUserId);
+  }, [workItem, assigneeId, currentUserId]);
+
+  const canLogWork = Boolean(!isPlanning && isAssignee && canUpdateTask);
 
   useEffect(() => {
     if (!open || !workItem) return;
@@ -247,15 +267,18 @@ export function WorkItemDetailProvider({
     if (!boardId) return;
     setLoadingMembers(true);
     try {
-      const res = await taskAPI.getBoardAssignableMembers(String(boardId), boardApiOpts);
-      const payload = unwrapTaskApiPayload(res);
-      setAssignableMembers(Array.isArray(payload?.members) ? payload.members : []);
+      const rows = await ensureProjectHubAssignableMembers(
+        queryClient,
+        String(boardId),
+        boardApiOpts
+      );
+      setAssignableMembers(Array.isArray(rows) ? rows : []);
     } catch {
       setAssignableMembers([]);
     } finally {
       setLoadingMembers(false);
     }
-  }, [boardId, boardApiOpts]);
+  }, [boardId, boardApiOpts, queryClient]);
 
   useEffect(() => {
     if (!open || !boardId) return undefined;
@@ -267,10 +290,9 @@ export function WorkItemDetailProvider({
   useEffect(() => {
     if (!open || !projectId || !canViewMembers) return undefined;
     let cancelled = false;
-    projectAPI
-      .listMembers(projectId, { skipPermissionDeniedToast: true })
-      .then((res) => {
-        if (!cancelled) setProjectMembers(unwrapList(res, unwrapTaskApiPayload));
+    ensureProjectHubMembers(queryClient, projectId)
+      .then((list) => {
+        if (!cancelled) setProjectMembers(Array.isArray(list) ? list : []);
       })
       .catch(() => {
         if (!cancelled) setProjectMembers([]);
@@ -278,7 +300,7 @@ export function WorkItemDetailProvider({
     return () => {
       cancelled = true;
     };
-  }, [open, projectId, canViewMembers]);
+  }, [open, projectId, canViewMembers, queryClient]);
 
   const patchLocalWorkItem = useCallback(
     (patch) => {
@@ -338,6 +360,9 @@ export function WorkItemDetailProvider({
       canEstimate,
       canComment,
       canChangeStatus,
+      canUpdateTask,
+      isAssignee,
+      canLogWork,
       onClose,
       onRefresh,
       onPatchBoardCards,
@@ -410,6 +435,9 @@ export function WorkItemDetailProvider({
       canEstimate,
       canComment,
       canChangeStatus,
+      canUpdateTask,
+      isAssignee,
+      canLogWork,
       onClose,
       onRefresh,
       onPatchBoardCards,

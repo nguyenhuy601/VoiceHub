@@ -6,6 +6,8 @@ alwaysApply: false
 
 # Xóa page / route — cleanup bắt buộc
 
+Workflow chi tiết cũng nằm trong Skill `refactoring` / `feature-implementation` (FE page removal). Rule này vẫn **bắt buộc** đủ cleanup.
+
 Khi **gỡ** một page, route hoặc feature UI (ví dụ landing, màn marketing), **không** chỉ xóa `<Route>` — phải dọn sạch toàn bộ reference và **không** đụng import khác trong file routing.
 
 ## Checklist (theo thứ tự)

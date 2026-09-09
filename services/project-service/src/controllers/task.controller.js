@@ -15,7 +15,8 @@ const {
 } = require('../services/taskWorkspaceScope');
 const { getTaskStatistics } = require('../services/taskStatistics.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
-const { requireObjectId, requireUserId } = require('../utils/validateInput');
+const { requireObjectId, requireUserId } = require('../utils/common/validateInput');
+const { buildCalendarTaskFilter } = require('../utils/task/taskCalendarQuery');
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
@@ -209,6 +210,86 @@ class TaskController {
         }
         return { value: s };
       };
+
+      const view = String(first(q.view) || '')
+        .toLowerCase()
+        .trim();
+      const isCalendarView = view === 'calendar';
+
+      if (isCalendarView) {
+        if (!dueFrom || !dueTo) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueFrom and dueTo are both required for view=calendar',
+          });
+        }
+        const from = new Date(dueFrom);
+        const to = new Date(dueTo);
+        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid dueFrom or dueTo',
+          });
+        }
+        if (from > to) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueFrom must be before or equal to dueTo',
+          });
+        }
+        const maxMs = 180 * 24 * 60 * 60 * 1000;
+        if (to.getTime() - from.getTime() > maxMs) {
+          return res.status(400).json({
+            success: false,
+            message: 'dueDate range cannot exceed 180 days',
+          });
+        }
+
+        let orgId = null;
+        let visibilityFilter = null;
+        if (organizationId) {
+          const p = parseOid(organizationId, 'organizationId');
+          if (p.error) {
+            return taskValidation(res, p.error, 'VALIDATION_INVALID_ID');
+          }
+          const workspaceScope = await fetchTaskWorkspaceScope(userId, p.value);
+          if (!workspaceScope) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden',
+            });
+          }
+          orgId = p.value;
+          visibilityFilter = buildTaskVisibilityFilter(workspaceScope, userId);
+        } else if (assigneeId && String(assigneeId) !== String(userId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden',
+          });
+        }
+
+        const filter = buildCalendarTaskFilter({
+          userId,
+          organizationId: orgId,
+          visibilityFilter,
+          from,
+          to,
+        });
+
+        const result = await taskService.getCalendarTasks(filter, {
+          userId,
+          from,
+          to,
+          organizationId: orgId,
+          page: parseInt(page, 10) || 1,
+          limit: parseInt(limit, 10) || 200,
+        });
+
+        return res.json({
+          success: true,
+          data: result,
+        });
+      }
 
       const filter = { isActive: true };
       const includeBoardCards = String(process.env.TASK_BOARD_CARDS_IN_TASKS_API || '')

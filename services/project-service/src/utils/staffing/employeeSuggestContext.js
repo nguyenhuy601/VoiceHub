@@ -3,10 +3,10 @@
  * Allowlist only — no experience.work, task titles, or activity payloads.
  */
 
-const mongoose = require('../db');
-const ProjectMembership = require('../models/ProjectMembership');
-const ProjectRole = require('../models/ProjectRole');
-const Worklog = require('../models/Worklog');
+const mongoose = require('../../db');
+const ProjectMembership = require('../../models/ProjectMembership');
+const ProjectRole = require('../../models/ProjectRole');
+const Worklog = require('../../models/Worklog');
 
 const CONTEXT_SOFT_MS = 15000;
 const HISTORY_WINDOW_DAYS = 90;
