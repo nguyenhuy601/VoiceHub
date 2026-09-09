@@ -24,7 +24,9 @@ import { plainTextForMessage } from '../../../utils/orgChatMessageUtils';
 import { normalizeComposerFile } from '../../../utils/composerAttachmentUtils';
 import { fetchChatMediaFile } from '../../../utils/chatGifStickerSend';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { parseMessageMentions, sanitizeMentionsForApi } from '../../../utils/parseMessageMentions';
 import useProjectOrgChat from '../../../hooks/useProjectOrgChat';
+import { useProjectRoomChatFocus } from '../../../hooks/useProjectRoomChatFocus';
 
 /**
  * Workspace chat kênh Project — sidebar + tin + composer + context picker.
@@ -107,6 +109,80 @@ export default function ProjectChatWorkspace({
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
+  const [mentionContacts, setMentionContacts] = useState([]);
+
+  useProjectRoomChatFocus({
+    enabled: Boolean(selectedChannelId),
+    roomId: selectedChannelId,
+  });
+
+  const mentionProjectId = String(
+    selectedChannel?.projectId || projectIdFilter || ''
+  ).trim();
+
+  useEffect(() => {
+    if (!mentionProjectId || !orgId) {
+      setMentionContacts([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await projectAPI.listMembers(mentionProjectId, {
+          skipPermissionDeniedToast: true,
+        });
+        const raw = res?.data?.data ?? res?.data ?? res;
+        const list = Array.isArray(raw?.members)
+          ? raw.members
+          : Array.isArray(raw)
+            ? raw
+            : [];
+        if (cancelled) return;
+        const seen = new Set();
+        const contacts = [];
+        for (const row of list) {
+          const user = row?.user || row?.profile || row;
+          const id = String(user?._id || user?.id || row?.userId || '').trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          const name =
+            String(
+              user?.fullName ||
+                user?.displayName ||
+                [user?.lastName, user?.firstName].filter(Boolean).join(' ') ||
+                user?.username ||
+                row?.displayName ||
+                ''
+            ).trim() || id;
+          contacts.push({
+            id,
+            _id: id,
+            name,
+            displayName: name,
+            username: String(user?.username || '').trim(),
+            label: name,
+          });
+        }
+        setMentionContacts(contacts);
+      } catch {
+        if (!cancelled) setMentionContacts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionProjectId, orgId]);
+
+  const composerMentionItems = useMemo(
+    () =>
+      mentionContacts.slice(0, 40).map((contact) => ({
+        label: contact.label || contact.name,
+        username: contact.username,
+        userId: contact.id,
+        value: contact.id,
+      })),
+    [mentionContacts]
+  );
 
   const apiCtx = useMemo(
     () => ({ organizationId: orgId, workspaceSlug: '' }),
@@ -276,6 +352,9 @@ export default function ProjectChatWorkspace({
       contextProjectId: String(contextProject?.projectId || contextProject?._id || '').trim(),
       contextProjectName: String(contextProject?.name || contextProject?.title || '').trim(),
       contextRefs: ref ? [ref] : undefined,
+      mentionedUserIds: sanitizeMentionsForApi(
+        parseMessageMentions(messageInput, mentionContacts)
+      ).map((m) => m.userId),
       onSent: () => {
         setContextProject(null);
         setContextRef(null);
@@ -595,6 +674,7 @@ export default function ProjectChatWorkspace({
                     value={messageInput}
                     onChange={setMessageInput}
                     onSend={handleSend}
+                    mentionItems={composerMentionItems}
                     onPaste={(e) => {
                       const file = e.clipboardData?.files?.[0];
                       if (!file || composerDisabled) return;

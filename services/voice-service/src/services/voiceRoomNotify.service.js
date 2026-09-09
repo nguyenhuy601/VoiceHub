@@ -63,7 +63,7 @@ async function notifyJoinRequestToHost({
 }) {
   if (!NOTIFICATION_SERVICE_URL || !hostUserId) return;
   const base = frontendUrl || process.env.FRONTEND_URL || 'https://voicehub.local';
-  const actionUrl = `${String(base).replace(/\/+$/, '')}/voice/${encodeURIComponent(roomId)}`;
+  const actionUrl = `${String(base).replace(/\/+$/, '')}/app/communicate/voice/${encodeURIComponent(roomId)}?join=1`;
   try {
     await axios.post(
       `${NOTIFICATION_SERVICE_URL}/api/notifications`,

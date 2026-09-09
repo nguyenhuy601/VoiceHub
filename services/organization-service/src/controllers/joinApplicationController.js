@@ -139,7 +139,7 @@ async function notifyModeratorsNewApplication({ orgId, orgName, applicationId, f
           organizationId: String(orgId),
           applicationId: String(applicationId),
         },
-        actionUrl: `${frontendUrl}/organizations/${encodeURIComponent(
+        actionUrl: `${frontendUrl}/app/collaborate/organizations/${encodeURIComponent(
           String(orgId)
         )}/settings?tab=join`,
       },
@@ -572,7 +572,7 @@ exports.reviewJoinApplication = async (req, res, next) => {
         title: 'Đơn gia nhập được duyệt',
         content: `Bạn đã được chấp nhận vào "${org.name}".`,
         data: { organizationId: String(orgId), applicationId: String(appDoc._id), decision: 'approved' },
-        actionUrl: `${frontendUrl}/organizations?orgId=${encodeURIComponent(String(orgId))}`,
+        actionUrl: `${frontendUrl}/app/collaborate/workspaces?orgId=${encodeURIComponent(String(orgId))}`,
       });
 
       await emitRealtimeEvent({

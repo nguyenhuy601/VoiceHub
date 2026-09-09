@@ -36,6 +36,7 @@ const {
 const { resolveOrgChannelAccess } = require('../services/orgAccessReadModel');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
 const { maybeNotifyCrossTeamContext } = require('../utils/crossTeamContextNotify');
+const { maybeNotifyProjectMentions } = require('../utils/projectMentionNotify');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const {
   isContextCallEnabled,
@@ -614,6 +615,7 @@ class MessageController {
         replyToMessageId,
         visibility,
         refs,
+        mentionedUserIds,
       } = req.body;
       const senderId = req.user?.id || req.user?._id;
       const parsedVisibility = isContextCallEnabled() ? parseVisibility(visibility) : null;
@@ -848,6 +850,10 @@ class MessageController {
           });
         }
         maybeNotifyCrossTeamContext({ message: payloadMessage }).catch(() => null);
+        maybeNotifyProjectMentions({
+          message: payloadMessage,
+          mentionedUserIds,
+        }).catch(() => null);
       }
 
       res.status(201).json({

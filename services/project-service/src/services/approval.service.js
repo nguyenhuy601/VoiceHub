@@ -241,6 +241,12 @@ async function notifyApprovers({ userIds, title, content, data }) {
   if (!NOTIFICATION_INTERNAL_TOKEN || !NOTIFICATION_SERVICE_URL) return;
   const ids = [...new Set((userIds || []).map(String).filter(Boolean))];
   if (!ids.length) return;
+  const { projectHubActionUrl } = require('../utils/notificationTargets');
+  const actionUrl = projectHubActionUrl({
+    projectId: data?.projectId,
+    boardId: data?.boardId,
+    organizationId: data?.organizationId,
+  });
   try {
     await axios.post(
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
@@ -249,7 +255,8 @@ async function notifyApprovers({ userIds, title, content, data }) {
         type: 'project_approval',
         title,
         content,
-        data: data || {},
+        data: { ...(data || {}), kind: 'project_approval' },
+        actionUrl,
       },
       {
         headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },

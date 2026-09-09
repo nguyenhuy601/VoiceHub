@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const UserProjectMembership = require('../models/UserProjectMembership');
+const { isFocusedOnProjectRoom } = require('./projectRoomFocus');
 
 const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '')
   .trim()
@@ -137,8 +138,9 @@ async function maybeNotifyCrossTeamContext({ message, roomMeta }) {
     : `Có cập nhật liên quan ${refLabel}`;
 
   await Promise.all(
-    recipients.map((userId) =>
-      axios
+    recipients.map(async (userId) => {
+      if (await isFocusedOnProjectRoom(userId, roomId)) return;
+      return axios
         .post(
           `${NOTIFICATION_SERVICE_URL}/api/notifications`,
           {
@@ -147,6 +149,7 @@ async function maybeNotifyCrossTeamContext({ message, roomMeta }) {
             title: `#cross-team · ${refLabel}`,
             content,
             data: {
+              kind: 'cross_team_work',
               roomId: String(message?.roomId || ''),
               organizationId,
               projectId,
@@ -159,8 +162,8 @@ async function maybeNotifyCrossTeamContext({ message, roomMeta }) {
           },
           notificationAxiosOpts()
         )
-        .catch(() => null)
-    )
+        .catch(() => null);
+    })
   );
 }
 
