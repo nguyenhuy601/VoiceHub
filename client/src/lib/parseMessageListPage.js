@@ -14,6 +14,7 @@ export function parseMessageListPage(resp) {
       hasMore: Boolean(result.hasMore),
       totalPages: null,
       currentPage: null,
+      readCursors: Array.isArray(result.readCursors) ? result.readCursors : undefined,
     };
   }
 
@@ -25,5 +26,6 @@ export function parseMessageListPage(resp) {
     hasMore: currentPage < totalPages,
     totalPages,
     currentPage,
+    readCursors: Array.isArray(result.readCursors) ? result.readCursors : undefined,
   };
 }

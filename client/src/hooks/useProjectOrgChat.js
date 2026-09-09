@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -12,6 +12,7 @@ import {
 } from '../utils/normalizeOrgChatMessage';
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { useAppStrings } from '../locales/appStrings';
+import { resolveOutgoingRoomReceipt } from '../utils/messageReceiptLabel';
 
 const unwrapData = (payload) => payload?.data ?? payload;
 
@@ -77,6 +78,7 @@ export default function useProjectOrgChat({
     data: shell,
     isLoading: shellLoading,
     isError: shellError,
+    error: shellQueryError,
     refetch: refetchShell,
   } = useOrgShell(orgId);
   const access = shell?.access || {};
@@ -130,6 +132,9 @@ export default function useProjectOrgChat({
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editDraft, setEditDraft] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [roomReadCursors, setRoomReadCursors] = useState([]);
+  const markReadInFlightRef = useRef(false);
+  const lastMarkedMessageIdRef = useRef('');
 
   useEffect(() => {
     setExtraMessages([]);
@@ -139,7 +144,14 @@ export default function useProjectOrgChat({
     setReplyToMessage(null);
     setEditingMessageId(null);
     setEditDraft('');
+    setRoomReadCursors([]);
+    lastMarkedMessageIdRef.current = '';
   }, [selectedChannelId]);
+
+  useEffect(() => {
+    const fromApi = Array.isArray(messagesQuery.readCursors) ? messagesQuery.readCursors : [];
+    if (fromApi.length) setRoomReadCursors(fromApi);
+  }, [messagesQuery.readCursors]);
 
   const patchMessage = useCallback((id, patch) => {
     const sid = String(id || '').trim();
@@ -169,9 +181,31 @@ export default function useProjectOrgChat({
       if (rid !== roomKey) return;
       appendLocal(msg);
     };
+    const onReadUpTo = (payload) => {
+      const rid = String(payload?.roomId || '');
+      if (rid !== roomKey) return;
+      const readerId = String(payload?.readerId || '').trim();
+      const lastReadMessageId = String(payload?.lastReadMessageId || '').trim();
+      if (!readerId || !lastReadMessageId) return;
+      setRoomReadCursors((prev) => {
+        const next = Array.isArray(prev) ? [...prev] : [];
+        const idx = next.findIndex((row) => String(row?.userId || '') === readerId);
+        const row = {
+          roomId: rid,
+          userId: readerId,
+          lastReadMessageId,
+          lastReadAt: payload?.readAt || new Date().toISOString(),
+        };
+        if (idx >= 0) next[idx] = { ...next[idx], ...row };
+        else next.push(row);
+        return next;
+      });
+    };
     on?.('room:new_message', onNew);
+    on?.('room:read_up_to', onReadUpTo);
     return () => {
       off?.('room:new_message', onNew);
+      off?.('room:read_up_to', onReadUpTo);
       leaveRoom(roomKey);
     };
   }, [selectedChannelId, orgId, joinRoom, leaveRoom, on, off, appendLocal]);
@@ -189,6 +223,89 @@ export default function useProjectOrgChat({
         return normalizeOrgChatMessage(row);
       });
   }, [messagesQuery.messages, extraMessages, messageOverrides, deletedMessageIds]);
+
+  const lastOutgoingMessageId = useMemo(() => {
+    if (!currentUserId) return '';
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      const sid = String(m?.senderId?._id || m?.senderId || '').trim();
+      if (sid !== currentUserId) continue;
+      if (m?.isRecalled || m?.isDeleted) continue;
+      if (String(m?.messageType || '') === 'system') continue;
+      return messageId(m);
+    }
+    return '';
+  }, [messages, currentUserId]);
+
+  const lastOutgoingReceipt = useMemo(() => {
+    if (!lastOutgoingMessageId) return 'sent';
+    return resolveOutgoingRoomReceipt({
+      messageId: lastOutgoingMessageId,
+      peerCursors: roomReadCursors,
+      excludeUserId: currentUserId,
+    });
+  }, [lastOutgoingMessageId, roomReadCursors, currentUserId]);
+
+  const markRoomRead = useCallback(
+    async (explicitMessageId = '') => {
+      if (!selectedChannelId || !orgId || !canRead || markReadInFlightRef.current) return;
+      const newest =
+        String(explicitMessageId || '').trim() ||
+        messageId(messages[messages.length - 1]) ||
+        '';
+      if (!newest) return;
+      if (newest === lastMarkedMessageIdRef.current) return;
+      markReadInFlightRef.current = true;
+      try {
+        const payload = await api.get('/messages', {
+          params: {
+            roomId: selectedChannelId,
+            organizationId: orgId,
+            markRoomRead: 1,
+            lastReadMessageId: newest,
+          },
+          skipPermissionDeniedToast: true,
+        });
+        const data = unwrapData(payload);
+        lastMarkedMessageIdRef.current = String(data?.lastReadMessageId || newest);
+        if (Array.isArray(data?.cursors)) {
+          setRoomReadCursors(data.cursors);
+        }
+      } catch {
+        /* mark-read best-effort — không toast */
+      } finally {
+        markReadInFlightRef.current = false;
+      }
+    },
+    [selectedChannelId, orgId, canRead, messages]
+  );
+
+  useEffect(() => {
+    if (!selectedChannelId || !canRead || messagesQuery.isLoading) return undefined;
+    if (!messages.length) return undefined;
+    const timer = setTimeout(() => {
+      void markRoomRead();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [selectedChannelId, canRead, messagesQuery.isLoading, messages.length, markRoomRead]);
+
+  useEffect(() => {
+    if (!selectedChannelId || !canRead) return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void markRoomRead();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [selectedChannelId, canRead, markRoomRead]);
+
+  // Khi có tin mới từ người khác trên kênh đang mở → advance watermark.
+  useEffect(() => {
+    if (!selectedChannelId || !canRead || !messages.length) return;
+    const last = messages[messages.length - 1];
+    const sid = String(last?.senderId?._id || last?.senderId || '').trim();
+    if (sid && sid === currentUserId) return;
+    void markRoomRead(messageId(last));
+  }, [messages, selectedChannelId, canRead, currentUserId, markRoomRead]);
 
   const sendMessage = useCallback(
     async (opts = {}) => {
@@ -449,6 +566,7 @@ export default function useProjectOrgChat({
     currentUserId,
     shellLoading,
     shellError,
+    shellQueryError,
     refetchShell,
     projectChannels,
     selectedChannel,
@@ -462,6 +580,8 @@ export default function useProjectOrgChat({
     hasMoreOlder: messagesQuery.hasMoreOlder,
     loadingOlder: messagesQuery.loadingOlder,
     loadOlderMessages: messagesQuery.loadOlderMessages,
+    lastOutgoingMessageId,
+    lastOutgoingReceipt,
     messageInput,
     setMessageInput,
     sending,
