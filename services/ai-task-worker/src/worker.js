@@ -316,7 +316,7 @@ async function createSyncSuggestion({ extraction, messageId, changeType, propose
   }).lean();
   if (exists) return;
 
-  await SyncSuggestion.create({
+  const suggestion = await SyncSuggestion.create({
     taskId: extraction.taskId,
     extractionId: extraction._id,
     organizationId: extraction.organizationId,
@@ -326,6 +326,41 @@ async function createSyncSuggestion({ extraction, messageId, changeType, propose
     proposedPatch: proposedPatch || {},
     createdBy: extraction.generatedBy,
   });
+
+  try {
+    const {
+      notifyAiProposalPending,
+      buildAiProposalActionUrl,
+    } = require('./clients/notification.client');
+    const task = await fetchTask(extraction.taskId, extraction.generatedBy);
+    const projectId = String(task?.projectId || task?.board?.projectId || '').trim();
+    const boardId = String(task?.boardId || task?.board?._id || '').trim();
+    const titleText = String(task?.title || extraction.draft?.title || 'Task').trim() || 'Task';
+    await notifyAiProposalPending({
+      userIds: [extraction.generatedBy],
+      title: 'AI đề xuất cập nhật thẻ',
+      content: `Có thay đổi gợi ý cho “${titleText}” — cần bạn xác nhận (HITL).`,
+      data: {
+        proposalType: 'sync_suggestion',
+        suggestionId: String(suggestion._id),
+        taskId: String(extraction.taskId),
+        extractionId: String(extraction._id),
+        organizationId: String(extraction.organizationId || ''),
+        changeType: String(changeType || ''),
+        projectId: projectId || undefined,
+        boardId: boardId || undefined,
+      },
+      actionUrl: buildAiProposalActionUrl({
+        organizationId: extraction.organizationId,
+        projectId,
+        boardId,
+        extractionId: extraction._id,
+        channelId: extraction.contextHints?.channelId,
+      }),
+    });
+  } catch (notifyErr) {
+    console.warn('[ai-task-worker] sync suggestion notify skipped:', notifyErr?.message || notifyErr);
+  }
 }
 
 async function fetchTask(taskId, userId) {
@@ -386,6 +421,33 @@ async function processExtractJob(payload) {
     extraction.draft = draft;
     extraction.confidence = computeConfidence(draft);
     await extraction.save();
+
+    try {
+      const {
+        notifyAiProposalPending,
+        buildAiProposalActionUrl,
+      } = require('./clients/notification.client');
+      const draftTitle = String(draft?.title || 'Công việc').trim() || 'Công việc';
+      await notifyAiProposalPending({
+        userIds: [extraction.generatedBy],
+        title: 'AI đã soạn thẻ — chờ xác nhận',
+        content: `Bản nháp “${draftTitle}” sẵn sàng. Hãy duyệt trước khi tạo thẻ (HITL).`,
+        data: {
+          proposalType: 'task_extraction',
+          extractionId: String(extraction._id),
+          organizationId: String(extraction.organizationId || ''),
+          channelId: String(extraction.contextHints?.channelId || ''),
+          messageId: String(extraction.sourceRef?.messageId || ''),
+        },
+        actionUrl: buildAiProposalActionUrl({
+          organizationId: extraction.organizationId,
+          channelId: extraction.contextHints?.channelId,
+          extractionId: extraction._id,
+        }),
+      });
+    } catch (notifyErr) {
+      console.warn('[ai-task-worker] extraction ready notify skipped:', notifyErr?.message || notifyErr);
+    }
   } catch (err) {
     extraction.status = 'failed';
     extraction.error = sanitizeWorkerErrorMessage(err);

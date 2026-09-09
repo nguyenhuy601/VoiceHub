@@ -47,6 +47,16 @@ class DocumentService {
       await document.save();
 
       logger.info(`Document created: ${document._id}`);
+      try {
+        const { maybeNotifyDocumentShared } = require('../clients/notification.client');
+        await maybeNotifyDocumentShared({
+          document,
+          actorUserId: uploadedBy,
+          reason: 'uploaded',
+        });
+      } catch (notifyErr) {
+        logger.warn('Document create notify skipped: %s', notifyErr?.message || notifyErr);
+      }
       return document;
     } catch (error) {
       logger.error('Error creating document:', error);
@@ -120,6 +130,7 @@ class DocumentService {
         }
       }
 
+      const wasPublic = document.isPublic === true;
       const updated = await Document.findByIdAndUpdate(
         documentId,
         { $set: updateFields },
@@ -127,6 +138,18 @@ class DocumentService {
       );
 
       logger.info(`Document updated: ${documentId}`);
+      if (updateFields.isPublic === true && !wasPublic) {
+        try {
+          const { maybeNotifyDocumentShared } = require('../clients/notification.client');
+          await maybeNotifyDocumentShared({
+            document: updated,
+            actorUserId: userId,
+            reason: 'shared',
+          });
+        } catch (notifyErr) {
+          logger.warn('Document share notify skipped: %s', notifyErr?.message || notifyErr);
+        }
+      }
       return updated;
     } catch (error) {
       logger.error('Error updating document:', error);

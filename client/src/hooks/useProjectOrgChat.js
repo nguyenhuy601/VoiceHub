@@ -232,6 +232,12 @@ export default function useProjectOrgChat({
             }))
             .filter((row) => row.kind && row.id && row.projectId);
         }
+        const mentionedUserIds = Array.isArray(opts.mentionedUserIds)
+          ? opts.mentionedUserIds.map(String).filter(Boolean)
+          : [];
+        if (mentionedUserIds.length) {
+          body.mentionedUserIds = mentionedUserIds;
+        }
         const payload = await api.post('/messages', body);
         appendLocal(unwrapData(payload));
         setMessageInput('');

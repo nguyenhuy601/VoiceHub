@@ -23,10 +23,9 @@ function resolveIntervalMs() {
   return DEFAULT_INTERVAL_MS;
 }
 
-function buildActionUrl(projectId) {
-  const pid = String(projectId || '').trim();
-  if (!pid) return '/app/collaborate/projects';
-  return `/app/collaborate/projects/${encodeURIComponent(pid)}`;
+function buildActionUrl(projectId, organizationId) {
+  const { projectHubActionUrl } = require('../utils/notificationTargets');
+  return projectHubActionUrl({ projectId, organizationId });
 }
 
 async function notifySprintEndingSoon({ userIds, sprint }) {
@@ -47,7 +46,7 @@ async function notifySprintEndingSoon({ userIds, sprint }) {
         sprintId: sprint?._id ? String(sprint._id) : '',
         kind: 'sprint_ending_soon',
       },
-      actionUrl: buildActionUrl(sprint?.projectId),
+      actionUrl: buildActionUrl(sprint?.projectId, sprint?.organizationId),
     },
     {
       headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },

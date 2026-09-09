@@ -61,7 +61,7 @@ async function maybeNotifyDmReceived(message) {
   const senderName = await resolveSenderDisplayName(senderId);
   const preview = buildDmPreview(message);
   const messageId = String(message?._id || message?.id || '').trim();
-  const actionUrl = `/chat/friends?openDmUserId=${encodeURIComponent(senderId)}`;
+  const actionUrl = `/app/communicate/chat/friends?openDmUserId=${encodeURIComponent(senderId)}`;
 
   try {
     const res = await axios.post(

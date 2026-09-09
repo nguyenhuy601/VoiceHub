@@ -113,9 +113,14 @@ async function notifyCrWorkAssignees({ userIds, title, content, data }) {
         title,
         content,
         data: { ...(data || {}), kind: 'change_request_work' },
-        actionUrl: data?.projectId
-          ? `/app/collaborate/projects/${encodeURIComponent(String(data.projectId))}`
-          : '/app/collaborate/projects',
+        actionUrl: (() => {
+          const { projectHubActionUrl } = require('../utils/notificationTargets');
+          return projectHubActionUrl({
+            projectId: data?.projectId,
+            boardId: data?.boardId,
+            organizationId: data?.organizationId,
+          });
+        })(),
       },
       {
         headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },

@@ -27,6 +27,10 @@ describe('isP0Notification', () => {
       true
     );
     assert.equal(
+      isP0Notification({ rawType: 'system', data: { kind: 'ai_proposal_pending' } }),
+      true
+    );
+    assert.equal(
       isP0Notification({ rawType: 'system', data: { kind: 'task_board_list' } }),
       false
     );
@@ -36,10 +40,14 @@ describe('isP0Notification', () => {
     );
   });
 
-  it('friend / message thường không P0', () => {
+  it('friend / message DM thường không P0; project_mention là P0', () => {
     assert.equal(isP0Notification({ rawType: 'friend_request' }), false);
     assert.equal(isP0Notification({ type: 'friend' }), false);
     assert.equal(isP0Notification({ rawType: 'message' }), false);
+    assert.equal(
+      isP0Notification({ rawType: 'message', data: { kind: 'project_mention' } }),
+      true
+    );
   });
 
   it('capability/HR qua data.kind', () => {
@@ -53,5 +61,10 @@ describe('mapNotificationUiType', () => {
     assert.equal(mapNotificationUiType('system', 'task_due_soon'), 'deadline');
     assert.equal(mapNotificationUiType('system', 'task_overdue'), 'deadline');
     assert.equal(mapNotificationUiType('task_assigned', ''), 'task');
+  });
+
+  it('message: DM → message; mention kênh → mention', () => {
+    assert.equal(mapNotificationUiType('message', ''), 'message');
+    assert.equal(mapNotificationUiType('message', 'project_mention'), 'mention');
   });
 });
