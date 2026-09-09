@@ -98,17 +98,6 @@ const FR_OPTIONAL_COLUMNS = Object.freeze([
 
 const SCOPE_TYPES = Object.freeze(['In Scope', 'Out of Scope']);
 
-const NFR_CATEGORIES = Object.freeze([
-  'Performance',
-  'Security',
-  'Availability',
-  'Scalability',
-  'Maintainability',
-  'Usability',
-  'Compliance',
-  'Reliability',
-]);
-
 const INTEGRATION_DIRECTIONS = Object.freeze(['Inbound', 'Outbound', 'Bidirectional']);
 
 /**
@@ -246,7 +235,6 @@ module.exports = {
   FR_REQUIRED_COLUMNS,
   FR_OPTIONAL_COLUMNS,
   SCOPE_TYPES,
-  NFR_CATEGORIES,
   INTEGRATION_DIRECTIONS,
   OVERVIEW_FIELDS,
   CONTEXT_SCOPE_LABELS,

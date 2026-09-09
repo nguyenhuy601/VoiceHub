@@ -42,6 +42,15 @@ export function resolveWorkItemStartDate(workItem) {
   return workItem?.startDate ?? null;
 }
 
+/** Current user is primary assignee or listed in assignments[]. */
+export function isWorkItemAssignee(workItem, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !workItem) return false;
+  if (workItem.assigneeId && String(workItem.assigneeId) === uid) return true;
+  const assignments = Array.isArray(workItem.assignments) ? workItem.assignments : [];
+  return assignments.some((a) => a?.userId && String(a.userId) === uid);
+}
+
 /**
  * YYYY-MM-DD (từ input type=date) → ISO UTC noon — tránh lệch ngày theo timezone.
  * Chuỗi rỗng / null → null.

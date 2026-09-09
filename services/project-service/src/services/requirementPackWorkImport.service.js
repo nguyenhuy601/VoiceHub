@@ -4,14 +4,14 @@
 
 const { logger } = require('@enterprise/shared');
 const { setUserProjectRoles } = require('./projectTeam.service');
-const { isFrExecutionLeaf } = require('../utils/requirementFrLevel');
-const { buildLeafAssigneeMap } = require('../utils/requirementPackWorkImport.utils');
-const { importRequirementPackWorkItemsFast, importBlueprintWorkItemsFast } = require('../utils/requirementPackWorkImport.fast');
+const { isFrExecutionLeaf } = require('../utils/requirement/requirementFrLevel');
+const { buildLeafAssigneeMap } = require('../utils/requirement/requirementPackWorkImport.utils');
+const { importRequirementPackWorkItemsFast, importBlueprintWorkItemsFast } = require('../utils/requirement/requirementPackWorkImport.fast');
 const {
   assertBlueprintReadyForProjectCreate,
   mapBlueprintTasksToImportPlan,
-} = require('../utils/aiAnalysisBlueprintImport');
-const { getJobStatus, ensureAiAnalysisContainer } = require('../utils/aiAnalysisContainer');
+} = require('../utils/aiAnalysis/aiAnalysisBlueprintImport');
+const { getJobStatus, ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
 
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 
@@ -29,8 +29,8 @@ const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 async function importRequirementPackWorkItems(input) {
   const pack = input?.pack;
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const job6 = getJobStatus(container, 'employeeAssignment');
-  if (job6 === 'confirmed' && (container.planning?.tasks || []).length) {
+  const jobPlan = getJobStatus(container, 'projectPlan');
+  if (jobPlan === 'confirmed' && (container.planning?.tasks || []).length) {
     const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
       applyAssignees: input.applyAssignees !== false,
       taskIds: input.taskIds || null,
@@ -40,12 +40,12 @@ async function importRequirementPackWorkItems(input) {
       blueprintPlan,
     });
   }
-  // Legacy FR→Task only when Blueprint Job6 not confirmed (W10 prefers Blueprint-only)
+  // Legacy FR→Task only when Blueprint projectPlan not confirmed
   return importRequirementPackWorkItemsFast(input);
 }
 
 /**
- * W9 — require Job6 confirmed then import blueprint tasks.
+ * Require projectPlan confirmed then import blueprint tasks.
  */
 async function importBlueprintFromPack(input) {
   assertBlueprintReadyForProjectCreate(input.pack);
@@ -71,10 +71,10 @@ async function seedProjectMembersFromAssignees({
   leafAssignments = [],
 }) {
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const job6 = getJobStatus(container, 'employeeAssignment');
+  const jobPlan = getJobStatus(container, 'projectPlan');
   const roleByUser = new Map();
 
-  if (job6 === 'confirmed' && (container.resource?.assignments || []).length) {
+  if (jobPlan === 'confirmed' && (container.resource?.assignments || []).length) {
     const roleByTask = new Map(
       (container.planning?.tasks || []).map((t) => [
         String(t.id),

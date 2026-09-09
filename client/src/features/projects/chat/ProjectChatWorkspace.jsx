@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Hash, Image as ImageIcon, Lock, Paperclip, Smile, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectChatProjectsSidebar from '../../../components/Organization/ProjectChatProjectsSidebar';
@@ -38,6 +39,7 @@ export default function ProjectChatWorkspace({
 }) {
   const { t, locale } = useAppStrings();
   const { isDarkMode } = useTheme();
+  const queryClient = useQueryClient();
   const chat = useProjectOrgChat({
     organizationId,
     projectIdFilter,
@@ -301,6 +303,7 @@ export default function ProjectChatWorkspace({
     void (async () => {
       try {
         const hydrated = await hydrateWorkItemDetailFromHub({
+          queryClient,
           entityId,
           projectId,
           boardId: String(payload?.boardId || target?.boardId || '').trim(),
@@ -755,6 +758,7 @@ export default function ProjectChatWorkspace({
           locale={locale}
           initialPanel={workDetail.initialPanel || 'detail'}
           canViewMembers={canViewMembers}
+          canUpdateTask
           onClose={() => setWorkDetail(null)}
           onPatchBoardCards={(updater) => {
             setWorkDetail((prev) => {

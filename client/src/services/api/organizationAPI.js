@@ -516,21 +516,6 @@ export const organizationAPI = {
     const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, { title });
     return response;
   },
-
-  listSkills: async (orgId, params = {}) => {
-    const response = await apiClient.get(`/organizations/${encodeURIComponent(orgId)}/skills`, {
-      params,
-    });
-    return response;
-  },
-
-  reviewSkill: async (orgId, skillId, body = {}) => {
-    const response = await apiClient.patch(
-      `/organizations/${encodeURIComponent(orgId)}/skills/${encodeURIComponent(skillId)}/review`,
-      body
-    );
-    return response;
-  },
 };
 
 // Backward-compatible aliases while migrating callers.

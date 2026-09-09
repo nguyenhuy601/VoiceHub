@@ -216,9 +216,13 @@ function NotificationsPage({ orgScope = false } = {}) {
     if (r === 'file' || r === 'document') return t('notifications.actionFile');
     if (r === 'friend' || r === 'friend_request' || r === 'friend_accepted') return t('notifications.actionFriend');
     if (r === 'org_join_application') return t('notifications.actionJoinApp');
-    if (r === 'system') return t('notifications.actionDetail');
+    if (r === 'system') {
+      // task due reminders use type=system + data.kind
+      return mappedType === 'deadline' ? t('notifications.actionUpdate') : t('notifications.actionDetail');
+    }
     const m = String(mappedType || '');
     if (m === 'task') return t('notifications.actionTask');
+    if (m === 'deadline') return t('notifications.actionUpdate');
     if (m === 'mention') return t('notifications.actionChat');
     if (m === 'friend') return t('notifications.actionFriend');
     return t('notifications.actionDetail');
@@ -228,18 +232,22 @@ function NotificationsPage({ orgScope = false } = {}) {
     const data = parseNotificationData(item);
     const id = item?._id || item?.id;
     const rawType = String(item?.type || 'system');
+    const kind = String(data?.kind || '').trim();
+    const isTaskDueKind = kind === 'task_due_soon' || kind === 'task_overdue';
     const type =
-      rawType === 'friend_request' || rawType === 'friend_accepted'
-        ? 'friend'
-        : rawType === 'task_assigned' || rawType === 'task_completed'
-          ? 'task'
-          : rawType === 'document'
-            ? 'file'
-            : rawType === 'message'
-              ? 'mention'
-              : rawType === 'org_join_application'
-                ? 'system'
-                : rawType;
+      isTaskDueKind
+        ? 'deadline'
+        : rawType === 'friend_request' || rawType === 'friend_accepted'
+          ? 'friend'
+          : rawType === 'task_assigned' || rawType === 'task_completed'
+            ? 'task'
+            : rawType === 'document'
+              ? 'file'
+              : rawType === 'message'
+                ? 'mention'
+                : rawType === 'org_join_application'
+                  ? 'system'
+                  : rawType;
     const orgLabel =
       data?.workspaceName ||
       data?.organizationName ||
@@ -601,21 +609,36 @@ function NotificationsPage({ orgScope = false } = {}) {
         break;
       case 'system': {
         const url = String(notif.actionUrl || notif.data?.actionUrl || '').trim();
+        const kind = String(notif.data?.kind || '').trim();
+        const isTaskDue = kind === 'task_due_soon' || kind === 'task_overdue';
         if (url.startsWith('/app/')) {
           navigate(url);
+        } else if (isTaskDue) {
+          navigate(
+            orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/projects'
+          );
         } else {
           navigate(targetWorkspacePath || '/app/me/settings');
         }
-        toast(t('notifications.toastOpenSettings'), { icon: '⚙️' });
+        toast(
+          isTaskDue ? t('notifications.toastOpenTasks') : t('notifications.toastOpenSettings'),
+          { icon: isTaskDue ? '⏰' : '⚙️' }
+        );
         break;
       }
       case 'task':
-      case 'deadline':
-        navigate(
-          orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/projects'
-        );
-        toast(t('notifications.toastOpenTasks'), { icon: '✅' });
+      case 'deadline': {
+        const dueUrl = String(notif.actionUrl || notif.data?.actionUrl || '').trim();
+        if (dueUrl.startsWith('/app/')) {
+          navigate(dueUrl);
+        } else {
+          navigate(
+            orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/projects'
+          );
+        }
+        toast(t('notifications.toastOpenTasks'), { icon: notif.type === 'deadline' ? '⏰' : '✅' });
         break;
+      }
       case 'file':
         navigate(
           orgId ? buildCollaborateDocumentsPath(orgId) : '/app/collaborate/documents'
@@ -661,6 +684,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       { id: 'mention', label: t('common.mentions') },
       { id: 'meeting', label: t('notifications.filterMeetings') },
       { id: 'task', label: t('notifications.filterTasks') },
+      { id: 'deadline', label: t('notifications.filterDeadline') },
     ],
     [t]
   );

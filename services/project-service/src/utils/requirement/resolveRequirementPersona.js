@@ -1,9 +1,9 @@
-const { resolvePositionKeyFromJobTitle } = require('./positionCandidateMatch');
-const { coalesceJobTitle } = require('./jobTitleProfile');
-const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
+const { resolvePositionKeyFromJobTitle } = require('../staffing/positionCandidateMatch');
+const { coalesceJobTitle } = require('../common/jobTitleProfile');
+const { fetchUserProfileByIdInternal } = require('../../clients/userService.client');
 const mongoose = require('mongoose');
-const ProjectMembership = require('../models/ProjectMembership');
-const ProjectRole = require('../models/ProjectRole');
+const ProjectMembership = require('../../models/ProjectMembership');
+const ProjectRole = require('../../models/ProjectRole');
 const {
   normalizeRequirementAccessPolicy,
   mergePersonaActions,

@@ -137,10 +137,4 @@ export const requirementAPI = {
         skipGlobalErrorHandling: true,
       }
     ),
-
-  listSkills: (organizationId, params = {}) =>
-    organizationAPI.listSkills(organizationId, params),
-
-  reviewSkill: (organizationId, skillId, body = {}) =>
-    organizationAPI.reviewSkill(organizationId, skillId, body),
 };

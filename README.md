@@ -75,7 +75,7 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | Edge / identity | `api-gateway`, `auth-service`, `user-service` |
 | Org / social | `organization-service`, `friend-service`, `role-permission-service` |
 | Chat / realtime | `chat-service`, `socket-service` |
-| Work | `task-service`, `task-worker`, `document-service` |
+| Work | `project-service`, `project-worker`, `document-service` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
 | AI / summary | `ai-task-service`, `ai-task-worker`, `ai-task-extract-worker`, `ai-task-sync-worker`, `summary-service`, `summary-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
@@ -128,7 +128,7 @@ VoiceHub/
     voice-service/
     voice-recording-worker/
     voice-stt-worker/
-    task-service/
+    project-service/
     document-service/
     notification-service/
     webhook-service/
@@ -160,7 +160,7 @@ Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới c�
 | `/api/roles`, `/api/permissions` | role-permission-service |
 | `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
-| `/api/tasks` | task-service (project-service) |
+| `/api/tasks` | project-service |
 | `/api/ai/tasks` | ai-task-service |
 | `/api/ai/summaries` | summary-service |
 | `/api/documents` | document-service |

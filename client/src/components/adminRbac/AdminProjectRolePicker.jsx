@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
-import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
+import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 function roleId(row) {
@@ -31,7 +31,7 @@ export default function AdminProjectRolePicker({ orgId, selectedRoleId, hint, pa
     (async () => {
       setLoading(true);
       try {
-        const res = await projectRoleAdminAPI.listRoles(orgId);
+        const res = await projectRolesAPI.listRoles(orgId);
         const list = res?.data?.roles || res?.data?.data?.roles || res?.data || [];
         if (!cancelled) setRoles(Array.isArray(list) ? list : []);
       } catch (error) {

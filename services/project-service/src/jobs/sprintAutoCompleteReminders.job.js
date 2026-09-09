@@ -6,7 +6,7 @@ const axios = require('axios');
 const { logger } = require('@enterprise/shared');
 const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
-const { collectSprintMemberIds } = require('../utils/sprintMemberOverlap');
+const { collectSprintMemberIds } = require('../utils/task/sprintMemberOverlap');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REMINDER_WINDOW_MS = 3 * DAY_MS;

@@ -5,7 +5,7 @@
  */
 
 const { listRequirementRows } = require('./requirementFrLevel');
-const { isTemplateV2 } = require('../constants/requirementTemplate.constants');
+const { isTemplateV2 } = require('../../constants/requirementTemplate.constants');
 
 const HEURISTIC_THRESHOLD = 40;
 const FULL_ENGINE_THRESHOLD = 80;
@@ -45,30 +45,32 @@ function hasPlatformValue(platform) {
  */
 function computePlanningReadiness(pack) {
   const overview = pack?.overview || {};
-  const frList = pack?.functionalRequirements || [];
-  const requirementRows = listRequirementRows(frList);
+  const frList = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
+  /** Leaf Level=Requirement — diagnostic only; hierarchy Module/Feature also count as FR. */
+  const requirementLeaves = listRequirementRows(frList);
   const errorCount = countValidationErrors(pack);
   const blockingCodes = listBlockingValidationCodes(pack);
   const canRunAiAnalysis = errorCount === 0;
 
   const hasDeadline = Boolean(overview.deadline);
   const hasPlatform = hasPlatformValue(overview.platform);
-  const hasRequirements = requirementRows.length > 0;
+  /** Any FR row (Module | Feature | Requirement) — larger levels are still requirements. */
+  const hasFrHierarchy = frList.length > 0;
 
   let score = 0;
   if (hasDeadline) score += 30;
   if (hasPlatform) score += 20;
-  if (hasRequirements) score += 50;
+  if (hasFrHierarchy) score += 50;
   if (!canRunAiAnalysis) score = Math.min(score, HEURISTIC_THRESHOLD - 1);
 
   return {
     hasDeadline,
     hasPlatform,
-    hasFrLeaves: hasRequirements,
+    hasFrLeaves: hasFrHierarchy,
     hasAnyEffort: false,
     hasAnySkills: false,
     hasAnyRoles: false,
-    leafCount: requirementRows.length,
+    leafCount: requirementLeaves.length,
     leavesWithHours: 0,
     /** @deprecated alias — FE submit used staffing; now mirrors WHAT gate */
     allLeavesStaffed: canRunAiAnalysis,

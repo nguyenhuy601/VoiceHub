@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { projectAPI } from '../../../services/api/projectAPI';
@@ -12,6 +13,7 @@ import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
 import ProjectHubDelegationSection from './ProjectHubDelegationSection';
+import ProjectHubRoleMatrixSection from './ProjectHubRoleMatrixSection';
 import CatalogKeyLabelEditor from './CatalogKeyLabelEditor';
 import { normalizePriorityConfig } from './projectPriorityConfig';
 import {
@@ -27,6 +29,7 @@ import {
   PROJECT_PRIORITIES,
   PROJECT_TYPES,
 } from '../../adminTasks/createProjectSeed';
+import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 
 /** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
 const PROFILE_EDITABLE_STATUSES = Object.freeze([
@@ -185,6 +188,7 @@ export default function ProjectHubSettingsPanel({
   priorityConfig: serverPriorityConfig = null,
 }) {
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [projectCode, setProjectCode] = useState('');
   const [description, setDescription] = useState('');
@@ -336,7 +340,7 @@ export default function ProjectHubSettingsPanel({
   const resolvedOrganizationId = String(organizationId || board?.organizationId || '').trim();
 
   useEffect(() => {
-    if (!canManage || !resolvedOrganizationId) {
+    if (!canManage || !resolvedProjectId) {
       setRoleCatalog([]);
       setDepartments([]);
       setOrgPolicySeed(null);
@@ -347,14 +351,21 @@ export default function ProjectHubSettingsPanel({
       setRolesLoading(true);
       try {
         const catalogOpts = resolvedProjectId ? { projectId: resolvedProjectId } : {};
-        const [rolesRes, structureRes, wfRes, apRes, orgVisRes] = await Promise.all([
-          projectAPI.listRoleCatalog(resolvedOrganizationId),
-          organizationAPI.getStructure(resolvedOrganizationId).catch(() => null),
-          taskAPI.listWorkflowTemplates(resolvedOrganizationId, catalogOpts).catch(() => null),
-          projectAPI.listApprovalPolicies(resolvedOrganizationId, catalogOpts).catch(() => null),
-          organizationAPI.getProjectVisibilityPolicy(resolvedOrganizationId).catch(() => null),
+        const [roleList, structureRes, wfRes, apRes, orgVisRes] = await Promise.all([
+          ensureProjectHubRoleCatalog(queryClient, resolvedProjectId),
+          resolvedOrganizationId
+            ? organizationAPI.getStructure(resolvedOrganizationId).catch(() => null)
+            : Promise.resolve(null),
+          resolvedOrganizationId
+            ? taskAPI.listWorkflowTemplates(resolvedOrganizationId, catalogOpts).catch(() => null)
+            : Promise.resolve(null),
+          resolvedOrganizationId
+            ? projectAPI.listApprovalPolicies(resolvedOrganizationId, catalogOpts).catch(() => null)
+            : Promise.resolve(null),
+          resolvedOrganizationId
+            ? organizationAPI.getProjectVisibilityPolicy(resolvedOrganizationId).catch(() => null)
+            : Promise.resolve(null),
         ]);
-        const data = rolesRes?.data?.data ?? rolesRes?.data ?? rolesRes;
         const structure = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
         const wf = wfRes?.data?.data ?? wfRes?.data ?? wfRes;
         const ap = apRes?.data?.data ?? apRes?.data ?? apRes;
@@ -367,7 +378,7 @@ export default function ProjectHubSettingsPanel({
           if (id && !flatIds.has(id)) flatDepts.push(d);
         }
         if (!cancelled) {
-          setRoleCatalog(Array.isArray(data) ? data : []);
+          setRoleCatalog(Array.isArray(roleList) ? roleList : []);
           setDepartments(flatDepts);
           setWorkflowTemplates(Array.isArray(wf) ? wf : []);
           setApprovalPolicies(Array.isArray(ap) ? ap : []);
@@ -387,7 +398,7 @@ export default function ProjectHubSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken]);
+  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient]);
 
   useEffect(() => {
     if (!canManage || !boardId) {
@@ -646,6 +657,11 @@ export default function ProjectHubSettingsPanel({
     { id: 'profile', title: t('workspace.projectHubSettingsProfileTitle'), hint: t('workspace.projectHubSettingsProfileHint') },
     { id: 'visibility', title: t('workspace.projectHubSettingsGroupVisibilityTitle'), hint: t('workspace.projectHubSettingsGroupVisibilityHint') },
     { id: 'staffing', title: t('workspace.projectHubSettingsStaffingTitle'), hint: t('workspace.projectHubSettingsGroupStaffingHint') },
+    {
+      id: 'rolePermissions',
+      title: t('workspace.projectHubRoleMatrixTitle'),
+      hint: t('workspace.projectHubRoleMatrixGroupHint'),
+    },
     { id: 'workflow', title: t('workspace.projectHubWorkflowTitle'), hint: t('workspace.projectHubSettingsGroupWorkflowHint') },
     { id: 'statusPriority', title: t('workspace.projectHubSettingsStatusPriorityTitle'), hint: t('workspace.projectHubSettingsStatusPriorityHint') },
     { id: 'approval', title: t('workspace.projectHubApprovalTitle'), hint: t('workspace.projectHubSettingsGroupApprovalHint') },
@@ -1283,6 +1299,15 @@ export default function ProjectHubSettingsPanel({
     profile: profileBody,
     visibility: visibilityBody,
     staffing: staffingBody,
+    rolePermissions: (
+      <ProjectHubRoleMatrixSection
+        projectId={resolvedProjectId}
+        t={t}
+        muted={muted}
+        fieldLabelCls={fieldLabelCls}
+        inputCls={inputCls}
+      />
+    ),
     workflow: workflowBody,
     statusPriority: statusPriorityBody,
     approval: approvalBody,

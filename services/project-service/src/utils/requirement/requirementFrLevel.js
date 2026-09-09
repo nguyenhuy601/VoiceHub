@@ -3,7 +3,7 @@
  * No Epic/Story/Task staffing leaves on ship path.
  */
 
-const { FR_LEVELS, isTemplateV2 } = require('../constants/requirementTemplate.constants');
+const { FR_LEVELS, isTemplateV2 } = require('../../constants/requirementTemplate.constants');
 const { normKey } = require('./requirementTemplateTextNorm');
 
 const FR_OWNER_LEVELS = Object.freeze(['Module', 'Feature']);
@@ -110,6 +110,14 @@ function listRequirementRows(frList = []) {
   return (frList || []).filter((row) => String(row.level || '').trim() === 'Requirement');
 }
 
+function listModuleRows(frList = []) {
+  return (frList || []).filter((row) => String(row.level || '').trim() === 'Module');
+}
+
+function listFeatureRows(frList = []) {
+  return (frList || []).filter((row) => String(row.level || '').trim() === 'Feature');
+}
+
 module.exports = {
   FR_OWNER_LEVELS,
   FR_ROLE_REQUIRED_LEVELS,
@@ -136,6 +144,8 @@ module.exports = {
   isKnownFrLevel,
   listFrExecutionLeaves,
   listRequirementRows,
+  listModuleRows,
+  listFeatureRows,
   isTemplateV2,
   hasLegacyLevelLabels,
 };

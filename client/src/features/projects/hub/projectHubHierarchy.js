@@ -161,13 +161,27 @@ function nodeId(kind, rawId) {
   return `${kind}:${String(rawId)}`;
 }
 
-/** Thứ tự List: sortOrder rồi createdAt (khớp BE listPlanningItems). */
+/** Thứ tự List/Timeline planning: sortOrder rồi createdAt (khớp BE listPlanningItems). */
 export function comparePlanningOrder(a, b) {
   const ao = Number(a?.sortOrder);
   const bo = Number(b?.sortOrder);
   const aOk = Number.isFinite(ao);
   const bOk = Number.isFinite(bo);
   if (aOk && bOk && ao !== bo) return ao - bo;
+  if (aOk !== bOk) return aOk ? -1 : 1;
+  const at = Date.parse(a?.createdAt || '') || 0;
+  const bt = Date.parse(b?.createdAt || '') || 0;
+  if (at !== bt) return at - bt;
+  return String(a?._id || a?.id || '').localeCompare(String(b?._id || b?.id || ''));
+}
+
+/** Thứ tự List/Timeline card: position rồi createdAt (khớp BE board cards + Board Kanban). */
+export function compareCardOrder(a, b) {
+  const pa = Number(a?.position);
+  const pb = Number(b?.position);
+  const aOk = Number.isFinite(pa);
+  const bOk = Number.isFinite(pb);
+  if (aOk && bOk && pa !== pb) return pa - pb;
   if (aOk !== bOk) return aOk ? -1 : 1;
   const at = Date.parse(a?.createdAt || '') || 0;
   const bt = Date.parse(b?.createdAt || '') || 0;
@@ -224,6 +238,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
     childrenByParent.get(pid).push(card);
   }
+  for (const [, kids] of childrenByParent) kids.sort(compareCardOrder);
 
   const displayCardWorkType = (card) => {
     const issue = String(card?.issueType || 'task').toLowerCase();
@@ -276,7 +291,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
 
   const cardsByEpic = new Map();
   const cardsByFeature = new Map();
-  const rootsOrphan = [];
+  const rootsOrphanCards = [];
   for (const card of cardList) {
     if (card.parentTaskId) continue;
     const fid = card.featureId ? String(card.featureId) : '';
@@ -287,13 +302,15 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     }
     const eid = card.epicId ? String(card.epicId) : '';
     if (!eid) {
-      const featureBand = Math.max(0, bandIndexForType('feature', cfg));
-      rootsOrphan.push(makeCardNode(card, featureBand >= 0 ? featureBand : 1));
+      rootsOrphanCards.push(card);
       continue;
     }
     if (!cardsByEpic.has(eid)) cardsByEpic.set(eid, []);
     cardsByEpic.get(eid).push(card);
   }
+  for (const [, kids] of cardsByEpic) kids.sort(compareCardOrder);
+  for (const [, kids] of cardsByFeature) kids.sort(compareCardOrder);
+  rootsOrphanCards.sort(compareCardOrder);
 
   const epicBand = Math.max(0, bandIndexForType('epic', cfg));
   const roots = [];
@@ -344,12 +361,20 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     });
   }
 
-  for (const n of rootsOrphan) roots.push(n);
+  const featureBand = Math.max(0, bandIndexForType('feature', cfg));
+  for (const card of rootsOrphanCards) {
+    roots.push(makeCardNode(card, featureBand >= 0 ? featureBand : 1));
+  }
 
+  const danglingParentCards = [];
   for (const card of cardList) {
     if (!card.parentTaskId) continue;
     const pid = String(card.parentTaskId);
     if (byId.has(pid)) continue;
+    danglingParentCards.push(card);
+  }
+  danglingParentCards.sort(compareCardOrder);
+  for (const card of danglingParentCards) {
     roots.push(makeCardNode(card, Math.min(bands.length - 1, 2)));
   }
 

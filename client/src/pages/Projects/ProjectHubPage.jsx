@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -7,18 +7,23 @@ import { useTheme } from '../../context/ThemeContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { queryKeys } from '../../lib/queryKeys';
+import { STALE_TIME_PROJECTS_LIST_MS } from '../../lib/queryClient';
 import {
   taskAPI,
   unwrapTaskApiPayload,
-  unwrapTaskBoardDetailPayload,
 } from '../../services/api/taskAPI';
 import {
-  projectAPI,
   mapProjectsToBoardPickerRows,
   mapBoardsToPickerRows,
 } from '../../services/api/projectAPI';
 import ProjectHubShell from '../../features/projects/hub/ProjectHubShell';
-import { useInvalidateProjectHub } from '../../features/projects/hub/useProjectHubQueries';
+import {
+  ensureProjectHubBoards,
+  ensureProjectHubProject,
+  useInvalidateProjectHub,
+  useProjectHubBoardDetail,
+} from '../../features/projects/hub/useProjectHubQueries';
+import { resolveCardMutationCachePolicy } from '../../features/projects/hub/projectHubMutationCachePolicy';
 import ProjectBoardPanel from '../../features/projects/board/ProjectBoardPanel';
 import { kanbanCardSyncedExtra } from '../../features/projects/board/kanbanCardSyncedExtra';
 import {
@@ -31,14 +36,8 @@ import {
 } from '../../utils/suitePathUtils';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
-import { organizationAPI } from '../../services/api/organizationAPI';
-
-function unwrapOrgIdFromProject(payload) {
-  const row = payload?.data?.data ?? payload?.data ?? payload;
-  return String(
-    row?.organizationId || row?.organization?._id || row?.organization || ''
-  ).trim();
-}
+import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
+import { fetchOrgProjectsList } from '../../hooks/useOrgProjectsList';
 
 export default function ProjectHubPage() {
   const { t } = useAppStrings();
@@ -63,18 +62,19 @@ export default function ProjectHubPage() {
   useEffect(() => {
     if (orgIdFromQuery || !projectId) return undefined;
     let cancelled = false;
-    projectAPI
-      .get(projectId)
-      .then((res) => {
-        if (cancelled) return;
-        const next = unwrapOrgIdFromProject(res);
+    ensureProjectHubProject(queryClient, projectId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        const next = String(
+          row?.organizationId || row?.organization?._id || row?.organization || ''
+        ).trim();
         if (next) setOrgId(next);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [orgIdFromQuery, projectId]);
+  }, [orgIdFromQuery, projectId, queryClient]);
 
   const currentUserId = String(user?.id || user?._id || user?.userId || '').trim();
   const apiCtx = useMemo(
@@ -88,12 +88,17 @@ export default function ProjectHubPage() {
   const [taskBoards, setTaskBoards] = useState([]);
   const [loadingTaskBoards, setLoadingTaskBoards] = useState(false);
   const [selectedTaskBoardId, setSelectedTaskBoardId] = useState('');
-  const [taskBoardDetail, setTaskBoardDetail] = useState(null);
-  const [loadingTaskBoardDetail, setLoadingTaskBoardDetail] = useState(false);
   const [accessibleTaskBoards, setAccessibleTaskBoards] = useState([]);
-  const [taskWorkspaceScope, setTaskWorkspaceScope] = useState(undefined);
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
+  const {
+    scope: taskWorkspaceScopeRaw,
+    loading: taskWorkspaceScopeLoading,
+  } = useTaskWorkspaceScope(orgId);
+  /** undefined = đang load (chưa có cache); null = không có scope */
+  const taskWorkspaceScope = taskWorkspaceScopeLoading
+    ? undefined
+    : taskWorkspaceScopeRaw;
 
   const resolveSelectedBoardId = useCallback((list) => {
     const preferred = String(boardIdFromQuery || '').trim();
@@ -107,47 +112,57 @@ export default function ProjectHubPage() {
     return list[0]?._id ? String(list[0]._id) : '';
   }, [boardIdFromQuery, projectId]);
 
-  const loadOrgTaskBoards = useCallback(async () => {
-    if (!orgId) {
-      setTaskBoards([]);
-      setSelectedTaskBoardId('');
-      setTaskBoardDetail(null);
-      return;
-    }
-    setLoadingTaskBoards(true);
-    try {
-      const res = await projectAPI.list({ organizationId: orgId });
-      const payload = unwrapTaskApiPayload(res);
-      const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
-      const list = mapProjectsToBoardPickerRows(raw);
+  const applyBoardPickerList = useCallback(
+    (list) => {
       setTaskBoards(list);
       setAccessibleTaskBoards(list);
       setSelectedTaskBoardId((prev) => {
         const next = resolveSelectedBoardId(list);
         return next || prev;
       });
-    } catch (err) {
+    },
+    [resolveSelectedBoardId]
+  );
+
+  const loadOrgTaskBoards = useCallback(async () => {
+    if (!orgId) {
       setTaskBoards([]);
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      setSelectedTaskBoardId('');
+      return;
+    }
+    const listKey = queryKeys.projects.list(orgId, { excludeClosed: false });
+    const cached = queryClient.getQueryData(listKey);
+    if (Array.isArray(cached) && cached.length) {
+      applyBoardPickerList(mapProjectsToBoardPickerRows(cached));
+    } else {
+      setLoadingTaskBoards(true);
+    }
+    try {
+      const raw = await queryClient.fetchQuery({
+        queryKey: listKey,
+        queryFn: () => fetchOrgProjectsList(orgId, { excludeClosed: false }),
+        staleTime: STALE_TIME_PROJECTS_LIST_MS,
+      });
+      applyBoardPickerList(mapProjectsToBoardPickerRows(Array.isArray(raw) ? raw : []));
+    } catch (err) {
+      if (!(Array.isArray(cached) && cached.length)) {
+        setTaskBoards([]);
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      }
     } finally {
       setLoadingTaskBoards(false);
     }
-  }, [orgId, resolveSelectedBoardId, t]);
+  }, [orgId, queryClient, applyBoardPickerList, t]);
 
   const loadProjectBoardsFast = useCallback(async () => {
     if (!orgId || !projectId) return false;
     setLoadingTaskBoards(true);
     try {
-      const [boardsRes, projectRes] = await Promise.all([
-        projectAPI.listBoards(projectId, orgId),
-        projectAPI.get(projectId).catch(() => null),
+      const [boards, projectRow] = await Promise.all([
+        ensureProjectHubBoards(queryClient, projectId, orgId),
+        ensureProjectHubProject(queryClient, projectId).catch(() => null),
       ]);
-      const boardsPayload = boardsRes?.data?.data ?? boardsRes?.data ?? boardsRes;
-      const boards = Array.isArray(boardsPayload)
-        ? boardsPayload
-        : boardsPayload?.items || [];
-      const projectRow = projectRes?.data?.data ?? projectRes?.data ?? projectRes ?? {};
-      const list = mapBoardsToPickerRows(boards, {
+      const list = mapBoardsToPickerRows(Array.isArray(boards) ? boards : [], {
         projectId,
         title: projectRow?.title,
         projectCode: projectRow?.projectCode,
@@ -158,9 +173,7 @@ export default function ProjectHubPage() {
         status: projectRow?.status,
       });
       if (!list.length) return false;
-      setTaskBoards(list);
-      setAccessibleTaskBoards(list);
-      setSelectedTaskBoardId(resolveSelectedBoardId(list));
+      applyBoardPickerList(list);
       return true;
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
@@ -168,52 +181,46 @@ export default function ProjectHubPage() {
     } finally {
       setLoadingTaskBoards(false);
     }
-  }, [orgId, projectId, resolveSelectedBoardId, t]);
+  }, [orgId, projectId, queryClient, applyBoardPickerList, t]);
 
-  const [needsFullBoardCards, setNeedsFullBoardCards] = useState(false);
-  const [fullBoardCardsReady, setFullBoardCardsReady] = useState(false);
-  const boardDetailFetchGenRef = useRef(0);
+  /** Một lần getBoardDetail (full) — tránh lists + full song song trên overview. */
+  const boardDetailQuery = useProjectHubBoardDetail(selectedTaskBoardId, apiCtx, {
+    includeCards: true,
+    enabled: Boolean(selectedTaskBoardId),
+  });
 
-  const loadTaskBoardDetail = useCallback(
-    async (boardId, options = {}) => {
-      const silent = Boolean(options?.silent);
-      const forceFull = Boolean(options?.forceFull);
-      const wantFullCards = forceFull || needsFullBoardCards;
-      const fetchGen = ++boardDetailFetchGenRef.current;
-      if (!boardId) {
-        setTaskBoardDetail(null);
-        setFullBoardCardsReady(false);
-        return;
-      }
-      if (!silent) setLoadingTaskBoardDetail(true);
-      try {
-        const res = await taskAPI.getBoardDetail(String(boardId), {
-          ...apiCtx,
-          ...(wantFullCards ? {} : { includeCards: false }),
+  const taskBoardDetail = boardDetailQuery.data ?? null;
+  const loadingTaskBoardDetail =
+    Boolean(selectedTaskBoardId) && !taskBoardDetail && boardDetailQuery.isPending;
+  const fullBoardCardsReady =
+    Boolean(selectedTaskBoardId) && !boardDetailQuery.isPending && Boolean(taskBoardDetail);
+
+  useEffect(() => {
+    if (!boardDetailQuery.isError) return;
+    toast.error(
+      resolveApiErrorMessage(boardDetailQuery.error, t('taskBoard.loadBoardDetailFail'))
+    );
+  }, [boardDetailQuery.isError, boardDetailQuery.error, t]);
+
+  const patchBoardDetailCache = useCallback(
+    (updater) => {
+      const bid = String(selectedTaskBoardId || '').trim();
+      if (!bid) return;
+      for (const scope of ['full', 'lists']) {
+        const key = queryKeys.projectHub.boardDetail(bid, scope);
+        queryClient.setQueryData(key, (prev) => {
+          if (!prev) return prev;
+          return typeof updater === 'function' ? updater(prev) : prev;
         });
-        if (fetchGen !== boardDetailFetchGenRef.current) return;
-        setTaskBoardDetail(unwrapTaskBoardDetailPayload(res));
-        if (wantFullCards) setFullBoardCardsReady(true);
-      } catch (err) {
-        if (fetchGen !== boardDetailFetchGenRef.current) return;
-        if (wantFullCards) setFullBoardCardsReady(true);
-        if (!silent) setTaskBoardDetail(null);
-        toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail')));
-      } finally {
-        if (!silent && fetchGen === boardDetailFetchGenRef.current) {
-          setLoadingTaskBoardDetail(false);
-        }
       }
     },
-    [apiCtx, t, needsFullBoardCards]
+    [queryClient, selectedTaskBoardId]
   );
 
   useEffect(() => {
     if (!orgId) {
       setTaskBoards([]);
       setSelectedTaskBoardId('');
-      setTaskBoardDetail(null);
-      setFullBoardCardsReady(false);
       return undefined;
     }
     const pid = String(projectId || '').trim();
@@ -253,32 +260,10 @@ export default function ProjectHubPage() {
 
   useEffect(() => {
     if (!orgId) {
-      setTaskWorkspaceScope(null);
-      return undefined;
-    }
-    let cancelled = false;
-    setTaskWorkspaceScope(undefined);
-    organizationAPI
-      .getTaskWorkspaceScope(orgId)
-      .then((res) => {
-        if (cancelled) return;
-        setTaskWorkspaceScope(res?.data?.data ?? res?.data ?? res ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setTaskWorkspaceScope(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId) {
       setProjectBriefs([]);
       setLoadingProjectBriefs(false);
       return undefined;
     }
-    // undefined = đang load scope — chờ; null = không có scope → bỏ briefs (tránh 403 treo).
     if (taskWorkspaceScope === undefined) return undefined;
     if (!taskWorkspaceScope) {
       setProjectBriefs([]);
@@ -320,10 +305,10 @@ export default function ProjectHubPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await projectAPI.listBoards(pid, orgId);
-        const data = res?.data?.data ?? res?.data ?? res;
-        const boards = Array.isArray(data) ? data : data?.items || [];
-        const main = boards.find((b) => b && b.isActive !== false) || boards[0];
+        const boards = await ensureProjectHubBoards(queryClient, pid, orgId);
+        const main =
+          (Array.isArray(boards) ? boards : []).find((b) => b && b.isActive !== false) ||
+          boards?.[0];
         const nextBoardId = String(main?._id || '').trim();
         if (!cancelled && nextBoardId) {
           navigate(
@@ -338,7 +323,7 @@ export default function ProjectHubPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, boardIdFromQuery, orgId, navigate]);
+  }, [projectId, boardIdFromQuery, orgId, navigate, queryClient]);
 
   useEffect(() => {
     if (!projectId || !selectedTaskBoardId) return;
@@ -352,41 +337,23 @@ export default function ProjectHubPage() {
     );
   }, [projectId, selectedTaskBoardId, orgId, boardIdFromQuery, navigate]);
 
-  useEffect(() => {
-    setFullBoardCardsReady(false);
-  }, [selectedTaskBoardId]);
-
-  useEffect(() => {
-    loadTaskBoardDetail(selectedTaskBoardId);
-  }, [selectedTaskBoardId, loadTaskBoardDetail]);
-
-  useEffect(() => {
-    if (!needsFullBoardCards || !selectedTaskBoardId) return undefined;
-    loadTaskBoardDetail(selectedTaskBoardId, { forceFull: true, silent: true });
-  }, [needsFullBoardCards, selectedTaskBoardId, loadTaskBoardDetail]);
-
-  const handleNeedFullBoardCards = useCallback(() => {
-    setNeedsFullBoardCards(true);
-  }, []);
-
   const refreshTaskBoardView = useCallback(async () => {
     if (!selectedTaskBoardId) return;
-    await loadTaskBoardDetail(selectedTaskBoardId, { silent: true, forceFull: needsFullBoardCards });
-    invalidateProjectHub(
+    const pid =
       projectId ||
-        String(
-          taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.projectId || ''
-        ).trim(),
-      selectedTaskBoardId
-    );
+      String(
+        taskBoards.find((b) => String(b._id) === String(selectedTaskBoardId))?.projectId || ''
+      ).trim();
+    invalidateProjectHub(pid, selectedTaskBoardId, { organizationId: orgId });
+    await boardDetailQuery.refetch();
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   }, [
     selectedTaskBoardId,
-    loadTaskBoardDetail,
-    needsFullBoardCards,
-    invalidateProjectHub,
     projectId,
     taskBoards,
+    invalidateProjectHub,
+    orgId,
+    boardDetailQuery,
     queryClient,
   ]);
 
@@ -406,8 +373,7 @@ export default function ProjectHubPage() {
       const res = await taskAPI.createBoardList(selectedTaskBoardId, { title }, apiCtx);
       const list = unwrapTaskApiPayload(res);
       if (list?._id) {
-        setTaskBoardDetail((prev) => {
-          if (!prev) return prev;
+        patchBoardDetailCache((prev) => {
           const lists = [...(Array.isArray(prev.lists) ? prev.lists : []), list].sort(
             (a, b) => Number(a.order || 0) - Number(b.order || 0)
           );
@@ -415,7 +381,7 @@ export default function ProjectHubPage() {
         });
         return list;
       }
-      await loadTaskBoardDetail(selectedTaskBoardId);
+      await boardDetailQuery.refetch();
       return null;
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.addListFail')));
@@ -429,8 +395,7 @@ export default function ProjectHubPage() {
       const res = await taskAPI.createBoardCard(selectedTaskBoardId, cardData, apiCtx);
       const card = unwrapTaskApiPayload(res);
       if (!card?._id) return;
-      setTaskBoardDetail((prev) => {
-        if (!prev) return prev;
+      patchBoardDetailCache((prev) => {
         const cards = Array.isArray(prev.cards) ? [...prev.cards, card] : [card];
         const lists = Array.isArray(prev.lists)
           ? prev.lists.map((l) =>
@@ -441,6 +406,7 @@ export default function ProjectHubPage() {
           : prev.lists;
         return { ...prev, cards, lists };
       });
+      invalidateProjectHub(projectId, selectedTaskBoardId);
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.addCardFail')));
@@ -461,7 +427,7 @@ export default function ProjectHubPage() {
       const moved = unwrapTaskApiPayload(res);
       if (moved?.approvalPending) {
         toast(t('taskBoard.approvalPendingToast'), { icon: '⏳' });
-        setTaskBoardDetail((prev) => {
+        patchBoardDetailCache((prev) => {
           if (!prev?.cards) return prev;
           const cards = prev.cards.map((c) => {
             if (String(c._id) !== String(cardId)) return c;
@@ -476,7 +442,7 @@ export default function ProjectHubPage() {
         });
         return;
       }
-      setTaskBoardDetail((prev) => {
+      patchBoardDetailCache((prev) => {
         if (!prev?.cards) return prev;
         const cards = prev.cards.map((c) => {
           if (String(c._id) !== String(cardId)) return c;
@@ -489,7 +455,13 @@ export default function ProjectHubPage() {
         });
         return { ...prev, cards };
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      const moveCache = resolveCardMutationCachePolicy('move');
+      if (moveCache.fullInvalidate) {
+        invalidateProjectHub(projectId, selectedTaskBoardId);
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      } else if (moveCache.overviewInvalidate && projectId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.overview(projectId) });
+      }
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, t('taskBoard.moveCardFail')));
       throw err;
@@ -504,7 +476,7 @@ export default function ProjectHubPage() {
       if (updated?.approvalPending) {
         toast(t('taskBoard.approvalPendingToast'), { icon: '⏳' });
       }
-      setTaskBoardDetail((prev) => {
+      patchBoardDetailCache((prev) => {
         if (!prev?.cards) return prev;
         const cards = prev.cards.map((c) =>
           String(c._id) === String(cardId)
@@ -520,7 +492,11 @@ export default function ProjectHubPage() {
         );
         return { ...prev, cards };
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      const updateCache = resolveCardMutationCachePolicy('update');
+      if (updateCache.fullInvalidate) {
+        invalidateProjectHub(projectId, selectedTaskBoardId);
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      }
     } catch (err) {
       if (!isHoursSoftWarning(err)) {
         toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));
@@ -529,22 +505,24 @@ export default function ProjectHubPage() {
     }
   };
 
-  const applyBoardCardsPatch = useCallback((updater) => {
-    setTaskBoardDetail((prev) => {
-      if (!prev) return prev;
-      const current = Array.isArray(prev.cards) ? prev.cards : [];
-      const nextCards = typeof updater === 'function' ? updater(current) : current;
-      if (!Array.isArray(nextCards) || nextCards === current) return prev;
-      return { ...prev, cards: nextCards };
-    });
-  }, []);
+  const applyBoardCardsPatch = useCallback(
+    (updater) => {
+      patchBoardDetailCache((prev) => {
+        const current = Array.isArray(prev.cards) ? prev.cards : [];
+        const nextCards = typeof updater === 'function' ? updater(current) : current;
+        if (!Array.isArray(nextCards) || nextCards === current) return prev;
+        return { ...prev, cards: nextCards };
+      });
+    },
+    [patchBoardDetailCache]
+  );
 
   const handleReorderBoardList = useCallback(
     async (listId, position) => {
       if (!selectedTaskBoardId || !listId) return;
       let rollbackLists = null;
       try {
-        setTaskBoardDetail((prev) => {
+        patchBoardDetailCache((prev) => {
           if (!prev?.lists) return prev;
           const source = [...prev.lists];
           rollbackLists = source;
@@ -567,12 +545,12 @@ export default function ProjectHubPage() {
         );
       } catch (err) {
         if (rollbackLists) {
-          setTaskBoardDetail((prev) => (prev ? { ...prev, lists: rollbackLists } : prev));
+          patchBoardDetailCache((prev) => (prev ? { ...prev, lists: rollbackLists } : prev));
         }
         toast.error(resolveApiErrorMessage(err, t('taskBoard.reorderListFail')));
       }
     },
-    [selectedTaskBoardId, apiCtx, t]
+    [selectedTaskBoardId, apiCtx, t, patchBoardDetailCache]
   );
 
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
@@ -661,8 +639,7 @@ export default function ProjectHubPage() {
       onMoveCard={handleMoveBoardCard}
       onUpdateCard={handleUpdateBoardCard}
       onBoardCardsPatch={(updater) => {
-        setTaskBoardDetail((prev) => {
-          if (!prev) return prev;
+        patchBoardDetailCache((prev) => {
           const cards = typeof updater === 'function' ? updater(prev.cards || []) : prev.cards;
           return { ...prev, cards: Array.isArray(cards) ? cards : prev.cards };
         });
@@ -748,7 +725,6 @@ export default function ProjectHubPage() {
         organizationId={orgId || ''}
         apiCtx={apiCtx}
         onRefresh={refreshTaskBoardView}
-        onNeedFullBoardCards={handleNeedFullBoardCards}
         boardCardsReady={fullBoardCardsReady}
         onUpdateCard={handleUpdateBoardCard}
         onPatchBoardCards={applyBoardCardsPatch}

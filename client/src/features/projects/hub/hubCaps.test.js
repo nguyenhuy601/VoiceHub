@@ -39,10 +39,68 @@ test('không có capabilities → fail-closed; canManageFallback bật quyền x
   const caps = resolveHubCapabilities(null, { canManageFallback: false });
   assert.equal(caps.canViewMembers, false);
   assert.equal(caps.canViewChangeRequests, false);
+  assert.equal(caps.canViewBacklog, false);
+  assert.equal(caps.canViewReport, false);
+  assert.equal(caps.canViewFiles, false);
+  assert.equal(caps.canViewSprints, false);
+  assert.equal(caps.canViewWorkItems, true);
+  assert.equal(caps.canViewActivityTab, true);
 
   const manage = resolveHubCapabilities(null, { canManageFallback: true });
   assert.equal(manage.canViewMembers, true);
   assert.equal(manage.canViewChangeRequests, true);
+  assert.equal(manage.canViewBacklog, true);
+  assert.equal(manage.canViewReport, true);
+  assert.equal(manage.canViewFiles, true);
+  assert.equal(manage.canViewSprints, true);
+});
+
+test('canViewBacklog từ backlog:view', () => {
+  const hidden = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'task:view'],
+    },
+  });
+  assert.equal(hidden.canViewBacklog, false);
+
+  const visible = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'backlog:view'],
+    },
+  });
+  assert.equal(visible.canViewBacklog, true);
+});
+
+test('canViewWorkItems / canViewReport / canViewFiles / canViewSprints / canViewActivityTab', () => {
+  const limited = resolveHubCapabilities({
+    capabilities: {
+      canView: true,
+      permissions: ['project:view', 'files:view'],
+    },
+  });
+  assert.equal(limited.canViewWorkItems, true);
+  assert.equal(limited.canViewActivityTab, true);
+  assert.equal(limited.canViewFiles, true);
+  assert.equal(limited.canViewReport, false);
+  assert.equal(limited.canViewSprints, true);
+  assert.equal(limited.canViewBacklog, false);
+
+  const taskOnly = resolveHubCapabilities({
+    capabilities: {
+      canView: true,
+      permissions: ['task:view'],
+    },
+  });
+  assert.equal(taskOnly.canViewWorkItems, true);
+  assert.equal(taskOnly.canViewSprints, false);
+  assert.equal(taskOnly.canViewFiles, false);
+
+  const report = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['report:view'],
+    },
+  });
+  assert.equal(report.canViewReport, true);
 });
 
 test('canViewChangeRequests từ change_request:view', () => {

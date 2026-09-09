@@ -2,7 +2,7 @@ const ProjectMember = require('../models/ProjectMember');
 const {
   normalizeAllocationSegments,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
+} = require('../utils/staffing/allocationOverlap');
 
 function asOid(raw) {
   return String(raw || '').trim();

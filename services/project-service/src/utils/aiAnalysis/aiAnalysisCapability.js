@@ -8,17 +8,20 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
-  buildRequirementFrSlices,
+  buildRequirementFrSlicesForAnalysis,
+  expandFrIdSetWithSlices,
   buildProjectContextSlice,
 } = require('./aiAnalysisFrSlice');
+const { FR_LANGUAGE_CUE, detectSkillHints } = require('./aiAnalysisLocaleText');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const COMPLEXITY = Object.freeze(['low', 'medium', 'high']);
 const CONFIDENCE_LABELS = Object.freeze(['low', 'med', 'high']);
 
-const CAP_WALL_MS = 180000;
+const CAP_WALL_MS = resolveJobWallMs('capabilityAnalysis');
 const CAP_CHUNK_SIZE = 12;
 const CAP_MAX_CHUNKS = 8;
 const CAP_NUM_PREDICT = 768;
@@ -203,22 +206,9 @@ function validateAndNormalizeCapabilityPayload(data, packFrIds) {
 }
 
 function inferSkillsFromSlice(slice) {
-  const text = `${slice.title || ''} ${slice.description || ''} ${slice.ac || ''}`.toLowerCase();
-  const skills = [];
-  const push = (name, level) => {
-    if (skills.length >= SKILL_MAX) return;
-    if (skills.some((s) => s.name.toLowerCase() === name.toLowerCase())) return;
-    skills.push(level != null ? { name, level } : { name });
-  };
-  if (/auth|login|password|oauth|jwt|session/.test(text)) push('Authentication', 3);
-  if (/api|rest|graphql|endpoint/.test(text)) push('REST API', 3);
-  if (/ui|screen|page|frontend|react|form/.test(text)) push('React', 3);
-  if (/db|database|sql|mongo|persist|store/.test(text)) push('Database', 3);
-  if (/payment|billing|invoice/.test(text)) push('Payments', 3);
-  if (/notif|email|sms|push/.test(text)) push('Notifications', 2);
-  if (/report|analytics|dashboard/.test(text)) push('Reporting', 2);
-  if (/security|encrypt|rbac|permission/.test(text)) push('Security', 3);
-  if (!skills.length) push('General Development', 2);
+  const text = `${slice.title || ''} ${slice.description || ''} ${slice.ac || ''}`;
+  const skills = detectSkillHints(text).slice(0, SKILL_MAX);
+  if (!skills.length) return [{ name: 'General Development', level: 2 }];
   return skills;
 }
 
@@ -269,6 +259,7 @@ function buildCapabilityChunks(frSlices, chunkSize = CAP_CHUNK_SIZE) {
 function buildCapabilityPrompt({ context, frChunk, chunkIndex, chunkTotal }) {
   return [
     'You are a software BA. Extract implementation capabilities from requirements.',
+    FR_LANGUAGE_CUE,
     'Return ONLY valid JSON: {"items":[{...}]} — no markdown, no prose.',
     'Each item fields: capabilityId (string), name, module, feature (optional),',
     'sourceFrIds (array of FR ids from input only — never invent ids),',
@@ -289,10 +280,15 @@ function canStartChunk(elapsedMs, wallMs, chunkTimeoutMs) {
  * Run capability analysis: LLM chunks + heuristic fill for timeout/partial/skip.
  */
 async function runCapabilityAnalysis(pack, opts = {}) {
-  const wallMs = opts.wallMs ?? CAP_WALL_MS;
+  const wallMs = opts.wallMs ?? resolveJobWallMs('capabilityAnalysis');
   const started = Date.now();
-  const packFrIds = buildFrIdSet(pack?.functionalRequirements || []);
-  const frSlices = buildRequirementFrSlices(pack);
+  const frSlices =
+    opts.frSlices ||
+    buildRequirementFrSlicesForAnalysis(pack, opts.hierarchy);
+  const packFrIds = expandFrIdSetWithSlices(
+    buildFrIdSet(pack?.functionalRequirements || []),
+    frSlices
+  );
   const context = buildProjectContextSlice(pack);
   const model = ollamaModel();
 

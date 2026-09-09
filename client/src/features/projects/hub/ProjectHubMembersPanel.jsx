@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { organizationAPI } from '../../../services/api/organizationAPI';
-import projectDeliveryAPI from '../../../services/api/projectDeliveryAPI';
+import { projectDeliveryAPI } from '../../../services/api/projectDeliveryAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
 import {
@@ -19,6 +20,12 @@ import AllocationSegmentsEditor, {
   toDateInput,
 } from './AllocationSegmentsEditor';
 import ResourcePlannerPanel from '../../adminTasks/ResourcePlannerPanel';
+import {
+  ensureProjectHubProject,
+  ensureProjectHubRoleCatalog,
+  useInvalidateProjectHub,
+  useProjectHubMembers,
+} from './useProjectHubQueries';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -111,11 +118,22 @@ export default function ProjectHubMembersPanel({
   onMembersChanged = null,
 }) {
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const projectIdStr = String(projectId || '').trim();
+  const invalidateProjectHub = useInvalidateProjectHub();
 
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(() => Boolean(String(projectId || boardId || '').trim()));
-  const [loadError, setLoadError] = useState(false);
+  const {
+    data: rqMembers = [],
+    isPending: rqMembersPending,
+    isError: rqMembersError,
+    refetch: refetchMembers,
+  } = useProjectHubMembers(projectIdStr, {
+    enabled: Boolean(projectIdStr),
+  });
+
+  const [boardOnlyMembers, setBoardOnlyMembers] = useState([]);
+  const [boardOnlyLoading, setBoardOnlyLoading] = useState(false);
+  const [boardOnlyError, setBoardOnlyError] = useState(false);
   const [orgMembers, setOrgMembers] = useState([]);
   const [orgLoading, setOrgLoading] = useState(false);
   const [deptMemberIds, setDeptMemberIds] = useState([]);
@@ -159,44 +177,60 @@ export default function ProjectHubMembersPanel({
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
 
+  const members = projectIdStr ? rqMembers : boardOnlyMembers;
+  const loading = projectIdStr
+    ? Boolean(projectIdStr) && rqMembersPending && !rqMembers.length
+    : boardOnlyLoading;
+  const loadError = projectIdStr ? rqMembersError : boardOnlyError;
+
   const load = useCallback(async () => {
     const pid = String(projectId || '').trim();
     const bid = String(boardId || '').trim();
-    const id = pid || bid;
-    if (!id) {
-      setMembers([]);
-      setLoadError(false);
-      setLoading(false);
+    if (pid) {
+      invalidateProjectHub(pid, bid, { organizationId: resolvedOrgId });
+      await refetchMembers();
       return;
     }
-    setLoading(true);
-    setLoadError(false);
+    if (!bid) {
+      setBoardOnlyMembers([]);
+      setBoardOnlyError(false);
+      setBoardOnlyLoading(false);
+      return;
+    }
+    setBoardOnlyLoading(true);
+    setBoardOnlyError(false);
     try {
-      const res = await projectDeliveryAPI.listProjectMembers(id, {
-        asProject: Boolean(pid),
+      const res = await projectDeliveryAPI.listProjectMembers(bid, {
+        asProject: false,
         skipPermissionDeniedToast: true,
       });
       const data = unwrap(res);
-      setMembers(Array.isArray(data) ? data : data?.items || []);
+      setBoardOnlyMembers(Array.isArray(data) ? data : data?.items || []);
     } catch (err) {
       const status = Number(err?.status || err?.response?.status || 0);
-      // 403 đã skip ở apiClient; không toast thêm khi thiếu quyền (stale caps).
       if (status !== 403) {
         toast.error(
           resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
         );
       }
-      setMembers([]);
-      setLoadError(true);
+      setBoardOnlyMembers([]);
+      setBoardOnlyError(true);
     } finally {
-      setLoading(false);
+      setBoardOnlyLoading(false);
     }
-  }, [projectId, boardId, t]);
+  }, [
+    projectId,
+    boardId,
+    invalidateProjectHub,
+    refetchMembers,
+    resolvedOrgId,
+    t,
+  ]);
 
   useEffect(() => {
-    if (!membersActive) return;
-    load();
-  }, [load, membersActive]);
+    if (!membersActive || projectIdStr) return;
+    void load();
+  }, [load, membersActive, projectIdStr]);
 
   const orgById = useMemo(() => {
     const map = new Map();
@@ -371,8 +405,7 @@ export default function ProjectHubMembersPanel({
     let cancelled = false;
     (async () => {
       try {
-        const res = await projectAPI.get(projectIdStr);
-        const data = res?.data?.data ?? res?.data ?? res;
+        const data = await ensureProjectHubProject(queryClient, projectIdStr);
         if (cancelled) return;
         const next = summaryFromProjectData(data, projectIdStr);
         if (next) setProjectSummary(next);
@@ -385,29 +418,27 @@ export default function ProjectHubMembersPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t]);
+  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t, queryClient]);
 
   useEffect(() => {
-    if (!canManage || !membersActive || !resolvedOrgId || loading) return undefined;
-    if (roleCatalogLoadedForRef.current === resolvedOrgId) return undefined;
+    if (!canManage || !membersActive || !projectIdStr || loading) return undefined;
+    if (roleCatalogLoadedForRef.current === projectIdStr) return undefined;
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
       try {
-        const rolesRes = await projectAPI.listRoleCatalog(resolvedOrgId);
-        const roles = unwrap(rolesRes);
+        const roleList = await ensureProjectHubRoleCatalog(queryClient, projectIdStr);
         if (cancelled) return;
-        const roleList = Array.isArray(roles) ? roles : [];
-        roleCatalogLoadedForRef.current = resolvedOrgId;
-        setRoleCatalog(roleList);
+        roleCatalogLoadedForRef.current = projectIdStr;
+        setRoleCatalog(Array.isArray(roleList) ? roleList : []);
         setBulkRoleKeys((prev) => {
           if (prev.length) return prev;
-          const defaultKeys = roleList
+          const defaultKeys = (roleList || [])
             .filter((r) => r.canAssign && String(r.key) === 'developer')
             .map((r) => r.key);
           return defaultKeys.length
             ? defaultKeys
-            : roleList.filter((r) => r.canAssign).slice(0, 1).map((r) => r.key);
+            : (roleList || []).filter((r) => r.canAssign).slice(0, 1).map((r) => r.key);
         });
       } catch (err) {
         if (!cancelled) {
@@ -420,7 +451,7 @@ export default function ProjectHubMembersPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, membersActive, resolvedOrgId, loading, t]);
+  }, [canManage, membersActive, projectIdStr, loading, t, queryClient]);
 
   const needsOrgDirectory =
     canManage &&

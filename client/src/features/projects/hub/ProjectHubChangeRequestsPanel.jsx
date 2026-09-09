@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
-import { taskAPI, unwrapTaskBoardDetailPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { queryKeys } from '../../../lib/queryKeys';
 import {
   formatHubDateTime,
   unwrapChangeRequestEntity,
-  unwrapChangeRequestList,
-  unwrapProjectMembers,
   displayIssueKey,
   collectCrWorkItems,
   isLinkableCrWorkType,
@@ -22,6 +21,12 @@ import ProjectHubChangeRequestDetailDrawer from './ProjectHubChangeRequestDetail
 import ProjectHubChangeRequestFormModal from './ProjectHubChangeRequestFormModal';
 import ResizableTableHeader from './ResizableTableHeader';
 import { useResizableTableColumns } from './useResizableTableColumns';
+import {
+  ensureProjectHubBoardDetail,
+  useInvalidateProjectHub,
+  useProjectHubChangeRequests,
+  useProjectHubMembers,
+} from './useProjectHubQueries';
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -194,17 +199,54 @@ export default function ProjectHubChangeRequestsPanel({
   const [sortField, setSortField] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(1);
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [localItems, setLocalItems] = useState([]);
   const [detailId, setDetailId] = useState('');
   const [detailEpoch, setDetailEpoch] = useState(0);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState('create');
   const [formInitial, setFormInitial] = useState(null);
-  const [projectMembers, setProjectMembers] = useState([]);
   const [fetchedCards, setFetchedCards] = useState([]);
+  const queryClient = useQueryClient();
+  const invalidateProjectHub = useInvalidateProjectHub();
+
+  const crFilters = useMemo(
+    () => ({
+      q: q || undefined,
+      type: type || undefined,
+      status: status || undefined,
+      priority: priority || undefined,
+      sort: sortParam(sortField, sortDir),
+      page,
+      size: PAGE_SIZE,
+    }),
+    [q, type, status, priority, sortField, sortDir, page]
+  );
+
+  const {
+    data: crPage,
+    isPending: crPending,
+    isError: crError,
+    refetch: refetchCr,
+  } = useProjectHubChangeRequests(projectId, crFilters, {
+    enabled: Boolean(projectId) && listActive,
+  });
+
+  const { data: projectMembers = [] } = useProjectHubMembers(projectId, {
+    enabled: Boolean(projectId) && listActive && canViewMembers,
+  });
+
+  const items = useMemo(() => {
+    const remote = Array.isArray(crPage?.items) ? crPage.items : [];
+    if (!localItems.length) return remote;
+    return remote.map((row) => {
+      const old = localItems.find((p) => String(p._id || p.id) === String(row._id || row.id));
+      return old ? mergeChangeRequestPatch(old, row, {}) : row;
+    });
+  }, [crPage?.items, localItems]);
+
+  const total = Number(crPage?.total) || 0;
+  const loading = Boolean(projectId) && listActive && crPending && !crPage;
+  const loadError = Boolean(crError);
 
   useEffect(() => {
     const id = String(externalCrId || '').trim();
@@ -221,63 +263,17 @@ export default function ProjectHubChangeRequestsPanel({
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (!crError || !listActive) return;
+    toast.error(t('workspace.projectHubCrLoadFail'));
+  }, [crError, listActive, t]);
+
   const loadList = useCallback(async () => {
     if (!projectId || !listActive) return;
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await projectAPI.listChangeRequests(projectId, {
-        q: q || undefined,
-        type: type || undefined,
-        status: status || undefined,
-        priority: priority || undefined,
-        sort: sortParam(sortField, sortDir),
-        page,
-        size: PAGE_SIZE,
-      });
-      const payload = unwrapChangeRequestList(res);
-      setItems((prev) =>
-        (payload.items || []).map((row) => {
-          const old = prev.find((p) => String(p._id || p.id) === String(row._id || row.id));
-          return mergeChangeRequestPatch(old || {}, row, {});
-        })
-      );
-      setTotal(payload.total);
-      if (payload.page && payload.page !== page) setPage(payload.page);
-    } catch (err) {
-      setItems([]);
-      setTotal(0);
-      setLoadError(true);
-      toast.error(
-        resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubCrLoadFail') })
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, listActive, q, type, status, priority, sortField, sortDir, page, t]);
-
-  useEffect(() => {
-    void loadList();
-  }, [loadList]);
-
-  useEffect(() => {
-    if (!listActive || !projectId || !canViewMembers) {
-      setProjectMembers([]);
-      return undefined;
-    }
-    let cancelled = false;
-    projectAPI
-      .listMembers(projectId, { skipPermissionDeniedToast: true })
-      .then((res) => {
-        if (!cancelled) setProjectMembers(unwrapProjectMembers(res));
-      })
-      .catch(() => {
-        if (!cancelled) setProjectMembers([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [listActive, projectId, canViewMembers]);
+    setLocalItems([]);
+    invalidateProjectHub(projectId, boardId);
+    await refetchCr();
+  }, [projectId, listActive, invalidateProjectHub, boardId, refetchCr]);
 
   const parentCardCount = Array.isArray(boardCards) ? boardCards.length : 0;
   const workCards = useMemo(
@@ -292,11 +288,17 @@ export default function ProjectHubChangeRequestsPanel({
       return undefined;
     }
     if (!boardId) return undefined;
+    const cachedFull = queryClient.getQueryData(
+      queryKeys.projectHub.boardDetail(boardId, 'full')
+    );
+    if (Array.isArray(cachedFull?.cards) && cachedFull.cards.length) {
+      setFetchedCards(cachedFull.cards);
+      return undefined;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const res = await taskAPI.getBoardDetail(boardId, apiCtx || {});
-        const payload = unwrapTaskBoardDetailPayload(res);
+        const payload = await ensureProjectHubBoardDetail(queryClient, boardId, apiCtx || {});
         if (!cancelled) {
           setFetchedCards(Array.isArray(payload?.cards) ? payload.cards : []);
         }
@@ -307,7 +309,7 @@ export default function ProjectHubChangeRequestsPanel({
     return () => {
       cancelled = true;
     };
-  }, [listActive, boardId, parentCardCount, apiCtx?.workspaceSlug]);
+  }, [listActive, boardId, parentCardCount, apiCtx, queryClient]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
   const safePage = Math.min(page, totalPages);
@@ -404,13 +406,18 @@ export default function ProjectHubChangeRequestsPanel({
   const applyPatchedRow = (row, saved, patch = {}) => {
     const sid = String(saved?._id || saved?.id || row?._id || row?.id || '');
     if (!sid) return;
-    setItems((prev) =>
-      prev.map((item) =>
+    setLocalItems((prev) => {
+      const base = prev.length
+        ? prev
+        : Array.isArray(crPage?.items)
+          ? crPage.items
+          : [];
+      return base.map((item) =>
         String(item._id || item.id) === sid
           ? mergeChangeRequestPatch(item, saved || {}, patch, workCards)
           : item
-      )
-    );
+      );
+    });
   };
 
   const patchRow = async (row, patch, { failKey, successKey } = {}) => {

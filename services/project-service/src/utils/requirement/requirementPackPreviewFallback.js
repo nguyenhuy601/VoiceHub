@@ -2,7 +2,7 @@ const {
   SHEETS,
   OVERVIEW_FIELDS,
   SHEET_COLUMNS,
-} = require('../constants/requirementTemplate.constants');
+} = require('../../constants/requirementTemplate.constants');
 const { buildFunctionalPreviewTree } = require('./requirementTemplateValidate');
 const { MAX_PREVIEW_ROWS } = require('./requirementExcelPreview');
 const { isFrExecutionLeafLevel } = require('./requirementFrLevel');

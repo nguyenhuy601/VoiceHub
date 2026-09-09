@@ -37,9 +37,6 @@ const S2S_PATHS = [
   '/project-workgroup-channel',
   '/project-channel/:organizationId/:projectId',
   '/project-workgroup-channel/:channelId/members',
-  '/organizations/:organizationId/skills/resolve-batch',
-  '/organizations/:organizationId/skills/seed',
-  '/organizations/:organizationId/skills/by-ids',
 ];
 
 describe('internalOrganization routes contract (R2)', () => {

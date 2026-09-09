@@ -30,7 +30,7 @@ test('resolveOverviewVisibility: summary → không sprint/planning/activity', (
   const caps = resolveHubCapabilities({
     capabilities: {
       canViewMembers: true,
-      permissions: ['project:view', 'task:view', 'sprint:view'],
+      permissions: ['project:view', 'task:view', 'sprint:view', 'backlog:view'],
     },
   });
   const v = resolveOverviewVisibility(caps, {
@@ -41,4 +41,25 @@ test('resolveOverviewVisibility: summary → không sprint/planning/activity', (
   assert.equal(v.canViewSprintContext, false);
   assert.equal(v.canViewPlanningPulse, false);
   assert.equal(v.canViewActivity, false);
+});
+
+test('resolveOverviewVisibility: canViewPlanningPulse theo backlog:view', () => {
+  const noBacklog = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'task:view', 'sprint:view'],
+    },
+  });
+  const hidden = resolveOverviewVisibility(noBacklog, { capsReady: true });
+  assert.equal(hidden.canViewPlanningPulse, false);
+  assert.equal(hidden.canOpenBacklog, false);
+  assert.equal(hidden.canOpenBoard, true);
+
+  const withBacklog = resolveHubCapabilities({
+    capabilities: {
+      permissions: ['project:view', 'task:view', 'backlog:view'],
+    },
+  });
+  const visible = resolveOverviewVisibility(withBacklog, { capsReady: true });
+  assert.equal(visible.canViewPlanningPulse, true);
+  assert.equal(visible.canOpenBacklog, true);
 });

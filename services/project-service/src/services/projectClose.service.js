@@ -11,7 +11,7 @@ const PlanningItem = require('../models/PlanningItem');
 const ApprovalRequest = require('../models/ApprovalRequest');
 const TaskActivityLog = require('../models/TaskActivityLog');
 
-const { buildProjectCloseSnapshot } = require('../utils/projectCloseSnapshot');
+const { buildProjectCloseSnapshot } = require('../utils/project/projectCloseSnapshot');
 const {
   asStringOid,
   countOpenSprints,
@@ -19,7 +19,7 @@ const {
   evaluateProjectCloseGate,
   throwIfProjectNotCloseable,
   assertProjectNotAlreadyClosed,
-} = require('../utils/projectCloseGate');
+} = require('../utils/project/projectCloseGate');
 const {
   persistClosedProjectExperiences,
 } = require('./closedBoardExperience.service');

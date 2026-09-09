@@ -1,6 +1,7 @@
 /**
  * Scale-first A2/A3 — Task domain events (RabbitMQ topic voicehub.topic).
  * Additive contracts; không thay orgEvents / contract API HTTP.
+ * Ownership Task API: project-service (không còn task-service split).
  */
 
 const EXCHANGE = process.env.RABBITMQ_EXCHANGE || 'voicehub.topic';
@@ -18,39 +19,39 @@ const TASK_DOMAIN_EVENT_TYPES = {
 const CATALOG = [
   {
     type: TASK_DOMAIN_EVENT_TYPES.TASK_CREATED,
-    publisher: 'task-service',
-    consumers: ['report-etl', 'notification-service', 'project-service'],
-    description: 'Task được tạo (sau cutover ownership task-service).',
+    publisher: 'project-service',
+    consumers: ['report-etl', 'notification-service'],
+    description: 'Task được tạo.',
   },
   {
     type: TASK_DOMAIN_EVENT_TYPES.TASK_UPDATED,
-    publisher: 'task-service',
-    consumers: ['report-etl', 'project-service'],
+    publisher: 'project-service',
+    consumers: ['report-etl'],
     description: 'Cập nhật field task (không gồm chỉ status).',
   },
   {
     type: TASK_DOMAIN_EVENT_TYPES.TASK_STATUS_CHANGED,
-    publisher: 'task-service',
-    consumers: ['report-etl', 'notification-service', 'project-service'],
+    publisher: 'project-service',
+    consumers: ['report-etl', 'notification-service'],
     description: 'Đổi status / workflow state.',
   },
   {
     type: TASK_DOMAIN_EVENT_TYPES.TASK_DELETED,
-    publisher: 'task-service',
-    consumers: ['report-etl', 'project-service'],
+    publisher: 'project-service',
+    consumers: ['report-etl'],
     description: 'Xóa hoặc archive cứng task.',
   },
   {
     type: TASK_DOMAIN_EVENT_TYPES.WORKLOG_RECORDED,
-    publisher: 'task-service',
+    publisher: 'project-service',
     consumers: ['report-etl'],
     description: 'Worklog mới — nguồn utilization analytics.',
   },
   {
     type: TASK_DOMAIN_EVENT_TYPES.CARD_MOVED,
     publisher: 'project-service',
-    consumers: ['task-service', 'report-etl'],
-    description: 'Board card move — sync status/list sang task-service (strangler).',
+    consumers: ['report-etl'],
+    description: 'Board card move — sync status/list.',
   },
 ];
 

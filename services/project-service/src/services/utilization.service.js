@@ -4,13 +4,13 @@ const Worklog = require('../models/Worklog');
 const {
   assertTimeTrackingEnabled,
   DEFAULT_HOURS_PER_DAY,
-} = require('../utils/timeTracking');
-const { toDayMs, flattenSegments } = require('../utils/allocationOverlap');
+} = require('../utils/task/timeTracking');
+const { toDayMs, flattenSegments } = require('../utils/staffing/allocationOverlap');
 const {
   plannedAvailableHoursInRange,
   utilizationPct,
   DAY_MS,
-} = require('../utils/utilizationMath');
+} = require('../utils/staffing/utilizationMath');
 const { assertCanViewOrgCapacity } = require('./resourceCapacity.service');
 const { fetchOrgWorkingCalendar } = require('./governance.service');
 

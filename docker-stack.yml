@@ -194,7 +194,7 @@ services:
     networks:
       - enterprise-network
     deploy:
-      replicas: ${TASK_SERVICE_REPLICAS:-1}
+      replicas: ${PROJECT_SERVICE_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       resources:
@@ -244,7 +244,6 @@ services:
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -271,7 +270,6 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=both
@@ -351,7 +349,6 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=extract
@@ -388,7 +385,6 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
       - AI_TASK_WORKER_MODE=sync

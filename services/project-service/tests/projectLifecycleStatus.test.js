@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const {
   coerceProjectLifecycleStatus,
   PROJECT_STATUSES,
-} = require('../src/utils/projectInitFields');
-const { isProjectClosedStatus } = require('../src/utils/projectCloseGate');
+} = require('../src/utils/project/projectInitFields');
+const { isProjectClosedStatus } = require('../src/utils/project/projectCloseGate');
 
 describe('coerceProjectLifecycleStatus', () => {
   it('keeps current enum values', () => {

@@ -230,6 +230,16 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Idempotent due-soon reminder (taskDueReminders job). Cleared when dueDate changes. */
+    dueSoonNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Idempotent overdue reminder. Cleared when dueDate changes. */
+    overdueNotifiedAt: {
+      type: Date,
+      default: null,
+    },
     tags: [
       {
         type: String,

@@ -4,6 +4,7 @@ const ProjectRole = require('../models/ProjectRole');
 const TaskBoard = require('../models/TaskBoard');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
+const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 const {
   isProjectRbacV2Enabled,
   unionPermissionsFromRoles,
@@ -13,13 +14,26 @@ const {
   assertPermission,
   normalizePermissionList,
   PROJECT_PERMISSION_KEYS,
-} = require('../utils/projectPermissionMatrix');
-const { resolveProjectAccess } = require('../utils/projectVisibility');
+} = require('../utils/project/projectPermissionMatrix');
+const { resolveProjectAccess } = require('../utils/project/projectVisibility');
+
+const RESOLVE_CACHE_TTL_MS = 15_000;
+const resolveCache = createTtlCoalesceCache({ ttlMs: RESOLVE_CACHE_TTL_MS });
+
+function resolvePermissionsCacheKey({ userId, projectId, boardId } = {}) {
+  const uid = String(userId || '').trim();
+  if (!uid) return '';
+  const pid = String(projectId || '').trim();
+  if (pid) return `${uid}|p:${pid}`;
+  const bid = String(boardId || '').trim();
+  if (bid) return `${uid}|b:${bid}`;
+  return '';
+}
 
 /**
- * Resolve effective project permissions for a user on a project.
+ * Resolve effective project permissions for a user on a project (uncached).
  */
-async function resolveUserProjectPermissions({ userId, projectId, boardId } = {}) {
+async function resolveUserProjectPermissionsUncached({ userId, projectId, boardId } = {}) {
   const uid = String(userId || '').trim();
   let project = null;
   if (projectId) {
@@ -124,6 +138,16 @@ async function resolveUserProjectPermissions({ userId, projectId, boardId } = {}
   };
 }
 
+/**
+ * Resolve effective project permissions for a user on a project.
+ * Process-local TTL + in-flight coalesce (key prefers projectId).
+ */
+async function resolveUserProjectPermissions(opts = {}) {
+  const key = resolvePermissionsCacheKey(opts);
+  if (!key) return resolveUserProjectPermissionsUncached(opts);
+  return resolveCache.getOrLoad(key, () => resolveUserProjectPermissionsUncached(opts));
+}
+
 async function assertUserProjectPermission({ userId, projectId, boardId, permission, message }) {
   const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
   if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
@@ -151,9 +175,27 @@ async function assertUserAnyProjectPermission({
   return resolved;
 }
 
+function _clearResolveUserProjectPermissionsCacheForTests() {
+  resolveCache.clear();
+}
+
+function _setResolveUserProjectPermissionsCacheTtlForTests(ttlMs) {
+  resolveCache.setTtlMs(ttlMs);
+}
+
+/** Invalidate all resolve entries for a project (and board keys for that project are harder — clear by projectId suffix). */
+function invalidateResolveCacheForProject(projectId) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return;
+  resolveCache.invalidateWhere((k) => k.includes(`|p:${pid}`));
+}
+
 module.exports = {
   resolveUserProjectPermissions,
   assertUserProjectPermission,
   assertUserAnyProjectPermission,
   hasPermission,
+  invalidateResolveCacheForProject,
+  _clearResolveUserProjectPermissionsCacheForTests,
+  _setResolveUserProjectPermissionsCacheTtlForTests,
 };

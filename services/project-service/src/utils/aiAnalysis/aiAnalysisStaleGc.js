@@ -3,7 +3,7 @@
  */
 
 const { ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
-const { AI_ANALYSIS_USER_JOBS } = require('../constants/aiAnalysisJobs.constants');
+const { AI_ANALYSIS_USER_JOBS } = require('../../constants/aiAnalysisJobs.constants');
 
 const STALE_PENDING_MS = 15 * 60 * 1000;
 

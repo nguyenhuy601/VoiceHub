@@ -2,27 +2,26 @@ const { logger } = require('@enterprise/shared');
 const RequirementImportSession = require('../models/RequirementImportSession');
 const RequirementPack = require('../models/RequirementPack');
 const { IMPORT_SESSION_TTL_HOURS, TEMPLATE_VERSION } = require('../constants/requirementTemplate.constants');
-const { parseRequirementWorkbook } = require('../utils/requirementTemplateParse');
-const { validateRequirementWorkbook } = require('../utils/requirementTemplateValidate');
-const { parseDateValue } = require('../utils/requirementDateUtils');
+const { parseRequirementWorkbook } = require('../utils/requirement/requirementTemplateParse');
+const { validateRequirementWorkbook } = require('../utils/requirement/requirementTemplateValidate');
+const { parseDateValue } = require('../utils/requirement/requirementDateUtils');
 const {
   buildStaffingPlanFromParsed,
-} = require('../utils/requirementStaffingRollup');
-const { resolveWhitelistSkill } = require('../utils/requirementStaffingParse');
+} = require('../utils/requirement/requirementStaffingRollup');
+const { resolveWhitelistSkill } = require('../utils/requirement/requirementStaffingParse');
 const {
   buildExcelPreviewFromBuffer,
   buildRequirementSourceStoragePath,
   XLSX_MIME,
-} = require('../utils/requirementExcelPreview');
-const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirementPackPreviewFallback');
-const objectStorage = require('../utils/objectStorage');
+} = require('../utils/requirement/requirementExcelPreview');
+const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirement/requirementPackPreviewFallback');
+const objectStorage = require('../utils/common/objectStorage');
 const { assertRequirementPermission } = require('./requirementAccess.service');
-const { enrichParsedWithSkillRegistry } = require('../utils/requirementSkillRegistry');
 const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
-} = require('../utils/requirementPlanningReadiness');
-const { createEmptyAiAnalysisContainer } = require('../utils/aiAnalysisContainer');
+} = require('../utils/requirement/requirementPlanningReadiness');
+const { createEmptyAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
 
 function splitPlatforms(raw) {
   return String(raw || '')
@@ -48,7 +47,7 @@ function mapFunctionalRow(row) {
   };
 }
 
-function mapParsedToPackPayload(parsed, registryExtras = {}) {
+function mapParsedToPackPayload(parsed, skillExtras = {}) {
   const overview = parsed.overview || {};
   const functionalRequirements = (parsed.functionalRequirements || []).map(mapFunctionalRow);
   const staffingPlan = buildStaffingPlanFromParsed(
@@ -56,7 +55,7 @@ function mapParsedToPackPayload(parsed, registryExtras = {}) {
       ...parsed,
       functionalRequirements,
     },
-    { resolvedStaffingSkills: registryExtras.staffingSkillsResolved }
+    { resolvedStaffingSkills: skillExtras.staffingSkillsResolved }
   );
 
   return {
@@ -124,10 +123,10 @@ function mapParsedToPackPayload(parsed, registryExtras = {}) {
       assumption: row.assumption,
       impactIfInvalid: row.impactIfInvalid,
     })),
-    requirementSkills: registryExtras.requirementSkillRefs || [],
+    requirementSkills: skillExtras.requirementSkillRefs || [],
     importSkillMeta: {
-      newSkillsDetected: registryExtras.newSkillsDetected || [],
-      resolvedAt: registryExtras.resolvedAt || null,
+      newSkillsDetected: [],
+      resolvedAt: null,
     },
   };
 }
@@ -143,16 +142,9 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parsed,
   });
 
-  let registryEnriched = null;
   let previewPayload = null;
   if (validation.valid) {
-    registryEnriched = await enrichParsedWithSkillRegistry(organizationId, parsed);
-    previewPayload = mapParsedToPackPayload(registryEnriched.parsed, {
-      requirementSkillRefs: registryEnriched.parsed._requirementSkillRefs,
-      staffingSkillsResolved: registryEnriched.parsed._staffingSkillsResolved,
-      newSkillsDetected: registryEnriched.newSkills,
-      resolvedAt: registryEnriched.resolveEnabled ? new Date() : null,
-    });
+    previewPayload = mapParsedToPackPayload(parsed);
   }
 
   const excelPreview = buildExcelPreviewFromBuffer(buffer, {
@@ -177,8 +169,8 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     excelPreview,
     fileBuffer: buffer.length <= 5 * 1024 * 1024 ? buffer : undefined,
     fileContentType: XLSX_MIME,
-    newSkillsDetected: registryEnriched?.newSkills || [],
-    skillResolveEnabled: Boolean(registryEnriched?.resolveEnabled),
+    newSkillsDetected: [],
+    skillResolveEnabled: false,
   });
 
   return {
@@ -195,9 +187,9 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     previewTree: validation.previewTree,
     excelPreview,
     expiresAt: session.expiresAt,
-    newSkillsDetected: session.newSkillsDetected || [],
-    newSkillsCount: (session.newSkillsDetected || []).length,
-    skillResolveEnabled: session.skillResolveEnabled,
+    newSkillsDetected: [],
+    newSkillsCount: 0,
+    skillResolveEnabled: false,
     planningReadiness: previewPayload ? pickPlanningReadinessSummary(previewPayload) : null,
   };
 }

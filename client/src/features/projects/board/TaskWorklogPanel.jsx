@@ -84,6 +84,9 @@ export default function TaskWorklogPanel({
         <h4 className="text-sm font-semibold">{t('taskBoard.worklogTitle')}</h4>
       </div>
       <p className={`mb-2 text-[11px] leading-snug ${muted}`}>{t('taskBoard.worklogHint')}</p>
+      {canEdit ? (
+        <p className={`mb-2 text-[11px] leading-snug ${muted}`}>{t('taskBoard.worklogUpsertHint')}</p>
+      ) : null}
       {loading ? (
         <p className={`text-xs ${muted}`}>{t('common.loading')}</p>
       ) : (

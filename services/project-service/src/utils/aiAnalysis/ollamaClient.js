@@ -101,12 +101,15 @@ function extractJsonPayload(text) {
   }
 }
 
+/** Process-local warm timestamp for Compact V2 session reuse. */
+let lastWarmOkAtMs = 0;
+
 /**
  * Call Ollama /api/generate and parse JSON from response.
- * @param {{ prompt: string, temperature?: number, timeoutMs?: number, numPredict?: number }} opts
+ * @param {{ prompt: string, temperature?: number, timeoutMs?: number, numPredict?: number, numCtx?: number }} opts
  * @returns {Promise<{ ok: boolean, model: string, data: unknown|null, error?: string, skipped?: boolean }>}
  */
-async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict } = {}) {
+async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict, numCtx } = {}) {
   const model = ollamaModel();
   if (!isAiPlanningLlmEnabled() || llmProvider() === 'mock') {
     return { ok: false, model, data: null, skipped: true, error: 'llm_skipped' };
@@ -121,6 +124,13 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict }
     numPredict != null && Number.isFinite(Number(numPredict))
       ? Math.max(32, Math.min(2048, Math.round(Number(numPredict))))
       : DEFAULT_NUM_PREDICT;
+  const options = {
+    temperature,
+    num_predict: predict,
+  };
+  if (numCtx != null && Number.isFinite(Number(numCtx))) {
+    options.num_ctx = Math.max(512, Math.min(32768, Math.round(Number(numCtx))));
+  }
 
   try {
     const res = await axios.post(
@@ -130,10 +140,7 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict }
         prompt: String(prompt || ''),
         stream: false,
         keep_alive: ollamaKeepAlive(),
-        options: {
-          temperature,
-          num_predict: predict,
-        },
+        options,
       },
       { timeout, validateStatus: () => true }
     );
@@ -198,6 +205,7 @@ async function warmOllamaModel() {
       logger.warn('[ollama] warm failed model=%s error=%s elapsedMs=%s', model, error, elapsedMs);
       return { ok: false, error, elapsedMs };
     }
+    lastWarmOkAtMs = Date.now();
     logger.info('[ollama] warm ok model=%s elapsedMs=%s', model, elapsedMs);
     return { ok: true, elapsedMs };
   } catch (err) {
@@ -206,6 +214,32 @@ async function warmOllamaModel() {
     logger.warn('[ollama] warm failed model=%s error=%s elapsedMs=%s', model, error, elapsedMs);
     return { ok: false, error, elapsedMs };
   }
+}
+
+/**
+ * Warm once per TTL (Compact V2) so wizard jobs reuse loaded model.
+ * @param {{ ttlMs?: number, force?: boolean }} [opts]
+ */
+async function warmOllamaModelSession(opts = {}) {
+  const ttlMs =
+    opts.ttlMs != null && Number.isFinite(Number(opts.ttlMs))
+      ? Math.max(0, Number(opts.ttlMs))
+      : 25 * 60 * 1000;
+  if (!opts.force && lastWarmOkAtMs > 0 && Date.now() - lastWarmOkAtMs < ttlMs) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'session_warm',
+      elapsedMs: 0,
+      lastWarmOkAtMs,
+    };
+  }
+  return warmOllamaModel();
+}
+
+/** @internal test helper */
+function _resetWarmSessionStateForTests() {
+  lastWarmOkAtMs = 0;
 }
 
 module.exports = {
@@ -230,4 +264,6 @@ module.exports = {
   extractJsonPayload,
   generateJson,
   warmOllamaModel,
+  warmOllamaModelSession,
+  _resetWarmSessionStateForTests,
 };

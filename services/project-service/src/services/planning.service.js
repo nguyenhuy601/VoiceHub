@@ -4,15 +4,15 @@ const {
   PLANNING_ITEM_TYPES,
   normalizePlanningStatus,
   normalizePlanningPriority,
-} = require('../utils/planningItemTypes');
+} = require('../utils/work/planningItemTypes');
 const Task = require('../models/Task');
 const projectService = require('./project.service');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
-const { assertProjectWritable } = require('../utils/projectCloseGate');
-const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
-const { planningWritePermission } = require('../utils/projectIssueTypePerms');
-const { buildPlanningListFilter } = require('../utils/listLazyQuery');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
+const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { planningWritePermission } = require('../utils/project/projectIssueTypePerms');
+const { buildPlanningListFilter } = require('../utils/work/listLazyQuery');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -306,7 +306,7 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
   }
   await item.save();
   const afterDoc = item.toObject();
-  const { diffPlanningFields } = require('../utils/workHistoryDiff');
+  const { diffPlanningFields } = require('../utils/work/workHistoryDiff');
   const { appendFieldChanges } = require('./workHistory.service');
   await appendFieldChanges({
     organizationId: item.organizationId,

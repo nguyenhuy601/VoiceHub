@@ -5,7 +5,7 @@ const {
   OVERVIEW_FIELDS,
   CONTEXT_SCOPE_LABELS,
   TEMPLATE_VERSION,
-} = require('../constants/requirementTemplate.constants');
+} = require('../../constants/requirementTemplate.constants');
 const { normalizeFunctionalRequirementsLevels } = require('./requirementFrLevel');
 const { normHeader, normId, normKey, normProse, isTruthyYes } = require('./requirementTemplateTextNorm');
 
@@ -280,7 +280,7 @@ function parseRequirementWorkbook(buffer) {
     note: 'Purpose / Note',
     noteAlt: 'Note',
   }).map((row) => ({
-    category: row.category,
+    category: String(row.category || '').slice(0, 128),
     name: row.name,
     version: row.version,
     mandatory: isTruthyYes(row.mandatoryRaw),
@@ -307,7 +307,10 @@ function parseRequirementWorkbook(buffer) {
         verification: 'Verification / Acceptance',
       },
       { idFields: ['externalId'], proseFields: ['requirement', 'target', 'category', 'verification'] }
-    ),
+    ).map((row) => ({
+      ...row,
+      category: String(row.category || '').slice(0, 64),
+    })),
     technology,
     integration: parseTableRows(intRows.rows, {
       system: 'System',

@@ -40,11 +40,11 @@ test('feature (kind=planning) ẩn attachments', () => {
   assert.ok(ids.includes('activity'));
 });
 
-test('time-tracking flag bật mới có worklog', () => {
+test('time-tracking flag bật mới có worklog — không cần canEstimate', () => {
   const base = {
     workItem: { issueType: 'story' },
     workTypeConfig: defaultWorkTypeConfig(),
-    canEstimate: true,
+    canEstimate: false,
   };
   const off = buildTabVisibilityContext({ ...base, timeTrackingEnabled: false });
   assert.ok(!listVisibleTabIds(off).includes('worklog'));

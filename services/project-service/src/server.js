@@ -6,6 +6,10 @@ const {
   startSprintAutoCompleteRemindersJob,
   stopSprintAutoCompleteRemindersJob,
 } = require('./jobs/sprintAutoCompleteReminders.job');
+const {
+  startTaskDueRemindersJob,
+  stopTaskDueRemindersJob,
+} = require('./jobs/taskDueReminders.job');
 
 const PORT = process.env.PORT || 3009;
 
@@ -17,6 +21,7 @@ connectDB()
 
     runTaskFromFileWorkerLoop();
     startSprintAutoCompleteRemindersJob();
+    startTaskDueRemindersJob();
 
     // Khởi động server
     const server = app.listen(PORT, () => {
@@ -30,6 +35,11 @@ connectDB()
           stopSprintAutoCompleteRemindersJob();
         } catch (e) {
           logger.error('stopSprintAutoCompleteRemindersJob', e.message);
+        }
+        try {
+          stopTaskDueRemindersJob();
+        } catch (e) {
+          logger.error('stopTaskDueRemindersJob', e.message);
         }
         try {
           await stopTaskFromFileWorker();

@@ -1,22 +1,27 @@
 /**
- * AI Analysis Jobs — Blueprint container (W2).
- * Six user-confirm jobs + projectPlan/final shells (W9).
+ * AI Analysis Jobs — Blueprint container (schema v2).
+ * Eleven user-confirm jobs + final shell.
  */
 
-const AI_ANALYSIS_SCHEMA_VERSION = 1;
+const AI_ANALYSIS_SCHEMA_VERSION = 2;
 
 /** Ordered user jobs — each requires previous confirmed before run. */
 const AI_ANALYSIS_USER_JOBS = Object.freeze([
+  'hierarchyDecomposition',
   'requirementAnalysis',
+  'capabilityAnalysis',
   'wbsGeneration',
-  'roleSkillAnalysis',
+  'dependencyAnalysis',
   'architectureRiskAnalysis',
+  'effortRoleAnalysis',
+  'sequencingCpm',
   'employeeMatching',
-  'employeeAssignment',
+  'scheduleCapacity',
+  'projectPlan',
 ]);
 
-/** Extra job shells (after Job6) — not runnable via W2 run API. */
-const AI_ANALYSIS_POST_JOBS = Object.freeze(['projectPlan', 'final']);
+/** Extra job shells — not runnable via run API. */
+const AI_ANALYSIS_POST_JOBS = Object.freeze(['final']);
 
 const AI_ANALYSIS_ALL_JOB_KEYS = Object.freeze([
   ...AI_ANALYSIS_USER_JOBS,
@@ -33,6 +38,7 @@ const AI_ANALYSIS_JOB_STATUS = Object.freeze([
 ]);
 
 const AI_ANALYSIS_SECTION_KEYS = Object.freeze([
+  'hierarchy',
   'capability',
   'data',
   'dependency',
@@ -41,17 +47,34 @@ const AI_ANALYSIS_SECTION_KEYS = Object.freeze([
   'risk',
 ]);
 
-/** Job → analyses / planning / resource shells touched (W2 ownership map). */
+/** Job → analyses / planning / resource shells touched. */
 const AI_ANALYSIS_JOB_OUTPUT_MAP = Object.freeze({
+  hierarchyDecomposition: { analyses: ['hierarchy'] },
   requirementAnalysis: { analyses: ['data', 'gap'] },
-  wbsGeneration: { analyses: ['capability'], planning: ['wbs', 'tasks'] },
-  roleSkillAnalysis: { planning: ['roles', 'skills', 'effort'] },
+  capabilityAnalysis: { analyses: ['capability'] },
+
+  wbsGeneration: { planning: ['wbs', 'tasks'] },
+  dependencyAnalysis: { analyses: ['dependency'] },
   architectureRiskAnalysis: {
-    analyses: ['architectureImpact', 'dependency', 'risk'],
+    analyses: ['architectureImpact', 'risk'],
+  },
+  effortRoleAnalysis: { planning: ['roles', 'skills', 'effort'] },
+  sequencingCpm: {
+    planning: ['sequence', 'theoreticalCpm', 'criticalWorkIds'],
   },
   employeeMatching: { resource: ['fte', 'recommendations'] },
-  employeeAssignment: { resource: ['assignments'] },
+  scheduleCapacity: {
+    resource: ['assignments', 'schedule'],
+    planning: ['completion'],
+  },
+  projectPlan: { planning: ['executionPlan'] },
 });
+
+/** Legacy v1 job ids — rejected by parseJobId; used only by migrate. */
+const AI_ANALYSIS_LEGACY_JOB_IDS = Object.freeze([
+  'roleSkillAnalysis',
+  'employeeAssignment',
+]);
 
 function isAiAnalysisUserJob(job) {
   return AI_ANALYSIS_USER_JOBS.includes(String(job || '').trim());
@@ -73,7 +96,7 @@ function parseJobId(raw) {
   }
   if (!isAiAnalysisUserJob(job)) {
     const err = new Error(
-      `Invalid job "${job}" — must be one of the 6 AI Analysis user jobs`
+      `Invalid job "${job}" — must be one of the ${AI_ANALYSIS_USER_JOBS.length} AI Analysis user jobs`
     );
     err.statusCode = 400;
     err.errorCode = 'AI_ANALYSIS_INVALID_JOB';
@@ -104,6 +127,7 @@ module.exports = {
   AI_ANALYSIS_JOB_STATUS,
   AI_ANALYSIS_SECTION_KEYS,
   AI_ANALYSIS_JOB_OUTPUT_MAP,
+  AI_ANALYSIS_LEGACY_JOB_IDS,
   isAiAnalysisUserJob,
   parseJobId,
   previousUserJob,

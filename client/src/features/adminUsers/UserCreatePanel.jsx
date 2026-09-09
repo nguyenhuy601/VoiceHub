@@ -22,7 +22,6 @@ import {
   YEARS_EXPERIENCE_MAX,
   HIRE_SKILLS_MAX,
 } from '../../constants/capabilityCatalog';
-import useOrgSkillCatalog from '../../hooks/useOrgSkillCatalog';
 
 const MAX_INVITE_PAST_PROJECTS = 5;
 
@@ -70,8 +69,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
   const { refreshStats } = useCompanyAdminContext();
   const { loadMembers, members } = useAdminMembers(orgId, { view: 'directory' });
   const { departments, loading: depsLoading } = useAdminOrgStructure(orgId);
-  const { skillNames } = useOrgSkillCatalog(orgId);
-  const skillWhitelist = skillNames.length ? skillNames : [...SKILL_WHITELIST];
+  const skillWhitelist = SKILL_WHITELIST;
   const [saving, setSaving] = useState(false);
   const [manualInviteUrl, setManualInviteUrl] = useState('');
   const [previewCode, setPreviewCode] = useState('');

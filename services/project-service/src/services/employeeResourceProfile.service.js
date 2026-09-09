@@ -10,7 +10,7 @@ const { assertCanViewOrgCapacity, assertOrgMember } = require('./resourceCapacit
 const {
   resolveEmployeeProfileAccessMode,
   collectValidProjectIds,
-} = require('../utils/employeeProfileAccess');
+} = require('../utils/staffing/employeeProfileAccess');
 const {
   toDayMs,
   flattenSegments,
@@ -18,13 +18,13 @@ const {
   availablePctOnDay,
   classifyAvailability,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
+} = require('../utils/staffing/allocationOverlap');
 const {
   billingMonthCapacityHours,
   workingCapacityHoursInRange,
-} = require('../utils/workingCalendar');
-const { stripVerifiedCapability } = require('../utils/verifiedCapabilityStrip');
-const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+} = require('../utils/staffing/workingCalendar');
+const { stripVerifiedCapability } = require('../utils/staffing/verifiedCapabilityStrip');
+const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
 
 function monthRangeUtc(asOf = new Date()) {
   const d = new Date(asOf);

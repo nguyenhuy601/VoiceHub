@@ -171,6 +171,13 @@ export function buildCollaborateDocumentsPath(orgId = '') {
   return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
 }
 
+/** Lịch việc trong suite Cộng tác — không dùng /app/me/calendar (nhảy suite Cá nhân). */
+export function buildCollaborateCalendarPath(orgId = '') {
+  const base = '/app/collaborate/calendar';
+  const id = String(orgId || '').trim();
+  return id ? `${base}?organizationId=${encodeURIComponent(id)}` : base;
+}
+
 /**
  * Không gian công ty — phòng + tab (announcement|members|documents|calendar|meetings).
  * Giữ context Collaborate; không nhảy Communicate channels.

@@ -4,7 +4,7 @@
 const {
   availablePctOnDay,
 } = require('./allocationOverlap');
-const { DEFAULT_HOURS_PER_DAY } = require('./timeTracking');
+const { DEFAULT_HOURS_PER_DAY } = require('../task/timeTracking');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

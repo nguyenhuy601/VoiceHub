@@ -6,6 +6,7 @@ import {
   buildBacklogTree,
   canListDragOver,
   childTypesForParent,
+  compareCardOrder,
   comparePlanningOrder,
   computeInsertSortOrder,
   hierarchyBands,
@@ -801,4 +802,78 @@ test('buildListTree: Epic theo sortOrder', () => {
   assert.equal(tree[0].raw._id, 'e2');
   assert.equal(tree[1].raw._id, 'e1');
   assert.ok(comparePlanningOrder({ sortOrder: 10 }, { sortOrder: 20 }) < 0);
+});
+
+test('compareCardOrder: position rồi createdAt', () => {
+  assert.ok(compareCardOrder({ position: 10 }, { position: 20 }) < 0);
+  assert.ok(
+    compareCardOrder(
+      { position: 10, createdAt: '2026-01-02T00:00:00.000Z', _id: 'b' },
+      { position: 10, createdAt: '2026-01-01T00:00:00.000Z', _id: 'a' }
+    ) > 0
+  );
+});
+
+test('buildListTree: Feature trước Card dưới Epic; card theo position', () => {
+  const cfg = defaultWorkTypeConfig();
+  const tree = buildListTree({
+    epics: [{ _id: 'e1', title: 'E', type: 'epic', sortOrder: 10 }],
+    features: [
+      { _id: 'f2', title: 'F2', type: 'feature', parentId: 'e1', sortOrder: 20 },
+      { _id: 'f1', title: 'F1', type: 'feature', parentId: 'e1', sortOrder: 10 },
+    ],
+    cards: [
+      { _id: 'c2', title: 'Later', issueType: 'task', epicId: 'e1', position: 200 },
+      { _id: 'c1', title: 'First', issueType: 'task', epicId: 'e1', position: 100 },
+      {
+        _id: 'cf',
+        title: 'Under F',
+        issueType: 'task',
+        featureId: 'f1',
+        epicId: 'e1',
+        position: 50,
+      },
+    ],
+    config: cfg,
+  });
+  const epicKids = tree[0].children;
+  assert.equal(epicKids[0].workType, 'feature');
+  assert.equal(epicKids[0].raw._id, 'f1');
+  assert.equal(epicKids[1].workType, 'feature');
+  assert.equal(epicKids[1].raw._id, 'f2');
+  assert.equal(epicKids[2].kind, 'card');
+  assert.equal(epicKids[2].raw._id, 'c1');
+  assert.equal(epicKids[3].raw._id, 'c2');
+  assert.equal(epicKids[0].children[0].raw._id, 'cf');
+});
+
+test('buildListTree: subtask theo position bất kể thứ tự mảng', () => {
+  const cfg = defaultWorkTypeConfig();
+  const tree = buildListTree({
+    epics: [{ _id: 'e1', title: 'E', type: 'epic', sortOrder: 10 }],
+    features: [],
+    cards: [
+      { _id: 'p1', title: 'Parent', issueType: 'task', epicId: 'e1', position: 10 },
+      {
+        _id: 's2',
+        title: 'Sub later',
+        issueType: 'task',
+        parentTaskId: 'p1',
+        epicId: 'e1',
+        position: 20,
+      },
+      {
+        _id: 's1',
+        title: 'Sub first',
+        issueType: 'task',
+        parentTaskId: 'p1',
+        epicId: 'e1',
+        position: 10,
+      },
+    ],
+    config: cfg,
+  });
+  const parent = tree[0].children.find((n) => n.raw._id === 'p1');
+  assert.equal(parent.children[0].raw._id, 's1');
+  assert.equal(parent.children[1].raw._id, 's2');
 });

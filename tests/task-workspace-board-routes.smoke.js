@@ -18,7 +18,7 @@ for (const [path, expected] of samples) {
 }
 
 const taskSvc = getServiceByPath('/api/workspaces/demo/task-boards');
-assert.strictEqual(taskSvc?.name, 'task', 'workspace task-boards → task-service');
+assert.strictEqual(taskSvc?.name, 'task', 'workspace task-boards → project-service (gateway key task)');
 
 const orgSvc = getServiceByPath('/api/organizations/demo');
 assert.strictEqual(orgSvc?.name, 'organization', 'organizations → organization-service');

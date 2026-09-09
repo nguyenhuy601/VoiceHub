@@ -53,7 +53,6 @@ describe('requirementAccessPolicy', () => {
           approve: false,
           runAiPlanning: false,
           createProject: false,
-          reviewSkills: false,
         },
       },
     });
@@ -92,7 +91,6 @@ describe('requirementAccessPolicy', () => {
           approve: false,
           runAiPlanning: false,
           createProject: false,
-          reviewSkills: false,
         },
       },
     });

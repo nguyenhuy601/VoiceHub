@@ -10,10 +10,9 @@ const {
   PRIORITIES,
   FR_LEVELS,
   FR_VALID_PARENT_LEVELS,
-  NFR_CATEGORIES,
   OVERVIEW_FIELDS,
   INTEGRATION_DIRECTIONS,
-} = require('../constants/requirementTemplate.constants');
+} = require('../../constants/requirementTemplate.constants');
 const {
   isFrDescRequiredLevel,
   normalizeFunctionalRequirementsLevels,
@@ -451,18 +450,6 @@ function validateBusinessLayer(parsed) {
           row: row._rowNumber,
           column: 'Requirement',
           message: 'NFR Requirement is required',
-        })
-      );
-    }
-    if (row.category && !NFR_CATEGORIES.includes(row.category)) {
-      issues.push(
-        issue({
-          code: 'REQ_NFR_INVALID_CATEGORY',
-          sheet: SHEETS.NFR,
-          row: row._rowNumber,
-          column: 'Category',
-          message: `Unknown NFR category: ${row.category}`,
-          severity: 'warning',
         })
       );
     }

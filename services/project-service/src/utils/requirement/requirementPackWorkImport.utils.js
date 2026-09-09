@@ -2,7 +2,7 @@
  * Pure helpers for requirement pack → work import (no service deps).
  */
 
-const { isFrExecutionLeaf } = require('../utils/requirementFrLevel');
+const { isFrExecutionLeaf } = require('./requirementFrLevel');
 
 function normalizeLevel(level) {
   return String(level || '').trim();

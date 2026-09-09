@@ -34,7 +34,7 @@ async function assertCanReadOrgCatalog({ organizationId, userId, projectId }) {
     throw err;
   }
 
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId: pid });

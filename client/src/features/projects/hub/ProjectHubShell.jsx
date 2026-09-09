@@ -47,14 +47,17 @@ import {
   resolveViewerActiveSprint,
   sumOpenCardEstimateHours,
   summarizeHubDeliveryMetrics,
-  unwrapPlanningList,
 } from './projectHubUtils';
 import {
   useInvalidateProjectHub,
   useProjectHubMembers,
   useProjectHubOverview,
+  useProjectHubPlanningItems,
   useProjectHubProject,
+  useProjectHubSprints,
 } from './useProjectHubQueries';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../../lib/queryKeys';
 
 function OverviewMetricSkeleton({ count = 4, isDarkMode }) {
   const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
@@ -227,6 +230,8 @@ function OverviewPanel({
     canViewPlanningPulse: false,
     canViewActivity: false,
     canShowAssigneeNames: false,
+    canOpenBacklog: false,
+    canOpenBoard: false,
   };
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -245,6 +250,10 @@ function OverviewPanel({
     Number(deliveryExtras.estimateHours) > 0
       ? [[estimateLabel, t('workspace.projectHubStatEstimateTotal')]]
       : [];
+  const showBacklogCta = Boolean(vis.canOpenBacklog);
+  const showBoardCta = Boolean(vis.canOpenBoard);
+  const ctaCount = (showBacklogCta ? 1 : 0) + (showBoardCta ? 1 : 0);
+  const showActivity = Boolean(vis.canViewActivity) && !activityRestricted;
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
@@ -281,30 +290,43 @@ function OverviewPanel({
               {t('workspace.projectHubOverviewHint')}
             </p>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:shrink-0">
-            <button
-              type="button"
-              onClick={onOpenBacklog}
-              aria-label={t('workspace.projectHubOpenBacklog')}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-center text-xs font-semibold text-foreground hover:bg-muted"
+          {ctaCount > 0 ? (
+            <div
+              className={
+                ctaCount > 1
+                  ? 'grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:shrink-0'
+                  : 'grid w-full grid-cols-1 gap-2 lg:flex lg:w-auto lg:shrink-0'
+              }
             >
-              <span className="lg:hidden">{t('workspace.projectHubOpenBacklogShort')}</span>
-              <span className="hidden lg:inline">{t('workspace.projectHubOpenBacklog')}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenBoard}
-              aria-label={t('workspace.projectHubOpenBoard')}
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground"
-            >
-              <LayoutGrid size={14} className="shrink-0" aria-hidden />
-              <span className="lg:hidden">{t('workspace.projectHubOpenBoardShort')}</span>
-              <span className="hidden lg:inline">{t('workspace.projectHubOpenBoard')}</span>
-            </button>
-          </div>
+              {showBacklogCta ? (
+                <button
+                  type="button"
+                  onClick={onOpenBacklog}
+                  aria-label={t('workspace.projectHubOpenBacklog')}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-center text-xs font-semibold text-foreground hover:bg-muted"
+                >
+                  <span className="lg:hidden">{t('workspace.projectHubOpenBacklogShort')}</span>
+                  <span className="hidden lg:inline">{t('workspace.projectHubOpenBacklog')}</span>
+                </button>
+              ) : null}
+              {showBoardCta ? (
+                <button
+                  type="button"
+                  onClick={onOpenBoard}
+                  aria-label={t('workspace.projectHubOpenBoard')}
+                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground"
+                >
+                  <LayoutGrid size={14} className="shrink-0" aria-hidden />
+                  <span className="lg:hidden">{t('workspace.projectHubOpenBoardShort')}</span>
+                  <span className="hidden lg:inline">{t('workspace.projectHubOpenBoard')}</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </header>
 
+      {vis.canViewTaskMetrics ? (
       <section className={cardCls} aria-labelledby="overview-project-health">
         <h3
           id="overview-project-health"
@@ -314,10 +336,6 @@ function OverviewPanel({
         </h3>
         {boardLoading ? (
           <OverviewMetricSkeleton count={4} isDarkMode={isDarkMode} />
-        ) : !vis.canViewTaskMetrics ? (
-          <p className={`text-sm ${muted}`} role="status">
-            {t('workspace.projectHubOverviewTaskMetricsRestricted')}
-          </p>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -470,6 +488,7 @@ function OverviewPanel({
           </>
         )}
       </section>
+      ) : null}
 
       {boardLoading ? (
         <div className="mt-3">
@@ -579,13 +598,12 @@ function OverviewPanel({
               </div>
             </dl>
 
+            {vis.canViewSprintContext ? (
             <div className="mt-3 border-t border-border pt-3">
               <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
                 {t('workspace.projectHubOverviewActiveSprint')}
               </p>
-              {!vis.canViewSprintContext ? (
-                <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewSprintRestricted')}</p>
-              ) : sprintContextLoading ? (
+              {sprintContextLoading ? (
                 <div
                   className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
                     isDarkMode ? 'bg-white/10' : 'bg-muted'
@@ -615,14 +633,14 @@ function OverviewPanel({
                 <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewActiveSprintEmpty')}</p>
               )}
             </div>
+            ) : null}
 
+            {vis.canViewPlanningPulse ? (
             <div className="mt-3 border-t border-border pt-3">
               <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
                 {t('workspace.projectHubOverviewBacklogPulse')}
               </p>
-              {!vis.canViewPlanningPulse ? (
-                <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewPlanningRestricted')}</p>
-              ) : planningContextLoading ? (
+              {planningContextLoading ? (
                 <div
                   className={`h-12 animate-pulse rounded-lg motion-reduce:animate-none ${
                     isDarkMode ? 'bg-white/10' : 'bg-muted'
@@ -644,6 +662,7 @@ function OverviewPanel({
                 </div>
               )}
             </div>
+            ) : null}
 
             {board?.description ? (
               <p className={`mt-3 line-clamp-3 border-t border-border pt-3 text-xs ${muted}`}>
@@ -654,6 +673,7 @@ function OverviewPanel({
         </div>
       )}
 
+      {showActivity ? (
       <div className={`${cardCls} mt-3`}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className={`text-xs font-semibold uppercase tracking-wide ${muted}`}>
@@ -677,10 +697,6 @@ function OverviewPanel({
             aria-busy="true"
             aria-label={t('common.loading')}
           />
-        ) : !vis.canViewActivity || activityRestricted ? (
-          <p className={`text-sm ${muted}`} role="status">
-            {t('workspace.projectHubOverviewActivityRestricted')}
-          </p>
         ) : activityError ? (
           <div className="flex flex-col items-start gap-2">
             <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityLoadFail')}</p>
@@ -714,6 +730,7 @@ function OverviewPanel({
           </ul>
         )}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -758,6 +775,10 @@ function ProjectHubReportPanel({
     Number.isFinite(Number(metrics.cycleTimeHours)) &&
     Number(metrics.cycleTimeHours) > 0 &&
     Number(metrics.cycleTimeSample) > 0;
+  const showSprintCard = Boolean(vis.canViewSprintContext);
+  const reportBottomGridClass = showSprintCard
+    ? 'mt-3 grid gap-3 sm:grid-cols-2'
+    : 'mt-3 grid gap-3 grid-cols-1';
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
@@ -795,11 +816,10 @@ function ProjectHubReportPanel({
           t={t}
           onOpenCard={onOpenCard}
         />
-      ) : !vis.canViewTaskMetrics ? (
-        <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewTaskMetricsRestricted')}</p>
       ) : null}
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className={reportBottomGridClass}>
+        {showSprintCard ? (
         <section className={cardCls} aria-labelledby="hub-report-sprint">
           <h3
             id="hub-report-sprint"
@@ -807,9 +827,7 @@ function ProjectHubReportPanel({
           >
             {t('workspace.projectHubOverviewActiveSprint')}
           </h3>
-          {!vis.canViewSprintContext ? (
-            <p className={`text-sm ${muted}`}>{t('workspace.projectHubOverviewSprintRestricted')}</p>
-          ) : sprintContextLoading ? (
+          {sprintContextLoading ? (
             <div
               className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
                 isDarkMode ? 'bg-white/10' : 'bg-muted'
@@ -835,6 +853,7 @@ function ProjectHubReportPanel({
             <p className={`text-sm ${muted}`}>{t('adminTasks.directorNoSprint')}</p>
           )}
         </section>
+        ) : null}
         <section className={cardCls} aria-labelledby="hub-report-cycle">
           <h3
             id="hub-report-cycle"
@@ -1019,15 +1038,8 @@ export default function ProjectHubShell({
   const [activityRestricted, setActivityRestricted] = useState(false);
   const [activityReloadToken, setActivityReloadToken] = useState(0);
   const [apiFiles, setApiFiles] = useState(null);
+  const queryClient = useQueryClient();
   const invalidateProjectHub = useInvalidateProjectHub();
-  const [sprints, setSprints] = useState([]);
-  const [planningItems, setPlanningItems] = useState([]);
-  const [planningLoading, setPlanningLoading] = useState(false);
-  const [planningError, setPlanningError] = useState(false);
-  const [planningReloadToken, setPlanningReloadToken] = useState(0);
-  const loadedPlanningProjectRef = useRef('');
-  const planningFetchKeyRef = useRef('');
-  const sprintsLoadedForRef = useRef('');
   const activityLoadedForRef = useRef('');
   const filesLoadedForRef = useRef('');
   const [completeSprintId, setCompleteSprintId] = useState(null);
@@ -1037,9 +1049,6 @@ export default function ProjectHubShell({
   const [crWorkIssue, setCrWorkIssue] = useState(null);
   const [overviewWorkIssue, setOverviewWorkIssue] = useState(null);
   const [hubChatChannelId, setHubChatChannelId] = useState('');
-  const [sprintsFetching, setSprintsFetching] = useState(false);
-  /** Đã kết thúc lần fetch sprint đầu cho projectId (success/fail) — tránh hiện Board “khóa” giả khi đang hydrate. */
-  const [sprintsHydratedFor, setSprintsHydratedFor] = useState('');
 
   const resolvedBoard = useMemo(() => {
     if (boardDetail?.board) return boardDetail.board;
@@ -1061,9 +1070,7 @@ export default function ProjectHubShell({
     refetch: refetchOverview,
   } = useProjectHubOverview(projectId, { enabled: useOverviewAggregate });
   const { data: projectQueryData = null } = useProjectHubProject(projectId);
-  const { data: rosterMembers = [] } = useProjectHubMembers(projectId);
   const projectPayload = projectQueryData ?? overviewPayload?.project ?? null;
-
   const hubCaps = useMemo(
     () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
     [projectPayload, canManage]
@@ -1073,21 +1080,12 @@ export default function ProjectHubShell({
     prevHubProjectIdRef.current = projectId;
     setTab('overview');
     setVisitedTabs({ overview: true });
-    setSprints([]);
-    setPlanningItems([]);
     setApiActivity(null);
     setActivityLoading(false);
     setActivityError(false);
     setActivityRestricted(false);
     setActivityReloadToken(0);
     setApiFiles(null);
-    setPlanningLoading(false);
-    setPlanningError(false);
-    setSprintsFetching(false);
-    setSprintsHydratedFor('');
-    loadedPlanningProjectRef.current = '';
-    planningFetchKeyRef.current = '';
-    sprintsLoadedForRef.current = '';
     activityLoadedForRef.current = '';
     filesLoadedForRef.current = '';
     setCompleteProjectOpen(false);
@@ -1135,125 +1133,93 @@ export default function ProjectHubShell({
     () => resolveOverviewVisibility(hubCaps, { informationLevel, capsReady }),
     [hubCaps, informationLevel, capsReady]
   );
+  const { data: rosterMembers = [] } = useProjectHubMembers(projectId, {
+    enabled:
+      Boolean(projectId) &&
+      hubCaps.canViewMembers &&
+      (overviewVisibility.canViewMemberBreakdown ||
+        tab === 'members' ||
+        Boolean(visitedTabs.members) ||
+        tab === 'changeRequests' ||
+        Boolean(visitedTabs.changeRequests)),
+  });
   const isSummaryOnly = informationLevel === 'summary';
   const needsPlanningItems =
-    tab === 'planning' || tab === 'timeline' || tab === 'board';
+    Boolean(hubCaps.canViewBacklog) &&
+    (tab === 'planning' || tab === 'timeline' || tab === 'board' || tab === 'list');
   const needsActivity =
-    (tab === 'overview' && overviewVisibility.canViewActivity) || tab === 'activity';
-  const needsFiles = tab === 'files';
+    (tab === 'overview' && overviewVisibility.canViewActivity) ||
+    (tab === 'activity' && hubCaps.canViewActivityTab);
+  const needsFiles = tab === 'files' && hubCaps.canViewFiles;
   const needsSprints =
-    tab === 'board' ||
-    Boolean(visitedTabs.board) ||
-    (capsReady &&
-      (overviewVisibility.canViewSprintContext || Boolean(hubCaps.canCompleteProject)));
+    Boolean(hubCaps.canViewSprints) &&
+    (tab === 'board' ||
+      Boolean(visitedTabs.board) ||
+      (capsReady &&
+        (overviewVisibility.canViewSprintContext || Boolean(hubCaps.canCompleteProject))));
 
-  const needsChartWorkItems = tab === 'overview' || tab === 'report';
+  const needsChartWorkItems =
+    (tab === 'overview' && overviewVisibility.canViewTaskMetrics) ||
+    (tab === 'report' && hubCaps.canViewReport);
   const chartWorkItemsLoading = needsChartWorkItems && !boardCardsReady;
 
   useEffect(() => {
     if (
-      (tab === 'board' || tab === 'list' || needsChartWorkItems) &&
+      (tab === 'board' || tab === 'list' || tab === 'timeline' || needsChartWorkItems) &&
       typeof onNeedFullBoardCards === 'function'
     ) {
       onNeedFullBoardCards();
     }
   }, [tab, needsChartWorkItems, onNeedFullBoardCards]);
 
-  // Hydrate sprint khi Board / complete gate / sprint context overview cần.
-  useEffect(() => {
-    if (!projectId || !needsSprints) {
-      if (!needsSprints && sprintsLoadedForRef.current !== projectId) {
-        setSprints([]);
-        setSprintsHydratedFor('');
-      }
-      return undefined;
-    }
-    if (sprintsLoadedForRef.current === projectId) {
-      setSprintsHydratedFor(projectId);
-      return undefined;
-    }
-    let cancelled = false;
-    setSprintsFetching(true);
-    (async () => {
-      try {
-        const res = await projectAPI.listSprints(projectId);
-        if (cancelled) return;
-        setSprints(unwrapPlanningList(res));
-        sprintsLoadedForRef.current = projectId;
-        setSprintsHydratedFor(projectId);
-      } catch {
-        if (cancelled) return;
-        setSprints([]);
-        sprintsLoadedForRef.current = projectId;
-        setSprintsHydratedFor(projectId);
-      } finally {
-        if (!cancelled) setSprintsFetching(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, needsSprints]);
+  const {
+    data: sprints = [],
+    isPending: sprintsPending,
+    isFetching: sprintsFetching,
+    isFetched: sprintsFetched,
+    isError: sprintsError,
+    refetch: refetchSprints,
+  } = useProjectHubSprints(projectId, { enabled: Boolean(projectId) && needsSprints });
 
-  const patchPlanningItems = useCallback((updater) => {
-    setPlanningItems((prev) => (typeof updater === 'function' ? updater(prev) : prev));
-  }, []);
+  const {
+    data: planningItems = [],
+    isPending: planningPending,
+    isError: planningError,
+    refetch: refetchPlanning,
+  } = useProjectHubPlanningItems(projectId, {
+    enabled: Boolean(projectId) && needsPlanningItems,
+  });
 
-  const reloadPlanning = useCallback(() => setPlanningReloadToken((n) => n + 1), []);
+  const sprintsHydrated =
+    !needsSprints ||
+    (Boolean(projectId) && (sprintsFetched || sprintsError || !sprintsPending));
+  const planningLoading = Boolean(projectId) && needsPlanningItems && planningPending;
+
+  const patchPlanningItems = useCallback(
+    (updater) => {
+      const pid = String(projectId || '').trim();
+      if (!pid) return;
+      queryClient.setQueryData(queryKeys.projectHub.planningItems(pid), (prev) => {
+        const current = Array.isArray(prev) ? prev : [];
+        return typeof updater === 'function' ? updater(current) : current;
+      });
+    },
+    [projectId, queryClient]
+  );
+
+  const reloadPlanning = useCallback(async () => {
+    const pid = String(projectId || '').trim();
+    if (!pid) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.planningItems(pid) });
+    await refetchPlanning();
+  }, [projectId, queryClient, refetchPlanning]);
 
   const reloadSprints = useCallback(async () => {
     const pid = String(projectId || '').trim();
-    if (!pid) {
-      setSprints([]);
-      sprintsLoadedForRef.current = '';
-      setSprintsHydratedFor('');
-      return;
-    }
-    setSprintsFetching(true);
-    try {
-      const res = await projectAPI.listSprints(pid);
-      setSprints(unwrapPlanningList(res));
-      sprintsLoadedForRef.current = pid;
-      setSprintsHydratedFor(pid);
-    } catch {
-      /* giữ sprint hiện tại */
-    } finally {
-      setSprintsFetching(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!projectId || !needsPlanningItems) return undefined;
-    const fetchKey = `${projectId}:${planningReloadToken}`;
-    if (planningFetchKeyRef.current === fetchKey) return undefined;
-    let cancelled = false;
-    const isFirstForProject = loadedPlanningProjectRef.current !== projectId;
-    (async () => {
-      if (isFirstForProject) {
-        setPlanningLoading(true);
-        setPlanningError(false);
-      }
-      try {
-        const res = await projectAPI.listPlanningItems(projectId);
-        if (cancelled) return;
-        setPlanningItems(unwrapPlanningList(res));
-        loadedPlanningProjectRef.current = projectId;
-        planningFetchKeyRef.current = fetchKey;
-        setPlanningError(false);
-      } catch {
-        if (cancelled) return;
-        if (isFirstForProject) {
-          setPlanningItems([]);
-          setPlanningError(true);
-        }
-      } finally {
-        if (!cancelled && isFirstForProject) setPlanningLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, planningReloadToken, needsPlanningItems]);
+    if (!pid) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.sprints(pid) });
+    await refetchSprints();
+  }, [projectId, queryClient, refetchSprints]);
 
   const boardReady = useMemo(() => isBoardSprintReady(sprints), [sprints]);
   const cardsForSprintResolve = useMemo(
@@ -1314,6 +1280,12 @@ export default function ProjectHubShell({
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
+      if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
+      if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
+      if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
+      if (item.id === 'report' && !hubCaps.canViewReport) return false;
+      if (item.id === 'files' && !hubCaps.canViewFiles) return false;
+      if (item.id === 'activity' && !hubCaps.canViewActivityTab) return false;
       if (item.id === 'chat' && !isProjectChatTabEnabled()) return false;
       return true;
     });
@@ -1324,20 +1296,17 @@ export default function ProjectHubShell({
   }, [isSummaryOnly, tab]);
 
   useEffect(() => {
-    if (tab === 'members' && !hubCaps.canViewMembers) setTab('overview');
-  }, [tab, hubCaps.canViewMembers]);
-
-  useEffect(() => {
-    if (tab === 'changeRequests' && !hubCaps.canViewChangeRequests) setTab('overview');
-  }, [tab, hubCaps.canViewChangeRequests]);
+    const allowed = new Set(visibleTabs.map((item) => item.id));
+    if (tab && !allowed.has(tab)) setTab('overview');
+  }, [tab, visibleTabs]);
 
   useEffect(() => {
     setVisitedTabs((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
   }, [tab]);
 
-  const showListPanel = Boolean(visitedTabs.list);
-  const showPlanningPanel = Boolean(visitedTabs.planning);
-  const showTimelinePanel = Boolean(visitedTabs.timeline);
+  const showListPanel = Boolean(visitedTabs.list) && hubCaps.canViewWorkItems;
+  const showPlanningPanel = Boolean(visitedTabs.planning) && hubCaps.canViewBacklog;
+  const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewBacklog;
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
@@ -1417,7 +1386,6 @@ export default function ProjectHubShell({
     }
     return pickNextHubActions(cards, lists, { projectCode: resolvedBoard?.projectCode || '' });
   }, [overviewPayload?.nextActions, cards, lists, resolvedBoard?.projectCode]);
-  const sprintsHydrated = Boolean(projectId) && sprintsHydratedFor === projectId;
   const sprintContextLoading =
     overviewVisibility.canViewSprintContext &&
     (tab === 'overview' || tab === 'board' || tab === 'report') &&
@@ -1472,8 +1440,12 @@ export default function ProjectHubShell({
     activityLoadedForRef.current = '';
     setActivityError(false);
     setActivityRestricted(false);
+    const pid = String(projectId || '').trim();
+    if (pid) {
+      queryClient.removeQueries({ queryKey: queryKeys.projectHub.activity(pid, 10) });
+    }
     setActivityReloadToken((n) => n + 1);
-  }, []);
+  }, [projectId, queryClient]);
 
   const handleOpenNextAction = useCallback(
     (actionId) => {
@@ -1503,7 +1475,6 @@ export default function ProjectHubShell({
 
   useEffect(() => {
     if (!projectId || !needsActivity) return undefined;
-    if (activityLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
     let timer = null;
     const runFetch = () => {
@@ -1511,19 +1482,27 @@ export default function ProjectHubShell({
       setActivityLoading(true);
       setActivityError(false);
       setActivityRestricted(false);
-      (async () => {
-        try {
-          const actRes = await projectAPI.getActivity(
-            projectId,
-            { limit: 10 },
-            { skipPermissionDeniedToast: true }
-          );
+      queryClient
+        .fetchQuery({
+          queryKey: queryKeys.projectHub.activity(projectId, 10),
+          staleTime: 30_000,
+          queryFn: async () => {
+            const actRes = await projectAPI.getActivity(
+              projectId,
+              { limit: 10 },
+              { skipPermissionDeniedToast: true }
+            );
+            const act = actRes?.data?.data ?? actRes?.data ?? [];
+            return Array.isArray(act) ? act : [];
+          },
+        })
+        .then((act) => {
           if (cancelled) return;
-          const act = actRes?.data?.data ?? actRes?.data ?? [];
-          setApiActivity(Array.isArray(act) ? act : []);
+          setApiActivity(act);
           activityLoadedForRef.current = projectId;
           setActivityRestricted(false);
-        } catch (err) {
+        })
+        .catch((err) => {
           if (!cancelled) {
             const status = Number(err?.status || err?.response?.status || 0);
             setApiActivity([]);
@@ -1536,49 +1515,53 @@ export default function ProjectHubShell({
               setActivityRestricted(false);
             }
           }
-        } finally {
+        })
+        .finally(() => {
           if (!cancelled) setActivityLoading(false);
-        }
-      })();
+        });
     };
     timer = setTimeout(runFetch, tab === 'overview' ? 300 : 0);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [projectId, needsActivity, activityReloadToken, tab]);
+  }, [projectId, needsActivity, activityReloadToken, tab, queryClient]);
 
   useEffect(() => {
     if (!projectId || !needsFiles) return undefined;
-    if (filesLoadedForRef.current === projectId) return undefined;
     let cancelled = false;
-    (async () => {
-      try {
-        const filesRes = await projectAPI.getFiles(projectId);
-        if (cancelled) return;
-        const fl = filesRes?.data?.data ?? filesRes?.data ?? [];
-        setApiFiles(
-          (Array.isArray(fl) ? fl : []).map((f) => ({
+    queryClient
+      .fetchQuery({
+        queryKey: queryKeys.projectHub.files(projectId),
+        staleTime: 60_000,
+        queryFn: async () => {
+          const filesRes = await projectAPI.getFiles(projectId);
+          const fl = filesRes?.data?.data ?? filesRes?.data ?? [];
+          return (Array.isArray(fl) ? fl : []).map((f) => ({
             name: f.name,
             url: f.url,
             cardTitle: f.taskTitle,
-          }))
-        );
+          }));
+        },
+      })
+      .then((mapped) => {
+        if (cancelled) return;
+        setApiFiles(mapped);
         filesLoadedForRef.current = projectId;
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) setApiFiles(null);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [projectId, needsFiles]);
+  }, [projectId, needsFiles, queryClient]);
 
   const hasBoard = Boolean(boardId && resolvedBoard);
   const initials = projectInitials(resolvedBoard?.title);
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-  const sprintsReadyForCompleteGate = sprintsLoadedForRef.current === projectId;
+  const sprintsReadyForCompleteGate = sprintsHydrated;
   const hasOpenSprints = (sprints || []).some((s) => {
     const st = String(s?.status || '').toLowerCase();
     return st === 'planned' || st === 'active';
@@ -1825,7 +1808,7 @@ export default function ProjectHubShell({
             t={t}
           />
         ) : null}
-        {tab === 'report' ? (
+        {tab === 'report' && hubCaps.canViewReport ? (
           <ProjectHubReportPanel
             dashboardCharts={dashboardCharts}
             overviewCards={cards}
@@ -1876,6 +1859,9 @@ export default function ProjectHubShell({
             priorityConfig={projectPayload?.priorityConfig}
             workflowTransitionsByFrom={boardDetail?.workflow?.transitionsByFrom || null}
             parentBoardCards={cards}
+            planningItems={planningItems}
+            planningLoading={planningLoading}
+            planningError={planningError}
           />
         </div>
         ) : null}
@@ -1962,7 +1948,7 @@ export default function ProjectHubShell({
           />
         </div>
         ) : null}
-        {tab === 'board' ? (
+        {tab === 'board' && hubCaps.canViewWorkItems ? (
           !sprintsHydrated || sprintsFetching ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center">
               <Loader2
@@ -1983,6 +1969,7 @@ export default function ProjectHubShell({
               <p className={`max-w-md text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}>
                 {t('workspace.projectHubBoardLockedHint')}
               </p>
+              {hubCaps.canViewBacklog ? (
               <button
                 type="button"
                 className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
@@ -1990,6 +1977,7 @@ export default function ProjectHubShell({
               >
                 {t('workspace.projectHubBoardLockedCta')}
               </button>
+              ) : null}
             </div>
           )
         ) : null}
@@ -2053,15 +2041,18 @@ export default function ProjectHubShell({
             membersActive={tab === 'members'}
             canManage={hubCaps.canManageMembers || canManage}
             isDarkMode={isDarkMode}
-            onMembersChanged={() => setMembersEpoch((n) => n + 1)}
+            onMembersChanged={() => {
+              setMembersEpoch((n) => n + 1);
+              invalidateProjectHub(projectId, boardId, { organizationId });
+            }}
           />
         </div>
         ) : null}
-        {tab === 'files' ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}
-        {tab === 'activity' ? (
+        {tab === 'files' && hubCaps.canViewFiles ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}
+        {tab === 'activity' && hubCaps.canViewActivityTab ? (
           <ActivityPanel activity={activity} locale={locale} isDarkMode={isDarkMode} t={t} />
         ) : null}
-        {tab === 'settings' ? (
+        {tab === 'settings' && hubCaps.canManageSettings ? (
           <ProjectHubSettingsPanel
             projectId={projectId}
             boardId={boardId}
@@ -2110,11 +2101,12 @@ export default function ProjectHubShell({
           onCompleted={async (data) => {
             toast.success(t('workspace.projectHubCompleteProjectSuccess'));
             const closed = data?.project || data || {};
-            setProjectPayload((prev) => ({
+            queryClient.setQueryData(queryKeys.projectHub.project(projectId), (prev) => ({
               ...(prev || {}),
               ...closed,
               status: closed.status || 'closed',
             }));
+            invalidateProjectHub(projectId, boardId);
             setCompleteProjectOpen(false);
             onRefresh?.();
           }}
@@ -2154,6 +2146,10 @@ export default function ProjectHubShell({
             canComment={
               Boolean(canManage) ||
               (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+            }
+            canUpdateTask={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
             }
             canChangeStatus={
               Boolean(canManage) ||
@@ -2229,6 +2225,10 @@ export default function ProjectHubShell({
             canComment={
               Boolean(canManage) ||
               (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
+            }
+            canUpdateTask={
+              Boolean(canManage) ||
+              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
             }
             canChangeStatus={
               Boolean(canManage) ||

@@ -1295,6 +1295,7 @@ export default function ProjectHubPlanningPanel({
         locale={locale}
         canCreateTask={canCreateTask && hasBoardColumn}
         canComment={canChangeStatus}
+        canUpdateTask={canChangeStatus}
         canChangeStatus={canChangeStatus}
         workTypeConfig={workTypeConfig}
         priorityConfig={priorityConfig}

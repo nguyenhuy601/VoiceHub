@@ -167,7 +167,7 @@ const requirementPackSchema = new mongoose.Schema(
       {
         externalId: { type: String, trim: true, maxlength: 64 },
         assumption: { type: String, trim: true, maxlength: 2000 },
-        impactIfInvalid: { type: String, trim: true, maxlength: 32 },
+        impactIfInvalid: { type: String, trim: true, maxlength: 500 },
       },
     ],
     aiAnalysisStatus: {
@@ -202,7 +202,7 @@ requirementPackSchema.pre('save', function requirementPackPlanningReadinessPreSa
     this.isModified('staffingPlan') ||
     this.isModified('overview')
   ) {
-    const { pickPlanningReadinessSummary } = require('../utils/requirementPlanningReadiness');
+    const { pickPlanningReadinessSummary } = require('../utils/requirement/requirementPlanningReadiness');
     this.planningReadiness = pickPlanningReadinessSummary(this);
   }
 });

@@ -1,5 +1,5 @@
 const { MASTER_PROJECT_ROLES } = require('@enterprise/shared/config/masterData');
-const { defaultPermissionsForRoleKey } = require('../utils/projectPermissionMatrix');
+const { defaultPermissionsForRoleKey } = require('../utils/project/projectPermissionMatrix');
 
 /**
  * RBAC V2: map Project Role key → Permission Group template (role-permission-service).

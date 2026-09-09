@@ -87,7 +87,7 @@ async function refreshDashboardSnapshot(userId, eventId) {
   const voiceBase = String(process.env.VOICE_SERVICE_URL || '')
     .trim()
     .replace(/\/+$/, '');
-  const taskBase = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+  const taskBase = String(process.env.PROJECT_SERVICE_URL || '')
     .trim()
     .replace(/\/+$/, '');
 

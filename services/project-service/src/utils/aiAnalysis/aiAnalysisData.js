@@ -9,13 +9,22 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
-  buildRequirementFrSlices,
+  buildRequirementFrSlicesForAnalysis,
+  expandFrIdSetWithSlices,
   buildProjectContextSlice,
   truncate,
 } = require('./aiAnalysisFrSlice');
+const {
+  FR_LANGUAGE_CUE,
+  detectCrudFromText,
+  detectEntityCanonicalNames,
+  inferSensitivityLocale,
+  inferNfrSensitivityLocale,
+} = require('./aiAnalysisLocaleText');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const SENSITIVITY = Object.freeze([
   'public',
@@ -40,7 +49,7 @@ const ATTR_TYPE_MAX = 32;
 const NAME_MAX = 120;
 const CONSUMERS_MAX = 8;
 const REL_MAX = 8;
-const ENTITY_WALL_MS = 180000;
+const ENTITY_WALL_MS = resolveJobWallMs('requirementAnalysis');
 const ENTITY_CHUNK_SIZE = 12;
 const ENTITY_MAX_CHUNKS = 8;
 const ENTITY_NUM_PREDICT = 768;
@@ -76,13 +85,7 @@ function normalizeCrud(raw) {
 }
 
 function crudFromText(text) {
-  const t = String(text || '').toLowerCase();
-  return {
-    create: /\b(create|add|register|insert|sign\s*up|new)\b/.test(t),
-    read: /\b(read|view|list|get|fetch|display|show|search|query)\b/.test(t),
-    update: /\b(update|edit|modify|change|patch)\b/.test(t),
-    delete: /\b(delete|remove|revoke|deactivate|cancel)\b/.test(t),
-  };
+  return detectCrudFromText(text);
 }
 
 function ensureCrudHasRead(crud) {
@@ -180,17 +183,13 @@ function buildDataHintSlice(pack) {
   let sensitivity = '';
   const nfr = pack?.nonFunctionalRequirements || [];
   for (const row of nfr) {
-    const blob = `${row.category || ''} ${row.requirement || ''} ${row.target || ''}`.toLowerCase();
-    if (/pii|personal data|gdpr|privacy|confidential|secret|encrypt/.test(blob)) {
+    const blob = `${row.category || ''} ${row.requirement || ''} ${row.target || ''}`;
+    const inferred = inferNfrSensitivityLocale(blob);
+    if (inferred === 'confidential') {
       sensitivity = 'confidential';
       break;
     }
-    if (/internal|staff only|employee/.test(blob) && !sensitivity) {
-      sensitivity = 'internal';
-    }
-    if (/public|open data/.test(blob) && !sensitivity) {
-      sensitivity = 'public';
-    }
+    if (inferred && !sensitivity) sensitivity = inferred;
   }
   return {
     volume,
@@ -199,41 +198,57 @@ function buildDataHintSlice(pack) {
 }
 
 function inferSensitivityFromText(text, fallback) {
-  const t = String(text || '').toLowerCase();
-  if (/password|ssn|credit.?card|pii|secret|token|oauth/.test(t)) return 'confidential';
-  if (/email|phone|address|profile|user.?data/.test(t)) return 'internal';
-  return fallback || 'internal';
+  return inferSensitivityLocale(text, fallback);
 }
 
-/** Noun-ish data entities hinted in FR prose. */
+/** Noun-ish data entities hinted in FR prose (EN+VI → canonical EN). */
 function inferEntityNamesFromSlice(slice) {
   const text = `${slice.title || ''} ${slice.description || ''} ${slice.ac || ''}`;
-  const lower = text.toLowerCase();
   const found = [];
   const push = (name) => {
     if (found.some((n) => n.toLowerCase() === name.toLowerCase())) return;
     found.push(name);
   };
 
-  const patterns = [
-    [/\b(user|account|profile|session|credential|password)\b/, 'User'],
-    [/\b(order|cart|checkout|invoice|payment|billing)\b/, 'Order'],
-    [/\b(product|catalog|inventory|sku)\b/, 'Product'],
-    [/\b(message|chat|notification|email|sms)\b/, 'Message'],
-    [/\b(file|document|attachment|upload)\b/, 'Document'],
-    [/\b(role|permission|rbac|grant)\b/, 'Role'],
-    [/\b(report|analytics|dashboard|metric)\b/, 'Report'],
-    [/\b(organization|company|tenant|workspace)\b/, 'Organization'],
-    [/\b(task|ticket|issue|project)\b/, 'Task'],
-  ];
-  for (const [re, name] of patterns) {
-    if (re.test(lower)) push(name);
+  for (const name of detectEntityCanonicalNames(text)) {
+    push(name);
   }
   if (!found.length) {
     const title = normProse(slice.title || slice.id).slice(0, NAME_MAX);
     if (title) push(title);
   }
   return found.slice(0, 3);
+}
+
+/**
+ * Merge CRUD from related FR prose when LLM/heuristic entity lacks flags.
+ * @param {object[]} entities
+ * @param {object[]} frSlices
+ */
+function enrichEntitiesCrudFromFrSlices(entities = [], frSlices = []) {
+  const byId = new Map((frSlices || []).map((s) => [s.id, s]));
+  return (entities || []).map((ent) => {
+    if (!ent || typeof ent !== 'object') return ent;
+    const related = (ent.relatedFrIds || [])
+      .map((id) => byId.get(id))
+      .filter(Boolean);
+    const text =
+      related
+        .map((s) => `${s.title || ''} ${s.description || ''} ${s.ac || ''}`)
+        .join(' ')
+        .trim() || String(ent.name || '');
+    const fromText = crudFromText(text);
+    const existing = normalizeCrud(ent.crud);
+    return {
+      ...ent,
+      crud: ensureCrudHasRead({
+        create: existing.create || fromText.create,
+        read: existing.read || fromText.read,
+        update: existing.update || fromText.update,
+        delete: existing.delete || fromText.delete,
+      }),
+    };
+  });
 }
 
 function inferAttributes(entityName, slice) {
@@ -507,6 +522,7 @@ function buildDataChunks(frSlices, chunkSize = ENTITY_CHUNK_SIZE) {
 function buildDataPrompt({ context, dataHints, frChunk, chunkIndex, chunkTotal }) {
   return [
     'You are a software BA. Extract data entities and CRUD from requirements.',
+    FR_LANGUAGE_CUE,
     'Return ONLY valid JSON: {"entities":[{...}],"dataFlows":[{"from","to","via"?}]} — no markdown.',
     'Each entity fields: entityId, name, attributes (string[] or [{name,type}]),',
     'crud ({create,read,update,delete} booleans), source, consumers[],',
@@ -529,11 +545,16 @@ function canStartChunk(elapsedMs, wallMs, chunkTimeoutMs) {
  * Run data analysis: LLM chunks + heuristic fill; drop orphan entities/flows.
  */
 async function runDataAnalysis(pack, opts = {}) {
-  const wallMs = opts.wallMs ?? ENTITY_WALL_MS;
+  const wallMs = opts.wallMs ?? resolveJobWallMs('requirementAnalysis');
   const started = Date.now();
-  const packFrIds = buildFrIdSet(pack?.functionalRequirements || []);
+  const frSlices =
+    opts.frSlices ||
+    buildRequirementFrSlicesForAnalysis(pack, opts.hierarchy);
+  const packFrIds = expandFrIdSetWithSlices(
+    buildFrIdSet(pack?.functionalRequirements || []),
+    frSlices
+  );
   const packCapabilityIds = opts.packCapabilityIds || null;
-  const frSlices = buildRequirementFrSlices(pack);
   const context = buildProjectContextSlice(pack);
   const dataHints = buildDataHintSlice(pack);
   const model = ollamaModel();
@@ -672,6 +693,9 @@ module.exports = {
   ATTR_MAX,
   normalizeSensitivity,
   normalizeCrud,
+  crudFromText,
+  ensureCrudHasRead,
+  enrichEntitiesCrudFromFrSlices,
   normalizeAttributes,
   normalizeVolume,
   normalizeDataEntity,

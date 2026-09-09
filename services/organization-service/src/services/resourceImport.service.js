@@ -116,15 +116,6 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
 
   const primaryDomain = row.primaryDomain || guessPrimaryDomainFromJobTitle(row.jobTitle);
   const skillTokens = (Array.isArray(row.skills) ? row.skills : []).map((s) => String(s)).filter(Boolean);
-  const { resolveBatch } = require('./skillRegistry.service');
-  const skillBatch = skillTokens.length
-    ? await resolveBatch(organizationId, skillTokens, { source: 'Import' })
-    : { results: [] };
-  const resolvedSkills = (skillBatch.results || []).map((entry) => ({
-    name: entry.name,
-    level: 3,
-    ...(entry.skillId ? { skillId: entry.skillId } : {}),
-  }));
 
   const tProfile = nowMs();
   await bulkUpdateUserProfileFields(userId, {
@@ -136,9 +127,7 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
     uploadedBy,
     capability: {
       primaryDomain,
-      skills: resolvedSkills.length
-        ? resolvedSkills
-        : skillTokens.map((name) => ({ name, level: 3 })),
+      skills: skillTokens.map((name) => ({ name, level: 3 })),
       yearsExperience: row.yearsExperience,
       availability: 'available',
       summary: '',

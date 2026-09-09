@@ -11,8 +11,9 @@ const {
   resolveCanonicalProjectRoleKey,
 } = require('@enterprise/shared/config/masterData');
 const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client');
-const { assertResolvedProjectRoleKeys } = require('../utils/assertResolvedProjectRoleKeys');
-const { enrichMembershipUserLabels } = require('../utils/userProfileLabels');
+const { assertResolvedProjectRoleKeys } = require('../utils/project/assertResolvedProjectRoleKeys');
+const { enrichMembershipUserLabels } = require('../utils/common/userProfileLabels');
+const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -21,9 +22,40 @@ const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   viewer: DEFAULT_PROJECT_ROLE_KEYS.OBSERVER,
 });
 
+const PROJECT_ROLES_LIST_TTL_MS = 15_000;
+const projectRolesListCache = createTtlCoalesceCache({ ttlMs: PROJECT_ROLES_LIST_TTL_MS });
+const projectRolesEnsureCache = createTtlCoalesceCache({ ttlMs: PROJECT_ROLES_LIST_TTL_MS });
+
+let projectRoleIndexesSynced = false;
+
+/** Drop legacy unique (organizationId,key) and apply partial indexes for org vs project scopes. */
+async function ensureProjectRoleIndexes() {
+  if (projectRoleIndexesSynced) return;
+  projectRoleIndexesSynced = true;
+  try {
+    await ProjectRole.syncIndexes();
+  } catch (err) {
+    projectRoleIndexesSynced = false;
+    const { logger } = require('@enterprise/shared');
+    logger.warn('[projectRole] syncIndexes failed: %s', err.message);
+  }
+}
+
+function orgDefaultFilter(organizationId, extra = {}) {
+  return { organizationId, projectId: null, ...extra };
+}
+
+function invalidateProjectRolesListCache(projectId) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return;
+  projectRolesListCache.deleteKey(pid);
+  projectRolesEnsureCache.deleteKey(pid);
+}
+
 async function ensureOrgProjectRoles(organizationId) {
   const oid = String(organizationId || '').trim();
   if (!oid) throw new Error('organizationId bắt buộc');
+  await ensureProjectRoleIndexes();
 
   const enabledKeys = isMasterDataV1Enabled()
     ? await fetchEnabledProjectRoleKeys(oid)
@@ -38,14 +70,16 @@ async function ensureOrgProjectRoles(organizationId) {
   if (syncOn) {
     for (const def of roleDefs) {
       let row = await ProjectRole.findOneAndUpdate(
-        { organizationId: oid, key: def.key },
+        orgDefaultFilter(oid, { key: def.key }),
         {
           $set: {
             label: def.label,
             isSystem: true,
+            projectId: null,
           },
           $setOnInsert: {
             organizationId: oid,
+            projectId: null,
             key: def.key,
             canAssign: def.canAssign,
             sortOrder: def.sortOrder,
@@ -65,10 +99,9 @@ async function ensureOrgProjectRoles(organizationId) {
       byKey.set(def.key, row);
     }
   } else if (enabledSet) {
-    const existing = await ProjectRole.find({
-      organizationId: oid,
-      key: { $in: [...enabledSet] },
-    }).lean();
+    const existing = await ProjectRole.find(
+      orgDefaultFilter(oid, { key: { $in: [...enabledSet] } })
+    ).lean();
     for (const row of existing) byKey.set(row.key, row);
   }
 
@@ -79,7 +112,7 @@ async function ensureOrgProjectRoles(organizationId) {
       legacyOutsideMaster: false,
     }));
     const extras = await ProjectRole.find({
-      organizationId: oid,
+      ...orgDefaultFilter(oid),
       key: { $nin: [...byKey.keys()] },
       isSystem: { $ne: true },
     }).lean();
@@ -90,7 +123,7 @@ async function ensureOrgProjectRoles(organizationId) {
   }
 
   const extras = await ProjectRole.find({
-    organizationId: oid,
+    ...orgDefaultFilter(oid),
     key: { $nin: DEFAULT_PROJECT_ROLES.map((d) => d.key) },
   }).lean();
   for (const row of extras) byKey.set(row.key, row);
@@ -99,7 +132,179 @@ async function ensureOrgProjectRoles(organizationId) {
 
 async function getRoleByKey(organizationId, key) {
   await ensureOrgProjectRoles(organizationId);
-  return ProjectRole.findOne({ organizationId, key: String(key) }).lean();
+  const canonical = resolveCanonicalProjectRoleKey(key) || String(key);
+  return ProjectRole.findOne(orgDefaultFilter(organizationId, { key: canonical })).lean();
+}
+
+/**
+ * Remap ProjectMembership rows that still point at org-default role ids → project-scoped ids.
+ */
+async function remapMembershipsToProjectRoles(projectId, organizationId, projectRoles) {
+  const pid = String(projectId || '').trim();
+  const oid = String(organizationId || '').trim();
+  if (!pid || !oid || !Array.isArray(projectRoles) || !projectRoles.length) return { remapped: 0 };
+
+  const orgDefaults = await ProjectRole.find(orgDefaultFilter(oid)).select('_id key').lean();
+  const orgKeyById = new Map(orgDefaults.map((r) => [String(r._id), r.key]));
+  const projectByKey = new Map(projectRoles.map((r) => [String(r.key), r]));
+  const projectIdSet = new Set(projectRoles.map((r) => String(r._id)));
+
+  const memberships = await ProjectMembership.find({ projectId: pid }).lean();
+  let remapped = 0;
+  for (const m of memberships) {
+    const currentId = String(m.projectRoleId || '');
+    if (!currentId || projectIdSet.has(currentId)) continue;
+    const key = orgKeyById.get(currentId);
+    if (!key) continue;
+    const target = projectByKey.get(key);
+    if (!target) continue;
+
+    const existing = await ProjectMembership.findOne({
+      projectId: pid,
+      userId: m.userId,
+      projectRoleId: target._id,
+    })
+      .select('_id')
+      .lean();
+    if (existing) {
+      await ProjectMembership.deleteOne({ _id: m._id });
+    } else {
+      await ProjectMembership.updateOne({ _id: m._id }, { $set: { projectRoleId: target._id } });
+    }
+    remapped += 1;
+  }
+  return { remapped };
+}
+
+/**
+ * Clone org default ProjectRoles into a project-scoped catalog (idempotent).
+ * Does not overwrite permissions on existing project rows.
+ */
+async function cloneOrgRolesToProject(projectId, organizationId) {
+  const pid = String(projectId || '').trim();
+  let oid = String(organizationId || '').trim();
+  if (!pid) throw new Error('projectId bắt buộc');
+  await ensureProjectRoleIndexes();
+  if (!oid) {
+    const project = await Project.findById(pid).select('organizationId').lean();
+    if (!project) throw new Error('Project không tồn tại');
+    oid = String(project.organizationId);
+  }
+
+  const orgRoles = await ensureOrgProjectRoles(oid);
+  const cloned = [];
+  for (const def of orgRoles) {
+    if (def.enabled === false) continue;
+    const key = String(def.key || '').trim();
+    if (!key) continue;
+
+    let row = await ProjectRole.findOne({ projectId: pid, key }).lean();
+    if (!row) {
+      row = await ProjectRole.findOneAndUpdate(
+        { projectId: pid, key },
+        {
+          $setOnInsert: {
+            organizationId: oid,
+            projectId: pid,
+            key,
+            label: def.label,
+            canAssign: Boolean(def.canAssign),
+            permissions: Array.isArray(def.permissions) ? [...def.permissions] : [],
+            isSystem: Boolean(def.isSystem),
+            sortOrder: Number(def.sortOrder) || 100,
+          },
+        },
+        { upsert: true, new: true }
+      ).lean();
+    }
+    cloned.push(row);
+  }
+
+  await remapMembershipsToProjectRoles(pid, oid, cloned);
+  invalidateProjectRolesListCache(pid);
+  return cloned.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+}
+
+/**
+ * Ensure project has cloned roles; coalesce + short TTL to avoid N+1 on Hub/resolve.
+ */
+async function ensureProjectRolesCloned(projectId, organizationId) {
+  const pid = String(projectId || '').trim();
+  if (!pid) throw new Error('projectId bắt buộc');
+
+  return projectRolesEnsureCache.getOrLoad(pid, async () => {
+    const existing = await ProjectRole.find({ projectId: pid }).select('_id').limit(1).lean();
+    if (existing.length) {
+      const list = await ProjectRole.find({ projectId: pid })
+        .sort({ sortOrder: 1 })
+        .lean();
+      let oid = String(organizationId || '').trim();
+      if (!oid) {
+        const project = await Project.findById(pid).select('organizationId').lean();
+        oid = String(project?.organizationId || '');
+      }
+      if (oid) await remapMembershipsToProjectRoles(pid, oid, list);
+      return list;
+    }
+    return cloneOrgRolesToProject(pid, organizationId);
+  });
+}
+
+async function listProjectRolesCached(projectId, organizationId) {
+  const pid = String(projectId || '').trim();
+  if (!pid) throw new Error('projectId bắt buộc');
+  return projectRolesListCache.getOrLoad(pid, async () => {
+    await ensureProjectRolesCloned(pid, organizationId);
+    return ProjectRole.find({ projectId: pid }).sort({ sortOrder: 1 }).lean();
+  });
+}
+
+async function getProjectRoleByKey(projectId, key, organizationId) {
+  const pid = String(projectId || '').trim();
+  const canonical = resolveCanonicalProjectRoleKey(key) || String(key || '').trim();
+  if (!pid || !canonical) return null;
+  await ensureProjectRolesCloned(pid, organizationId);
+  return ProjectRole.findOne({ projectId: pid, key: canonical }).lean();
+}
+
+/**
+ * Ensure a single project role exists (clone one key from org default if missing).
+ */
+async function ensureProjectRoleKey(projectId, organizationId, roleKey) {
+  const pid = String(projectId || '').trim();
+  const oid = String(organizationId || '').trim();
+  const canonical = resolveCanonicalProjectRoleKey(roleKey) || String(roleKey || '').trim();
+  if (!pid || !canonical) return null;
+
+  let row = await ProjectRole.findOne({ projectId: pid, key: canonical }).lean();
+  if (row) return row;
+
+  const orgRole = await getRoleByKey(oid, canonical);
+  if (!orgRole) return null;
+
+  row = await ProjectRole.findOneAndUpdate(
+    { projectId: pid, key: canonical },
+    {
+      $setOnInsert: {
+        organizationId: oid,
+        projectId: pid,
+        key: canonical,
+        label: orgRole.label,
+        canAssign: Boolean(orgRole.canAssign),
+        permissions: Array.isArray(orgRole.permissions) ? [...orgRole.permissions] : [],
+        isSystem: Boolean(orgRole.isSystem),
+        sortOrder: Number(orgRole.sortOrder) || 100,
+      },
+    },
+    { upsert: true, new: true }
+  ).lean();
+  invalidateProjectRolesListCache(pid);
+  return row;
+}
+
+function _clearProjectRolesCachesForTests() {
+  projectRolesListCache.clear();
+  projectRolesEnsureCache.clear();
 }
 
 /**
@@ -118,8 +323,7 @@ async function resolveProjectContext(boardId) {
  */
 async function migrateBoardMembersToProjectRoles(boardId, actorId) {
   const { board, projectId } = await resolveProjectContext(boardId);
-  await ensureOrgProjectRoles(board.organizationId);
-  const roles = await ProjectRole.find({ organizationId: board.organizationId }).lean();
+  const roles = await ensureProjectRolesCloned(projectId, board.organizationId);
   const roleByKey = new Map(roles.map((r) => [r.key, r]));
 
   const members = await TaskBoardMember.find({ boardId }).lean();
@@ -178,7 +382,7 @@ async function ensureProjectMembership({
     orgId = project.organizationId;
   }
 
-  const role = await getRoleByKey(orgId, projectRoleKey);
+  const role = await getProjectRoleByKey(pid, projectRoleKey, orgId);
   if (!role) throw new Error(`Project Role không tồn tại: ${projectRoleKey}`);
   // boardId chỉ một operator — tránh conflict $set + $setOnInsert cùng path
   const row = await ProjectMembership.findOneAndUpdate(
@@ -363,7 +567,7 @@ async function setUserProjectRoles({
 
   const actorId = String(addedBy || '').trim();
   if (actorId) {
-    const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { resolveUserProjectPermissions } = require('./projectAccess.service');
       const resolved = await resolveUserProjectPermissions({
@@ -383,7 +587,7 @@ async function setUserProjectRoles({
     }
   }
 
-  await ensureOrgProjectRoles(orgId);
+  await ensureProjectRolesCloned(pid, orgId);
   const keys = [...new Set((projectRoleKeys || []).map((k) => String(k).trim()).filter(Boolean))];
   if (isMasterDataV1Enabled()) {
     const enabled = await fetchEnabledProjectRoleKeys(orgId);
@@ -405,10 +609,13 @@ async function setUserProjectRoles({
     .map((r) => String(r.key || r.roleKey || '').trim())
     .filter(Boolean)
     .sort();
-  const roles = await ProjectRole.find({
-    organizationId: orgId,
-    key: { $in: keys.map((k) => resolveCanonicalProjectRoleKey(k) || k) },
-  }).lean();
+
+  const resolvedKeys = keys.map((k) => resolveCanonicalProjectRoleKey(k) || k);
+  const roles = [];
+  for (const k of resolvedKeys) {
+    const role = await ensureProjectRoleKey(pid, orgId, k);
+    if (role) roles.push(role);
+  }
   assertResolvedProjectRoleKeys(keys, roles);
   const roleIds = new Set(roles.map((r) => String(r._id)));
 
@@ -437,7 +644,7 @@ async function setUserProjectRoles({
   }
 
   if (keys.length && aclBoardId) {
-    const { inferBoardRoleFromProjectKeys } = require('../utils/createBoardSeed');
+    const { inferBoardRoleFromProjectKeys } = require('../utils/project/createBoardSeed');
     const aclRole = boardRole || inferBoardRoleFromProjectKeys(keys);
     await ensureBoardMemberAcl({
       boardId: aclBoardId,
@@ -512,6 +719,13 @@ async function ensurePmMembershipFromBrief({ boardId, projectId, pmUserId, added
 module.exports = {
   ensureOrgProjectRoles,
   getRoleByKey,
+  cloneOrgRolesToProject,
+  ensureProjectRolesCloned,
+  listProjectRolesCached,
+  getProjectRoleByKey,
+  ensureProjectRoleKey,
+  invalidateProjectRolesListCache,
+  remapMembershipsToProjectRoles,
   resolveProjectContext,
   migrateBoardMembersToProjectRoles,
   ensureProjectMembership,
@@ -522,4 +736,5 @@ module.exports = {
   setUserProjectRoles,
   ensurePmMembershipFromBrief,
   LEGACY_TO_PROJECT_ROLE,
+  _clearProjectRolesCachesForTests,
 };

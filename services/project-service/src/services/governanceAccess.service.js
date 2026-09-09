@@ -10,7 +10,7 @@ const {
   membershipIsOrgAdmin,
   hasDirectorOrAuditorRole,
   buildActiveProjectsFilter,
-} = require('../utils/governanceAccess');
+} = require('../utils/governance/governanceAccess');
 
 /**
  * @returns {{ scope, organizationRoleKeys, isOrgAdmin: boolean, canViewReports: boolean }}

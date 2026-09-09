@@ -1,7 +1,7 @@
-const ProjectMembership = require('../models/ProjectMembership');
-const ProjectRole = require('../models/ProjectRole');
-const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
-const { resolvePositionKeyFromJobTitle } = require('./positionCandidateMatch');
+const ProjectMembership = require('../../models/ProjectMembership');
+const ProjectRole = require('../../models/ProjectRole');
+const { fetchUserProfileByIdInternal } = require('../../clients/userService.client');
+const { resolvePositionKeyFromJobTitle } = require('../staffing/positionCandidateMatch');
 const {
   REQUIREMENT_SUBMITTER_JOB_TITLE_KEYS,
   REQUIREMENT_SUBMITTER_PROJECT_ROLE_KEYS,
@@ -9,8 +9,8 @@ const {
   REQUIREMENT_APPROVER_JOB_TITLE_ALIASES,
   REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS,
   REQUIREMENT_PRODUCT_JOB_TITLE_KEYS,
-} = require('../constants/requirementLifecycle');
-const { coalesceJobTitle } = require('./jobTitleProfile');
+} = require('../../constants/requirementLifecycle');
+const { coalesceJobTitle } = require('../common/jobTitleProfile');
 
 const SUBMITTER_JOB_TITLE_SET = new Set(REQUIREMENT_SUBMITTER_JOB_TITLE_KEYS);
 const APPROVER_JOB_TITLE_SET = new Set(REQUIREMENT_APPROVER_JOB_TITLE_KEYS);

@@ -10,16 +10,16 @@ const ProjectRole = require('../models/ProjectRole');
 const { logger } = require('@enterprise/shared');
 const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 const {
   fetchTaskWorkspaceScope,
   canCreateTaskInScope,
   canAssignUser,
 } = require('./taskWorkspaceScope');
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
-const { emitTeamChannelProvisionIfNeeded } = require('../utils/projectTeamChannelProvision');
+const { emitTeamChannelProvisionIfNeeded } = require('../utils/project/projectTeamChannelProvision');
 const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
-const { assertProjectWritable } = require('../utils/projectCloseGate');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
 const {
   assertCanAssign,
@@ -31,22 +31,22 @@ const {
   setUserProjectRoles,
 } = require('./projectTeam.service');
 const { applyDelegationTemplate } = require('./delegation.service');
-const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/taskAssignments');
+const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/task/taskAssignments');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 const {
   isProjectVisibilityV2Enabled,
   resolveProjectAccess,
-} = require('../utils/projectVisibility');
+} = require('../utils/project/projectVisibility');
 const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
-} = require('../utils/projectListMembershipScope');
+} = require('../utils/project/projectListMembershipScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
-} = require('../utils/createBoardSeed');
+} = require('../utils/project/createBoardSeed');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
@@ -60,12 +60,12 @@ const {
 const {
   parseIncludeCardsFlag,
   buildBoardCardMongoFilter,
-} = require('../utils/listLazyQuery');
+} = require('../utils/work/listLazyQuery');
 const {
   isDoneLikeStatus,
   isInProgressLikeStatus,
   maybeFirstInProgressPatch,
-} = require('../utils/taskCycleTime');
+} = require('../utils/task/taskCycleTime');
 const {
   emitTaskFactBestEffort,
   emitStatusTransitionFactBestEffort,
@@ -279,7 +279,7 @@ async function projectMembershipBoardCaps(userId, board) {
     isProjectRbacV2Enabled,
     unionPermissionsFromRoles,
     hasPermission,
-  } = require('../utils/projectPermissionMatrix');
+  } = require('../utils/project/projectPermissionMatrix');
 
   const rows = await ProjectMembership.find({
     projectId: board.projectId,
@@ -358,7 +358,7 @@ async function resolveBoardCapabilities(userId, board) {
   if (!userId || !board) {
     return buildBoardCapabilities({});
   }
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     try {
       const { resolveUserProjectPermissions } = require('./projectAccess.service');
@@ -637,7 +637,7 @@ async function ensureBoardViewAccess(boardId, userId) {
 async function ensureBoardEditAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -681,7 +681,7 @@ async function ensureBoardManageLists(boardId, userId) {
 async function ensureBoardCreateCards(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -706,7 +706,7 @@ async function ensureBoardCreateCards(boardId, userId) {
 }
 
 function resolveBoardScope({ scopeType, scopeId, teamId, organizationId }) {
-  return require('../utils/boardIdentityPatch').resolveBoardScope({
+  return require('../utils/project/boardIdentityPatch').resolveBoardScope({
     scopeType,
     scopeId,
     teamId,
@@ -864,7 +864,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     return { ...l, statusKey };
   });
   const { resolveFeatureBoardListId, resolveFeatureDisplaySprintId } =
-    require('../utils/planningBoardStatus');
+    require('../utils/work/planningBoardStatus');
   const featureListIds = featureItems.map((f) =>
     resolveFeatureBoardListId(f.status, listsWithStatusKey)
   );
@@ -981,7 +981,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
   ];
   const assigneeRows = assigneeIds.length ? await enrichAssignableProfiles(assigneeIds, userId) : [];
   const assigneeMap = new Map(assigneeRows.map((row) => [String(row.userId), row]));
-  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
+  const { normalizeIssueType } = require('../utils/project/projectIssueTypePerms');
 
   // Keep only fields needed by FE (avoid large docs)
   const sanitizedCards = cards.map((c) => ({
@@ -1222,9 +1222,9 @@ async function createCard({
     err.statusCode = 403;
     throw err;
   }
-  const { isProjectRbacV2Enabled: rbacV2On } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled: rbacV2On } = require('../utils/project/projectPermissionMatrix');
   if (rbacV2On() && board.projectId) {
-    const { createPermissionForIssueType } = require('../utils/projectIssueTypePerms');
+    const { createPermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     const { assertUserProjectPermission } = require('./projectAccess.service');
     const createKey = createPermissionForIssueType(issueType, { parentTaskId });
     await assertUserProjectPermission({
@@ -1274,7 +1274,7 @@ async function createCard({
     });
   }
 
-  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
+  const { normalizeIssueType } = require('../utils/project/projectIssueTypePerms');
   const normalizedIssueType = normalizeIssueType(issueType);
 
   let parentOid = null;
@@ -1466,8 +1466,8 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
  */
 async function movePlanningFeatureCard({ userId, cardId, toListId, position, index }) {
   const PlanningItem = require('../models/PlanningItem');
-  const { normalizePlanningStatus } = require('../utils/planningItemTypes');
-  const { listIdToPlanningStatus } = require('../utils/planningBoardStatus');
+  const { normalizePlanningStatus } = require('../utils/work/planningItemTypes');
+  const { listIdToPlanningStatus } = require('../utils/work/planningBoardStatus');
   const { resolveListStatusKey } = require('./workflow.service');
 
   const feature = await PlanningItem.findOne({
@@ -1617,18 +1617,10 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
     toStatusKey &&
     fromStatusKey !== toStatusKey
   ) {
-    let actorPermissions = caps.permissions || [];
+    const actorPermissions = Array.isArray(caps.permissions) ? caps.permissions : [];
     let actorProjectRoleKeys = [];
-    let isElevated = Boolean(caps.canManageBoard);
+    const isElevated = Boolean(caps.canManageBoard);
     try {
-      const { resolveUserProjectPermissions } = require('./projectAccess.service');
-      const resolved = await resolveUserProjectPermissions({
-        userId,
-        projectId: board.projectId,
-        boardId: board._id,
-      });
-      actorPermissions = resolved.permissions || actorPermissions;
-      isElevated = isElevated || resolved.isOrgAdmin || resolved.isCreator;
       const ProjectMembership = require('../models/ProjectMembership');
       const ProjectRole = require('../models/ProjectRole');
       const mems = await ProjectMembership.find({
@@ -1826,24 +1818,24 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
     }
   }
   scheduleCrWorkStatusSync(moved);
-  await notifyListWatchers({
+  void notifyListWatchers({
     listId: toListId,
     board,
     actorId: userId,
     title: 'Thẻ được chuyển',
     content: `Thẻ "${moved.title}" vừa được chuyển vào danh sách`,
-  });
+  }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
   if (board.projectId) {
-    const { diffTaskFields } = require('../utils/workHistoryDiff');
+    const { diffTaskFields } = require('../utils/work/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
-    await appendFieldChanges({
+    void appendFieldChanges({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,
       taskId: cardId,
       actorId: userId,
       changes: diffTaskFields(beforeMove, { listId: moved.listId, status: moved.status }),
-    });
+    }).catch((err) => logger.warn('[task-board] work history failed: %s', err.message));
   }
   return { ...moved, kind: 'task' };
 }
@@ -1878,22 +1870,29 @@ async function updateCard({
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
   const caps = await resolveBoardCapabilities(userId, board);
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
 
   const next = {};
   if (title !== undefined) next.title = String(title).trim();
   if (description !== undefined) next.description = String(description).trim();
   if (summary !== undefined) next.summary = String(summary).trim();
   if (priority !== undefined) next.priority = priority || 'medium';
-  if (dueDate !== undefined) next.dueDate = dueDate ? new Date(dueDate) : null;
+  if (dueDate !== undefined) {
+    next.dueDate = dueDate ? new Date(dueDate) : null;
+    const { dueDatesEqual } = require('../utils/task/taskDueReminder');
+    if (!dueDatesEqual(card.dueDate, next.dueDate)) {
+      next.dueSoonNotifiedAt = null;
+      next.overdueNotifiedAt = null;
+    }
+  }
   if (startDate !== undefined) next.startDate = startDate ? parseStartDate(startDate) : null;
   if (estimateHours !== undefined) {
-    const { normalizeEstimateHours } = require('../utils/timeTracking');
+    const { normalizeEstimateHours } = require('../utils/task/timeTracking');
     next.estimateHours = normalizeEstimateHours(estimateHours);
   }
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
-    const { updatePermissionForIssueType } = require('../utils/projectIssueTypePerms');
+    const { updatePermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     if (estimateHours !== undefined) {
       await assertUserProjectPermission({
         userId,
@@ -1980,25 +1979,14 @@ async function updateCard({
     if (raw && !['task', 'bug', 'story'].includes(raw)) {
       throw new Error('issueType phải là task|bug|story');
     }
-    next.issueType = require('../utils/projectIssueTypePerms').normalizeIssueType(issueType);
+    next.issueType = require('../utils/project/projectIssueTypePerms').normalizeIssueType(issueType);
   }
   if (status !== undefined) {
     const st = String(status || '').trim();
     const { assertCanTransition } = require('./workflow.service');
-    let actorPermissions = caps.permissions || [];
-    let isElevated = Boolean(caps.canManageBoard);
-    try {
-      const { resolveUserProjectPermissions } = require('./projectAccess.service');
-      const resolved = await resolveUserProjectPermissions({
-        userId,
-        projectId: board.projectId,
-        boardId: board._id,
-      });
-      actorPermissions = resolved.permissions || actorPermissions;
-      isElevated = isElevated || resolved.isOrgAdmin || resolved.isCreator;
-    } catch {
-      /* optional */
-    }
+    // caps đã có permissions từ resolveBoardCapabilities (TTL cache share với ensureBoardEditAccess)
+    const actorPermissions = Array.isArray(caps.permissions) ? caps.permissions : [];
+    const isElevated = Boolean(caps.canManageBoard);
     const transition = await assertCanTransition(board, card.status, st, {
       card: { ...card.toObject(), ...next },
       actorPermissions,
@@ -2256,7 +2244,7 @@ async function updateCard({
         meta: { projectId: String(board.projectId), boardId: String(board._id) },
       })
       .catch((err) => logger.warn('[task-board] audit failed: %s', err.message));
-    const { diffTaskPatch } = require('../utils/workHistoryDiff');
+    const { diffTaskPatch } = require('../utils/work/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
     void appendFieldChanges({
       organizationId: board.organizationId,
@@ -2370,7 +2358,7 @@ async function addCardComment({ userId, cardId, content }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
@@ -2474,7 +2462,7 @@ async function archiveCard({ userId, cardId }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa board này');
-  const { isProjectRbacV2Enabled, hasPermission, assertPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission, assertPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -2674,7 +2662,7 @@ async function archiveBoard({ userId, boardId }) {
 const {
   BOARD_IDENTITY_PATCH_KEYS,
   buildBoardIdentityPatch,
-} = require('../utils/boardIdentityPatch');
+} = require('../utils/project/boardIdentityPatch');
 
 /** Project Settings — PATCH identity trên Project khi board có projectId. */
 async function patchBoard({ userId, boardId, patch }) {

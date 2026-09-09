@@ -11,83 +11,14 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
+import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 import {
   PROJECT_ROLE_LABEL_PREFIX,
   looksLikeOrgStructureForProjectRole,
   normalizeLayerLabel,
   splitLayerLabel,
 } from '../../utils/roleLayerNaming';
-
-const PERMISSION_GROUPS = [
-  {
-    title: 'Project',
-    keys: ['project:view', 'project:edit', 'project:archive', 'project:delete'],
-  },
-  {
-    title: 'Task',
-    keys: [
-      'task:view',
-      'task:create',
-      'task:update',
-      'task:change_status',
-      'task:delete',
-      'task:assign',
-      'task:comment',
-      'task:estimate',
-      'story:create',
-      'story:update',
-      'bug:create',
-    ],
-  },
-  {
-    title: 'Epic / Sprint / Backlog',
-    keys: [
-      'epic:create',
-      'epic:update',
-      'epic:delete',
-      'sprint:view',
-      'sprint:create',
-      'sprint:start',
-      'sprint:close',
-      'sprint:delete',
-      'backlog:view',
-      'backlog:update',
-      'backlog:prioritize',
-    ],
-  },
-  {
-    title: 'Approval / Delivery / Report',
-    keys: [
-      'approval:request',
-      'approval:decide',
-      'approval:manage_policy',
-      'delivery:view',
-      'delivery:manage',
-      'report:view',
-    ],
-  },
-  {
-    title: 'Repository',
-    keys: ['repository:view', 'repository:push', 'repository:merge'],
-  },
-  {
-    title: 'Wiki / Meeting / Release',
-    keys: ['wiki:view', 'wiki:edit', 'meeting:view', 'meeting:create', 'release:view', 'release:create'],
-  },
-  {
-    title: 'Files / Members / Settings',
-    keys: [
-      'files:view',
-      'files:upload',
-      'files:delete',
-      'members:view',
-      'members:manage',
-      'settings:view',
-      'settings:update',
-    ],
-  },
-];
+import { PROJECT_ROLE_PERMISSION_GROUPS as PERMISSION_GROUPS } from '../projects/hub/projectRolePermissionGroups';
 
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -122,7 +53,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
     if (!orgId) return;
     setLoading(true);
     try {
-      const res = await projectRoleAdminAPI.listRoles(orgId);
+      const res = await projectRolesAPI.listRoles(orgId);
       const list = unwrapRoles(res);
       setRoles(list);
     } catch (error) {
@@ -182,7 +113,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
         body.label = normalizeLayerLabel(suffix, 'project');
         body.canAssign = canAssign;
       }
-      const res = await projectRoleAdminAPI.updateRole(orgId, roleId, body);
+      const res = await projectRolesAPI.updateRole(orgId, roleId, body);
       const saved = res?.data?.data || res?.data || res || {};
       const savedPerms = Array.isArray(saved.permissions)
         ? saved.permissions.map(String)

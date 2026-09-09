@@ -1,5 +1,5 @@
-const mongoose = require('../db');
-const { sendServiceError } = require('../middleware/sendServiceError');
+const mongoose = require('../../db');
+const { sendServiceError } = require('../../middleware/sendServiceError');
 
 function requireObjectId(res, value, label, errorCode = 'VALIDATION_INVALID_ID') {
   const s = String(value || '').trim();

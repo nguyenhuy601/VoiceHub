@@ -1,7 +1,7 @@
 const { fetchTaskWorkspaceScope, canCreateTaskInScope } = require('./taskWorkspaceScope');
 const { fetchRequirementAccessPolicy } = require('../clients/requirementAccessPolicy.client');
-const { resolveRequirementPersona } = require('../utils/resolveRequirementPersona');
-const { createInflightCoalesce } = require('../utils/inflightCoalesce');
+const { resolveRequirementPersona } = require('../utils/requirement/resolveRequirementPersona');
+const { createInflightCoalesce } = require('../utils/requirement/inflightCoalesce');
 
 const coalescePersonaLoad = createInflightCoalesce();
 
@@ -90,7 +90,6 @@ function buildAccessFromPersona(scope, persona) {
     canApprove: Boolean(actions.approve),
     canCreateFromPack,
     canRunAiPlanning: Boolean(actions.runAiPlanning),
-    canReviewSkills: Boolean(actions.reviewSkills),
     showCollaborateNav: Boolean(visibility.collaborateRequirements),
     showAdminRequirements: Boolean(visibility.adminRequirements),
     isProductUser: Boolean(persona?.isProductUser),
@@ -111,7 +110,6 @@ async function resolveRequirementAccess({ userId, organizationId }) {
     canApprove: false,
     canCreateFromPack: false,
     canRunAiPlanning: false,
-    canReviewSkills: false,
     showCollaborateNav: false,
     showAdminRequirements: false,
     isProductUser: false,

@@ -7,13 +7,13 @@ const Sprint = require('../models/Sprint');
 const ChangeRequest = require('../models/ChangeRequest');
 const TaskActivityLog = require('../models/TaskActivityLog');
 const { resolveUserProjectPermissions } = require('./projectAccess.service');
-const { hasPermission } = require('../utils/projectPermissionMatrix');
-const { displayIssueKey } = require('../utils/displayIssueKey');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { hasPermission } = require('../utils/project/projectPermissionMatrix');
+const { displayIssueKey } = require('../utils/work/displayIssueKey');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 const {
   shouldRestrictWorkPreview,
   restrictedWorkPreviewBody,
-} = require('../utils/workPreviewPolicy');
+} = require('../utils/work/workPreviewPolicy');
 
 const RECENT_CAP = 3;
 

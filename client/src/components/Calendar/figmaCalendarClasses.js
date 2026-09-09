@@ -115,6 +115,14 @@ const EVENT_TYPE_STYLE = {
     cardBg: 'bg-error/12',
     cardBorder: 'border-error/30',
   },
+  work: {
+    color: 'var(--success)',
+    pillBg: 'bg-success/12',
+    pillText: 'text-success',
+    pillBorder: 'border-success',
+    cardBg: 'bg-success/12',
+    cardBorder: 'border-success/30',
+  },
 };
 
 /** Loại sự kiện — label qua t(), style token cố định */
@@ -137,11 +145,16 @@ export function getCalendarEventTypes(t) {
       label: t('calendar.eventTypeDeadline'),
       ...EVENT_TYPE_STYLE.deadline,
     },
+    work: {
+      label: t('calendar.eventTypeWork'),
+      ...EVENT_TYPE_STYLE.work,
+    },
   };
 }
 
 export function resolveCalendarEventType(event) {
   if (!event) return 'event';
+  if (event.type === 'work' || event.kind === 'work') return 'work';
   if (event.type === 'deadline' || event.kind === 'task') return 'deadline';
   if (event.type === 'reminder') return 'recurring';
   if (event.type === 'meeting' || event.kind === 'meeting') return 'meeting';

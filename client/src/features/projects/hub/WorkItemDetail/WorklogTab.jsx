@@ -2,7 +2,7 @@ import TaskWorklogPanel from '../../board/TaskWorklogPanel';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 
 export default function WorklogTab() {
-  const { issueId, apiCtx, projectId, isDarkMode, t, canComment, isPlanning } = useWorkItemDetail();
+  const { issueId, apiCtx, projectId, isDarkMode, t, canLogWork, isPlanning } = useWorkItemDetail();
   if (isPlanning || !issueId) return null;
   const organizationId = apiCtx?.organizationId || projectId || '';
   return (
@@ -12,7 +12,7 @@ export default function WorklogTab() {
         organizationId={organizationId}
         isDarkMode={isDarkMode}
         t={t}
-        canEdit={canComment}
+        canEdit={canLogWork}
       />
     </div>
   );

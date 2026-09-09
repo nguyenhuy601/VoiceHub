@@ -1,6 +1,6 @@
 /** PlanningItem type/status — constants + normalize (G3). */
 
-const { slugPriorityKey } = require('./priorityConfig');
+const { slugPriorityKey } = require('../project/priorityConfig');
 
 const PLANNING_ITEM_TYPES = Object.freeze([
   'roadmap',

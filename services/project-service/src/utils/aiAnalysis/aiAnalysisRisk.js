@@ -9,18 +9,19 @@ const {
   ollamaModel,
   isAiPlanningLlmEnabled,
 } = require('./ollamaClient');
-const { normId, normKey, normProse } = require('./requirementTemplateTextNorm');
+const { normId, normKey, normProse } = require('../requirement/requirementTemplateTextNorm');
 const {
   buildFrIdSet,
   buildProjectContextSlice,
   truncate,
 } = require('./aiAnalysisFrSlice');
+const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
 
 const RISK_BANDS = Object.freeze(['low', 'medium', 'high', 'critical']);
 const TITLE_MAX = 160;
 const MITIGATION_MAX = 280;
 const RISK_TOP_N = 40;
-const RISK_WALL_MS = 120000;
+const RISK_WALL_MS = resolveJobWallMs('architectureRiskAnalysis');
 const RISK_NUM_PREDICT = 768;
 
 /** Default: risks warn PM / buffer Matching — do not hard-block Job5. */
@@ -120,7 +121,7 @@ function buildRiskInputSlices(pack, container) {
   const assumptions = (pack?.assumptions || []).slice(0, 20).map((row) => ({
     id: normId(row.externalId) || undefined,
     assumption: truncate(row.assumption || '', 160),
-    impactIfInvalid: truncate(row.impactIfInvalid || '', 32),
+    impactIfInvalid: truncate(row.impactIfInvalid || '', 160),
   })).filter((r) => r.assumption);
 
   // Fallback FR anchors when signals lack FR links
@@ -487,7 +488,10 @@ async function runRiskAnalysis(pack, container, opts = {}) {
   let lastError = null;
   let collected = [];
 
-  const timeoutMs = opts.timeoutMs ?? Math.min(planningTimeoutMs(), RISK_WALL_MS);
+  const timeoutMs =
+    opts.timeoutMs ??
+    opts.wallMs ??
+    Math.min(planningTimeoutMs(), resolveJobWallMs('architectureRiskAnalysis'));
   const signals = {
     highComplexityCaps: input.highComplexityCaps,
     criticalDeps: input.criticalDeps,

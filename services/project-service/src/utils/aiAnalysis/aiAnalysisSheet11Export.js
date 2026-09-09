@@ -3,11 +3,11 @@
  */
 
 const ExcelJS = require('exceljs');
-const { SHEETS, SHEET_COLUMNS } = require('../constants/requirementTemplate.constants');
+const { SHEETS, SHEET_COLUMNS } = require('../../constants/requirementTemplate.constants');
 const {
   AI_ANALYSIS_USER_JOBS,
   AI_ANALYSIS_JOB_OUTPUT_MAP,
-} = require('../constants/aiAnalysisJobs.constants');
+} = require('../../constants/aiAnalysisJobs.constants');
 const { ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
 
 function pushRow(rows, section, key, value) {

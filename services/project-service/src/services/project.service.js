@@ -16,6 +16,7 @@ const {
   ensureOrgProjectRoles,
   ensureProjectMembership,
   setUserProjectRoles,
+  cloneOrgRolesToProject,
 } = require('./projectTeam.service');
 const { applyDelegationTemplate } = require('./delegation.service');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
@@ -23,25 +24,25 @@ const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
-} = require('../utils/createBoardSeed');
+} = require('../utils/project/createBoardSeed');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
-const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/boardIdentityPatch');
-const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/projectInitFields');
+const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
+const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
 const {
   assertPatchDoesNotCloseActiveSprint,
   assertProjectWritable,
   assertMustCompleteBeforeArchive,
   assertPatchDoesNotCloseProject,
-} = require('../utils/projectCloseGate');
+} = require('../utils/project/projectCloseGate');
 const {
   assertDeliveryRoster,
   collectCreateProjectRoleKeys,
   normalizeRoleKeys,
-} = require('../utils/projectDeliveryRoster');
-const { normalizeRequiredProjectRoles } = require('../utils/requiredProjectRoles');
+} = require('../utils/project/projectDeliveryRoster');
+const { normalizeRequiredProjectRoles } = require('../utils/project/requiredProjectRoles');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isProjectVisibilityV2Enabled,
@@ -51,11 +52,11 @@ const {
   normalizeInformationLevelOverrides,
   normalizeProjectVisibilityPolicy,
   assertCanUseCustomProjectVisibility,
-} = require('../utils/projectVisibility');
+} = require('../utils/project/projectVisibility');
 const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
-} = require('../utils/projectListMembershipScope');
+} = require('../utils/project/projectListMembershipScope');
 
 const DEFAULT_BOARD_TITLE = 'Main';
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
@@ -336,7 +337,7 @@ async function createProject({
 
   // Creator mặc định: Product Owner (+ role kiêm nhiệm nếu gửi trong members).
   try {
-    await ensureOrgProjectRoles(organizationId);
+    await cloneOrgRolesToProject(project._id, organizationId);
     const creatorSeed = (Array.isArray(members) ? members : []).find(
       (m) => String(m?.userId || m?.id || '') === String(userId)
     );
@@ -804,14 +805,14 @@ async function getProject({ userId, projectId }) {
 async function attachProjectCapabilities(payload, userId, projectId) {
   if (payload && typeof payload === 'object') {
     delete payload.technicalSetup;
-    payload.workTypeConfig = require('../utils/workTypeConfig').serializeWorkTypeConfig(
+    payload.workTypeConfig = require('../utils/project/workTypeConfig').serializeWorkTypeConfig(
       payload.workTypeConfig
     );
-    payload.priorityConfig = require('../utils/priorityConfig').serializePriorityConfig(
+    payload.priorityConfig = require('../utils/project/priorityConfig').serializePriorityConfig(
       payload.priorityConfig
     );
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
@@ -853,7 +854,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
 
 async function listProjectMembersForUser({ userId, projectId }) {
   await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -879,7 +880,7 @@ async function userCanAdminProject(userId, project) {
 }
 
 async function assertProjectMatrixOrAdmin(userId, project, permissions, message) {
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -905,7 +906,7 @@ async function patchProject({ userId, projectId, patch }) {
   if (patch && Object.prototype.hasOwnProperty.call(patch, 'status')) {
     assertPatchDoesNotCloseProject(project.status, patch.status);
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -975,11 +976,11 @@ async function patchProject({ userId, projectId, patch }) {
     $set.relatedDepartmentIds = normalizeRelatedDepartmentIds(patch.relatedDepartmentIds);
   }
   if (hasWorkTypeConfigPatch) {
-    const { normalizeWorkTypeConfig } = require('../utils/workTypeConfig');
+    const { normalizeWorkTypeConfig } = require('../utils/project/workTypeConfig');
     $set.workTypeConfig = normalizeWorkTypeConfig(patch.workTypeConfig);
   }
   if (hasPriorityConfigPatch) {
-    const { normalizePriorityConfig } = require('../utils/priorityConfig');
+    const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
     $set.priorityConfig = normalizePriorityConfig(patch.priorityConfig);
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'informationLevelOverrides')) {
@@ -1079,8 +1080,8 @@ async function patchProject({ userId, projectId, patch }) {
 async function archiveProject({ userId, projectId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
-  const { canSkipCompleteGateBeforeArchive } = require('../utils/projectCloseGate');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+  const { canSkipCompleteGateBeforeArchive } = require('../utils/project/projectCloseGate');
   let skipCompleteGate = false;
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
@@ -1225,9 +1226,9 @@ async function getProjectOverview({ userId, projectId }) {
   const {
     buildProjectOverviewAggregate,
     slimOverviewProject,
-  } = require('../utils/projectOverviewAggregate');
-  const { resolveFeatureBoardListId } = require('../utils/planningBoardStatus');
-  const { serializePriorityConfig } = require('../utils/priorityConfig');
+  } = require('../utils/project/projectOverviewAggregate');
+  const { resolveFeatureBoardListId } = require('../utils/work/planningBoardStatus');
+  const { serializePriorityConfig } = require('../utils/project/priorityConfig');
 
   const defaultBoardId = String(
     project.defaultBoardId || project.boards?.[0]?._id || ''
@@ -1314,7 +1315,7 @@ async function getProjectOverview({ userId, projectId }) {
 
 async function getProjectActivity({ userId, projectId, limit = 50 }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1405,7 +1406,7 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
 
 async function getProjectFiles({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1445,7 +1446,7 @@ async function getProjectFiles({ userId, projectId }) {
 
 async function listProjectSprints({ userId, projectId }) {
   await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -1536,7 +1537,7 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
     assertPatchDoesNotCloseActiveSprint(sprint.status, st);
     if (st === 'active' && String(sprint.status || '').toLowerCase() !== 'active') {
-      const { assertNoMemberOverlapWithActiveSprints } = require('../utils/sprintMemberOverlap');
+      const { assertNoMemberOverlapWithActiveSprints } = require('../utils/task/sprintMemberOverlap');
       await assertNoMemberOverlapWithActiveSprints({
         projectId,
         sprintId,
@@ -1627,8 +1628,8 @@ async function attachProjectIdentityToBoard(board) {
     methodology: project.methodology,
     methodologySettings: project.methodologySettings,
     customer: project.customer,
-    workTypeConfig: require('../utils/workTypeConfig').serializeWorkTypeConfig(project.workTypeConfig),
-    priorityConfig: require('../utils/priorityConfig').serializePriorityConfig(project.priorityConfig),
+    workTypeConfig: require('../utils/project/workTypeConfig').serializeWorkTypeConfig(project.workTypeConfig),
+    priorityConfig: require('../utils/project/priorityConfig').serializePriorityConfig(project.priorityConfig),
   };
 }
 

@@ -16,7 +16,7 @@ VoiceHub/
 │   ├── role-permission-service/
 │   ├── chat-service/            # REST + socket nội bộ (message, channel, …)
 │   ├── voice-service/
-│   ├── task-service/
+│   ├── project-service/
 │   ├── document-service/
 │   ├── notification-service/
 │   ├── socket-service/        # Socket.IO namespace /chat
@@ -66,4 +66,4 @@ client/src/
 
 ## Không tồn tại trong repo hiện tại
 
-Các thư mục sau **không** có trong codebase: `chat-system-service`, `chat-room-service`, `chat-user-service`, `work-management-service`, `progress-tracking-service`, `ai-agent-service` (tên cũ trong tài liệu lịch sử). Chat gom trong **`chat-service`**; task trong **`task-service`**; AI task trong **`ai-task-service`** + **`ai-task-worker`**.
+Các thư mục sau **không** có trong codebase: `chat-system-service`, `chat-room-service`, `chat-user-service`, `work-management-service`, `progress-tracking-service`, `ai-agent-service`, `task-service` (tên cũ / scaffold đã bỏ — Task API thuộc **`project-service`**). Chat gom trong **`chat-service`**; AI task trong **`ai-task-service`** + **`ai-task-worker`**.

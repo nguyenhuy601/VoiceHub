@@ -44,7 +44,6 @@
     "./cache/orgReadCacheKeys": "./cache/orgReadCacheKeys.js",
     "./cache/permissionCacheKeys": "./cache/permissionCacheKeys.js",
     "./cache/*": "./cache/*.js",
-    "./config/taskServiceStrangler": "./config/taskServiceStrangler.js",
     "./config/reportServiceFlags": "./config/reportServiceFlags.js",
     "./utils/dashboardReadModelShape": "./utils/dashboardReadModelShape.js",
     "./pagination/pageToken": "./pagination/pageToken.js",

@@ -36,4 +36,34 @@ describe('queryKeys shared read-models', () => {
       'o1',
     ]);
   });
+
+  it('projectHub boards / roleCatalog / activity / files', () => {
+    assert.deepEqual(queryKeys.projectHub.boards('p1', 'o1'), [
+      'projectHub',
+      'boards',
+      'p1',
+      'o1',
+    ]);
+    assert.deepEqual(queryKeys.projectHub.roleCatalog('p1'), [
+      'projectHub',
+      'roleCatalog',
+      'p1',
+    ]);
+    assert.deepEqual(queryKeys.projectHub.activity('p1'), [
+      'projectHub',
+      'activity',
+      'p1',
+      10,
+    ]);
+    assert.deepEqual(queryKeys.projectHub.files('p1'), ['projectHub', 'files', 'p1']);
+  });
+
+  it('calendar.feed includes month and org', () => {
+    assert.deepEqual(queryKeys.calendar.feed('2026-09', 'o1'), [
+      'calendar',
+      'feed',
+      '2026-09',
+      'o1',
+    ]);
+  });
 });

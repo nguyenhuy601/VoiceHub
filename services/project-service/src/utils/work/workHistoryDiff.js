@@ -1,4 +1,4 @@
-const { buildBeforeAfter } = require('./auditSnapshot');
+const { buildBeforeAfter } = require('../common/auditSnapshot');
 
 const TASK_HISTORY_FIELDS = [
   'title',

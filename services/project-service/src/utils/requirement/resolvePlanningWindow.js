@@ -3,7 +3,7 @@
  * Pure when packDoc is provided; async load optional via loadPack callback.
  */
 
-const { DAY_MS, toDayMs } = require('./allocationOverlap');
+const { DAY_MS, toDayMs } = require('../staffing/allocationOverlap');
 
 const MAX_WINDOW_DAYS = 366;
 

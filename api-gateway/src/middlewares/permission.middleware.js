@@ -67,7 +67,7 @@ const permissionMiddleware = async (req, res, next) => {
       return next();
     }
 
-    // Task / Work / AI-task / workspace boards — task-service tự authorize.
+    // Task / Work / AI-task / workspace boards — project-service tự authorize.
     if (isTaskAuthBypassRoute(apiPath) || isTaskAuthBypassRoute(pathOnly)) {
       return next();
     }

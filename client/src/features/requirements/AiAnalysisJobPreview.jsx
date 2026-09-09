@@ -54,7 +54,7 @@ function SimpleTable({ columns, rows, emptyLabel, onRowClick, selectedId }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
-        <thead className="bg-muted/50 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <thead className="sticky top-0 z-10 bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <tr>
             {columns.map((col) => (
               <th key={col.key} className="px-3 py-2 font-semibold">
@@ -206,65 +206,204 @@ function PreviewRequirementAnalysis({ dto, t, onRowClick, selectedId }) {
   );
 }
 
-function PreviewWbs({ dto, t }) {
-  const caps = asArray(dto?.analyses?.capability?.items);
-  const tasks = asArray(dto?.planning?.tasks);
+function PreviewHierarchy({ dto, t }) {
+  const hierarchy = dto?.analyses?.hierarchy || {};
+  const features = asArray(hierarchy.proposedFeatures);
+  const requirements = asArray(hierarchy.proposedRequirements);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
-  if (!caps.length && !tasks.length) return <EmptyHint t={t} />;
+
+  if (!features.length && !requirements.length) return <EmptyHint t={t} />;
+
+  const proposalColumns = [
+    {
+      key: 'id',
+      label: t('requirements.aiAnalysisPreviewColId'),
+      render: (r) => r.proposalId || '—',
+    },
+    {
+      key: 'parent',
+      label: t('requirements.aiAnalysisHierarchyParent'),
+      render: (r) => r.parentExternalId || '—',
+    },
+    {
+      key: 'level',
+      label: t('requirements.aiAnalysisHierarchyLevel'),
+      render: (r) => r.level || '—',
+    },
+    {
+      key: 'name',
+      label: t('requirements.aiAnalysisHierarchyName'),
+      render: (r) => r.name || '—',
+    },
+    {
+      key: 'desc',
+      label: t('requirements.aiAnalysisJobColDescription'),
+      render: (r) => r.description || '—',
+    },
+    {
+      key: 'status',
+      label: t('requirements.aiAnalysisJobColStatus'),
+      render: (r) => r.status || '—',
+    },
+  ];
 
   return (
     <div className="space-y-5">
-      <Section title={t('requirements.aiAnalysisPreviewCapabilities')}>
+      <p className="text-sm text-muted-foreground">
+        {t('requirements.aiAnalysisHierarchyAgileEpicHint')}
+      </p>
+      <Section title={t('requirements.aiAnalysisPreviewProposedFeatures')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={proposalColumns}
+          rows={features.map((f, i) => ({ ...f, _key: f.proposalId || `feat-${i}` }))}
+        />
+      </Section>
+      <Section title={t('requirements.aiAnalysisPreviewProposedRequirements')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={proposalColumns}
+          rows={requirements.map((r, i) => ({ ...r, _key: r.proposalId || `req-${i}` }))}
+        />
+      </Section>
+    </div>
+  );
+}
+
+function PreviewCapability({ dto, t }) {
+  const caps = asArray(dto?.analyses?.capability?.items);
+  const empty = t('requirements.aiAnalysisPreviewEmpty');
+  if (!caps.length) return <EmptyHint t={t} />;
+
+  return (
+    <Section title={t('requirements.aiAnalysisPreviewCapabilities')}>
+      <SimpleTable
+        emptyLabel={empty}
+        columns={[
+          {
+            key: 'id',
+            label: t('requirements.aiAnalysisPreviewColId'),
+            render: (r) => r.capabilityId || '—',
+          },
+          {
+            key: 'name',
+            label: t('requirements.aiAnalysisPreviewColName'),
+            render: (r) => r.name || '—',
+          },
+          {
+            key: 'module',
+            label: t('requirements.aiAnalysisPreviewColModule'),
+            render: (r) => r.module || '—',
+          },
+          {
+            key: 'fr',
+            label: t('requirements.aiAnalysisPreviewColFrCount'),
+            render: (r) => asArray(r.sourceFrIds).length,
+          },
+          {
+            key: 'cx',
+            label: t('requirements.aiAnalysisPreviewColComplexity'),
+            render: (r) => r.complexity || '—',
+          },
+        ]}
+        rows={caps.map((c, i) => ({ ...c, _key: c.capabilityId || i }))}
+      />
+    </Section>
+  );
+}
+
+function PreviewWbs({ dto, t }) {
+  const tasks = asArray(dto?.planning?.tasks);
+  const empty = t('requirements.aiAnalysisPreviewEmpty');
+  if (!tasks.length) return <EmptyHint t={t} />;
+
+  return (
+    <Section title={t('requirements.aiAnalysisPreviewTasks')}>
+      <SimpleTable
+        emptyLabel={empty}
+        columns={[
+          {
+            key: 'id',
+            label: t('requirements.aiAnalysisPreviewColId'),
+            render: (r) => r.id || '—',
+          },
+          {
+            key: 'name',
+            label: t('requirements.aiAnalysisPreviewColName'),
+            render: (r) => r.name || '—',
+          },
+          {
+            key: 'parent',
+            label: t('requirements.aiAnalysisPreviewColFrom'),
+            render: (r) => r.parentId || '—',
+          },
+          {
+            key: 'area',
+            label: t('requirements.aiAnalysisPreviewColArea'),
+            render: (r) => r.area || '—',
+          },
+          {
+            key: 'role',
+            label: t('requirements.aiAnalysisPreviewColRole'),
+            render: (r) => r.suggestedRoleKey || '—',
+          },
+        ]}
+        rows={tasks.map((task, i) => ({ ...task, _key: task.id || i }))}
+      />
+    </Section>
+  );
+}
+
+function PreviewDependency({ dto, t }) {
+  const edges = asArray(dto?.analyses?.dependency?.edges);
+  const orderHint = asArray(dto?.analyses?.dependency?.orderHint);
+  const empty = t('requirements.aiAnalysisPreviewEmpty');
+  if (!edges.length && !orderHint.length) return <EmptyHint t={t} />;
+
+  return (
+    <div className="space-y-5">
+      <Section title={t('requirements.aiAnalysisPreviewDependencies')}>
         <SimpleTable
           emptyLabel={empty}
           columns={[
             {
-              key: 'name',
-              label: t('requirements.aiAnalysisPreviewColName'),
-              render: (r) => r.name || r.capabilityId || '—',
+              key: 'from',
+              label: t('requirements.aiAnalysisPreviewColFrom'),
+              render: (r) => r.from || '—',
             },
             {
-              key: 'module',
-              label: t('requirements.aiAnalysisPreviewColModule'),
-              render: (r) => r.module || '—',
+              key: 'to',
+              label: t('requirements.aiAnalysisPreviewColTo'),
+              render: (r) => r.to || '—',
             },
             {
-              key: 'cx',
-              label: t('requirements.aiAnalysisPreviewColComplexity'),
-              render: (r) => r.complexity || '—',
+              key: 'kind',
+              label: t('requirements.aiAnalysisPreviewColKind'),
+              render: (r) => r.dependency || r.kind || '—',
+            },
+            {
+              key: 'type',
+              label: t('requirements.aiAnalysisPreviewColType'),
+              render: (r) => r.type || '—',
+            },
+            {
+              key: 'src',
+              label: t('requirements.aiAnalysisPreviewColSource'),
+              render: (r) => r.source || '—',
             },
           ]}
-          rows={caps.map((c, i) => ({ ...c, _key: c.capabilityId || i }))}
+          rows={edges.map((e, i) => ({ ...e, _key: e.edgeId || i }))}
         />
       </Section>
-      <Section title={t('requirements.aiAnalysisPreviewTasks')}>
-        <SimpleTable
-          emptyLabel={empty}
-          columns={[
-            {
-              key: 'id',
-              label: t('requirements.aiAnalysisPreviewColId'),
-              render: (r) => r.id || '—',
-            },
-            {
-              key: 'name',
-              label: t('requirements.aiAnalysisPreviewColName'),
-              render: (r) => r.name || '—',
-            },
-            {
-              key: 'area',
-              label: t('requirements.aiAnalysisPreviewColArea'),
-              render: (r) => r.area || '—',
-            },
-            {
-              key: 'role',
-              label: t('requirements.aiAnalysisPreviewColRole'),
-              render: (r) => r.suggestedRoleKey || '—',
-            },
-          ]}
-          rows={tasks.map((task, i) => ({ ...task, _key: task.id || i }))}
-        />
-      </Section>
+      {orderHint.length ? (
+        <Section title={t('requirements.aiAnalysisPreviewOrderHint')}>
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
+            {orderHint.slice(0, 80).map((id) => (
+              <li key={id}>{id}</li>
+            ))}
+          </ol>
+        </Section>
+      ) : null}
     </div>
   );
 }
@@ -354,10 +493,9 @@ function PreviewRoleSkill({ dto, t }) {
 
 function PreviewArchitectureRisk({ dto, t }) {
   const impacts = asArray(dto?.analyses?.architectureImpact?.items);
-  const edges = asArray(dto?.analyses?.dependency?.edges);
   const risks = asArray(dto?.analyses?.risk?.items);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
-  if (!impacts.length && !edges.length && !risks.length) return <EmptyHint t={t} />;
+  if (!impacts.length && !risks.length) return <EmptyHint t={t} />;
 
   return (
     <div className="space-y-5">
@@ -382,29 +520,6 @@ function PreviewArchitectureRisk({ dto, t }) {
             },
           ]}
           rows={impacts.map((r, i) => ({ ...r, _key: r.impactId || i }))}
-        />
-      </Section>
-      <Section title={t('requirements.aiAnalysisPreviewDependencies')}>
-        <SimpleTable
-          emptyLabel={empty}
-          columns={[
-            {
-              key: 'from',
-              label: t('requirements.aiAnalysisPreviewColFrom'),
-              render: (r) => r.from || '—',
-            },
-            {
-              key: 'to',
-              label: t('requirements.aiAnalysisPreviewColTo'),
-              render: (r) => r.to || '—',
-            },
-            {
-              key: 'type',
-              label: t('requirements.aiAnalysisPreviewColType'),
-              render: (r) => r.type || r.dependency || '—',
-            },
-          ]}
-          rows={edges.map((e, i) => ({ ...e, _key: e.edgeId || i }))}
         />
       </Section>
       <Section title={t('requirements.aiAnalysisPreviewRisks')}>
@@ -433,6 +548,250 @@ function PreviewArchitectureRisk({ dto, t }) {
             },
           ]}
           rows={risks.map((r, i) => ({ ...r, _key: r.riskId || i }))}
+        />
+      </Section>
+    </div>
+  );
+}
+
+function PreviewSequencingCpm({ dto, t }) {
+  const cpm = dto?.planning?.theoreticalCpm || {};
+  const nodes = asArray(cpm.nodes);
+  const waves = asArray(dto?.planning?.sequence?.waves);
+  const path = asArray(cpm.criticalPath);
+  const empty = t('requirements.aiAnalysisPreviewEmpty');
+  if (!nodes.length && !path.length && !waves.length) return <EmptyHint t={t} />;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-sm">
+        <p className="font-medium text-foreground">
+          {t('requirements.aiAnalysisPreviewCriticalPath')}:{' '}
+          {path.length ? path.join(' → ') : '—'}
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          {t('requirements.aiAnalysisPreviewSumVsPath', {
+            sum: cpm.sumEffortHours ?? '—',
+            path: cpm.projectDurationHours ?? '—',
+          })}
+        </p>
+      </div>
+      {waves.length ? (
+        <Section title={t('requirements.aiAnalysisPreviewWaves')}>
+          <div className="flex flex-wrap gap-2">
+            {waves.map((wave, i) => (
+              <span
+                key={`wave-${i}`}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              >
+                {i + 1}: {asArray(wave).join(', ') || '—'}
+              </span>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+      <Section title={t('requirements.aiAnalysisPreviewCpmNodes')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'id',
+              label: t('requirements.aiAnalysisPreviewColId'),
+              render: (r) => r.workId || '—',
+            },
+            {
+              key: 'dur',
+              label: t('requirements.aiAnalysisPreviewColDur'),
+              render: (r) => r.durationHours ?? '—',
+            },
+            {
+              key: 'es',
+              label: t('requirements.aiAnalysisPreviewColEs'),
+              render: (r) => r.es ?? '—',
+            },
+            {
+              key: 'ef',
+              label: t('requirements.aiAnalysisPreviewColEf'),
+              render: (r) => r.ef ?? '—',
+            },
+            {
+              key: 'float',
+              label: t('requirements.aiAnalysisPreviewColFloat'),
+              render: (r) => r.totalFloat ?? '—',
+            },
+            {
+              key: 'crit',
+              label: t('requirements.aiAnalysisPreviewColCritical'),
+              render: (r) =>
+                r.isCritical
+                  ? t('requirements.aiAnalysisPreviewYes')
+                  : t('requirements.aiAnalysisPreviewNo'),
+            },
+          ]}
+          rows={nodes.map((n, i) => ({ ...n, _key: n.workId || i }))}
+        />
+      </Section>
+    </div>
+  );
+}
+
+function PreviewScheduleCapacity({ dto, t }) {
+  const assignments = asArray(dto?.resource?.assignments);
+  const schedule = asArray(dto?.resource?.schedule);
+  const completion = dto?.planning?.completion || {};
+  const empty = assignmentEmptyMessage(dto, t);
+
+  if (!assignments.length && !schedule.length) {
+    return <p className="text-sm text-muted-foreground">{empty}</p>;
+  }
+
+  return (
+    <div className="space-y-5">
+      <Section title={t('requirements.aiAnalysisPreviewCompletion')}>
+        <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-3 text-sm">
+          <p>
+            {t('requirements.aiAnalysisPreviewProjectStart', {
+              date: completion.projectStart || '—',
+            })}
+          </p>
+          <p>
+            {t('requirements.aiAnalysisPreviewProjectEnd', {
+              date: completion.estimatedEnd || '—',
+            })}
+          </p>
+          <p className="text-muted-foreground">
+            {t('requirements.aiAnalysisPreviewCriticalPath')}:{' '}
+            {asArray(completion.criticalPath).join(' → ') || '—'}
+          </p>
+        </div>
+      </Section>
+      <Section title={t('requirements.aiAnalysisPreviewAssignments')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'task',
+              label: t('requirements.aiAnalysisPreviewColTask'),
+              render: (r) => r.taskId || '—',
+            },
+            {
+              key: 'user',
+              label: t('requirements.aiAnalysisPreviewColUser'),
+              render: (r) => formatPersonLabel(r),
+            },
+            {
+              key: 'why',
+              label: t('requirements.aiAnalysisPreviewColRationale'),
+              render: (r) => r.rationale || '—',
+            },
+          ]}
+          rows={assignments.map((r, i) => ({ ...r, _key: `${r.taskId}-${r.userId}-${i}` }))}
+        />
+      </Section>
+      <Section title={t('requirements.aiAnalysisPreviewScheduleDays')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'task',
+              label: t('requirements.aiAnalysisPreviewColTask'),
+              render: (r) => r.taskId || '—',
+            },
+            {
+              key: 'user',
+              label: t('requirements.aiAnalysisPreviewColUser'),
+              render: (r) => formatPersonLabel(r),
+            },
+            {
+              key: 'date',
+              label: t('requirements.aiAnalysisPreviewColDate'),
+              render: (r) => r.dateKey || '—',
+            },
+            {
+              key: 'hours',
+              label: t('requirements.aiAnalysisPreviewColHours'),
+              render: (r) => r.hours ?? '—',
+            },
+            {
+              key: 'meet',
+              label: t('requirements.aiAnalysisPreviewColMeeting'),
+              render: (r) => r.meetingHours ?? 0,
+            },
+            {
+              key: 'used',
+              label: t('requirements.aiAnalysisPreviewColUsed'),
+              render: (r) => r.usedAfter ?? '—',
+            },
+          ]}
+          rows={schedule.map((r, i) => ({
+            ...r,
+            _key: `${r.taskId}-${r.dateKey}-${i}`,
+          }))}
+        />
+      </Section>
+    </div>
+  );
+}
+
+function PreviewProjectPlan({ dto, t }) {
+  const plan = dto?.planning?.executionPlan || {};
+  const works = asArray(plan.works);
+  const empty = t('requirements.aiAnalysisPreviewEmpty');
+  if (!works.length && !plan.estimatedEnd && !plan.projectStart) {
+    return <EmptyHint t={t} />;
+  }
+
+  return (
+    <div className="space-y-5">
+      <Section title={t('requirements.aiAnalysisPreviewExecutionPlan')}>
+        <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-3 text-sm">
+          <p>
+            {t('requirements.aiAnalysisPreviewProjectStart', {
+              date: plan.projectStart || '—',
+            })}
+          </p>
+          <p>
+            {t('requirements.aiAnalysisPreviewProjectEnd', {
+              date: plan.estimatedEnd || '—',
+            })}
+          </p>
+          <p className="text-muted-foreground">
+            {t('requirements.aiAnalysisPreviewCriticalPath')}:{' '}
+            {asArray(plan.criticalPath).join(' → ') || '—'}
+          </p>
+          {plan.totalEffortHours != null ? (
+            <p>
+              {t('requirements.aiAnalysisPreviewEffortTotal', {
+                hours: plan.totalEffortHours,
+              })}
+            </p>
+          ) : null}
+        </div>
+      </Section>
+      <Section title={t('requirements.aiAnalysisPreviewTasks')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'task',
+              label: t('requirements.aiAnalysisPreviewColTask'),
+              render: (r) => r.taskId || '—',
+            },
+            {
+              key: 'user',
+              label: t('requirements.aiAnalysisPreviewColUser'),
+              render: (r) => formatPersonLabel(r),
+            },
+            {
+              key: 'days',
+              label: t('requirements.aiAnalysisPreviewColDate'),
+              render: (r) =>
+                asArray(r.days)
+                  .map((d) => `${d.dateKey} (${d.hours}h)`)
+                  .join(', ') || '—',
+            },
+          ]}
+          rows={works.map((w, i) => ({ ...w, _key: w.taskId || i }))}
         />
       </Section>
     </div>
@@ -511,7 +870,8 @@ function assignmentEmptyMessage(dto, t) {
   const err = String(dto?.error?.message || dto?.error || '')
     .trim()
     .toLowerCase();
-  const hasRun = Boolean(dto?.generatedAt) || ['ready', 'confirmed', 'failed', 'stale'].includes(status);
+  const hasRun =
+    Boolean(dto?.generatedAt) || ['ready', 'confirmed', 'failed', 'stale'].includes(status);
 
   if (!dto || status === 'empty' || !hasRun) {
     return t('requirements.aiAnalysisPreviewEmpty');
@@ -528,40 +888,6 @@ function assignmentEmptyMessage(dto, t) {
   return t('requirements.aiAnalysisPreviewEmptyAssignments');
 }
 
-function PreviewAssignment({ dto, t }) {
-  const assignments = asArray(dto?.resource?.assignments);
-  const empty = assignmentEmptyMessage(dto, t);
-  if (!assignments.length) {
-    return <p className="text-sm text-muted-foreground">{empty}</p>;
-  }
-
-  return (
-    <Section title={t('requirements.aiAnalysisPreviewAssignments')}>
-      <SimpleTable
-        emptyLabel={empty}
-        columns={[
-          {
-            key: 'task',
-            label: t('requirements.aiAnalysisPreviewColTask'),
-            render: (r) => r.taskId || '—',
-          },
-          {
-            key: 'user',
-            label: t('requirements.aiAnalysisPreviewColUser'),
-            render: (r) => formatPersonLabel(r),
-          },
-          {
-            key: 'why',
-            label: t('requirements.aiAnalysisPreviewColRationale'),
-            render: (r) => r.rationale || '—',
-          },
-        ]}
-        rows={assignments.map((r, i) => ({ ...r, _key: `${r.taskId}-${r.userId}-${i}` }))}
-      />
-    </Section>
-  );
-}
-
 export default function AiAnalysisJobPreview({
   job,
   dto,
@@ -574,6 +900,8 @@ export default function AiAnalysisJobPreview({
   }
 
   switch (job) {
+    case 'hierarchyDecomposition':
+      return <PreviewHierarchy dto={dto} t={t} />;
     case 'requirementAnalysis':
       return (
         <PreviewRequirementAnalysis
@@ -583,16 +911,24 @@ export default function AiAnalysisJobPreview({
           selectedId={selectedFindingId}
         />
       );
+    case 'capabilityAnalysis':
+      return <PreviewCapability dto={dto} t={t} />;
     case 'wbsGeneration':
       return <PreviewWbs dto={dto} t={t} />;
-    case 'roleSkillAnalysis':
-      return <PreviewRoleSkill dto={dto} t={t} />;
+    case 'dependencyAnalysis':
+      return <PreviewDependency dto={dto} t={t} />;
     case 'architectureRiskAnalysis':
       return <PreviewArchitectureRisk dto={dto} t={t} />;
+    case 'effortRoleAnalysis':
+      return <PreviewRoleSkill dto={dto} t={t} />;
+    case 'sequencingCpm':
+      return <PreviewSequencingCpm dto={dto} t={t} />;
     case 'employeeMatching':
       return <PreviewMatching dto={dto} t={t} />;
-    case 'employeeAssignment':
-      return <PreviewAssignment dto={dto} t={t} />;
+    case 'scheduleCapacity':
+      return <PreviewScheduleCapacity dto={dto} t={t} />;
+    case 'projectPlan':
+      return <PreviewProjectPlan dto={dto} t={t} />;
     default:
       return <EmptyHint t={t} />;
   }

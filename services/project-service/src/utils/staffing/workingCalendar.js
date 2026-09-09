@@ -1,7 +1,7 @@
 /**
  * Org working calendar — pure helpers (Mon=1 … Sun=0 UTC weekday).
  */
-const { DEFAULT_HOURS_PER_DAY } = require('./timeTracking');
+const { DEFAULT_HOURS_PER_DAY } = require('../task/timeTracking');
 const { DAY_MS, toDayMs } = require('./allocationOverlap');
 
 const DEFAULT_WORKING_DAY_INDEXES = Object.freeze([1, 2, 3, 4, 5]);

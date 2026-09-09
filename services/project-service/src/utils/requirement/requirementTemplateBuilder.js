@@ -4,9 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { TEMPLATE_FILE_NAME } = require('../constants/requirementTemplate.constants');
+const { TEMPLATE_FILE_NAME } = require('../../constants/requirementTemplate.constants');
 
-const ASSET_PATH = path.join(__dirname, '../../assets/Requirement_Template.xlsx');
+const ASSET_PATH = path.join(__dirname, '../../../assets/Requirement_Template.xlsx');
 
 async function buildRequirementTemplateBuffer() {
   return fs.promises.readFile(ASSET_PATH);

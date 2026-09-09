@@ -21,7 +21,6 @@ const REQUIREMENT_ACTION_KEYS = Object.freeze([
   'approve',
   'runAiPlanning',
   'createProject',
-  'reviewSkills',
 ]);
 
 const REQUIREMENT_VISIBILITY_KEYS = Object.freeze([
@@ -63,7 +62,6 @@ const DEFAULT_ACTIONS = Object.freeze({
     approve: false,
     runAiPlanning: false,
     createProject: false,
-    reviewSkills: true,
   },
   approver: {
     view: true,
@@ -72,7 +70,6 @@ const DEFAULT_ACTIONS = Object.freeze({
     approve: true,
     runAiPlanning: true,
     createProject: true,
-    reviewSkills: true,
   },
   operator: {
     view: true,
@@ -81,7 +78,6 @@ const DEFAULT_ACTIONS = Object.freeze({
     approve: false,
     runAiPlanning: true,
     createProject: false,
-    reviewSkills: true,
   },
   member: {
     view: true,
@@ -90,7 +86,6 @@ const DEFAULT_ACTIONS = Object.freeze({
     approve: false,
     runAiPlanning: false,
     createProject: false,
-    reviewSkills: false,
   },
 });
 

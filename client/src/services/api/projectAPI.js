@@ -288,11 +288,27 @@ export const projectAPI = {
     ),
 
   /**
-   * Member-readable role catalog (seed UI). Không dùng /admin.
+   * Member-readable role catalog (org defaults / Master Data seed UI).
+   * Hub Settings/Members dùng listProjectRoles(projectId) thay vì endpoint này.
    * @param {string} organizationId
    */
   listRoleCatalog: (organizationId) =>
     apiClient.get('/projects/role-catalog', withOrg(organizationId, { params: { organizationId } })),
+
+  /** Bản Project Role + permissions theo dự án */
+  listProjectRoles: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/roles`),
+
+  updateProjectScopedRole: (projectId, roleId, body = {}) =>
+    apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/roles/${encodeURIComponent(roleId)}`,
+      body
+    ),
+
+  resetProjectScopedRoleDefault: (projectId, roleId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/roles/${encodeURIComponent(roleId)}/reset-default`
+    ),
 
   /** Phase 3 — Department Capacity */
   getDepartmentCapacity: (organizationId, params = {}) =>

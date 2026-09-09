@@ -2,6 +2,8 @@
  * Hỗ trợ lịch: join window meeting, map API → UI event
  */
 
+import { placeVirtualWorkBlocks, spreadCardHours } from './calendarWorkSpread';
+
 export const CALENDAR_JOIN_LEAD_MINUTES = Number(
   import.meta.env.VITE_CALENDAR_MEETING_JOIN_LEAD_MINUTES
 ) || 30;
@@ -121,11 +123,24 @@ function colorForPriority(priority) {
   return map[priority] || map.medium;
 }
 
+function formatDurationFromMinutes(mins) {
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h} giờ ${m} phút` : `${h} giờ`;
+  }
+  return `${mins} phút`;
+}
+
 /**
+ * Deadline point — chỉ khi có dueDate và không có estimateHours (>0).
  * @returns {object|null} UI event
  */
 export function mapTaskToCalendarEvent(task) {
   if (!task?.dueDate) return null;
+  const hours = Number(task.estimateHours);
+  if (Number.isFinite(hours) && hours > 0) return null;
+
   const due = new Date(task.dueDate);
   if (Number.isNaN(due.getTime())) return null;
 
@@ -134,11 +149,13 @@ export function mapTaskToCalendarEvent(task) {
   // Lấy ngày theo UTC để tránh bị lệch sang ngày khác trong local.
   const date = toDateKeyUTC(due);
   return {
-
     id,
     kind: 'task',
     source: 'api',
     taskId: String(task._id),
+    projectId: task.projectId ? String(task.projectId) : '',
+    boardId: task.boardId ? String(task.boardId) : '',
+    organizationId: task.organizationId ? String(task.organizationId) : '',
     title: task.title || 'Task',
     date,
     time: formatTimeLabel(due),
@@ -154,13 +171,102 @@ export function mapTaskToCalendarEvent(task) {
   };
 }
 
-function formatDurationFromMinutes(mins) {
-  if (mins >= 60) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m ? `${h} giờ ${m} phút` : `${h} giờ`;
+function taskCalendarMeta(task) {
+  return {
+    kind: 'work',
+    source: 'api',
+    taskId: String(task._id),
+    projectId: task.projectId ? String(task.projectId) : '',
+    boardId: task.boardId ? String(task.boardId) : '',
+    organizationId: task.organizationId ? String(task.organizationId) : '',
+    title: task.title || 'Task',
+    type: 'work',
+    status: task.status,
+    priority: task.priority,
+    description: '',
+    color: colorForPriority(task.priority),
+    estimated: true,
+    raw: task,
+  };
+}
+
+/**
+ * Work blocks từ nhiều task — xếp chồng khung giờ ảo theo từng ngày.
+ * @param {object[]} tasks
+ * @returns {object[]}
+ */
+export function mapTasksToWorkCalendarEvents(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const byDay = new Map();
+  const deadlineExtras = [];
+
+  for (const task of list) {
+    const hours = Number(task?.estimateHours);
+    if (!Number.isFinite(hours) || hours <= 0) continue;
+    const spread = spreadCardHours(task);
+    const dayKeys = Object.keys(spread);
+    if (!dayKeys.length) continue;
+    const meta = taskCalendarMeta(task);
+    for (const dateKey of dayKeys) {
+      if (!byDay.has(dateKey)) byDay.set(dateKey, []);
+      byDay.get(dateKey).push({
+        id: `work:${task._id}:${dateKey}`,
+        hours: spread[dateKey],
+        title: meta.title,
+        meta,
+      });
+    }
+    if (task.dueDate) {
+      const due = new Date(task.dueDate);
+      if (!Number.isNaN(due.getTime())) {
+        const dueKey = toDateKeyUTC(due);
+        if (!spread[dueKey]) {
+          deadlineExtras.push({
+            ...meta,
+            id: `task:${task._id}:deadline`,
+            kind: 'task',
+            type: 'deadline',
+            estimated: false,
+            date: dueKey,
+            time: formatTimeLabel(due),
+            duration: '',
+            hours: 0,
+            startAt: due,
+            endAt: due,
+          });
+        }
+      }
+    }
   }
-  return `${mins} phút`;
+
+  const out = [];
+  for (const [dateKey, blocks] of [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const placed = placeVirtualWorkBlocks(
+      blocks.map((b) => ({ id: b.id, hours: b.hours, title: b.title })),
+      dateKey
+    );
+    for (let i = 0; i < placed.length; i += 1) {
+      const p = placed[i];
+      const meta = blocks[i].meta;
+      out.push({
+        ...meta,
+        id: p.id,
+        date: dateKey,
+        hours: p.hours,
+        time: formatTimeLabel(p.startAt),
+        duration: formatDurationFromMinutes(p.durationMins),
+        startAt: p.startAt,
+        endAt: p.endAt,
+      });
+    }
+  }
+
+  return [...out, ...deadlineExtras];
+}
+
+/** @deprecated dùng mapTasksToWorkCalendarEvents cho stacking đúng */
+export function mapTaskToWorkCalendarEvents(task) {
+  return mapTasksToWorkCalendarEvents(task ? [task] : []);
 }
 
 /**
@@ -197,6 +303,7 @@ export function mapMeetingToCalendarEvent(meeting) {
     color: 'from-blue-500 to-cyan-500',
     startAt: start,
     endAt: end,
+    hours: durationMins / 60,
     raw: meeting,
   };
 }

@@ -1,43 +1,101 @@
 /**
- * W8 — AI Analysis Blueprint wizard constants (6 jobs).
+ * AI Analysis Blueprint wizard constants — 11 jobs (schema v2, khớp BE).
  */
+
+export const AI_ANALYSIS_PHASES = Object.freeze([
+  { id: 'understand', labelKey: 'requirements.aiAnalysisPhaseUnderstand' },
+  { id: 'estimate', labelKey: 'requirements.aiAnalysisPhaseEstimate' },
+  { id: 'schedule', labelKey: 'requirements.aiAnalysisPhaseSchedule' },
+]);
 
 export const AI_ANALYSIS_JOBS = Object.freeze([
   {
+    id: 'hierarchyDecomposition',
+    phase: 'understand',
+    engine: 'llm',
+    labelKey: 'requirements.aiJobHierarchyDecomposition',
+    descriptionKey: 'requirements.aiJobHierarchyDecompositionDesc',
+    previewKeys: ['analyses.hierarchy'],
+  },
+  {
     id: 'requirementAnalysis',
+    phase: 'understand',
+    engine: 'llm',
     labelKey: 'requirements.aiJobRequirementAnalysis',
     descriptionKey: 'requirements.aiJobRequirementAnalysisDesc',
     previewKeys: ['analyses.data', 'analyses.gap'],
   },
   {
-    id: 'wbsGeneration',
-    labelKey: 'requirements.aiJobWbsGeneration',
-    descriptionKey: 'requirements.aiJobWbsGenerationDesc',
-    previewKeys: ['analyses.capability', 'planning.tasks'],
+    id: 'capabilityAnalysis',
+    phase: 'understand',
+    engine: 'llm',
+    labelKey: 'requirements.aiJobCapabilityAnalysis',
+    descriptionKey: 'requirements.aiJobCapabilityAnalysisDesc',
+    previewKeys: ['analyses.capability'],
   },
   {
-    id: 'roleSkillAnalysis',
-    labelKey: 'requirements.aiJobRoleSkill',
-    descriptionKey: 'requirements.aiJobRoleSkillDesc',
-    previewKeys: ['planning.roles', 'planning.skills', 'planning.effort'],
+    id: 'wbsGeneration',
+    phase: 'understand',
+    engine: 'llm',
+    labelKey: 'requirements.aiJobWbsGeneration',
+    descriptionKey: 'requirements.aiJobWbsGenerationDesc',
+    previewKeys: ['planning.tasks'],
+  },
+  {
+    id: 'dependencyAnalysis',
+    phase: 'understand',
+    engine: 'engine',
+    labelKey: 'requirements.aiJobDependencyAnalysis',
+    descriptionKey: 'requirements.aiJobDependencyAnalysisDesc',
+    previewKeys: ['analyses.dependency'],
   },
   {
     id: 'architectureRiskAnalysis',
+    phase: 'understand',
+    engine: 'llm',
     labelKey: 'requirements.aiJobArchitectureRisk',
     descriptionKey: 'requirements.aiJobArchitectureRiskDesc',
-    previewKeys: ['analyses.architectureImpact', 'analyses.dependency', 'analyses.risk'],
+    previewKeys: ['analyses.architectureImpact', 'analyses.risk'],
+  },
+  {
+    id: 'effortRoleAnalysis',
+    phase: 'estimate',
+    engine: 'engine',
+    labelKey: 'requirements.aiJobEffortRole',
+    descriptionKey: 'requirements.aiJobEffortRoleDesc',
+    previewKeys: ['planning.roles', 'planning.skills', 'planning.effort'],
+  },
+  {
+    id: 'sequencingCpm',
+    phase: 'estimate',
+    engine: 'engine',
+    labelKey: 'requirements.aiJobSequencingCpm',
+    descriptionKey: 'requirements.aiJobSequencingCpmDesc',
+    previewKeys: ['planning.sequence', 'planning.theoreticalCpm', 'planning.criticalWorkIds'],
   },
   {
     id: 'employeeMatching',
+    phase: 'schedule',
+    engine: 'engine',
     labelKey: 'requirements.aiJobMatching',
     descriptionKey: 'requirements.aiJobMatchingDesc',
     previewKeys: ['resource.fte', 'resource.recommendations'],
   },
   {
-    id: 'employeeAssignment',
-    labelKey: 'requirements.aiJobAssignment',
-    descriptionKey: 'requirements.aiJobAssignmentDesc',
-    previewKeys: ['resource.assignments'],
+    id: 'scheduleCapacity',
+    phase: 'schedule',
+    engine: 'engine',
+    labelKey: 'requirements.aiJobScheduleCapacity',
+    descriptionKey: 'requirements.aiJobScheduleCapacityDesc',
+    previewKeys: ['resource.assignments', 'resource.schedule', 'planning.completion'],
+  },
+  {
+    id: 'projectPlan',
+    phase: 'schedule',
+    engine: 'engine',
+    labelKey: 'requirements.aiJobProjectPlan',
+    descriptionKey: 'requirements.aiJobProjectPlanDesc',
+    previewKeys: ['planning.executionPlan'],
   },
 ]);
 
@@ -82,8 +140,6 @@ export function firstIncompleteJobIndex(summaryJobs) {
 
 /**
  * Map backend job meta → enterprise UI status.
- * Backend may use empty|ready|confirmed|failed|stale|pending|running.
- * UI never shows "empty".
  */
 export function resolveUiJobStatus(jobId, summaryJobs, { busy = false, activeJob = null } = {}) {
   const raw = String(summaryJobs?.[jobId]?.status || 'empty').toLowerCase();
@@ -95,7 +151,6 @@ export function resolveUiJobStatus(jobId, summaryJobs, { busy = false, activeJob
   if (raw === 'pending' || raw === 'running') return AI_ANALYSIS_UI_STATUS.RUNNING;
   if (raw === 'ready' || raw === 'stale') return AI_ANALYSIS_UI_STATUS.NEEDS_REVIEW;
 
-  // empty / unknown
   const head = firstIncompleteJobIndex(summaryJobs);
   if (head < 0) return AI_ANALYSIS_UI_STATUS.CONFIRMED;
   if (idx === head) return AI_ANALYSIS_UI_STATUS.READY;
@@ -128,6 +183,14 @@ export function countConfirmedJobs(summaryJobs) {
   return AI_ANALYSIS_JOBS.filter(
     (j) => String(summaryJobs?.[j.id]?.status || '') === 'confirmed'
   ).length;
+}
+
+/** Jobs grouped by phase for rail rendering. */
+export function jobsByPhase() {
+  return AI_ANALYSIS_PHASES.map((phase) => ({
+    ...phase,
+    jobs: AI_ANALYSIS_JOBS.filter((j) => j.phase === phase.id),
+  }));
 }
 
 /** Map gap.type → AI Assessment label key suffix. */

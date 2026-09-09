@@ -15,7 +15,7 @@ const {
   isApprovalSystemV2Enabled,
   isApprovalMrReleaseStubEnabled,
   canonicalizeStepRoleKey,
-} = require('../utils/approvalChain');
+} = require('../utils/work/approvalChain');
 const { resolveCanonicalProjectRoleKey } = require('@enterprise/shared/config/masterData');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
@@ -373,7 +373,7 @@ async function maybeStartTaskApproval({
   });
   if (!policy) return { blocked: false };
 
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
@@ -518,7 +518,7 @@ async function decideRequest({
 
   const actor = await resolveActorContext(userId, request.projectId, request.organizationId);
   if (request.projectId) {
-    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
@@ -717,7 +717,7 @@ async function listInbox({ userId, organizationId, status = 'pending' }) {
     const step = (row.stepsSnapshot || [])[row.currentStep];
     const canAct =
       row.status === 'pending' &&
-      require('../utils/approvalChain').actorCanDecideStep(step, actor);
+      require('../utils/work/approvalChain').actorCanDecideStep(step, actor);
     const isRequester = String(row.requestedBy) === String(userId);
     if (canAct || isRequester || actor.isOrgAdmin) {
       enriched.push({ ...row, canAct, isRequester });
@@ -759,7 +759,7 @@ async function startStubEntityApproval({
   }
   await ensureOrgApprovalPolicies(organizationId, userId);
   if (projectId) {
-    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
@@ -820,7 +820,7 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId, changeRe
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });

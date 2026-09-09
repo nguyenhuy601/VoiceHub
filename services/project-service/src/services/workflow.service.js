@@ -10,7 +10,7 @@ const {
   isWorkflowEngineV2Enabled,
   suggestedTemplateKeyForCompanySize,
   getBuiltinTemplateByKey,
-} = require('../utils/workflowTemplates.defaults');
+} = require('../utils/work/workflowTemplates.defaults');
 const {
   LEGACY_STATUSES,
   assertTransitionAllowed,
@@ -19,7 +19,7 @@ const {
   statesToBoardShape,
   transitionsToBoardShape,
   validateTransitionRoleKeys,
-} = require('../utils/workflowTransition');
+} = require('../utils/work/workflowTransition');
 
 const DEFAULT_STATES = Object.freeze(statesToBoardShape(DEFAULT_BOARD_TEMPLATE.statuses));
 const DEFAULT_TRANSITIONS = Object.freeze(
@@ -142,7 +142,7 @@ async function upsertWorkflowTemplate({
 
   const nextStatuses = Array.isArray(statuses) ? statuses : [];
   const nextTransitions = transitionsToBoardShape(Array.isArray(transitions) ? transitions : []);
-  const { normalizePriorityConfig } = require('../utils/priorityConfig');
+  const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
   const nextPriorities = Array.isArray(priorities)
     ? normalizePriorityConfig({ items: priorities }).items
     : undefined;
@@ -367,7 +367,7 @@ async function applyTemplateToBoard({ userId, boardId, templateId, templateKey }
   if (board.projectId) {
     const $set = { workflowTemplateId: template._id };
     if (Array.isArray(template.priorities) && template.priorities.length) {
-      const { normalizePriorityConfig } = require('../utils/priorityConfig');
+      const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
       $set.priorityConfig = normalizePriorityConfig({ items: template.priorities });
     }
     await Project.updateOne({ _id: board.projectId }, { $set });
@@ -383,7 +383,7 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -428,7 +428,7 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
 
   const projectSet = { workflowTemplateId: template._id };
   if (Array.isArray(template.priorities) && template.priorities.length) {
-    const { normalizePriorityConfig } = require('../utils/priorityConfig');
+    const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
     projectSet.priorityConfig = normalizePriorityConfig({ items: template.priorities });
   }
   await Project.updateOne({ _id: projectId }, { $set: projectSet });
@@ -484,7 +484,7 @@ function allowedTransitionsFrom(workflow, fromStatus) {
   const {
     statusKeysMatch,
     statusKeyEquivalents,
-  } = require('../utils/workflowTransition');
+  } = require('../utils/work/workflowTransition');
   const seen = new Set();
   const out = [];
   for (const t of workflow.transitions || []) {

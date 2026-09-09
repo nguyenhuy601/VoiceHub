@@ -34,12 +34,8 @@ import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
-import SkillReviewPanel from '../skills/SkillReviewPanel';
 import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
-import useEffectiveMasterGrants from '../../hooks/useEffectiveMasterGrants';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import useRequirementPacks from '../../hooks/useRequirementPacks';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -133,9 +129,6 @@ export default function RequirementImportWorkspace({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant, loading: grantsLoading } = useEffectiveMasterGrants(orgId);
-  const canReviewSkills = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.SKILL_REGISTRY_REVIEW);
   const isAdmin = variant === 'admin';
   const sk = (suffix) => stringKey(variant, suffix);
   const showImportSection = isAdmin || canSubmit;
@@ -147,7 +140,6 @@ export default function RequirementImportWorkspace({
   const [reviewPackId, setReviewPackId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [lastImportNewSkills, setLastImportNewSkills] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const { packs, invalidateAllForOrg } = useRequirementPacks(orgId);
@@ -216,7 +208,6 @@ export default function RequirementImportWorkspace({
       const res = await requirementAPI.previewImport(orgId, target);
       const data = unwrap(res);
       setPreview(data);
-      setLastImportNewSkills([]);
       } catch (error) {
         toast.error(resolveApiErrorMessage(error, { t, fallback: t(sk('previewFail')) }));
       } finally {
@@ -262,13 +253,7 @@ export default function RequirementImportWorkspace({
     setBusy(true);
     try {
       await requirementAPI.confirmImport(orgId, preview.sessionId);
-      const newSkills = preview?.newSkillsDetected || [];
-      setLastImportNewSkills(newSkills);
-      toast.success(
-        newSkills.length
-          ? t('requirements.importSuccessWithNewSkills', { count: newSkills.length })
-          : t(sk('importSuccess'))
-      );
+      toast.success(t(sk('importSuccess')));
       setPreview(null);
       await loadPacks();
     } catch (error) {
@@ -442,11 +427,7 @@ export default function RequirementImportWorkspace({
     >
       {preview ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-          <div
-            className={`min-h-0 overflow-hidden ${
-              (preview.newSkillsDetected || []).length > 0 ? 'flex-[1.2]' : 'flex-1'
-            }`}
-          >
+          <div className="min-h-0 flex-1 overflow-hidden">
             <RequirementPreviewTabs
               fillParent
               fileName={preview.fileName}
@@ -461,16 +442,6 @@ export default function RequirementImportWorkspace({
               planningReadiness={preview.planningReadiness || null}
             />
           </div>
-          {(preview.newSkillsDetected || []).length > 0 ? (
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <SkillReviewPanel
-                orgId={orgId}
-                skills={preview.newSkillsDetected}
-                compact
-                canReview={!grantsLoading && canReviewSkills}
-              />
-            </div>
-          ) : null}
           {preview.valid && !canConfirmPreview ? (
             <p className="shrink-0 text-xs text-destructive">
               {t('requirements.confirmImportBlockedValidation')}
@@ -733,17 +704,6 @@ export default function RequirementImportWorkspace({
           </div>
           {headerActions ? <div className="flex w-full flex-wrap gap-2 sm:w-auto">{headerActions}</div> : null}
         </header>
-      ) : null}
-
-      {lastImportNewSkills.length > 0 ? (
-        <div className={`mb-6 ${isAdmin ? '' : 'shrink-0'}`}>
-          <SkillReviewPanel
-            orgId={orgId}
-            skills={lastImportNewSkills}
-            onChanged={loadPacks}
-            canReview={!grantsLoading && canReviewSkills}
-          />
-        </div>
       ) : null}
 
       {isAdmin ? (

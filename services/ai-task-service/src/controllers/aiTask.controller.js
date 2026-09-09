@@ -1,7 +1,7 @@
-const TASK_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || process.env.TASK_SERVICE_URL || '')
+const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '')
   .trim()
   .replace(/\/+$/, '');
-if (!TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL hoặc TASK_SERVICE_URL');
+if (!PROJECT_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL');
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const AiTaskExtraction = require('../models/AiTaskExtraction');
@@ -97,7 +97,7 @@ async function getExtraction(req, res) {
 }
 
 /**
- * Confirm draft -> tạo Task thật ở task-service.
+ * Confirm draft -> tạo Task thật ở project-service.
  * Lưu ý: Task.sourceRef sẽ bổ sung ở Phase 3 (schema Task mở rộng).
  */
 function resolveTrustedAssigneeId(extraction, bodyAssigneeId) {
@@ -176,7 +176,7 @@ async function postConfirm(req, res) {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng hoặc đang được xác nhận', 'AI_EXTRACTION_NOT_READY');
   }
 
-  const taskServiceUrl = TASK_SERVICE_URL;
+  const taskServiceUrl = PROJECT_SERVICE_URL;
   const draft = locked.draft || {};
   if (!draft.dueDate) {
     await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
@@ -274,7 +274,7 @@ async function listSyncSuggestions(req, res) {
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
 
   const { taskId } = req.params;
-  const taskRes = await axios.get(`${TASK_SERVICE_URL}/api/tasks/${encodeURIComponent(String(taskId))}`, {
+  const taskRes = await axios.get(`${PROJECT_SERVICE_URL}/api/tasks/${encodeURIComponent(String(taskId))}`, {
     headers: buildTrustedGatewayHeaders(userId),
     timeout: 12000,
     validateStatus: () => true,
@@ -302,7 +302,7 @@ async function approveSyncSuggestion(req, res) {
     return res.status(409).json({ success: false, message: `Suggestion already ${suggestion.status}` });
   }
 
-  const taskServiceUrl = TASK_SERVICE_URL;
+  const taskServiceUrl = PROJECT_SERVICE_URL;
   const taskRes = await axios.get(`${taskServiceUrl}/api/tasks/${suggestion.taskId}`, {
     headers: buildTrustedGatewayHeaders(userId),
     timeout: 15000,
@@ -453,7 +453,7 @@ async function confirmProjectDraft(req, res) {
   }
 
   const edited = req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : draftDoc.payload;
-  const taskServiceUrl = TASK_SERVICE_URL;
+  const taskServiceUrl = PROJECT_SERVICE_URL;
   draftDoc.status = 'confirming';
   await draftDoc.save();
 
@@ -537,7 +537,7 @@ async function suggestCards(req, res) {
   let memberRows = Array.isArray(members) ? members : [];
   if (!memberRows.length) {
     try {
-      const taskServiceUrl = TASK_SERVICE_URL;
+      const taskServiceUrl = PROJECT_SERVICE_URL;
       const memRes = await axios.get(
         `${taskServiceUrl}/api/tasks/boards/${encodeURIComponent(boardId)}/assignable-members`,
         {
@@ -611,7 +611,7 @@ async function confirmTeamAssignDraft(req, res) {
       : draftDoc.payload?.suggestions || [];
   const boardId = String(draftDoc.boardId);
   const listId = String(draftDoc.listId);
-  const taskServiceUrl = TASK_SERVICE_URL;
+  const taskServiceUrl = PROJECT_SERVICE_URL;
 
   draftDoc.status = 'confirming';
   await draftDoc.save();
